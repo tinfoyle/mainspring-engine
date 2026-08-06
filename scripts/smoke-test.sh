@@ -53,7 +53,7 @@ fi
 conversation_path="$(awk 'BEGIN { IGNORECASE=1 } /^location:/ { gsub("\\r", "", $2); print $2 }' "$headers" | tail -n 1)"
 [[ "$conversation_path" =~ ^/conversations/[0-9a-f-]+$ ]]
 
-for _ in $(seq 1 20); do
+for _ in $(seq 1 40); do
   request --cookie "$cookies" --output "$page" "$base_url$conversation_path"
   if grep -q 'run-status-completed' "$page"; then
     break
@@ -79,7 +79,7 @@ follow_up_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie 
 follow_up_location="$(awk 'BEGIN { IGNORECASE=1 } /^location:/ { gsub("\\r", "", $2); print $2 }' "$headers" | tail -n 1)"
 [[ "$follow_up_location" == "$conversation_path" ]]
 
-for _ in $(seq 1 20); do
+for _ in $(seq 1 40); do
   request --cookie "$cookies" --output "$page" "$base_url$conversation_path"
   message_count="$(grep -o 'data-message-id=' "$page" | wc -l | tr -d ' ')"
   if grep -q 'run-status-completed' "$page" && [[ "$message_count" -ge 8 ]]; then
@@ -117,7 +117,7 @@ trigger_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$
   "$base_url/schedules/$schedule_id/trigger")"
 [[ "$trigger_status" == "303" ]]
 
-for _ in $(seq 1 20); do
+for _ in $(seq 1 40); do
   request --cookie "$cookies" --output "$page" "$base_url$room_path"
   if grep -q "$schedule_name" "$page"; then
     break

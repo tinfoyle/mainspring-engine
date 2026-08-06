@@ -24,6 +24,9 @@ templ Layout(title string, tenantName string, user *UserView, csrfToken string) 
 				if user != nil {
 					<div class="user-menu">
 						<a href="/schedules">Schedules</a>
+						if user.Development {
+							<a href="/development">Demo tools</a>
+						}
 						<span>{ user.DisplayName }</span>
 						<form method="post" action="/logout">
 							<input type="hidden" name="csrf_token" value={ csrfToken }/>

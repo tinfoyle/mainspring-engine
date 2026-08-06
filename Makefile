@@ -33,5 +33,6 @@ docker-down:
 	docker compose -f deploy/docker/compose.dev.yml down
 
 smoke:
+	bash scripts/onboarding-smoke-test.sh
 	bash scripts/smoke-test.sh
 	bash scripts/rag-smoke-test.sh

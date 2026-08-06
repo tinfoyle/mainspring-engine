@@ -136,7 +136,7 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 	server, err := tenant.NewServer(logger.With("service", "tenant"), tenant.ServerConfig{
 		TenantID: tenantID, TenantSlug: cfg.TenantSlug, TenantName: cfg.TenantName,
 		BaseDomain: cfg.GatewayBaseDomain, SessionSecret: []byte(cfg.SessionSecret), SetupToken: cfg.SetupToken,
-		CookieSecure: cfg.CookieSecure,
+		CookieSecure: cfg.CookieSecure, Development: cfg.Environment == "development",
 	}, tenantStore, boardroomStore, dispatcher, scheduleService)
 	if err != nil {
 		return err

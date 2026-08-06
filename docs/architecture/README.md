@@ -105,6 +105,22 @@ Billing provider confirms purchase
   -> tenant is marked ready
 ```
 
+### Assisted onboarding
+
+```text
+Owner creates the tenant login
+  -> guided workflow collects canonical business facts
+  -> onboarding assistant captures processes and exceptions into a draft playbook
+  -> application generates an editable persona and permission blueprint
+  -> owner reviews and explicitly launches
+  -> application validates and transactionally applies the profile, personas, and grants
+  -> tenant request boundary opens the normal dashboard and boardrooms
+```
+
+The onboarding assistant cannot mutate live personas or grant capabilities. It writes a
+tenant-scoped structured draft; the application owns validation and application. New
+tenants cannot access operational routes until onboarding is complete.
+
 ### Boardroom conversation and run
 
 ```text
@@ -219,6 +235,7 @@ docs/
 - [ADR-0007: Abstract runtime provisioning](adr/0007-runtime-provisioning.md)
 - [ADR-0008: Record and reconcile external side effects](adr/0008-external-side-effects.md)
 - [ADR-0009: Adopt a minimum viable security boundary](adr/0009-mvp-security-boundary.md)
+- [ADR-0010: Use structured assisted onboarding](adr/0010-structured-assisted-onboarding.md)
 
 ## Open questions
 

@@ -39,10 +39,23 @@ func (s *Store) Bootstrap(ctx context.Context, tenantID domain.TenantID, slug, d
 		INSERT INTO tenant_settings (tenant_id, slug, display_name)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (tenant_id) DO UPDATE
-		SET slug = EXCLUDED.slug, display_name = EXCLUDED.display_name, updated_at = now()
+		SET slug = EXCLUDED.slug,
+		    display_name = COALESCE(
+		        (SELECT NULLIF(o.business_profile->>'business_name', '')
+		         FROM tenant_onboarding o
+		         WHERE o.tenant_id = EXCLUDED.tenant_id AND o.status = 'completed'),
+		        EXCLUDED.display_name
+		    ),
+		    updated_at = now()
 	`, tenantID.String(), strings.ToLower(strings.TrimSpace(slug)), strings.TrimSpace(displayName))
 	if err != nil {
 		return fmt.Errorf("bootstrap tenant settings: %w", err)
+	}
+	if _, err := s.pool.Exec(ctx, `
+		INSERT INTO tenant_onboarding (tenant_id) VALUES ($1)
+		ON CONFLICT (tenant_id) DO NOTHING
+	`, tenantID.String()); err != nil {
+		return fmt.Errorf("bootstrap tenant onboarding: %w", err)
 	}
 	return nil
 }
@@ -53,6 +66,14 @@ func (s *Store) HasUsers(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("check tenant users: %w", err)
 	}
 	return exists, nil
+}
+
+func (s *Store) TenantDisplayName(ctx context.Context, tenantID domain.TenantID) (string, error) {
+	var displayName string
+	if err := s.pool.QueryRow(ctx, `SELECT display_name FROM tenant_settings WHERE tenant_id = $1`, tenantID.String()).Scan(&displayName); err != nil {
+		return "", fmt.Errorf("load tenant display name: %w", err)
+	}
+	return displayName, nil
 }
 
 func (s *Store) CreateOwner(ctx context.Context, email, displayName, password string) (User, error) {
@@ -101,22 +122,14 @@ func (s *Store) CreateOwner(ctx context.Context, email, displayName, password st
 	return user, nil
 }
 
-func seedDefaultBoardroom(ctx context.Context, tx pgx.Tx) error {
-	var boardroomID string
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO boardrooms (name, description, max_turns)
-		VALUES ('Back Office', 'Your operational team for scheduling, invoicing, paperwork, and follow-up.', 6)
-		RETURNING id::text
-	`).Scan(&boardroomID); err != nil {
-		return fmt.Errorf("create default boardroom: %w", err)
-	}
+type personaSeed struct {
+	name, role, instructions string
+	position                 int
+	grants                   []domain.Capability
+}
 
-	type personaSeed struct {
-		name, role, instructions string
-		position                 int
-		grants                   []domain.Capability
-	}
-	personas := []personaSeed{
+func defaultPersonaSeeds() []personaSeed {
+	return []personaSeed{
 		{
 			name: "Morgan", role: "Office Manager", position: 1,
 			instructions: "Coordinate the boardroom, identify exceptions, and turn discussion into a concise action list for the owner.",
@@ -133,15 +146,61 @@ func seedDefaultBoardroom(ctx context.Context, tx pgx.Tx) error {
 			grants:       []domain.Capability{domain.CapabilityScheduleRead, domain.CapabilityTicketRead, domain.CapabilitySchedulePropose},
 		},
 	}
+}
 
-	for _, persona := range personas {
+func seedDefaultBoardroom(ctx context.Context, tx pgx.Tx) error {
+	var boardroomID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO boardrooms (name, description, max_turns)
+		VALUES ('Back Office', 'Your operational team for scheduling, invoicing, paperwork, and follow-up.', 6)
+		RETURNING id::text
+	`).Scan(&boardroomID); err != nil {
+		return fmt.Errorf("create default boardroom: %w", err)
+	}
+
+	return applyPersonaSeeds(ctx, tx, boardroomID)
+}
+
+func resetDefaultBoardroom(ctx context.Context, tx pgx.Tx) error {
+	var boardroomID string
+	err := tx.QueryRow(ctx, `
+		SELECT id::text FROM boardrooms WHERE status <> 'archived' ORDER BY created_at LIMIT 1 FOR UPDATE
+	`).Scan(&boardroomID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return seedDefaultBoardroom(ctx, tx)
+	}
+	if err != nil {
+		return fmt.Errorf("load default boardroom for reset: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE boardrooms
+		SET name = 'Back Office', description = 'Your operational team for scheduling, invoicing, paperwork, and follow-up.',
+		    max_turns = 6, status = 'active', updated_at = now()
+		WHERE id = $1
+	`, boardroomID); err != nil {
+		return fmt.Errorf("reset default boardroom: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE personas SET enabled = false, updated_at = now() WHERE boardroom_id = $1`, boardroomID); err != nil {
+		return fmt.Errorf("disable personas for reset: %w", err)
+	}
+	return applyPersonaSeeds(ctx, tx, boardroomID)
+}
+
+func applyPersonaSeeds(ctx context.Context, tx pgx.Tx, boardroomID string) error {
+	for _, persona := range defaultPersonaSeeds() {
 		var personaID string
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO personas (boardroom_id, name, role, system_instructions, position)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO personas (boardroom_id, name, role, system_instructions, position, enabled)
+			VALUES ($1, $2, $3, $4, $5, true)
+			ON CONFLICT (boardroom_id, position) DO UPDATE
+			SET name = EXCLUDED.name, role = EXCLUDED.role, system_instructions = EXCLUDED.system_instructions,
+			    enabled = true, updated_at = now()
 			RETURNING id::text
 		`, boardroomID, persona.name, persona.role, persona.instructions, persona.position).Scan(&personaID); err != nil {
 			return fmt.Errorf("create default persona: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM persona_tool_grants WHERE persona_id = $1`, personaID); err != nil {
+			return fmt.Errorf("reset default persona grants: %w", err)
 		}
 		for _, capability := range persona.grants {
 			if _, err := tx.Exec(ctx, `

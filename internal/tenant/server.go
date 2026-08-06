@@ -54,6 +54,7 @@ type ServerConfig struct {
 	SessionSecret []byte
 	SetupToken    string
 	CookieSecure  bool
+	Development   bool
 }
 
 type Server struct {
@@ -97,20 +98,33 @@ func (s *Server) Handler() http.Handler {
 
 		router.Group(func(router chi.Router) {
 			router.Use(s.requireAuthentication)
-			router.Get("/", s.dashboard)
-			router.Get("/boardrooms/{boardroomID}", s.boardroomPage)
-			router.Post("/boardrooms/{boardroomID}/conversations", s.requireCSRF(s.createRun))
-			router.Post("/boardrooms/{boardroomID}/runs", s.requireCSRF(s.createRun))
-			router.Get("/conversations/{conversationID}", s.conversationPage)
-			router.Post("/conversations/{conversationID}/runs", s.requireCSRF(s.createFollowUp))
-			router.Get("/runs/{runID}", s.runPage)
-			router.Get("/runs/{runID}/events", s.runEvents)
-			router.Get("/schedules", s.schedulesPage)
-			router.Post("/schedules", s.requireCSRF(s.createSchedule))
-			router.Post("/schedules/{scheduleID}/pause", s.requireCSRF(s.pauseSchedule))
-			router.Post("/schedules/{scheduleID}/trigger", s.requireCSRF(s.triggerSchedule))
-			router.Post("/schedules/{scheduleID}/delete", s.requireCSRF(s.deleteSchedule))
+			router.Get("/onboarding", s.onboardingPage)
+			router.Post("/onboarding/business", s.requireCSRF(s.saveOnboardingBusiness))
+			router.Post("/onboarding/operations", s.requireCSRF(s.saveOnboardingOperations))
+			router.Post("/onboarding/priorities", s.requireCSRF(s.saveOnboardingPriorities))
+			router.Post("/onboarding/team", s.requireCSRF(s.saveOnboardingTeam))
+			router.Post("/onboarding/permissions", s.requireCSRF(s.saveOnboardingPermissions))
+			router.Post("/onboarding/launch", s.requireCSRF(s.launchOnboarding))
+			router.Get("/development", s.developmentPage)
+			router.Post("/development/reset-onboarding", s.requireCSRF(s.resetOnboarding))
 			router.Post("/logout", s.requireCSRF(s.logout))
+
+			router.Group(func(router chi.Router) {
+				router.Use(s.requireOnboarding)
+				router.Get("/", s.dashboard)
+				router.Get("/boardrooms/{boardroomID}", s.boardroomPage)
+				router.Post("/boardrooms/{boardroomID}/conversations", s.requireCSRF(s.createRun))
+				router.Post("/boardrooms/{boardroomID}/runs", s.requireCSRF(s.createRun))
+				router.Get("/conversations/{conversationID}", s.conversationPage)
+				router.Post("/conversations/{conversationID}/runs", s.requireCSRF(s.createFollowUp))
+				router.Get("/runs/{runID}", s.runPage)
+				router.Get("/runs/{runID}/events", s.runEvents)
+				router.Get("/schedules", s.schedulesPage)
+				router.Post("/schedules", s.requireCSRF(s.createSchedule))
+				router.Post("/schedules/{scheduleID}/pause", s.requireCSRF(s.pauseSchedule))
+				router.Post("/schedules/{scheduleID}/trigger", s.requireCSRF(s.triggerSchedule))
+				router.Post("/schedules/{scheduleID}/delete", s.requireCSRF(s.deleteSchedule))
+			})
 		})
 	})
 
@@ -186,6 +200,22 @@ func (s *Server) requireAuthentication(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) requireOnboarding(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		state, err := s.store.GetOnboarding(r.Context(), s.config.TenantID)
+		if err != nil {
+			s.logger.Error("load onboarding boundary", "error", err)
+			httpx.WriteProblem(w, http.StatusInternalServerError, "onboarding_error", "The onboarding state could not be verified.")
+			return
+		}
+		if state.Status != OnboardingCompleted {
+			http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) requireCSRF(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		session, ok := sessionFromContext(r.Context())
@@ -211,18 +241,18 @@ func (s *Server) setupPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	s.render(w, http.StatusOK, components.SetupPage(s.config.TenantName, ""))
+	s.render(w, http.StatusOK, components.SetupPage(s.tenantName(r.Context()), ""))
 }
 
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.render(w, http.StatusBadRequest, components.SetupPage(s.config.TenantName, "The setup form could not be read."))
+		s.render(w, http.StatusBadRequest, components.SetupPage(s.tenantName(r.Context()), "The setup form could not be read."))
 		return
 	}
 	expected := sha256.Sum256([]byte(s.config.SetupToken))
 	actual := sha256.Sum256([]byte(r.FormValue("setup_token")))
 	if subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
-		s.render(w, http.StatusForbidden, components.SetupPage(s.config.TenantName, "The setup token is not valid."))
+		s.render(w, http.StatusForbidden, components.SetupPage(s.tenantName(r.Context()), "The setup token is not valid."))
 		return
 	}
 	user, err := s.store.CreateOwner(r.Context(), r.FormValue("email"), r.FormValue("display_name"), r.FormValue("password"))
@@ -232,7 +262,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-		s.render(w, status, components.SetupPage(s.config.TenantName, err.Error()))
+		s.render(w, status, components.SetupPage(s.tenantName(r.Context()), err.Error()))
 		return
 	}
 	if err := s.startSession(w, r, user); err != nil {
@@ -252,17 +282,17 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/setup", http.StatusSeeOther)
 		return
 	}
-	s.render(w, http.StatusOK, components.LoginPage(s.config.TenantName, ""))
+	s.render(w, http.StatusOK, components.LoginPage(s.tenantName(r.Context()), ""))
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.render(w, http.StatusBadRequest, components.LoginPage(s.config.TenantName, "The login form could not be read."))
+		s.render(w, http.StatusBadRequest, components.LoginPage(s.tenantName(r.Context()), "The login form could not be read."))
 		return
 	}
 	user, err := s.store.Authenticate(r.Context(), r.FormValue("email"), r.FormValue("password"))
 	if errors.Is(err, ErrAuthenticationFailed) {
-		s.render(w, http.StatusUnauthorized, components.LoginPage(s.config.TenantName, "The email or password is incorrect."))
+		s.render(w, http.StatusUnauthorized, components.LoginPage(s.tenantName(r.Context()), "The email or password is incorrect."))
 		return
 	}
 	if err != nil {
@@ -285,6 +315,270 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
+func (s *Server) onboardingPage(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	state, err := s.store.GetOnboarding(r.Context(), s.config.TenantID)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Onboarding could not be loaded.")
+		return
+	}
+	if state.Status == OnboardingCompleted {
+		rooms, err := s.boardrooms.List(r.Context())
+		if err != nil || len(rooms) == 0 {
+			s.renderError(w, http.StatusInternalServerError, "Your completed boardroom could not be loaded.")
+			return
+		}
+		s.render(w, http.StatusOK, components.OnboardingCompletePage(
+			s.tenantName(r.Context()), s.userView(session.User), boardroomView(rooms[0]), s.csrfToken(session),
+		))
+		return
+	}
+	if state.Business.BusinessName == "" {
+		state.Business.BusinessName = s.tenantName(r.Context())
+		state.Business.TimeZone = "America/New_York"
+		state.Business.CustomerMix = "mixed"
+		state.Business.TeamSize = 1
+	}
+	step := state.CurrentStep
+	if requested, parseErr := strconv.Atoi(r.URL.Query().Get("step")); parseErr == nil && requested >= 1 && requested <= state.CurrentStep {
+		step = requested
+	}
+	s.renderOnboarding(r.Context(), w, http.StatusOK, session, state, step, "")
+}
+
+func (s *Server) saveOnboardingBusiness(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	state, err := s.editableOnboarding(r.Context())
+	if err != nil {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	teamSize, parseErr := strconv.Atoi(r.FormValue("team_size"))
+	state.Business = BusinessProfile{
+		BusinessName: strings.TrimSpace(r.FormValue("business_name")),
+		Trade:        strings.TrimSpace(r.FormValue("trade")), Services: strings.TrimSpace(r.FormValue("services")),
+		ServiceArea: strings.TrimSpace(r.FormValue("service_area")), TimeZone: strings.TrimSpace(r.FormValue("time_zone")),
+		TeamSize: teamSize, CustomerMix: strings.TrimSpace(r.FormValue("customer_mix")),
+		WorkingHours: strings.TrimSpace(r.FormValue("working_hours")), EmergencyService: r.FormValue("emergency_service") == "true",
+		CurrentSystems: cleanFormValues(r.Form["current_systems"], 8, 80),
+	}
+	if state.Business.BusinessName == "" || state.Business.Trade == "" || state.Business.ServiceArea == "" || parseErr != nil || teamSize < 1 || teamSize > 10000 {
+		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 1, "Enter the business name, primary trade, service area, and a valid team size.")
+		return
+	}
+	if _, err := time.LoadLocation(state.Business.TimeZone); err != nil {
+		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 1, "Use a valid IANA time zone such as America/New_York.")
+		return
+	}
+	state.Status = OnboardingInProgress
+	state.CurrentStep = maxInt(state.CurrentStep, 2)
+	if err := s.store.SaveOnboarding(r.Context(), s.config.TenantID, state); err != nil {
+		s.renderOnboarding(r.Context(), w, http.StatusInternalServerError, session, state, 1, "The business profile could not be saved.")
+		return
+	}
+	http.Redirect(w, r, "/onboarding?step=2", http.StatusSeeOther)
+}
+
+func (s *Server) saveOnboardingOperations(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	state, err := s.editableOnboarding(r.Context())
+	if err != nil {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	if state.CurrentStep < 2 || state.Business.BusinessName == "" {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	state.Operations = OperatingPlaybook{
+		LeadIntake: strings.TrimSpace(r.FormValue("lead_intake")), Scheduling: strings.TrimSpace(r.FormValue("scheduling")),
+		EstimateToJob: strings.TrimSpace(r.FormValue("estimate_to_job")), JobToInvoice: strings.TrimSpace(r.FormValue("job_to_invoice")),
+		Payments: strings.TrimSpace(r.FormValue("payments")), VendorBills: strings.TrimSpace(r.FormValue("vendor_bills")),
+		BiggestBottleneck: strings.TrimSpace(r.FormValue("biggest_bottleneck")), ImportantExceptions: strings.TrimSpace(r.FormValue("important_exceptions")),
+	}
+	if state.Operations.LeadIntake == "" || state.Operations.Scheduling == "" || state.Operations.JobToInvoice == "" || state.Operations.BiggestBottleneck == "" {
+		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 2, "Tell Mia how leads arrive, how jobs are scheduled, how work becomes an invoice, and where the biggest bottleneck is.")
+		return
+	}
+	state.Status = OnboardingInProgress
+	state.CurrentStep = maxInt(state.CurrentStep, 3)
+	if err := s.store.SaveOnboarding(r.Context(), s.config.TenantID, state); err != nil {
+		s.renderOnboarding(r.Context(), w, http.StatusInternalServerError, session, state, 2, "The operating playbook could not be saved.")
+		return
+	}
+	http.Redirect(w, r, "/onboarding?step=3", http.StatusSeeOther)
+}
+
+func (s *Server) saveOnboardingPriorities(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	state, err := s.editableOnboarding(r.Context())
+	if err != nil {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	if state.CurrentStep < 3 || state.Operations.LeadIntake == "" {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	allowed := make(map[string]bool)
+	for _, value := range components.PriorityOptions() {
+		allowed[value] = true
+	}
+	state.Priorities = nil
+	for _, value := range cleanFormValues(r.Form["priorities"], 3, 120) {
+		if allowed[value] {
+			state.Priorities = append(state.Priorities, value)
+		}
+	}
+	if len(state.Priorities) == 0 || len(r.Form["priorities"]) > 3 {
+		state.Priorities = nil
+		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 3, "Choose between one and three priorities.")
+		return
+	}
+	state.Blueprint = GenerateBlueprint(state)
+	state.Permissions = DefaultPermissionPlan()
+	state.Status = OnboardingInProgress
+	state.CurrentStep = maxInt(state.CurrentStep, 4)
+	if err := s.store.SaveOnboarding(r.Context(), s.config.TenantID, state); err != nil {
+		s.renderOnboarding(r.Context(), w, http.StatusInternalServerError, session, state, 3, "The priorities could not be saved.")
+		return
+	}
+	http.Redirect(w, r, "/onboarding?step=4", http.StatusSeeOther)
+}
+
+func (s *Server) saveOnboardingTeam(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	state, err := s.editableOnboarding(r.Context())
+	if err != nil {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	if state.CurrentStep < 4 || len(state.Priorities) == 0 {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	if len(state.Blueprint.Personas) == 0 {
+		state.Blueprint = GenerateBlueprint(state)
+	}
+	enabled := 0
+	for index := range state.Blueprint.Personas {
+		persona := &state.Blueprint.Personas[index]
+		name := strings.TrimSpace(r.FormValue("name_" + persona.Key))
+		if name == "" || len(name) > 80 {
+			s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 4, "Each proposed team member needs a name of 80 characters or fewer.")
+			return
+		}
+		persona.Name = name
+		persona.Enabled = r.FormValue("enabled_"+persona.Key) == "true"
+		if persona.Enabled {
+			enabled++
+		}
+	}
+	if enabled == 0 {
+		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 4, "Include at least one person in the boardroom.")
+		return
+	}
+	state.CurrentStep = maxInt(state.CurrentStep, 5)
+	if err := s.store.SaveOnboarding(r.Context(), s.config.TenantID, state); err != nil {
+		s.renderOnboarding(r.Context(), w, http.StatusInternalServerError, session, state, 4, "The proposed team could not be saved.")
+		return
+	}
+	http.Redirect(w, r, "/onboarding?step=5", http.StatusSeeOther)
+}
+
+func (s *Server) saveOnboardingPermissions(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	state, err := s.editableOnboarding(r.Context())
+	if err != nil {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	if state.CurrentStep < 5 || len(state.Blueprint.Personas) == 0 {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	state.Permissions = PermissionPlan{
+		ReadBusinessRecords:  r.FormValue("read_business_records") == "true",
+		PrepareInvoiceDrafts: r.FormValue("prepare_invoice_drafts") == "true",
+		DraftCustomerEmail:   r.FormValue("draft_customer_email") == "true",
+		ProposeScheduleEdits: r.FormValue("propose_schedule_edits") == "true",
+		ProposePayments:      r.FormValue("propose_payments") == "true",
+	}
+	state.CurrentStep = maxInt(state.CurrentStep, 6)
+	if err := s.store.SaveOnboarding(r.Context(), s.config.TenantID, state); err != nil {
+		s.renderOnboarding(r.Context(), w, http.StatusInternalServerError, session, state, 5, "The authority plan could not be saved.")
+		return
+	}
+	http.Redirect(w, r, "/onboarding?step=6", http.StatusSeeOther)
+}
+
+func (s *Server) launchOnboarding(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	state, err := s.editableOnboarding(r.Context())
+	if err != nil {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	if state.CurrentStep < 6 || state.Business.BusinessName == "" || len(state.Blueprint.Personas) == 0 {
+		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 6, "Finish the earlier onboarding steps before launching the boardroom.")
+		return
+	}
+	if err := s.store.CompleteOnboarding(r.Context(), s.config.TenantID, state); err != nil {
+		s.logger.Error("complete tenant onboarding", "error", err)
+		s.renderOnboarding(r.Context(), w, http.StatusInternalServerError, session, state, 6, "The boardroom could not be launched. Your draft is still safe.")
+		return
+	}
+	http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+}
+
+func (s *Server) developmentPage(w http.ResponseWriter, r *http.Request) {
+	if !s.config.Development {
+		http.NotFound(w, r)
+		return
+	}
+	session, _ := sessionFromContext(r.Context())
+	if session.User.Role != "owner" && session.User.Role != "admin" {
+		httpx.WriteProblem(w, http.StatusForbidden, "permission_denied", "Only an owner or administrator can use demo tools.")
+		return
+	}
+	s.render(w, http.StatusOK, components.DevelopmentPage(s.tenantName(r.Context()), s.userView(session.User), s.csrfToken(session)))
+}
+
+func (s *Server) resetOnboarding(w http.ResponseWriter, r *http.Request) {
+	if !s.config.Development {
+		http.NotFound(w, r)
+		return
+	}
+	session, _ := sessionFromContext(r.Context())
+	if (session.User.Role != "owner" && session.User.Role != "admin") || r.FormValue("confirm") != "reset" {
+		httpx.WriteProblem(w, http.StatusForbidden, "permission_denied", "The onboarding reset was not authorized.")
+		return
+	}
+	if err := s.store.ResetOnboarding(r.Context(), s.config.TenantID, s.config.TenantName); err != nil {
+		s.logger.Error("reset tenant onboarding", "error", err)
+		httpx.WriteProblem(w, http.StatusInternalServerError, "onboarding_reset_failed", "Onboarding could not be reset.")
+		return
+	}
+	http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+}
+
+func (s *Server) editableOnboarding(ctx context.Context) (Onboarding, error) {
+	state, err := s.store.GetOnboarding(ctx, s.config.TenantID)
+	if err != nil {
+		return Onboarding{}, err
+	}
+	if state.Status == OnboardingCompleted {
+		return Onboarding{}, errors.New("onboarding is already complete")
+	}
+	return state, nil
+}
+
+func (s *Server) renderOnboarding(ctx context.Context, w http.ResponseWriter, status int, session authenticatedSession, state Onboarding, step int, formError string) {
+	s.render(w, status, components.OnboardingPage(
+		s.tenantName(ctx), s.userView(session.User), onboardingView(state), step, s.csrfToken(session), formError,
+	))
+}
+
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionFromContext(r.Context())
 	rooms, err := s.boardrooms.List(r.Context())
@@ -296,7 +590,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	for _, room := range rooms {
 		views = append(views, boardroomView(room))
 	}
-	s.render(w, http.StatusOK, components.DashboardPage(s.config.TenantName, userView(session.User), views, s.csrfToken(session)))
+	s.render(w, http.StatusOK, components.DashboardPage(s.tenantName(r.Context()), s.userView(session.User), views, s.csrfToken(session)))
 }
 
 func (s *Server) boardroomPage(w http.ResponseWriter, r *http.Request) {
@@ -326,7 +620,7 @@ func (s *Server) boardroomPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, http.StatusOK, components.BoardroomPage(
-		s.config.TenantName, userView(session.User), boardroomView(room), personaViews(personas), conversationViews(conversations), s.csrfToken(session),
+		s.tenantName(r.Context()), s.userView(session.User), boardroomView(room), personaViews(personas), conversationViews(conversations), s.csrfToken(session),
 	))
 }
 
@@ -394,7 +688,7 @@ func (s *Server) conversationPage(w http.ResponseWriter, r *http.Request) {
 	}
 	runView := componentRun(run, cursor)
 	s.render(w, http.StatusOK, components.ConversationPage(
-		s.config.TenantName, userView(session.User), boardroomView(room), personaViews(personas),
+		s.tenantName(r.Context()), s.userView(session.User), boardroomView(room), personaViews(personas),
 		conversationView(conversation), runView, messageViews(messages), s.csrfToken(session),
 	))
 }
@@ -585,7 +879,7 @@ func (s *Server) renderSchedules(w http.ResponseWriter, r *http.Request, status 
 		formError = "Durable scheduling requires Temporal orchestration."
 	}
 	s.render(w, status, components.SchedulesPage(
-		s.config.TenantName, userView(session.User), boardroomViews(rooms), scheduleViews(items), s.csrfToken(session), formError,
+		s.tenantName(r.Context()), s.userView(session.User), boardroomViews(rooms), scheduleViews(items), s.csrfToken(session), formError,
 	))
 }
 
@@ -814,8 +1108,71 @@ func renderString(component templ.Component) (string, error) {
 	return buffer.String(), nil
 }
 
-func userView(user User) components.UserView {
-	return components.UserView{DisplayName: user.DisplayName, Email: user.Email, Role: user.Role}
+func (s *Server) userView(user User) components.UserView {
+	return components.UserView{DisplayName: user.DisplayName, Email: user.Email, Role: user.Role, Development: s.config.Development}
+}
+
+func (s *Server) tenantName(ctx context.Context) string {
+	name, err := s.store.TenantDisplayName(ctx, s.config.TenantID)
+	if err != nil || strings.TrimSpace(name) == "" {
+		return s.config.TenantName
+	}
+	return name
+}
+
+func onboardingView(state Onboarding) components.OnboardingView {
+	result := components.OnboardingView{
+		Status: state.Status, CurrentStep: state.CurrentStep, Priorities: state.Priorities,
+		Business: components.BusinessProfileView{
+			BusinessName: state.Business.BusinessName, Trade: state.Business.Trade, Services: state.Business.Services,
+			ServiceArea: state.Business.ServiceArea, TimeZone: state.Business.TimeZone, TeamSize: state.Business.TeamSize,
+			CustomerMix: state.Business.CustomerMix, WorkingHours: state.Business.WorkingHours,
+			EmergencyService: state.Business.EmergencyService, CurrentSystems: state.Business.CurrentSystems,
+		},
+		Operations: components.OperatingPlaybookView{
+			LeadIntake: state.Operations.LeadIntake, Scheduling: state.Operations.Scheduling,
+			EstimateToJob: state.Operations.EstimateToJob, JobToInvoice: state.Operations.JobToInvoice,
+			Payments: state.Operations.Payments, VendorBills: state.Operations.VendorBills,
+			BiggestBottleneck: state.Operations.BiggestBottleneck, ImportantExceptions: state.Operations.ImportantExceptions,
+		},
+		BoardroomName: state.Blueprint.Name, BoardroomDescription: state.Blueprint.Description,
+		Permissions: components.PermissionPlanView{
+			ReadBusinessRecords: state.Permissions.ReadBusinessRecords, PrepareInvoiceDrafts: state.Permissions.PrepareInvoiceDrafts,
+			DraftCustomerEmail: state.Permissions.DraftCustomerEmail, ProposeScheduleEdits: state.Permissions.ProposeScheduleEdits,
+			ProposePayments: state.Permissions.ProposePayments,
+		},
+	}
+	for _, persona := range state.Blueprint.Personas {
+		result.Personas = append(result.Personas, components.PersonaBlueprintView{
+			Key: persona.Key, Name: persona.Name, Role: persona.Role, Mission: persona.Mission,
+			Enabled: persona.Enabled, Capabilities: persona.Capabilities,
+		})
+	}
+	return result
+}
+
+func cleanFormValues(values []string, maximum, maxLength int) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || len(value) > maxLength || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+		if len(result) == maximum {
+			break
+		}
+	}
+	return result
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 func boardroomView(room boardroom.Summary) components.BoardroomCardView {

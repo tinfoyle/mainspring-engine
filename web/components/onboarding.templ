@@ -1,0 +1,220 @@
+package components
+
+import "fmt"
+
+templ OnboardingPage(tenantName string, user UserView, state OnboardingView, step int, csrfToken, formError string) {
+	@Layout("Set up your back office", tenantName, &user, csrfToken) {
+		<div class="onboarding-layout">
+			<aside class="onboarding-guide">
+				<p class="eyebrow">Welcome to Mainspring</p>
+				<h2>Build your back office</h2>
+				<p>We will learn how your business works, then propose the right team and guardrails.</p>
+				<nav class="onboarding-progress" aria-label="Onboarding progress">
+					for _, item := range OnboardingSteps() {
+						<div class={ "onboarding-progress-item", templ.KV("is-current", item.Number == step), templ.KV("is-complete", item.Number < state.CurrentStep) }>
+							<span>{ fmt.Sprintf("%d", item.Number) }</span><strong>{ item.Label }</strong>
+						</div>
+					}
+				</nav>
+				<div class="onboarding-agent">
+					<div class="agent-avatar">M</div>
+					<div><strong>Mia</strong><small>Setup specialist</small></div>
+					<p>{ OnboardingAgentPrompt(step) }</p>
+				</div>
+			</aside>
+			<section class="panel onboarding-panel">
+				if formError != "" {
+					<div class="alert alert-error" role="alert">{ formError }</div>
+				}
+				if step == 1 {
+					@OnboardingBusinessStep(state, csrfToken)
+				} else if step == 2 {
+					@OnboardingOperationsStep(state, csrfToken)
+				} else if step == 3 {
+					@OnboardingPrioritiesStep(state, csrfToken)
+				} else if step == 4 {
+					@OnboardingTeamStep(state, csrfToken)
+				} else if step == 5 {
+					@OnboardingPermissionsStep(state, csrfToken)
+				} else {
+					@OnboardingReviewStep(state, csrfToken)
+				}
+			</section>
+		</div>
+	}
+}
+
+func OnboardingAgentPrompt(step int) string {
+	switch step {
+	case 1:
+		return "Start with the facts I should never have to guess: what you do, where you work, and who is on the team."
+	case 2:
+		return "Talk to me like you would explain the office to a new employee. The exceptions are often more useful than the official process."
+	case 3:
+		return "Pick the three outcomes that would give you the most time back. We can expand later."
+	case 4:
+		return "I used your answers to assemble a practical starting team. You can rename anyone or leave a role out."
+	case 5:
+		return "For launch, your team can read, prepare, and propose. Sending, paying, and rescheduling stay with you."
+	default:
+		return "This is the draft I will put in place. Nothing changes until you launch the boardroom."
+	}
+}
+
+templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
+	<header class="onboarding-heading"><p class="eyebrow">Step 1 of 6</p><h1>Tell us about the business</h1><p>These facts become the shared context for every person in your back office.</p></header>
+	<form class="onboarding-form" method="post" action="/onboarding/business">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<div class="form-grid">
+			<label><span>Business name</span><input name="business_name" required maxlength="160" value={ state.Business.BusinessName } placeholder="Demo Trade Co."/></label>
+			<label><span>Primary trade</span><input name="trade" required maxlength="120" value={ state.Business.Trade } placeholder="Plumbing, HVAC, electrical..."/></label>
+		</div>
+		<label><span>Services you provide</span><textarea name="services" maxlength="1000" placeholder="Service calls, installations, maintenance agreements...">{ state.Business.Services }</textarea></label>
+		<div class="form-grid">
+			<label><span>Service area</span><input name="service_area" required maxlength="240" value={ state.Business.ServiceArea } placeholder="Charlotte and surrounding counties"/></label>
+			<label><span>Time zone</span><input name="time_zone" required value={ state.Business.TimeZone } placeholder="America/New_York"/></label>
+			<label><span>People in the business</span><input name="team_size" type="number" min="1" max="10000" value={ fmt.Sprintf("%d", state.Business.TeamSize) }/></label>
+			<label><span>Customer mix</span><select name="customer_mix">
+				<option value="residential" selected?={ state.Business.CustomerMix == "residential" }>Mostly residential</option>
+				<option value="commercial" selected?={ state.Business.CustomerMix == "commercial" }>Mostly commercial</option>
+				<option value="mixed" selected?={ state.Business.CustomerMix == "mixed" || state.Business.CustomerMix == "" }>A mix of both</option>
+			</select></label>
+		</div>
+		<label><span>Normal working hours</span><input name="working_hours" maxlength="240" value={ state.Business.WorkingHours } placeholder="Monday–Friday, 7:00 AM–5:00 PM"/></label>
+		<label class="check-row"><input name="emergency_service" type="checkbox" value="true" checked?={ state.Business.EmergencyService }/><span>We handle emergency or after-hours calls</span></label>
+		<fieldset><legend>Systems you already use</legend><div class="choice-grid">
+			@CheckChoice("current_systems", "Email", Contains(state.Business.CurrentSystems, "Email"))
+			@CheckChoice("current_systems", "Calendar", Contains(state.Business.CurrentSystems, "Calendar"))
+			@CheckChoice("current_systems", "QuickBooks", Contains(state.Business.CurrentSystems, "QuickBooks"))
+			@CheckChoice("current_systems", "Job management software", Contains(state.Business.CurrentSystems, "Job management software"))
+			@CheckChoice("current_systems", "Paper or spreadsheets", Contains(state.Business.CurrentSystems, "Paper or spreadsheets"))
+		</div></fieldset>
+		<div class="onboarding-actions"><span></span><button class="button button-primary" type="submit">Continue to how work flows</button></div>
+	</form>
+}
+
+templ OnboardingOperationsStep(state OnboardingView, csrfToken string) {
+	<header class="onboarding-heading"><p class="eyebrow">Step 2 of 6</p><h1>Walk Mia through the office</h1><p>Short, imperfect answers are fine. Describe what really happens today.</p></header>
+	<form class="onboarding-form" method="post" action="/onboarding/operations">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<label><span>How do new leads and customer requests arrive?</span><textarea name="lead_intake" required maxlength="1600" placeholder="Phone calls come to me, web leads go to a shared inbox...">{ state.Operations.LeadIntake }</textarea></label>
+		<label><span>How are jobs scheduled and assigned?</span><textarea name="scheduling" required maxlength="1600" placeholder="I keep the calendar and text each technician the night before...">{ state.Operations.Scheduling }</textarea></label>
+		<label><span>How does an estimate become an active job?</span><textarea name="estimate_to_job" maxlength="1600">{ state.Operations.EstimateToJob }</textarea></label>
+		<label><span>How does completed work become an invoice?</span><textarea name="job_to_invoice" required maxlength="1600">{ state.Operations.JobToInvoice }</textarea></label>
+		<div class="form-grid">
+			<label><span>How are payments and overdue invoices handled?</span><textarea name="payments" maxlength="1600">{ state.Operations.Payments }</textarea></label>
+			<label><span>How are vendor bills handled?</span><textarea name="vendor_bills" maxlength="1600">{ state.Operations.VendorBills }</textarea></label>
+		</div>
+		<label><span>What paperwork or coordination problem costs you the most time?</span><textarea name="biggest_bottleneck" required maxlength="1600">{ state.Operations.BiggestBottleneck }</textarea></label>
+		<label><span>Anything unusual a new office manager needs to know?</span><textarea name="important_exceptions" maxlength="1600" placeholder="Commercial work needs a PO before invoicing; emergencies can displace maintenance calls...">{ state.Operations.ImportantExceptions }</textarea></label>
+		<div class="onboarding-actions"><a href="/onboarding?step=1">Back</a><button class="button button-primary" type="submit">Continue to priorities</button></div>
+	</form>
+}
+
+templ OnboardingPrioritiesStep(state OnboardingView, csrfToken string) {
+	<header class="onboarding-heading"><p class="eyebrow">Step 3 of 6</p><h1>Where should the team help first?</h1><p>Choose up to three. This shapes the team Mainspring proposes.</p></header>
+	<form class="onboarding-form" method="post" action="/onboarding/priorities">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<div class="priority-grid">
+			for _, priority := range PriorityOptions() {
+				<label class="priority-choice"><input type="checkbox" name="priorities" value={ priority } checked?={ Contains(state.Priorities, priority) }/><span>{ priority }</span></label>
+			}
+		</div>
+		<div class="onboarding-actions"><a href="/onboarding?step=2">Back</a><button class="button button-primary" type="submit">Build my team</button></div>
+	</form>
+}
+
+templ OnboardingTeamStep(state OnboardingView, csrfToken string) {
+	<header class="onboarding-heading"><p class="eyebrow">Step 4 of 6</p><h1>Meet your proposed back office</h1><p>These are job descriptions, not characters in a group chat. Rename them if you like.</p></header>
+	<form class="onboarding-form" method="post" action="/onboarding/team">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<div class="persona-proposals">
+			for _, persona := range state.Personas {
+				<article class="persona-proposal">
+					<header><span class="avatar">{ Initial(persona.Name) }</span><div><strong>{ persona.Role }</strong><small>{ persona.Mission }</small></div><label class="persona-toggle"><input type="checkbox" name={ "enabled_" + persona.Key } value="true" checked?={ persona.Enabled }/><span>Include</span></label></header>
+					<label><span>Name</span><input name={ "name_" + persona.Key } required maxlength="80" value={ persona.Name }/></label>
+					<ul>
+						for _, capability := range persona.Capabilities {
+							<li>{ capability }</li>
+						}
+					</ul>
+				</article>
+			}
+		</div>
+		<div class="onboarding-actions"><a href="/onboarding?step=3">Back</a><button class="button button-primary" type="submit">Set authority</button></div>
+	</form>
+}
+
+templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
+	<header class="onboarding-heading"><p class="eyebrow">Step 5 of 6</p><h1>Decide what the team may prepare</h1><p>At launch, Mainspring will not send email, issue invoices, move money, or change schedules without approval.</p></header>
+	<form class="onboarding-form" method="post" action="/onboarding/permissions">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<div class="permission-list">
+			@PermissionChoice("read_business_records", "Read connected business records", "Documents, job information, calendars, and accounting records that you connect.", state.Permissions.ReadBusinessRecords)
+			@PermissionChoice("prepare_invoice_drafts", "Prepare invoice drafts", "The bookkeeper can organize invoice details, but cannot issue an invoice.", state.Permissions.PrepareInvoiceDrafts)
+			@PermissionChoice("draft_customer_email", "Draft customer messages", "The office manager can prepare follow-ups for you to review and send.", state.Permissions.DraftCustomerEmail)
+			@PermissionChoice("propose_schedule_edits", "Propose schedule changes", "The dispatcher can point out conflicts and suggest moves, but cannot apply them.", state.Permissions.ProposeScheduleEdits)
+			@PermissionChoice("propose_payments", "Propose payments", "The bookkeeper can prepare a payment recommendation; execution always requires approval.", state.Permissions.ProposePayments)
+		</div>
+		<div class="guardrail"><strong>Hard guardrail</strong><p>Email sending, invoice issuing, payment execution, and calendar modification remain disabled for this MVP.</p></div>
+		<div class="onboarding-actions"><a href="/onboarding?step=4">Back</a><button class="button button-primary" type="submit">Review the plan</button></div>
+	</form>
+}
+
+templ OnboardingReviewStep(state OnboardingView, csrfToken string) {
+	<header class="onboarding-heading"><p class="eyebrow">Step 6 of 6</p><h1>Ready to open the doors</h1><p>Review the structured draft. Launching applies it to your boardroom and its personas.</p></header>
+	<div class="review-grid">
+		<section><h3>Business</h3><dl><div><dt>Name</dt><dd>{ state.Business.BusinessName }</dd></div><div><dt>Trade</dt><dd>{ state.Business.Trade }</dd></div><div><dt>Service area</dt><dd>{ state.Business.ServiceArea }</dd></div><div><dt>Team</dt><dd>{ fmt.Sprintf("%d people", state.Business.TeamSize) }</dd></div></dl><a href="/onboarding?step=1">Edit business</a></section>
+		<section><h3>Top priorities</h3><ul>
+			for _, priority := range state.Priorities {
+				<li>{ priority }</li>
+			}
+		</ul><a href="/onboarding?step=3">Edit priorities</a></section>
+		<section><h3>Operating playbook</h3><dl><div><dt>Job to invoice</dt><dd>{ state.Operations.JobToInvoice }</dd></div><div><dt>Biggest bottleneck</dt><dd>{ state.Operations.BiggestBottleneck }</dd></div><div><dt>Important exception</dt><dd>{ state.Operations.ImportantExceptions }</dd></div></dl><a href="/onboarding?step=2">Edit playbook</a></section>
+		<section><h3>Launch authority</h3><ul>
+			for _, permission := range PermissionSummary(state.Permissions) {
+				<li>{ permission }</li>
+			}
+		</ul><p class="review-guardrail">Sending, issuing, paying, and modifying remain disabled.</p><a href="/onboarding?step=5">Edit authority</a></section>
+		<section class="review-team"><h3>{ state.BoardroomName }</h3><p>{ state.BoardroomDescription }</p>
+			for _, persona := range state.Personas {
+				if persona.Enabled {
+					<div><span class="avatar avatar-small">{ Initial(persona.Name) }</span><strong>{ persona.Name }</strong><small>{ persona.Role }</small></div>
+				}
+			}
+			<a href="/onboarding?step=4">Edit team</a>
+		</section>
+	</div>
+	<div class="launch-note"><strong>What happens next?</strong><p>Your boardroom will open with this context. Start with a real situation or use the suggested test conversation.</p></div>
+	<form method="post" action="/onboarding/launch">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<div class="onboarding-actions"><a href="/onboarding?step=5">Back</a><button class="button button-primary" type="submit">Launch my back office</button></div>
+	</form>
+}
+
+templ CheckChoice(name, value string, checked bool) {
+	<label class="check-choice"><input type="checkbox" name={ name } value={ value } checked?={ checked }/><span>{ value }</span></label>
+}
+
+templ PermissionChoice(name, title, description string, checked bool) {
+	<label class="permission-choice"><input type="checkbox" name={ name } value="true" checked?={ checked }/><span><strong>{ title }</strong><small>{ description }</small></span></label>
+}
+
+templ OnboardingCompletePage(tenantName string, user UserView, room BoardroomCardView, csrfToken string) {
+	@Layout("Your back office is ready", tenantName, &user, csrfToken) {
+		<section class="completion-card panel">
+			<div class="spring-glyph">M</div><p class="eyebrow">Onboarding complete</p><h1>Your back office is ready</h1><p>Mainspring has applied your business profile, operating playbook, personas, and launch permissions.</p>
+			<div class="test-drive-card"><strong>Suggested first conversation</strong><p>Review how completed jobs become invoices in my business. Find the points where work could fall through the cracks and give me the first three actions to take.</p></div>
+			<div class="completion-actions"><a class="button button-primary" href={ templ.URL("/boardrooms/" + room.ID) }>Open { room.Name }</a><a class="button button-quiet" href="/">Go to dashboard</a></div>
+		</section>
+	}
+}
+
+templ DevelopmentPage(tenantName string, user UserView, csrfToken string) {
+	@Layout("Demo tools", tenantName, &user, csrfToken) {
+		<section class="development-shell">
+			<header><p class="eyebrow">Development only</p><h1>Demo tools</h1><p>Utilities for repeatedly testing the customer experience. These routes do not exist when Mainspring is not running in development mode.</p></header>
+			<article class="panel development-card"><div><h2>Reset onboarding</h2><p>Clears the onboarding draft and restores the default Back Office personas. Your owner login, conversations, and documents are preserved.</p></div><form method="post" action="/development/reset-onboarding"><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="confirm" value="reset"/><button class="button button-danger-solid" type="submit">Reset onboarding</button></form></article>
+		</section>
+	}
+}
