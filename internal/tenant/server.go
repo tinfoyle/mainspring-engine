@@ -463,13 +463,15 @@ func (s *Server) saveOnboardingTeam(w http.ResponseWriter, r *http.Request) {
 	enabled := 0
 	for index := range state.Blueprint.Personas {
 		persona := &state.Blueprint.Personas[index]
+		persona.Enabled = r.FormValue("enabled_"+persona.Key) == "true"
 		name := strings.TrimSpace(r.FormValue("name_" + persona.Key))
-		if name == "" || len(name) > 80 {
+		if len(name) > 80 || (persona.Enabled && name == "") {
 			s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 4, "Each proposed team member needs a name of 80 characters or fewer.")
 			return
 		}
-		persona.Name = name
-		persona.Enabled = r.FormValue("enabled_"+persona.Key) == "true"
+		if name != "" {
+			persona.Name = name
+		}
 		if persona.Enabled {
 			enabled++
 		}
@@ -497,8 +499,11 @@ func (s *Server) saveOnboardingPermissions(w http.ResponseWriter, r *http.Reques
 		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
 		return
 	}
+	readBusinessRecords := r.FormValue("read_business_records") == "true"
 	state.Permissions = PermissionPlan{
-		ReadBusinessRecords:  r.FormValue("read_business_records") == "true",
+		ReadBusinessRecords:  readBusinessRecords,
+		ResearchPublicWeb:    r.FormValue("research_public_web") == "true",
+		CommentOnDocuments:   readBusinessRecords && r.FormValue("comment_on_documents") == "true",
 		PrepareInvoiceDrafts: r.FormValue("prepare_invoice_drafts") == "true",
 		DraftCustomerEmail:   r.FormValue("draft_customer_email") == "true",
 		ProposeScheduleEdits: r.FormValue("propose_schedule_edits") == "true",
@@ -1137,14 +1142,15 @@ func onboardingView(state Onboarding) components.OnboardingView {
 		},
 		BoardroomName: state.Blueprint.Name, BoardroomDescription: state.Blueprint.Description,
 		Permissions: components.PermissionPlanView{
-			ReadBusinessRecords: state.Permissions.ReadBusinessRecords, PrepareInvoiceDrafts: state.Permissions.PrepareInvoiceDrafts,
+			ReadBusinessRecords: state.Permissions.ReadBusinessRecords, ResearchPublicWeb: state.Permissions.ResearchPublicWeb,
+			CommentOnDocuments: state.Permissions.CommentOnDocuments, PrepareInvoiceDrafts: state.Permissions.PrepareInvoiceDrafts,
 			DraftCustomerEmail: state.Permissions.DraftCustomerEmail, ProposeScheduleEdits: state.Permissions.ProposeScheduleEdits,
 			ProposePayments: state.Permissions.ProposePayments,
 		},
 	}
 	for _, persona := range state.Blueprint.Personas {
 		result.Personas = append(result.Personas, components.PersonaBlueprintView{
-			Key: persona.Key, Name: persona.Name, Role: persona.Role, Mission: persona.Mission,
+			Key: persona.Key, Group: persona.Group, Name: persona.Name, Role: persona.Role, Mission: persona.Mission,
 			Enabled: persona.Enabled, Capabilities: persona.Capabilities,
 		})
 	}

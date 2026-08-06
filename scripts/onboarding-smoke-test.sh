@@ -75,10 +75,16 @@ post_step /onboarding/priorities \
 post_step /onboarding/team \
   --data-urlencode "enabled_office_manager=true" --data-urlencode "name_office_manager=Alex" \
   --data-urlencode "enabled_bookkeeper=true" --data-urlencode "name_bookkeeper=Bailey" \
-  --data-urlencode "enabled_dispatcher=true" --data-urlencode "name_dispatcher=Cameron"
+  --data-urlencode "enabled_dispatcher=true" --data-urlencode "name_dispatcher=Cameron" \
+  --data-urlencode "enabled_business_developer=true" --data-urlencode "name_business_developer=Devon" \
+  --data-urlencode "enabled_market_analyst=true" --data-urlencode "name_market_analyst=Emerson" \
+  --data-urlencode "enabled_legal_advisor=true" --data-urlencode "name_legal_advisor=Frankie" \
+  --data-urlencode "enabled_hr_safety=true" --data-urlencode "name_hr_safety=Gray"
 
 post_step /onboarding/permissions \
   --data-urlencode "read_business_records=true" \
+  --data-urlencode "research_public_web=true" \
+  --data-urlencode "comment_on_documents=true" \
   --data-urlencode "prepare_invoice_drafts=true" \
   --data-urlencode "draft_customer_email=true" \
   --data-urlencode "propose_schedule_edits=true" \
@@ -99,6 +105,10 @@ request --cookie "$cookies" --output "$page" "$base_url$room_path"
 grep -q 'Alex' "$page"
 grep -q 'Bailey' "$page"
 grep -q 'Cameron' "$page"
+grep -q 'Devon' "$page"
+grep -q 'Emerson' "$page"
+grep -q 'Frankie' "$page"
+grep -q 'Gray' "$page"
 
 if [[ "${MAINSPRING_SMOKE_RESET_AFTER:-false}" == "true" ]]; then
   post_step /development/reset-onboarding --data-urlencode "confirm=reset"

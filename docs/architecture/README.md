@@ -112,6 +112,7 @@ Owner creates the tenant login
   -> guided workflow collects canonical business facts
   -> onboarding assistant captures processes and exceptions into a draft playbook
   -> application generates an editable persona and permission blueprint
+  -> owner keeps a lean core team and opts into bounded specialists as needed
   -> owner reviews and explicitly launches
   -> application validates and transactionally applies the profile, personas, and grants
   -> tenant request boundary opens the normal dashboard and boardrooms
@@ -120,6 +121,14 @@ Owner creates the tenant login
 The onboarding assistant cannot mutate live personas or grant capabilities. It writes a
 tenant-scoped structured draft; the application owns validation and application. New
 tenants cannot access operational routes until onboarding is complete.
+
+The initial catalog includes office management, bookkeeping, dispatch, legal and
+compliance, market analysis, business development, customer experience, HR and
+safety, estimating and job costing, and procurement. Specialist roles are opt-in
+unless the owner's stated priorities directly recommend one. Public-web research
+and document commenting are separate launch permissions, and the boardroom turn
+limit is set to the number of selected personas so no selected role is silently
+skipped.
 
 ### Boardroom conversation and run
 

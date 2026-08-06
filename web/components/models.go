@@ -56,6 +56,7 @@ type OperatingPlaybookView struct {
 
 type PersonaBlueprintView struct {
 	Key          string
+	Group        string
 	Name         string
 	Role         string
 	Mission      string
@@ -65,10 +66,47 @@ type PersonaBlueprintView struct {
 
 type PermissionPlanView struct {
 	ReadBusinessRecords  bool
+	ResearchPublicWeb    bool
+	CommentOnDocuments   bool
 	PrepareInvoiceDrafts bool
 	DraftCustomerEmail   bool
 	ProposeScheduleEdits bool
 	ProposePayments      bool
+}
+
+type PersonaGroupView struct {
+	Name        string
+	Description string
+	Personas    []PersonaBlueprintView
+}
+
+func PersonaGroups(personas []PersonaBlueprintView) []PersonaGroupView {
+	groups := []PersonaGroupView{
+		{Name: "Core operations", Description: "The everyday office team. These three are selected as the practical starting point."},
+		{Name: "Growth and customers", Description: "Specialists for demand, lead development, and customer follow-through."},
+		{Name: "Risk and people", Description: "Advisors who surface legal, compliance, employment, and safety questions for human review."},
+		{Name: "Financial and supply", Description: "Specialists for job-cost visibility, purchasing, vendors, and payment preparation."},
+	}
+	for _, persona := range personas {
+		matched := false
+		for index := range groups {
+			if groups[index].Name == persona.Group {
+				groups[index].Personas = append(groups[index].Personas, persona)
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			groups = append(groups, PersonaGroupView{Name: "Specialists", Personas: []PersonaBlueprintView{persona}})
+		}
+	}
+	result := groups[:0]
+	for _, group := range groups {
+		if len(group.Personas) > 0 {
+			result = append(result, group)
+		}
+	}
+	return result
 }
 
 type OnboardingView struct {
@@ -124,6 +162,12 @@ func PermissionSummary(plan PermissionPlanView) []string {
 	var result []string
 	if plan.ReadBusinessRecords {
 		result = append(result, "Read connected business records")
+	}
+	if plan.ResearchPublicWeb {
+		result = append(result, "Research the public web")
+	}
+	if plan.CommentOnDocuments {
+		result = append(result, "Add review comments to documents")
 	}
 	if plan.PrepareInvoiceDrafts {
 		result = append(result, "Prepare invoice drafts")

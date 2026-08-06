@@ -20,7 +20,9 @@ Use a six-step guided workflow with an onboarding assistant embedded in the expe
 
 The onboarding assistant writes only to a tenant-scoped draft. It cannot directly create personas, grant tools, or alter schedules. On launch, the application validates and transactionally applies the business profile, operating playbook, persona instructions, capability grants, and permission plan.
 
-Launch grants read, draft, and proposal capabilities only. Email sending, invoice issuing, payment execution, and schedule modification remain outside the onboarding grant set.
+Launch grants read, research, document-comment, draft, and proposal capabilities only. Public-web research and document commenting require explicit owner permission. Email sending, invoice issuing, payment execution, ordering, contract acceptance, and schedule modification remain outside the onboarding grant set. Legal, employment, and safety roles are advisory and instructed to escalate decisions requiring qualified professionals.
+
+The generated blueprint contains a lean three-person operations team and an opt-in specialist catalog covering growth, customers, legal and compliance, people and safety, estimating, and procurement. The application sets the boardroom turn limit to the selected persona count during launch, ensuring every selected role receives its bounded turn without enabling unused specialists by default.
 
 Development runtimes expose an owner-only, CSRF-protected reset that clears the onboarding draft and restores default personas while preserving the login, conversations, and documents. The route is unavailable outside development mode.
 

@@ -45,6 +45,7 @@ type OperatingPlaybook struct {
 
 type PersonaBlueprint struct {
 	Key          string   `json:"key"`
+	Group        string   `json:"group"`
 	Name         string   `json:"name"`
 	Role         string   `json:"role"`
 	Mission      string   `json:"mission"`
@@ -60,6 +61,8 @@ type BoardroomBlueprint struct {
 
 type PermissionPlan struct {
 	ReadBusinessRecords  bool `json:"read_business_records"`
+	ResearchPublicWeb    bool `json:"research_public_web"`
+	CommentOnDocuments   bool `json:"comment_on_documents"`
 	PrepareInvoiceDrafts bool `json:"prepare_invoice_drafts"`
 	DraftCustomerEmail   bool `json:"draft_customer_email"`
 	ProposeScheduleEdits bool `json:"propose_schedule_edits"`
@@ -79,6 +82,8 @@ type Onboarding struct {
 func DefaultPermissionPlan() PermissionPlan {
 	return PermissionPlan{
 		ReadBusinessRecords:  true,
+		ResearchPublicWeb:    true,
+		CommentOnDocuments:   true,
 		PrepareInvoiceDrafts: true,
 		DraftCustomerEmail:   true,
 		ProposeScheduleEdits: true,
@@ -100,22 +105,68 @@ func GenerateBlueprint(state Onboarding) BoardroomBlueprint {
 		Description: fmt.Sprintf("The operational back office for %s, a %s business serving %s.", businessName, trade, fallback(state.Business.ServiceArea, "its local service area")),
 		Personas: []PersonaBlueprint{
 			{
-				Key: "office_manager", Name: "Morgan", Role: "Office Manager", Enabled: true,
+				Key: "office_manager", Group: "Core operations", Name: "Morgan", Role: "Office Manager", Enabled: true,
 				Mission:      "Coordinate the team, catch work falling through the cracks, and give the owner a short action list.",
 				Capabilities: []string{"Read business documents", "Review and create internal tasks", "Read schedules", "Draft customer email"},
 			},
 			{
-				Key: "bookkeeper", Name: "Casey", Role: "Bookkeeper", Enabled: true,
+				Key: "bookkeeper", Group: "Core operations", Name: "Casey", Role: "Bookkeeper", Enabled: true,
 				Mission:      "Watch invoicing, accounts receivable, vendor bills, and payment exceptions without moving money.",
 				Capabilities: []string{"Read business documents", "Prepare invoice drafts", "Propose payments for approval"},
 			},
 			{
-				Key: "dispatcher", Name: "Riley", Role: "Dispatcher", Enabled: true,
+				Key: "dispatcher", Group: "Core operations", Name: "Riley", Role: "Dispatcher", Enabled: true,
 				Mission:      "Review jobs, crews, appointments, and conflicts, then propose practical scheduling changes.",
 				Capabilities: []string{"Read jobs and schedules", "Propose scheduling changes", "Create internal tasks"},
 			},
+			{
+				Key: "business_developer", Group: "Growth and customers", Name: "Avery", Role: "Business Developer",
+				Mission:      "Find practical growth opportunities, improve lead follow-up, and prepare outreach without contacting anyone directly.",
+				Capabilities: []string{"Research markets and prospects", "Review lead records", "Draft outreach", "Create internal tasks"},
+			},
+			{
+				Key: "market_analyst", Group: "Growth and customers", Name: "Taylor", Role: "Market Analyst",
+				Mission:      "Track local demand, competitors, pricing signals, and service opportunities using evidence instead of guesswork.",
+				Capabilities: []string{"Search the public web", "Read business documents", "Compare market evidence"},
+			},
+			{
+				Key: "customer_experience", Group: "Growth and customers", Name: "Jamie", Role: "Customer Experience Manager",
+				Mission:      "Watch customer communication, follow-ups, complaints, and promises so the company stays responsive.",
+				Enabled:      hasPriority(state.Priorities, "Keep customers updated"),
+				Capabilities: []string{"Review customer and job records", "Draft customer messages", "Create follow-up tasks"},
+			},
+			{
+				Key: "legal_advisor", Group: "Risk and people", Name: "Jordan", Role: "Legal & Compliance Advisor",
+				Mission:      "Spot legal and compliance questions, research authoritative sources, and flag when qualified counsel should review a decision.",
+				Capabilities: []string{"Search the public web", "Read and comment on documents", "Identify legal questions"},
+			},
+			{
+				Key: "hr_safety", Group: "Risk and people", Name: "Drew", Role: "HR & Safety Coordinator",
+				Mission:      "Organize people policies, training, certifications, and safety follow-up while escalating employment and safety risks.",
+				Capabilities: []string{"Research regulations", "Read and comment on documents", "Create compliance tasks"},
+			},
+			{
+				Key: "estimator", Group: "Financial and supply", Name: "Parker", Role: "Estimator & Job Cost Analyst",
+				Mission:      "Compare job scope, labor, materials, and past records to surface missing costs and weak assumptions before work is priced.",
+				Capabilities: []string{"Research material and market context", "Review job records", "Prepare internal cost notes"},
+			},
+			{
+				Key: "procurement", Group: "Financial and supply", Name: "Quinn", Role: "Procurement Specialist",
+				Mission:      "Review purchasing needs, vendor information, lead times, and bill exceptions without placing orders or moving money.",
+				Enabled:      hasPriority(state.Priorities, "Track bills and upcoming payments"),
+				Capabilities: []string{"Research vendors", "Read bills and documents", "Propose payments", "Create internal tasks"},
+			},
 		},
 	}
+}
+
+func hasPriority(priorities []string, target string) bool {
+	for _, priority := range priorities {
+		if priority == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) GetOnboarding(ctx context.Context, tenantID domain.TenantID) (Onboarding, error) {
@@ -200,9 +251,18 @@ func (s *Store) CompleteOnboarding(ctx context.Context, tenantID domain.TenantID
 	if err := tx.QueryRow(ctx, `SELECT id::text FROM boardrooms WHERE status <> 'archived' ORDER BY created_at LIMIT 1 FOR UPDATE`).Scan(&boardroomID); err != nil {
 		return fmt.Errorf("load onboarding boardroom: %w", err)
 	}
+	enabledPersonas := 0
+	for _, persona := range state.Blueprint.Personas {
+		if persona.Enabled {
+			enabledPersonas++
+		}
+	}
+	if enabledPersonas == 0 {
+		return errors.New("complete onboarding: at least one persona must be enabled")
+	}
 	if _, err := tx.Exec(ctx, `
-		UPDATE boardrooms SET name = $2, description = $3, updated_at = now() WHERE id = $1
-	`, boardroomID, state.Blueprint.Name, state.Blueprint.Description); err != nil {
+		UPDATE boardrooms SET name = $2, description = $3, max_turns = $4, updated_at = now() WHERE id = $1
+	`, boardroomID, state.Blueprint.Name, state.Blueprint.Description, enabledPersonas); err != nil {
 		return fmt.Errorf("update onboarding boardroom: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `
@@ -338,6 +398,55 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		}
 		if permissions.ProposeScheduleEdits {
 			result = append(result, domain.CapabilitySchedulePropose)
+		}
+	case "business_developer":
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebSearch)
+		}
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead)
+		}
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.DraftCustomerEmail {
+			result = append(result, domain.CapabilityEmailDraft)
+		}
+	case "market_analyst":
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebSearch)
+		}
+	case "customer_experience":
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead)
+		}
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.DraftCustomerEmail {
+			result = append(result, domain.CapabilityEmailDraft)
+		}
+	case "legal_advisor", "hr_safety":
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebSearch)
+		}
+		if permissions.ReadBusinessRecords && permissions.CommentOnDocuments {
+			result = append(result, domain.CapabilityDocumentsComment)
+		}
+		if key == "hr_safety" {
+			result = append(result, domain.CapabilityTicketCreate)
+		}
+	case "estimator":
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebSearch)
+		}
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead)
+		}
+		result = append(result, domain.CapabilityTicketCreate)
+	case "procurement":
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebSearch)
+		}
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.ProposePayments {
+			result = append(result, domain.CapabilityPaymentPropose)
 		}
 	}
 	return result

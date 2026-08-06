@@ -35,7 +35,7 @@ The local Docker stack uses the browser-reserved `.localhost` domain for tenant 
 
 The first visit to the demo tenant redirects to owner setup. The local-only setup token is `mainspring-local-setup`.
 
-After owner setup, a new tenant enters the six-step assisted onboarding flow. Existing development tenants can restart it from **Demo tools → Reset onboarding**; the reset preserves the owner login, conversations, and documents.
+After owner setup, a new tenant enters the six-step assisted onboarding flow. The team builder starts with office management, bookkeeping, and dispatch, then offers opt-in specialists for legal and compliance, market analysis, business development, customer experience, HR and safety, estimating, and procurement. Existing development tenants can restart it from **Demo tools → Reset onboarding**; the reset preserves the owner login, conversations, and documents.
 
 ## Repository layout
 
