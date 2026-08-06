@@ -1,0 +1,88 @@
+package components
+
+import (
+	"fmt"
+)
+
+templ BoardroomPage(tenantName string, user UserView, room BoardroomCardView, personas []PersonaView, run *RunView, messages []MessageView, csrfToken string) {
+	@Layout(room.Name, tenantName, &user, csrfToken) {
+		<div class="boardroom-layout">
+			<aside class="boardroom-sidebar panel">
+				<a class="back-link" href="/">← All boardrooms</a>
+				<p class="eyebrow">Boardroom</p>
+				<h1>{ room.Name }</h1>
+				<p>{ room.Description }</p>
+				<div class="persona-list">
+					for _, persona := range personas {
+						<div class="persona-row">
+							<span class="avatar">{ Initial(persona.Name) }</span>
+							<div><strong>{ persona.Name }</strong><small>{ persona.Role }</small></div>
+						</div>
+					}
+				</div>
+			</aside>
+			<section class="boardroom-main panel">
+				if run == nil {
+					<div class="empty-run">
+						<div class="spring-glyph">M</div>
+						<h2>Convene your back office</h2>
+						<p>Give the boardroom a problem, task, or situation to review.</p>
+					</div>
+					<form class="prompt-form" method="post" action={ templ.URL("/boardrooms/" + room.ID + "/runs") }>
+						<input type="hidden" name="csrf_token" value={ csrfToken }/>
+						<label for="prompt">What should the boardroom work on?</label>
+						<textarea id="prompt" name="prompt" required maxlength="12000" placeholder="Review completed jobs that have not been invoiced and tell me what needs attention."></textarea>
+						<button class="button button-primary" type="submit">Start boardroom</button>
+					</form>
+				} else {
+					<header class="run-header">
+						<div><p class="eyebrow">Current run</p><h2>{ run.Prompt }</h2></div>
+						@RunStatus(*run)
+					</header>
+					<div
+						class="conversation"
+						hx-ext="sse"
+						sse-connect={ templ.URL(fmt.Sprintf("/runs/%s/events?after=%d", run.ID, run.EventCursor)) }
+						sse-close="finished"
+					>
+						<div id="messages" sse-swap="message" hx-swap="beforeend">
+							for _, message := range messages {
+								@MessageBubble(message)
+							}
+						</div>
+						<div id="live-status" sse-swap="status" hx-swap="innerHTML"></div>
+					</div>
+				}
+			</section>
+		</div>
+	}
+}
+
+templ MessageBubble(message MessageView) {
+	<article class={ "message", templ.KV("message-user", message.Role == "user") } data-sequence={ fmt.Sprint(message.Sequence) }>
+		<header>
+			if message.Role == "user" {
+				<strong>You</strong><span>Request</span>
+			} else {
+				<span class="avatar avatar-small">{ Initial(message.PersonaName) }</span>
+				<div><strong>{ message.PersonaName }</strong><span>{ message.PersonaRole }</span></div>
+			}
+			<time>{ message.CreatedAt.Local().Format("3:04 PM") }</time>
+		</header>
+		<p>{ message.Body }</p>
+	</article>
+}
+
+templ RunStatus(run RunView) {
+	<div class={ "run-status", "run-status-" + run.Status }>
+		<span class="run-dot"></span>
+		<strong>{ run.Status }</strong>
+		if run.TurnCount > 0 {
+			<small>{ fmt.Sprintf("%d turns", run.TurnCount) }</small>
+		}
+	</div>
+}
+
+templ StatusFragment(run RunView) {
+	@RunStatus(run)
+}

@@ -1,0 +1,37 @@
+package domain
+
+import "time"
+
+type Capability string
+
+const (
+	CapabilityWebSearch        Capability = "web.search"
+	CapabilityDocumentsRead    Capability = "documents.read"
+	CapabilityDocumentsComment Capability = "documents.comment"
+	CapabilityEmailDraft       Capability = "email.draft"
+	CapabilityEmailSend        Capability = "email.send"
+	CapabilityTicketRead       Capability = "tickets.read"
+	CapabilityTicketCreate     Capability = "tickets.create"
+	CapabilityScheduleRead     Capability = "schedules.read"
+	CapabilitySchedulePropose  Capability = "schedules.propose"
+	CapabilityScheduleModify   Capability = "schedules.modify"
+	CapabilityInvoicePrepare   Capability = "invoice.prepare"
+	CapabilityInvoiceIssue     Capability = "invoice.issue"
+	CapabilityPaymentPropose   Capability = "payment.propose"
+	CapabilityPaymentExecute   Capability = "payment.execute"
+)
+
+type ToolGrant struct {
+	Capability Capability
+	Conditions map[string]string
+}
+
+type InvocationContext struct {
+	TenantID     TenantID
+	BoardroomID  BoardroomID
+	RunID        RunID
+	PersonaID    PersonaID
+	InvocationID InvocationID
+	Grants       []ToolGrant
+	ExpiresAt    time.Time
+}

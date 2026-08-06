@@ -1,0 +1,62 @@
+package components
+
+templ SetupPage(tenantName string, errorMessage string) {
+	@Layout("Set up your boardroom", tenantName, nil, "") {
+		<section class="auth-shell">
+			<div class="auth-copy">
+				<p class="eyebrow">Your AI back office</p>
+				<h1>Set up { tenantName }</h1>
+				<p>Create the owner login for this boardroom. This login is separate from the account used for billing.</p>
+			</div>
+			<form class="panel auth-form" method="post" action="/setup">
+				if errorMessage != "" {
+					<div class="alert alert-error" role="alert">{ errorMessage }</div>
+				}
+				<label>
+					<span>Setup token</span>
+					<input name="setup_token" type="password" required autocomplete="one-time-code"/>
+				</label>
+				<label>
+					<span>Your name</span>
+					<input name="display_name" required autocomplete="name" maxlength="120"/>
+				</label>
+				<label>
+					<span>Email address</span>
+					<input name="email" type="email" required autocomplete="email" maxlength="320"/>
+				</label>
+				<label>
+					<span>Password</span>
+					<input name="password" type="password" required autocomplete="new-password" minlength="12"/>
+					<small>Use at least 12 characters.</small>
+				</label>
+				<button class="button button-primary" type="submit">Create boardroom owner</button>
+			</form>
+		</section>
+	}
+}
+
+templ LoginPage(tenantName string, errorMessage string) {
+	@Layout("Sign in", tenantName, nil, "") {
+		<section class="auth-shell">
+			<div class="auth-copy">
+				<p class="eyebrow">Welcome back</p>
+				<h1>{ tenantName }</h1>
+				<p>Sign in to review today’s work, approvals, and boardroom activity.</p>
+			</div>
+			<form class="panel auth-form" method="post" action="/login">
+				if errorMessage != "" {
+					<div class="alert alert-error" role="alert">{ errorMessage }</div>
+				}
+				<label>
+					<span>Email address</span>
+					<input name="email" type="email" required autocomplete="email" autofocus/>
+				</label>
+				<label>
+					<span>Password</span>
+					<input name="password" type="password" required autocomplete="current-password"/>
+				</label>
+				<button class="button button-primary" type="submit">Sign in</button>
+			</form>
+		</section>
+	}
+}

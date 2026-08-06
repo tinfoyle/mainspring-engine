@@ -1,0 +1,7 @@
+.git
+.gitignore
+.env
+github-token.txt
+bin
+deploy/docker/data
+**/*_test.go

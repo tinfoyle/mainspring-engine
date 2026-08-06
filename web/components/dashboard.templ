@@ -1,0 +1,36 @@
+package components
+
+templ DashboardPage(tenantName string, user UserView, boardrooms []BoardroomCardView, csrfToken string) {
+	@Layout("Boardrooms", tenantName, &user, csrfToken) {
+		<section class="hero">
+			<div>
+				<p class="eyebrow">Back office</p>
+				<h1>Good to see you, { user.DisplayName }</h1>
+				<p>Your boardrooms monitor the paperwork while you focus on the trade.</p>
+			</div>
+			<div class="status-chip"><span></span> System ready</div>
+		</section>
+		<section>
+			<div class="section-heading">
+				<div>
+					<p class="eyebrow">Your team</p>
+					<h2>Boardrooms</h2>
+				</div>
+			</div>
+			<div class="card-grid">
+				for _, room := range boardrooms {
+					<a class="boardroom-card" href={ templ.URL("/boardrooms/" + room.ID) }>
+						<div class="boardroom-card-top">
+							<span class="room-icon">{ Initial(room.Name) }</span>
+							<span class="status-pill">{ room.Status }</span>
+						</div>
+						<h3>{ room.Name }</h3>
+						<p>{ room.Description }</p>
+						<footer>{ room.PersonaCount } active personas <span>Open →</span></footer>
+					</a>
+				}
+			</div>
+		</section>
+		<form class="hidden" aria-hidden="true"><input name="csrf_token" value={ csrfToken }/></form>
+	}
+}

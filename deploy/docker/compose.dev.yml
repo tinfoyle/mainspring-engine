@@ -1,0 +1,223 @@
+name: mainspring-dev
+
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  environment: &app-environment
+    MAINSPRING_ENV: development
+    MAINSPRING_LOG_LEVEL: info
+    MAINSPRING_AUTO_MIGRATE: "true"
+    MAINSPRING_CONTROL_DATABASE_URL: postgres://mainspring:mainspring@postgres:5432/mainspring_control?sslmode=disable
+    MAINSPRING_CONTROL_ADMIN_TOKEN: local-development-control-admin-token-change-me
+    MAINSPRING_GATEWAY_BASE_DOMAIN: lvh.me
+    MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000001
+    MAINSPRING_TENANT_SLUG: demo
+    MAINSPRING_TENANT_NAME: Demo Trade Co.
+    MAINSPRING_TENANT_INTERNAL_URL: http://tenant-demo:8082
+    MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_demo:tenant_demo@postgres:5432/tenant_demo?sslmode=disable
+    MAINSPRING_SESSION_SECRET: local-development-secret-change-before-production
+    MAINSPRING_TOOL_TOKEN_SECRET: local-development-tool-secret-change-before-production
+    MAINSPRING_RAG_TOKEN: local-development-rag-secret-change-before-production
+    MAINSPRING_SETUP_TOKEN: mainspring-local-setup
+    MAINSPRING_COOKIE_SECURE: "false"
+    MAINSPRING_AGENT_PROVIDER: mock
+    MAINSPRING_TEMPORAL_ADDRESS: temporal:7233
+    MAINSPRING_ORCHESTRATION: temporal
+  networks:
+    - platform
+
+services:
+  edge:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+    depends_on:
+      control:
+        condition: service_healthy
+      gateway:
+        condition: service_healthy
+    networks:
+      - platform
+
+  postgres:
+    image: pgvector/pgvector:pg18-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mainspring
+      POSTGRES_PASSWORD: mainspring
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mainspring -d postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    networks:
+      - platform
+
+  temporal-setup:
+    image: temporalio/admin-tools:1.31.0
+    restart: "no"
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: mainspring
+      POSTGRES_PWD: mainspring
+      POSTGRES_SEEDS: postgres
+      SQL_PASSWORD: mainspring
+    entrypoint: ["/bin/sh"]
+    command: /scripts/setup-postgres.sh
+    volumes:
+      - ./temporal/scripts:/scripts:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - platform
+
+  temporal:
+    image: temporalio/server:1.31.0
+    restart: unless-stopped
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: mainspring
+      POSTGRES_PWD: mainspring
+      POSTGRES_SEEDS: postgres
+      BIND_ON_IP: 0.0.0.0
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+    depends_on:
+      temporal-setup:
+        condition: service_completed_successfully
+    volumes:
+      - ./temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "7233"]
+      interval: 5s
+      timeout: 3s
+      start_period: 20s
+      retries: 60
+    networks:
+      - platform
+
+  temporal-namespace:
+    image: temporalio/admin-tools:1.31.0
+    restart: "no"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      DEFAULT_NAMESPACE: default
+    entrypoint: ["/bin/sh"]
+    command: /scripts/create-namespace.sh
+    volumes:
+      - ./temporal/scripts:/scripts:ro
+    depends_on:
+      temporal:
+        condition: service_healthy
+    networks:
+      - platform
+
+  temporal-ui:
+    image: temporalio/ui:2.49.1
+    restart: unless-stopped
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8233
+    ports:
+      - "127.0.0.1:8233:8080"
+    depends_on:
+      temporal-namespace:
+        condition: service_completed_successfully
+    networks:
+      - platform
+
+  control:
+    <<: *app
+    command: ["control"]
+    environment:
+      <<: *app-environment
+      MAINSPRING_CONTROL_ADDR: :8080
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mainspring", "healthcheck", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  register-demo:
+    <<: *app
+    restart: "no"
+    command: ["provision"]
+    depends_on:
+      control:
+        condition: service_healthy
+
+  tenant-demo:
+    <<: *app
+    command: ["tenant"]
+    environment:
+      <<: *app-environment
+      MAINSPRING_TENANT_ADDR: :8082
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal-namespace:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mainspring", "healthcheck", "http://127.0.0.1:8082/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  worker-demo:
+    <<: *app
+    command: ["worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal-namespace:
+        condition: service_completed_successfully
+
+  rag-demo:
+    <<: *app
+    command: ["rag"]
+    environment:
+      <<: *app-environment
+      MAINSPRING_RAG_ADDR: :8083
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mainspring", "healthcheck", "http://127.0.0.1:8083/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  gateway:
+    <<: *app
+    command: ["gateway"]
+    environment:
+      <<: *app-environment
+      MAINSPRING_GATEWAY_ADDR: :8081
+    depends_on:
+      register-demo:
+        condition: service_completed_successfully
+      tenant-demo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mainspring", "healthcheck", "http://127.0.0.1:8081/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres-data:
+
+networks:
+  platform:
+    driver: bridge

@@ -1,0 +1,40 @@
+package components
+
+templ Layout(title string, tenantName string, user *UserView, csrfToken string) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="light"/>
+			<title>{ title } · Mainspring</title>
+			<link rel="stylesheet" href="/assets/app.css"/>
+			<script defer src="/assets/htmx.min.js"></script>
+			<script defer src="/assets/htmx-sse.min.js"></script>
+		</head>
+		<body>
+			<header class="topbar">
+				<a class="brand" href="/">
+					<span class="brand-mark" aria-hidden="true">M</span>
+					<span>
+						<strong>Mainspring</strong>
+						<small>{ tenantName }</small>
+					</span>
+				</a>
+				if user != nil {
+					<div class="user-menu">
+						<a href="/schedules">Schedules</a>
+						<span>{ user.DisplayName }</span>
+						<form method="post" action="/logout">
+							<input type="hidden" name="csrf_token" value={ csrfToken }/>
+							<button class="button button-quiet" type="submit">Sign out</button>
+						</form>
+					</div>
+				}
+			</header>
+			<main class="page">
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
