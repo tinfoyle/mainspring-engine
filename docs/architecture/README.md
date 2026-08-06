@@ -7,7 +7,7 @@ Last updated: 2026-08-06
 
 Mainspring Engine is a multi-tenant platform that gives a small business a persistent AI back office. A customer purchases a boardroom, signs in through a tenant-specific subdomain, and configures specialized personas that can deliberate, retrieve business knowledge, use approved tools, and run on schedules.
 
-Tenant business templates specialize that experience without forking the runtime. The initial `trades` and `saas` templates select onboarding language, persona catalogs, recommendations, and examples while retaining the same data isolation, orchestration, integrations, and authorization boundaries.
+Tenant business templates specialize that experience without forking the runtime. The initial `trades` and `software` templates select onboarding language, persona catalogs, recommendations, and examples while retaining the same data isolation, orchestration, integrations, and authorization boundaries. The software template supports both product SaaS and managed-service-provider operating models; `saas` remains a configuration alias.
 
 The application, rather than an agent, owns boardroom orchestration. Models are replaceable execution providers that perform bounded turns inside an application-controlled workflow.
 
@@ -126,9 +126,10 @@ tenants cannot access operational routes until onboarding is complete.
 
 The trade catalog includes office management, bookkeeping, dispatch, legal and
 compliance, market analysis, business development, website advising, customer experience, HR and
-safety, estimating and job costing, and procurement. The SaaS catalog includes operations,
+safety, estimating and job costing, and procurement. The software catalog includes operations,
 revenue, customer success, product, engineering, reliability, growth, sales development,
-UX research, website conversion, and security and compliance. Specialist roles are opt-in
+UX research, website conversion, service delivery, technical account management, cloud and systems,
+and security and compliance. Specialist roles are opt-in
 unless the owner's stated priorities directly recommend one. Public-web research
 and document commenting are separate launch permissions, and the boardroom turn
 limit is set to the number of selected personas so no selected role is silently

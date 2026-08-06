@@ -7,6 +7,18 @@ import (
 	"github.com/tinfoyle/mainspring-engine/internal/domain"
 )
 
+func TestSoftwareTemplateAcceptsLegacySaaSAlias(t *testing.T) {
+	for _, value := range []string{"software", "saas", "SaaS"} {
+		template := ParseBusinessTemplate(value)
+		if template != TemplateSoftware || template.String() != "software" || !template.IsSoftware() {
+			t.Fatalf("ParseBusinessTemplate(%q) = %q", value, template)
+		}
+	}
+	if ParseBusinessTemplate("trades").IsSoftware() {
+		t.Fatal("trades template must not be treated as software")
+	}
+}
+
 func TestGenerateBlueprint(t *testing.T) {
 	state := Onboarding{Business: BusinessProfile{
 		BusinessName: "Acme Plumbing", Trade: "plumbing", ServiceArea: "Mecklenburg County",
@@ -56,12 +68,13 @@ func TestGenerateSaaSBlueprint(t *testing.T) {
 	if !strings.Contains(blueprint.Description, "Relay Cloud") || !strings.Contains(blueprint.Description, "B2B SaaS") {
 		t.Fatalf("blueprint description does not contain company context: %q", blueprint.Description)
 	}
-	if len(blueprint.Personas) != 11 {
-		t.Fatalf("persona count = %d, want 11", len(blueprint.Personas))
+	if len(blueprint.Personas) != 14 {
+		t.Fatalf("persona count = %d, want 14", len(blueprint.Personas))
 	}
 	wantedRoles := map[string]bool{
-		"SaaS Operations Manager": true, "Revenue & Finance Analyst": true, "Customer Success Lead": true,
+		"Software Operations Manager": true, "Revenue & Finance Analyst": true, "Customer Success Lead": true,
 		"Product Manager": true, "Engineering Manager": true, "Reliability Advisor": true,
+		"Service Delivery Manager": true, "Technical Account Manager": true, "Cloud & Systems Advisor": true,
 		"Growth Marketing Advisor": true, "Sales Development Advisor": true, "UX Researcher": true,
 		"Website Conversion Advisor": true, "Security & Compliance Advisor": true,
 	}
@@ -82,8 +95,8 @@ func TestGenerateSaaSBlueprint(t *testing.T) {
 
 func TestSaaSPriorityCanRecommendSpecialist(t *testing.T) {
 	blueprint := GenerateBlueprintForTemplate(Onboarding{Priorities: []string{
-		"Improve onboarding and product activation",
-		"Monitor reliability and incident follow-up",
+		"Improve customer onboarding and activation",
+		"Monitor reliability, security, and incident follow-up",
 	}}, TemplateSaaS)
 	wanted := map[string]bool{"ux_researcher": false, "reliability_advisor": false}
 	for _, persona := range blueprint.Personas {
@@ -95,6 +108,62 @@ func TestSaaSPriorityCanRecommendSpecialist(t *testing.T) {
 		if !enabled {
 			t.Fatalf("%s should be recommended for the selected SaaS priority", key)
 		}
+	}
+}
+
+func TestMSPBlueprintRecommendsServiceDelivery(t *testing.T) {
+	state := Onboarding{Business: BusinessProfile{
+		BusinessName: "Northstar Technology", Trade: "Managed service provider (MSP)", ServiceArea: "regional professional firms",
+	}}
+	blueprint := GenerateBlueprintForTemplate(state, TemplateSoftware)
+	wanted := map[string]bool{
+		"service_delivery_manager":  false,
+		"technical_account_manager": false,
+		"cloud_operations_advisor":  false,
+	}
+	for _, persona := range blueprint.Personas {
+		if _, ok := wanted[persona.Key]; ok {
+			wanted[persona.Key] = persona.Enabled
+		}
+	}
+	if !wanted["service_delivery_manager"] {
+		t.Fatal("an MSP should start with the service delivery manager recommended")
+	}
+	if wanted["technical_account_manager"] || wanted["cloud_operations_advisor"] {
+		t.Fatalf("optional MSP specialists should remain owner-selected without a matching priority: %#v", wanted)
+	}
+}
+
+func TestMSPCapabilitiesStayBounded(t *testing.T) {
+	permissions := PermissionPlan{
+		ReadBusinessRecords: true, ResearchPublicWeb: true, DraftCustomerEmail: true,
+		ReadEmailInbox: true, SendEmail: true, ProposeScheduleEdits: true,
+	}
+	serviceDelivery := personaCapabilities("service_delivery_manager", permissions)
+	wantedDelivery := map[domain.Capability]bool{
+		domain.CapabilityTicketRead: true, domain.CapabilityTicketCreate: true,
+		domain.CapabilityScheduleRead: true, domain.CapabilitySchedulePropose: true,
+	}
+	for _, capability := range serviceDelivery {
+		delete(wantedDelivery, capability)
+		if capability == domain.CapabilityEmailSend || capability == domain.CapabilityScheduleModify {
+			t.Fatalf("service delivery manager received unsafe capability %s", capability)
+		}
+	}
+	if len(wantedDelivery) != 0 {
+		t.Fatalf("service delivery manager missing capabilities: %#v", wantedDelivery)
+	}
+
+	accountManager := personaCapabilities("technical_account_manager", permissions)
+	wantedAccount := map[domain.Capability]bool{
+		domain.CapabilityEmailRead: true, domain.CapabilityEmailDraft: true, domain.CapabilityEmailSend: true,
+		domain.CapabilityWebSearch: true, domain.CapabilityTicketCreate: true,
+	}
+	for _, capability := range accountManager {
+		delete(wantedAccount, capability)
+	}
+	if len(wantedAccount) != 0 {
+		t.Fatalf("technical account manager missing explicitly granted capabilities: %#v", wantedAccount)
 	}
 }
 
@@ -271,12 +340,12 @@ func TestSaaSPersonalizedInstructionsUseCompanyContext(t *testing.T) {
 			JobToInvoice:      "Releases are weekly and billing is subscription based.",
 			BiggestBottleneck: "Activation is unclear.",
 		},
-		Priorities: []string{"Improve onboarding and product activation"},
+		Priorities: []string{"Improve customer onboarding and activation"},
 	}
 	instructions := personalizedInstructionsForTemplate(PersonaBlueprint{Mission: "Watch the operating system."}, state, TemplateSaaS)
 	for _, expected := range []string{
 		"Relay Cloud", "https://relay.example", "Roadmap planning runs monthly", "subscription based",
-		"Activation is unclear", "Improve onboarding and product activation",
+		"Activation is unclear", "Improve customer onboarding and activation",
 	} {
 		if !strings.Contains(instructions, expected) {
 			t.Fatalf("instructions missing %q: %s", expected, instructions)

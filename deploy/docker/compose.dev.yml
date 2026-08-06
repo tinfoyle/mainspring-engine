@@ -170,7 +170,7 @@ services:
       MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000002
       MAINSPRING_TENANT_SLUG: saas
       MAINSPRING_TENANT_NAME: Demo Software Co.
-      MAINSPRING_TENANT_TEMPLATE: saas
+      MAINSPRING_TENANT_TEMPLATE: software
       MAINSPRING_TENANT_INTERNAL_URL: http://tenant-saas:8082
       MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_saas:tenant_saas@postgres:5432/tenant_saas?sslmode=disable
       MAINSPRING_RAG_INTERNAL_URL: http://rag-saas:8083
@@ -204,7 +204,7 @@ services:
       MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000002
       MAINSPRING_TENANT_SLUG: saas
       MAINSPRING_TENANT_NAME: Demo Software Co.
-      MAINSPRING_TENANT_TEMPLATE: saas
+      MAINSPRING_TENANT_TEMPLATE: software
       MAINSPRING_TENANT_INTERNAL_URL: http://tenant-saas:8082
       MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_saas:tenant_saas@postgres:5432/tenant_saas?sslmode=disable
       MAINSPRING_RAG_INTERNAL_URL: http://rag-saas:8083
@@ -236,7 +236,7 @@ services:
       MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000002
       MAINSPRING_TENANT_SLUG: saas
       MAINSPRING_TENANT_NAME: Demo Software Co.
-      MAINSPRING_TENANT_TEMPLATE: saas
+      MAINSPRING_TENANT_TEMPLATE: software
       MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_saas:tenant_saas@postgres:5432/tenant_saas?sslmode=disable
       MAINSPRING_RAG_INTERNAL_URL: http://rag-saas:8083
     depends_on:
@@ -269,7 +269,7 @@ services:
       MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000002
       MAINSPRING_TENANT_SLUG: saas
       MAINSPRING_TENANT_NAME: Demo Software Co.
-      MAINSPRING_TENANT_TEMPLATE: saas
+      MAINSPRING_TENANT_TEMPLATE: software
       MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_saas:tenant_saas@postgres:5432/tenant_saas?sslmode=disable
     depends_on:
       postgres:

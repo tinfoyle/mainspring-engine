@@ -109,14 +109,14 @@ func GenerateBlueprintForTemplate(state Onboarding, template BusinessTemplate) B
 	if trade == "" {
 		trade = "trade service"
 	}
-	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
+	if template.IsSoftware() {
 		if strings.TrimSpace(state.Business.Trade) == "" {
-			trade = "software/SaaS"
+			trade = "software or managed services"
 		}
 		return BoardroomBlueprint{
 			Name:        "Company Operating Room",
-			Description: fmt.Sprintf("The cross-functional operating team for %s, a %s software business serving %s.", businessName, trade, fallback(state.Business.ServiceArea, "its target market")),
-			Personas:    saasPersonaBlueprints(state),
+			Description: fmt.Sprintf("The cross-functional operating team for %s, a %s business serving %s.", businessName, trade, fallback(state.Business.ServiceArea, "its target market")),
+			Personas:    softwarePersonaBlueprints(state),
 		}
 	}
 	return BoardroomBlueprint{
@@ -454,7 +454,7 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		if permissions.ResearchPublicWeb {
 			result = append(result, domain.CapabilityWebRead, domain.CapabilityWebSearch)
 		}
-	case "saas_ops_manager":
+	case "software_ops_manager", "saas_ops_manager":
 		result = append(result, domain.CapabilityTicketCreate)
 		if permissions.ReadBusinessRecords {
 			result = append(result, domain.CapabilityTicketRead, domain.CapabilityScheduleRead)
@@ -505,7 +505,32 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		if permissions.ProposeScheduleEdits {
 			result = append(result, domain.CapabilitySchedulePropose)
 		}
-	case "reliability_advisor", "security_advisor":
+	case "service_delivery_manager":
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead, domain.CapabilityScheduleRead)
+		}
+		if permissions.ProposeScheduleEdits {
+			result = append(result, domain.CapabilitySchedulePropose)
+		}
+	case "technical_account_manager":
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead)
+		}
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebSearch)
+		}
+		if permissions.DraftCustomerEmail {
+			result = append(result, domain.CapabilityEmailDraft)
+		}
+		if permissions.ReadEmailInbox {
+			result = append(result, domain.CapabilityEmailRead)
+		}
+		if permissions.SendEmail {
+			result = append(result, domain.CapabilityEmailSend)
+		}
+	case "reliability_advisor", "security_advisor", "cloud_operations_advisor":
 		result = append(result, domain.CapabilityTicketCreate)
 		if permissions.ResearchPublicWeb {
 			result = append(result, domain.CapabilityWebSearch)
@@ -586,9 +611,9 @@ func personalizedInstructions(persona PersonaBlueprint, state Onboarding) string
 }
 
 func personalizedInstructionsForTemplate(persona PersonaBlueprint, state Onboarding, template BusinessTemplate) string {
-	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
+	if template.IsSoftware() {
 		return fmt.Sprintf(
-			"%s\n\nCompany context: %s is a %s software business serving %s. Website: %s. Product and services: %s. Team size: %d. Customer model: %s. Working rhythm: %s.\n\nOperating playbook: Demand and leads: %s Planning and prioritization: %s Discovery to development: %s Release to customer and billing: %s Subscription billing: %s Cloud and vendor spend: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for founder approval.",
+			"%s\n\nCompany context: %s is a %s software or IT services business serving %s. Website: %s. Products and services: %s. Team size: %d. Customer model: %s. Working rhythm: %s.\n\nOperating playbook: Demand and requests: %s Planning and service prioritization: %s Discovery or request to delivery: %s Delivery to customer and billing: %s Recurring billing, contracts, and renewals: %s Cloud, vendor, and subcontractor spend: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for owner approval.",
 			persona.Mission,
 			state.Business.BusinessName, state.Business.Trade, state.Business.ServiceArea,
 			fallback(state.Business.WebsiteURL, "not yet provided"), fallback(state.Business.Services, "not yet documented"), state.Business.TeamSize,

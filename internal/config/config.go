@@ -118,9 +118,9 @@ func Load() (Config, error) {
 		return Config{}, errors.New("MAINSPRING_EMAIL_PROVIDER must be network or mock")
 	}
 	switch cfg.TenantTemplate {
-	case "trades", "saas":
+	case "trades", "software", "saas":
 	default:
-		return Config{}, errors.New("MAINSPRING_TENANT_TEMPLATE must be trades or saas")
+		return Config{}, errors.New("MAINSPRING_TENANT_TEMPLATE must be trades, software, or the legacy saas alias")
 	}
 
 	return cfg, nil

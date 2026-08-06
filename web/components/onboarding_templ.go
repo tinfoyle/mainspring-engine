@@ -233,7 +233,7 @@ func OnboardingBusinessStep(state OnboardingView, csrfToken string) templ.Compon
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<label><span>Company name</span><input name=\"business_name\" required maxlength=\"160\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -260,7 +260,7 @@ func OnboardingBusinessStep(state OnboardingView, csrfToken string) templ.Compon
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\" placeholder=\"B2B SaaS, vertical SaaS, developer tools...\"></label>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\" placeholder=\"B2B SaaS, vertical SaaS, MSP, IT consultancy...\"></label>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -313,15 +313,15 @@ func OnboardingBusinessStep(state OnboardingView, csrfToken string) templ.Compon
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<label><span>Product and services</span><textarea name=\"services\" maxlength=\"1000\" placeholder=\"What the product does, who uses it, plans, and services...\">")
+		if IsSoftwareTemplate(state.Template) {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<label><span>Products and managed services</span><textarea name=\"services\" maxlength=\"1000\" placeholder=\"What you build or manage, who uses it, plans, packages, and recurring services...\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(state.Business.Services)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 79, Col: 184}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 79, Col: 216}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
@@ -354,7 +354,7 @@ func OnboardingBusinessStep(state OnboardingView, csrfToken string) templ.Compon
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<label><span>Target market</span><input name=\"service_area\" required maxlength=\"240\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -467,7 +467,7 @@ func OnboardingBusinessStep(state OnboardingView, csrfToken string) templ.Compon
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<label><span>Team working rhythm</span><input name=\"working_hours\" maxlength=\"240\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -580,7 +580,7 @@ func OnboardingOperationsStep(state OnboardingView, csrfToken string) templ.Comp
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<label><span>How do demand, leads, and customer requests arrive?</span><textarea name=\"lead_intake\" required maxlength=\"1600\" placeholder=\"Organic search, product-led signups, founder sales, partner referrals...\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -594,66 +594,66 @@ func OnboardingOperationsStep(state OnboardingView, csrfToken string) templ.Comp
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "</textarea></label> <label><span>How is product and engineering work prioritized?</span><textarea name=\"scheduling\" required maxlength=\"1600\" placeholder=\"Weekly triage feeds a six-week roadmap; incidents interrupt planned work...\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "</textarea></label> <label><span>How are product, project, support, and recurring-service priorities decided?</span><textarea name=\"scheduling\" required maxlength=\"1600\" placeholder=\"Roadmap planning, ticket triage, SLA queues, projects, maintenance windows, and incidents...\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(state.Operations.Scheduling)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 119, Col: 244}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 119, Col: 289}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "</textarea></label> <label><span>How does customer evidence become planned development work?</span><textarea name=\"estimate_to_job\" maxlength=\"1600\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "</textarea></label> <label><span>How does discovery or a customer request become delivery work?</span><textarea name=\"estimate_to_job\" maxlength=\"1600\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(state.Operations.EstimateToJob)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 120, Col: 164}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 120, Col: 167}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "</textarea></label> <label><span>How do releases reach customers and connect to billing or success?</span><textarea name=\"job_to_invoice\" required maxlength=\"1600\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "</textarea></label> <label><span>How does completed product or service work reach customers and billing?</span><textarea name=\"job_to_invoice\" required maxlength=\"1600\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(state.Operations.JobToInvoice)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 121, Col: 178}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 121, Col: 183}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "</textarea></label><div class=\"form-grid\"><label><span>How are subscriptions, failed payments, and renewals handled?</span><textarea name=\"payments\" maxlength=\"1600\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "</textarea></label><div class=\"form-grid\"><label><span>How are subscriptions, contracts, failed payments, and renewals handled?</span><textarea name=\"payments\" maxlength=\"1600\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(state.Operations.Payments)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 123, Col: 155}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 123, Col: 166}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "</textarea></label> <label><span>How are cloud, contractor, and software vendor costs handled?</span><textarea name=\"vendor_bills\" maxlength=\"1600\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "</textarea></label> <label><span>How are cloud, licensing, contractor, and vendor costs handled?</span><textarea name=\"vendor_bills\" maxlength=\"1600\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var33 string
 			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(state.Operations.VendorBills)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 124, Col: 162}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 124, Col: 164}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 			if templ_7745c5c3_Err != nil {
@@ -672,14 +672,14 @@ func OnboardingOperationsStep(state OnboardingView, csrfToken string) templ.Comp
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</textarea></label> <label><span>Anything unusual a new operations lead needs to know?</span><textarea name=\"important_exceptions\" maxlength=\"1600\" placeholder=\"Enterprise security reviews pause deals; incidents override roadmap work...\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</textarea></label> <label><span>Anything unusual a new operations lead needs to know?</span><textarea name=\"important_exceptions\" maxlength=\"1600\" placeholder=\"Enterprise security reviews pause deals; P1 incidents override planned work; some clients have custom SLAs...\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var35 string
 			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(state.Operations.ImportantExceptions)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 127, Col: 259}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 127, Col: 293}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 			if templ_7745c5c3_Err != nil {
@@ -1150,7 +1150,7 @@ func OnboardingPermissionsStep(state OnboardingView, csrfToken string) templ.Com
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			templ_7745c5c3_Err = PermissionChoice("read_business_records", "Read connected company records", "Documents, product work, support records, calendars, revenue, and operating data that you connect.", state.Permissions.ReadBusinessRecords).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1169,7 +1169,7 @@ func OnboardingPermissionsStep(state OnboardingView, csrfToken string) templ.Com
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			templ_7745c5c3_Err = PermissionChoice("prepare_invoice_drafts", "Prepare billing drafts", "The revenue analyst can organize subscription or service billing details, but cannot issue a charge.", state.Permissions.PrepareInvoiceDrafts).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1192,7 +1192,7 @@ func OnboardingPermissionsStep(state OnboardingView, csrfToken string) templ.Com
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			templ_7745c5c3_Err = PermissionChoice("propose_schedule_edits", "Propose planning changes", "Product and engineering roles can flag delivery conflicts and suggest priority changes, but cannot apply them.", state.Permissions.ProposeScheduleEdits).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1278,7 +1278,7 @@ func OnboardingReviewStep(state OnboardingView, csrfToken string) templ.Componen
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 106, "<div><dt>Model</dt><dd>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -1381,15 +1381,15 @@ func OnboardingReviewStep(state OnboardingView, csrfToken string) templ.Componen
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<div><dt>Release to customer</dt><dd>")
+		if IsSoftwareTemplate(state.Template) {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<div><dt>Delivery to customer</dt><dd>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var72 string
 			templ_7745c5c3_Var72, templ_7745c5c3_Err = templ.JoinStringErrs(state.Operations.JobToInvoice)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 234, Col: 72}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `onboarding.templ`, Line: 234, Col: 73}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var72))
 			if templ_7745c5c3_Err != nil {
@@ -1561,7 +1561,7 @@ func OnboardingReviewStep(state OnboardingView, csrfToken string) templ.Componen
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 135, "<span>Launch my operating room</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

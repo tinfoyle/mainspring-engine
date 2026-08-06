@@ -81,8 +81,8 @@ func SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView, 
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if template == "saas" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<label><span>Name</span><input name=\"name\" required maxlength=\"120\" placeholder=\"Morning operating review\"></label> ")
+			if IsSoftwareTemplate(template) {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<label><span>Name</span><input name=\"name\" required maxlength=\"120\" placeholder=\"Morning software operations review\"></label> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -132,8 +132,8 @@ func SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView, 
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if template == "saas" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<label><span>What should it check?</span><textarea name=\"prompt\" required maxlength=\"12000\" placeholder=\"Review support risk, failed payments, delivery blockers, and unresolved incident follow-up.\"></textarea></label>")
+			if IsSoftwareTemplate(template) {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<label><span>What should it check?</span><textarea name=\"prompt\" required maxlength=\"12000\" placeholder=\"Review support and SLA risk, failed payments, delivery blockers, and unresolved incident follow-up.\"></textarea></label>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -148,7 +148,7 @@ func SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView, 
 				return templ_7745c5c3_Err
 			}
 			if len(schedules) == 0 {
-				if template == "saas" {
+				if IsSoftwareTemplate(template) {
 					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<div class=\"panel empty-schedules\"><h3>No schedules yet</h3><p>Create one to let the operating room watch company signals between reviews.</p></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err

@@ -55,8 +55,8 @@ func BoardroomPage(tenantName string, user UserView, room BoardroomCardView, per
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if template == "saas" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div><p class=\"eyebrow\">Workspace</p><h2>Conversations</h2><p>Keep each product, customer, growth, or operating question in its own continuing conversation.</p></div>")
+			if IsSoftwareTemplate(template) {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<div><p class=\"eyebrow\">Workspace</p><h2>Conversations</h2><p>Keep each product, client service, growth, or operating question in its own continuing conversation.</p></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -96,8 +96,8 @@ func BoardroomPage(tenantName string, user UserView, room BoardroomCardView, per
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if template == "saas" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<textarea id=\"prompt\" name=\"prompt\" required maxlength=\"12000\" placeholder=\"Review customer, roadmap, revenue, and delivery signals and tell me what needs attention.\"></textarea> ")
+			if IsSoftwareTemplate(template) {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<textarea id=\"prompt\" name=\"prompt\" required maxlength=\"12000\" placeholder=\"Review customers, roadmap or service queues, revenue, SLAs, and delivery signals and tell me what needs attention.\"></textarea> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -112,8 +112,8 @@ func BoardroomPage(tenantName string, user UserView, room BoardroomCardView, per
 				return templ_7745c5c3_Err
 			}
 			if len(conversations) == 0 {
-				if template == "saas" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div class=\"empty-run\"><div class=\"spring-glyph\">M</div><h2>No conversations yet</h2><p>Start with a product, customer, growth, or operating situation that needs the team's attention.</p></div>")
+				if IsSoftwareTemplate(template) {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div class=\"empty-run\"><div class=\"spring-glyph\">M</div><h2>No conversations yet</h2><p>Start with a product, client service, growth, or operating situation that needs the team's attention.</p></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}

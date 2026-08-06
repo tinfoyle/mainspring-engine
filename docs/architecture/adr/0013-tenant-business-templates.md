@@ -5,13 +5,13 @@ Date: 2026-08-06
 
 ## Context
 
-Mainspring began with a trade-business back office, but the boardroom, durable orchestration, document retrieval, schedules, integrations, authentication, and capability boundaries also apply to software and SaaS companies. Forking the application per industry would duplicate security-sensitive infrastructure and make improvements drift between variants.
+Mainspring began with a trade-business back office, but the boardroom, durable orchestration, document retrieval, schedules, integrations, authentication, and capability boundaries also apply to software product companies and managed service providers. Forking the application per industry would duplicate security-sensitive infrastructure and make improvements drift between variants.
 
-At the same time, a generic onboarding and persona catalog would force customers to translate unfamiliar vocabulary. A SaaS founder thinks in activation, churn, roadmap delivery, reliability, subscription revenue, and customer success rather than jobs, dispatch, technicians, and service areas.
+At the same time, a generic onboarding and persona catalog would force customers to translate unfamiliar vocabulary. A SaaS founder thinks in activation, churn, roadmap delivery, reliability, subscription revenue, and customer success. An MSP owner also thinks in service queues, SLAs, client agreements, projects, recurring services, monitoring, and technical account plans.
 
 ## Decision
 
-Each tenant has a business-template identifier. The runtime currently accepts `trades` and `saas`, defaulting to `trades` for backward compatibility.
+Each tenant has a business-template identifier. The runtime currently accepts `trades` and `software`, defaulting to `trades` for backward compatibility. The prior `saas` value maps to `software` so existing tenant configuration remains valid.
 
 The template selects:
 
@@ -26,7 +26,7 @@ Templates do not select a different executable, database schema, orchestration w
 ## Consequences
 
 - A new industry can be developed as a focused presentation and policy package without copying the application.
-- SaaS tenants receive relevant product, engineering, customer success, revenue, growth, website, reliability, and security roles.
+- Software tenants receive relevant product, engineering, customer success, revenue, growth, website, service delivery, technical account, cloud operations, reliability, and security roles.
 - Shared infrastructure and security fixes apply to every business variant.
 - Template-aware copy and catalogs require explicit regression tests so one industry's language does not leak into another.
 - Fields in the current onboarding persistence model have stable storage names but template-specific meanings. A later schema revision may replace them with a versioned, typed template document if variants diverge substantially.

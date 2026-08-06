@@ -645,7 +645,7 @@ func (s *Server) saveOnboardingBusiness(w http.ResponseWriter, r *http.Request) 
 	}
 	if state.Business.BusinessName == "" || state.Business.Trade == "" || state.Business.ServiceArea == "" || parseErr != nil || teamSize < 1 || teamSize > 10000 {
 		message := "Enter the business name, primary trade, service area, and a valid team size."
-		if s.config.BusinessTemplate == TemplateSaaS {
+		if s.config.BusinessTemplate.IsSoftware() {
 			message = "Enter the company name, business model, target market, and a valid team size."
 		}
 		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 1, message)
@@ -692,7 +692,7 @@ func (s *Server) saveOnboardingOperations(w http.ResponseWriter, r *http.Request
 	}
 	if state.Operations.LeadIntake == "" || state.Operations.Scheduling == "" || state.Operations.JobToInvoice == "" || state.Operations.BiggestBottleneck == "" {
 		message := "Tell Mia how leads arrive, how jobs are scheduled, how work becomes an invoice, and where the biggest bottleneck is."
-		if s.config.BusinessTemplate == TemplateSaaS {
+		if s.config.BusinessTemplate.IsSoftware() {
 			message = "Tell Mia how demand arrives, how work is prioritized, how releases reach customers and billing, and where the biggest bottleneck is."
 		}
 		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 2, message)

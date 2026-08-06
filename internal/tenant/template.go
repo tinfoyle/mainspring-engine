@@ -9,31 +9,43 @@ import (
 type BusinessTemplate string
 
 const (
-	TemplateTrades BusinessTemplate = "trades"
-	TemplateSaaS   BusinessTemplate = "saas"
+	TemplateTrades   BusinessTemplate = "trades"
+	TemplateSoftware BusinessTemplate = "software"
+	// TemplateSaaS remains accepted as a compatibility alias for existing tenants.
+	TemplateSaaS BusinessTemplate = "saas"
 )
 
 func ParseBusinessTemplate(value string) BusinessTemplate {
 	switch BusinessTemplate(strings.ToLower(strings.TrimSpace(value))) {
-	case TemplateSaaS:
-		return TemplateSaaS
+	case TemplateSoftware, TemplateSaaS:
+		return TemplateSoftware
 	default:
 		return TemplateTrades
 	}
 }
 
 func (template BusinessTemplate) String() string {
-	if template == TemplateSaaS {
-		return string(TemplateSaaS)
+	if template.IsSoftware() {
+		return string(TemplateSoftware)
 	}
 	return string(TemplateTrades)
 }
 
-func saasPersonaBlueprints(state Onboarding) []PersonaBlueprint {
+func (template BusinessTemplate) IsSoftware() bool {
+	return template == TemplateSoftware || template == TemplateSaaS
+}
+
+func isMSPBusiness(state Onboarding) bool {
+	model := strings.ToLower(state.Business.Trade)
+	return strings.Contains(model, "msp") || strings.Contains(model, "managed service") || strings.Contains(model, "it service")
+}
+
+func softwarePersonaBlueprints(state Onboarding) []PersonaBlueprint {
+	isMSP := isMSPBusiness(state)
 	return []PersonaBlueprint{
 		{
-			Key: "saas_ops_manager", Group: "Core operations", Name: "Morgan", Role: "SaaS Operations Manager", Enabled: true,
-			Mission:      "Coordinate the company operating rhythm, surface cross-functional blockers, and give the founder a concise action list.",
+			Key: "software_ops_manager", Group: "Core operations", Name: "Morgan", Role: "Software Operations Manager", Enabled: true,
+			Mission:      "Coordinate the company operating rhythm, surface cross-functional blockers across product and service delivery, and give the owner a concise action list.",
 			Capabilities: []string{"Read company documents", "Review and create internal tasks", "Read operating schedules", "Draft company email"},
 		},
 		{
@@ -43,7 +55,7 @@ func saasPersonaBlueprints(state Onboarding) []PersonaBlueprint {
 		},
 		{
 			Key: "customer_success", Group: "Core operations", Name: "Riley", Role: "Customer Success Lead", Enabled: true,
-			Mission:      "Track onboarding, adoption, support risks, renewals, and customer promises so accounts receive timely follow-through.",
+			Mission:      "Track onboarding, adoption, support or service risks, renewals, and customer promises so accounts receive timely follow-through.",
 			Capabilities: []string{"Read customer and support records", "Draft customer messages", "Create follow-up tasks"},
 		},
 		{
@@ -57,9 +69,24 @@ func saasPersonaBlueprints(state Onboarding) []PersonaBlueprint {
 			Capabilities: []string{"Read engineering records", "Review delivery schedules", "Propose planning changes", "Create internal tasks"},
 		},
 		{
+			Key: "service_delivery_manager", Group: "Managed services", Name: "Cameron", Role: "Service Delivery Manager", Enabled: isMSP || hasPriority(state.Priorities, "Improve SLA delivery and ticket flow"),
+			Mission:      "Review service queues, SLA exposure, assignment, escalation, recurring work, and delivery commitments without changing production or closing tickets.",
+			Capabilities: []string{"Read service and support records", "Review delivery schedules", "Propose queue and planning changes", "Create escalation tasks"},
+		},
+		{
+			Key: "technical_account_manager", Group: "Managed services", Name: "Emerson", Role: "Technical Account Manager",
+			Mission:      "Keep client technology plans, risks, renewals, promises, and review follow-up aligned without contacting clients unless authorized.",
+			Capabilities: []string{"Read client and service records", "Draft client updates", "Create account follow-up tasks", "Research client technology context"},
+		},
+		{
+			Key: "cloud_operations_advisor", Group: "Managed services", Name: "Blake", Role: "Cloud & Systems Advisor", Enabled: hasPriority(state.Priorities, "Monitor reliability, security, and incident follow-up"),
+			Mission:      "Review infrastructure evidence, monitoring gaps, patch and backup follow-up, incidents, and recurring technical risks without administering customer systems.",
+			Capabilities: []string{"Read technical records and runbooks", "Research authoritative practices", "Create remediation tasks"},
+		},
+		{
 			Key: "reliability_advisor", Group: "Product and engineering", Name: "Parker", Role: "Reliability Advisor",
 			Mission:      "Monitor reliability evidence, incident follow-up, operational risks, and runbook gaps without changing production systems.",
-			Enabled:      hasPriority(state.Priorities, "Monitor reliability and incident follow-up"),
+			Enabled:      hasPriority(state.Priorities, "Monitor reliability, security, and incident follow-up"),
 			Capabilities: []string{"Read technical documents", "Research reliability practices", "Create incident follow-up tasks"},
 		},
 		{
@@ -75,7 +102,7 @@ func saasPersonaBlueprints(state Onboarding) []PersonaBlueprint {
 		{
 			Key: "ux_researcher", Group: "Growth and customers", Name: "Drew", Role: "UX Researcher",
 			Mission:      "Synthesize customer feedback and product evidence into usability findings and focused research recommendations.",
-			Enabled:      hasPriority(state.Priorities, "Improve onboarding and product activation"),
+			Enabled:      hasPriority(state.Priorities, "Improve customer onboarding and activation"),
 			Capabilities: []string{"Read research and support records", "View public product experiences", "Comment on research documents"},
 		},
 		{
@@ -91,11 +118,11 @@ func saasPersonaBlueprints(state Onboarding) []PersonaBlueprint {
 	}
 }
 
-func saasDefaultPersonaSeeds() []personaSeed {
+func softwareDefaultPersonaSeeds() []personaSeed {
 	return []personaSeed{
 		{
-			name: "Morgan", role: "SaaS Operations Manager", position: 1,
-			instructions: "Coordinate the operating rhythm, identify cross-functional exceptions, and turn discussion into a concise founder action list.",
+			name: "Morgan", role: "Software Operations Manager", position: 1,
+			instructions: "Coordinate the operating rhythm, identify product, service-delivery, and customer exceptions, and turn discussion into a concise owner action list.",
 			grants:       []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityTicketRead, domain.CapabilityTicketCreate, domain.CapabilityScheduleRead},
 		},
 		{

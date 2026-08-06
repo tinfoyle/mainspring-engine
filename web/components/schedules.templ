@@ -13,8 +13,8 @@ templ SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView,
 				}
 				<form class="schedule-form" method="post" action="/schedules">
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
-					if template == "saas" {
-						<label><span>Name</span><input name="name" required maxlength="120" placeholder="Morning operating review"/></label>
+					if IsSoftwareTemplate(template) {
+						<label><span>Name</span><input name="name" required maxlength="120" placeholder="Morning software operations review"/></label>
 					} else {
 						<label><span>Name</span><input name="name" required maxlength="120" placeholder="Morning paperwork review"/></label>
 					}
@@ -23,8 +23,8 @@ templ SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView,
 							<option value={ room.ID }>{ room.Name }</option>
 						}
 					</select></label>
-					if template == "saas" {
-						<label><span>What should it check?</span><textarea name="prompt" required maxlength="12000" placeholder="Review support risk, failed payments, delivery blockers, and unresolved incident follow-up."></textarea></label>
+					if IsSoftwareTemplate(template) {
+						<label><span>What should it check?</span><textarea name="prompt" required maxlength="12000" placeholder="Review support and SLA risk, failed payments, delivery blockers, and unresolved incident follow-up."></textarea></label>
 					} else {
 						<label><span>What should it check?</span><textarea name="prompt" required maxlength="12000" placeholder="Review uninvoiced completed jobs, overdue invoices, and tomorrow's schedule conflicts."></textarea></label>
 					}
@@ -40,7 +40,7 @@ templ SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView,
 			<section class="schedule-list">
 				<div class="section-heading"><div><p class="eyebrow">Recurring work</p><h2>Active schedules</h2></div></div>
 				if len(schedules) == 0 {
-					if template == "saas" {
+					if IsSoftwareTemplate(template) {
 						<div class="panel empty-schedules"><h3>No schedules yet</h3><p>Create one to let the operating room watch company signals between reviews.</p></div>
 					} else {
 						<div class="panel empty-schedules"><h3>No schedules yet</h3><p>Create one to let the boardroom keep watch while you are in the field.</p></div>

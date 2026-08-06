@@ -58,8 +58,8 @@ func DashboardPage(tenantName string, user UserView, boardrooms []BoardroomCardV
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if template == "saas" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p>Your boardrooms track product, customers, revenue, delivery, and risk while you focus on building the company.</p>")
+			if IsSoftwareTemplate(template) {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p>Your boardrooms track product, client services, revenue, delivery, and risk while you focus on building the company.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

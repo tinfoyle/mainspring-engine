@@ -66,22 +66,22 @@ templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
 	<form class="onboarding-form" method="post" action="/onboarding/business">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
 		<div class="form-grid">
-			if state.Template == "saas" {
+			if IsSoftwareTemplate(state.Template) {
 				<label><span>Company name</span><input name="business_name" required maxlength="160" value={ state.Business.BusinessName } placeholder="Demo Software Co."/></label>
-				<label><span>Business model</span><input name="trade" required maxlength="120" value={ state.Business.Trade } placeholder="B2B SaaS, vertical SaaS, developer tools..."/></label>
+				<label><span>Business model</span><input name="trade" required maxlength="120" value={ state.Business.Trade } placeholder="B2B SaaS, vertical SaaS, MSP, IT consultancy..."/></label>
 			} else {
 				<label><span>Business name</span><input name="business_name" required maxlength="160" value={ state.Business.BusinessName } placeholder="Demo Trade Co."/></label>
 				<label><span>Primary trade</span><input name="trade" required maxlength="120" value={ state.Business.Trade } placeholder="Plumbing, HVAC, electrical..."/></label>
 			}
 		</div>
 		<label><span>Business website <small>optional</small></span><input name="website_url" type="url" maxlength="500" value={ state.Business.WebsiteURL } placeholder="https://www.example.com"/><small>The Website Advisor can inspect this public site and recommend changes; it cannot edit or publish the site.</small></label>
-		if state.Template == "saas" {
-			<label><span>Product and services</span><textarea name="services" maxlength="1000" placeholder="What the product does, who uses it, plans, and services...">{ state.Business.Services }</textarea></label>
+		if IsSoftwareTemplate(state.Template) {
+			<label><span>Products and managed services</span><textarea name="services" maxlength="1000" placeholder="What you build or manage, who uses it, plans, packages, and recurring services...">{ state.Business.Services }</textarea></label>
 		} else {
 			<label><span>Services you provide</span><textarea name="services" maxlength="1000" placeholder="Service calls, installations, maintenance agreements...">{ state.Business.Services }</textarea></label>
 		}
 		<div class="form-grid">
-			if state.Template == "saas" {
+			if IsSoftwareTemplate(state.Template) {
 				<label><span>Target market</span><input name="service_area" required maxlength="240" value={ state.Business.ServiceArea } placeholder="North American field-service companies with 10–100 employees"/></label>
 			} else {
 				<label><span>Service area</span><input name="service_area" required maxlength="240" value={ state.Business.ServiceArea } placeholder="Charlotte and surrounding counties"/></label>
@@ -94,7 +94,7 @@ templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
 				}
 			</select></label>
 		</div>
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			<label><span>Team working rhythm</span><input name="working_hours" maxlength="240" value={ state.Business.WorkingHours } placeholder="Distributed team; core hours 10 AM–4 PM Eastern"/></label>
 			<label class="check-row"><input name="emergency_service" type="checkbox" value="true" checked?={ state.Business.EmergencyService }/><span>We operate an after-hours incident or customer escalation rotation</span></label>
 		} else {
@@ -114,17 +114,17 @@ templ OnboardingOperationsStep(state OnboardingView, csrfToken string) {
 	<header class="onboarding-heading"><p class="eyebrow">Step 2 of 6</p><h1>Walk Mia through the office</h1><p>Short, imperfect answers are fine. Describe what really happens today.</p></header>
 	<form class="onboarding-form" method="post" action="/onboarding/operations">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
-		if state.Template == "saas" {
+		if IsSoftwareTemplate(state.Template) {
 			<label><span>How do demand, leads, and customer requests arrive?</span><textarea name="lead_intake" required maxlength="1600" placeholder="Organic search, product-led signups, founder sales, partner referrals...">{ state.Operations.LeadIntake }</textarea></label>
-			<label><span>How is product and engineering work prioritized?</span><textarea name="scheduling" required maxlength="1600" placeholder="Weekly triage feeds a six-week roadmap; incidents interrupt planned work...">{ state.Operations.Scheduling }</textarea></label>
-			<label><span>How does customer evidence become planned development work?</span><textarea name="estimate_to_job" maxlength="1600">{ state.Operations.EstimateToJob }</textarea></label>
-			<label><span>How do releases reach customers and connect to billing or success?</span><textarea name="job_to_invoice" required maxlength="1600">{ state.Operations.JobToInvoice }</textarea></label>
+			<label><span>How are product, project, support, and recurring-service priorities decided?</span><textarea name="scheduling" required maxlength="1600" placeholder="Roadmap planning, ticket triage, SLA queues, projects, maintenance windows, and incidents...">{ state.Operations.Scheduling }</textarea></label>
+			<label><span>How does discovery or a customer request become delivery work?</span><textarea name="estimate_to_job" maxlength="1600">{ state.Operations.EstimateToJob }</textarea></label>
+			<label><span>How does completed product or service work reach customers and billing?</span><textarea name="job_to_invoice" required maxlength="1600">{ state.Operations.JobToInvoice }</textarea></label>
 			<div class="form-grid">
-				<label><span>How are subscriptions, failed payments, and renewals handled?</span><textarea name="payments" maxlength="1600">{ state.Operations.Payments }</textarea></label>
-				<label><span>How are cloud, contractor, and software vendor costs handled?</span><textarea name="vendor_bills" maxlength="1600">{ state.Operations.VendorBills }</textarea></label>
+				<label><span>How are subscriptions, contracts, failed payments, and renewals handled?</span><textarea name="payments" maxlength="1600">{ state.Operations.Payments }</textarea></label>
+				<label><span>How are cloud, licensing, contractor, and vendor costs handled?</span><textarea name="vendor_bills" maxlength="1600">{ state.Operations.VendorBills }</textarea></label>
 			</div>
 			<label><span>What coordination or information problem costs the company the most time?</span><textarea name="biggest_bottleneck" required maxlength="1600">{ state.Operations.BiggestBottleneck }</textarea></label>
-			<label><span>Anything unusual a new operations lead needs to know?</span><textarea name="important_exceptions" maxlength="1600" placeholder="Enterprise security reviews pause deals; incidents override roadmap work...">{ state.Operations.ImportantExceptions }</textarea></label>
+			<label><span>Anything unusual a new operations lead needs to know?</span><textarea name="important_exceptions" maxlength="1600" placeholder="Enterprise security reviews pause deals; P1 incidents override planned work; some clients have custom SLAs...">{ state.Operations.ImportantExceptions }</textarea></label>
 		} else {
 			<label><span>How do new leads and customer requests arrive?</span><textarea name="lead_intake" required maxlength="1600" placeholder="Phone calls come to me, web leads go to a shared inbox...">{ state.Operations.LeadIntake }</textarea></label>
 			<label><span>How are jobs scheduled and assigned?</span><textarea name="scheduling" required maxlength="1600" placeholder="I keep the calendar and text each technician the night before...">{ state.Operations.Scheduling }</textarea></label>
@@ -186,14 +186,14 @@ templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
 	<form class="onboarding-form" method="post" action="/onboarding/permissions">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
 		<div class="permission-list">
-			if state.Template == "saas" {
+			if IsSoftwareTemplate(state.Template) {
 				@PermissionChoice("read_business_records", "Read connected company records", "Documents, product work, support records, calendars, revenue, and operating data that you connect.", state.Permissions.ReadBusinessRecords)
 			} else {
 				@PermissionChoice("read_business_records", "Read connected business records", "Documents, job information, calendars, and accounting records that you connect.", state.Permissions.ReadBusinessRecords)
 			}
 			@PermissionChoice("research_public_web", "Research the public web", "Research-focused specialists can search public sources; findings must cite evidence and remain advisory.", state.Permissions.ResearchPublicWeb)
 			@PermissionChoice("comment_on_documents", "Add review comments to documents", "Legal, compliance, and safety specialists may annotate documents, but cannot replace or delete them.", state.Permissions.CommentOnDocuments)
-			if state.Template == "saas" {
+			if IsSoftwareTemplate(state.Template) {
 				@PermissionChoice("prepare_invoice_drafts", "Prepare billing drafts", "The revenue analyst can organize subscription or service billing details, but cannot issue a charge.", state.Permissions.PrepareInvoiceDrafts)
 			} else {
 				@PermissionChoice("prepare_invoice_drafts", "Prepare invoice drafts", "The bookkeeper can organize invoice details, but cannot issue an invoice.", state.Permissions.PrepareInvoiceDrafts)
@@ -201,7 +201,7 @@ templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
 			@PermissionChoice("draft_customer_email", "Draft customer messages", "The office manager can prepare follow-ups for you to review and send.", state.Permissions.DraftCustomerEmail)
 			@PermissionChoice("read_email_inbox", "Read the connected email inbox", "Selected communication personas can review incoming email after a mailbox is connected.", state.Permissions.ReadEmailInbox)
 			@PermissionChoice("send_email", "Send email through SMTP", "Selected communication personas may send external email. Every send is idempotent and written to the outbound audit ledger.", state.Permissions.SendEmail)
-			if state.Template == "saas" {
+			if IsSoftwareTemplate(state.Template) {
 				@PermissionChoice("propose_schedule_edits", "Propose planning changes", "Product and engineering roles can flag delivery conflicts and suggest priority changes, but cannot apply them.", state.Permissions.ProposeScheduleEdits)
 				@PermissionChoice("propose_payments", "Propose vendor payments", "The revenue analyst can prepare a payment recommendation; execution always requires approval.", state.Permissions.ProposePayments)
 			} else {
@@ -218,7 +218,7 @@ templ OnboardingReviewStep(state OnboardingView, csrfToken string) {
 	<header class="onboarding-heading"><p class="eyebrow">Step 6 of 6</p><h1>Ready to open the doors</h1><p>Review the structured draft. Launching applies it to your boardroom and its personas.</p></header>
 	<div class="review-grid">
 		<section><h3>Business</h3><dl><div><dt>Name</dt><dd>{ state.Business.BusinessName }</dd></div><div><dt>Website</dt><dd>{ state.Business.WebsiteURL }</dd></div>
-			if state.Template == "saas" {
+			if IsSoftwareTemplate(state.Template) {
 				<div><dt>Model</dt><dd>{ state.Business.Trade }</dd></div><div><dt>Target market</dt><dd>{ state.Business.ServiceArea }</dd></div>
 			} else {
 				<div><dt>Trade</dt><dd>{ state.Business.Trade }</dd></div><div><dt>Service area</dt><dd>{ state.Business.ServiceArea }</dd></div>
@@ -230,8 +230,8 @@ templ OnboardingReviewStep(state OnboardingView, csrfToken string) {
 			}
 		</ul><a href="/onboarding?step=3">Edit priorities</a></section>
 		<section><h3>Operating playbook</h3><dl>
-			if state.Template == "saas" {
-				<div><dt>Release to customer</dt><dd>{ state.Operations.JobToInvoice }</dd></div>
+			if IsSoftwareTemplate(state.Template) {
+				<div><dt>Delivery to customer</dt><dd>{ state.Operations.JobToInvoice }</dd></div>
 			} else {
 				<div><dt>Job to invoice</dt><dd>{ state.Operations.JobToInvoice }</dd></div>
 			}
@@ -254,7 +254,7 @@ templ OnboardingReviewStep(state OnboardingView, csrfToken string) {
 	<form method="post" action="/onboarding/launch">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
 		<div class="onboarding-actions"><a href="/onboarding?step=5">Back</a><button class="button button-primary" type="submit">
-			if state.Template == "saas" {
+			if IsSoftwareTemplate(state.Template) {
 				<span>Launch my operating room</span>
 			} else {
 				<span>Launch my back office</span>

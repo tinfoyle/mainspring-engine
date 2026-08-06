@@ -78,7 +78,7 @@ post_step /onboarding/business \
   --data-urlencode "current_systems=Subscription billing"
 
 request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=2"
-grep -q 'How is product and engineering work prioritized' "$page"
+grep -q 'How are product, project, support, and recurring-service priorities decided' "$page"
 
 post_step /onboarding/operations \
   --data-urlencode "lead_intake=Trials and demos come from content, referrals, and partners." \
@@ -91,18 +91,19 @@ post_step /onboarding/operations \
   --data-urlencode "important_exceptions=Enterprise releases require a security review."
 
 post_step /onboarding/priorities \
-  --data-urlencode "priorities=Improve onboarding and product activation" \
+  --data-urlencode "priorities=Improve customer onboarding and activation" \
   --data-urlencode "priorities=Ship roadmap more predictably" \
-  --data-urlencode "priorities=Monitor reliability and incident follow-up"
+  --data-urlencode "priorities=Monitor reliability, security, and incident follow-up"
 
 request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=4"
 grep -q 'Product Manager' "$page"
 grep -q 'Engineering Manager' "$page"
+grep -q 'Service Delivery Manager' "$page"
 grep -q 'Website Conversion Advisor' "$page"
 grep -q 'Security &amp; Compliance Advisor' "$page"
 
 post_step /onboarding/team \
-  --data-urlencode "enabled_saas_ops_manager=true" --data-urlencode "name_saas_ops_manager=Morgan" \
+  --data-urlencode "enabled_software_ops_manager=true" --data-urlencode "name_software_ops_manager=Morgan" \
   --data-urlencode "enabled_revenue_analyst=true" --data-urlencode "name_revenue_analyst=Casey" \
   --data-urlencode "enabled_customer_success=true" --data-urlencode "name_customer_success=Riley" \
   --data-urlencode "enabled_product_manager=true" --data-urlencode "name_product_manager=Avery" \

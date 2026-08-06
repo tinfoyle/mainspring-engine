@@ -154,8 +154,8 @@ func defaultPersonaSeeds() []personaSeed {
 }
 
 func personaSeedsForTemplate(template BusinessTemplate) []personaSeed {
-	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
-		return saasDefaultPersonaSeeds()
+	if template.IsSoftware() {
+		return softwareDefaultPersonaSeeds()
 	}
 	return defaultPersonaSeeds()
 }
@@ -163,7 +163,7 @@ func personaSeedsForTemplate(template BusinessTemplate) []personaSeed {
 func seedDefaultBoardroom(ctx context.Context, tx pgx.Tx, template BusinessTemplate) error {
 	name := "Back Office"
 	description := "Your operational team for scheduling, invoicing, paperwork, and follow-up."
-	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
+	if template.IsSoftware() {
 		name = "Company Operating Room"
 		description = "Your cross-functional team for product, customers, revenue, delivery, and risk."
 	}
@@ -192,7 +192,7 @@ func resetDefaultBoardroom(ctx context.Context, tx pgx.Tx, template BusinessTemp
 	}
 	name := "Back Office"
 	description := "Your operational team for scheduling, invoicing, paperwork, and follow-up."
-	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
+	if template.IsSoftware() {
 		name = "Company Operating Room"
 		description = "Your cross-functional team for product, customers, revenue, delivery, and risk."
 	}

@@ -1,4 +1,4 @@
-.PHONY: generate fmt lint test build run-control run-gateway run-tenant docker-up docker-down smoke smoke-saas
+.PHONY: generate fmt lint test build run-control run-gateway run-tenant docker-up docker-down smoke smoke-saas smoke-software
 
 GO ?= go
 
@@ -41,3 +41,7 @@ smoke:
 
 smoke-saas:
 	bash scripts/saas-onboarding-smoke-test.sh
+
+smoke-software:
+	bash scripts/saas-onboarding-smoke-test.sh
+	bash scripts/msp-onboarding-smoke-test.sh

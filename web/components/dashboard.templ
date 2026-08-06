@@ -6,8 +6,8 @@ templ DashboardPage(tenantName string, user UserView, boardrooms []BoardroomCard
 			<div>
 				<p class="eyebrow">Back office</p>
 				<h1>Good to see you, { user.DisplayName }</h1>
-				if template == "saas" {
-					<p>Your boardrooms track product, customers, revenue, delivery, and risk while you focus on building the company.</p>
+				if IsSoftwareTemplate(template) {
+					<p>Your boardrooms track product, client services, revenue, delivery, and risk while you focus on building the company.</p>
 				} else {
 					<p>Your boardrooms monitor the paperwork while you focus on the trade.</p>
 				}
