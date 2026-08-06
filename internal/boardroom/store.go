@@ -5,17 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tinfoyle/mainspring-engine/internal/agent"
 	"github.com/tinfoyle/mainspring-engine/internal/domain"
 )
 
 var (
-	ErrBoardroomNotFound = errors.New("boardroom not found")
-	ErrRunNotFound       = errors.New("boardroom run not found")
+	ErrBoardroomNotFound    = errors.New("boardroom not found")
+	ErrRunNotFound          = errors.New("boardroom run not found")
+	ErrConversationNotFound = errors.New("conversation not found")
+	ErrConversationBusy     = errors.New("conversation already has an active boardroom run")
 )
 
 type Summary struct {
@@ -38,16 +42,31 @@ type Persona struct {
 }
 
 type Run struct {
-	ID          domain.RunID
-	BoardroomID domain.BoardroomID
-	Status      domain.RunStatus
-	Prompt      string
-	TurnCount   int
-	MaxTurns    int
-	Error       string
-	CreatedAt   time.Time
-	StartedAt   *time.Time
-	CompletedAt *time.Time
+	ID             domain.RunID
+	BoardroomID    domain.BoardroomID
+	ConversationID domain.ConversationID
+	Status         domain.RunStatus
+	Prompt         string
+	TurnCount      int
+	MaxTurns       int
+	Error          string
+	CreatedAt      time.Time
+	StartedAt      *time.Time
+	CompletedAt    *time.Time
+}
+
+type Conversation struct {
+	ID           domain.ConversationID
+	BoardroomID  domain.BoardroomID
+	Title        string
+	Source       string
+	Status       string
+	LatestRunID  domain.RunID
+	LatestStatus domain.RunStatus
+	LatestPrompt string
+	MessageCount int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type Message struct {
@@ -171,15 +190,124 @@ func (s *Store) Personas(ctx context.Context, boardroomID domain.BoardroomID) ([
 	return result, rows.Err()
 }
 
+func (s *Store) ListConversations(ctx context.Context, boardroomID domain.BoardroomID, limit int) ([]Conversation, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 25
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT c.id::text, c.boardroom_id::text, c.title, c.source, c.status,
+		       latest.id::text, latest.status, latest.prompt,
+		       (SELECT count(*) FROM boardroom_messages m
+		        JOIN boardroom_runs mr ON mr.id = m.run_id WHERE mr.conversation_id = c.id),
+		       c.created_at, c.updated_at
+		FROM conversations c
+		JOIN LATERAL (
+			SELECT r.id, r.status, r.prompt
+			FROM boardroom_runs r WHERE r.conversation_id = c.id
+			ORDER BY r.created_at DESC LIMIT 1
+		) latest ON true
+		WHERE c.boardroom_id = $1 AND c.status <> 'archived'
+		ORDER BY c.updated_at DESC
+		LIMIT $2
+	`, boardroomID.String(), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list conversations: %w", err)
+	}
+	defer rows.Close()
+	var result []Conversation
+	for rows.Next() {
+		conversation, err := scanConversation(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, conversation)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) GetConversation(ctx context.Context, conversationID domain.ConversationID) (Conversation, error) {
+	conversation, err := scanConversation(s.pool.QueryRow(ctx, `
+		SELECT c.id::text, c.boardroom_id::text, c.title, c.source, c.status,
+		       latest.id::text, latest.status, latest.prompt,
+		       (SELECT count(*) FROM boardroom_messages m
+		        JOIN boardroom_runs mr ON mr.id = m.run_id WHERE mr.conversation_id = c.id),
+		       c.created_at, c.updated_at
+		FROM conversations c
+		JOIN LATERAL (
+			SELECT r.id, r.status, r.prompt
+			FROM boardroom_runs r WHERE r.conversation_id = c.id
+			ORDER BY r.created_at DESC LIMIT 1
+		) latest ON true
+		WHERE c.id = $1
+	`, conversationID.String()))
+	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, ErrConversationNotFound) {
+		return Conversation{}, ErrConversationNotFound
+	}
+	return conversation, err
+}
+
+func scanConversation(row rowScanner) (Conversation, error) {
+	var item Conversation
+	var id, boardroomID, latestRunID, latestStatus string
+	if err := row.Scan(
+		&id, &boardroomID, &item.Title, &item.Source, &item.Status,
+		&latestRunID, &latestStatus, &item.LatestPrompt, &item.MessageCount,
+		&item.CreatedAt, &item.UpdatedAt,
+	); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Conversation{}, ErrConversationNotFound
+		}
+		return Conversation{}, fmt.Errorf("scan conversation: %w", err)
+	}
+	var err error
+	item.ID, err = domain.ParseConversationID(id)
+	if err != nil {
+		return Conversation{}, err
+	}
+	item.BoardroomID, err = domain.ParseBoardroomID(boardroomID)
+	if err != nil {
+		return Conversation{}, err
+	}
+	item.LatestRunID, err = domain.ParseRunID(latestRunID)
+	if err != nil {
+		return Conversation{}, err
+	}
+	item.LatestStatus = domain.RunStatus(latestStatus)
+	return item, nil
+}
+
 func (s *Store) CreateRun(ctx context.Context, boardroomID domain.BoardroomID, userID, prompt string) (Run, error) {
-	return s.createRun(ctx, boardroomID, &userID, nil, prompt)
+	conversationID := domain.NewConversationID()
+	return s.createRun(ctx, boardroomID, conversationID, &userID, nil, conversationTitle(prompt), "user", nil, prompt, true)
 }
 
-func (s *Store) CreateScheduledRun(ctx context.Context, boardroomID domain.BoardroomID, workflowID, prompt string) (Run, error) {
-	return s.createRun(ctx, boardroomID, nil, &workflowID, prompt)
+func (s *Store) CreateFollowUpRun(ctx context.Context, conversationID domain.ConversationID, userID, prompt string) (Run, error) {
+	conversation, err := s.GetConversation(ctx, conversationID)
+	if err != nil {
+		return Run{}, err
+	}
+	return s.createRun(ctx, conversation.BoardroomID, conversationID, &userID, nil, "", "", nil, prompt, false)
 }
 
-func (s *Store) createRun(ctx context.Context, boardroomID domain.BoardroomID, userID, workflowID *string, prompt string) (Run, error) {
+func (s *Store) CreateScheduledRun(ctx context.Context, boardroomID domain.BoardroomID, workflowID, title, prompt, scheduleID string) (Run, error) {
+	conversationID := domain.NewConversationID()
+	var scheduleIDValue *string
+	if scheduleID != "" {
+		scheduleIDValue = &scheduleID
+	}
+	return s.createRun(ctx, boardroomID, conversationID, nil, &workflowID, title, "schedule", scheduleIDValue, prompt, true)
+}
+
+func (s *Store) createRun(
+	ctx context.Context,
+	boardroomID domain.BoardroomID,
+	conversationID domain.ConversationID,
+	userID, workflowID *string,
+	title, source string,
+	scheduleID *string,
+	prompt string,
+	createConversation bool,
+) (Run, error) {
 	boardroom, err := s.Get(ctx, boardroomID)
 	if err != nil {
 		return Run{}, err
@@ -195,16 +323,45 @@ func (s *Store) createRun(ctx context.Context, boardroomID domain.BoardroomID, u
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	run := Run{ID: runID, BoardroomID: boardroomID, Status: domain.RunPending, Prompt: prompt, MaxTurns: boardroom.MaxTurns}
+	if createConversation {
+		if strings.TrimSpace(title) == "" {
+			title = conversationTitle(prompt)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO conversations (id, boardroom_id, title, source, schedule_id, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`, conversationID.String(), boardroomID.String(), title, source, scheduleID, userID); err != nil {
+			return Run{}, fmt.Errorf("create conversation: %w", err)
+		}
+	} else {
+		var active bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM boardroom_runs
+				WHERE conversation_id = $1 AND status IN ('pending', 'preparing', 'running', 'awaiting_approval')
+			)
+		`, conversationID.String()).Scan(&active); err != nil {
+			return Run{}, fmt.Errorf("check active conversation run: %w", err)
+		}
+		if active {
+			return Run{}, ErrConversationBusy
+		}
+	}
+
+	run := Run{ID: runID, BoardroomID: boardroomID, ConversationID: conversationID, Status: domain.RunPending, Prompt: prompt, MaxTurns: boardroom.MaxTurns}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO boardroom_runs (id, boardroom_id, workflow_id, status, prompt, created_by, configuration_snapshot)
-		VALUES ($1, $2, $3, 'pending', $4, $5, jsonb_build_object('max_turns', $6::integer))
+		INSERT INTO boardroom_runs (id, boardroom_id, conversation_id, workflow_id, status, prompt, created_by, configuration_snapshot)
+		VALUES ($1, $2, $3, $4, 'pending', $5, $6, jsonb_build_object('max_turns', $7::integer))
 		ON CONFLICT (workflow_id) DO NOTHING
 		RETURNING created_at
-	`, runID.String(), boardroomID.String(), workflowID, prompt, userID, boardroom.MaxTurns).Scan(&run.CreatedAt); err != nil {
+	`, runID.String(), boardroomID.String(), conversationID.String(), workflowID, prompt, userID, boardroom.MaxTurns).Scan(&run.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && workflowID != nil {
 			_ = tx.Rollback(ctx)
 			return s.GetRunByWorkflowID(ctx, *workflowID)
+		}
+		var databaseError *pgconn.PgError
+		if errors.As(err, &databaseError) && databaseError.ConstraintName == "boardroom_runs_one_active_per_conversation_idx" {
+			return Run{}, ErrConversationBusy
 		}
 		return Run{}, fmt.Errorf("create run: %w", err)
 	}
@@ -221,21 +378,36 @@ func (s *Store) createRun(ctx context.Context, boardroomID domain.BoardroomID, u
 	`, runID.String(), payload); err != nil {
 		return Run{}, fmt.Errorf("create run event: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `UPDATE conversations SET updated_at = now() WHERE id = $1`, conversationID.String()); err != nil {
+		return Run{}, fmt.Errorf("update conversation activity: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Run{}, fmt.Errorf("commit run: %w", err)
 	}
 	return run, nil
 }
 
+func conversationTitle(prompt string) string {
+	value := strings.Join(strings.Fields(prompt), " ")
+	runes := []rune(value)
+	if len(runes) > 80 {
+		return string(runes[:77]) + "..."
+	}
+	if value == "" {
+		return "New conversation"
+	}
+	return value
+}
+
 func (s *Store) GetRunByWorkflowID(ctx context.Context, workflowID string) (Run, error) {
 	var run Run
-	var id, boardroomID, status string
+	var id, boardroomID, conversationID, status string
 	err := s.pool.QueryRow(ctx, `
-		SELECT id::text, boardroom_id::text, status, prompt, turn_count,
+		SELECT id::text, boardroom_id::text, conversation_id::text, status, prompt, turn_count,
 		       COALESCE(error, ''), created_at, started_at, completed_at,
 		       COALESCE((configuration_snapshot->>'max_turns')::integer, 6)
 		FROM boardroom_runs WHERE workflow_id = $1
-	`, workflowID).Scan(&id, &boardroomID, &status, &run.Prompt, &run.TurnCount, &run.Error,
+	`, workflowID).Scan(&id, &boardroomID, &conversationID, &status, &run.Prompt, &run.TurnCount, &run.Error,
 		&run.CreatedAt, &run.StartedAt, &run.CompletedAt, &run.MaxTurns)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, ErrRunNotFound
@@ -251,22 +423,26 @@ func (s *Store) GetRunByWorkflowID(ctx context.Context, workflowID string) (Run,
 	if err != nil {
 		return Run{}, err
 	}
+	run.ConversationID, err = domain.ParseConversationID(conversationID)
+	if err != nil {
+		return Run{}, err
+	}
 	run.Status = domain.RunStatus(status)
 	return run, nil
 }
 
 func (s *Store) GetRun(ctx context.Context, runID domain.RunID) (Run, error) {
 	var run Run
-	var id, boardroomID string
+	var id, boardroomID, conversationID string
 	err := s.pool.QueryRow(ctx, `
-		SELECT r.id::text, r.boardroom_id::text, r.status, r.prompt, r.turn_count,
+		SELECT r.id::text, r.boardroom_id::text, r.conversation_id::text, r.status, r.prompt, r.turn_count,
 		       COALESCE((r.configuration_snapshot->>'max_turns')::integer, b.max_turns),
 		       COALESCE(r.error, ''), r.created_at, r.started_at, r.completed_at
 		FROM boardroom_runs r
 		JOIN boardrooms b ON b.id = r.boardroom_id
 		WHERE r.id = $1
 	`, runID.String()).Scan(
-		&id, &boardroomID, &run.Status, &run.Prompt, &run.TurnCount, &run.MaxTurns,
+		&id, &boardroomID, &conversationID, &run.Status, &run.Prompt, &run.TurnCount, &run.MaxTurns,
 		&run.Error, &run.CreatedAt, &run.StartedAt, &run.CompletedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -280,6 +456,10 @@ func (s *Store) GetRun(ctx context.Context, runID domain.RunID) (Run, error) {
 		return Run{}, err
 	}
 	run.BoardroomID, err = domain.ParseBoardroomID(boardroomID)
+	if err != nil {
+		return Run{}, err
+	}
+	run.ConversationID, err = domain.ParseConversationID(conversationID)
 	return run, err
 }
 
@@ -287,8 +467,16 @@ func (s *Store) Messages(ctx context.Context, runID domain.RunID) ([]Message, er
 	return queryMessages(ctx, s.pool, runID)
 }
 
+func (s *Store) ConversationMessages(ctx context.Context, conversationID domain.ConversationID) ([]Message, error) {
+	return queryConversationMessages(ctx, s.pool, conversationID)
+}
+
 type queryer interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+type rowScanner interface {
+	Scan(...any) error
 }
 
 func queryMessages(ctx context.Context, source queryer, runID domain.RunID) ([]Message, error) {
@@ -329,13 +517,51 @@ func queryMessages(ctx context.Context, source queryer, runID domain.RunID) ([]M
 	return result, rows.Err()
 }
 
-func (s *Store) MessagesSnapshot(ctx context.Context, runID domain.RunID) ([]Message, int64, error) {
+func queryConversationMessages(ctx context.Context, source queryer, conversationID domain.ConversationID) ([]Message, error) {
+	rows, err := source.Query(ctx, `
+		SELECT m.id::text, m.run_id::text, m.persona_id::text, COALESCE(p.name, ''), COALESCE(p.role, ''),
+		       m.role, m.body, m.sequence, m.created_at
+		FROM boardroom_messages m
+		JOIN boardroom_runs r ON r.id = m.run_id
+		LEFT JOIN personas p ON p.id = m.persona_id
+		WHERE r.conversation_id = $1
+		ORDER BY r.created_at, m.sequence
+	`, conversationID.String())
+	if err != nil {
+		return nil, fmt.Errorf("list conversation messages: %w", err)
+	}
+	defer rows.Close()
+	var result []Message
+	for rows.Next() {
+		var item Message
+		var runIDText string
+		var personaID *string
+		if err := rows.Scan(&item.ID, &runIDText, &personaID, &item.PersonaName, &item.PersonaRole, &item.Role, &item.Body, &item.Sequence, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan conversation message: %w", err)
+		}
+		item.RunID, err = domain.ParseRunID(runIDText)
+		if err != nil {
+			return nil, err
+		}
+		if personaID != nil {
+			parsed, parseErr := domain.ParsePersonaID(*personaID)
+			if parseErr != nil {
+				return nil, parseErr
+			}
+			item.PersonaID = &parsed
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) MessagesSnapshot(ctx context.Context, conversationID domain.ConversationID, runID domain.RunID) ([]Message, int64, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return nil, 0, fmt.Errorf("begin message snapshot: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	messages, err := queryMessages(ctx, tx, runID)
+	messages, err := queryConversationMessages(ctx, tx, conversationID)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -365,7 +591,13 @@ func (s *Store) SetRunStatus(ctx context.Context, runID domain.RunID, status dom
 		return ErrRunNotFound
 	}
 	payload, _ := json.Marshal(map[string]any{"status": status, "error": runError})
-	_, err = s.pool.Exec(ctx, `INSERT INTO boardroom_events (run_id, event_type, payload) VALUES ($1, 'run.status', $2)`, runID.String(), payload)
+	if _, err = s.pool.Exec(ctx, `INSERT INTO boardroom_events (run_id, event_type, payload) VALUES ($1, 'run.status', $2)`, runID.String(), payload); err != nil {
+		return err
+	}
+	_, err = s.pool.Exec(ctx, `
+		UPDATE conversations SET updated_at = now()
+		WHERE id = (SELECT conversation_id FROM boardroom_runs WHERE id = $1)
+	`, runID.String())
 	return err
 }
 
@@ -397,6 +629,12 @@ func (s *Store) AppendAgentMessage(ctx context.Context, runID domain.RunID, pers
 	}
 	if _, err := tx.Exec(ctx, `UPDATE boardroom_runs SET turn_count = turn_count + 1 WHERE id = $1`, runID.String()); err != nil {
 		return Message{}, fmt.Errorf("increment turn count: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE conversations SET updated_at = now()
+		WHERE id = (SELECT conversation_id FROM boardroom_runs WHERE id = $1)
+	`, runID.String()); err != nil {
+		return Message{}, fmt.Errorf("update conversation activity: %w", err)
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"message_id": message.ID, "sequence": message.Sequence, "persona_name": message.PersonaName,

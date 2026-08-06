@@ -53,6 +53,45 @@ type RunView struct {
 	Error       string
 }
 
+type ConversationView struct {
+	ID           string
+	Title        string
+	Source       string
+	LatestStatus string
+	LatestPrompt string
+	MessageCount int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+func RunIsTerminal(status string) bool {
+	return status == "completed" || status == "failed" || status == "canceled"
+}
+
+func RunStatusLabel(status string) string {
+	switch status {
+	case "completed":
+		return "Ready"
+	case "pending", "preparing", "running":
+		return "Working"
+	case "awaiting_approval":
+		return "Needs approval"
+	case "failed":
+		return "Needs attention"
+	case "canceled":
+		return "Canceled"
+	default:
+		return status
+	}
+}
+
+func ConversationSourceLabel(source string) string {
+	if source == "schedule" {
+		return "Scheduled"
+	}
+	return "Owner"
+}
+
 type MessageView struct {
 	ID          string
 	PersonaName string

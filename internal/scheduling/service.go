@@ -90,9 +90,12 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Schedule, erro
 		ID:   item.TemporalScheduleID,
 		Spec: temporalSpec,
 		Action: &client.ScheduleWorkflowAction{
-			ID:        item.TemporalScheduleID + ":run",
-			Workflow:  orchestration.BoardroomWorkflowName,
-			Args:      []interface{}{orchestration.BoardroomWorkflowInput{TenantID: s.tenantID.String(), BoardroomID: input.BoardroomID.String(), Prompt: input.Prompt}},
+			ID:       item.TemporalScheduleID + ":run",
+			Workflow: orchestration.BoardroomWorkflowName,
+			Args: []interface{}{orchestration.BoardroomWorkflowInput{
+				TenantID: s.tenantID.String(), BoardroomID: input.BoardroomID.String(), Prompt: input.Prompt,
+				ConversationTitle: input.Name, ScheduleID: item.ID, ScheduleTimeZone: input.TimeZone,
+			}},
 			TaskQueue: s.taskQueue,
 		},
 		Overlap:        enumspb.SCHEDULE_OVERLAP_POLICY_SKIP,

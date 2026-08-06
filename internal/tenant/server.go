@@ -99,7 +99,10 @@ func (s *Server) Handler() http.Handler {
 			router.Use(s.requireAuthentication)
 			router.Get("/", s.dashboard)
 			router.Get("/boardrooms/{boardroomID}", s.boardroomPage)
+			router.Post("/boardrooms/{boardroomID}/conversations", s.requireCSRF(s.createRun))
 			router.Post("/boardrooms/{boardroomID}/runs", s.requireCSRF(s.createRun))
+			router.Get("/conversations/{conversationID}", s.conversationPage)
+			router.Post("/conversations/{conversationID}/runs", s.requireCSRF(s.createFollowUp))
 			router.Get("/runs/{runID}", s.runPage)
 			router.Get("/runs/{runID}/events", s.runEvents)
 			router.Get("/schedules", s.schedulesPage)
@@ -317,8 +320,13 @@ func (s *Server) boardroomPage(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, http.StatusInternalServerError, "Boardroom personas could not be loaded.")
 		return
 	}
+	conversations, err := s.boardrooms.ListConversations(r.Context(), roomID, 50)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Boardroom conversations could not be loaded.")
+		return
+	}
 	s.render(w, http.StatusOK, components.BoardroomPage(
-		s.config.TenantName, userView(session.User), boardroomView(room), personaViews(personas), nil, nil, s.csrfToken(session),
+		s.config.TenantName, userView(session.User), boardroomView(room), personaViews(personas), conversationViews(conversations), s.csrfToken(session),
 	))
 }
 
@@ -345,7 +353,84 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, http.StatusServiceUnavailable, "The boardroom could not be started. Please try again.")
 		return
 	}
-	http.Redirect(w, r, "/runs/"+run.ID.String(), http.StatusSeeOther)
+	http.Redirect(w, r, "/conversations/"+run.ConversationID.String(), http.StatusSeeOther)
+}
+
+func (s *Server) conversationPage(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	conversationID, err := domain.ParseConversationID(chi.URLParam(r, "conversationID"))
+	if err != nil {
+		s.renderError(w, http.StatusNotFound, "Conversation was not found.")
+		return
+	}
+	conversation, err := s.boardrooms.GetConversation(r.Context(), conversationID)
+	if errors.Is(err, boardroom.ErrConversationNotFound) {
+		s.renderError(w, http.StatusNotFound, "Conversation was not found.")
+		return
+	}
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Conversation could not be loaded.")
+		return
+	}
+	run, err := s.boardrooms.GetRun(r.Context(), conversation.LatestRunID)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Conversation activity could not be loaded.")
+		return
+	}
+	room, err := s.boardrooms.Get(r.Context(), conversation.BoardroomID)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Boardroom could not be loaded.")
+		return
+	}
+	personas, err := s.boardrooms.Personas(r.Context(), conversation.BoardroomID)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Boardroom personas could not be loaded.")
+		return
+	}
+	messages, cursor, err := s.boardrooms.MessagesSnapshot(r.Context(), conversation.ID, run.ID)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Conversation messages could not be loaded.")
+		return
+	}
+	runView := componentRun(run, cursor)
+	s.render(w, http.StatusOK, components.ConversationPage(
+		s.config.TenantName, userView(session.User), boardroomView(room), personaViews(personas),
+		conversationView(conversation), runView, messageViews(messages), s.csrfToken(session),
+	))
+}
+
+func (s *Server) createFollowUp(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	conversationID, err := domain.ParseConversationID(chi.URLParam(r, "conversationID"))
+	if err != nil {
+		s.renderError(w, http.StatusNotFound, "Conversation was not found.")
+		return
+	}
+	prompt := strings.TrimSpace(r.FormValue("prompt"))
+	if prompt == "" || len(prompt) > 12000 {
+		s.renderError(w, http.StatusBadRequest, "The follow-up must contain between 1 and 12,000 characters.")
+		return
+	}
+	run, err := s.boardrooms.CreateFollowUpRun(r.Context(), conversationID, session.User.ID, prompt)
+	if errors.Is(err, boardroom.ErrConversationBusy) {
+		http.Redirect(w, r, "/conversations/"+conversationID.String(), http.StatusSeeOther)
+		return
+	}
+	if errors.Is(err, boardroom.ErrConversationNotFound) {
+		s.renderError(w, http.StatusNotFound, "Conversation was not found.")
+		return
+	}
+	if err != nil {
+		s.renderError(w, http.StatusBadRequest, "The follow-up could not be added.")
+		return
+	}
+	if err := s.dispatcher.Dispatch(r.Context(), run.ID); err != nil {
+		_ = s.boardrooms.SetRunStatus(r.Context(), run.ID, domain.RunFailed, "The durable workflow could not be started.")
+		s.logger.Error("dispatch conversation follow-up", "run_id", run.ID.String(), "error", err)
+		s.renderError(w, http.StatusServiceUnavailable, "The boardroom could not be started. Please try again.")
+		return
+	}
+	http.Redirect(w, r, "/conversations/"+conversationID.String(), http.StatusSeeOther)
 }
 
 func (s *Server) schedulesPage(w http.ResponseWriter, r *http.Request) {
@@ -510,7 +595,6 @@ func scheduleAdmin(ctx context.Context) bool {
 }
 
 func (s *Server) runPage(w http.ResponseWriter, r *http.Request) {
-	session, _ := sessionFromContext(r.Context())
 	runID, err := domain.ParseRunID(chi.URLParam(r, "runID"))
 	if err != nil {
 		s.renderError(w, http.StatusNotFound, "Boardroom run was not found.")
@@ -525,25 +609,7 @@ func (s *Server) runPage(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, http.StatusInternalServerError, "Boardroom run could not be loaded.")
 		return
 	}
-	room, err := s.boardrooms.Get(r.Context(), run.BoardroomID)
-	if err != nil {
-		s.renderError(w, http.StatusInternalServerError, "Boardroom could not be loaded.")
-		return
-	}
-	personas, err := s.boardrooms.Personas(r.Context(), run.BoardroomID)
-	if err != nil {
-		s.renderError(w, http.StatusInternalServerError, "Boardroom personas could not be loaded.")
-		return
-	}
-	messages, cursor, err := s.boardrooms.MessagesSnapshot(r.Context(), run.ID)
-	if err != nil {
-		s.renderError(w, http.StatusInternalServerError, "Boardroom messages could not be loaded.")
-		return
-	}
-	runView := componentRun(run, cursor)
-	s.render(w, http.StatusOK, components.BoardroomPage(
-		s.config.TenantName, userView(session.User), boardroomView(room), personaViews(personas), &runView, messageViews(messages), s.csrfToken(session),
-	))
+	http.Redirect(w, r, "/conversations/"+run.ConversationID.String(), http.StatusSeeOther)
 }
 
 func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
@@ -579,7 +645,18 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if terminal {
-			writeSSE(w, after, "finished", "done")
+			run, runErr := s.boardrooms.GetRun(r.Context(), runID)
+			session, hasSession := sessionFromContext(r.Context())
+			if runErr == nil && hasSession {
+				fragment, renderErr := renderString(components.FollowUpForm(run.ConversationID.String(), s.csrfToken(session)))
+				if renderErr == nil {
+					writeSSE(w, after, "finished", fragment)
+				} else {
+					writeSSE(w, after, "finished", "")
+				}
+			} else {
+				writeSSE(w, after, "finished", "")
+			}
 			_ = controller.Flush()
 			return
 		}
@@ -642,6 +719,13 @@ func (s *Server) writePendingEvents(ctx context.Context, w http.ResponseWriter, 
 			writeSSE(w, event.ID, "status", fragment)
 			terminal = run.Status == domain.RunCompleted || run.Status == domain.RunFailed || run.Status == domain.RunCanceled
 		}
+	}
+	if !terminal {
+		run, err := s.boardrooms.GetRun(ctx, runID)
+		if err != nil {
+			return false, err
+		}
+		terminal = run.Status == domain.RunCompleted || run.Status == domain.RunFailed || run.Status == domain.RunCanceled
 	}
 	return terminal, nil
 }
@@ -745,6 +829,21 @@ func boardroomViews(rooms []boardroom.Summary) []components.BoardroomCardView {
 	result := make([]components.BoardroomCardView, 0, len(rooms))
 	for _, room := range rooms {
 		result = append(result, boardroomView(room))
+	}
+	return result
+}
+
+func conversationView(item boardroom.Conversation) components.ConversationView {
+	return components.ConversationView{
+		ID: item.ID.String(), Title: item.Title, Source: item.Source, LatestStatus: string(item.LatestStatus),
+		LatestPrompt: item.LatestPrompt, MessageCount: item.MessageCount, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+	}
+}
+
+func conversationViews(items []boardroom.Conversation) []components.ConversationView {
+	result := make([]components.ConversationView, 0, len(items))
+	for _, item := range items {
+		result = append(result, conversationView(item))
 	}
 	return result
 }

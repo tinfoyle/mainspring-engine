@@ -50,11 +50,11 @@ if [[ "$run_status" != "303" ]]; then
   sed -n '1,12p' "$page" >&2
   exit 1
 fi
-run_path="$(awk 'BEGIN { IGNORECASE=1 } /^location:/ { gsub("\\r", "", $2); print $2 }' "$headers" | tail -n 1)"
-[[ "$run_path" =~ ^/runs/[0-9a-f-]+$ ]]
+conversation_path="$(awk 'BEGIN { IGNORECASE=1 } /^location:/ { gsub("\\r", "", $2); print $2 }' "$headers" | tail -n 1)"
+[[ "$conversation_path" =~ ^/conversations/[0-9a-f-]+$ ]]
 
 for _ in $(seq 1 20); do
-  request --cookie "$cookies" --output "$page" "$base_url$run_path"
+  request --cookie "$cookies" --output "$page" "$base_url$conversation_path"
   if grep -q 'run-status-completed' "$page"; then
     break
   fi
@@ -62,11 +62,35 @@ for _ in $(seq 1 20); do
 done
 
 grep -q 'run-status-completed' "$page"
-message_count="$(grep -o 'data-sequence=' "$page" | wc -l | tr -d ' ')"
+message_count="$(grep -o 'data-message-id=' "$page" | wc -l | tr -d ' ')"
 [[ "$message_count" -ge 4 ]]
+run_path="$(grep -oE '/runs/[0-9a-f-]+/events' "$page" | head -n 1 | sed 's#/events$##')"
+[[ "$run_path" =~ ^/runs/[0-9a-f-]+$ ]]
 
 request --cookie "$cookies" --output "$events" "$base_url$run_path/events?after=0"
 grep -q '^event: finished' "$events"
+
+follow_up_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$cookies" \
+  --dump-header "$headers" --output "$page" --write-out '%{http_code}' \
+  --data-urlencode "csrf_token=$csrf_token" \
+  --data-urlencode "prompt=Which risk should I handle first, and why?" \
+  "$base_url$conversation_path/runs")"
+[[ "$follow_up_status" == "303" ]]
+follow_up_location="$(awk 'BEGIN { IGNORECASE=1 } /^location:/ { gsub("\\r", "", $2); print $2 }' "$headers" | tail -n 1)"
+[[ "$follow_up_location" == "$conversation_path" ]]
+
+for _ in $(seq 1 20); do
+  request --cookie "$cookies" --output "$page" "$base_url$conversation_path"
+  message_count="$(grep -o 'data-message-id=' "$page" | wc -l | tr -d ' ')"
+  if grep -q 'run-status-completed' "$page" && [[ "$message_count" -ge 8 ]]; then
+    break
+  fi
+  sleep 0.25
+done
+
+grep -q 'Which risk should I handle first, and why?' "$page"
+grep -q 'run-status-completed' "$page"
+[[ "$message_count" -ge 8 ]]
 
 request --cookie "$cookies" --output "$page" "$base_url/schedules"
 schedule_name="Smoke schedule $(date +%s)"
@@ -87,7 +111,23 @@ grep -q "$schedule_name" "$page"
 schedule_id="$(grep -oE '/schedules/[0-9a-f-]+/trigger' "$page" | head -n 1 | cut -d/ -f3)"
 [[ -n "$schedule_id" ]]
 
-for action in trigger pause delete; do
+trigger_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$cookies" \
+  --output "$page" --write-out '%{http_code}' \
+  --data-urlencode "csrf_token=$csrf_token" \
+  "$base_url/schedules/$schedule_id/trigger")"
+[[ "$trigger_status" == "303" ]]
+
+for _ in $(seq 1 20); do
+  request --cookie "$cookies" --output "$page" "$base_url$room_path"
+  if grep -q "$schedule_name" "$page"; then
+    break
+  fi
+  sleep 0.25
+done
+grep -q "$schedule_name" "$page"
+grep -q "$(date '+%B %-d, %Y')" "$page"
+
+for action in pause delete; do
   extra_args=()
   if [[ "$action" == "pause" ]]; then
     extra_args+=(--data-urlencode "paused=true")
@@ -105,4 +145,4 @@ if grep -q "$schedule_name" "$page"; then
   exit 1
 fi
 
-printf 'Mainspring smoke test passed: routing, auth, durable boardroom run, %s messages, SSE replay, and schedule lifecycle.\n' "$message_count"
+printf 'Mainspring smoke test passed: routing, auth, persistent follow-up conversation, %s messages across two durable runs, SSE replay, and schedule lifecycle.\n' "$message_count"

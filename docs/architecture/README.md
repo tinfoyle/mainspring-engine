@@ -105,18 +105,25 @@ Billing provider confirms purchase
   -> tenant is marked ready
 ```
 
-### Boardroom run
+### Boardroom conversation and run
 
 ```text
-User or schedule requests a run
-  -> application creates a BoardroomRun
+User starts a conversation, follows up, or a schedule fires
+  -> application creates or selects the persistent Conversation
+  -> application creates one durable BoardroomRun for this round
   -> Temporal starts the versioned boardroom workflow
   -> application selects the next persona
-  -> provider adapter performs one bounded agent invocation
+  -> provider adapter receives the conversation history and performs one bounded invocation
   -> tool calls pass through the tool broker
   -> results and audit events are persisted
-  -> application advances, waits for approval, or completes
+  -> application advances, waits for approval, or marks the round ready for follow-up
 ```
+
+A boardroom is the long-lived team and workspace. A conversation is a continuing job,
+question, or issue within that workspace. A run is one durable round of persona turns.
+Recurring schedules create a new, dated conversation for each occurrence so reports do
+not blend into one endless transcript. Historical `/runs/{id}` links resolve to the
+conversation that owns the run.
 
 ### Tenant request
 
@@ -224,4 +231,3 @@ docs/
 - Model credential ownership, quotas, and customer usage limits
 - Criteria for moving a tenant to dedicated database infrastructure
 - Kubernetes distribution and cluster topology after MVP validation
-

@@ -6,7 +6,7 @@ The application owns orchestration. Agent providers perform bounded turns and ar
 
 ## Current implementation status
 
-This repository is under active MVP development. The architecture is recorded in [docs/architecture/README.md](docs/architecture/README.md). The current vertical slice includes tenant registration and hostname routing, separate tenant authentication, seeded boardroom personas, durable Temporal runs, SSE conversation updates, recurring interval/cron schedules, signed persona capabilities, and an idempotent external-action ledger.
+This repository is under active MVP development. The architecture is recorded in [docs/architecture/README.md](docs/architecture/README.md). The current vertical slice includes tenant registration and hostname routing, separate tenant authentication, seeded boardroom personas, persistent multi-run conversations with follow-ups, durable Temporal runs, SSE conversation updates, recurring interval/cron schedules that open dated conversations, signed persona capabilities, and an idempotent external-action ledger.
 
 ## Development prerequisites
 

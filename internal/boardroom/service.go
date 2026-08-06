@@ -24,8 +24,8 @@ func NewService(logger *slog.Logger, store *Store, provider agent.Provider, tena
 	return &Service{logger: logger, store: store, provider: provider, tenantID: tenantID, timeout: timeout, issuer: issuer}
 }
 
-func (s *Service) CreateScheduledRun(ctx context.Context, boardroomID domain.BoardroomID, workflowID, prompt string) (Run, error) {
-	return s.store.CreateScheduledRun(ctx, boardroomID, workflowID, prompt)
+func (s *Service) CreateScheduledRun(ctx context.Context, boardroomID domain.BoardroomID, workflowID, title, prompt, scheduleID string) (Run, error) {
+	return s.store.CreateScheduledRun(ctx, boardroomID, workflowID, title, prompt, scheduleID)
 }
 
 // ExecuteRun is application-owned orchestration for the local MVP path. Temporal
@@ -70,7 +70,7 @@ func (s *Service) ExecuteRun(ctx context.Context, runID domain.RunID) error {
 
 	for index := completedTurns; index < turnLimit; index++ {
 		persona := personas[index]
-		messages, err := s.store.Messages(ctx, runID)
+		messages, err := s.store.ConversationMessages(ctx, run.ConversationID)
 		if err != nil {
 			return s.fail(ctx, runID, err)
 		}

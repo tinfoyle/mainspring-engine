@@ -70,7 +70,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 
 .boardroom-layout { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 22px; align-items: start; }
 .boardroom-sidebar { padding: 24px; position: sticky; top: 105px; }
-.boardroom-sidebar h1 { font-size: 2rem; margin-bottom: 12px; }
+.boardroom-sidebar h1, .boardroom-sidebar h2 { font-size: 2rem; margin-bottom: 12px; }
 .boardroom-sidebar > p:not(.eyebrow) { color: var(--muted); }
 .back-link { display: inline-block; margin-bottom: 30px; color: var(--green); font-size: .88rem; font-weight: 800; text-decoration: none; }
 .persona-list { display: grid; gap: 13px; margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--line); }
@@ -87,6 +87,21 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .prompt-form { border-top: 1px solid var(--line); padding-top: 25px; display: grid; gap: 12px; }
 .prompt-form textarea { resize: vertical; min-height: 120px; }
 .prompt-form .button { justify-self: end; }
+.prompt-form-new { border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 28px; background: #fff; }
+.conversation-list-header h2 { margin-bottom: 6px; }
+.conversation-list-header > div > p:last-child, .conversation-meta { color: var(--muted); }
+.conversation-list { display: grid; gap: 13px; }
+.conversation-card { display: block; border: 1px solid var(--line); border-radius: 14px; padding: 19px; background: #fff; text-decoration: none; transition: transform .15s ease, box-shadow .15s ease; }
+.conversation-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.conversation-card h3 { font-family: inherit; font-size: 1.08rem; margin: 7px 0 5px; }
+.conversation-card p { margin: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conversation-card footer { display: flex; align-items: center; gap: 14px; margin-top: 14px; color: var(--muted); font-size: .8rem; }
+.conversation-source { color: var(--green); font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; }
+.conversation-state { margin-left: auto; color: var(--green); font-weight: 800; }
+.conversation-state-running, .conversation-state-pending, .conversation-state-preparing { color: var(--gold); }
+.conversation-state-failed { color: var(--red); }
+.conversation-title { font-family: inherit; font-size: clamp(1.35rem, 3vw, 2rem); margin-bottom: 7px; line-height: 1.25; }
+.conversation-meta { margin: 0; font-size: .85rem; text-transform: capitalize; }
 .run-header { display: flex; justify-content: space-between; gap: 25px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
 .run-header h2 { font-family: inherit; font-size: 1.15rem; max-width: 700px; margin-bottom: 0; line-height: 1.5; }
 .run-status { display: inline-flex; align-items: center; gap: 7px; height: fit-content; border-radius: 100px; padding: 8px 11px; background: #f0eee7; color: var(--muted); text-transform: capitalize; white-space: nowrap; }
@@ -105,6 +120,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 .message header time { margin-left: auto; }
 .message p { white-space: pre-wrap; margin: 0; }
 #live-status { margin-top: 20px; }
+.follow-up-ready { margin-top: 28px; border-radius: 12px; background: var(--green-pale); padding: 15px 17px; color: var(--green-dark); }
+.follow-up-ready p { margin: 0; }
+.follow-up-ready p + p { margin-top: 3px; color: var(--muted); font-size: .9rem; }
+.follow-up-form { margin-top: 14px; }
 
 .hero-compact { padding-bottom: 35px; }
 .schedule-layout { display: grid; grid-template-columns: minmax(320px, 440px) minmax(0, 1fr); gap: 24px; align-items: start; }

@@ -8,17 +8,19 @@ import (
 
 type TenantID uuid.UUID
 type BoardroomID uuid.UUID
+type ConversationID uuid.UUID
 type PersonaID uuid.UUID
 type RunID uuid.UUID
 type InvocationID uuid.UUID
 type ActionID uuid.UUID
 
-func NewTenantID() TenantID         { return TenantID(uuid.New()) }
-func NewBoardroomID() BoardroomID   { return BoardroomID(uuid.New()) }
-func NewPersonaID() PersonaID       { return PersonaID(uuid.New()) }
-func NewRunID() RunID               { return RunID(uuid.New()) }
-func NewInvocationID() InvocationID { return InvocationID(uuid.New()) }
-func NewActionID() ActionID         { return ActionID(uuid.New()) }
+func NewTenantID() TenantID             { return TenantID(uuid.New()) }
+func NewBoardroomID() BoardroomID       { return BoardroomID(uuid.New()) }
+func NewConversationID() ConversationID { return ConversationID(uuid.New()) }
+func NewPersonaID() PersonaID           { return PersonaID(uuid.New()) }
+func NewRunID() RunID                   { return RunID(uuid.New()) }
+func NewInvocationID() InvocationID     { return InvocationID(uuid.New()) }
+func NewActionID() ActionID             { return ActionID(uuid.New()) }
 
 func ParseTenantID(value string) (TenantID, error) {
 	id, err := uuid.Parse(value)
@@ -34,6 +36,14 @@ func ParseBoardroomID(value string) (BoardroomID, error) {
 		return BoardroomID{}, fmt.Errorf("parse boardroom id: %w", err)
 	}
 	return BoardroomID(id), nil
+}
+
+func ParseConversationID(value string) (ConversationID, error) {
+	id, err := uuid.Parse(value)
+	if err != nil {
+		return ConversationID{}, fmt.Errorf("parse conversation id: %w", err)
+	}
+	return ConversationID(id), nil
 }
 
 func ParsePersonaID(value string) (PersonaID, error) {
@@ -68,9 +78,10 @@ func ParseActionID(value string) (ActionID, error) {
 	return ActionID(id), nil
 }
 
-func (id TenantID) String() string     { return uuid.UUID(id).String() }
-func (id BoardroomID) String() string  { return uuid.UUID(id).String() }
-func (id PersonaID) String() string    { return uuid.UUID(id).String() }
-func (id RunID) String() string        { return uuid.UUID(id).String() }
-func (id InvocationID) String() string { return uuid.UUID(id).String() }
-func (id ActionID) String() string     { return uuid.UUID(id).String() }
+func (id TenantID) String() string       { return uuid.UUID(id).String() }
+func (id BoardroomID) String() string    { return uuid.UUID(id).String() }
+func (id ConversationID) String() string { return uuid.UUID(id).String() }
+func (id PersonaID) String() string      { return uuid.UUID(id).String() }
+func (id RunID) String() string          { return uuid.UUID(id).String() }
+func (id InvocationID) String() string   { return uuid.UUID(id).String() }
+func (id ActionID) String() string       { return uuid.UUID(id).String() }

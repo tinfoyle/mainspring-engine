@@ -26,10 +26,13 @@ const (
 )
 
 type BoardroomWorkflowInput struct {
-	TenantID    string
-	RunID       string
-	BoardroomID string
-	Prompt      string
+	TenantID          string
+	RunID             string
+	BoardroomID       string
+	Prompt            string
+	ConversationTitle string
+	ScheduleID        string
+	ScheduleTimeZone  string
 }
 
 // BoardroomWorkflow deliberately contains only deterministic coordination.
@@ -86,7 +89,15 @@ func (a *Activities) CreateScheduledRun(ctx context.Context, input BoardroomWork
 		return "", temporal.NewNonRetryableApplicationError("scheduled prompt is empty", "invalid_prompt", nil)
 	}
 	workflowID := activity.GetInfo(ctx).WorkflowExecution.ID
-	run, err := a.service.CreateScheduledRun(ctx, boardroomID, workflowID, input.Prompt)
+	title := input.ConversationTitle
+	location, locationErr := time.LoadLocation(input.ScheduleTimeZone)
+	if locationErr != nil {
+		location = time.UTC
+	}
+	if title != "" {
+		title += " — " + time.Now().In(location).Format("January 2, 2006")
+	}
+	run, err := a.service.CreateScheduledRun(ctx, boardroomID, workflowID, title, input.Prompt, input.ScheduleID)
 	if err != nil {
 		return "", err
 	}
