@@ -15,11 +15,15 @@ const (
 	OnboardingNotStarted = "not_started"
 	OnboardingInProgress = "in_progress"
 	OnboardingCompleted  = "completed"
+
+	BusinessStageOperating = "operating"
+	BusinessStageStarting  = "starting"
 )
 
 var ErrOnboardingNotFound = errors.New("tenant onboarding was not found")
 
 type BusinessProfile struct {
+	Stage            string   `json:"stage"`
 	BusinessName     string   `json:"business_name"`
 	WebsiteURL       string   `json:"website_url"`
 	Trade            string   `json:"trade"`
@@ -31,6 +35,17 @@ type BusinessProfile struct {
 	WorkingHours     string   `json:"working_hours"`
 	EmergencyService bool     `json:"emergency_service"`
 	CurrentSystems   []string `json:"current_systems"`
+}
+
+func NormalizeBusinessStage(value string) string {
+	if strings.EqualFold(strings.TrimSpace(value), BusinessStageStarting) {
+		return BusinessStageStarting
+	}
+	return BusinessStageOperating
+}
+
+func (profile BusinessProfile) IsStarting() bool {
+	return NormalizeBusinessStage(profile.Stage) == BusinessStageStarting
 }
 
 type OperatingPlaybook struct {
@@ -113,13 +128,13 @@ func GenerateBlueprintForTemplate(state Onboarding, template BusinessTemplate) B
 		if strings.TrimSpace(state.Business.Trade) == "" {
 			trade = "software or managed services"
 		}
-		return BoardroomBlueprint{
+		return specializeBlueprintForBusinessStage(BoardroomBlueprint{
 			Name:        "Company Operating Room",
 			Description: fmt.Sprintf("The cross-functional operating team for %s, a %s business serving %s.", businessName, trade, fallback(state.Business.ServiceArea, "its target market")),
 			Personas:    softwarePersonaBlueprints(state),
-		}
+		}, state, template)
 	}
-	return BoardroomBlueprint{
+	return specializeBlueprintForBusinessStage(BoardroomBlueprint{
 		Name:        "Back Office",
 		Description: fmt.Sprintf("The operational back office for %s, a %s business serving %s.", businessName, trade, fallback(state.Business.ServiceArea, "its local service area")),
 		Personas: []PersonaBlueprint{
@@ -181,7 +196,70 @@ func GenerateBlueprintForTemplate(state Onboarding, template BusinessTemplate) B
 				Capabilities: []string{"Research vendors", "Read bills and documents", "Propose payments", "Create internal tasks"},
 			},
 		},
+	}, state, template)
+}
+
+func specializeBlueprintForBusinessStage(blueprint BoardroomBlueprint, state Onboarding, template BusinessTemplate) BoardroomBlueprint {
+	if !state.Business.IsStarting() {
+		return blueprint
 	}
+	blueprint.Name = "Launch Room"
+	blueprint.Description = fmt.Sprintf(
+		"The planning and launch team for %s, a new %s business being built for %s.",
+		fallback(state.Business.BusinessName, "your business"), fallback(state.Business.Trade, "small business"),
+		fallback(state.Business.ServiceArea, "its first customers"),
+	)
+	for index := range blueprint.Personas {
+		persona := &blueprint.Personas[index]
+		persona.Enabled = false
+		if template.IsSoftware() {
+			switch persona.Key {
+			case "software_ops_manager":
+				persona.Role = "Startup Operations Lead"
+				persona.Mission = "Turn the founder's assumptions into a sequenced launch plan, surface dependencies, and keep the smallest useful operating system moving."
+				persona.Enabled = true
+			case "revenue_analyst":
+				persona.Role = "Startup Finance & Revenue Planner"
+				persona.Mission = "Model runway, pricing, recurring revenue, startup costs, and cash risks without moving money or presenting assumptions as facts."
+				persona.Enabled = true
+			case "customer_success":
+				persona.Mission = "Design a practical first-customer onboarding and support motion before volume makes gaps expensive."
+				persona.Enabled = hasPriority(state.Priorities, "Design sales and first-customer onboarding")
+			case "product_manager":
+				persona.Role = "Product & Market Strategist"
+				persona.Mission = "Test the problem, ideal customer, product scope, and launch evidence before the founder commits to a large build."
+				persona.Enabled = true
+			case "growth_marketer", "website_advisor":
+				persona.Enabled = hasPriority(state.Priorities, "Build the website and go-to-market plan")
+			case "security_advisor":
+				persona.Enabled = hasPriority(state.Priorities, "Set up legal, security, privacy, and compliance")
+			}
+			continue
+		}
+		switch persona.Key {
+		case "office_manager":
+			persona.Role = "Business Launch Coordinator"
+			persona.Mission = "Turn the owner's idea into a sequenced launch checklist covering registrations, insurance, systems, vendors, and the first operating routines."
+			persona.Enabled = true
+		case "bookkeeper":
+			persona.Role = "Startup Finance Planner"
+			persona.Mission = "Model startup costs, pricing, margins, cash needs, and bookkeeping setup without moving money or treating estimates as settled facts."
+			persona.Enabled = true
+		case "dispatcher":
+			persona.Mission = "Design a simple first scheduling and dispatch process before the business has enough work for exceptions to become chaos."
+		case "business_developer":
+			persona.Role = "Market & Customer Developer"
+			persona.Mission = "Validate the target customer, demand, offer, and first sales motion through evidence and bounded outreach preparation."
+			persona.Enabled = true
+		case "legal_advisor":
+			persona.Enabled = hasPriority(state.Priorities, "Set up licensing, insurance, legal, and compliance")
+		case "estimator":
+			persona.Enabled = hasPriority(state.Priorities, "Define offers, pricing, and target margins")
+		case "website_advisor":
+			persona.Enabled = hasPriority(state.Priorities, "Plan the website and launch marketing")
+		}
+	}
+	return blueprint
 }
 
 func hasPriority(priorities []string, target string) bool {
@@ -611,10 +689,15 @@ func personalizedInstructions(persona PersonaBlueprint, state Onboarding) string
 }
 
 func personalizedInstructionsForTemplate(persona PersonaBlueprint, state Onboarding, template BusinessTemplate) string {
+	stageGuidance := "The business is operating today; distinguish documented facts from missing information."
+	if state.Business.IsStarting() {
+		stageGuidance = "This business is pre-launch. Treat every process, forecast, customer, price, and timeline as a hypothesis until the owner validates it. Do not invent current operations or imply that plans have already happened."
+	}
 	if template.IsSoftware() {
 		return fmt.Sprintf(
-			"%s\n\nCompany context: %s is a %s software or IT services business serving %s. Website: %s. Products and services: %s. Team size: %d. Customer model: %s. Working rhythm: %s.\n\nOperating playbook: Demand and requests: %s Planning and service prioritization: %s Discovery or request to delivery: %s Delivery to customer and billing: %s Recurring billing, contracts, and renewals: %s Cloud, vendor, and subcontractor spend: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for owner approval.",
+			"%s\n\nBusiness stage: %s\n\nCompany context: %s is a %s software or IT services business serving %s. Website: %s. Products and services: %s. Team size: %d. Customer model: %s. Working rhythm: %s.\n\nOperating playbook: Demand and requests: %s Planning and service prioritization: %s Discovery or request to delivery: %s Delivery to customer and billing: %s Recurring billing, contracts, and renewals: %s Cloud, vendor, and subcontractor spend: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for owner approval.",
 			persona.Mission,
+			stageGuidance,
 			state.Business.BusinessName, state.Business.Trade, state.Business.ServiceArea,
 			fallback(state.Business.WebsiteURL, "not yet provided"), fallback(state.Business.Services, "not yet documented"), state.Business.TeamSize,
 			fallback(state.Business.CustomerMix, "not yet documented"), fallback(state.Business.WorkingHours, "not yet documented"),
@@ -626,8 +709,9 @@ func personalizedInstructionsForTemplate(persona PersonaBlueprint, state Onboard
 		)
 	}
 	return fmt.Sprintf(
-		"%s\n\nBusiness context: %s is a %s business serving %s. Website: %s. Services: %s. Team size: %d. Customer mix: %s. Working hours: %s.\n\nOperating playbook: Leads: %s Scheduling: %s Estimate to job: %s Job to invoice: %s Payments: %s Vendor bills: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for owner approval.",
+		"%s\n\nBusiness stage: %s\n\nBusiness context: %s is a %s business serving %s. Website: %s. Services: %s. Team size: %d. Customer mix: %s. Working hours: %s.\n\nOperating playbook: Leads: %s Scheduling: %s Estimate to job: %s Job to invoice: %s Payments: %s Vendor bills: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for owner approval.",
 		persona.Mission,
+		stageGuidance,
 		state.Business.BusinessName, state.Business.Trade, state.Business.ServiceArea,
 		fallback(state.Business.WebsiteURL, "not yet provided"), fallback(state.Business.Services, "not yet documented"), state.Business.TeamSize,
 		fallback(state.Business.CustomerMix, "not yet documented"), fallback(state.Business.WorkingHours, "not yet documented"),

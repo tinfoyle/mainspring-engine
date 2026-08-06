@@ -28,6 +28,7 @@ Architecture decision records capture consequential technical choices and the re
 | [0012](0012-tenant-email-integration.md) | Keep mailbox credentials and delivery inside the tenant runtime | Proposed |
 | [0013](0013-tenant-business-templates.md) | Model business variants as tenant templates | Proposed |
 | [0014](0014-hybrid-work-queue.md) | Use one tenant work queue for to-dos and tickets | Proposed |
+| [0015](0015-business-stage-onboarding.md) | Branch onboarding by business stage | Proposed |
 
 ## Template
 

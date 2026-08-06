@@ -46,6 +46,10 @@ post_step() {
 post_step /development/reset-onboarding --data-urlencode "confirm=reset"
 
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+grep -q 'I am starting from scratch' "$page"
+
+post_step /onboarding/stage --data-urlencode "business_stage=operating"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding"
 grep -q 'B2B SaaS, vertical SaaS, MSP, IT consultancy' "$page"
 grep -q 'Products and managed services' "$page"
 grep -q 'RMM or monitoring' "$page"

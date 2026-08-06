@@ -229,6 +229,7 @@ func CharacterCountLabel(count int) string {
 }
 
 type BusinessProfileView struct {
+	Stage            string
 	BusinessName     string
 	WebsiteURL       string
 	Trade            string
@@ -321,6 +322,24 @@ func PersonaGroupsForTemplate(personas []PersonaBlueprintView, template string) 
 	return result
 }
 
+func PersonaGroupsForOnboarding(personas []PersonaBlueprintView, template, stage string) []PersonaGroupView {
+	groups := PersonaGroupsForTemplate(personas, template)
+	if !IsStartingBusiness(stage) {
+		return groups
+	}
+	for index := range groups {
+		switch groups[index].Name {
+		case "Core operations":
+			groups[index].Description = "Launch operators for sequencing setup, modeling the money, and designing the first repeatable routines."
+		case "Product and engineering":
+			groups[index].Description = "Specialists for validating the problem, scoping the first release, and choosing a credible delivery path."
+		case "Growth and customers":
+			groups[index].Description = "Specialists for market evidence, first-customer development, positioning, and launch demand."
+		}
+	}
+	return groups
+}
+
 type OnboardingView struct {
 	Template             string
 	Status               string
@@ -355,6 +374,32 @@ func PriorityOptions() []string {
 }
 
 func PriorityOptionsForTemplate(template string) []string {
+	return PriorityOptionsForOnboarding(template, "operating")
+}
+
+func PriorityOptionsForOnboarding(template, stage string) []string {
+	if IsStartingBusiness(stage) {
+		if IsSoftwareTemplate(template) {
+			return []string{
+				"Validate the problem and ideal customer",
+				"Define the offer, pricing, and revenue model",
+				"Build the MVP and launch roadmap",
+				"Design sales and first-customer onboarding",
+				"Set up legal, security, privacy, and compliance",
+				"Create the runway, budget, and vendor plan",
+				"Build the website and go-to-market plan",
+			}
+		}
+		return []string{
+			"Validate demand and the ideal customer",
+			"Define offers, pricing, and target margins",
+			"Build a simple sales and follow-up process",
+			"Set up licensing, insurance, legal, and compliance",
+			"Create the launch budget and cash plan",
+			"Choose the first operating systems",
+			"Plan the website and launch marketing",
+		}
+	}
 	if IsSoftwareTemplate(template) {
 		return []string{
 			"Improve customer onboarding and activation",
@@ -377,6 +422,17 @@ func PriorityOptionsForTemplate(template string) []string {
 	}
 }
 
+func IsStartingBusiness(stage string) bool {
+	return stage == "starting"
+}
+
+func ChooseText(condition bool, whenTrue, whenFalse string) string {
+	if condition {
+		return whenTrue
+	}
+	return whenFalse
+}
+
 type ChoiceOptionView struct {
 	Value string
 	Label string
@@ -396,7 +452,13 @@ func ExistingSystemOptions(template string) []string {
 	return []string{"Email", "Calendar", "QuickBooks", "Job management software", "Paper or spreadsheets"}
 }
 
-func SuggestedFirstConversation(template string) string {
+func SuggestedFirstConversation(template, stage string) string {
+	if IsStartingBusiness(stage) {
+		if IsSoftwareTemplate(template) {
+			return "Challenge my target customer, problem, offer, and launch assumptions. Separate facts from guesses, identify the three riskiest unknowns, and give me the smallest validation plan for the next two weeks."
+		}
+		return "Challenge my customer, service, pricing, startup-cost, and launch assumptions. Separate facts from guesses, identify the three riskiest unknowns, and give me the smallest validation plan for the next two weeks."
+	}
 	if IsSoftwareTemplate(template) {
 		return "Review how customer requests become product or service-delivery work in my company. Find where priority, ownership, SLA, or follow-up can fall through the cracks and give me the first three actions to take."
 	}

@@ -7,8 +7,13 @@ templ OnboardingPage(tenantName string, user UserView, state OnboardingView, ste
 		<div class="onboarding-layout">
 			<aside class="onboarding-guide">
 				<p class="eyebrow">Welcome to Mainspring</p>
-				<h2>Build your back office</h2>
-				<p>We will learn how your business works, then propose the right team and guardrails.</p>
+				if state.Business.Stage == "" {
+					<h2>Choose your starting point</h2><p>We will shape the questions and team around the reality of the business today.</p>
+				} else if IsStartingBusiness(state.Business.Stage) {
+					<h2>Build your launch room</h2><p>We will pressure-test the idea, plan the first operating system, and propose a lean founding team.</p>
+				} else {
+					<h2>Build your back office</h2><p>We will learn how your business works, then propose the right team and guardrails.</p>
+				}
 				<nav class="onboarding-progress" aria-label="Onboarding progress">
 					for _, item := range OnboardingSteps() {
 						<div class={ "onboarding-progress-item", templ.KV("is-current", item.Number == step), templ.KV("is-complete", item.Number < state.CurrentStep) }>
@@ -19,7 +24,7 @@ templ OnboardingPage(tenantName string, user UserView, state OnboardingView, ste
 				<div class="onboarding-agent">
 					<div class="agent-avatar">M</div>
 					<div><strong>Mia</strong><small>Setup specialist</small></div>
-					<p>{ OnboardingAgentPrompt(step) }</p>
+					<p>{ OnboardingAgentPrompt(step, state.Business.Stage) }</p>
 				</div>
 			</aside>
 			<section class="panel onboarding-panel">
@@ -27,7 +32,11 @@ templ OnboardingPage(tenantName string, user UserView, state OnboardingView, ste
 					<div class="alert alert-error" role="alert">{ formError }</div>
 				}
 				if step == 1 {
-					@OnboardingBusinessStep(state, csrfToken)
+					if state.Business.Stage == "" {
+						@OnboardingStageStep(csrfToken)
+					} else {
+						@OnboardingBusinessStep(state, csrfToken)
+					}
 				} else if step == 2 {
 					@OnboardingOperationsStep(state, csrfToken)
 				} else if step == 3 {
@@ -44,7 +53,24 @@ templ OnboardingPage(tenantName string, user UserView, state OnboardingView, ste
 	}
 }
 
-func OnboardingAgentPrompt(step int) string {
+func OnboardingAgentPrompt(step int, stage string) string {
+	if stage == "" {
+		return "Choose the path that matches reality today. You can set up an operating business or build a new one from first assumptions."
+	}
+	if IsStartingBusiness(stage) {
+		switch step {
+		case 1:
+			return "We will start with the idea, intended customer, offer, and constraints. It is fine if the name, pricing, or systems are not final."
+		case 2:
+			return "Describe how you want the first version to work. I will treat it as a hypothesis to test, not an operating fact."
+		case 3:
+			return "Choose the three launch uncertainties that need evidence or setup first. A shorter list creates a better plan."
+		case 4:
+			return "I assembled a lean launch team for validation, planning, and setup. Operating roles can join later when the business needs them."
+		default:
+			return "We are building a launch plan, not pretending the company is already mature. Nothing changes until you approve it."
+		}
+	}
 	switch step {
 	case 1:
 		return "Start with the facts I should never have to guess: what you do, where you work, and who is on the team."
@@ -61,8 +87,30 @@ func OnboardingAgentPrompt(step int) string {
 	}
 }
 
+templ OnboardingStageStep(csrfToken string) {
+	<header class="onboarding-heading"><p class="eyebrow">Step 1 of 6</p><h1>Where are you starting?</h1><p>The right setup depends on whether Mainspring is learning an operating business or helping you design one from the ground up.</p></header>
+	<form class="onboarding-stage-form" method="post" action="/onboarding/stage">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<button class="onboarding-stage-choice" type="submit" name="business_stage" value="operating"><span class="stage-icon">O</span><strong>I already run this business</strong><small>Map the customers, team, systems, paperwork, and exceptions you handle today.</small><em>Set up an operating back office →</em></button>
+		<button class="onboarding-stage-choice is-starting" type="submit" name="business_stage" value="starting"><span class="stage-icon">S</span><strong>I am starting from scratch</strong><small>Pressure-test the idea, plan the launch, choose the first systems, and build a lean founding boardroom.</small><em>Build a startup launch room →</em></button>
+	</form>
+}
+
 templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
-	<header class="onboarding-heading"><p class="eyebrow">Step 1 of 6</p><h1>Tell us about the business</h1><p>These facts become the shared context for every person in your operating team.</p></header>
+	<header class="onboarding-heading"><p class="eyebrow">Step 1 of 6</p>
+		if IsStartingBusiness(state.Business.Stage) {
+			<h1>Describe the business you want to start</h1><p>Working assumptions are welcome. Your launch team will help turn unknowns into questions and tests.</p>
+		} else {
+			<h1>Tell us about the business</h1><p>These facts become the shared context for every person in your operating team.</p>
+		}
+		<form class="onboarding-path-switch" method="post" action="/onboarding/stage"><input type="hidden" name="csrf_token" value={ csrfToken }/>
+			if IsStartingBusiness(state.Business.Stage) {
+				<span>Path: Starting from scratch</span><button type="submit" name="business_stage" value="operating">Use existing business instead</button>
+			} else {
+				<span>Path: Existing business</span><button type="submit" name="business_stage" value="starting">Start from scratch instead</button>
+			}
+		</form>
+	</header>
 	<form class="onboarding-form" method="post" action="/onboarding/business">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
 		<div class="form-grid">
@@ -74,7 +122,13 @@ templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
 				<label><span>Primary trade</span><input name="trade" required maxlength="120" value={ state.Business.Trade } placeholder="Plumbing, HVAC, electrical..."/></label>
 			}
 		</div>
-		<label><span>Business website <small>optional</small></span><input name="website_url" type="url" maxlength="500" value={ state.Business.WebsiteURL } placeholder="https://www.example.com"/><small>The Website Advisor can inspect this public site and recommend changes; it cannot edit or publish the site.</small></label>
+		<label><span>Business website <small>optional</small></span><input name="website_url" type="url" maxlength="500" value={ state.Business.WebsiteURL } placeholder="https://www.example.com"/><small>
+			if IsStartingBusiness(state.Business.Stage) {
+				<span>A website is not required yet. If you have a draft public site, the Website Advisor can review it.</span>
+			} else {
+				<span>The Website Advisor can inspect this public site and recommend changes; it cannot edit or publish the site.</span>
+			}
+		</small></label>
 		if IsSoftwareTemplate(state.Template) {
 			<label><span>Products and managed services</span><textarea name="services" maxlength="1000" placeholder="What you build or manage, who uses it, plans, packages, and recurring services...">{ state.Business.Services }</textarea></label>
 		} else {
@@ -101,7 +155,7 @@ templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
 			<label><span>Normal working hours</span><input name="working_hours" maxlength="240" value={ state.Business.WorkingHours } placeholder="Monday–Friday, 7:00 AM–5:00 PM"/></label>
 			<label class="check-row"><input name="emergency_service" type="checkbox" value="true" checked?={ state.Business.EmergencyService }/><span>We handle emergency or after-hours calls</span></label>
 		}
-		<fieldset><legend>Systems you already use</legend><div class="choice-grid">
+		<fieldset><legend>{ ChooseText(IsStartingBusiness(state.Business.Stage), "Systems you have chosen so far", "Systems you already use") }</legend><div class="choice-grid">
 			for _, system := range ExistingSystemOptions(state.Template) {
 				@CheckChoice("current_systems", system, Contains(state.Business.CurrentSystems, system))
 			}
@@ -111,10 +165,32 @@ templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
 }
 
 templ OnboardingOperationsStep(state OnboardingView, csrfToken string) {
-	<header class="onboarding-heading"><p class="eyebrow">Step 2 of 6</p><h1>Walk Mia through the office</h1><p>Short, imperfect answers are fine. Describe what really happens today.</p></header>
+	<header class="onboarding-heading"><p class="eyebrow">Step 2 of 6</p>
+		if IsStartingBusiness(state.Business.Stage) {
+			<h1>Design the first operating playbook</h1><p>Describe the simplest version that could work at launch. These are hypotheses, not promises.</p>
+		} else {
+			<h1>Walk Mia through the office</h1><p>Short, imperfect answers are fine. Describe what really happens today.</p>
+		}
+	</header>
 	<form class="onboarding-form" method="post" action="/onboarding/operations">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
-		if IsSoftwareTemplate(state.Template) {
+		if IsStartingBusiness(state.Business.Stage) && IsSoftwareTemplate(state.Template) {
+			<label><span>How do you expect the first prospects or design partners to find you?</span><textarea name="lead_intake" required maxlength="1600" placeholder="Founder network, interviews, a niche community, targeted outreach, content...">{ state.Operations.LeadIntake }</textarea></label>
+			<label><span>How will you decide what belongs in the first product or service release?</span><textarea name="scheduling" required maxlength="1600" placeholder="Customer evidence, founder judgment, a weekly priority review, explicit exclusions...">{ state.Operations.Scheduling }</textarea></label>
+			<label><span>How will a validated problem become delivery work?</span><textarea name="estimate_to_job" maxlength="1600">{ state.Operations.EstimateToJob }</textarea></label>
+			<label><span>How should the first customer receive value and become billable?</span><textarea name="job_to_invoice" required maxlength="1600">{ state.Operations.JobToInvoice }</textarea></label>
+			<div class="form-grid"><label><span>What pricing, payment, or renewal model are you considering?</span><textarea name="payments" maxlength="1600">{ state.Operations.Payments }</textarea></label><label><span>What startup, cloud, contractor, or software costs do you expect?</span><textarea name="vendor_bills" maxlength="1600">{ state.Operations.VendorBills }</textarea></label></div>
+			<label><span>What is the biggest unknown that could make this business fail?</span><textarea name="biggest_bottleneck" required maxlength="1600">{ state.Operations.BiggestBottleneck }</textarea></label>
+			<label><span>What constraints must the launch plan respect?</span><textarea name="important_exceptions" maxlength="1600" placeholder="Runway, evenings-only availability, a regulated market, a fixed launch date...">{ state.Operations.ImportantExceptions }</textarea></label>
+		} else if IsStartingBusiness(state.Business.Stage) {
+			<label><span>How do you expect the first leads and customer conversations to happen?</span><textarea name="lead_intake" required maxlength="1600" placeholder="Referrals, local partnerships, door hangers, search, a small outreach list...">{ state.Operations.LeadIntake }</textarea></label>
+			<label><span>How should the first jobs be scheduled and assigned?</span><textarea name="scheduling" required maxlength="1600" placeholder="The owner takes calls, confirms a window, and keeps one shared calendar...">{ state.Operations.Scheduling }</textarea></label>
+			<label><span>How should a request become a priced and approved job?</span><textarea name="estimate_to_job" maxlength="1600">{ state.Operations.EstimateToJob }</textarea></label>
+			<label><span>How should completed work become an invoice and payment?</span><textarea name="job_to_invoice" required maxlength="1600">{ state.Operations.JobToInvoice }</textarea></label>
+			<div class="form-grid"><label><span>What payment terms and follow-up will you start with?</span><textarea name="payments" maxlength="1600">{ state.Operations.Payments }</textarea></label><label><span>What startup, equipment, material, and vendor costs do you expect?</span><textarea name="vendor_bills" maxlength="1600">{ state.Operations.VendorBills }</textarea></label></div>
+			<label><span>What is the biggest unknown that could make this business fail?</span><textarea name="biggest_bottleneck" required maxlength="1600">{ state.Operations.BiggestBottleneck }</textarea></label>
+			<label><span>What constraints must the launch plan respect?</span><textarea name="important_exceptions" maxlength="1600" placeholder="Licensing, insurance, limited startup cash, evenings-only availability...">{ state.Operations.ImportantExceptions }</textarea></label>
+		} else if IsSoftwareTemplate(state.Template) {
 			<label><span>How do demand, leads, and customer requests arrive?</span><textarea name="lead_intake" required maxlength="1600" placeholder="Organic search, product-led signups, founder sales, partner referrals...">{ state.Operations.LeadIntake }</textarea></label>
 			<label><span>How are product, project, support, and recurring-service priorities decided?</span><textarea name="scheduling" required maxlength="1600" placeholder="Roadmap planning, ticket triage, SLA queues, projects, maintenance windows, and incidents...">{ state.Operations.Scheduling }</textarea></label>
 			<label><span>How does discovery or a customer request become delivery work?</span><textarea name="estimate_to_job" maxlength="1600">{ state.Operations.EstimateToJob }</textarea></label>
@@ -142,11 +218,11 @@ templ OnboardingOperationsStep(state OnboardingView, csrfToken string) {
 }
 
 templ OnboardingPrioritiesStep(state OnboardingView, csrfToken string) {
-	<header class="onboarding-heading"><p class="eyebrow">Step 3 of 6</p><h1>Where should the team help first?</h1><p>Choose up to three. This shapes the team Mainspring proposes.</p></header>
+	<header class="onboarding-heading"><p class="eyebrow">Step 3 of 6</p><h1>{ ChooseText(IsStartingBusiness(state.Business.Stage), "What must the launch team solve first?", "Where should the team help first?") }</h1><p>Choose up to three. This shapes the team Mainspring proposes.</p></header>
 	<form class="onboarding-form" method="post" action="/onboarding/priorities">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
 		<div class="priority-grid">
-			for _, priority := range PriorityOptionsForTemplate(state.Template) {
+			for _, priority := range PriorityOptionsForOnboarding(state.Template, state.Business.Stage) {
 				<label class="priority-choice"><input type="checkbox" name="priorities" value={ priority } checked?={ Contains(state.Priorities, priority) }/><span>{ priority }</span></label>
 			}
 		</div>
@@ -156,10 +232,10 @@ templ OnboardingPrioritiesStep(state OnboardingView, csrfToken string) {
 
 templ OnboardingTeamStep(state OnboardingView, csrfToken string) {
 	<header class="onboarding-heading"><p class="eyebrow">Step 4 of 6</p><h1>Build the right boardroom</h1><p>Start lean, then add specialists where their perspective earns a seat. These are bounded job descriptions, not generic chat personalities.</p></header>
-	<div class="team-guidance"><strong>Resource-conscious by design</strong><p>The three core operators begin selected. Optional specialists only join conversations when you include them, and every role receives its own limited toolset.</p></div>
+	<div class="team-guidance"><strong>Resource-conscious by design</strong><p>{ ChooseText(IsStartingBusiness(state.Business.Stage), "Three launch roles form the core for validation, planning, and setup. Matching priorities may recommend a specialist, and you control the final team.", "The three core operators begin selected. Optional specialists only join conversations when you include them, and every role receives its own limited toolset.") }</p></div>
 	<form class="onboarding-form" method="post" action="/onboarding/team">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
-		for _, group := range PersonaGroupsForTemplate(state.Personas, state.Template) {
+		for _, group := range PersonaGroupsForOnboarding(state.Personas, state.Template, state.Business.Stage) {
 			<section class="persona-group">
 				<header class="persona-group-heading"><div><p class="eyebrow">{ group.Name }</p><p>{ group.Description }</p></div></header>
 				<div class="persona-proposals">
@@ -217,7 +293,7 @@ templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
 templ OnboardingReviewStep(state OnboardingView, csrfToken string) {
 	<header class="onboarding-heading"><p class="eyebrow">Step 6 of 6</p><h1>Ready to open the doors</h1><p>Review the structured draft. Launching applies it to your boardroom and its personas.</p></header>
 	<div class="review-grid">
-		<section><h3>Business</h3><dl><div><dt>Name</dt><dd>{ state.Business.BusinessName }</dd></div><div><dt>Website</dt><dd>{ state.Business.WebsiteURL }</dd></div>
+		<section><h3>Business</h3><dl><div><dt>Stage</dt><dd>{ ChooseText(IsStartingBusiness(state.Business.Stage), "Starting from scratch", "Operating business") }</dd></div><div><dt>Name</dt><dd>{ state.Business.BusinessName }</dd></div><div><dt>Website</dt><dd>{ state.Business.WebsiteURL }</dd></div>
 			if IsSoftwareTemplate(state.Template) {
 				<div><dt>Model</dt><dd>{ state.Business.Trade }</dd></div><div><dt>Target market</dt><dd>{ state.Business.ServiceArea }</dd></div>
 			} else {
@@ -271,11 +347,11 @@ templ PermissionChoice(name, title, description string, checked bool) {
 	<label class="permission-choice"><input type="checkbox" name={ name } value="true" checked?={ checked }/><span><strong>{ title }</strong><small>{ description }</small></span></label>
 }
 
-templ OnboardingCompletePage(tenantName string, user UserView, room BoardroomCardView, csrfToken, template string) {
+templ OnboardingCompletePage(tenantName string, user UserView, room BoardroomCardView, csrfToken, template, stage string) {
 	@Layout("Your back office is ready", tenantName, &user, csrfToken) {
 		<section class="completion-card panel">
 			<div class="spring-glyph">M</div><p class="eyebrow">Onboarding complete</p><h1>{ room.Name } is ready</h1><p>Mainspring has applied your business profile, operating playbook, personas, and launch permissions.</p>
-			<div class="test-drive-card"><strong>Suggested first conversation</strong><p>{ SuggestedFirstConversation(template) }</p></div>
+			<div class="test-drive-card"><strong>Suggested first conversation</strong><p>{ SuggestedFirstConversation(template, stage) }</p></div>
 			<div class="completion-actions"><a class="button button-primary" href={ templ.URL("/boardrooms/" + room.ID) }>Open { room.Name }</a><a class="button button-quiet" href="/">Go to dashboard</a></div>
 		</section>
 	}

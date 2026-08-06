@@ -112,14 +112,21 @@ Billing provider confirms purchase
 
 ```text
 Owner creates the tenant login
-  -> guided workflow collects canonical business facts
-  -> onboarding assistant captures processes and exceptions into a draft playbook
+  -> owner chooses an operating-business or starting-from-scratch path
+  -> guided workflow collects canonical facts or clearly labeled launch assumptions
+  -> onboarding assistant captures current processes or a proposed first operating playbook
   -> application generates an editable persona and permission blueprint
   -> owner keeps a lean core team and opts into bounded specialists as needed
   -> owner reviews and explicitly launches
   -> application validates and transactionally applies the profile, personas, and grants
   -> tenant request boundary opens the normal dashboard and boardrooms
 ```
+
+The business-stage choice is independent of the tenant's industry template: a trade,
+SaaS, or MSP tenant may be operating today or starting from scratch. The startup path
+uses future-tense questions, launch-specific priorities, a lean `Launch Room`, and
+persona instructions that explicitly treat processes, forecasts, customers, prices,
+and dates as hypotheses until validated.
 
 The onboarding assistant cannot mutate live personas or grant capabilities. It writes a
 tenant-scoped structured draft; the application owns validation and application. New
@@ -300,6 +307,7 @@ docs/
 - [ADR-0012: Keep mailbox credentials and delivery inside the tenant runtime](adr/0012-tenant-email-integration.md)
 - [ADR-0013: Model business variants as tenant templates](adr/0013-tenant-business-templates.md)
 - [ADR-0014: Use one tenant work queue for to-dos and tickets](adr/0014-hybrid-work-queue.md)
+- [ADR-0015: Branch onboarding by business stage](adr/0015-business-stage-onboarding.md)
 
 ## Open questions
 

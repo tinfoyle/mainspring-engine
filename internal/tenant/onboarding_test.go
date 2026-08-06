@@ -134,6 +134,90 @@ func TestMSPBlueprintRecommendsServiceDelivery(t *testing.T) {
 	}
 }
 
+func TestStartingTradeBlueprintUsesLaunchTeam(t *testing.T) {
+	state := Onboarding{
+		Business: BusinessProfile{
+			Stage: BusinessStageStarting, BusinessName: "Bright Spark Electric", Trade: "electrical service",
+			ServiceArea: "first-time homeowners in Raleigh",
+		},
+		Priorities: []string{"Define offers, pricing, and target margins"},
+	}
+	blueprint := GenerateBlueprintForTemplate(state, TemplateTrades)
+	if blueprint.Name != "Launch Room" || !strings.Contains(blueprint.Description, "new electrical service business") {
+		t.Fatalf("starting blueprint = %#v", blueprint)
+	}
+	wanted := map[string]bool{
+		"Business Launch Coordinator": false,
+		"Startup Finance Planner":     false,
+		"Market & Customer Developer": false,
+	}
+	enabled := 0
+	for _, persona := range blueprint.Personas {
+		if _, ok := wanted[persona.Role]; ok {
+			wanted[persona.Role] = persona.Enabled
+		}
+		if persona.Enabled {
+			enabled++
+		}
+	}
+	for role, isEnabled := range wanted {
+		if !isEnabled {
+			t.Fatalf("launch role %q was not enabled", role)
+		}
+	}
+	if enabled != 4 {
+		t.Fatalf("enabled persona count = %d, want three launch roles plus pricing specialist", enabled)
+	}
+}
+
+func TestStartingSoftwareBlueprintDoesNotAssumeCustomers(t *testing.T) {
+	state := Onboarding{Business: BusinessProfile{
+		Stage: BusinessStageStarting, BusinessName: "Relay Zero", Trade: "vertical SaaS", ServiceArea: "small HVAC contractors",
+	}}
+	blueprint := GenerateBlueprintForTemplate(state, TemplateSoftware)
+	if blueprint.Name != "Launch Room" {
+		t.Fatalf("blueprint name = %q", blueprint.Name)
+	}
+	wanted := map[string]bool{
+		"Startup Operations Lead":           false,
+		"Startup Finance & Revenue Planner": false,
+		"Product & Market Strategist":       false,
+	}
+	enabled := 0
+	for _, persona := range blueprint.Personas {
+		if _, ok := wanted[persona.Role]; ok {
+			wanted[persona.Role] = persona.Enabled
+		}
+		if persona.Enabled {
+			enabled++
+		}
+		if persona.Key == "customer_success" && persona.Enabled {
+			t.Fatal("customer success should not be enabled before the startup selects a first-customer priority")
+		}
+	}
+	for role, isEnabled := range wanted {
+		if !isEnabled {
+			t.Fatalf("launch role %q was not enabled", role)
+		}
+	}
+	if enabled != 3 {
+		t.Fatalf("enabled persona count = %d, want lean launch team of 3", enabled)
+	}
+}
+
+func TestStartingInstructionsMarkPlansAsHypotheses(t *testing.T) {
+	state := Onboarding{
+		Business:   BusinessProfile{Stage: BusinessStageStarting, BusinessName: "Relay Zero", Trade: "SaaS", ServiceArea: "field teams", TeamSize: 1},
+		Operations: OperatingPlaybook{LeadIntake: "Founder interviews", BiggestBottleneck: "Demand is unproven"},
+	}
+	instructions := personalizedInstructionsForTemplate(PersonaBlueprint{Mission: "Test the plan."}, state, TemplateSoftware)
+	for _, expected := range []string{"pre-launch", "hypothesis", "Do not invent current operations", "Demand is unproven"} {
+		if !strings.Contains(instructions, expected) {
+			t.Fatalf("starting instructions missing %q: %s", expected, instructions)
+		}
+	}
+}
+
 func TestMSPCapabilitiesStayBounded(t *testing.T) {
 	permissions := PermissionPlan{
 		ReadBusinessRecords: true, ResearchPublicWeb: true, DraftCustomerEmail: true,

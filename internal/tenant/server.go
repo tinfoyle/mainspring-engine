@@ -121,6 +121,7 @@ func (s *Server) Handler() http.Handler {
 		router.Group(func(router chi.Router) {
 			router.Use(s.requireAuthentication)
 			router.Get("/onboarding", s.onboardingPage)
+			router.Post("/onboarding/stage", s.requireCSRF(s.saveOnboardingStage))
 			router.Post("/onboarding/business", s.requireCSRF(s.saveOnboardingBusiness))
 			router.Post("/onboarding/operations", s.requireCSRF(s.saveOnboardingOperations))
 			router.Post("/onboarding/priorities", s.requireCSRF(s.saveOnboardingPriorities))
@@ -612,7 +613,7 @@ func (s *Server) onboardingPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.render(w, http.StatusOK, components.OnboardingCompletePage(
-			s.tenantName(r.Context()), s.userView(session.User), boardroomView(rooms[0]), s.csrfToken(session), s.config.BusinessTemplate.String(),
+			s.tenantName(r.Context()), s.userView(session.User), boardroomView(rooms[0]), s.csrfToken(session), s.config.BusinessTemplate.String(), state.Business.Stage,
 		))
 		return
 	}
@@ -629,6 +630,34 @@ func (s *Server) onboardingPage(w http.ResponseWriter, r *http.Request) {
 	s.renderOnboarding(r.Context(), w, http.StatusOK, session, state, step, "")
 }
 
+func (s *Server) saveOnboardingStage(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	state, err := s.editableOnboarding(r.Context())
+	if err != nil {
+		http.Redirect(w, r, "/onboarding", http.StatusSeeOther)
+		return
+	}
+	requested := strings.ToLower(strings.TrimSpace(r.FormValue("business_stage")))
+	if requested != BusinessStageOperating && requested != BusinessStageStarting {
+		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 1, "Choose whether this business is already operating or is starting from scratch.")
+		return
+	}
+	previous := state.Business.Stage
+	state.Business.Stage = requested
+	if previous != "" && NormalizeBusinessStage(previous) != requested {
+		state.Operations = OperatingPlaybook{}
+		state.Priorities = nil
+		state.Blueprint = BoardroomBlueprint{}
+		state.Permissions = PermissionPlan{}
+		state.CurrentStep = 1
+	}
+	if err := s.store.SaveOnboarding(r.Context(), s.config.TenantID, state); err != nil {
+		s.renderOnboarding(r.Context(), w, http.StatusInternalServerError, session, state, 1, "The onboarding path could not be saved.")
+		return
+	}
+	http.Redirect(w, r, "/onboarding?step=1", http.StatusSeeOther)
+}
+
 func (s *Server) saveOnboardingBusiness(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionFromContext(r.Context())
 	state, err := s.editableOnboarding(r.Context())
@@ -638,6 +667,7 @@ func (s *Server) saveOnboardingBusiness(w http.ResponseWriter, r *http.Request) 
 	}
 	teamSize, parseErr := strconv.Atoi(r.FormValue("team_size"))
 	state.Business = BusinessProfile{
+		Stage:        NormalizeBusinessStage(state.Business.Stage),
 		BusinessName: strings.TrimSpace(r.FormValue("business_name")),
 		WebsiteURL:   strings.TrimSpace(r.FormValue("website_url")),
 		Trade:        strings.TrimSpace(r.FormValue("trade")), Services: strings.TrimSpace(r.FormValue("services")),
@@ -722,7 +752,7 @@ func (s *Server) saveOnboardingPriorities(w http.ResponseWriter, r *http.Request
 		return
 	}
 	allowed := make(map[string]bool)
-	for _, value := range components.PriorityOptionsForTemplate(s.config.BusinessTemplate.String()) {
+	for _, value := range components.PriorityOptionsForOnboarding(s.config.BusinessTemplate.String(), state.Business.Stage) {
 		allowed[value] = true
 	}
 	state.Priorities = nil
@@ -1519,7 +1549,7 @@ func onboardingView(state Onboarding, template string) components.OnboardingView
 		Template: template,
 		Status:   state.Status, CurrentStep: state.CurrentStep, Priorities: state.Priorities,
 		Business: components.BusinessProfileView{
-			BusinessName: state.Business.BusinessName, WebsiteURL: state.Business.WebsiteURL, Trade: state.Business.Trade, Services: state.Business.Services,
+			Stage: state.Business.Stage, BusinessName: state.Business.BusinessName, WebsiteURL: state.Business.WebsiteURL, Trade: state.Business.Trade, Services: state.Business.Services,
 			ServiceArea: state.Business.ServiceArea, TimeZone: state.Business.TimeZone, TeamSize: state.Business.TeamSize,
 			CustomerMix: state.Business.CustomerMix, WorkingHours: state.Business.WorkingHours,
 			EmergencyService: state.Business.EmergencyService, CurrentSystems: state.Business.CurrentSystems,

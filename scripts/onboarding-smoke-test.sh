@@ -43,6 +43,7 @@ reset_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$co
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
 grep -q 'Step 1 of 6' "$page"
 grep -q 'Mia' "$page"
+grep -q 'I am starting from scratch' "$page"
 
 post_step() {
   local path="$1"
@@ -53,6 +54,10 @@ post_step() {
     --data-urlencode "csrf_token=$csrf_token" "$@" "$base_url$path")"
   [[ "$status" == "303" ]]
 }
+
+post_step /onboarding/stage --data-urlencode "business_stage=operating"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+grep -q 'Primary trade' "$page"
 
 post_step /onboarding/business \
   --data-urlencode "business_name=Smoke Test Plumbing" \
