@@ -27,6 +27,7 @@ Architecture decision records capture consequential technical choices and the re
 | [0011](0011-rag-document-library.md) | Keep document ingestion behind the tenant RAG service | Proposed |
 | [0012](0012-tenant-email-integration.md) | Keep mailbox credentials and delivery inside the tenant runtime | Proposed |
 | [0013](0013-tenant-business-templates.md) | Model business variants as tenant templates | Proposed |
+| [0014](0014-hybrid-work-queue.md) | Use one tenant work queue for to-dos and tickets | Proposed |
 
 ## Template
 

@@ -146,6 +146,9 @@ func (s *Server) Handler() http.Handler {
 				router.Post("/schedules/{scheduleID}/pause", s.requireCSRF(s.pauseSchedule))
 				router.Post("/schedules/{scheduleID}/trigger", s.requireCSRF(s.triggerSchedule))
 				router.Post("/schedules/{scheduleID}/delete", s.requireCSRF(s.deleteSchedule))
+				router.Get("/work", s.workQueuePage)
+				router.Post("/work", s.requireCSRF(s.createWorkItem))
+				router.Post("/work/{workItemID}/status", s.requireCSRF(s.updateWorkItemStatus))
 				router.Get("/documents", s.documentsPage)
 				router.Post("/documents", s.uploadDocument)
 				router.Get("/documents/{documentID}", s.documentPage)
@@ -1036,6 +1039,92 @@ func (s *Server) schedulesPage(w http.ResponseWriter, r *http.Request) {
 	s.renderSchedules(w, r, http.StatusOK, "")
 }
 
+func (s *Server) workQueuePage(w http.ResponseWriter, r *http.Request) {
+	s.renderWorkQueue(w, r, http.StatusOK, "")
+}
+
+func (s *Server) createWorkItem(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	var dueAt *time.Time
+	if value := strings.TrimSpace(r.FormValue("due_date")); value != "" {
+		parsed, err := time.Parse("2006-01-02", value)
+		if err != nil {
+			s.renderWorkQueue(w, r, http.StatusBadRequest, "Enter a valid due date.")
+			return
+		}
+		endOfDay := parsed.Add(24*time.Hour - time.Nanosecond)
+		dueAt = &endOfDay
+	}
+	assignedUserID := ""
+	if r.FormValue("assign_to_me") == "true" {
+		assignedUserID = session.User.ID
+	}
+	_, err := s.store.CreateWorkItem(r.Context(), CreateWorkItemInput{
+		Kind: r.FormValue("kind"), Title: r.FormValue("title"), Description: r.FormValue("description"),
+		Priority: r.FormValue("priority"), Source: "user", CreatedByUserID: session.User.ID,
+		AssignedUserID: assignedUserID, DueAt: dueAt,
+	})
+	if err != nil {
+		s.renderWorkQueue(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	http.Redirect(w, r, "/work?status=active&created=true", http.StatusSeeOther)
+}
+
+func (s *Server) updateWorkItemStatus(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.UpdateWorkItemStatus(r.Context(), chi.URLParam(r, "workItemID"), r.FormValue("status")); err != nil {
+		if errors.Is(err, ErrWorkItemNotFound) {
+			httpx.WriteProblem(w, http.StatusNotFound, "work_item_not_found", "The work item was not found.")
+			return
+		}
+		s.renderWorkQueue(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	http.Redirect(w, r, workQueueReturnURL(r, true), http.StatusSeeOther)
+}
+
+func (s *Server) renderWorkQueue(w http.ResponseWriter, r *http.Request, status int, formError string) {
+	session, _ := sessionFromContext(r.Context())
+	filter := NormalizeWorkFilter(WorkFilter{
+		Status: r.URL.Query().Get("status"), Kind: r.URL.Query().Get("kind"), Query: r.URL.Query().Get("q"),
+	})
+	items, summary, err := s.store.ListWorkItems(r.Context(), filter)
+	if err != nil {
+		s.logger.Error("load work queue", "error", err)
+		s.renderError(w, http.StatusInternalServerError, "The work queue could not be loaded.")
+		return
+	}
+	notice := ""
+	if r.URL.Query().Get("created") == "true" {
+		notice = "Work item added to the queue."
+	} else if r.URL.Query().Get("updated") == "true" {
+		notice = "Work item status updated."
+	}
+	s.render(w, status, components.WorkQueuePage(
+		s.tenantName(r.Context()), s.userView(session.User), workItemViews(items), workSummaryView(summary),
+		components.WorkFilterView{Status: filter.Status, Kind: filter.Kind, Query: filter.Query},
+		s.csrfToken(session), notice, formError,
+	))
+}
+
+func workQueueReturnURL(r *http.Request, updated bool) string {
+	query := url.Values{}
+	for formName, queryName := range map[string]string{
+		"return_status": "status", "return_kind": "kind", "return_q": "q",
+	} {
+		if value := strings.TrimSpace(r.FormValue(formName)); value != "" {
+			query.Set(queryName, value)
+		}
+	}
+	if query.Get("status") == "" {
+		query.Set("status", "active")
+	}
+	if updated {
+		query.Set("updated", "true")
+	}
+	return "/work?" + query.Encode()
+}
+
 func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 	if !scheduleAdmin(r.Context()) {
 		httpx.WriteProblem(w, http.StatusForbidden, "permission_denied", "Only a boardroom owner or administrator can create schedules.")
@@ -1531,6 +1620,32 @@ func conversationViews(items []boardroom.Conversation) []components.Conversation
 		result = append(result, conversationView(item))
 	}
 	return result
+}
+
+func workItemViews(items []WorkItem) []components.WorkItemView {
+	result := make([]components.WorkItemView, 0, len(items))
+	now := time.Now().UTC()
+	for _, item := range items {
+		dueLabel := ""
+		overdue := false
+		if item.DueAt != nil {
+			dueLabel = item.DueAt.Format("Jan 2, 2006")
+			overdue = item.Status != "done" && item.Status != "canceled" && item.DueAt.Before(now)
+		}
+		result = append(result, components.WorkItemView{
+			ID: item.ID, Number: item.Number, Kind: item.Kind, Title: item.Title, Description: item.Description,
+			Status: item.Status, Priority: item.Priority, Source: item.Source,
+			CreatedByName: item.CreatedByName, AssignedToName: item.AssignedToName, AssignedToType: item.AssignedToType,
+			DueLabel: dueLabel, IsOverdue: overdue, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
+		})
+	}
+	return result
+}
+
+func workSummaryView(summary WorkSummary) components.WorkSummaryView {
+	return components.WorkSummaryView{
+		Active: summary.Active, InProgress: summary.InProgress, Waiting: summary.Waiting, Urgent: summary.Urgent, Done: summary.Done,
+	}
 }
 
 func scheduleViews(items []scheduling.Schedule) []components.ScheduleView {

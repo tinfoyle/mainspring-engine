@@ -6,7 +6,7 @@ The application owns orchestration. Agent providers perform bounded turns and ar
 
 ## Current implementation status
 
-This repository is under active MVP development. The architecture is recorded in [docs/architecture/README.md](docs/architecture/README.md). The current vertical slice includes tenant registration and hostname routing, separate tenant authentication, structured assisted onboarding, business-aware boardroom personas, a tenant-scoped document library with RAG ingestion, an encrypted IMAP/SMTP mailbox integration, persistent multi-run conversations with follow-ups, durable Temporal runs, SSE conversation updates, recurring interval/cron schedules that open dated conversations, signed persona capabilities, and an idempotent external-action ledger.
+This repository is under active MVP development. The architecture is recorded in [docs/architecture/README.md](docs/architecture/README.md). The current vertical slice includes tenant registration and hostname routing, separate tenant authentication, structured assisted onboarding, business-aware boardroom personas, a hybrid to-do and ticket work queue, a tenant-scoped document library with RAG ingestion, an encrypted IMAP/SMTP mailbox integration, persistent multi-run conversations with follow-ups, durable Temporal runs, SSE conversation updates, recurring interval/cron schedules that open dated conversations, signed persona capabilities, and an idempotent external-action ledger.
 
 ## Development prerequisites
 
@@ -37,6 +37,8 @@ The local Docker stack uses the browser-reserved `.localhost` domain for tenant 
 The first visit to either demo tenant redirects to owner setup. The local-only setup token is `mainspring-local-setup`. The repeatable software smoke flows create `founder@example.test` with password `correct-horse-battery-staple` when needed.
 
 After owner setup, a new tenant enters the six-step assisted onboarding flow. Trade tenants begin with office management, bookkeeping, and dispatch and can add focused trade specialists. Software tenants begin with operations, revenue, and customer success. SaaS businesses can add product, engineering, reliability, growth, sales, UX research, and website conversion roles; MSPs can add service delivery, technical account management, cloud and systems, and security roles. Existing development tenants can restart onboarding from **Demo tools → Reset onboarding**; reset preserves the owner login, conversations, documents, and connected mailbox.
+
+Once onboarding is complete, **Work** opens the tenant's shared work queue. Owners can add lightweight personal to-dos or structured tickets, assign work to themselves, set priorities and due dates, filter the queue, and advance items through open, in-progress, waiting, and done states. The same record shape retains persona, schedule, boardroom, conversation, and run provenance for automated ticket creation.
 
 Set `MAINSPRING_TENANT_TEMPLATE=trades` or `MAINSPRING_TENANT_TEMPLATE=software` when provisioning a tenant. The former `saas` value remains a compatibility alias. This is tenant configuration, not a separate binary or fork.
 

@@ -2,6 +2,8 @@ package components
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -31,6 +33,116 @@ type UserView struct {
 	Email       string
 	Role        string
 	Development bool
+}
+
+type WorkItemView struct {
+	ID             string
+	Number         int64
+	Kind           string
+	Title          string
+	Description    string
+	Status         string
+	Priority       string
+	Source         string
+	CreatedByName  string
+	AssignedToName string
+	AssignedToType string
+	DueLabel       string
+	IsOverdue      bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type WorkSummaryView struct {
+	Active     int
+	InProgress int
+	Waiting    int
+	Urgent     int
+	Done       int
+}
+
+type WorkFilterView struct {
+	Status string
+	Kind   string
+	Query  string
+}
+
+type WorkStatusAction struct {
+	Status string
+	Label  string
+	Class  string
+}
+
+func WorkStatusLabel(status string) string {
+	switch status {
+	case "in_progress":
+		return "In progress"
+	case "waiting":
+		return "Waiting"
+	case "done":
+		return "Done"
+	case "canceled":
+		return "Canceled"
+	default:
+		return "Open"
+	}
+}
+
+func WorkKindLabel(kind string) string {
+	if kind == "ticket" {
+		return "Ticket"
+	}
+	return "To-do"
+}
+
+func WorkPriorityLabel(priority string) string {
+	if priority == "normal" {
+		return "Normal"
+	}
+	if priority == "" {
+		return "Normal"
+	}
+	return strings.ToUpper(priority[:1]) + priority[1:]
+}
+
+func WorkSourceLabel(source string) string {
+	switch source {
+	case "persona":
+		return "Agent"
+	case "schedule":
+		return "Schedule"
+	case "system":
+		return "System"
+	default:
+		return "Person"
+	}
+}
+
+func WorkStatusActions(status string) []WorkStatusAction {
+	switch status {
+	case "open":
+		return []WorkStatusAction{{"in_progress", "Start", "button-quiet"}, {"done", "Complete", "button-primary"}}
+	case "in_progress":
+		return []WorkStatusAction{{"waiting", "Mark waiting", "button-quiet"}, {"done", "Complete", "button-primary"}}
+	case "waiting":
+		return []WorkStatusAction{{"in_progress", "Resume", "button-quiet"}, {"done", "Complete", "button-primary"}}
+	case "done":
+		return []WorkStatusAction{{"open", "Reopen", "button-quiet"}}
+	default:
+		return nil
+	}
+}
+
+func WorkQueueURL(filter WorkFilterView, status string) string {
+	values := url.Values{}
+	values.Set("status", status)
+	if filter.Kind != "" && filter.Kind != "all" {
+		values.Set("kind", filter.Kind)
+	}
+	if filter.Query != "" {
+		values.Set("q", filter.Query)
+	}
+	return "/work?" + values.Encode()
 }
 
 type DocumentView struct {

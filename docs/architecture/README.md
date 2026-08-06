@@ -69,7 +69,8 @@ Each purchased boardroom receives a tenant runtime reached through a unique subd
 - Documents, chunks, embeddings, and citations
 - Schedules and boardroom configuration
 - Integration references and tenant audit events
-- Invoices, tickets, and other customer business records
+- The shared to-do and ticket work queue, including assignment and run provenance
+- Invoices and other customer business records
 
 The MVP provisions a boardroom container and a RAG container for each tenant. Both use tenant-specific database credentials. Agent invocations run in short-lived runner containers and do not receive database or Docker credentials.
 
@@ -154,6 +155,21 @@ question, or issue within that workspace. A run is one durable round of persona 
 Recurring schedules create a new, dated conversation for each occurrence so reports do
 not blend into one endless transcript. Historical `/runs/{id}` links resolve to the
 conversation that owns the run.
+
+### Tenant work queue
+
+```text
+Owner records a quick action, or an authorized persona/schedule raises a ticket
+  -> tenant runtime validates the actor and ticket.create capability when applicable
+  -> one tenant-scoped work item records kind, priority, assignment, due date, and provenance
+  -> owner filters and advances the item through open, in-progress, waiting, and done
+  -> completion remains queryable without losing its originating boardroom, conversation, or run
+```
+
+To-dos and tickets deliberately share one queue and lifecycle. `kind` communicates how
+much structure the owner expects; it does not split work into unrelated systems. Persona
+and schedule entry points use the same persistence service as the owner UI and retain an
+explicit source plus optional boardroom, conversation, run, and persona identifiers.
 
 ### Tenant request
 
@@ -283,6 +299,7 @@ docs/
 - [ADR-0011: Keep document ingestion behind the tenant RAG service](adr/0011-rag-document-library.md)
 - [ADR-0012: Keep mailbox credentials and delivery inside the tenant runtime](adr/0012-tenant-email-integration.md)
 - [ADR-0013: Model business variants as tenant templates](adr/0013-tenant-business-templates.md)
+- [ADR-0014: Use one tenant work queue for to-dos and tickets](adr/0014-hybrid-work-queue.md)
 
 ## Open questions
 

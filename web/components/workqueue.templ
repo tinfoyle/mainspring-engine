@@ -1,0 +1,97 @@
+package components
+
+import "fmt"
+
+templ WorkQueuePage(tenantName string, user UserView, items []WorkItemView, summary WorkSummaryView, filter WorkFilterView, csrfToken, notice, formError string) {
+	@Layout("Work queue", tenantName, &user, csrfToken) {
+		<section class="hero work-hero">
+			<div><p class="eyebrow">Work management</p><h1>Work queue</h1><p>Personal to-dos and structured tickets share one durable queue for you and your boardroom.</p></div>
+			<div class="work-summary" aria-label="Work queue summary">
+				<div><strong>{ fmt.Sprintf("%d", summary.Active) }</strong><span>Active</span></div>
+				<div><strong>{ fmt.Sprintf("%d", summary.InProgress) }</strong><span>In progress</span></div>
+				<div><strong>{ fmt.Sprintf("%d", summary.Waiting) }</strong><span>Waiting</span></div>
+				<div class={ templ.KV("has-urgent", summary.Urgent > 0) }><strong>{ fmt.Sprintf("%d", summary.Urgent) }</strong><span>Urgent</span></div>
+			</div>
+		</section>
+		if notice != "" {
+			<div class="alert alert-success work-notice">{ notice }</div>
+		}
+		if formError != "" {
+			<div class="alert alert-error work-notice">{ formError }</div>
+		}
+		<div class="work-layout">
+			<section class="work-queue">
+				<nav class="work-status-tabs" aria-label="Filter work by status">
+					<a class={ templ.KV("is-current", filter.Status == "active") } href={ templ.URL(WorkQueueURL(filter, "active")) }>Active <span>{ fmt.Sprintf("%d", summary.Active) }</span></a>
+					<a class={ templ.KV("is-current", filter.Status == "open") } href={ templ.URL(WorkQueueURL(filter, "open")) }>Open</a>
+					<a class={ templ.KV("is-current", filter.Status == "in_progress") } href={ templ.URL(WorkQueueURL(filter, "in_progress")) }>In progress</a>
+					<a class={ templ.KV("is-current", filter.Status == "waiting") } href={ templ.URL(WorkQueueURL(filter, "waiting")) }>Waiting</a>
+					<a class={ templ.KV("is-current", filter.Status == "done") } href={ templ.URL(WorkQueueURL(filter, "done")) }>Done <span>{ fmt.Sprintf("%d", summary.Done) }</span></a>
+					<a class={ templ.KV("is-current", filter.Status == "all") } href={ templ.URL(WorkQueueURL(filter, "all")) }>All</a>
+				</nav>
+				<form class="work-filter" method="get" action="/work">
+					<input type="hidden" name="status" value={ filter.Status }/>
+					<label><span>Type</span><select name="kind"><option value="all" selected?={ filter.Kind == "all" }>All work</option><option value="todo" selected?={ filter.Kind == "todo" }>To-dos</option><option value="ticket" selected?={ filter.Kind == "ticket" }>Tickets</option></select></label>
+					<label class="work-search"><span>Search</span><input name="q" value={ filter.Query } placeholder="Search title or details"/></label>
+					<button class="button button-quiet" type="submit">Apply</button>
+				</form>
+				if len(items) == 0 {
+					<div class="panel work-empty"><div class="spring-glyph">✓</div><h2>Nothing in this view</h2><p>Add a quick to-do, open a ticket, or change the filters.</p></div>
+				}
+				<div class="work-list">
+					for _, item := range items {
+						<article class={ "panel", "work-item", "work-priority-" + item.Priority, templ.KV("is-done", item.Status == "done") }>
+							<header>
+								<div class="work-item-reference"><span>#{ fmt.Sprintf("%04d", item.Number) }</span><span class={ "work-kind", "work-kind-" + item.Kind }>{ WorkKindLabel(item.Kind) }</span></div>
+								<div class="work-item-badges"><span class={ "work-priority", "work-priority-label-" + item.Priority }>{ WorkPriorityLabel(item.Priority) }</span><span class={ "work-state", "work-state-" + item.Status }>{ WorkStatusLabel(item.Status) }</span></div>
+							</header>
+							<h2>{ item.Title }</h2>
+							if item.Description != "" {
+								<p class="work-description">{ item.Description }</p>
+							}
+							<div class="work-item-meta">
+								<span>Created by { WorkSourceLabel(item.Source) }</span>
+								if item.AssignedToName != "" {
+									<span>Assigned to { item.AssignedToName }</span>
+								} else {
+									<span>Unassigned</span>
+								}
+								if item.DueLabel != "" {
+									<span class={ templ.KV("is-overdue", item.IsOverdue) }>Due { item.DueLabel }</span>
+								}
+								<span>Updated { item.UpdatedAt.Local().Format("Jan 2 at 3:04 PM") }</span>
+							</div>
+							if len(WorkStatusActions(item.Status)) > 0 {
+								<footer class="work-actions">
+									for _, action := range WorkStatusActions(item.Status) {
+										<form method="post" action={ templ.URL("/work/" + item.ID + "/status") }>
+											<input type="hidden" name="csrf_token" value={ csrfToken }/>
+											<input type="hidden" name="status" value={ action.Status }/>
+											<input type="hidden" name="return_status" value={ filter.Status }/>
+											<input type="hidden" name="return_kind" value={ filter.Kind }/>
+											<input type="hidden" name="return_q" value={ filter.Query }/>
+											<button class={ "button", action.Class } type="submit">{ action.Label }</button>
+										</form>
+									}
+								</footer>
+							}
+						</article>
+					}
+				</div>
+			</section>
+			<aside class="panel work-create-panel">
+				<p class="eyebrow">Add work</p><h2>New queue item</h2><p>Use a to-do for a quick personal action or a ticket when work needs structured tracking.</p>
+				<form class="work-create-form" method="post" action="/work">
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<label><span>Type</span><select name="kind"><option value="todo">To-do</option><option value="ticket">Ticket</option></select></label>
+					<label><span>Title</span><input name="title" required maxlength="240" placeholder="What needs to happen?"/></label>
+					<label><span>Details <small>optional</small></span><textarea name="description" maxlength="6000" placeholder="Add context, acceptance notes, or the next step."></textarea></label>
+					<div class="form-grid"><label><span>Priority</span><select name="priority"><option value="normal">Normal</option><option value="low">Low</option><option value="high">High</option><option value="urgent">Urgent</option></select></label><label><span>Due date <small>optional</small></span><input name="due_date" type="date"/></label></div>
+					<label class="check-row"><input name="assign_to_me" type="checkbox" value="true" checked/><span>Assign this item to me</span></label>
+					<button class="button button-primary" type="submit">Add to work queue</button>
+				</form>
+				<div class="work-agent-note"><strong>One shared queue</strong><p>Authorized persona and schedule-created tickets are stored here too, retaining their source and run context.</p></div>
+			</aside>
+		</div>
+	}
+}
