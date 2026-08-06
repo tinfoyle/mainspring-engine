@@ -6,7 +6,7 @@ The application owns orchestration. Agent providers perform bounded turns and ar
 
 ## Current implementation status
 
-This repository is under active MVP development. The architecture is recorded in [docs/architecture/README.md](docs/architecture/README.md). The current vertical slice includes tenant registration and hostname routing, separate tenant authentication, structured assisted onboarding, business-aware boardroom personas, persistent multi-run conversations with follow-ups, durable Temporal runs, SSE conversation updates, recurring interval/cron schedules that open dated conversations, signed persona capabilities, and an idempotent external-action ledger.
+This repository is under active MVP development. The architecture is recorded in [docs/architecture/README.md](docs/architecture/README.md). The current vertical slice includes tenant registration and hostname routing, separate tenant authentication, structured assisted onboarding, business-aware boardroom personas, a tenant-scoped document library with RAG ingestion, persistent multi-run conversations with follow-ups, durable Temporal runs, SSE conversation updates, recurring interval/cron schedules that open dated conversations, signed persona capabilities, and an idempotent external-action ledger.
 
 ## Development prerequisites
 
@@ -36,6 +36,8 @@ The local Docker stack uses the browser-reserved `.localhost` domain for tenant 
 The first visit to the demo tenant redirects to owner setup. The local-only setup token is `mainspring-local-setup`.
 
 After owner setup, a new tenant enters the six-step assisted onboarding flow. The team builder starts with office management, bookkeeping, and dispatch, then offers opt-in specialists for legal and compliance, market analysis, business development, customer experience, HR and safety, estimating, and procurement. Existing development tenants can restart it from **Demo tools → Reset onboarding**; the reset preserves the owner login, conversations, and documents.
+
+The tenant **Documents** section uploads, indexes, lists, and displays text-native business documents. The MVP accepts TXT, Markdown, CSV/TSV, JSON, XML, HTML, YAML, and LOG files up to 2 MB. PDF and Word extraction are planned as a separate ingestion stage.
 
 ## Repository layout
 

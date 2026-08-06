@@ -8,13 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -23,6 +26,7 @@ import (
 	"github.com/tinfoyle/mainspring-engine/internal/boardroom"
 	"github.com/tinfoyle/mainspring-engine/internal/domain"
 	"github.com/tinfoyle/mainspring-engine/internal/httpx"
+	"github.com/tinfoyle/mainspring-engine/internal/rag"
 	"github.com/tinfoyle/mainspring-engine/internal/scheduling"
 	"github.com/tinfoyle/mainspring-engine/web/assets"
 	"github.com/tinfoyle/mainspring-engine/web/components"
@@ -46,6 +50,12 @@ type RunDispatcher interface {
 	Dispatch(context.Context, domain.RunID) error
 }
 
+type DocumentService interface {
+	ListDocuments(context.Context) ([]rag.Document, error)
+	GetDocument(context.Context, string) (rag.DocumentDetail, error)
+	IngestText(context.Context, string, string, string, string) (rag.Document, error)
+}
+
 type ServerConfig struct {
 	TenantID      domain.TenantID
 	TenantSlug    string
@@ -64,14 +74,18 @@ type Server struct {
 	boardrooms *boardroom.Store
 	dispatcher RunDispatcher
 	schedules  *scheduling.Service
+	documents  DocumentService
 }
 
-func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardrooms *boardroom.Store, dispatcher RunDispatcher, schedules *scheduling.Service) (*Server, error) {
+func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardrooms *boardroom.Store, dispatcher RunDispatcher, schedules *scheduling.Service, documents DocumentService) (*Server, error) {
 	if len(config.SessionSecret) < 32 {
 		return nil, errors.New("MAINSPRING_SESSION_SECRET must contain at least 32 bytes")
 	}
 	if strings.TrimSpace(config.SetupToken) == "" {
 		return nil, errors.New("MAINSPRING_SETUP_TOKEN is required")
+	}
+	if documents == nil {
+		return nil, errors.New("tenant document service is required")
 	}
 	return &Server{
 		logger:     logger,
@@ -80,6 +94,7 @@ func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardroom
 		boardrooms: boardrooms,
 		dispatcher: dispatcher,
 		schedules:  schedules,
+		documents:  documents,
 	}, nil
 }
 
@@ -124,6 +139,9 @@ func (s *Server) Handler() http.Handler {
 				router.Post("/schedules/{scheduleID}/pause", s.requireCSRF(s.pauseSchedule))
 				router.Post("/schedules/{scheduleID}/trigger", s.requireCSRF(s.triggerSchedule))
 				router.Post("/schedules/{scheduleID}/delete", s.requireCSRF(s.deleteSchedule))
+				router.Get("/documents", s.documentsPage)
+				router.Post("/documents", s.uploadDocument)
+				router.Get("/documents/{documentID}", s.documentPage)
 			})
 		})
 	})
@@ -134,6 +152,121 @@ func (s *Server) Handler() http.Handler {
 		httpx.Recover(s.logger),
 		httpx.AccessLog(s.logger),
 	)
+}
+
+const documentUploadLimit = rag.TextDocumentLimit
+
+func (s *Server) documentsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderDocumentsPage(w, r, http.StatusOK, "")
+}
+
+func (s *Server) renderDocumentsPage(w http.ResponseWriter, r *http.Request, status int, formError string) {
+	session, _ := sessionFromContext(r.Context())
+	documents, err := s.documents.ListDocuments(r.Context())
+	if err != nil {
+		s.logger.Error("load tenant documents", "error", err)
+		s.renderError(w, http.StatusServiceUnavailable, "The document library is temporarily unavailable.")
+		return
+	}
+	s.render(w, status, components.DocumentsPage(
+		s.tenantName(r.Context()), s.userView(session.User), documentViews(documents), s.csrfToken(session), formError,
+	))
+}
+
+func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, documentUploadLimit+(256<<10))
+	if err := r.ParseMultipartForm(documentUploadLimit); err != nil {
+		s.renderDocumentsPage(w, r, http.StatusBadRequest, "Choose a supported text document no larger than 2 MB.")
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	if !auth.CheckCSRF(session.RawToken, r.FormValue("csrf_token"), s.config.SessionSecret) {
+		httpx.WriteProblem(w, http.StatusForbidden, "invalid_csrf", "The form expired or could not be verified.")
+		return
+	}
+	file, header, err := r.FormFile("document")
+	if err != nil {
+		s.renderDocumentsPage(w, r, http.StatusBadRequest, "Choose a document to upload.")
+		return
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, documentUploadLimit+1))
+	if err != nil || len(content) == 0 || len(content) > documentUploadLimit {
+		s.renderDocumentsPage(w, r, http.StatusBadRequest, "The document must contain text and be no larger than 2 MB.")
+		return
+	}
+	if !utf8.Valid(content) || strings.IndexByte(string(content), 0) >= 0 {
+		s.renderDocumentsPage(w, r, http.StatusBadRequest, "This file is not a supported text document. PDF and Word extraction will be added later.")
+		return
+	}
+	mediaType, ok := documentMediaType(header.Filename)
+	if !ok {
+		s.renderDocumentsPage(w, r, http.StatusBadRequest, "Supported formats are TXT, Markdown, CSV, TSV, JSON, XML, HTML, YAML, and LOG.")
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		name = filepath.Base(header.Filename)
+	}
+	if name == "" || len(name) > 255 {
+		s.renderDocumentsPage(w, r, http.StatusBadRequest, "Give the document a name of 255 characters or fewer.")
+		return
+	}
+	document, err := s.documents.IngestText(r.Context(), name, mediaType, string(content), session.User.ID)
+	if err != nil {
+		s.logger.Error("upload tenant document", "error", err, "name", name)
+		s.renderDocumentsPage(w, r, http.StatusBadRequest, "The document could not be indexed. Check the file and try again.")
+		return
+	}
+	http.Redirect(w, r, "/documents/"+document.ID+"?uploaded=1", http.StatusSeeOther)
+}
+
+func (s *Server) documentPage(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	documentID := chi.URLParam(r, "documentID")
+	if _, err := uuid.Parse(documentID); err != nil {
+		s.renderError(w, http.StatusNotFound, "The document was not found.")
+		return
+	}
+	document, err := s.documents.GetDocument(r.Context(), documentID)
+	if errors.Is(err, rag.ErrDocumentNotFound) {
+		s.renderError(w, http.StatusNotFound, "The document was not found.")
+		return
+	}
+	if err != nil {
+		s.logger.Error("load tenant document", "error", err, "document_id", documentID)
+		s.renderError(w, http.StatusServiceUnavailable, "The document is temporarily unavailable.")
+		return
+	}
+	s.render(w, http.StatusOK, components.DocumentPage(
+		s.tenantName(r.Context()), s.userView(session.User), documentDetailView(document), s.csrfToken(session), r.URL.Query().Get("uploaded") == "1",
+	))
+}
+
+func documentMediaType(filename string) (string, bool) {
+	switch strings.ToLower(filepath.Ext(filename)) {
+	case ".txt", ".log":
+		return "text/plain", true
+	case ".md", ".markdown":
+		return "text/markdown", true
+	case ".csv":
+		return "text/csv", true
+	case ".tsv":
+		return "text/tab-separated-values", true
+	case ".json":
+		return "application/json", true
+	case ".xml":
+		return "application/xml", true
+	case ".html", ".htm":
+		return "text/html", true
+	case ".yaml", ".yml":
+		return "text/yaml", true
+	default:
+		return "", false
+	}
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
@@ -1155,6 +1288,26 @@ func onboardingView(state Onboarding) components.OnboardingView {
 		})
 	}
 	return result
+}
+
+func documentViews(documents []rag.Document) []components.DocumentView {
+	result := make([]components.DocumentView, 0, len(documents))
+	for _, document := range documents {
+		result = append(result, documentView(document))
+	}
+	return result
+}
+
+func documentView(document rag.Document) components.DocumentView {
+	return components.DocumentView{
+		ID: document.ID, Name: document.Name, MediaType: document.MediaType, Status: document.Status,
+		ChunkCount: document.ChunkCount, CharacterCount: document.CharacterCount,
+		UploadedBy: document.UploadedBy, CreatedAt: document.CreatedAt,
+	}
+}
+
+func documentDetailView(document rag.DocumentDetail) components.DocumentDetailView {
+	return components.DocumentDetailView{DocumentView: documentView(document.Document), Content: document.Content}
 }
 
 func cleanFormValues(values []string, maximum, maxLength int) []string {

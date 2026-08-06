@@ -17,6 +17,16 @@ request() {
   curl --silent --show-error --fail-with-body -H "Host: $tenant_host" "$@"
 }
 
+ready=false
+for _ in $(seq 1 40); do
+  if curl --silent --output /dev/null --fail -H "Host: $tenant_host" "$base_url/login"; then
+    ready=true
+    break
+  fi
+  sleep 0.25
+done
+[[ "$ready" == "true" ]]
+
 request --output /dev/null --cookie-jar "$cookies" \
   --data-urlencode "email=$email" --data-urlencode "password=$password" "$base_url/login"
 

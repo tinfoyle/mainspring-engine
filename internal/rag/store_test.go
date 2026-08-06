@@ -17,3 +17,24 @@ func TestChunkTextPreservesContentAndOverlap(t *testing.T) {
 		}
 	}
 }
+
+func TestSupportedTextMediaType(t *testing.T) {
+	for _, mediaType := range []string{"text/plain", "text/markdown; charset=utf-8", "text/csv", "application/json", "application/xml"} {
+		if !supportedTextMediaType(mediaType) {
+			t.Fatalf("expected %q to be supported", mediaType)
+		}
+	}
+	for _, mediaType := range []string{"application/pdf", "application/octet-stream", "image/png"} {
+		if supportedTextMediaType(mediaType) {
+			t.Fatalf("expected %q to be rejected", mediaType)
+		}
+	}
+}
+
+func TestIngestTextRejectsOversizedContentBeforeStorage(t *testing.T) {
+	store := &Store{}
+	_, err := store.IngestText(t.Context(), "too-large.txt", "text/plain", strings.Repeat("a", TextDocumentLimit+1))
+	if err == nil || !strings.Contains(err.Error(), "2 MB") {
+		t.Fatalf("error = %v, want 2 MB size rejection", err)
+	}
+}

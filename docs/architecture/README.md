@@ -161,6 +161,21 @@ Browser requests tenant subdomain
   -> hostname, session tenant, and runtime tenant must agree
 ```
 
+### Document ingestion
+
+```text
+Authenticated owner uploads a supported text-native file
+  -> tenant runtime validates CSRF, extension, size, and UTF-8 content
+  -> tenant runtime calls the tenant RAG service with internal credentials
+  -> RAG stores the exact source text and creates searchable chunks
+  -> document library lists the ready document and exposes a read-only detail view
+  -> only personas with documents.read receive document retrieval capability
+```
+
+The MVP stores source text in the tenant database so uploaded documents can be
+viewed faithfully while indexed chunks evolve independently. Binary extraction and
+object storage are deferred until PDF and Word support is implemented.
+
 ## MVP deployment
 
 The initial Hostinger VPS runs Docker and contains:
@@ -245,6 +260,7 @@ docs/
 - [ADR-0008: Record and reconcile external side effects](adr/0008-external-side-effects.md)
 - [ADR-0009: Adopt a minimum viable security boundary](adr/0009-mvp-security-boundary.md)
 - [ADR-0010: Use structured assisted onboarding](adr/0010-structured-assisted-onboarding.md)
+- [ADR-0011: Keep document ingestion behind the tenant RAG service](adr/0011-rag-document-library.md)
 
 ## Open questions
 
@@ -252,7 +268,7 @@ docs/
 - Tenant authentication method for the first release
 - Billing provider and subscription lifecycle rules
 - Offsite backup destination, recovery targets, and restore cadence
-- Document types supported by the first RAG ingestion pipeline
+- PDF and Word extraction strategy and object-storage backend
 - Exact web-search and email providers available to the MVP
 - Model credential ownership, quotas, and customer usage limits
 - Criteria for moving a tenant to dedicated database infrastructure

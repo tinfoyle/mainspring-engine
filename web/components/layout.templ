@@ -23,6 +23,7 @@ templ Layout(title string, tenantName string, user *UserView, csrfToken string) 
 				</a>
 				if user != nil {
 					<div class="user-menu">
+						<a href="/documents">Documents</a>
 						<a href="/schedules">Schedules</a>
 						if user.Development {
 							<a href="/development">Demo tools</a>

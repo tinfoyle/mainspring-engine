@@ -111,6 +111,10 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 		return err
 	}
 	boardroomStore := boardroom.NewStore(pool)
+	documentClient, err := rag.NewClient(cfg.RAGInternalURL, cfg.RAGToken, tenantID)
+	if err != nil {
+		return err
+	}
 	var dispatcher tenant.RunDispatcher
 	var scheduleService *scheduling.Service
 	if cfg.OrchestrationMode == "temporal" {
@@ -137,7 +141,7 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 		TenantID: tenantID, TenantSlug: cfg.TenantSlug, TenantName: cfg.TenantName,
 		BaseDomain: cfg.GatewayBaseDomain, SessionSecret: []byte(cfg.SessionSecret), SetupToken: cfg.SetupToken,
 		CookieSecure: cfg.CookieSecure, Development: cfg.Environment == "development",
-	}, tenantStore, boardroomStore, dispatcher, scheduleService)
+	}, tenantStore, boardroomStore, dispatcher, scheduleService, documentClient)
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,9 @@
 package components
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 func Initial(value string) string {
 	for _, character := range value {
@@ -28,6 +31,57 @@ type UserView struct {
 	Email       string
 	Role        string
 	Development bool
+}
+
+type DocumentView struct {
+	ID             string
+	Name           string
+	MediaType      string
+	Status         string
+	ChunkCount     int
+	CharacterCount int
+	UploadedBy     string
+	CreatedAt      time.Time
+}
+
+type DocumentDetailView struct {
+	DocumentView
+	Content string
+}
+
+func DocumentTypeLabel(mediaType string) string {
+	switch mediaType {
+	case "text/markdown":
+		return "Markdown"
+	case "text/csv":
+		return "CSV"
+	case "text/tab-separated-values":
+		return "TSV"
+	case "application/json":
+		return "JSON"
+	case "application/xml":
+		return "XML"
+	case "text/html":
+		return "HTML"
+	case "text/yaml":
+		return "YAML"
+	default:
+		return "Text"
+	}
+}
+
+func DocumentCountLabel(count int) string {
+	if count == 1 {
+		return "1 document"
+	}
+	return fmt.Sprintf("%d documents", count)
+}
+
+func CharacterCountLabel(count int) string {
+	if count == 1 {
+		return "1 character"
+	}
+	return fmt.Sprintf("%d characters", count)
 }
 
 type BusinessProfileView struct {

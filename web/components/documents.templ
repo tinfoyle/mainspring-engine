@@ -1,0 +1,65 @@
+package components
+
+import "fmt"
+
+templ DocumentsPage(tenantName string, user UserView, documents []DocumentView, csrfToken, formError string) {
+	@Layout("Documents", tenantName, &user, csrfToken) {
+		<section class="documents-hero">
+			<div><p class="eyebrow">Business knowledge</p><h1>Documents</h1><p>Give your boardroom the manuals, procedures, price sheets, and notes it should be able to reference.</p></div>
+			<div class="document-total"><strong>{ fmt.Sprintf("%d", len(documents)) }</strong><span>{ DocumentCountLabel(len(documents)) }</span></div>
+		</section>
+		<div class="documents-layout">
+			<section class="document-library">
+				<div class="section-heading"><div><p class="eyebrow">Library</p><h2>Uploaded documents</h2></div></div>
+				if len(documents) == 0 {
+					<div class="panel document-empty"><div class="document-empty-icon">D</div><h3>No documents yet</h3><p>Upload the first piece of business knowledge. Once indexed, approved personas can reference it in the boardroom.</p></div>
+				} else {
+					<div class="document-list">
+						for _, document := range documents {
+							<a class="document-row panel" href={ templ.URL("/documents/" + document.ID) }>
+								<span class="document-kind">{ DocumentTypeLabel(document.MediaType) }</span>
+								<div><h3>{ document.Name }</h3><p>Uploaded by { document.UploadedBy } · { document.CreatedAt.UTC().Format("Jan 2, 2006 at 3:04 PM MST") }</p></div>
+								<div class="document-row-meta"><span class="status-pill">{ document.Status }</span><small>{ CharacterCountLabel(document.CharacterCount) }</small></div>
+							</a>
+						}
+					</div>
+				}
+			</section>
+			<aside class="panel document-upload-panel">
+				<p class="eyebrow">Add knowledge</p><h2>Upload a document</h2><p>Text-based files are indexed immediately and remain scoped to this tenant.</p>
+				if formError != "" {
+					<div class="alert alert-error" role="alert">{ formError }</div>
+				}
+				<form class="document-upload-form" method="post" action="/documents" enctype="multipart/form-data">
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<label><span>Display name <small>optional</small></span><input name="name" maxlength="255" placeholder="Defaults to the filename"/></label>
+					<label class="file-choice"><span>Choose a file</span><input type="file" name="document" required accept=".txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.yaml,.yml,.log,text/plain,text/markdown,text/csv,application/json,application/xml,text/html,text/yaml"/></label>
+					<p class="upload-help">TXT, Markdown, CSV, TSV, JSON, XML, HTML, YAML, or LOG · 2 MB maximum</p>
+					<button class="button button-primary" type="submit">Upload and index</button>
+				</form>
+				<div class="upload-roadmap"><strong>Coming next</strong><p>PDF and Word extraction, document replacement, and version history.</p></div>
+			</aside>
+		</div>
+	}
+}
+
+templ DocumentPage(tenantName string, user UserView, document DocumentDetailView, csrfToken string, uploaded bool) {
+	@Layout(document.Name, tenantName, &user, csrfToken) {
+		<section class="document-detail-shell">
+			<a class="back-link" href="/documents">← Document library</a>
+			if uploaded {
+				<div class="alert alert-success">Document uploaded and indexed. Approved personas can now reference it.</div>
+			}
+			<header class="panel document-detail-header">
+				<div><p class="eyebrow">{ DocumentTypeLabel(document.MediaType) } document</p><h1>{ document.Name }</h1><p>Uploaded by { document.UploadedBy } on { document.CreatedAt.UTC().Format("January 2, 2006 at 3:04 PM MST") }</p></div>
+				<span class="status-pill">{ document.Status }</span>
+			</header>
+			<div class="document-facts">
+				<div><span>Indexed sections</span><strong>{ fmt.Sprintf("%d", document.ChunkCount) }</strong></div>
+				<div><span>Length</span><strong>{ CharacterCountLabel(document.CharacterCount) }</strong></div>
+				<div><span>Media type</span><strong>{ document.MediaType }</strong></div>
+			</div>
+			<section class="panel document-content-panel"><div class="section-heading"><div><p class="eyebrow">Contents</p><h2>Document text</h2></div></div><pre>{ document.Content }</pre></section>
+		</section>
+	}
+}

@@ -32,8 +32,9 @@ type Config struct {
 	CookieSecure      bool
 	RunConcurrency    int
 
-	RAGAddr  string
-	RAGToken string
+	RAGAddr        string
+	RAGInternalURL string
+	RAGToken       string
 
 	TemporalAddress   string
 	TemporalNamespace string
@@ -67,6 +68,7 @@ func Load() (Config, error) {
 		CookieSecure:       boolean("MAINSPRING_COOKIE_SECURE", false),
 		RunConcurrency:     integer("MAINSPRING_RUN_CONCURRENCY", 4),
 		RAGAddr:            env("MAINSPRING_RAG_ADDR", ":8083"),
+		RAGInternalURL:     env("MAINSPRING_RAG_INTERNAL_URL", "http://127.0.0.1:8083"),
 		RAGToken:           os.Getenv("MAINSPRING_RAG_TOKEN"),
 		TemporalAddress:    env("MAINSPRING_TEMPORAL_ADDRESS", "localhost:7233"),
 		TemporalNamespace:  env("MAINSPRING_TEMPORAL_NAMESPACE", "default"),

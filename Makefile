@@ -34,5 +34,6 @@ docker-down:
 
 smoke:
 	bash scripts/onboarding-smoke-test.sh
+	bash scripts/documents-smoke-test.sh
 	bash scripts/smoke-test.sh
 	bash scripts/rag-smoke-test.sh

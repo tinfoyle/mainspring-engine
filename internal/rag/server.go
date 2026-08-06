@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 	"github.com/tinfoyle/mainspring-engine/internal/domain"
 	"github.com/tinfoyle/mainspring-engine/internal/httpx"
 )
@@ -37,7 +38,9 @@ func (s *Server) Handler() http.Handler {
 	})
 	router.Group(func(router chi.Router) {
 		router.Use(s.authorize)
+		router.Get("/documents", s.listDocuments)
 		router.Post("/documents/text", s.ingestText)
+		router.Get("/documents/{documentID}", s.getDocument)
 		router.Get("/search", s.search)
 	})
 	return httpx.Chain(router, httpx.RequestID, httpx.Recover(s.logger), httpx.AccessLog(s.logger))
@@ -60,16 +63,46 @@ func (s *Server) ingestText(w http.ResponseWriter, r *http.Request) {
 		Name      string `json:"name"`
 		MediaType string `json:"media_type"`
 		Content   string `json:"content"`
+		CreatedBy string `json:"created_by"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil {
 		return
 	}
-	document, err := s.store.IngestText(r.Context(), input.Name, input.MediaType, input.Content)
+	document, err := s.store.IngestTextBy(r.Context(), input.Name, input.MediaType, input.Content, input.CreatedBy)
 	if err != nil {
 		httpx.WriteProblem(w, http.StatusBadRequest, "ingest_failed", err.Error())
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, document)
+}
+
+func (s *Server) listDocuments(w http.ResponseWriter, r *http.Request) {
+	documents, err := s.store.ListDocuments(r.Context())
+	if err != nil {
+		s.logger.Error("list documents", "error", err)
+		httpx.WriteProblem(w, http.StatusInternalServerError, "document_list_failed", "Documents could not be loaded.")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"documents": documents})
+}
+
+func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
+	documentID := chi.URLParam(r, "documentID")
+	if _, err := uuid.Parse(documentID); err != nil {
+		httpx.WriteProblem(w, http.StatusNotFound, "document_not_found", "The document was not found.")
+		return
+	}
+	document, err := s.store.GetDocument(r.Context(), documentID)
+	if errors.Is(err, ErrDocumentNotFound) {
+		httpx.WriteProblem(w, http.StatusNotFound, "document_not_found", "The document was not found.")
+		return
+	}
+	if err != nil {
+		s.logger.Error("get document", "error", err, "document_id", documentID)
+		httpx.WriteProblem(w, http.StatusInternalServerError, "document_load_failed", "The document could not be loaded.")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, document)
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +116,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
