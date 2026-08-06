@@ -123,7 +123,7 @@ tenant-scoped structured draft; the application owns validation and application.
 tenants cannot access operational routes until onboarding is complete.
 
 The initial catalog includes office management, bookkeeping, dispatch, legal and
-compliance, market analysis, business development, customer experience, HR and
+compliance, market analysis, business development, website advising, customer experience, HR and
 safety, estimating and job costing, and procurement. Specialist roles are opt-in
 unless the owner's stated priorities directly recommend one. Public-web research
 and document commenting are separate launch permissions, and the boardroom turn
@@ -175,6 +175,21 @@ Authenticated owner uploads a supported text-native file
 The MVP stores source text in the tenant database so uploaded documents can be
 viewed faithfully while indexed chunks evolve independently. Binary extraction and
 object storage are deferred until PDF and Word support is implemented.
+
+### Tenant email
+
+```text
+Owner enters IMAP and SMTP settings
+  -> tenant runtime verifies both encrypted connections
+  -> credentials are AES-GCM encrypted before tenant-database storage
+  -> authorized email.read calls fetch inbox metadata or a selected message
+  -> email.send prepares an external action and tenant outbox record
+  -> SMTP delivery succeeds once, fails safely, or enters manual review when uncertain
+```
+
+The local demo uses a clearly marked mail simulator. Production uses the same
+service boundary with real IMAP and SMTP over TLS. Persona grants distinguish inbox
+reading, drafting, and external sending; sending is off by default.
 
 ## MVP deployment
 
@@ -261,6 +276,7 @@ docs/
 - [ADR-0009: Adopt a minimum viable security boundary](adr/0009-mvp-security-boundary.md)
 - [ADR-0010: Use structured assisted onboarding](adr/0010-structured-assisted-onboarding.md)
 - [ADR-0011: Keep document ingestion behind the tenant RAG service](adr/0011-rag-document-library.md)
+- [ADR-0012: Keep mailbox credentials and delivery inside the tenant runtime](adr/0012-tenant-email-integration.md)
 
 ## Open questions
 
@@ -269,7 +285,7 @@ docs/
 - Billing provider and subscription lifecycle rules
 - Offsite backup destination, recovery targets, and restore cadence
 - PDF and Word extraction strategy and object-storage backend
-- Exact web-search and email providers available to the MVP
+- Exact web-search provider available to the MVP
 - Model credential ownership, quotas, and customer usage limits
 - Criteria for moving a tenant to dedicated database infrastructure
 - Kubernetes distribution and cluster topology after MVP validation

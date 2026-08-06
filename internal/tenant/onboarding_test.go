@@ -18,13 +18,14 @@ func TestGenerateBlueprint(t *testing.T) {
 	if !strings.Contains(blueprint.Description, "Acme Plumbing") || !strings.Contains(blueprint.Description, "plumbing") {
 		t.Fatalf("blueprint description does not contain business context: %q", blueprint.Description)
 	}
-	if len(blueprint.Personas) != 10 {
-		t.Fatalf("persona count = %d, want 10", len(blueprint.Personas))
+	if len(blueprint.Personas) != 11 {
+		t.Fatalf("persona count = %d, want 11", len(blueprint.Personas))
 	}
 	wantedRoles := map[string]bool{
 		"Legal & Compliance Advisor": true, "Market Analyst": true, "Business Developer": true,
 		"Customer Experience Manager": true, "HR & Safety Coordinator": true,
 		"Estimator & Job Cost Analyst": true, "Procurement Specialist": true,
+		"Website Advisor": true,
 	}
 	enabled := 0
 	for _, persona := range blueprint.Personas {
@@ -41,6 +42,20 @@ func TestGenerateBlueprint(t *testing.T) {
 	}
 	if enabled != 3 {
 		t.Fatalf("default enabled persona count = %d, want lean core team of 3", enabled)
+	}
+}
+
+func TestWebsiteAdvisorHasReadOnlyWebCapabilities(t *testing.T) {
+	capabilities := personaCapabilities("website_advisor", PermissionPlan{ResearchPublicWeb: true})
+	wanted := map[domain.Capability]bool{domain.CapabilityWebRead: true, domain.CapabilityWebSearch: true}
+	for _, capability := range capabilities {
+		delete(wanted, capability)
+		if capability == domain.CapabilityDocumentsComment || capability == domain.CapabilityEmailSend {
+			t.Fatalf("website advisor received mutating capability %s", capability)
+		}
+	}
+	if len(wanted) != 0 {
+		t.Fatalf("website advisor missing capabilities: %#v", wanted)
 	}
 }
 
@@ -62,6 +77,22 @@ func TestPersonaCapabilitiesRespectLaunchPermissions(t *testing.T) {
 	}
 	if len(wants) != 0 {
 		t.Fatalf("missing expected capabilities: %#v", wants)
+	}
+}
+
+func TestPersonaEmailSendRequiresExplicitPermission(t *testing.T) {
+	capabilities := personaCapabilities("office_manager", PermissionPlan{ReadEmailInbox: true, SendEmail: true})
+	wanted := map[domain.Capability]bool{domain.CapabilityEmailRead: true, domain.CapabilityEmailSend: true}
+	for _, capability := range capabilities {
+		delete(wanted, capability)
+	}
+	if len(wanted) != 0 {
+		t.Fatalf("missing explicitly granted email capabilities: %#v", wanted)
+	}
+	for _, capability := range personaCapabilities("bookkeeper", PermissionPlan{ReadEmailInbox: true, SendEmail: true}) {
+		if capability == domain.CapabilityEmailRead || capability == domain.CapabilityEmailSend {
+			t.Fatalf("bookkeeper received communication capability %s", capability)
+		}
 	}
 }
 
@@ -131,12 +162,12 @@ func TestPriorityCanRecommendSpecialist(t *testing.T) {
 
 func TestPersonalizedInstructionsIncludeOperatingContext(t *testing.T) {
 	state := Onboarding{
-		Business:   BusinessProfile{BusinessName: "Acme Plumbing", Trade: "plumbing", ServiceArea: "Charlotte", Services: "service calls", TeamSize: 7},
+		Business:   BusinessProfile{BusinessName: "Acme Plumbing", WebsiteURL: "https://acme.example", Trade: "plumbing", ServiceArea: "Charlotte", Services: "service calls", TeamSize: 7},
 		Operations: OperatingPlaybook{JobToInvoice: "Technicians leave paper tickets", BiggestBottleneck: "Missing job notes"},
 		Priorities: []string{"Get completed work invoiced faster"},
 	}
 	instructions := personalizedInstructions(PersonaBlueprint{Mission: "Watch the office."}, state)
-	for _, expected := range []string{"Acme Plumbing", "Technicians leave paper tickets", "Missing job notes", "Get completed work invoiced faster"} {
+	for _, expected := range []string{"Acme Plumbing", "https://acme.example", "Technicians leave paper tickets", "Missing job notes", "Get completed work invoiced faster"} {
 		if !strings.Contains(instructions, expected) {
 			t.Fatalf("instructions missing %q: %s", expected, instructions)
 		}

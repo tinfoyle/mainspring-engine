@@ -49,6 +49,38 @@ type DocumentDetailView struct {
 	Content string
 }
 
+type EmailIntegrationView struct {
+	Name           string
+	EmailAddress   string
+	DisplayName    string
+	IMAPServer     string
+	SMTPServer     string
+	Status         string
+	LastVerifiedAt *time.Time
+	LastError      string
+}
+
+type EmailInboxMessageView struct {
+	UID     uint32
+	From    string
+	Subject string
+	Date    time.Time
+	Unread  bool
+}
+
+type EmailMessageView struct {
+	EmailInboxMessageView
+	To   string
+	Body string
+}
+
+func EmailDate(value time.Time) string {
+	if value.IsZero() {
+		return "Unknown time"
+	}
+	return value.Local().Format("Jan 2, 2006 at 3:04 PM")
+}
+
 func DocumentTypeLabel(mediaType string) string {
 	switch mediaType {
 	case "text/markdown":
@@ -86,6 +118,7 @@ func CharacterCountLabel(count int) string {
 
 type BusinessProfileView struct {
 	BusinessName     string
+	WebsiteURL       string
 	Trade            string
 	Services         string
 	ServiceArea      string
@@ -124,6 +157,8 @@ type PermissionPlanView struct {
 	CommentOnDocuments   bool
 	PrepareInvoiceDrafts bool
 	DraftCustomerEmail   bool
+	ReadEmailInbox       bool
+	SendEmail            bool
 	ProposeScheduleEdits bool
 	ProposePayments      bool
 }
@@ -228,6 +263,12 @@ func PermissionSummary(plan PermissionPlanView) []string {
 	}
 	if plan.DraftCustomerEmail {
 		result = append(result, "Draft customer messages")
+	}
+	if plan.ReadEmailInbox {
+		result = append(result, "Read the connected email inbox")
+	}
+	if plan.SendEmail {
+		result = append(result, "Send email through the connected SMTP account")
 	}
 	if plan.ProposeScheduleEdits {
 		result = append(result, "Propose schedule changes")

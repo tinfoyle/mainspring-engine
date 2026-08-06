@@ -21,6 +21,7 @@ var ErrOnboardingNotFound = errors.New("tenant onboarding was not found")
 
 type BusinessProfile struct {
 	BusinessName     string   `json:"business_name"`
+	WebsiteURL       string   `json:"website_url"`
 	Trade            string   `json:"trade"`
 	Services         string   `json:"services"`
 	ServiceArea      string   `json:"service_area"`
@@ -65,6 +66,8 @@ type PermissionPlan struct {
 	CommentOnDocuments   bool `json:"comment_on_documents"`
 	PrepareInvoiceDrafts bool `json:"prepare_invoice_drafts"`
 	DraftCustomerEmail   bool `json:"draft_customer_email"`
+	ReadEmailInbox       bool `json:"read_email_inbox"`
+	SendEmail            bool `json:"send_email"`
 	ProposeScheduleEdits bool `json:"propose_schedule_edits"`
 	ProposePayments      bool `json:"propose_payments"`
 }
@@ -86,6 +89,8 @@ func DefaultPermissionPlan() PermissionPlan {
 		CommentOnDocuments:   true,
 		PrepareInvoiceDrafts: true,
 		DraftCustomerEmail:   true,
+		ReadEmailInbox:       true,
+		SendEmail:            false,
 		ProposeScheduleEdits: true,
 		ProposePayments:      true,
 	}
@@ -128,6 +133,11 @@ func GenerateBlueprint(state Onboarding) BoardroomBlueprint {
 				Key: "market_analyst", Group: "Growth and customers", Name: "Taylor", Role: "Market Analyst",
 				Mission:      "Track local demand, competitors, pricing signals, and service opportunities using evidence instead of guesswork.",
 				Capabilities: []string{"Search the public web", "Read business documents", "Compare market evidence"},
+			},
+			{
+				Key: "website_advisor", Group: "Growth and customers", Name: "Robin", Role: "Website Advisor",
+				Mission:      "Review the business website as a prospective customer, compare it with credible local competitors, and recommend clear, practical improvements without editing or publishing anything.",
+				Capabilities: []string{"View public website pages", "Research competitor websites", "Recommend content, trust, accessibility, and conversion improvements"},
 			},
 			{
 				Key: "customer_experience", Group: "Growth and customers", Name: "Jamie", Role: "Customer Experience Manager",
@@ -385,6 +395,12 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		if permissions.DraftCustomerEmail {
 			result = append(result, domain.CapabilityEmailDraft)
 		}
+		if permissions.ReadEmailInbox {
+			result = append(result, domain.CapabilityEmailRead)
+		}
+		if permissions.SendEmail {
+			result = append(result, domain.CapabilityEmailSend)
+		}
 	case "bookkeeper":
 		if permissions.PrepareInvoiceDrafts {
 			result = append(result, domain.CapabilityInvoicePrepare)
@@ -410,9 +426,19 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		if permissions.DraftCustomerEmail {
 			result = append(result, domain.CapabilityEmailDraft)
 		}
+		if permissions.ReadEmailInbox {
+			result = append(result, domain.CapabilityEmailRead)
+		}
+		if permissions.SendEmail {
+			result = append(result, domain.CapabilityEmailSend)
+		}
 	case "market_analyst":
 		if permissions.ResearchPublicWeb {
 			result = append(result, domain.CapabilityWebSearch)
+		}
+	case "website_advisor":
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebRead, domain.CapabilityWebSearch)
 		}
 	case "customer_experience":
 		if permissions.ReadBusinessRecords {
@@ -421,6 +447,12 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		result = append(result, domain.CapabilityTicketCreate)
 		if permissions.DraftCustomerEmail {
 			result = append(result, domain.CapabilityEmailDraft)
+		}
+		if permissions.ReadEmailInbox {
+			result = append(result, domain.CapabilityEmailRead)
+		}
+		if permissions.SendEmail {
+			result = append(result, domain.CapabilityEmailSend)
 		}
 	case "legal_advisor", "hr_safety":
 		if permissions.ResearchPublicWeb {
@@ -454,10 +486,10 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 
 func personalizedInstructions(persona PersonaBlueprint, state Onboarding) string {
 	return fmt.Sprintf(
-		"%s\n\nBusiness context: %s is a %s business serving %s. Services: %s. Team size: %d. Customer mix: %s. Working hours: %s.\n\nOperating playbook: Leads: %s Scheduling: %s Estimate to job: %s Job to invoice: %s Payments: %s Vendor bills: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for owner approval.",
+		"%s\n\nBusiness context: %s is a %s business serving %s. Website: %s. Services: %s. Team size: %d. Customer mix: %s. Working hours: %s.\n\nOperating playbook: Leads: %s Scheduling: %s Estimate to job: %s Job to invoice: %s Payments: %s Vendor bills: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for owner approval.",
 		persona.Mission,
 		state.Business.BusinessName, state.Business.Trade, state.Business.ServiceArea,
-		fallback(state.Business.Services, "not yet documented"), state.Business.TeamSize,
+		fallback(state.Business.WebsiteURL, "not yet provided"), fallback(state.Business.Services, "not yet documented"), state.Business.TeamSize,
 		fallback(state.Business.CustomerMix, "not yet documented"), fallback(state.Business.WorkingHours, "not yet documented"),
 		fallback(state.Operations.LeadIntake, "not yet documented"), fallback(state.Operations.Scheduling, "not yet documented"),
 		fallback(state.Operations.EstimateToJob, "not yet documented"), fallback(state.Operations.JobToInvoice, "not yet documented"),

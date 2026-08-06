@@ -21,16 +21,18 @@ type Config struct {
 	GatewayBaseDomain    string
 	GatewayRouteCacheTTL time.Duration
 
-	TenantAddr        string
-	TenantID          string
-	TenantSlug        string
-	TenantName        string
-	TenantInternalURL string
-	TenantDatabaseURL string
-	SessionSecret     string
-	SetupToken        string
-	CookieSecure      bool
-	RunConcurrency    int
+	TenantAddr              string
+	TenantID                string
+	TenantSlug              string
+	TenantName              string
+	TenantInternalURL       string
+	TenantDatabaseURL       string
+	SessionSecret           string
+	SetupToken              string
+	CookieSecure            bool
+	RunConcurrency          int
+	CredentialEncryptionKey string
+	EmailProvider           string
 
 	RAGAddr        string
 	RAGInternalURL string
@@ -49,34 +51,36 @@ type Config struct {
 
 func Load() (Config, error) {
 	cfg := Config{
-		Environment:        env("MAINSPRING_ENV", "development"),
-		LogLevel:           strings.ToLower(env("MAINSPRING_LOG_LEVEL", "info")),
-		AutoMigrate:        boolean("MAINSPRING_AUTO_MIGRATE", true),
-		ControlAddr:        env("MAINSPRING_CONTROL_ADDR", ":8080"),
-		ControlDatabaseURL: os.Getenv("MAINSPRING_CONTROL_DATABASE_URL"),
-		ControlAdminToken:  os.Getenv("MAINSPRING_CONTROL_ADMIN_TOKEN"),
-		GatewayAddr:        env("MAINSPRING_GATEWAY_ADDR", ":8081"),
-		GatewayBaseDomain:  strings.ToLower(env("MAINSPRING_GATEWAY_BASE_DOMAIN", "lvh.me")),
-		TenantAddr:         env("MAINSPRING_TENANT_ADDR", ":8082"),
-		TenantID:           os.Getenv("MAINSPRING_TENANT_ID"),
-		TenantSlug:         strings.ToLower(os.Getenv("MAINSPRING_TENANT_SLUG")),
-		TenantName:         env("MAINSPRING_TENANT_NAME", "Mainspring Boardroom"),
-		TenantInternalURL:  os.Getenv("MAINSPRING_TENANT_INTERNAL_URL"),
-		TenantDatabaseURL:  os.Getenv("MAINSPRING_TENANT_DATABASE_URL"),
-		SessionSecret:      os.Getenv("MAINSPRING_SESSION_SECRET"),
-		SetupToken:         os.Getenv("MAINSPRING_SETUP_TOKEN"),
-		CookieSecure:       boolean("MAINSPRING_COOKIE_SECURE", false),
-		RunConcurrency:     integer("MAINSPRING_RUN_CONCURRENCY", 4),
-		RAGAddr:            env("MAINSPRING_RAG_ADDR", ":8083"),
-		RAGInternalURL:     env("MAINSPRING_RAG_INTERNAL_URL", "http://127.0.0.1:8083"),
-		RAGToken:           os.Getenv("MAINSPRING_RAG_TOKEN"),
-		TemporalAddress:    env("MAINSPRING_TEMPORAL_ADDRESS", "localhost:7233"),
-		TemporalNamespace:  env("MAINSPRING_TEMPORAL_NAMESPACE", "default"),
-		TemporalTaskQueue:  strings.TrimSpace(os.Getenv("MAINSPRING_TEMPORAL_TASK_QUEUE")),
-		OrchestrationMode:  strings.ToLower(env("MAINSPRING_ORCHESTRATION", "local")),
-		AgentProvider:      strings.ToLower(env("MAINSPRING_AGENT_PROVIDER", "mock")),
-		CodexBinary:        env("MAINSPRING_CODEX_BINARY", "codex"),
-		ToolTokenSecret:    os.Getenv("MAINSPRING_TOOL_TOKEN_SECRET"),
+		Environment:             env("MAINSPRING_ENV", "development"),
+		LogLevel:                strings.ToLower(env("MAINSPRING_LOG_LEVEL", "info")),
+		AutoMigrate:             boolean("MAINSPRING_AUTO_MIGRATE", true),
+		ControlAddr:             env("MAINSPRING_CONTROL_ADDR", ":8080"),
+		ControlDatabaseURL:      os.Getenv("MAINSPRING_CONTROL_DATABASE_URL"),
+		ControlAdminToken:       os.Getenv("MAINSPRING_CONTROL_ADMIN_TOKEN"),
+		GatewayAddr:             env("MAINSPRING_GATEWAY_ADDR", ":8081"),
+		GatewayBaseDomain:       strings.ToLower(env("MAINSPRING_GATEWAY_BASE_DOMAIN", "lvh.me")),
+		TenantAddr:              env("MAINSPRING_TENANT_ADDR", ":8082"),
+		TenantID:                os.Getenv("MAINSPRING_TENANT_ID"),
+		TenantSlug:              strings.ToLower(os.Getenv("MAINSPRING_TENANT_SLUG")),
+		TenantName:              env("MAINSPRING_TENANT_NAME", "Mainspring Boardroom"),
+		TenantInternalURL:       os.Getenv("MAINSPRING_TENANT_INTERNAL_URL"),
+		TenantDatabaseURL:       os.Getenv("MAINSPRING_TENANT_DATABASE_URL"),
+		SessionSecret:           os.Getenv("MAINSPRING_SESSION_SECRET"),
+		SetupToken:              os.Getenv("MAINSPRING_SETUP_TOKEN"),
+		CookieSecure:            boolean("MAINSPRING_COOKIE_SECURE", false),
+		RunConcurrency:          integer("MAINSPRING_RUN_CONCURRENCY", 4),
+		CredentialEncryptionKey: os.Getenv("MAINSPRING_CREDENTIAL_ENCRYPTION_KEY"),
+		EmailProvider:           strings.ToLower(env("MAINSPRING_EMAIL_PROVIDER", "network")),
+		RAGAddr:                 env("MAINSPRING_RAG_ADDR", ":8083"),
+		RAGInternalURL:          env("MAINSPRING_RAG_INTERNAL_URL", "http://127.0.0.1:8083"),
+		RAGToken:                os.Getenv("MAINSPRING_RAG_TOKEN"),
+		TemporalAddress:         env("MAINSPRING_TEMPORAL_ADDRESS", "localhost:7233"),
+		TemporalNamespace:       env("MAINSPRING_TEMPORAL_NAMESPACE", "default"),
+		TemporalTaskQueue:       strings.TrimSpace(os.Getenv("MAINSPRING_TEMPORAL_TASK_QUEUE")),
+		OrchestrationMode:       strings.ToLower(env("MAINSPRING_ORCHESTRATION", "local")),
+		AgentProvider:           strings.ToLower(env("MAINSPRING_AGENT_PROVIDER", "mock")),
+		CodexBinary:             env("MAINSPRING_CODEX_BINARY", "codex"),
+		ToolTokenSecret:         os.Getenv("MAINSPRING_TOOL_TOKEN_SECRET"),
 	}
 
 	var err error
@@ -92,6 +96,9 @@ func Load() (Config, error) {
 	if strings.TrimSpace(cfg.ToolTokenSecret) == "" {
 		cfg.ToolTokenSecret = cfg.SessionSecret
 	}
+	if strings.TrimSpace(cfg.CredentialEncryptionKey) == "" && cfg.Environment == "development" {
+		cfg.CredentialEncryptionKey = cfg.SessionSecret
+	}
 
 	switch cfg.LogLevel {
 	case "debug", "info", "warn", "error":
@@ -102,6 +109,11 @@ func Load() (Config, error) {
 	case "local", "temporal":
 	default:
 		return Config{}, errors.New("MAINSPRING_ORCHESTRATION must be local or temporal")
+	}
+	switch cfg.EmailProvider {
+	case "network", "mock":
+	default:
+		return Config{}, errors.New("MAINSPRING_EMAIL_PROVIDER must be network or mock")
 	}
 
 	return cfg, nil

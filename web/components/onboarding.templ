@@ -69,6 +69,7 @@ templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
 			<label><span>Business name</span><input name="business_name" required maxlength="160" value={ state.Business.BusinessName } placeholder="Demo Trade Co."/></label>
 			<label><span>Primary trade</span><input name="trade" required maxlength="120" value={ state.Business.Trade } placeholder="Plumbing, HVAC, electrical..."/></label>
 		</div>
+		<label><span>Business website <small>optional</small></span><input name="website_url" type="url" maxlength="500" value={ state.Business.WebsiteURL } placeholder="https://www.example.com"/><small>The Website Advisor can inspect this public site and recommend changes; it cannot edit or publish the site.</small></label>
 		<label><span>Services you provide</span><textarea name="services" maxlength="1000" placeholder="Service calls, installations, maintenance agreements...">{ state.Business.Services }</textarea></label>
 		<div class="form-grid">
 			<label><span>Service area</span><input name="service_area" required maxlength="240" value={ state.Business.ServiceArea } placeholder="Charlotte and surrounding counties"/></label>
@@ -161,10 +162,12 @@ templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
 			@PermissionChoice("comment_on_documents", "Add review comments to documents", "Legal, compliance, and safety specialists may annotate documents, but cannot replace or delete them.", state.Permissions.CommentOnDocuments)
 			@PermissionChoice("prepare_invoice_drafts", "Prepare invoice drafts", "The bookkeeper can organize invoice details, but cannot issue an invoice.", state.Permissions.PrepareInvoiceDrafts)
 			@PermissionChoice("draft_customer_email", "Draft customer messages", "The office manager can prepare follow-ups for you to review and send.", state.Permissions.DraftCustomerEmail)
+			@PermissionChoice("read_email_inbox", "Read the connected email inbox", "Selected communication personas can review incoming email after a mailbox is connected.", state.Permissions.ReadEmailInbox)
+			@PermissionChoice("send_email", "Send email through SMTP", "Selected communication personas may send external email. Every send is idempotent and written to the outbound audit ledger.", state.Permissions.SendEmail)
 			@PermissionChoice("propose_schedule_edits", "Propose schedule changes", "The dispatcher can point out conflicts and suggest moves, but cannot apply them.", state.Permissions.ProposeScheduleEdits)
 			@PermissionChoice("propose_payments", "Propose payments", "The bookkeeper can prepare a payment recommendation; execution always requires approval.", state.Permissions.ProposePayments)
 		</div>
-		<div class="guardrail"><strong>Hard guardrail</strong><p>Email sending, invoice issuing, payment execution, ordering, contract acceptance, and calendar modification remain disabled for this MVP. Legal and HR guidance is advisory and must be reviewed by a qualified human.</p></div>
+		<div class="guardrail"><strong>Hard guardrail</strong><p>Email sending is disabled unless you explicitly grant it and connect a mailbox; every send is idempotent and audited. Invoice issuing, payment execution, ordering, contract acceptance, and calendar modification remain disabled. Legal and HR guidance is advisory and must be reviewed by a qualified human.</p></div>
 		<div class="onboarding-actions"><a href="/onboarding?step=4">Back</a><button class="button button-primary" type="submit">Review the plan</button></div>
 	</form>
 }
@@ -172,7 +175,7 @@ templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
 templ OnboardingReviewStep(state OnboardingView, csrfToken string) {
 	<header class="onboarding-heading"><p class="eyebrow">Step 6 of 6</p><h1>Ready to open the doors</h1><p>Review the structured draft. Launching applies it to your boardroom and its personas.</p></header>
 	<div class="review-grid">
-		<section><h3>Business</h3><dl><div><dt>Name</dt><dd>{ state.Business.BusinessName }</dd></div><div><dt>Trade</dt><dd>{ state.Business.Trade }</dd></div><div><dt>Service area</dt><dd>{ state.Business.ServiceArea }</dd></div><div><dt>Team</dt><dd>{ fmt.Sprintf("%d people", state.Business.TeamSize) }</dd></div></dl><a href="/onboarding?step=1">Edit business</a></section>
+		<section><h3>Business</h3><dl><div><dt>Name</dt><dd>{ state.Business.BusinessName }</dd></div><div><dt>Website</dt><dd>{ state.Business.WebsiteURL }</dd></div><div><dt>Trade</dt><dd>{ state.Business.Trade }</dd></div><div><dt>Service area</dt><dd>{ state.Business.ServiceArea }</dd></div><div><dt>Team</dt><dd>{ fmt.Sprintf("%d people", state.Business.TeamSize) }</dd></div></dl><a href="/onboarding?step=1">Edit business</a></section>
 		<section><h3>Top priorities</h3><ul>
 			for _, priority := range state.Priorities {
 				<li>{ priority }</li>
@@ -222,7 +225,7 @@ templ DevelopmentPage(tenantName string, user UserView, csrfToken string) {
 	@Layout("Demo tools", tenantName, &user, csrfToken) {
 		<section class="development-shell">
 			<header><p class="eyebrow">Development only</p><h1>Demo tools</h1><p>Utilities for repeatedly testing the customer experience. These routes do not exist when Mainspring is not running in development mode.</p></header>
-			<article class="panel development-card"><div><h2>Reset onboarding</h2><p>Clears the onboarding draft and restores the default Back Office personas. Your owner login, conversations, and documents are preserved.</p></div><form method="post" action="/development/reset-onboarding"><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="confirm" value="reset"/><button class="button button-danger-solid" type="submit">Reset onboarding</button></form></article>
+			<article class="panel development-card"><div><h2>Reset onboarding</h2><p>Clears the onboarding draft and restores the default Back Office personas. Your owner login, conversations, documents, and connected mailbox are preserved.</p></div><form method="post" action="/development/reset-onboarding"><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="confirm" value="reset"/><button class="button button-danger-solid" type="submit">Reset onboarding</button></form></article>
 		</section>
 	}
 }

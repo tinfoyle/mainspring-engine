@@ -18,6 +18,8 @@ x-app: &app
     MAINSPRING_TENANT_INTERNAL_URL: http://tenant-demo:8082
     MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_demo:tenant_demo@postgres:5432/tenant_demo?sslmode=disable
     MAINSPRING_SESSION_SECRET: local-development-secret-change-before-production
+    MAINSPRING_CREDENTIAL_ENCRYPTION_KEY: local-development-credential-key-change-before-production
+    MAINSPRING_EMAIL_PROVIDER: mock
     MAINSPRING_TOOL_TOKEN_SECRET: local-development-tool-secret-change-before-production
     MAINSPRING_RAG_TOKEN: local-development-rag-secret-change-before-production
     MAINSPRING_RAG_INTERNAL_URL: http://rag-demo:8083

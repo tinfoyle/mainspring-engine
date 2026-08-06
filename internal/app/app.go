@@ -13,12 +13,14 @@ import (
 	"github.com/tinfoyle/mainspring-engine/internal/control"
 	"github.com/tinfoyle/mainspring-engine/internal/database"
 	"github.com/tinfoyle/mainspring-engine/internal/domain"
+	mailbox "github.com/tinfoyle/mainspring-engine/internal/email"
 	"github.com/tinfoyle/mainspring-engine/internal/gateway"
 	"github.com/tinfoyle/mainspring-engine/internal/httpserver"
 	"github.com/tinfoyle/mainspring-engine/internal/migrate"
 	"github.com/tinfoyle/mainspring-engine/internal/orchestration"
 	"github.com/tinfoyle/mainspring-engine/internal/rag"
 	"github.com/tinfoyle/mainspring-engine/internal/scheduling"
+	"github.com/tinfoyle/mainspring-engine/internal/secretbox"
 	"github.com/tinfoyle/mainspring-engine/internal/tenant"
 	toolbroker "github.com/tinfoyle/mainspring-engine/internal/tools"
 )
@@ -115,6 +117,15 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 	if err != nil {
 		return err
 	}
+	credentialBox, err := secretbox.New([]byte(cfg.CredentialEncryptionKey))
+	if err != nil {
+		return fmt.Errorf("configure credential encryption: %w", err)
+	}
+	var emailConnector mailbox.Connector = mailbox.NewNetworkConnector(20 * time.Second)
+	if cfg.EmailProvider == "mock" {
+		emailConnector = mailbox.NewMockConnector()
+	}
+	emailService := mailbox.NewService(mailbox.NewStore(pool, credentialBox), emailConnector, toolbroker.NewActionLedger(pool))
 	var dispatcher tenant.RunDispatcher
 	var scheduleService *scheduling.Service
 	if cfg.OrchestrationMode == "temporal" {
@@ -141,7 +152,7 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 		TenantID: tenantID, TenantSlug: cfg.TenantSlug, TenantName: cfg.TenantName,
 		BaseDomain: cfg.GatewayBaseDomain, SessionSecret: []byte(cfg.SessionSecret), SetupToken: cfg.SetupToken,
 		CookieSecure: cfg.CookieSecure, Development: cfg.Environment == "development",
-	}, tenantStore, boardroomStore, dispatcher, scheduleService, documentClient)
+	}, tenantStore, boardroomStore, dispatcher, scheduleService, documentClient, emailService)
 	if err != nil {
 		return err
 	}

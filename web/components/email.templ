@@ -1,0 +1,76 @@
+package components
+
+import "fmt"
+
+templ EmailPage(tenantName string, user UserView, integration *EmailIntegrationView, messages []EmailInboxMessageView, csrfToken, notice, pageError, idempotencyKey string, simulated bool) {
+	@Layout("Email", tenantName, &user, csrfToken) {
+		<section class="documents-hero email-hero">
+			<div><p class="eyebrow">Connected communication</p><h1>Email inbox</h1><p>Connect the company mailbox so authorized agents can read incoming work, draft replies, and—only when granted—send through your SMTP server.</p></div>
+			if integration != nil {
+				<div class="status-pill"><span></span>{ integration.Status }</div>
+			}
+		</section>
+		if notice != "" {
+			<div class="alert alert-success email-alert">{ notice }</div>
+		}
+		if pageError != "" {
+			<div class="alert alert-error email-alert">{ pageError }</div>
+		}
+		if simulated {
+			<div class="guardrail email-simulator"><strong>Development mail simulator</strong><p>This demo exercises the same encrypted settings, inbox UI, send ledger, and permission boundary without contacting a real mail server. Production uses IMAP and SMTP over TLS.</p></div>
+		}
+		if integration == nil {
+			<section class="panel email-setup-panel">
+				<div class="onboarding-heading"><p class="eyebrow">Mailbox setup</p><h2>Connect an inbox</h2><p>Use an app password or dedicated mailbox credential. Mainspring verifies both connections before saving the encrypted credentials.</p></div>
+				@EmailSettingsForm(csrfToken, "Connect and verify mailbox")
+			</section>
+		} else {
+			<div class="email-layout">
+				<section class="email-inbox">
+					<div class="section-heading"><div><p class="eyebrow">{ integration.Name }</p><h2>Inbox</h2></div><span>{ integration.EmailAddress }</span></div>
+					if len(messages) == 0 {
+						<div class="panel email-empty"><h3>No messages found</h3><p>The inbox connection is working, but there is nothing to show yet.</p></div>
+					}
+					<div class="email-list">
+						for _, message := range messages {
+							<a class={ "panel email-row", templ.KV("is-unread", message.Unread) } href={ templ.URL("/email/messages/" + fmt.Sprint(message.UID)) }>
+								<div class="email-unread-dot"></div><div><strong>{ message.From }</strong><h3>{ message.Subject }</h3></div><time>{ EmailDate(message.Date) }</time>
+							</a>
+						}
+					</div>
+				</section>
+				<aside class="email-sidebar">
+					<section class="panel email-compose"><p class="eyebrow">Owner action</p><h2>Send email</h2><p>Sends immediately through the connected SMTP account and records a durable, idempotent audit entry.</p>
+						<form method="post" action="/email/send">
+							<input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="idempotency_key" value={ idempotencyKey }/>
+							<label><span>To</span><input type="text" name="to" required maxlength="4000" placeholder="customer@example.com"/></label>
+							<label><span>Cc <small>optional</small></span><input type="text" name="cc" maxlength="4000"/></label>
+							<label><span>Subject</span><input type="text" name="subject" required maxlength="500"/></label>
+							<label><span>Message</span><textarea name="body" required maxlength="1048576"></textarea></label>
+							<label class="check-row send-confirm"><input type="checkbox" name="confirm_send" value="send" required/><span>I understand this sends an external email now.</span></label>
+							<button class="button button-primary" type="submit">Send through SMTP</button>
+						</form>
+					</section>
+					<details class="panel email-settings"><summary>Connection settings</summary><dl><div><dt>IMAP</dt><dd>{ integration.IMAPServer }</dd></div><div><dt>SMTP</dt><dd>{ integration.SMTPServer }</dd></div></dl><p>Submitting new settings replaces the current encrypted credentials after a successful connection test.</p>@EmailSettingsForm(csrfToken, "Verify and replace")</details>
+				</aside>
+			</div>
+		}
+	}
+}
+
+templ EmailSettingsForm(csrfToken, submitLabel string) {
+	<form class="email-settings-form" method="post" action="/email/settings">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<div class="form-grid"><label><span>Mailbox name</span><input name="name" required maxlength="120" value="Company inbox"/></label><label><span>Email address</span><input name="email_address" type="email" required maxlength="320"/></label></div>
+		<label><span>Sender display name</span><input name="display_name" maxlength="120" placeholder="Your company name"/></label>
+		<fieldset><legend>Incoming mail (IMAP)</legend><div class="mail-server-grid"><label><span>Host</span><input name="imap_host" required maxlength="253" placeholder="imap.example.com"/></label><label><span>Port</span><input name="imap_port" type="number" required min="1" max="65535" value="993"/></label><label><span>Security</span><select name="imap_security"><option value="tls">TLS</option><option value="starttls">STARTTLS</option></select></label></div><div class="form-grid"><label><span>Username</span><input name="imap_username" required maxlength="320" autocomplete="off"/></label><label><span>Password / app password</span><input name="imap_password" type="password" required maxlength="4096" autocomplete="new-password"/></label></div></fieldset>
+		<fieldset><legend>Outgoing mail (SMTP)</legend><div class="mail-server-grid"><label><span>Host</span><input name="smtp_host" required maxlength="253" placeholder="smtp.example.com"/></label><label><span>Port</span><input name="smtp_port" type="number" required min="1" max="65535" value="465"/></label><label><span>Security</span><select name="smtp_security"><option value="tls">TLS</option><option value="starttls">STARTTLS</option></select></label></div><div class="form-grid"><label><span>Username</span><input name="smtp_username" required maxlength="320" autocomplete="off"/></label><label><span>Password / app password</span><input name="smtp_password" type="password" required maxlength="4096" autocomplete="new-password"/></label></div></fieldset>
+		<button class="button button-primary" type="submit">{ submitLabel }</button>
+	</form>
+}
+
+templ EmailMessagePage(tenantName string, user UserView, message EmailMessageView, csrfToken string) {
+	@Layout("Email message", tenantName, &user, csrfToken) {
+		<section class="email-message-shell"><a class="back-link" href="/email">← Back to inbox</a><article class="panel email-message"><header><p class="eyebrow">Inbox message</p><h1>{ message.Subject }</h1><dl><div><dt>From</dt><dd>{ message.From }</dd></div><div><dt>To</dt><dd>{ message.To }</dd></div><div><dt>Received</dt><dd>{ EmailDate(message.Date) }</dd></div></dl></header><div class="email-body">{ message.Body }</div></article></section>
+	}
+}

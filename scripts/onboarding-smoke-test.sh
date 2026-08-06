@@ -56,6 +56,7 @@ post_step() {
 
 post_step /onboarding/business \
   --data-urlencode "business_name=Smoke Test Plumbing" \
+  --data-urlencode "website_url=https://www.smoketestplumbing.example" \
   --data-urlencode "trade=plumbing" \
   --data-urlencode "services=Residential service calls and water heater replacements" \
   --data-urlencode "service_area=Charlotte, North Carolina" \
@@ -82,12 +83,17 @@ post_step /onboarding/priorities \
   --data-urlencode "priorities=Reduce scheduling mistakes" \
   --data-urlencode "priorities=Catch jobs falling through the cracks"
 
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=4"
+grep -q 'Website Advisor' "$page"
+grep -q 'name_website_advisor' "$page"
+
 post_step /onboarding/team \
   --data-urlencode "enabled_office_manager=true" --data-urlencode "name_office_manager=Alex" \
   --data-urlencode "enabled_bookkeeper=true" --data-urlencode "name_bookkeeper=Bailey" \
   --data-urlencode "enabled_dispatcher=true" --data-urlencode "name_dispatcher=Cameron" \
   --data-urlencode "enabled_business_developer=true" --data-urlencode "name_business_developer=Devon" \
   --data-urlencode "enabled_market_analyst=true" --data-urlencode "name_market_analyst=Emerson" \
+  --data-urlencode "enabled_website_advisor=true" --data-urlencode "name_website_advisor=Harper" \
   --data-urlencode "enabled_legal_advisor=true" --data-urlencode "name_legal_advisor=Frankie" \
   --data-urlencode "enabled_hr_safety=true" --data-urlencode "name_hr_safety=Gray"
 
@@ -97,6 +103,7 @@ post_step /onboarding/permissions \
   --data-urlencode "comment_on_documents=true" \
   --data-urlencode "prepare_invoice_drafts=true" \
   --data-urlencode "draft_customer_email=true" \
+  --data-urlencode "read_email_inbox=true" \
   --data-urlencode "propose_schedule_edits=true" \
   --data-urlencode "propose_payments=true"
 
@@ -117,6 +124,7 @@ grep -q 'Bailey' "$page"
 grep -q 'Cameron' "$page"
 grep -q 'Devon' "$page"
 grep -q 'Emerson' "$page"
+grep -q 'Harper' "$page"
 grep -q 'Frankie' "$page"
 grep -q 'Gray' "$page"
 

@@ -25,6 +25,7 @@ import (
 	"github.com/tinfoyle/mainspring-engine/internal/auth"
 	"github.com/tinfoyle/mainspring-engine/internal/boardroom"
 	"github.com/tinfoyle/mainspring-engine/internal/domain"
+	mailbox "github.com/tinfoyle/mainspring-engine/internal/email"
 	"github.com/tinfoyle/mainspring-engine/internal/httpx"
 	"github.com/tinfoyle/mainspring-engine/internal/rag"
 	"github.com/tinfoyle/mainspring-engine/internal/scheduling"
@@ -75,9 +76,10 @@ type Server struct {
 	dispatcher RunDispatcher
 	schedules  *scheduling.Service
 	documents  DocumentService
+	email      *mailbox.Service
 }
 
-func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardrooms *boardroom.Store, dispatcher RunDispatcher, schedules *scheduling.Service, documents DocumentService) (*Server, error) {
+func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardrooms *boardroom.Store, dispatcher RunDispatcher, schedules *scheduling.Service, documents DocumentService, emailService *mailbox.Service) (*Server, error) {
 	if len(config.SessionSecret) < 32 {
 		return nil, errors.New("MAINSPRING_SESSION_SECRET must contain at least 32 bytes")
 	}
@@ -87,6 +89,9 @@ func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardroom
 	if documents == nil {
 		return nil, errors.New("tenant document service is required")
 	}
+	if emailService == nil {
+		return nil, errors.New("tenant email service is required")
+	}
 	return &Server{
 		logger:     logger,
 		config:     config,
@@ -95,6 +100,7 @@ func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardroom
 		dispatcher: dispatcher,
 		schedules:  schedules,
 		documents:  documents,
+		email:      emailService,
 	}, nil
 }
 
@@ -142,6 +148,10 @@ func (s *Server) Handler() http.Handler {
 				router.Get("/documents", s.documentsPage)
 				router.Post("/documents", s.uploadDocument)
 				router.Get("/documents/{documentID}", s.documentPage)
+				router.Get("/email", s.emailPage)
+				router.Post("/email/settings", s.requireCSRF(s.saveEmailSettings))
+				router.Get("/email/messages/{uid}", s.emailMessagePage)
+				router.Post("/email/send", s.requireCSRF(s.sendEmail))
 			})
 		})
 	})
@@ -155,6 +165,142 @@ func (s *Server) Handler() http.Handler {
 }
 
 const documentUploadLimit = rag.TextDocumentLimit
+
+func (s *Server) emailPage(w http.ResponseWriter, r *http.Request) {
+	s.renderEmailPage(w, r, http.StatusOK, "")
+}
+
+func (s *Server) renderEmailPage(w http.ResponseWriter, r *http.Request, status int, formError string) {
+	session, _ := sessionFromContext(r.Context())
+	integration, err := s.email.Integration(r.Context())
+	if errors.Is(err, mailbox.ErrNotConfigured) {
+		s.render(w, status, components.EmailPage(s.tenantName(r.Context()), s.userView(session.User), nil, nil,
+			s.csrfToken(session), "", formError, uuid.NewString(), s.config.Development))
+		return
+	}
+	if err != nil {
+		s.logger.Error("load email integration", "error", err)
+		s.renderError(w, http.StatusServiceUnavailable, "Email settings are temporarily unavailable.")
+		return
+	}
+	messages, inboxErr := s.email.Inbox(r.Context(), 25)
+	if inboxErr != nil && formError == "" {
+		formError = "The mailbox is configured, but the inbox could not be refreshed: " + inboxErr.Error()
+	}
+	view := emailIntegrationView(integration)
+	notice := ""
+	switch r.URL.Query().Get("status") {
+	case "configured":
+		notice = "Mailbox verified and connected."
+	case "sent":
+		notice = "Email sent and recorded in the outbound audit ledger."
+	}
+	s.render(w, status, components.EmailPage(s.tenantName(r.Context()), s.userView(session.User), &view,
+		emailInboxViews(messages), s.csrfToken(session), notice, formError, uuid.NewString(), s.config.Development))
+}
+
+func (s *Server) saveEmailSettings(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	if err := r.ParseForm(); err != nil {
+		s.renderEmailPage(w, r, http.StatusBadRequest, "The mailbox settings were invalid.")
+		return
+	}
+	imapPort, err := strconv.Atoi(r.FormValue("imap_port"))
+	if err != nil {
+		s.renderEmailPage(w, r, http.StatusBadRequest, "Enter a valid IMAP port.")
+		return
+	}
+	smtpPort, err := strconv.Atoi(r.FormValue("smtp_port"))
+	if err != nil {
+		s.renderEmailPage(w, r, http.StatusBadRequest, "Enter a valid SMTP port.")
+		return
+	}
+	_, err = s.email.Configure(r.Context(), mailbox.SettingsInput{
+		Name: r.FormValue("name"), EmailAddress: r.FormValue("email_address"), DisplayName: r.FormValue("display_name"),
+		IMAPHost: r.FormValue("imap_host"), IMAPPort: imapPort, IMAPSecurity: r.FormValue("imap_security"),
+		IMAPUsername: r.FormValue("imap_username"), IMAPPassword: r.FormValue("imap_password"),
+		SMTPHost: r.FormValue("smtp_host"), SMTPPort: smtpPort, SMTPSecurity: r.FormValue("smtp_security"),
+		SMTPUsername: r.FormValue("smtp_username"), SMTPPassword: r.FormValue("smtp_password"),
+	}, session.User.ID)
+	if err != nil {
+		s.logger.Warn("verify email integration", "error", err)
+		s.renderEmailPage(w, r, http.StatusBadRequest, "The mailbox could not be verified: "+err.Error())
+		return
+	}
+	http.Redirect(w, r, "/email?status=configured", http.StatusSeeOther)
+}
+
+func (s *Server) sendEmail(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	if err := r.ParseForm(); err != nil {
+		s.renderEmailPage(w, r, http.StatusBadRequest, "The email form was invalid.")
+		return
+	}
+	if r.FormValue("confirm_send") != "send" {
+		s.renderEmailPage(w, r, http.StatusBadRequest, "Confirm that this should be sent now.")
+		return
+	}
+	key := strings.TrimSpace(r.FormValue("idempotency_key"))
+	if _, err := uuid.Parse(key); err != nil {
+		s.renderEmailPage(w, r, http.StatusBadRequest, "The send request expired. Refresh and try again.")
+		return
+	}
+	to, err := mailbox.ParseRecipientList(r.FormValue("to"))
+	if err != nil {
+		s.renderEmailPage(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	cc, err := mailbox.ParseRecipientList(r.FormValue("cc"))
+	if err != nil {
+		s.renderEmailPage(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	_, err = s.email.Send(r.Context(), key, mailbox.OutgoingMessage{To: to, CC: cc, Subject: strings.TrimSpace(r.FormValue("subject")), Body: r.FormValue("body")}, "user", session.User.ID, nil)
+	if err != nil {
+		s.logger.Error("send tenant email", "error", err)
+		s.renderEmailPage(w, r, http.StatusBadGateway, "The email was not sent: "+err.Error())
+		return
+	}
+	http.Redirect(w, r, "/email?status=sent", http.StatusSeeOther)
+}
+
+func (s *Server) emailMessagePage(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	uidValue, err := strconv.ParseUint(chi.URLParam(r, "uid"), 10, 32)
+	if err != nil || uidValue == 0 {
+		s.renderError(w, http.StatusNotFound, "The email message was not found.")
+		return
+	}
+	message, err := s.email.Message(r.Context(), uint32(uidValue))
+	if errors.Is(err, mailbox.ErrMessageNotFound) {
+		s.renderError(w, http.StatusNotFound, "The email message was not found.")
+		return
+	}
+	if err != nil {
+		s.logger.Error("load email message", "error", err)
+		s.renderError(w, http.StatusServiceUnavailable, "The email message could not be loaded.")
+		return
+	}
+	s.render(w, http.StatusOK, components.EmailMessagePage(s.tenantName(r.Context()), s.userView(session.User), emailMessageView(message), s.csrfToken(session)))
+}
+
+func emailIntegrationView(value mailbox.Integration) components.EmailIntegrationView {
+	return components.EmailIntegrationView{Name: value.Name, EmailAddress: value.EmailAddress, DisplayName: value.DisplayName,
+		IMAPServer: net.JoinHostPort(value.IMAPHost, strconv.Itoa(value.IMAPPort)), SMTPServer: net.JoinHostPort(value.SMTPHost, strconv.Itoa(value.SMTPPort)),
+		Status: value.Status, LastVerifiedAt: value.LastVerifiedAt, LastError: value.LastError}
+}
+
+func emailInboxViews(values []mailbox.InboxMessage) []components.EmailInboxMessageView {
+	result := make([]components.EmailInboxMessageView, 0, len(values))
+	for _, value := range values {
+		result = append(result, components.EmailInboxMessageView{UID: value.UID, From: value.From, Subject: value.Subject, Date: value.Date, Unread: value.Unread})
+	}
+	return result
+}
+
+func emailMessageView(value mailbox.Message) components.EmailMessageView {
+	return components.EmailMessageView{EmailInboxMessageView: components.EmailInboxMessageView{UID: value.UID, From: value.From, Subject: value.Subject, Date: value.Date, Unread: value.Unread}, To: strings.Join(value.To, ", "), Body: value.Body}
+}
 
 func (s *Server) documentsPage(w http.ResponseWriter, r *http.Request) {
 	s.renderDocumentsPage(w, r, http.StatusOK, "")
@@ -489,6 +635,7 @@ func (s *Server) saveOnboardingBusiness(w http.ResponseWriter, r *http.Request) 
 	teamSize, parseErr := strconv.Atoi(r.FormValue("team_size"))
 	state.Business = BusinessProfile{
 		BusinessName: strings.TrimSpace(r.FormValue("business_name")),
+		WebsiteURL:   strings.TrimSpace(r.FormValue("website_url")),
 		Trade:        strings.TrimSpace(r.FormValue("trade")), Services: strings.TrimSpace(r.FormValue("services")),
 		ServiceArea: strings.TrimSpace(r.FormValue("service_area")), TimeZone: strings.TrimSpace(r.FormValue("time_zone")),
 		TeamSize: teamSize, CustomerMix: strings.TrimSpace(r.FormValue("customer_mix")),
@@ -498,6 +645,15 @@ func (s *Server) saveOnboardingBusiness(w http.ResponseWriter, r *http.Request) 
 	if state.Business.BusinessName == "" || state.Business.Trade == "" || state.Business.ServiceArea == "" || parseErr != nil || teamSize < 1 || teamSize > 10000 {
 		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 1, "Enter the business name, primary trade, service area, and a valid team size.")
 		return
+	}
+	if state.Business.WebsiteURL != "" {
+		website, err := url.Parse(state.Business.WebsiteURL)
+		if err != nil || (website.Scheme != "http" && website.Scheme != "https") || website.Hostname() == "" || website.User != nil {
+			s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 1, "Enter a complete public website URL beginning with https:// or leave it blank.")
+			return
+		}
+		website.Fragment = ""
+		state.Business.WebsiteURL = website.String()
 	}
 	if _, err := time.LoadLocation(state.Business.TimeZone); err != nil {
 		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 1, "Use a valid IANA time zone such as America/New_York.")
@@ -639,6 +795,8 @@ func (s *Server) saveOnboardingPermissions(w http.ResponseWriter, r *http.Reques
 		CommentOnDocuments:   readBusinessRecords && r.FormValue("comment_on_documents") == "true",
 		PrepareInvoiceDrafts: r.FormValue("prepare_invoice_drafts") == "true",
 		DraftCustomerEmail:   r.FormValue("draft_customer_email") == "true",
+		ReadEmailInbox:       r.FormValue("read_email_inbox") == "true",
+		SendEmail:            r.FormValue("send_email") == "true",
 		ProposeScheduleEdits: r.FormValue("propose_schedule_edits") == "true",
 		ProposePayments:      r.FormValue("propose_payments") == "true",
 	}
@@ -1262,7 +1420,7 @@ func onboardingView(state Onboarding) components.OnboardingView {
 	result := components.OnboardingView{
 		Status: state.Status, CurrentStep: state.CurrentStep, Priorities: state.Priorities,
 		Business: components.BusinessProfileView{
-			BusinessName: state.Business.BusinessName, Trade: state.Business.Trade, Services: state.Business.Services,
+			BusinessName: state.Business.BusinessName, WebsiteURL: state.Business.WebsiteURL, Trade: state.Business.Trade, Services: state.Business.Services,
 			ServiceArea: state.Business.ServiceArea, TimeZone: state.Business.TimeZone, TeamSize: state.Business.TeamSize,
 			CustomerMix: state.Business.CustomerMix, WorkingHours: state.Business.WorkingHours,
 			EmergencyService: state.Business.EmergencyService, CurrentSystems: state.Business.CurrentSystems,
@@ -1278,6 +1436,7 @@ func onboardingView(state Onboarding) components.OnboardingView {
 			ReadBusinessRecords: state.Permissions.ReadBusinessRecords, ResearchPublicWeb: state.Permissions.ResearchPublicWeb,
 			CommentOnDocuments: state.Permissions.CommentOnDocuments, PrepareInvoiceDrafts: state.Permissions.PrepareInvoiceDrafts,
 			DraftCustomerEmail: state.Permissions.DraftCustomerEmail, ProposeScheduleEdits: state.Permissions.ProposeScheduleEdits,
+			ReadEmailInbox: state.Permissions.ReadEmailInbox, SendEmail: state.Permissions.SendEmail,
 			ProposePayments: state.Permissions.ProposePayments,
 		},
 	}

@@ -6,9 +6,11 @@ type Capability string
 
 const (
 	CapabilityWebSearch        Capability = "web.search"
+	CapabilityWebRead          Capability = "web.read"
 	CapabilityDocumentsRead    Capability = "documents.read"
 	CapabilityDocumentsComment Capability = "documents.comment"
 	CapabilityEmailDraft       Capability = "email.draft"
+	CapabilityEmailRead        Capability = "email.read"
 	CapabilityEmailSend        Capability = "email.send"
 	CapabilityTicketRead       Capability = "tickets.read"
 	CapabilityTicketCreate     Capability = "tickets.create"
