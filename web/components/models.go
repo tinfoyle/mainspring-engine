@@ -170,11 +170,21 @@ type PersonaGroupView struct {
 }
 
 func PersonaGroups(personas []PersonaBlueprintView) []PersonaGroupView {
+	return PersonaGroupsForTemplate(personas, "trades")
+}
+
+func PersonaGroupsForTemplate(personas []PersonaBlueprintView, template string) []PersonaGroupView {
 	groups := []PersonaGroupView{
 		{Name: "Core operations", Description: "The everyday office team. These three are selected as the practical starting point."},
+		{Name: "Product and engineering", Description: "Specialists for product decisions, software delivery, technical operations, and reliability."},
 		{Name: "Growth and customers", Description: "Specialists for demand, lead development, and customer follow-through."},
 		{Name: "Risk and people", Description: "Advisors who surface legal, compliance, employment, and safety questions for human review."},
+		{Name: "Risk and reliability", Description: "Advisors who surface security, privacy, compliance, vendor, and operational risks for human review."},
 		{Name: "Financial and supply", Description: "Specialists for job-cost visibility, purchasing, vendors, and payment preparation."},
+	}
+	if template == "saas" {
+		groups[0].Description = "The cross-functional operating team. These three are selected as the practical starting point."
+		groups[2].Description = "Specialists for acquisition, sales, customer research, positioning, and conversion."
 	}
 	for _, persona := range personas {
 		matched := false
@@ -199,6 +209,7 @@ func PersonaGroups(personas []PersonaBlueprintView) []PersonaGroupView {
 }
 
 type OnboardingView struct {
+	Template             string
 	Status               string
 	CurrentStep          int
 	Business             BusinessProfileView
@@ -227,6 +238,21 @@ func OnboardingSteps() []OnboardingStepView {
 }
 
 func PriorityOptions() []string {
+	return PriorityOptionsForTemplate("trades")
+}
+
+func PriorityOptionsForTemplate(template string) []string {
+	if template == "saas" {
+		return []string{
+			"Improve onboarding and product activation",
+			"Reduce churn and renewal risk",
+			"Ship the roadmap more predictably",
+			"Triage support and customer follow-up",
+			"Improve website and trial conversion",
+			"Monitor reliability and incident follow-up",
+			"Track recurring revenue and failed payments",
+		}
+	}
 	return []string{
 		"Get completed work invoiced faster",
 		"Reduce scheduling mistakes",
@@ -236,6 +262,32 @@ func PriorityOptions() []string {
 		"Prepare paperwork for the accountant",
 		"Catch jobs falling through the cracks",
 	}
+}
+
+type ChoiceOptionView struct {
+	Value string
+	Label string
+}
+
+func CustomerMixOptions(template string) []ChoiceOptionView {
+	if template == "saas" {
+		return []ChoiceOptionView{{"b2b", "Mostly B2B"}, {"b2c", "Mostly B2C"}, {"mixed", "A mix of both"}}
+	}
+	return []ChoiceOptionView{{"residential", "Mostly residential"}, {"commercial", "Mostly commercial"}, {"mixed", "A mix of both"}}
+}
+
+func ExistingSystemOptions(template string) []string {
+	if template == "saas" {
+		return []string{"Email", "Calendar", "Stripe or billing platform", "GitHub or GitLab", "Linear, Jira, or issue tracker", "CRM or help desk", "Product analytics", "Spreadsheets"}
+	}
+	return []string{"Email", "Calendar", "QuickBooks", "Job management software", "Paper or spreadsheets"}
+}
+
+func SuggestedFirstConversation(template string) string {
+	if template == "saas" {
+		return "Review how customer feedback becomes product work in my company. Find where priorities, ownership, or follow-up can fall through the cracks and give me the first three actions to take."
+	}
+	return "Review how completed jobs become invoices in my business. Find the points where work could fall through the cracks and give me the first three actions to take."
 }
 
 func Contains(values []string, target string) bool {

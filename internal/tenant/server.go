@@ -58,14 +58,15 @@ type DocumentService interface {
 }
 
 type ServerConfig struct {
-	TenantID      domain.TenantID
-	TenantSlug    string
-	TenantName    string
-	BaseDomain    string
-	SessionSecret []byte
-	SetupToken    string
-	CookieSecure  bool
-	Development   bool
+	TenantID         domain.TenantID
+	TenantSlug       string
+	TenantName       string
+	BusinessTemplate BusinessTemplate
+	BaseDomain       string
+	SessionSecret    []byte
+	SetupToken       string
+	CookieSecure     bool
+	Development      bool
 }
 
 type Server struct {
@@ -608,7 +609,7 @@ func (s *Server) onboardingPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.render(w, http.StatusOK, components.OnboardingCompletePage(
-			s.tenantName(r.Context()), s.userView(session.User), boardroomView(rooms[0]), s.csrfToken(session),
+			s.tenantName(r.Context()), s.userView(session.User), boardroomView(rooms[0]), s.csrfToken(session), s.config.BusinessTemplate.String(),
 		))
 		return
 	}
@@ -643,7 +644,11 @@ func (s *Server) saveOnboardingBusiness(w http.ResponseWriter, r *http.Request) 
 		CurrentSystems: cleanFormValues(r.Form["current_systems"], 8, 80),
 	}
 	if state.Business.BusinessName == "" || state.Business.Trade == "" || state.Business.ServiceArea == "" || parseErr != nil || teamSize < 1 || teamSize > 10000 {
-		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 1, "Enter the business name, primary trade, service area, and a valid team size.")
+		message := "Enter the business name, primary trade, service area, and a valid team size."
+		if s.config.BusinessTemplate == TemplateSaaS {
+			message = "Enter the company name, business model, target market, and a valid team size."
+		}
+		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 1, message)
 		return
 	}
 	if state.Business.WebsiteURL != "" {
@@ -686,7 +691,11 @@ func (s *Server) saveOnboardingOperations(w http.ResponseWriter, r *http.Request
 		BiggestBottleneck: strings.TrimSpace(r.FormValue("biggest_bottleneck")), ImportantExceptions: strings.TrimSpace(r.FormValue("important_exceptions")),
 	}
 	if state.Operations.LeadIntake == "" || state.Operations.Scheduling == "" || state.Operations.JobToInvoice == "" || state.Operations.BiggestBottleneck == "" {
-		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 2, "Tell Mia how leads arrive, how jobs are scheduled, how work becomes an invoice, and where the biggest bottleneck is.")
+		message := "Tell Mia how leads arrive, how jobs are scheduled, how work becomes an invoice, and where the biggest bottleneck is."
+		if s.config.BusinessTemplate == TemplateSaaS {
+			message = "Tell Mia how demand arrives, how work is prioritized, how releases reach customers and billing, and where the biggest bottleneck is."
+		}
+		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 2, message)
 		return
 	}
 	state.Status = OnboardingInProgress
@@ -710,7 +719,7 @@ func (s *Server) saveOnboardingPriorities(w http.ResponseWriter, r *http.Request
 		return
 	}
 	allowed := make(map[string]bool)
-	for _, value := range components.PriorityOptions() {
+	for _, value := range components.PriorityOptionsForTemplate(s.config.BusinessTemplate.String()) {
 		allowed[value] = true
 	}
 	state.Priorities = nil
@@ -724,7 +733,7 @@ func (s *Server) saveOnboardingPriorities(w http.ResponseWriter, r *http.Request
 		s.renderOnboarding(r.Context(), w, http.StatusBadRequest, session, state, 3, "Choose between one and three priorities.")
 		return
 	}
-	state.Blueprint = GenerateBlueprint(state)
+	state.Blueprint = GenerateBlueprintForTemplate(state, s.config.BusinessTemplate)
 	state.Permissions = DefaultPermissionPlan()
 	state.Status = OnboardingInProgress
 	state.CurrentStep = maxInt(state.CurrentStep, 4)
@@ -747,7 +756,7 @@ func (s *Server) saveOnboardingTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(state.Blueprint.Personas) == 0 {
-		state.Blueprint = GenerateBlueprint(state)
+		state.Blueprint = GenerateBlueprintForTemplate(state, s.config.BusinessTemplate)
 	}
 	enabled := 0
 	for index := range state.Blueprint.Personas {
@@ -871,7 +880,7 @@ func (s *Server) editableOnboarding(ctx context.Context) (Onboarding, error) {
 
 func (s *Server) renderOnboarding(ctx context.Context, w http.ResponseWriter, status int, session authenticatedSession, state Onboarding, step int, formError string) {
 	s.render(w, status, components.OnboardingPage(
-		s.tenantName(ctx), s.userView(session.User), onboardingView(state), step, s.csrfToken(session), formError,
+		s.tenantName(ctx), s.userView(session.User), onboardingView(state, s.config.BusinessTemplate.String()), step, s.csrfToken(session), formError,
 	))
 }
 
@@ -886,7 +895,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	for _, room := range rooms {
 		views = append(views, boardroomView(room))
 	}
-	s.render(w, http.StatusOK, components.DashboardPage(s.tenantName(r.Context()), s.userView(session.User), views, s.csrfToken(session)))
+	s.render(w, http.StatusOK, components.DashboardPage(s.tenantName(r.Context()), s.userView(session.User), views, s.csrfToken(session), s.config.BusinessTemplate.String()))
 }
 
 func (s *Server) boardroomPage(w http.ResponseWriter, r *http.Request) {
@@ -916,7 +925,7 @@ func (s *Server) boardroomPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, http.StatusOK, components.BoardroomPage(
-		s.tenantName(r.Context()), s.userView(session.User), boardroomView(room), personaViews(personas), conversationViews(conversations), s.csrfToken(session),
+		s.tenantName(r.Context()), s.userView(session.User), boardroomView(room), personaViews(personas), conversationViews(conversations), s.csrfToken(session), s.config.BusinessTemplate.String(),
 	))
 }
 
@@ -1175,7 +1184,7 @@ func (s *Server) renderSchedules(w http.ResponseWriter, r *http.Request, status 
 		formError = "Durable scheduling requires Temporal orchestration."
 	}
 	s.render(w, status, components.SchedulesPage(
-		s.tenantName(r.Context()), s.userView(session.User), boardroomViews(rooms), scheduleViews(items), s.csrfToken(session), formError,
+		s.tenantName(r.Context()), s.userView(session.User), boardroomViews(rooms), scheduleViews(items), s.csrfToken(session), formError, s.config.BusinessTemplate.String(),
 	))
 }
 
@@ -1416,9 +1425,10 @@ func (s *Server) tenantName(ctx context.Context) string {
 	return name
 }
 
-func onboardingView(state Onboarding) components.OnboardingView {
+func onboardingView(state Onboarding, template string) components.OnboardingView {
 	result := components.OnboardingView{
-		Status: state.Status, CurrentStep: state.CurrentStep, Priorities: state.Priorities,
+		Template: template,
+		Status:   state.Status, CurrentStep: state.CurrentStep, Priorities: state.Priorities,
 		Business: components.BusinessProfileView{
 			BusinessName: state.Business.BusinessName, WebsiteURL: state.Business.WebsiteURL, Trade: state.Business.Trade, Services: state.Business.Services,
 			ServiceArea: state.Business.ServiceArea, TimeZone: state.Business.TimeZone, TeamSize: state.Business.TeamSize,

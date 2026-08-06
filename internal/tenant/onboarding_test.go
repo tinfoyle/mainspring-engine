@@ -45,6 +45,91 @@ func TestGenerateBlueprint(t *testing.T) {
 	}
 }
 
+func TestGenerateSaaSBlueprint(t *testing.T) {
+	state := Onboarding{Business: BusinessProfile{
+		BusinessName: "Relay Cloud", Trade: "B2B SaaS", ServiceArea: "operations teams",
+	}}
+	blueprint := GenerateBlueprintForTemplate(state, TemplateSaaS)
+	if blueprint.Name != "Company Operating Room" {
+		t.Fatalf("blueprint name = %q", blueprint.Name)
+	}
+	if !strings.Contains(blueprint.Description, "Relay Cloud") || !strings.Contains(blueprint.Description, "B2B SaaS") {
+		t.Fatalf("blueprint description does not contain company context: %q", blueprint.Description)
+	}
+	if len(blueprint.Personas) != 11 {
+		t.Fatalf("persona count = %d, want 11", len(blueprint.Personas))
+	}
+	wantedRoles := map[string]bool{
+		"SaaS Operations Manager": true, "Revenue & Finance Analyst": true, "Customer Success Lead": true,
+		"Product Manager": true, "Engineering Manager": true, "Reliability Advisor": true,
+		"Growth Marketing Advisor": true, "Sales Development Advisor": true, "UX Researcher": true,
+		"Website Conversion Advisor": true, "Security & Compliance Advisor": true,
+	}
+	enabled := 0
+	for _, persona := range blueprint.Personas {
+		delete(wantedRoles, persona.Role)
+		if persona.Enabled {
+			enabled++
+		}
+	}
+	if len(wantedRoles) != 0 {
+		t.Fatalf("SaaS catalog is missing roles: %#v", wantedRoles)
+	}
+	if enabled != 3 {
+		t.Fatalf("default enabled persona count = %d, want 3", enabled)
+	}
+}
+
+func TestSaaSPriorityCanRecommendSpecialist(t *testing.T) {
+	blueprint := GenerateBlueprintForTemplate(Onboarding{Priorities: []string{
+		"Improve onboarding and product activation",
+		"Monitor reliability and incident follow-up",
+	}}, TemplateSaaS)
+	wanted := map[string]bool{"ux_researcher": false, "reliability_advisor": false}
+	for _, persona := range blueprint.Personas {
+		if _, ok := wanted[persona.Key]; ok {
+			wanted[persona.Key] = persona.Enabled
+		}
+	}
+	for key, enabled := range wanted {
+		if !enabled {
+			t.Fatalf("%s should be recommended for the selected SaaS priority", key)
+		}
+	}
+}
+
+func TestSaaSSpecialistCapabilitiesStayBounded(t *testing.T) {
+	permissions := PermissionPlan{
+		ReadBusinessRecords: true, ResearchPublicWeb: true, CommentOnDocuments: true,
+		DraftCustomerEmail: true, ReadEmailInbox: true, SendEmail: true, ProposeScheduleEdits: true,
+	}
+	security := personaCapabilities("security_advisor", permissions)
+	wantedSecurity := map[domain.Capability]bool{
+		domain.CapabilityDocumentsRead: true, domain.CapabilityDocumentsComment: true,
+		domain.CapabilityWebSearch: true, domain.CapabilityTicketCreate: true,
+	}
+	for _, capability := range security {
+		delete(wantedSecurity, capability)
+		if capability == domain.CapabilityEmailSend || capability == domain.CapabilityScheduleModify {
+			t.Fatalf("security advisor received unsafe capability %s", capability)
+		}
+	}
+	if len(wantedSecurity) != 0 {
+		t.Fatalf("security advisor missing capabilities: %#v", wantedSecurity)
+	}
+
+	customerSuccess := personaCapabilities("customer_success", permissions)
+	wantedCustomer := map[domain.Capability]bool{
+		domain.CapabilityEmailRead: true, domain.CapabilityEmailDraft: true, domain.CapabilityEmailSend: true,
+	}
+	for _, capability := range customerSuccess {
+		delete(wantedCustomer, capability)
+	}
+	if len(wantedCustomer) != 0 {
+		t.Fatalf("customer success missing explicitly granted email capabilities: %#v", wantedCustomer)
+	}
+}
+
 func TestWebsiteAdvisorHasReadOnlyWebCapabilities(t *testing.T) {
 	capabilities := personaCapabilities("website_advisor", PermissionPlan{ResearchPublicWeb: true})
 	wanted := map[domain.Capability]bool{domain.CapabilityWebRead: true, domain.CapabilityWebSearch: true}
@@ -171,5 +256,33 @@ func TestPersonalizedInstructionsIncludeOperatingContext(t *testing.T) {
 		if !strings.Contains(instructions, expected) {
 			t.Fatalf("instructions missing %q: %s", expected, instructions)
 		}
+	}
+}
+
+func TestSaaSPersonalizedInstructionsUseCompanyContext(t *testing.T) {
+	state := Onboarding{
+		Business: BusinessProfile{
+			BusinessName: "Relay Cloud", WebsiteURL: "https://relay.example", Trade: "B2B SaaS",
+			ServiceArea: "field service teams", Services: "workflow automation", TeamSize: 12,
+		},
+		Operations: OperatingPlaybook{
+			LeadIntake:        "Trials come from content and referrals.",
+			Scheduling:        "Roadmap planning runs monthly.",
+			JobToInvoice:      "Releases are weekly and billing is subscription based.",
+			BiggestBottleneck: "Activation is unclear.",
+		},
+		Priorities: []string{"Improve onboarding and product activation"},
+	}
+	instructions := personalizedInstructionsForTemplate(PersonaBlueprint{Mission: "Watch the operating system."}, state, TemplateSaaS)
+	for _, expected := range []string{
+		"Relay Cloud", "https://relay.example", "Roadmap planning runs monthly", "subscription based",
+		"Activation is unclear", "Improve onboarding and product activation",
+	} {
+		if !strings.Contains(instructions, expected) {
+			t.Fatalf("instructions missing %q: %s", expected, instructions)
+		}
+	}
+	if strings.Contains(strings.ToLower(instructions), "technician") {
+		t.Fatalf("SaaS instructions leaked trade-specific language: %s", instructions)
 	}
 }

@@ -97,6 +97,10 @@ func DefaultPermissionPlan() PermissionPlan {
 }
 
 func GenerateBlueprint(state Onboarding) BoardroomBlueprint {
+	return GenerateBlueprintForTemplate(state, TemplateTrades)
+}
+
+func GenerateBlueprintForTemplate(state Onboarding, template BusinessTemplate) BoardroomBlueprint {
 	businessName := strings.TrimSpace(state.Business.BusinessName)
 	if businessName == "" {
 		businessName = "your business"
@@ -104,6 +108,16 @@ func GenerateBlueprint(state Onboarding) BoardroomBlueprint {
 	trade := strings.TrimSpace(state.Business.Trade)
 	if trade == "" {
 		trade = "trade service"
+	}
+	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
+		if strings.TrimSpace(state.Business.Trade) == "" {
+			trade = "software/SaaS"
+		}
+		return BoardroomBlueprint{
+			Name:        "Company Operating Room",
+			Description: fmt.Sprintf("The cross-functional operating team for %s, a %s software business serving %s.", businessName, trade, fallback(state.Business.ServiceArea, "its target market")),
+			Personas:    saasPersonaBlueprints(state),
+		}
 	}
 	return BoardroomBlueprint{
 		Name:        "Back Office",
@@ -286,7 +300,7 @@ func (s *Store) CompleteOnboarding(ctx context.Context, tenantID domain.TenantID
 	}
 	for position, persona := range state.Blueprint.Personas {
 		var personaID string
-		instructions := personalizedInstructions(persona, state)
+		instructions := personalizedInstructionsForTemplate(persona, state, s.template)
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO personas (boardroom_id, name, role, system_instructions, position, enabled)
 			VALUES ($1, $2, $3, $4, $5, $6)
@@ -375,7 +389,7 @@ func (s *Store) ResetOnboarding(ctx context.Context, tenantID domain.TenantID, d
 	`, tenantID.String(), strings.TrimSpace(displayName)); err != nil {
 		return fmt.Errorf("reset tenant business profile: %w", err)
 	}
-	if err := resetDefaultBoardroom(ctx, tx); err != nil {
+	if err := resetDefaultBoardroom(ctx, tx, s.template); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -440,6 +454,89 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		if permissions.ResearchPublicWeb {
 			result = append(result, domain.CapabilityWebRead, domain.CapabilityWebSearch)
 		}
+	case "saas_ops_manager":
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead, domain.CapabilityScheduleRead)
+		}
+		if permissions.DraftCustomerEmail {
+			result = append(result, domain.CapabilityEmailDraft)
+		}
+		if permissions.ReadEmailInbox {
+			result = append(result, domain.CapabilityEmailRead)
+		}
+		if permissions.SendEmail {
+			result = append(result, domain.CapabilityEmailSend)
+		}
+	case "revenue_analyst":
+		if permissions.PrepareInvoiceDrafts {
+			result = append(result, domain.CapabilityInvoicePrepare)
+		}
+		if permissions.ProposePayments {
+			result = append(result, domain.CapabilityPaymentPropose)
+		}
+	case "customer_success":
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead)
+		}
+		if permissions.DraftCustomerEmail {
+			result = append(result, domain.CapabilityEmailDraft)
+		}
+		if permissions.ReadEmailInbox {
+			result = append(result, domain.CapabilityEmailRead)
+		}
+		if permissions.SendEmail {
+			result = append(result, domain.CapabilityEmailSend)
+		}
+	case "product_manager":
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead)
+		}
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebSearch)
+		}
+	case "engineering_manager":
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead, domain.CapabilityScheduleRead)
+		}
+		if permissions.ProposeScheduleEdits {
+			result = append(result, domain.CapabilitySchedulePropose)
+		}
+	case "reliability_advisor", "security_advisor":
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebSearch)
+		}
+		if permissions.ReadBusinessRecords && permissions.CommentOnDocuments {
+			result = append(result, domain.CapabilityDocumentsComment)
+		}
+	case "growth_marketer", "sales_developer":
+		result = append(result, domain.CapabilityTicketCreate)
+		if permissions.ReadBusinessRecords {
+			result = append(result, domain.CapabilityTicketRead)
+		}
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebRead, domain.CapabilityWebSearch)
+		}
+		if permissions.DraftCustomerEmail {
+			result = append(result, domain.CapabilityEmailDraft)
+		}
+		if permissions.ReadEmailInbox {
+			result = append(result, domain.CapabilityEmailRead)
+		}
+		if permissions.SendEmail {
+			result = append(result, domain.CapabilityEmailSend)
+		}
+	case "ux_researcher":
+		if permissions.ResearchPublicWeb {
+			result = append(result, domain.CapabilityWebRead, domain.CapabilityWebSearch)
+		}
+		if permissions.ReadBusinessRecords && permissions.CommentOnDocuments {
+			result = append(result, domain.CapabilityDocumentsComment)
+		}
 	case "customer_experience":
 		if permissions.ReadBusinessRecords {
 			result = append(result, domain.CapabilityTicketRead)
@@ -485,6 +582,24 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 }
 
 func personalizedInstructions(persona PersonaBlueprint, state Onboarding) string {
+	return personalizedInstructionsForTemplate(persona, state, TemplateTrades)
+}
+
+func personalizedInstructionsForTemplate(persona PersonaBlueprint, state Onboarding, template BusinessTemplate) string {
+	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
+		return fmt.Sprintf(
+			"%s\n\nCompany context: %s is a %s software business serving %s. Website: %s. Product and services: %s. Team size: %d. Customer model: %s. Working rhythm: %s.\n\nOperating playbook: Demand and leads: %s Planning and prioritization: %s Discovery to development: %s Release to customer and billing: %s Subscription billing: %s Cloud and vendor spend: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for founder approval.",
+			persona.Mission,
+			state.Business.BusinessName, state.Business.Trade, state.Business.ServiceArea,
+			fallback(state.Business.WebsiteURL, "not yet provided"), fallback(state.Business.Services, "not yet documented"), state.Business.TeamSize,
+			fallback(state.Business.CustomerMix, "not yet documented"), fallback(state.Business.WorkingHours, "not yet documented"),
+			fallback(state.Operations.LeadIntake, "not yet documented"), fallback(state.Operations.Scheduling, "not yet documented"),
+			fallback(state.Operations.EstimateToJob, "not yet documented"), fallback(state.Operations.JobToInvoice, "not yet documented"),
+			fallback(state.Operations.Payments, "not yet documented"), fallback(state.Operations.VendorBills, "not yet documented"),
+			fallback(state.Operations.BiggestBottleneck, "not yet documented"), fallback(state.Operations.ImportantExceptions, "none documented"),
+			strings.Join(state.Priorities, "; "),
+		)
+	}
 	return fmt.Sprintf(
 		"%s\n\nBusiness context: %s is a %s business serving %s. Website: %s. Services: %s. Team size: %d. Customer mix: %s. Working hours: %s.\n\nOperating playbook: Leads: %s Scheduling: %s Estimate to job: %s Job to invoice: %s Payments: %s Vendor bills: %s Biggest bottleneck: %s Important exceptions: %s.\n\nPriorities: %s. Stay within granted capabilities; prepare or propose consequential actions for owner approval.",
 		persona.Mission,

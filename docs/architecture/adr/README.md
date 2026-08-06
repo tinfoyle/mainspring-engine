@@ -23,6 +23,10 @@ Architecture decision records capture consequential technical choices and the re
 | [0007](0007-runtime-provisioning.md) | Abstract runtime provisioning | Proposed |
 | [0008](0008-external-side-effects.md) | Record and reconcile external side effects | Proposed |
 | [0009](0009-mvp-security-boundary.md) | Adopt a minimum viable security boundary | Proposed |
+| [0010](0010-structured-assisted-onboarding.md) | Use structured assisted onboarding | Proposed |
+| [0011](0011-rag-document-library.md) | Keep document ingestion behind the tenant RAG service | Proposed |
+| [0012](0012-tenant-email-integration.md) | Keep mailbox credentials and delivery inside the tenant runtime | Proposed |
+| [0013](0013-tenant-business-templates.md) | Model business variants as tenant templates | Proposed |
 
 ## Template
 
@@ -40,4 +44,3 @@ Date: YYYY-MM-DD
 ## Alternatives considered
 ## Revisit when
 ```
-

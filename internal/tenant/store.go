@@ -27,11 +27,16 @@ type User struct {
 }
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	template BusinessTemplate
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+func NewStore(pool *pgxpool.Pool, templates ...BusinessTemplate) *Store {
+	template := TemplateTrades
+	if len(templates) > 0 {
+		template = ParseBusinessTemplate(templates[0].String())
+	}
+	return &Store{pool: pool, template: template}
 }
 
 func (s *Store) Bootstrap(ctx context.Context, tenantID domain.TenantID, slug, displayName string) error {
@@ -113,7 +118,7 @@ func (s *Store) CreateOwner(ctx context.Context, email, displayName, password st
 		return User{}, fmt.Errorf("create owner: %w", err)
 	}
 
-	if err := seedDefaultBoardroom(ctx, tx); err != nil {
+	if err := seedDefaultBoardroom(ctx, tx, s.template); err != nil {
 		return User{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -148,46 +153,65 @@ func defaultPersonaSeeds() []personaSeed {
 	}
 }
 
-func seedDefaultBoardroom(ctx context.Context, tx pgx.Tx) error {
+func personaSeedsForTemplate(template BusinessTemplate) []personaSeed {
+	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
+		return saasDefaultPersonaSeeds()
+	}
+	return defaultPersonaSeeds()
+}
+
+func seedDefaultBoardroom(ctx context.Context, tx pgx.Tx, template BusinessTemplate) error {
+	name := "Back Office"
+	description := "Your operational team for scheduling, invoicing, paperwork, and follow-up."
+	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
+		name = "Company Operating Room"
+		description = "Your cross-functional team for product, customers, revenue, delivery, and risk."
+	}
 	var boardroomID string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO boardrooms (name, description, max_turns)
-		VALUES ('Back Office', 'Your operational team for scheduling, invoicing, paperwork, and follow-up.', 6)
+		VALUES ($1, $2, 6)
 		RETURNING id::text
-	`).Scan(&boardroomID); err != nil {
+	`, name, description).Scan(&boardroomID); err != nil {
 		return fmt.Errorf("create default boardroom: %w", err)
 	}
 
-	return applyPersonaSeeds(ctx, tx, boardroomID)
+	return applyPersonaSeeds(ctx, tx, boardroomID, template)
 }
 
-func resetDefaultBoardroom(ctx context.Context, tx pgx.Tx) error {
+func resetDefaultBoardroom(ctx context.Context, tx pgx.Tx, template BusinessTemplate) error {
 	var boardroomID string
 	err := tx.QueryRow(ctx, `
 		SELECT id::text FROM boardrooms WHERE status <> 'archived' ORDER BY created_at LIMIT 1 FOR UPDATE
 	`).Scan(&boardroomID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return seedDefaultBoardroom(ctx, tx)
+		return seedDefaultBoardroom(ctx, tx, template)
 	}
 	if err != nil {
 		return fmt.Errorf("load default boardroom for reset: %w", err)
 	}
+	name := "Back Office"
+	description := "Your operational team for scheduling, invoicing, paperwork, and follow-up."
+	if ParseBusinessTemplate(template.String()) == TemplateSaaS {
+		name = "Company Operating Room"
+		description = "Your cross-functional team for product, customers, revenue, delivery, and risk."
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE boardrooms
-		SET name = 'Back Office', description = 'Your operational team for scheduling, invoicing, paperwork, and follow-up.',
+		SET name = $2, description = $3,
 		    max_turns = 6, status = 'active', updated_at = now()
 		WHERE id = $1
-	`, boardroomID); err != nil {
+	`, boardroomID, name, description); err != nil {
 		return fmt.Errorf("reset default boardroom: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE personas SET enabled = false, updated_at = now() WHERE boardroom_id = $1`, boardroomID); err != nil {
 		return fmt.Errorf("disable personas for reset: %w", err)
 	}
-	return applyPersonaSeeds(ctx, tx, boardroomID)
+	return applyPersonaSeeds(ctx, tx, boardroomID, template)
 }
 
-func applyPersonaSeeds(ctx context.Context, tx pgx.Tx, boardroomID string) error {
-	for _, persona := range defaultPersonaSeeds() {
+func applyPersonaSeeds(ctx context.Context, tx pgx.Tx, boardroomID string, template BusinessTemplate) error {
+	for _, persona := range personaSeedsForTemplate(template) {
 		var personaID string
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO personas (boardroom_id, name, role, system_instructions, position, enabled)

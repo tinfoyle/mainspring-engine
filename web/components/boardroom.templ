@@ -2,23 +2,35 @@ package components
 
 import "fmt"
 
-templ BoardroomPage(tenantName string, user UserView, room BoardroomCardView, personas []PersonaView, conversations []ConversationView, csrfToken string) {
+templ BoardroomPage(tenantName string, user UserView, room BoardroomCardView, personas []PersonaView, conversations []ConversationView, csrfToken, template string) {
 	@Layout(room.Name, tenantName, &user, csrfToken) {
 		<div class="boardroom-layout">
 			@BoardroomSidebar(room, personas, "/")
 			<section class="boardroom-main panel">
 				<header class="conversation-list-header">
-					<div><p class="eyebrow">Workspace</p><h2>Conversations</h2><p>Keep each job, question, or issue in its own continuing conversation.</p></div>
+					if template == "saas" {
+						<div><p class="eyebrow">Workspace</p><h2>Conversations</h2><p>Keep each product, customer, growth, or operating question in its own continuing conversation.</p></div>
+					} else {
+						<div><p class="eyebrow">Workspace</p><h2>Conversations</h2><p>Keep each job, question, or issue in its own continuing conversation.</p></div>
+					}
 				</header>
 				<form class="prompt-form prompt-form-new" method="post" action={ templ.URL("/boardrooms/" + room.ID + "/conversations") }>
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
 					<label for="prompt">Start a new conversation</label>
-					<textarea id="prompt" name="prompt" required maxlength="12000" placeholder="Review completed jobs that have not been invoiced and tell me what needs attention."></textarea>
+					if template == "saas" {
+						<textarea id="prompt" name="prompt" required maxlength="12000" placeholder="Review customer, roadmap, revenue, and delivery signals and tell me what needs attention."></textarea>
+					} else {
+						<textarea id="prompt" name="prompt" required maxlength="12000" placeholder="Review completed jobs that have not been invoiced and tell me what needs attention."></textarea>
+					}
 					<button class="button button-primary" type="submit">Convene boardroom</button>
 				</form>
 				<div class="conversation-list">
 					if len(conversations) == 0 {
-						<div class="empty-run"><div class="spring-glyph">M</div><h2>No conversations yet</h2><p>Start with a job, question, or situation that needs the back office's attention.</p></div>
+						if template == "saas" {
+							<div class="empty-run"><div class="spring-glyph">M</div><h2>No conversations yet</h2><p>Start with a product, customer, growth, or operating situation that needs the team's attention.</p></div>
+						} else {
+							<div class="empty-run"><div class="spring-glyph">M</div><h2>No conversations yet</h2><p>Start with a job, question, or situation that needs the back office's attention.</p></div>
+						}
 					}
 					for _, conversation := range conversations {
 						<a class="conversation-card" href={ templ.URL("/conversations/" + conversation.ID) }>

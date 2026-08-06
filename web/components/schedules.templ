@@ -1,6 +1,6 @@
 package components
 
-templ SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView, schedules []ScheduleView, csrfToken, formError string) {
+templ SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView, schedules []ScheduleView, csrfToken, formError, template string) {
 	@Layout("Schedules", tenantName, &user, csrfToken) {
 		<section class="hero hero-compact">
 			<div><p class="eyebrow">Automation</p><h1>Boardroom schedules</h1><p>Have a boardroom check routine work automatically and leave a durable report.</p></div>
@@ -13,13 +13,21 @@ templ SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView,
 				}
 				<form class="schedule-form" method="post" action="/schedules">
 					<input type="hidden" name="csrf_token" value={ csrfToken }/>
-					<label><span>Name</span><input name="name" required maxlength="120" placeholder="Morning paperwork review"/></label>
+					if template == "saas" {
+						<label><span>Name</span><input name="name" required maxlength="120" placeholder="Morning operating review"/></label>
+					} else {
+						<label><span>Name</span><input name="name" required maxlength="120" placeholder="Morning paperwork review"/></label>
+					}
 					<label><span>Boardroom</span><select name="boardroom_id" required>
 						for _, room := range rooms {
 							<option value={ room.ID }>{ room.Name }</option>
 						}
 					</select></label>
-					<label><span>What should it check?</span><textarea name="prompt" required maxlength="12000" placeholder="Review uninvoiced completed jobs, overdue invoices, and tomorrow's schedule conflicts."></textarea></label>
+					if template == "saas" {
+						<label><span>What should it check?</span><textarea name="prompt" required maxlength="12000" placeholder="Review support risk, failed payments, delivery blockers, and unresolved incident follow-up."></textarea></label>
+					} else {
+						<label><span>What should it check?</span><textarea name="prompt" required maxlength="12000" placeholder="Review uninvoiced completed jobs, overdue invoices, and tomorrow's schedule conflicts."></textarea></label>
+					}
 					<div class="interval-fields">
 						<label><span>Every</span><input name="every_number" type="number" min="1" max="365" value="1"/></label>
 						<label><span>Unit</span><select name="every_unit"><option value="hours">hours</option><option value="days">days</option><option value="weeks">weeks</option></select></label>
@@ -32,7 +40,11 @@ templ SchedulesPage(tenantName string, user UserView, rooms []BoardroomCardView,
 			<section class="schedule-list">
 				<div class="section-heading"><div><p class="eyebrow">Recurring work</p><h2>Active schedules</h2></div></div>
 				if len(schedules) == 0 {
-					<div class="panel empty-schedules"><h3>No schedules yet</h3><p>Create one to let the boardroom keep watch while you are in the field.</p></div>
+					if template == "saas" {
+						<div class="panel empty-schedules"><h3>No schedules yet</h3><p>Create one to let the operating room watch company signals between reviews.</p></div>
+					} else {
+						<div class="panel empty-schedules"><h3>No schedules yet</h3><p>Create one to let the boardroom keep watch while you are in the field.</p></div>
+					}
 				}
 				for _, item := range schedules {
 					<article class="panel schedule-card">

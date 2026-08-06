@@ -25,6 +25,7 @@ type Config struct {
 	TenantID                string
 	TenantSlug              string
 	TenantName              string
+	TenantTemplate          string
 	TenantInternalURL       string
 	TenantDatabaseURL       string
 	SessionSecret           string
@@ -63,6 +64,7 @@ func Load() (Config, error) {
 		TenantID:                os.Getenv("MAINSPRING_TENANT_ID"),
 		TenantSlug:              strings.ToLower(os.Getenv("MAINSPRING_TENANT_SLUG")),
 		TenantName:              env("MAINSPRING_TENANT_NAME", "Mainspring Boardroom"),
+		TenantTemplate:          strings.ToLower(env("MAINSPRING_TENANT_TEMPLATE", "trades")),
 		TenantInternalURL:       os.Getenv("MAINSPRING_TENANT_INTERNAL_URL"),
 		TenantDatabaseURL:       os.Getenv("MAINSPRING_TENANT_DATABASE_URL"),
 		SessionSecret:           os.Getenv("MAINSPRING_SESSION_SECRET"),
@@ -114,6 +116,11 @@ func Load() (Config, error) {
 	case "network", "mock":
 	default:
 		return Config{}, errors.New("MAINSPRING_EMAIL_PROVIDER must be network or mock")
+	}
+	switch cfg.TenantTemplate {
+	case "trades", "saas":
+	default:
+		return Config{}, errors.New("MAINSPRING_TENANT_TEMPLATE must be trades or saas")
 	}
 
 	return cfg, nil

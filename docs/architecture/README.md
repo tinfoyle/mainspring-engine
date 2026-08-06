@@ -7,6 +7,8 @@ Last updated: 2026-08-06
 
 Mainspring Engine is a multi-tenant platform that gives a small business a persistent AI back office. A customer purchases a boardroom, signs in through a tenant-specific subdomain, and configures specialized personas that can deliberate, retrieve business knowledge, use approved tools, and run on schedules.
 
+Tenant business templates specialize that experience without forking the runtime. The initial `trades` and `saas` templates select onboarding language, persona catalogs, recommendations, and examples while retaining the same data isolation, orchestration, integrations, and authorization boundaries.
+
 The application, rather than an agent, owns boardroom orchestration. Models are replaceable execution providers that perform bounded turns inside an application-controlled workflow.
 
 ## Architectural principles
@@ -122,9 +124,11 @@ The onboarding assistant cannot mutate live personas or grant capabilities. It w
 tenant-scoped structured draft; the application owns validation and application. New
 tenants cannot access operational routes until onboarding is complete.
 
-The initial catalog includes office management, bookkeeping, dispatch, legal and
+The trade catalog includes office management, bookkeeping, dispatch, legal and
 compliance, market analysis, business development, website advising, customer experience, HR and
-safety, estimating and job costing, and procurement. Specialist roles are opt-in
+safety, estimating and job costing, and procurement. The SaaS catalog includes operations,
+revenue, customer success, product, engineering, reliability, growth, sales development,
+UX research, website conversion, and security and compliance. Specialist roles are opt-in
 unless the owner's stated priorities directly recommend one. Public-web research
 and document commenting are separate launch permissions, and the boardroom turn
 limit is set to the number of selected personas so no selected role is silently
@@ -277,6 +281,7 @@ docs/
 - [ADR-0010: Use structured assisted onboarding](adr/0010-structured-assisted-onboarding.md)
 - [ADR-0011: Keep document ingestion behind the tenant RAG service](adr/0011-rag-document-library.md)
 - [ADR-0012: Keep mailbox credentials and delivery inside the tenant runtime](adr/0012-tenant-email-integration.md)
+- [ADR-0013: Model business variants as tenant templates](adr/0013-tenant-business-templates.md)
 
 ## Open questions
 

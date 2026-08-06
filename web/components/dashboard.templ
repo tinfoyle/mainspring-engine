@@ -1,12 +1,16 @@
 package components
 
-templ DashboardPage(tenantName string, user UserView, boardrooms []BoardroomCardView, csrfToken string) {
+templ DashboardPage(tenantName string, user UserView, boardrooms []BoardroomCardView, csrfToken, template string) {
 	@Layout("Boardrooms", tenantName, &user, csrfToken) {
 		<section class="hero">
 			<div>
 				<p class="eyebrow">Back office</p>
 				<h1>Good to see you, { user.DisplayName }</h1>
-				<p>Your boardrooms monitor the paperwork while you focus on the trade.</p>
+				if template == "saas" {
+					<p>Your boardrooms track product, customers, revenue, delivery, and risk while you focus on building the company.</p>
+				} else {
+					<p>Your boardrooms monitor the paperwork while you focus on the trade.</p>
+				}
 			</div>
 			<div class="status-chip"><span></span> System ready</div>
 		</section>

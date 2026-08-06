@@ -108,7 +108,8 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 		}
 	}
 
-	tenantStore := tenant.NewStore(pool)
+	businessTemplate := tenant.ParseBusinessTemplate(cfg.TenantTemplate)
+	tenantStore := tenant.NewStore(pool, businessTemplate)
 	if err := tenantStore.Bootstrap(ctx, tenantID, cfg.TenantSlug, cfg.TenantName); err != nil {
 		return err
 	}
@@ -150,7 +151,8 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 	}
 	server, err := tenant.NewServer(logger.With("service", "tenant"), tenant.ServerConfig{
 		TenantID: tenantID, TenantSlug: cfg.TenantSlug, TenantName: cfg.TenantName,
-		BaseDomain: cfg.GatewayBaseDomain, SessionSecret: []byte(cfg.SessionSecret), SetupToken: cfg.SetupToken,
+		BusinessTemplate: businessTemplate,
+		BaseDomain:       cfg.GatewayBaseDomain, SessionSecret: []byte(cfg.SessionSecret), SetupToken: cfg.SetupToken,
 		CookieSecure: cfg.CookieSecure, Development: cfg.Environment == "development",
 	}, tenantStore, boardroomStore, dispatcher, scheduleService, documentClient, emailService)
 	if err != nil {

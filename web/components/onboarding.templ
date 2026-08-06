@@ -62,33 +62,49 @@ func OnboardingAgentPrompt(step int) string {
 }
 
 templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
-	<header class="onboarding-heading"><p class="eyebrow">Step 1 of 6</p><h1>Tell us about the business</h1><p>These facts become the shared context for every person in your back office.</p></header>
+	<header class="onboarding-heading"><p class="eyebrow">Step 1 of 6</p><h1>Tell us about the business</h1><p>These facts become the shared context for every person in your operating team.</p></header>
 	<form class="onboarding-form" method="post" action="/onboarding/business">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
 		<div class="form-grid">
-			<label><span>Business name</span><input name="business_name" required maxlength="160" value={ state.Business.BusinessName } placeholder="Demo Trade Co."/></label>
-			<label><span>Primary trade</span><input name="trade" required maxlength="120" value={ state.Business.Trade } placeholder="Plumbing, HVAC, electrical..."/></label>
+			if state.Template == "saas" {
+				<label><span>Company name</span><input name="business_name" required maxlength="160" value={ state.Business.BusinessName } placeholder="Demo Software Co."/></label>
+				<label><span>Business model</span><input name="trade" required maxlength="120" value={ state.Business.Trade } placeholder="B2B SaaS, vertical SaaS, developer tools..."/></label>
+			} else {
+				<label><span>Business name</span><input name="business_name" required maxlength="160" value={ state.Business.BusinessName } placeholder="Demo Trade Co."/></label>
+				<label><span>Primary trade</span><input name="trade" required maxlength="120" value={ state.Business.Trade } placeholder="Plumbing, HVAC, electrical..."/></label>
+			}
 		</div>
 		<label><span>Business website <small>optional</small></span><input name="website_url" type="url" maxlength="500" value={ state.Business.WebsiteURL } placeholder="https://www.example.com"/><small>The Website Advisor can inspect this public site and recommend changes; it cannot edit or publish the site.</small></label>
-		<label><span>Services you provide</span><textarea name="services" maxlength="1000" placeholder="Service calls, installations, maintenance agreements...">{ state.Business.Services }</textarea></label>
+		if state.Template == "saas" {
+			<label><span>Product and services</span><textarea name="services" maxlength="1000" placeholder="What the product does, who uses it, plans, and services...">{ state.Business.Services }</textarea></label>
+		} else {
+			<label><span>Services you provide</span><textarea name="services" maxlength="1000" placeholder="Service calls, installations, maintenance agreements...">{ state.Business.Services }</textarea></label>
+		}
 		<div class="form-grid">
-			<label><span>Service area</span><input name="service_area" required maxlength="240" value={ state.Business.ServiceArea } placeholder="Charlotte and surrounding counties"/></label>
+			if state.Template == "saas" {
+				<label><span>Target market</span><input name="service_area" required maxlength="240" value={ state.Business.ServiceArea } placeholder="North American field-service companies with 10–100 employees"/></label>
+			} else {
+				<label><span>Service area</span><input name="service_area" required maxlength="240" value={ state.Business.ServiceArea } placeholder="Charlotte and surrounding counties"/></label>
+			}
 			<label><span>Time zone</span><input name="time_zone" required value={ state.Business.TimeZone } placeholder="America/New_York"/></label>
 			<label><span>People in the business</span><input name="team_size" type="number" min="1" max="10000" value={ fmt.Sprintf("%d", state.Business.TeamSize) }/></label>
-			<label><span>Customer mix</span><select name="customer_mix">
-				<option value="residential" selected?={ state.Business.CustomerMix == "residential" }>Mostly residential</option>
-				<option value="commercial" selected?={ state.Business.CustomerMix == "commercial" }>Mostly commercial</option>
-				<option value="mixed" selected?={ state.Business.CustomerMix == "mixed" || state.Business.CustomerMix == "" }>A mix of both</option>
+			<label><span>Customer model</span><select name="customer_mix">
+				for _, option := range CustomerMixOptions(state.Template) {
+					<option value={ option.Value } selected?={ state.Business.CustomerMix == option.Value || (option.Value == "mixed" && state.Business.CustomerMix == "") }>{ option.Label }</option>
+				}
 			</select></label>
 		</div>
-		<label><span>Normal working hours</span><input name="working_hours" maxlength="240" value={ state.Business.WorkingHours } placeholder="Monday–Friday, 7:00 AM–5:00 PM"/></label>
-		<label class="check-row"><input name="emergency_service" type="checkbox" value="true" checked?={ state.Business.EmergencyService }/><span>We handle emergency or after-hours calls</span></label>
+		if state.Template == "saas" {
+			<label><span>Team working rhythm</span><input name="working_hours" maxlength="240" value={ state.Business.WorkingHours } placeholder="Distributed team; core hours 10 AM–4 PM Eastern"/></label>
+			<label class="check-row"><input name="emergency_service" type="checkbox" value="true" checked?={ state.Business.EmergencyService }/><span>We operate an after-hours incident or customer escalation rotation</span></label>
+		} else {
+			<label><span>Normal working hours</span><input name="working_hours" maxlength="240" value={ state.Business.WorkingHours } placeholder="Monday–Friday, 7:00 AM–5:00 PM"/></label>
+			<label class="check-row"><input name="emergency_service" type="checkbox" value="true" checked?={ state.Business.EmergencyService }/><span>We handle emergency or after-hours calls</span></label>
+		}
 		<fieldset><legend>Systems you already use</legend><div class="choice-grid">
-			@CheckChoice("current_systems", "Email", Contains(state.Business.CurrentSystems, "Email"))
-			@CheckChoice("current_systems", "Calendar", Contains(state.Business.CurrentSystems, "Calendar"))
-			@CheckChoice("current_systems", "QuickBooks", Contains(state.Business.CurrentSystems, "QuickBooks"))
-			@CheckChoice("current_systems", "Job management software", Contains(state.Business.CurrentSystems, "Job management software"))
-			@CheckChoice("current_systems", "Paper or spreadsheets", Contains(state.Business.CurrentSystems, "Paper or spreadsheets"))
+			for _, system := range ExistingSystemOptions(state.Template) {
+				@CheckChoice("current_systems", system, Contains(state.Business.CurrentSystems, system))
+			}
 		</div></fieldset>
 		<div class="onboarding-actions"><span></span><button class="button button-primary" type="submit">Continue to how work flows</button></div>
 	</form>
@@ -98,16 +114,29 @@ templ OnboardingOperationsStep(state OnboardingView, csrfToken string) {
 	<header class="onboarding-heading"><p class="eyebrow">Step 2 of 6</p><h1>Walk Mia through the office</h1><p>Short, imperfect answers are fine. Describe what really happens today.</p></header>
 	<form class="onboarding-form" method="post" action="/onboarding/operations">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
-		<label><span>How do new leads and customer requests arrive?</span><textarea name="lead_intake" required maxlength="1600" placeholder="Phone calls come to me, web leads go to a shared inbox...">{ state.Operations.LeadIntake }</textarea></label>
-		<label><span>How are jobs scheduled and assigned?</span><textarea name="scheduling" required maxlength="1600" placeholder="I keep the calendar and text each technician the night before...">{ state.Operations.Scheduling }</textarea></label>
-		<label><span>How does an estimate become an active job?</span><textarea name="estimate_to_job" maxlength="1600">{ state.Operations.EstimateToJob }</textarea></label>
-		<label><span>How does completed work become an invoice?</span><textarea name="job_to_invoice" required maxlength="1600">{ state.Operations.JobToInvoice }</textarea></label>
-		<div class="form-grid">
-			<label><span>How are payments and overdue invoices handled?</span><textarea name="payments" maxlength="1600">{ state.Operations.Payments }</textarea></label>
-			<label><span>How are vendor bills handled?</span><textarea name="vendor_bills" maxlength="1600">{ state.Operations.VendorBills }</textarea></label>
-		</div>
-		<label><span>What paperwork or coordination problem costs you the most time?</span><textarea name="biggest_bottleneck" required maxlength="1600">{ state.Operations.BiggestBottleneck }</textarea></label>
-		<label><span>Anything unusual a new office manager needs to know?</span><textarea name="important_exceptions" maxlength="1600" placeholder="Commercial work needs a PO before invoicing; emergencies can displace maintenance calls...">{ state.Operations.ImportantExceptions }</textarea></label>
+		if state.Template == "saas" {
+			<label><span>How do demand, leads, and customer requests arrive?</span><textarea name="lead_intake" required maxlength="1600" placeholder="Organic search, product-led signups, founder sales, partner referrals...">{ state.Operations.LeadIntake }</textarea></label>
+			<label><span>How is product and engineering work prioritized?</span><textarea name="scheduling" required maxlength="1600" placeholder="Weekly triage feeds a six-week roadmap; incidents interrupt planned work...">{ state.Operations.Scheduling }</textarea></label>
+			<label><span>How does customer evidence become planned development work?</span><textarea name="estimate_to_job" maxlength="1600">{ state.Operations.EstimateToJob }</textarea></label>
+			<label><span>How do releases reach customers and connect to billing or success?</span><textarea name="job_to_invoice" required maxlength="1600">{ state.Operations.JobToInvoice }</textarea></label>
+			<div class="form-grid">
+				<label><span>How are subscriptions, failed payments, and renewals handled?</span><textarea name="payments" maxlength="1600">{ state.Operations.Payments }</textarea></label>
+				<label><span>How are cloud, contractor, and software vendor costs handled?</span><textarea name="vendor_bills" maxlength="1600">{ state.Operations.VendorBills }</textarea></label>
+			</div>
+			<label><span>What coordination or information problem costs the company the most time?</span><textarea name="biggest_bottleneck" required maxlength="1600">{ state.Operations.BiggestBottleneck }</textarea></label>
+			<label><span>Anything unusual a new operations lead needs to know?</span><textarea name="important_exceptions" maxlength="1600" placeholder="Enterprise security reviews pause deals; incidents override roadmap work...">{ state.Operations.ImportantExceptions }</textarea></label>
+		} else {
+			<label><span>How do new leads and customer requests arrive?</span><textarea name="lead_intake" required maxlength="1600" placeholder="Phone calls come to me, web leads go to a shared inbox...">{ state.Operations.LeadIntake }</textarea></label>
+			<label><span>How are jobs scheduled and assigned?</span><textarea name="scheduling" required maxlength="1600" placeholder="I keep the calendar and text each technician the night before...">{ state.Operations.Scheduling }</textarea></label>
+			<label><span>How does an estimate become an active job?</span><textarea name="estimate_to_job" maxlength="1600">{ state.Operations.EstimateToJob }</textarea></label>
+			<label><span>How does completed work become an invoice?</span><textarea name="job_to_invoice" required maxlength="1600">{ state.Operations.JobToInvoice }</textarea></label>
+			<div class="form-grid">
+				<label><span>How are payments and overdue invoices handled?</span><textarea name="payments" maxlength="1600">{ state.Operations.Payments }</textarea></label>
+				<label><span>How are vendor bills handled?</span><textarea name="vendor_bills" maxlength="1600">{ state.Operations.VendorBills }</textarea></label>
+			</div>
+			<label><span>What paperwork or coordination problem costs you the most time?</span><textarea name="biggest_bottleneck" required maxlength="1600">{ state.Operations.BiggestBottleneck }</textarea></label>
+			<label><span>Anything unusual a new office manager needs to know?</span><textarea name="important_exceptions" maxlength="1600" placeholder="Commercial work needs a PO before invoicing; emergencies can displace maintenance calls...">{ state.Operations.ImportantExceptions }</textarea></label>
+		}
 		<div class="onboarding-actions"><a href="/onboarding?step=1">Back</a><button class="button button-primary" type="submit">Continue to priorities</button></div>
 	</form>
 }
@@ -117,7 +146,7 @@ templ OnboardingPrioritiesStep(state OnboardingView, csrfToken string) {
 	<form class="onboarding-form" method="post" action="/onboarding/priorities">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
 		<div class="priority-grid">
-			for _, priority := range PriorityOptions() {
+			for _, priority := range PriorityOptionsForTemplate(state.Template) {
 				<label class="priority-choice"><input type="checkbox" name="priorities" value={ priority } checked?={ Contains(state.Priorities, priority) }/><span>{ priority }</span></label>
 			}
 		</div>
@@ -130,7 +159,7 @@ templ OnboardingTeamStep(state OnboardingView, csrfToken string) {
 	<div class="team-guidance"><strong>Resource-conscious by design</strong><p>The three core operators begin selected. Optional specialists only join conversations when you include them, and every role receives its own limited toolset.</p></div>
 	<form class="onboarding-form" method="post" action="/onboarding/team">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
-		for _, group := range PersonaGroups(state.Personas) {
+		for _, group := range PersonaGroupsForTemplate(state.Personas, state.Template) {
 			<section class="persona-group">
 				<header class="persona-group-heading"><div><p class="eyebrow">{ group.Name }</p><p>{ group.Description }</p></div></header>
 				<div class="persona-proposals">
@@ -157,15 +186,28 @@ templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
 	<form class="onboarding-form" method="post" action="/onboarding/permissions">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
 		<div class="permission-list">
-			@PermissionChoice("read_business_records", "Read connected business records", "Documents, job information, calendars, and accounting records that you connect.", state.Permissions.ReadBusinessRecords)
+			if state.Template == "saas" {
+				@PermissionChoice("read_business_records", "Read connected company records", "Documents, product work, support records, calendars, revenue, and operating data that you connect.", state.Permissions.ReadBusinessRecords)
+			} else {
+				@PermissionChoice("read_business_records", "Read connected business records", "Documents, job information, calendars, and accounting records that you connect.", state.Permissions.ReadBusinessRecords)
+			}
 			@PermissionChoice("research_public_web", "Research the public web", "Research-focused specialists can search public sources; findings must cite evidence and remain advisory.", state.Permissions.ResearchPublicWeb)
 			@PermissionChoice("comment_on_documents", "Add review comments to documents", "Legal, compliance, and safety specialists may annotate documents, but cannot replace or delete them.", state.Permissions.CommentOnDocuments)
-			@PermissionChoice("prepare_invoice_drafts", "Prepare invoice drafts", "The bookkeeper can organize invoice details, but cannot issue an invoice.", state.Permissions.PrepareInvoiceDrafts)
+			if state.Template == "saas" {
+				@PermissionChoice("prepare_invoice_drafts", "Prepare billing drafts", "The revenue analyst can organize subscription or service billing details, but cannot issue a charge.", state.Permissions.PrepareInvoiceDrafts)
+			} else {
+				@PermissionChoice("prepare_invoice_drafts", "Prepare invoice drafts", "The bookkeeper can organize invoice details, but cannot issue an invoice.", state.Permissions.PrepareInvoiceDrafts)
+			}
 			@PermissionChoice("draft_customer_email", "Draft customer messages", "The office manager can prepare follow-ups for you to review and send.", state.Permissions.DraftCustomerEmail)
 			@PermissionChoice("read_email_inbox", "Read the connected email inbox", "Selected communication personas can review incoming email after a mailbox is connected.", state.Permissions.ReadEmailInbox)
 			@PermissionChoice("send_email", "Send email through SMTP", "Selected communication personas may send external email. Every send is idempotent and written to the outbound audit ledger.", state.Permissions.SendEmail)
-			@PermissionChoice("propose_schedule_edits", "Propose schedule changes", "The dispatcher can point out conflicts and suggest moves, but cannot apply them.", state.Permissions.ProposeScheduleEdits)
-			@PermissionChoice("propose_payments", "Propose payments", "The bookkeeper can prepare a payment recommendation; execution always requires approval.", state.Permissions.ProposePayments)
+			if state.Template == "saas" {
+				@PermissionChoice("propose_schedule_edits", "Propose planning changes", "Product and engineering roles can flag delivery conflicts and suggest priority changes, but cannot apply them.", state.Permissions.ProposeScheduleEdits)
+				@PermissionChoice("propose_payments", "Propose vendor payments", "The revenue analyst can prepare a payment recommendation; execution always requires approval.", state.Permissions.ProposePayments)
+			} else {
+				@PermissionChoice("propose_schedule_edits", "Propose schedule changes", "The dispatcher can point out conflicts and suggest moves, but cannot apply them.", state.Permissions.ProposeScheduleEdits)
+				@PermissionChoice("propose_payments", "Propose payments", "The bookkeeper can prepare a payment recommendation; execution always requires approval.", state.Permissions.ProposePayments)
+			}
 		</div>
 		<div class="guardrail"><strong>Hard guardrail</strong><p>Email sending is disabled unless you explicitly grant it and connect a mailbox; every send is idempotent and audited. Invoice issuing, payment execution, ordering, contract acceptance, and calendar modification remain disabled. Legal and HR guidance is advisory and must be reviewed by a qualified human.</p></div>
 		<div class="onboarding-actions"><a href="/onboarding?step=4">Back</a><button class="button button-primary" type="submit">Review the plan</button></div>
@@ -175,13 +217,25 @@ templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
 templ OnboardingReviewStep(state OnboardingView, csrfToken string) {
 	<header class="onboarding-heading"><p class="eyebrow">Step 6 of 6</p><h1>Ready to open the doors</h1><p>Review the structured draft. Launching applies it to your boardroom and its personas.</p></header>
 	<div class="review-grid">
-		<section><h3>Business</h3><dl><div><dt>Name</dt><dd>{ state.Business.BusinessName }</dd></div><div><dt>Website</dt><dd>{ state.Business.WebsiteURL }</dd></div><div><dt>Trade</dt><dd>{ state.Business.Trade }</dd></div><div><dt>Service area</dt><dd>{ state.Business.ServiceArea }</dd></div><div><dt>Team</dt><dd>{ fmt.Sprintf("%d people", state.Business.TeamSize) }</dd></div></dl><a href="/onboarding?step=1">Edit business</a></section>
+		<section><h3>Business</h3><dl><div><dt>Name</dt><dd>{ state.Business.BusinessName }</dd></div><div><dt>Website</dt><dd>{ state.Business.WebsiteURL }</dd></div>
+			if state.Template == "saas" {
+				<div><dt>Model</dt><dd>{ state.Business.Trade }</dd></div><div><dt>Target market</dt><dd>{ state.Business.ServiceArea }</dd></div>
+			} else {
+				<div><dt>Trade</dt><dd>{ state.Business.Trade }</dd></div><div><dt>Service area</dt><dd>{ state.Business.ServiceArea }</dd></div>
+			}
+			<div><dt>Team</dt><dd>{ fmt.Sprintf("%d people", state.Business.TeamSize) }</dd></div></dl><a href="/onboarding?step=1">Edit business</a></section>
 		<section><h3>Top priorities</h3><ul>
 			for _, priority := range state.Priorities {
 				<li>{ priority }</li>
 			}
 		</ul><a href="/onboarding?step=3">Edit priorities</a></section>
-		<section><h3>Operating playbook</h3><dl><div><dt>Job to invoice</dt><dd>{ state.Operations.JobToInvoice }</dd></div><div><dt>Biggest bottleneck</dt><dd>{ state.Operations.BiggestBottleneck }</dd></div><div><dt>Important exception</dt><dd>{ state.Operations.ImportantExceptions }</dd></div></dl><a href="/onboarding?step=2">Edit playbook</a></section>
+		<section><h3>Operating playbook</h3><dl>
+			if state.Template == "saas" {
+				<div><dt>Release to customer</dt><dd>{ state.Operations.JobToInvoice }</dd></div>
+			} else {
+				<div><dt>Job to invoice</dt><dd>{ state.Operations.JobToInvoice }</dd></div>
+			}
+			<div><dt>Biggest bottleneck</dt><dd>{ state.Operations.BiggestBottleneck }</dd></div><div><dt>Important exception</dt><dd>{ state.Operations.ImportantExceptions }</dd></div></dl><a href="/onboarding?step=2">Edit playbook</a></section>
 		<section><h3>Launch authority</h3><ul>
 			for _, permission := range PermissionSummary(state.Permissions) {
 				<li>{ permission }</li>
@@ -199,7 +253,13 @@ templ OnboardingReviewStep(state OnboardingView, csrfToken string) {
 	<div class="launch-note"><strong>What happens next?</strong><p>Your boardroom will open with this context. Start with a real situation or use the suggested test conversation.</p></div>
 	<form method="post" action="/onboarding/launch">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
-		<div class="onboarding-actions"><a href="/onboarding?step=5">Back</a><button class="button button-primary" type="submit">Launch my back office</button></div>
+		<div class="onboarding-actions"><a href="/onboarding?step=5">Back</a><button class="button button-primary" type="submit">
+			if state.Template == "saas" {
+				<span>Launch my operating room</span>
+			} else {
+				<span>Launch my back office</span>
+			}
+		</button></div>
 	</form>
 }
 
@@ -211,11 +271,11 @@ templ PermissionChoice(name, title, description string, checked bool) {
 	<label class="permission-choice"><input type="checkbox" name={ name } value="true" checked?={ checked }/><span><strong>{ title }</strong><small>{ description }</small></span></label>
 }
 
-templ OnboardingCompletePage(tenantName string, user UserView, room BoardroomCardView, csrfToken string) {
+templ OnboardingCompletePage(tenantName string, user UserView, room BoardroomCardView, csrfToken, template string) {
 	@Layout("Your back office is ready", tenantName, &user, csrfToken) {
 		<section class="completion-card panel">
-			<div class="spring-glyph">M</div><p class="eyebrow">Onboarding complete</p><h1>Your back office is ready</h1><p>Mainspring has applied your business profile, operating playbook, personas, and launch permissions.</p>
-			<div class="test-drive-card"><strong>Suggested first conversation</strong><p>Review how completed jobs become invoices in my business. Find the points where work could fall through the cracks and give me the first three actions to take.</p></div>
+			<div class="spring-glyph">M</div><p class="eyebrow">Onboarding complete</p><h1>{ room.Name } is ready</h1><p>Mainspring has applied your business profile, operating playbook, personas, and launch permissions.</p>
+			<div class="test-drive-card"><strong>Suggested first conversation</strong><p>{ SuggestedFirstConversation(template) }</p></div>
 			<div class="completion-actions"><a class="button button-primary" href={ templ.URL("/boardrooms/" + room.ID) }>Open { room.Name }</a><a class="button button-quiet" href="/">Go to dashboard</a></div>
 		</section>
 	}
@@ -225,7 +285,7 @@ templ DevelopmentPage(tenantName string, user UserView, csrfToken string) {
 	@Layout("Demo tools", tenantName, &user, csrfToken) {
 		<section class="development-shell">
 			<header><p class="eyebrow">Development only</p><h1>Demo tools</h1><p>Utilities for repeatedly testing the customer experience. These routes do not exist when Mainspring is not running in development mode.</p></header>
-			<article class="panel development-card"><div><h2>Reset onboarding</h2><p>Clears the onboarding draft and restores the default Back Office personas. Your owner login, conversations, documents, and connected mailbox are preserved.</p></div><form method="post" action="/development/reset-onboarding"><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="confirm" value="reset"/><button class="button button-danger-solid" type="submit">Reset onboarding</button></form></article>
+			<article class="panel development-card"><div><h2>Reset onboarding</h2><p>Clears the onboarding draft and restores this tenant template's default personas. Your owner login, conversations, documents, and connected mailbox are preserved.</p></div><form method="post" action="/development/reset-onboarding"><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="confirm" value="reset"/><button class="button button-danger-solid" type="submit">Reset onboarding</button></form></article>
 		</section>
 	}
 }
