@@ -11,7 +11,7 @@ x-app: &app
     MAINSPRING_AUTO_MIGRATE: "true"
     MAINSPRING_CONTROL_DATABASE_URL: postgres://mainspring:mainspring@postgres:5432/mainspring_control?sslmode=disable
     MAINSPRING_CONTROL_ADMIN_TOKEN: local-development-control-admin-token-change-me
-    MAINSPRING_GATEWAY_BASE_DOMAIN: lvh.me
+    MAINSPRING_GATEWAY_BASE_DOMAIN: localhost
     MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000001
     MAINSPRING_TENANT_SLUG: demo
     MAINSPRING_TENANT_NAME: Demo Trade Co.
@@ -33,7 +33,7 @@ services:
     image: caddy:2.10.2-alpine
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8088:8080"
     volumes:
       - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
     depends_on:

@@ -27,10 +27,10 @@ make docker-up
 make smoke
 ```
 
-The local Docker stack uses `lvh.me`, which resolves wildcard subdomains to `127.0.0.1`:
+The local Docker stack uses the browser-reserved `.localhost` domain for tenant subdomains and publishes its edge on port `8088`:
 
-- Control plane: `http://account.lvh.me:8080`
-- Demo tenant: `http://demo.lvh.me:8080`
+- Control plane: `http://account.localhost:8088`
+- Demo tenant: `http://demo.localhost:8088`
 - Temporal UI: `http://localhost:8233`
 
 The first visit to the demo tenant redirects to owner setup. The local-only setup token is `mainspring-local-setup`.

@@ -3,10 +3,10 @@
     admin off
 }
 
-http://account.lvh.me:8080, http://www.lvh.me:8080, http://lvh.me:8080 {
+http://account.localhost:8080, http://www.localhost:8080, http://localhost:8080 {
     reverse_proxy control:8080
 }
 
-http://*.lvh.me:8080 {
+http://*.localhost:8080 {
     reverse_proxy gateway:8081
 }

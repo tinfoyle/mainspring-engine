@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-base_url="${MAINSPRING_SMOKE_URL:-http://127.0.0.1:8080}"
-tenant_host="${MAINSPRING_SMOKE_HOST:-demo.lvh.me}"
+base_url="${MAINSPRING_SMOKE_URL:-http://127.0.0.1:8088}"
+tenant_host="${MAINSPRING_SMOKE_HOST:-demo.localhost}"
 email="${MAINSPRING_SMOKE_EMAIL:-owner@example.test}"
 password="${MAINSPRING_SMOKE_PASSWORD:-correct-horse-battery-staple}"
 setup_token="${MAINSPRING_SMOKE_SETUP_TOKEN:-mainspring-local-setup}"
