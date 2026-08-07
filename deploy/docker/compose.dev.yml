@@ -161,23 +161,6 @@ services:
       control:
         condition: service_healthy
 
-  register-saas:
-    <<: *app
-    restart: "no"
-    command: ["provision"]
-    environment:
-      <<: *app-environment
-      MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000002
-      MAINSPRING_TENANT_SLUG: saas
-      MAINSPRING_TENANT_NAME: Demo Software Co.
-      MAINSPRING_TENANT_TEMPLATE: software
-      MAINSPRING_TENANT_INTERNAL_URL: http://tenant-saas:8082
-      MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_saas:tenant_saas@postgres:5432/tenant_saas?sslmode=disable
-      MAINSPRING_RAG_INTERNAL_URL: http://rag-saas:8083
-    depends_on:
-      control:
-        condition: service_healthy
-
   tenant-demo:
     <<: *app
     command: ["tenant"]
@@ -195,50 +178,9 @@ services:
       timeout: 3s
       retries: 20
 
-  tenant-saas:
-    <<: *app
-    command: ["tenant"]
-    environment:
-      <<: *app-environment
-      MAINSPRING_TENANT_ADDR: :8082
-      MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000002
-      MAINSPRING_TENANT_SLUG: saas
-      MAINSPRING_TENANT_NAME: Demo Software Co.
-      MAINSPRING_TENANT_TEMPLATE: software
-      MAINSPRING_TENANT_INTERNAL_URL: http://tenant-saas:8082
-      MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_saas:tenant_saas@postgres:5432/tenant_saas?sslmode=disable
-      MAINSPRING_RAG_INTERNAL_URL: http://rag-saas:8083
-    depends_on:
-      postgres:
-        condition: service_healthy
-      temporal-namespace:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/mainspring", "healthcheck", "http://127.0.0.1:8082/healthz"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   worker-demo:
     <<: *app
     command: ["worker"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      temporal-namespace:
-        condition: service_completed_successfully
-
-  worker-saas:
-    <<: *app
-    command: ["worker"]
-    environment:
-      <<: *app-environment
-      MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000002
-      MAINSPRING_TENANT_SLUG: saas
-      MAINSPRING_TENANT_NAME: Demo Software Co.
-      MAINSPRING_TENANT_TEMPLATE: software
-      MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_saas:tenant_saas@postgres:5432/tenant_saas?sslmode=disable
-      MAINSPRING_RAG_INTERNAL_URL: http://rag-saas:8083
     depends_on:
       postgres:
         condition: service_healthy
@@ -260,26 +202,6 @@ services:
       timeout: 3s
       retries: 20
 
-  rag-saas:
-    <<: *app
-    command: ["rag"]
-    environment:
-      <<: *app-environment
-      MAINSPRING_RAG_ADDR: :8083
-      MAINSPRING_TENANT_ID: 00000000-0000-0000-0000-000000000002
-      MAINSPRING_TENANT_SLUG: saas
-      MAINSPRING_TENANT_NAME: Demo Software Co.
-      MAINSPRING_TENANT_TEMPLATE: software
-      MAINSPRING_TENANT_DATABASE_URL: postgres://tenant_saas:tenant_saas@postgres:5432/tenant_saas?sslmode=disable
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "/usr/local/bin/mainspring", "healthcheck", "http://127.0.0.1:8083/healthz"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   gateway:
     <<: *app
     command: ["gateway"]
@@ -289,11 +211,7 @@ services:
     depends_on:
       register-demo:
         condition: service_completed_successfully
-      register-saas:
-        condition: service_completed_successfully
       tenant-demo:
-        condition: service_healthy
-      tenant-saas:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "/usr/local/bin/mainspring", "healthcheck", "http://127.0.0.1:8081/healthz"]

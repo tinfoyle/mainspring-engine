@@ -7,8 +7,8 @@ templ OnboardingPage(tenantName string, user UserView, state OnboardingView, ste
 		<div class="onboarding-layout">
 			<aside class="onboarding-guide">
 				<p class="eyebrow">Welcome to Mainspring</p>
-				if state.Business.Stage == "" {
-					<h2>Choose your starting point</h2><p>We will shape the questions and team around the reality of the business today.</p>
+				if state.Business.Template == "" {
+					<h2>Choose your business</h2><p>One demo now covers trades, software products, managed IT services, and brand-new businesses.</p>
 				} else if IsStartingBusiness(state.Business.Stage) {
 					<h2>Build your launch room</h2><p>We will pressure-test the idea, plan the first operating system, and propose a lean founding team.</p>
 				} else {
@@ -24,7 +24,7 @@ templ OnboardingPage(tenantName string, user UserView, state OnboardingView, ste
 				<div class="onboarding-agent">
 					<div class="agent-avatar">M</div>
 					<div><strong>Mia</strong><small>Setup specialist</small></div>
-					<p>{ OnboardingAgentPrompt(step, state.Business.Stage) }</p>
+					<p>{ OnboardingAgentPrompt(step, state.Business.Stage, state.Business.Template) }</p>
 				</div>
 			</aside>
 			<section class="panel onboarding-panel">
@@ -32,8 +32,10 @@ templ OnboardingPage(tenantName string, user UserView, state OnboardingView, ste
 					<div class="alert alert-error" role="alert">{ formError }</div>
 				}
 				if step == 1 {
-					if state.Business.Stage == "" {
-						@OnboardingStageStep(csrfToken)
+					if state.Business.Template == "" && IsStartingBusiness(state.Business.Stage) {
+						@OnboardingTemplateStep(csrfToken)
+					} else if state.Business.Template == "" {
+						@OnboardingEntryStep(csrfToken)
 					} else {
 						@OnboardingBusinessStep(state, csrfToken)
 					}
@@ -53,9 +55,12 @@ templ OnboardingPage(tenantName string, user UserView, state OnboardingView, ste
 	}
 }
 
-func OnboardingAgentPrompt(step int, stage string) string {
-	if stage == "" {
-		return "Choose the path that matches reality today. You can set up an operating business or build a new one from first assumptions."
+func OnboardingAgentPrompt(step int, stage, template string) string {
+	if template == "" && IsStartingBusiness(stage) {
+		return "Starting from scratch still benefits from industry context. Choose the closest business type; we will treat every detail as an assumption to validate."
+	}
+	if template == "" {
+		return "Pick the path closest to your business today. The choice changes the questions, vocabulary, priorities, and starting personas—not the security model."
 	}
 	if IsStartingBusiness(stage) {
 		switch step {
@@ -87,12 +92,24 @@ func OnboardingAgentPrompt(step int, stage string) string {
 	}
 }
 
-templ OnboardingStageStep(csrfToken string) {
-	<header class="onboarding-heading"><p class="eyebrow">Step 1 of 6</p><h1>Where are you starting?</h1><p>The right setup depends on whether Mainspring is learning an operating business or helping you design one from the ground up.</p></header>
-	<form class="onboarding-stage-form" method="post" action="/onboarding/stage">
+templ OnboardingEntryStep(csrfToken string) {
+	<header class="onboarding-heading"><p class="eyebrow">Unified demo</p><h1>What are you bringing to Mainspring?</h1><p>Choose a ready-made business template, or begin with a new business that still needs to be shaped.</p></header>
+	<form class="onboarding-stage-form onboarding-entry-form" method="post" action="/onboarding/template">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
-		<button class="onboarding-stage-choice" type="submit" name="business_stage" value="operating"><span class="stage-icon">O</span><strong>I already run this business</strong><small>Map the customers, team, systems, paperwork, and exceptions you handle today.</small><em>Set up an operating back office →</em></button>
-		<button class="onboarding-stage-choice is-starting" type="submit" name="business_stage" value="starting"><span class="stage-icon">S</span><strong>I am starting from scratch</strong><small>Pressure-test the idea, plan the launch, choose the first systems, and build a lean founding boardroom.</small><em>Build a startup launch room →</em></button>
+		<button class="onboarding-stage-choice" type="submit" name="template_selection" value="trades"><span class="stage-icon">T</span><strong>Trades & field service</strong><small>For plumbing, HVAC, electrical, construction, repair, maintenance, and other job-based businesses.</small><em>Build a trade back office →</em></button>
+		<button class="onboarding-stage-choice" type="submit" name="template_selection" value="saas"><span class="stage-icon">S</span><strong>SaaS & software</strong><small>For subscription products, vertical software, product-led companies, and software teams.</small><em>Build a software operating room →</em></button>
+		<button class="onboarding-stage-choice" type="submit" name="template_selection" value="msp"><span class="stage-icon">M</span><strong>MSP & IT services</strong><small>For managed services, help desks, cloud operations, security services, and IT consultancies.</small><em>Build a service-delivery room →</em></button>
+		<button class="onboarding-stage-choice is-starting" type="submit" name="template_selection" value="startup"><span class="stage-icon">N</span><strong>Start a new business</strong><small>Pressure-test an idea, plan the launch, choose the first systems, and build a lean founding boardroom.</small><em>Start from scratch →</em></button>
+	</form>
+}
+
+templ OnboardingTemplateStep(csrfToken string) {
+	<header class="onboarding-heading"><p class="eyebrow">Starting from scratch</p><h1>What kind of business are you planning?</h1><p>Choose the closest model. You can refine the offer and customer later; this selection gives the launch team useful industry context.</p></header>
+	<form class="onboarding-stage-form onboarding-template-form" method="post" action="/onboarding/template">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<button class="onboarding-stage-choice" type="submit" name="template_selection" value="trades"><span class="stage-icon">T</span><strong>Trade or field service</strong><small>A local or regional job-based service, installation, maintenance, repair, or construction business.</small><em>Plan a trade business →</em></button>
+		<button class="onboarding-stage-choice" type="submit" name="template_selection" value="saas"><span class="stage-icon">S</span><strong>SaaS or software product</strong><small>A subscription product, vertical application, developer tool, or other software company.</small><em>Plan a software business →</em></button>
+		<button class="onboarding-stage-choice" type="submit" name="template_selection" value="msp"><span class="stage-icon">M</span><strong>MSP or IT services</strong><small>A managed technology, cloud, security, help-desk, or IT consulting company.</small><em>Plan an IT services business →</em></button>
 	</form>
 }
 
@@ -103,13 +120,13 @@ templ OnboardingBusinessStep(state OnboardingView, csrfToken string) {
 		} else {
 			<h1>Tell us about the business</h1><p>These facts become the shared context for every person in your operating team.</p>
 		}
-		<form class="onboarding-path-switch" method="post" action="/onboarding/stage"><input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<div class="onboarding-choice-controls"><form class="onboarding-path-switch" method="post" action="/onboarding/stage"><input type="hidden" name="csrf_token" value={ csrfToken }/>
 			if IsStartingBusiness(state.Business.Stage) {
 				<span>Path: Starting from scratch</span><button type="submit" name="business_stage" value="operating">Use existing business instead</button>
 			} else {
 				<span>Path: Existing business</span><button type="submit" name="business_stage" value="starting">Start from scratch instead</button>
 			}
-		</form>
+		</form><a href="/onboarding?step=1&choose_template=true">Choose another business type</a></div>
 	</header>
 	<form class="onboarding-form" method="post" action="/onboarding/business">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>

@@ -30,17 +30,16 @@ make smoke
 The local Docker stack uses the browser-reserved `.localhost` domain for tenant subdomains and publishes its edge on port `8088`:
 
 - Control plane: `http://account.localhost:8088`
-- Trade demo: `http://demo.localhost:8088`
-- Software company demo (SaaS or MSP): `http://saas.localhost:8088`
+- Unified business demo: `http://demo.localhost:8088`
 - Temporal UI: `http://localhost:8233`
 
-The first visit to either demo tenant redirects to owner setup. The local-only setup token is `mainspring-local-setup`. The repeatable software smoke flows create `founder@example.test` with password `correct-horse-battery-staple` when needed.
+The former `saas.localhost` address redirects to the unified demo. Its first visit redirects to owner setup; the local-only setup token is `mainspring-local-setup`.
 
-After owner setup, a tenant chooses whether Mainspring is learning an existing operation or helping start a business from scratch. Existing trade businesses begin with office management, bookkeeping, and dispatch; existing software businesses begin with operations, revenue, and customer success. The startup path instead asks future-tense validation and launch questions and proposes a lean Launch Room for planning, finance, and customer/market evidence. SaaS businesses can add product, engineering, reliability, growth, sales, UX research, and website conversion roles; MSPs can add service delivery, technical account management, cloud and systems, and security roles. Existing development tenants can restart onboarding from **Demo tools → Reset onboarding**; reset preserves the owner login, conversations, documents, and connected mailbox.
+After owner setup, unified onboarding offers trade/field service, SaaS/software, MSP/IT services, and start-from-scratch entry points. A new-business owner then chooses the closest industry context. Existing trade businesses begin with office management, bookkeeping, and dispatch; existing software businesses begin with operations, revenue, and customer success. The startup path asks future-tense validation and launch questions and proposes a lean Launch Room for planning, finance, and customer/market evidence. Existing development tenants can restart onboarding from **Demo tools → Reset onboarding**; reset preserves the owner login, conversations, documents, and connected mailbox.
 
 Once onboarding is complete, **Work** opens the tenant's shared work queue. Owners can add lightweight personal to-dos or structured tickets, assign work to themselves, set priorities and due dates, filter the queue, and advance items through open, in-progress, waiting, and done states. The same record shape retains persona, schedule, boardroom, conversation, and run provenance for automated ticket creation.
 
-Set `MAINSPRING_TENANT_TEMPLATE=trades` or `MAINSPRING_TENANT_TEMPLATE=software` when provisioning a tenant. The former `saas` value remains a compatibility alias. This is tenant configuration, not a separate binary or fork.
+`MAINSPRING_TENANT_TEMPLATE` remains a backward-compatible provisioning default. New onboarding records persist the owner's selected `trades` or `software` template and `trades`, `saas`, or `msp` variant; this is tenant configuration, not a separate binary or fork.
 
 The tenant **Documents** section uploads, indexes, lists, and displays text-native business documents. The MVP accepts TXT, Markdown, CSV/TSV, JSON, XML, HTML, YAML, and LOG files up to 2 MB. PDF and Word extraction are planned as a separate ingestion stage.
 

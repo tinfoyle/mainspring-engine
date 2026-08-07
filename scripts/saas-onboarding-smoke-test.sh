@@ -3,8 +3,8 @@
 set -euo pipefail
 
 base_url="${MAINSPRING_SMOKE_URL:-http://127.0.0.1:8088}"
-tenant_host="${MAINSPRING_SMOKE_HOST:-saas.localhost}"
-email="${MAINSPRING_SMOKE_EMAIL:-founder@example.test}"
+tenant_host="${MAINSPRING_SMOKE_HOST:-demo.localhost}"
+email="${MAINSPRING_SMOKE_EMAIL:-owner@example.test}"
 password="${MAINSPRING_SMOKE_PASSWORD:-correct-horse-battery-staple}"
 setup_token="${MAINSPRING_SETUP_TOKEN:-mainspring-local-setup}"
 
@@ -49,8 +49,9 @@ reset_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$co
 [[ "$reset_status" == "303" ]]
 
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
-grep -q 'Step 1 of 6' "$page"
-grep -q 'I am starting from scratch' "$page"
+grep -q 'Unified demo' "$page"
+grep -q 'SaaS' "$page"
+grep -q 'MSP' "$page"
 
 post_step() {
   local path="$1"
@@ -62,7 +63,7 @@ post_step() {
   [[ "$status" == "303" ]]
 }
 
-post_step /onboarding/stage --data-urlencode "business_stage=operating"
+post_step /onboarding/template --data-urlencode "template_selection=saas"
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
 grep -q 'Business model' "$page"
 grep -q 'Target market' "$page"

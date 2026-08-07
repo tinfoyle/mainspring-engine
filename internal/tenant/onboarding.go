@@ -23,6 +23,8 @@ const (
 var ErrOnboardingNotFound = errors.New("tenant onboarding was not found")
 
 type BusinessProfile struct {
+	Template         string   `json:"template"`
+	Variant          string   `json:"variant"`
 	Stage            string   `json:"stage"`
 	BusinessName     string   `json:"business_name"`
 	WebsiteURL       string   `json:"website_url"`
@@ -376,9 +378,13 @@ func (s *Store) CompleteOnboarding(ctx context.Context, tenantID domain.TenantID
 	if _, err := tx.Exec(ctx, `UPDATE personas SET enabled = false, updated_at = now() WHERE boardroom_id = $1`, boardroomID); err != nil {
 		return fmt.Errorf("disable previous personas: %w", err)
 	}
+	selectedTemplate := s.template
+	if strings.TrimSpace(state.Business.Template) != "" {
+		selectedTemplate = ParseBusinessTemplate(state.Business.Template)
+	}
 	for position, persona := range state.Blueprint.Personas {
 		var personaID string
-		instructions := personalizedInstructionsForTemplate(persona, state, s.template)
+		instructions := personalizedInstructionsForTemplate(persona, state, selectedTemplate)
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO personas (boardroom_id, name, role, system_instructions, position, enabled)
 			VALUES ($1, $2, $3, $4, $5, $6)

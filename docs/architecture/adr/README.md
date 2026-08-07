@@ -29,6 +29,7 @@ Architecture decision records capture consequential technical choices and the re
 | [0013](0013-tenant-business-templates.md) | Model business variants as tenant templates | Proposed |
 | [0014](0014-hybrid-work-queue.md) | Use one tenant work queue for to-dos and tickets | Proposed |
 | [0015](0015-business-stage-onboarding.md) | Branch onboarding by business stage | Proposed |
+| [0016](0016-onboarding-template-selection.md) | Select the business template inside onboarding | Proposed |
 
 ## Template
 

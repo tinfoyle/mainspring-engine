@@ -229,6 +229,8 @@ func CharacterCountLabel(count int) string {
 }
 
 type BusinessProfileView struct {
+	Template         string
+	Variant          string
 	Stage            string
 	BusinessName     string
 	WebsiteURL       string

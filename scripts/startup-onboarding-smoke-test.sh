@@ -3,8 +3,8 @@
 set -euo pipefail
 
 base_url="${MAINSPRING_SMOKE_URL:-http://127.0.0.1:8088}"
-tenant_host="${MAINSPRING_SMOKE_HOST:-saas.localhost}"
-email="${MAINSPRING_SMOKE_EMAIL:-founder@example.test}"
+tenant_host="${MAINSPRING_SMOKE_HOST:-demo.localhost}"
+email="${MAINSPRING_SMOKE_EMAIL:-owner@example.test}"
 password="${MAINSPRING_SMOKE_PASSWORD:-correct-horse-battery-staple}"
 
 work_dir="$(mktemp -d)"
@@ -35,11 +35,16 @@ csrf_token="$(grep -oE 'name="csrf_token" value="[^"]+' "$page" | head -n 1 | cu
 
 post_step /development/reset-onboarding --data-urlencode "confirm=reset"
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
-grep -q 'Where are you starting' "$page"
-grep -q 'I already run this business' "$page"
-grep -q 'I am starting from scratch' "$page"
+grep -q 'What are you bringing to Mainspring' "$page"
+grep -q 'Trades' "$page"
+grep -q 'Start a new business' "$page"
 
-post_step /onboarding/stage --data-urlencode "business_stage=starting"
+post_step /onboarding/template --data-urlencode "template_selection=startup"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+grep -q 'What kind of business are you planning' "$page"
+grep -q 'SaaS or software product' "$page"
+
+post_step /onboarding/template --data-urlencode "template_selection=saas"
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
 grep -q 'Describe the business you want to start' "$page"
 grep -q 'Systems you have chosen so far' "$page"

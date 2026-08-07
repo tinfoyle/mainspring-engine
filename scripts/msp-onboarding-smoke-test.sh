@@ -3,8 +3,8 @@
 set -euo pipefail
 
 base_url="${MAINSPRING_SMOKE_URL:-http://127.0.0.1:8088}"
-tenant_host="${MAINSPRING_SMOKE_HOST:-saas.localhost}"
-email="${MAINSPRING_SMOKE_EMAIL:-founder@example.test}"
+tenant_host="${MAINSPRING_SMOKE_HOST:-demo.localhost}"
+email="${MAINSPRING_SMOKE_EMAIL:-owner@example.test}"
 password="${MAINSPRING_SMOKE_PASSWORD:-correct-horse-battery-staple}"
 
 work_dir="$(mktemp -d)"
@@ -46,9 +46,9 @@ post_step() {
 post_step /development/reset-onboarding --data-urlencode "confirm=reset"
 
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
-grep -q 'I am starting from scratch' "$page"
+grep -q 'MSP' "$page"
 
-post_step /onboarding/stage --data-urlencode "business_stage=operating"
+post_step /onboarding/template --data-urlencode "template_selection=msp"
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
 grep -q 'B2B SaaS, vertical SaaS, MSP, IT consultancy' "$page"
 grep -q 'Products and managed services' "$page"

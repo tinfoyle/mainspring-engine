@@ -19,6 +19,30 @@ func TestSoftwareTemplateAcceptsLegacySaaSAlias(t *testing.T) {
 	}
 }
 
+func TestUnifiedDemoTemplateSelections(t *testing.T) {
+	tests := []struct {
+		selection string
+		template  BusinessTemplate
+		variant   string
+		model     string
+	}{
+		{"trades", TemplateTrades, "trades", ""},
+		{"saas", TemplateSoftware, "saas", "B2B SaaS"},
+		{"msp", TemplateSoftware, "msp", "Managed service provider (MSP)"},
+	}
+	for _, test := range tests {
+		t.Run(test.selection, func(t *testing.T) {
+			template, variant, model, ok := onboardingTemplateSelection(test.selection)
+			if !ok || template != test.template || variant != test.variant || model != test.model {
+				t.Fatalf("onboardingTemplateSelection(%q) = %q, %q, %q, %t", test.selection, template, variant, model, ok)
+			}
+		})
+	}
+	if _, _, _, ok := onboardingTemplateSelection("unknown"); ok {
+		t.Fatal("unknown template selection must be rejected")
+	}
+}
+
 func TestGenerateBlueprint(t *testing.T) {
 	state := Onboarding{Business: BusinessProfile{
 		BusinessName: "Acme Plumbing", Trade: "plumbing", ServiceArea: "Mecklenburg County",

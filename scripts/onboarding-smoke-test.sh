@@ -41,9 +41,10 @@ reset_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$co
 [[ "$reset_status" == "303" ]]
 
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
-grep -q 'Step 1 of 6' "$page"
+grep -q 'Unified demo' "$page"
 grep -q 'Mia' "$page"
-grep -q 'I am starting from scratch' "$page"
+grep -q 'Trades' "$page"
+grep -q 'Start a new business' "$page"
 
 post_step() {
   local path="$1"
@@ -55,7 +56,7 @@ post_step() {
   [[ "$status" == "303" ]]
 }
 
-post_step /onboarding/stage --data-urlencode "business_stage=operating"
+post_step /onboarding/template --data-urlencode "template_selection=trades"
 request --cookie "$cookies" --output "$page" "$base_url/onboarding"
 grep -q 'Primary trade' "$page"
 
@@ -135,8 +136,8 @@ grep -q 'Gray' "$page"
 
 if [[ "${MAINSPRING_SMOKE_RESET_AFTER:-false}" == "true" ]]; then
   post_step /development/reset-onboarding --data-urlencode "confirm=reset"
-  request --cookie "$cookies" --output "$page" "$base_url/onboarding"
-  grep -q 'Step 1 of 6' "$page"
+	request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+	grep -q 'Unified demo' "$page"
   grep -q 'Demo Trade Co.' "$page"
 fi
 

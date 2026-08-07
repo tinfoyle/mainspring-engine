@@ -7,7 +7,7 @@ Last updated: 2026-08-06
 
 Mainspring Engine is a multi-tenant platform that gives a small business a persistent AI back office. A customer purchases a boardroom, signs in through a tenant-specific subdomain, and configures specialized personas that can deliberate, retrieve business knowledge, use approved tools, and run on schedules.
 
-Tenant business templates specialize that experience without forking the runtime. The initial `trades` and `software` templates select onboarding language, persona catalogs, recommendations, and examples while retaining the same data isolation, orchestration, integrations, and authorization boundaries. The software template supports both product SaaS and managed-service-provider operating models; `saas` remains a configuration alias.
+Tenant business templates specialize that experience without forking the runtime. The initial `trades` and `software` templates select onboarding language, persona catalogs, recommendations, and examples while retaining the same data isolation, orchestration, integrations, and authorization boundaries. The software template supports both product SaaS and managed-service-provider operating models; `saas` remains a configuration alias. The unified demo selects this template during onboarding instead of dedicating a hostname and runtime to each example.
 
 The application, rather than an agent, owns boardroom orchestration. Models are replaceable execution providers that perform bounded turns inside an application-controlled workflow.
 
@@ -112,7 +112,9 @@ Billing provider confirms purchase
 
 ```text
 Owner creates the tenant login
-  -> owner chooses an operating-business or starting-from-scratch path
+  -> owner selects trades, SaaS, MSP, or the new-business path in one tenant
+  -> a new-business owner selects the closest industry context
+  -> onboarding records both business template and operating/starting stage
   -> guided workflow collects canonical facts or clearly labeled launch assumptions
   -> onboarding assistant captures current processes or a proposed first operating playbook
   -> application generates an editable persona and permission blueprint
@@ -308,6 +310,7 @@ docs/
 - [ADR-0013: Model business variants as tenant templates](adr/0013-tenant-business-templates.md)
 - [ADR-0014: Use one tenant work queue for to-dos and tickets](adr/0014-hybrid-work-queue.md)
 - [ADR-0015: Branch onboarding by business stage](adr/0015-business-stage-onboarding.md)
+- [ADR-0016: Select the business template inside onboarding](adr/0016-onboarding-template-selection.md)
 
 ## Open questions
 
