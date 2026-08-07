@@ -107,7 +107,7 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	results, err := s.store.Search(r.Context(), r.URL.Query().Get("q"), limit)
+	results, err := s.store.SearchDocuments(r.Context(), r.URL.Query().Get("q"), limit, r.URL.Query()["document_id"])
 	if err != nil {
 		httpx.WriteProblem(w, http.StatusBadRequest, "search_failed", err.Error())
 		return

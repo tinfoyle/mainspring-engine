@@ -188,6 +188,10 @@ func supportedTextMediaType(mediaType string) bool {
 }
 
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+	return s.SearchDocuments(ctx, query, limit, nil)
+}
+
+func (s *Store) SearchDocuments(ctx context.Context, query string, limit int, documentIDs []string) ([]SearchResult, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, errors.New("search query is required")
@@ -195,15 +199,25 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]SearchRe
 	if limit <= 0 || limit > 25 {
 		limit = 10
 	}
+	for _, documentID := range documentIDs {
+		if _, err := uuid.Parse(documentID); err != nil {
+			return nil, errors.New("document filters must be valid IDs")
+		}
+	}
+	var filters any
+	if len(documentIDs) > 0 {
+		filters = documentIDs
+	}
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.document_id::text, d.name, c.chunk_index, c.content,
 		       ts_rank_cd(c.search_vector, websearch_to_tsquery('english', $1)) AS rank
 		FROM document_chunks c JOIN documents d ON d.id = c.document_id
 		WHERE d.status = 'ready' AND d.deleted_at IS NULL
 		  AND c.search_vector @@ websearch_to_tsquery('english', $1)
+		  AND ($3::text[] IS NULL OR c.document_id::text = ANY($3::text[]))
 		ORDER BY rank DESC, c.document_id, c.chunk_index
 		LIMIT $2
-	`, query, limit)
+	`, query, limit, filters)
 	if err != nil {
 		return nil, fmt.Errorf("search documents: %w", err)
 	}

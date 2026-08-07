@@ -35,6 +35,63 @@ type UserView struct {
 	Development bool
 }
 
+type ApprovalView struct {
+	ID             string
+	RunID          string
+	PersonaName    string
+	PersonaRole    string
+	ActionType     string
+	Reason         string
+	Evidence       []string
+	RequestPayload string
+	ActionStatus   string
+	Status         string
+	RequestedAt    time.Time
+	DecidedAt      *time.Time
+}
+
+type ProviderCircuitView struct {
+	Provider            string
+	ConsecutiveFailures int
+	OpenUntil           *time.Time
+	LastErrorCategory   string
+}
+
+type OperationsView struct {
+	QueuedRuns           int
+	RunningRuns          int
+	AwaitingApproval     int
+	FailedRuns           int
+	ActiveInvocations    int
+	CompletedInvocations int
+	FailedInvocations    int
+	MonthlyTokens        int64
+	MonthlyCost          string
+	AverageLatency       string
+	ToolDenials          int
+	ProviderCircuits     []ProviderCircuitView
+}
+
+func ApprovalStatusLabel(status string) string {
+	switch status {
+	case "pending":
+		return "Needs review"
+	case "approved":
+		return "Approved"
+	case "rejected":
+		return "Rejected"
+	default:
+		return status
+	}
+}
+
+func ActionTypeLabel(actionType string) string {
+	if actionType == "email.send" {
+		return "Send email"
+	}
+	return actionType
+}
+
 type WorkItemView struct {
 	ID             string
 	Number         int64

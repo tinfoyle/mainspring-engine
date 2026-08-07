@@ -6,6 +6,7 @@ type RunStatus string
 
 const (
 	RunPending          RunStatus = "pending"
+	RunQueued           RunStatus = "queued"
 	RunPreparing        RunStatus = "preparing"
 	RunRunning          RunStatus = "running"
 	RunAwaitingApproval RunStatus = "awaiting_approval"

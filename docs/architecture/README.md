@@ -1,7 +1,7 @@
 # Mainspring Engine Architecture
 
 Status: Proposed for MVP  
-Last updated: 2026-08-06
+Last updated: 2026-08-07
 
 ## Purpose
 
@@ -151,11 +151,14 @@ skipped.
 User starts a conversation, follows up, or a schedule fires
   -> application creates or selects the persistent Conversation
   -> application creates one durable BoardroomRun for this round
+  -> application snapshots ordered immutable persona versions and output schemas
   -> Temporal starts the versioned boardroom workflow
-  -> application selects the next persona
-  -> provider adapter receives the conversation history and performs one bounded invocation
-  -> tool calls pass through the tool broker
-  -> results and audit events are persisted
+  -> one retryable Activity owns each idempotent persona turn
+  -> tenant admission policy reserves concurrency, tokens, and estimated cost
+  -> a short-lived constrained container invokes the selected provider
+  -> tool requests pass through the signed capability broker and return bounded results
+  -> structured results, usage, citations, proposals, and audit events are persisted atomically
+  -> external proposals wait for an owner decision and execute through the action ledger
   -> application advances, waits for approval, or marks the round ready for follow-up
 ```
 
@@ -311,6 +314,11 @@ docs/
 - [ADR-0014: Use one tenant work queue for to-dos and tickets](adr/0014-hybrid-work-queue.md)
 - [ADR-0015: Branch onboarding by business stage](adr/0015-business-stage-onboarding.md)
 - [ADR-0016: Select the business template inside onboarding](adr/0016-onboarding-template-selection.md)
+- [ADR-0017: Persist immutable agent turns and structured results](adr/0017-durable-agent-invocations.md)
+- [ADR-0018: Execute agent tools through a capability broker](adr/0018-bounded-agent-tool-loop.md)
+- [ADR-0019: Gate external agent actions with durable approval](adr/0019-agent-action-approvals.md)
+- [ADR-0020: Run provider CLIs in ephemeral constrained containers](adr/0020-ephemeral-agent-runners.md)
+- [ADR-0021: Enforce tenant execution capacity and usage budgets](adr/0021-agent-capacity-and-operations.md)
 
 ## Open questions
 
@@ -320,6 +328,6 @@ docs/
 - Offsite backup destination, recovery targets, and restore cadence
 - PDF and Word extraction strategy and object-storage backend
 - Exact web-search provider available to the MVP
-- Model credential ownership, quotas, and customer usage limits
+- Production model credential ownership and plan-specific pricing
 - Criteria for moving a tenant to dedicated database infrastructure
 - Kubernetes distribution and cluster topology after MVP validation

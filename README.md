@@ -6,7 +6,7 @@ The application owns orchestration. Agent providers perform bounded turns and ar
 
 ## Current implementation status
 
-This repository is under active MVP development. The architecture is recorded in [docs/architecture/README.md](docs/architecture/README.md). The current vertical slice includes tenant registration and hostname routing, separate tenant authentication, structured assisted onboarding, business-aware boardroom personas, a hybrid to-do and ticket work queue, a tenant-scoped document library with RAG ingestion, an encrypted IMAP/SMTP mailbox integration, persistent multi-run conversations with follow-ups, durable Temporal runs, SSE conversation updates, recurring interval/cron schedules that open dated conversations, signed persona capabilities, and an idempotent external-action ledger.
+This repository is under active MVP development. The architecture is recorded in [docs/architecture/README.md](docs/architecture/README.md). The current vertical slice includes tenant registration and hostname routing, separate tenant authentication, structured assisted onboarding, business-aware boardroom personas, a hybrid to-do and ticket work queue, a tenant-scoped document library with RAG ingestion, encrypted IMAP/SMTP integration, persistent multi-run conversations, recurring schedules, and a durable agent execution platform. Every persona turn is a versioned, idempotent Temporal Activity with structured output, bounded context, capability-checked document retrieval, verified citations, approval-gated email actions, quota accounting, and a short-lived constrained runner container.
 
 ## Development prerequisites
 
@@ -26,6 +26,8 @@ make build
 make docker-up
 make smoke
 ```
+
+`make smoke` uses the deterministic mock provider through the same remote runner boundary. To exercise a real Codex CLI invocation, start the worker with `MAINSPRING_RUNNER_PROVIDER=codex`, point the runner controller at the host Codex auth file and CA bundle, temporarily use a single-turn boardroom, and run `make smoke-codex`. This command incurs a real model call and is intentionally not part of the default suite.
 
 The local Docker stack uses the browser-reserved `.localhost` domain for tenant subdomains and publishes its edge on port `8088`:
 

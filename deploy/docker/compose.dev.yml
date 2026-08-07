@@ -26,7 +26,13 @@ x-app: &app
     MAINSPRING_RAG_INTERNAL_URL: http://rag-demo:8083
     MAINSPRING_SETUP_TOKEN: mainspring-local-setup
     MAINSPRING_COOKIE_SECURE: "false"
-    MAINSPRING_AGENT_PROVIDER: mock
+    MAINSPRING_AGENT_PROVIDER: remote
+    MAINSPRING_RUNNER_URL: http://runner-controller:8090
+    MAINSPRING_RUNNER_PROVIDER: ${MAINSPRING_RUNNER_PROVIDER:-mock}
+    MAINSPRING_RUNNER_IMAGE: mainspring-agent-runner:dev
+    MAINSPRING_RUNNER_NETWORK: mainspring-dev_agent-egress
+    MAINSPRING_RUNNER_CODEX_AUTH_PATH: ${MAINSPRING_RUNNER_CODEX_AUTH_PATH:-/home/rojo/.codex/auth.json}
+    MAINSPRING_RUNNER_CA_CERT_PATH: ${MAINSPRING_RUNNER_CA_CERT_PATH:-/etc/ssl/certs/ca-certificates.crt}
     MAINSPRING_TEMPORAL_ADDRESS: temporal:7233
     MAINSPRING_ORCHESTRATION: temporal
   networks:
@@ -186,6 +192,42 @@ services:
         condition: service_healthy
       temporal-namespace:
         condition: service_completed_successfully
+      runner-controller:
+        condition: service_healthy
+
+  runner-image:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.runner
+    image: mainspring-agent-runner:dev
+    command: ["version"]
+    restart: "no"
+    networks:
+      - agent-egress
+
+  runner-controller:
+    <<: *app
+    command: ["runner-controller"]
+    environment:
+      <<: *app-environment
+      MAINSPRING_RUNNER_ADDR: :8090
+      MAINSPRING_RUNNER_SOCKET: /var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:8090:8090"
+    group_add:
+      - "${DOCKER_GID:-109}"
+    depends_on:
+      runner-image:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mainspring", "healthcheck", "http://127.0.0.1:8090/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - platform
 
   rag-demo:
     <<: *app
@@ -225,3 +267,6 @@ volumes:
 networks:
   platform:
     driver: bridge
+  agent-egress:
+    driver: bridge
+    name: mainspring-dev_agent-egress

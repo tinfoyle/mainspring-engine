@@ -10,17 +10,14 @@ import (
 	toolbroker "github.com/tinfoyle/mainspring-engine/internal/tools"
 )
 
-// RegisterTools installs the mailbox operations into the capability-enforcing
-// broker. Provider adapters can expose these handlers without giving an agent
-// direct access to credentials or the tenant database.
+// RegisterTools installs read-only mailbox operations into the capability-
+// enforcing broker. Sending is intentionally excluded: agents may only propose
+// email.send actions, which the approval service binds to the action ledger.
 func RegisterTools(broker *toolbroker.Broker, service *Service) error {
 	if broker == nil || service == nil {
 		return errors.New("email broker and service are required")
 	}
-	if err := broker.Register(domain.CapabilityEmailRead, service.readTool); err != nil {
-		return err
-	}
-	return broker.Register(domain.CapabilityEmailSend, service.sendTool)
+	return broker.Register(domain.CapabilityEmailRead, service.readTool)
 }
 
 func (s *Service) readTool(ctx context.Context, call toolbroker.AuthorizedCall) (json.RawMessage, error) {

@@ -154,6 +154,14 @@ func (l *ActionLedger) byKey(ctx context.Context, key string) (ExternalAction, e
 	`, key))
 }
 
+func (l *ActionLedger) ByID(ctx context.Context, id domain.ActionID) (ExternalAction, error) {
+	return scanAction(l.pool.QueryRow(ctx, `
+		SELECT id::text, run_id::text, idempotency_key, action_type, status, request_payload,
+		       response_payload, COALESCE(provider_reference, ''), attempt_count, COALESCE(last_error, '')
+		FROM external_actions WHERE id=$1
+	`, id.String()))
+}
+
 type rowScanner interface {
 	Scan(...any) error
 }

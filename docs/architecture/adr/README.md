@@ -30,6 +30,11 @@ Architecture decision records capture consequential technical choices and the re
 | [0014](0014-hybrid-work-queue.md) | Use one tenant work queue for to-dos and tickets | Proposed |
 | [0015](0015-business-stage-onboarding.md) | Branch onboarding by business stage | Proposed |
 | [0016](0016-onboarding-template-selection.md) | Select the business template inside onboarding | Proposed |
+| [0017](0017-durable-agent-invocations.md) | Persist immutable agent turns and structured results | Proposed |
+| [0018](0018-bounded-agent-tool-loop.md) | Execute agent tools through a capability broker | Proposed |
+| [0019](0019-agent-action-approvals.md) | Gate external agent actions with durable approval | Proposed |
+| [0020](0020-ephemeral-agent-runners.md) | Run provider CLIs in ephemeral constrained containers | Proposed |
+| [0021](0021-agent-capacity-and-operations.md) | Enforce tenant execution capacity and usage budgets | Proposed |
 
 ## Template
 

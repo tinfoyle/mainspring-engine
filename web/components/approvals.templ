@@ -1,0 +1,42 @@
+package components
+
+templ ApprovalsPage(tenantName string, user UserView, approvals []ApprovalView, csrfToken, notice, pageError string, includeHistory bool) {
+	@Layout("Approvals", tenantName, &user, csrfToken) {
+		<section class="hero approvals-hero">
+			<div><p class="eyebrow">Owner control</p><h1>Approvals</h1><p>Review the exact external actions proposed by your boardroom before anything leaves Mainspring.</p></div>
+			<nav class="approval-tabs"><a class={ templ.KV("is-current", !includeHistory) } href="/approvals">Pending</a><a class={ templ.KV("is-current", includeHistory) } href="/approvals?history=1">History</a></nav>
+		</section>
+		if notice != "" {
+			<div class="alert alert-success">{ notice }</div>
+		}
+		if pageError != "" {
+			<div class="alert alert-error">{ pageError }</div>
+		}
+		if len(approvals) == 0 {
+			<section class="panel approval-empty"><h2>No approvals in this view</h2><p>Agent-proposed external actions will appear here with their exact payload and supporting context.</p></section>
+		}
+		<div class="approval-list">
+			for _, approval := range approvals {
+				<article class="panel approval-card">
+					<header><div><p class="eyebrow">{ ActionTypeLabel(approval.ActionType) }</p><h2>{ approval.Reason }</h2></div><span class={ "approval-status", "approval-status-" + approval.Status }>{ ApprovalStatusLabel(approval.Status) }</span></header>
+					<p>Requested by <strong>{ approval.PersonaName }</strong> <span>({ approval.PersonaRole })</span> on { approval.RequestedAt.Local().Format("Jan 2 at 3:04 PM") }.</p>
+					if len(approval.Evidence) > 0 {
+						<div><strong>Supporting evidence</strong><ul>
+							for _, item := range approval.Evidence {
+								<li>{ item }</li>
+							}
+						</ul></div>
+					}
+					<details open><summary>Exact action payload</summary><pre>{ approval.RequestPayload }</pre></details>
+					<a class="back-link" href={ templ.URL("/runs/" + approval.RunID) }>Open originating conversation</a>
+					if approval.Status == "pending" {
+						<footer class="approval-actions">
+							<form method="post" action={ templ.URL("/approvals/" + approval.ID + "/reject") }><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-quiet" type="submit">Reject</button></form>
+							<form method="post" action={ templ.URL("/approvals/" + approval.ID + "/approve") }><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-primary" type="submit">Approve and execute</button></form>
+						</footer>
+					}
+				</article>
+			}
+		</div>
+	}
+}

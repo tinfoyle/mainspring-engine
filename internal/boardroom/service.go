@@ -2,6 +2,8 @@ package boardroom
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -12,25 +14,69 @@ import (
 )
 
 type Service struct {
-	logger   *slog.Logger
-	store    *Store
-	provider agent.Provider
-	tenantID domain.TenantID
-	timeout  time.Duration
-	issuer   *toolbroker.TokenIssuer
+	logger            *slog.Logger
+	store             *Store
+	provider          agent.Provider
+	tenantID          domain.TenantID
+	timeout           time.Duration
+	issuer            *toolbroker.TokenIssuer
+	broker            *toolbroker.Broker
+	approvals         *toolbroker.ApprovalService
+	usage             *UsageService
+	inputTokenBudget  int64
+	outputTokenBudget int64
+	costBudgetMicros  int64
 }
 
-func NewService(logger *slog.Logger, store *Store, provider agent.Provider, tenantID domain.TenantID, timeout time.Duration, issuer *toolbroker.TokenIssuer) *Service {
-	return &Service{logger: logger, store: store, provider: provider, tenantID: tenantID, timeout: timeout, issuer: issuer}
+func (s *Service) SetApprovalService(approvals *toolbroker.ApprovalService) { s.approvals = approvals }
+func (s *Service) SetUsageService(usage *UsageService)                      { s.usage = usage }
+func (s *Service) SetBudgets(inputTokens, outputTokens, costMicros int64) {
+	if inputTokens > 0 {
+		s.inputTokenBudget = inputTokens
+	}
+	if outputTokens > 0 {
+		s.outputTokenBudget = outputTokens
+	}
+	if costMicros >= 0 {
+		s.costBudgetMicros = costMicros
+	}
+}
+
+func NewService(logger *slog.Logger, store *Store, provider agent.Provider, tenantID domain.TenantID, timeout time.Duration, issuer *toolbroker.TokenIssuer, brokers ...*toolbroker.Broker) *Service {
+	service := &Service{logger: logger, store: store, provider: provider, tenantID: tenantID, timeout: timeout, issuer: issuer}
+	service.inputTokenBudget = 12000
+	service.outputTokenBudget = 2000
+	if len(brokers) > 0 {
+		service.broker = brokers[0]
+	}
+	return service
 }
 
 func (s *Service) CreateScheduledRun(ctx context.Context, boardroomID domain.BoardroomID, workflowID, title, prompt, scheduleID string) (Run, error) {
 	return s.store.CreateScheduledRun(ctx, boardroomID, workflowID, title, prompt, scheduleID)
 }
 
-// ExecuteRun is application-owned orchestration for the local MVP path. Temporal
-// invokes the same bounded-turn behavior through Activities in production mode.
+func (s *Service) PrepareRun(ctx context.Context, runID domain.RunID) (RunPlan, error) {
+	return s.store.PrepareRun(ctx, runID)
+}
+
+// ExecuteRun is the local dispatcher's application-owned equivalent of the
+// per-turn Temporal workflow. It uses the same durable run plan and invocation
+// records, so switching orchestration modes does not change execution semantics.
 func (s *Service) ExecuteRun(ctx context.Context, runID domain.RunID) error {
+	plan, err := s.PrepareRun(ctx, runID)
+	if err != nil {
+		return s.fail(ctx, runID, err)
+	}
+	for _, persona := range plan.Personas {
+		if err := s.ExecuteTurn(ctx, runID, persona.TurnNumber); err != nil {
+			return s.fail(ctx, runID, err)
+		}
+	}
+	return s.CompleteRun(ctx, runID)
+}
+
+func (s *Service) ExecuteTurn(ctx context.Context, runID domain.RunID, turnNumber int) error {
 	run, err := s.store.GetRun(ctx, runID)
 	if err != nil {
 		return err
@@ -38,85 +84,215 @@ func (s *Service) ExecuteRun(ctx context.Context, runID domain.RunID) error {
 	if run.Status == domain.RunCompleted || run.Status == domain.RunCanceled {
 		return nil
 	}
-	if err := s.store.SetRunStatus(ctx, runID, domain.RunRunning, ""); err != nil {
+	messages, err := s.store.ConversationMessages(ctx, run.ConversationID)
+	if err != nil {
 		return err
 	}
-
-	personas, err := s.store.Personas(ctx, run.BoardroomID)
+	conversation, manifest := BuildContext(messages, int(s.inputTokenBudget))
+	record, persona, err := s.store.StartInvocation(ctx, runID, turnNumber, s.provider.Name(), manifest)
 	if err != nil {
-		return s.fail(ctx, runID, err)
+		return err
 	}
-	if len(personas) == 0 {
-		return s.fail(ctx, runID, fmt.Errorf("boardroom has no enabled personas"))
+	if record.Status == "succeeded" {
+		if s.approvals != nil {
+			return s.approvals.EnsureInvocationActions(ctx, record.ID)
+		}
+		return nil
 	}
-
-	turnLimit := run.MaxTurns
-	if turnLimit > len(personas) {
-		turnLimit = len(personas)
+	if s.usage != nil {
+		if err := s.usage.Reserve(ctx, record.ID, s.provider.Name(), s.inputTokenBudget+s.outputTokenBudget, s.costBudgetMicros); err != nil {
+			if errors.Is(err, ErrInvocationCapacity) || errors.Is(err, ErrProviderCircuitOpen) {
+				_ = s.store.SetRunStatus(ctx, runID, domain.RunQueued, err.Error())
+			}
+			invocationErr := CapacityInvocationError(err)
+			category, _ := agent.Failure(invocationErr)
+			_ = s.store.FailInvocation(ctx, record.ID, string(category), invocationErr.Error())
+			return invocationErr
+		}
+		_ = s.store.SetRunStatus(ctx, runID, domain.RunRunning, "")
 	}
-	existing, err := s.store.Messages(ctx, runID)
-	if err != nil {
-		return s.fail(ctx, runID, err)
+	invocation := agent.Invocation{
+		ID: record.ID, TenantID: s.tenantID, BoardroomID: run.BoardroomID, RunID: runID,
+		PersonaID: persona.PersonaID, PersonaName: persona.Name, PersonaRole: persona.Role,
+		SystemInstructions: persona.SystemInstructions, Conversation: conversation, ToolGrants: persona.Grants,
+		OutputSchema: persona.OutputSchema, Timeout: s.timeout,
+		MaxInputTokens: s.inputTokenBudget, MaxOutputTokens: s.outputTokenBudget, MaxCostMicros: s.costBudgetMicros,
 	}
-	completedTurns := 0
-	for _, message := range existing {
-		if message.Role == "agent" {
-			completedTurns++
+	if s.broker != nil {
+		for _, definition := range s.broker.Definitions(persona.Grants) {
+			invocation.Tools = append(invocation.Tools, agent.ToolDefinition{Name: definition.Name, Description: definition.Description, InputSchema: definition.InputSchema})
 		}
 	}
-	if completedTurns >= turnLimit {
-		return s.store.SetRunStatus(ctx, runID, domain.RunCompleted, "")
-	}
-
-	for index := completedTurns; index < turnLimit; index++ {
-		persona := personas[index]
-		messages, err := s.store.ConversationMessages(ctx, run.ConversationID)
+	if s.issuer != nil {
+		expiresAt := time.Now().Add(s.timeout)
+		if s.timeout <= 0 {
+			expiresAt = time.Now().Add(5 * time.Minute)
+		}
+		invocation.CapabilityToken, err = s.issuer.Mint(domain.InvocationContext{
+			TenantID: s.tenantID, BoardroomID: run.BoardroomID, RunID: runID, PersonaID: persona.PersonaID,
+			InvocationID: record.ID, Grants: persona.Grants, ExpiresAt: expiresAt,
+		})
 		if err != nil {
-			return s.fail(ctx, runID, err)
+			_ = s.store.FailInvocation(ctx, record.ID, string(agent.FailureUnknown), err.Error())
+			return fmt.Errorf("mint capability token for %s: %w", persona.Name, err)
 		}
-		conversation := make([]agent.ConversationMessage, 0, len(messages))
-		for _, message := range messages {
-			conversation = append(conversation, agent.ConversationMessage{
-				Role: message.Role, PersonaName: message.PersonaName, Body: message.Body,
-			})
+	}
+	result, citations, err := s.invokeWithTools(ctx, invocation)
+	if err != nil {
+		if s.usage != nil {
+			s.usage.Release(ctx, record.ID)
+			s.usage.RecordProviderResult(ctx, s.provider.Name(), err)
 		}
+		category, _ := agent.Failure(err)
+		_ = s.store.FailInvocation(ctx, record.ID, string(category), err.Error())
+		return fmt.Errorf("invoke %s: %w", persona.Name, err)
+	}
+	if err := validateCitations(result.Structured.Citations, citations); err != nil {
+		invocationErr := &agent.InvocationError{Category: agent.FailureInvalidOutput, Err: err}
+		_ = s.store.FailInvocation(ctx, record.ID, string(agent.FailureInvalidOutput), err.Error())
+		return invocationErr
+	}
+	result.Body = result.Structured.Contribution
+	if err := s.store.CompleteInvocation(ctx, record, persona, result, s.costBudgetMicros); err != nil {
+		if s.usage != nil {
+			s.usage.Release(ctx, record.ID)
+		}
+		return err
+	}
+	if s.usage != nil {
+		if err := s.usage.Reconcile(ctx, record.ID, result.Usage, s.costBudgetMicros); err != nil {
+			return err
+		}
+		s.usage.RecordProviderResult(ctx, s.provider.Name(), nil)
+	}
+	if s.approvals != nil {
+		if err := s.approvals.EnsureInvocationActions(ctx, record.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
-		invocation := agent.Invocation{
-			ID:                 domain.NewInvocationID(),
-			TenantID:           s.tenantID,
-			BoardroomID:        run.BoardroomID,
-			RunID:              runID,
-			PersonaID:          persona.ID,
-			PersonaName:        persona.Name,
-			PersonaRole:        persona.Role,
-			SystemInstructions: persona.SystemInstructions,
-			Conversation:       conversation,
-			ToolGrants:         persona.Grants,
-			Timeout:            s.timeout,
-		}
-		if s.issuer != nil {
-			expiresAt := time.Now().Add(s.timeout)
-			if s.timeout <= 0 {
-				expiresAt = time.Now().Add(5 * time.Minute)
-			}
-			invocation.CapabilityToken, err = s.issuer.Mint(domain.InvocationContext{
-				TenantID: s.tenantID, BoardroomID: run.BoardroomID, RunID: runID, PersonaID: persona.ID,
-				InvocationID: invocation.ID, Grants: persona.Grants, ExpiresAt: expiresAt,
-			})
-			if err != nil {
-				return s.fail(ctx, runID, fmt.Errorf("mint capability token for %s: %w", persona.Name, err))
-			}
-		}
+type returnedCitation struct {
+	DocumentID string
+	ChunkID    string
+}
+
+func (s *Service) invokeWithTools(ctx context.Context, invocation agent.Invocation) (agent.Result, map[string]returnedCitation, error) {
+	const maximumToolCalls = 5
+	citations := make(map[string]returnedCitation)
+	requestIDs := make(map[string]bool)
+	toolCalls := 0
+	for {
 		result, err := s.provider.Invoke(ctx, invocation)
 		if err != nil {
-			return s.fail(ctx, runID, fmt.Errorf("invoke %s: %w", persona.Name, err))
+			return agent.Result{}, citations, err
 		}
-		if _, err := s.store.AppendAgentMessage(ctx, runID, persona, result); err != nil {
-			return s.fail(ctx, runID, err)
+		if result.Structured.Contribution == "" {
+			result.Structured = agent.ResultEnvelope{
+				Contribution: result.Body, Findings: []string{}, Recommendations: []string{}, Questions: []string{},
+				Citations: []agent.Citation{}, ProposedActions: []agent.ProposedAction{}, ToolRequests: []agent.ToolRequest{}, Confidence: "medium",
+			}
+		}
+		if err := result.Structured.Validate(); err != nil {
+			return agent.Result{}, citations, &agent.InvocationError{Category: agent.FailureInvalidOutput, Err: err}
+		}
+		if len(result.Structured.ToolRequests) == 0 {
+			return result, citations, nil
+		}
+		if s.broker == nil || invocation.CapabilityToken == "" {
+			return agent.Result{}, citations, &agent.InvocationError{Category: agent.FailureTool, Err: fmt.Errorf("provider requested a tool but no tool broker is available")}
+		}
+		for _, request := range result.Structured.ToolRequests {
+			toolCalls++
+			if toolCalls > maximumToolCalls {
+				return agent.Result{}, citations, &agent.InvocationError{Category: agent.FailureTool, Err: fmt.Errorf("invocation exceeded the %d tool-call limit", maximumToolCalls)}
+			}
+			if requestIDs[request.ID] {
+				return agent.Result{}, citations, &agent.InvocationError{Category: agent.FailureTool, Err: fmt.Errorf("duplicate tool request id %q", request.ID)}
+			}
+			requestIDs[request.ID] = true
+			_ = s.store.RecordInvocationEvent(ctx, invocation.ID, "tool.requested", request)
+			output, err := s.broker.InvokeNamed(ctx, invocation.CapabilityToken, s.tenantID, request.Name, request.Arguments)
+			if err != nil {
+				_ = s.store.RecordInvocationEvent(ctx, invocation.ID, "tool.failed", map[string]any{"request_id": request.ID, "name": request.Name, "error": err.Error()})
+				return agent.Result{}, citations, &agent.InvocationError{Category: agent.FailureTool, Err: fmt.Errorf("execute %s: %w", request.Name, err)}
+			}
+			_ = s.store.RecordInvocationEvent(ctx, invocation.ID, "tool.completed", map[string]any{"request_id": request.ID, "name": request.Name, "result": json.RawMessage(output)})
+			collectReturnedCitations(output, citations)
+			invocation.Conversation = append(invocation.Conversation, agent.ConversationMessage{
+				Role: domain.MessageSystem,
+				Body: fmt.Sprintf("Mainspring tool result for request %s (%s): %s", request.ID, request.Name, output),
+			})
 		}
 	}
+}
 
-	return s.store.SetRunStatus(ctx, runID, domain.RunCompleted, "")
+func collectReturnedCitations(output json.RawMessage, citations map[string]returnedCitation) {
+	var decoded struct {
+		Results []struct {
+			CitationID string `json:"citation_id"`
+			DocumentID string `json:"document_id"`
+			ChunkID    string `json:"chunk_id"`
+		} `json:"results"`
+	}
+	if json.Unmarshal(output, &decoded) != nil {
+		return
+	}
+	for _, item := range decoded.Results {
+		if item.CitationID != "" {
+			citations[item.CitationID] = returnedCitation{DocumentID: item.DocumentID, ChunkID: item.ChunkID}
+		}
+	}
+}
+
+func validateCitations(citations []agent.Citation, returned map[string]returnedCitation) error {
+	for _, citation := range citations {
+		source, exists := returned[citation.ID]
+		if !exists {
+			return fmt.Errorf("citation %q was not returned by an authorized tool call", citation.ID)
+		}
+		if citation.DocumentID != "" && citation.DocumentID != source.DocumentID {
+			return fmt.Errorf("citation %q has the wrong document id", citation.ID)
+		}
+		if citation.ChunkID != "" && citation.ChunkID != source.ChunkID {
+			return fmt.Errorf("citation %q has the wrong chunk id", citation.ID)
+		}
+	}
+	return nil
+}
+
+func (s *Service) CompleteRun(ctx context.Context, runID domain.RunID) error {
+	_, err := s.FinalizeRun(ctx, runID)
+	return err
+}
+
+func (s *Service) FinalizeRun(ctx context.Context, runID domain.RunID) (bool, error) {
+	plan, err := s.store.GetRunPlan(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	run, err := s.store.GetRun(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	if run.TurnCount < len(plan.Personas) {
+		return false, fmt.Errorf("run has completed %d of %d planned turns", run.TurnCount, len(plan.Personas))
+	}
+	if s.approvals != nil {
+		pending, err := s.approvals.PendingForRun(ctx, runID)
+		if err != nil {
+			return false, err
+		}
+		if pending > 0 {
+			return true, s.store.SetRunStatus(ctx, runID, domain.RunAwaitingApproval, "")
+		}
+	}
+	return false, s.store.SetRunStatus(ctx, runID, domain.RunCompleted, "")
+}
+
+func (s *Service) FailRun(ctx context.Context, runID domain.RunID, detail string) error {
+	return s.store.SetRunStatus(ctx, runID, domain.RunFailed, detail)
 }
 
 func (s *Service) fail(ctx context.Context, runID domain.RunID, runErr error) error {
@@ -124,4 +300,9 @@ func (s *Service) fail(ctx context.Context, runID domain.RunID, runErr error) er
 		s.logger.Error("record run failure", "run_id", runID.String(), "error", err)
 	}
 	return runErr
+}
+
+func StructuredResultJSON(result agent.ResultEnvelope) json.RawMessage {
+	encoded, _ := json.Marshal(result)
+	return encoded
 }

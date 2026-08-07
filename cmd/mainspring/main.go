@@ -86,5 +86,5 @@ func newLogger(cfg config.Config) *slog.Logger {
 }
 
 func printUsage() {
-	fmt.Fprintln(os.Stderr, "usage: mainspring <control|gateway|tenant|rag|worker|migrate|provision|healthcheck|version>")
+	fmt.Fprintln(os.Stderr, "usage: mainspring <control|gateway|tenant|rag|worker|runner-controller|runner|migrate|provision|healthcheck|version>")
 }

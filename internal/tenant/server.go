@@ -29,6 +29,7 @@ import (
 	"github.com/tinfoyle/mainspring-engine/internal/httpx"
 	"github.com/tinfoyle/mainspring-engine/internal/rag"
 	"github.com/tinfoyle/mainspring-engine/internal/scheduling"
+	toolbroker "github.com/tinfoyle/mainspring-engine/internal/tools"
 	"github.com/tinfoyle/mainspring-engine/web/assets"
 	"github.com/tinfoyle/mainspring-engine/web/components"
 )
@@ -49,6 +50,7 @@ type authenticatedSession struct {
 
 type RunDispatcher interface {
 	Dispatch(context.Context, domain.RunID) error
+	ApprovalDecision(context.Context, domain.RunID, string) error
 }
 
 type DocumentService interface {
@@ -78,9 +80,11 @@ type Server struct {
 	schedules  *scheduling.Service
 	documents  DocumentService
 	email      *mailbox.Service
+	approvals  *toolbroker.ApprovalService
+	usage      *boardroom.UsageService
 }
 
-func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardrooms *boardroom.Store, dispatcher RunDispatcher, schedules *scheduling.Service, documents DocumentService, emailService *mailbox.Service) (*Server, error) {
+func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardrooms *boardroom.Store, dispatcher RunDispatcher, schedules *scheduling.Service, documents DocumentService, emailService *mailbox.Service, approvals *toolbroker.ApprovalService, usage *boardroom.UsageService) (*Server, error) {
 	if len(config.SessionSecret) < 32 {
 		return nil, errors.New("MAINSPRING_SESSION_SECRET must contain at least 32 bytes")
 	}
@@ -93,6 +97,12 @@ func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardroom
 	if emailService == nil {
 		return nil, errors.New("tenant email service is required")
 	}
+	if approvals == nil {
+		return nil, errors.New("tenant approval service is required")
+	}
+	if usage == nil {
+		return nil, errors.New("tenant usage service is required")
+	}
 	return &Server{
 		logger:     logger,
 		config:     config,
@@ -102,6 +112,8 @@ func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardroom
 		schedules:  schedules,
 		documents:  documents,
 		email:      emailService,
+		approvals:  approvals,
+		usage:      usage,
 	}, nil
 }
 
@@ -158,6 +170,10 @@ func (s *Server) Handler() http.Handler {
 				router.Post("/email/settings", s.requireCSRF(s.saveEmailSettings))
 				router.Get("/email/messages/{uid}", s.emailMessagePage)
 				router.Post("/email/send", s.requireCSRF(s.sendEmail))
+				router.Get("/approvals", s.approvalsPage)
+				router.Post("/approvals/{approvalID}/approve", s.requireCSRF(s.approveAction))
+				router.Post("/approvals/{approvalID}/reject", s.requireCSRF(s.rejectAction))
+				router.Get("/operations", s.operationsPage)
 			})
 		})
 	})
@@ -288,6 +304,129 @@ func (s *Server) emailMessagePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, http.StatusOK, components.EmailMessagePage(s.tenantName(r.Context()), s.userView(session.User), emailMessageView(message), s.csrfToken(session)))
+}
+
+func (s *Server) approvalsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderApprovalsPage(w, r, http.StatusOK, "")
+}
+
+func (s *Server) renderApprovalsPage(w http.ResponseWriter, r *http.Request, status int, pageError string) {
+	session, _ := sessionFromContext(r.Context())
+	includeHistory := r.URL.Query().Get("history") == "1"
+	items, err := s.approvals.List(r.Context(), includeHistory)
+	if err != nil {
+		s.logger.Error("list approvals", "error", err)
+		s.renderError(w, http.StatusServiceUnavailable, "Approvals are temporarily unavailable.")
+		return
+	}
+	notice := ""
+	switch r.URL.Query().Get("status") {
+	case "approved":
+		notice = "The action was approved and executed through its idempotent integration boundary."
+	case "rejected":
+		notice = "The proposed action was rejected and will not execute."
+	}
+	s.render(w, status, components.ApprovalsPage(s.tenantName(r.Context()), s.userView(session.User), approvalViews(items), s.csrfToken(session), notice, pageError, includeHistory))
+}
+
+func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	if session.User.Role != "owner" && session.User.Role != "admin" {
+		s.renderApprovalsPage(w, r, http.StatusForbidden, "Only an owner or administrator can approve external actions.")
+		return
+	}
+	action, err := s.approvals.Decide(r.Context(), chi.URLParam(r, "approvalID"), session.User.ID, true)
+	if err != nil {
+		s.renderApprovalsPage(w, r, http.StatusConflict, "The action could not be approved: "+err.Error())
+		return
+	}
+	switch action.ActionType {
+	case "email.send":
+		var message mailbox.OutgoingMessage
+		if err := json.Unmarshal(action.RequestPayload, &message); err != nil {
+			s.renderApprovalsPage(w, r, http.StatusUnprocessableEntity, "The approved email payload was invalid and was not executed.")
+			return
+		}
+		if _, err := s.email.Send(r.Context(), action.IdempotencyKey, message, "user", session.User.ID, action.RunID); err != nil {
+			s.logger.Error("execute approved email", "action_id", action.ID.String(), "error", err)
+			s.renderApprovalsPage(w, r, http.StatusBadGateway, "The action was approved, but execution needs attention: "+err.Error())
+			return
+		}
+	default:
+		s.renderApprovalsPage(w, r, http.StatusUnprocessableEntity, "The approved action type does not have an executor.")
+		return
+	}
+	s.resumeRunAfterDecision(r.Context(), action.RunID, chi.URLParam(r, "approvalID"))
+	http.Redirect(w, r, "/approvals?history=1&status=approved", http.StatusSeeOther)
+}
+
+func (s *Server) rejectAction(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	if session.User.Role != "owner" && session.User.Role != "admin" {
+		s.renderApprovalsPage(w, r, http.StatusForbidden, "Only an owner or administrator can reject external actions.")
+		return
+	}
+	action, err := s.approvals.Decide(r.Context(), chi.URLParam(r, "approvalID"), session.User.ID, false)
+	if err != nil {
+		s.renderApprovalsPage(w, r, http.StatusConflict, "The action could not be rejected: "+err.Error())
+		return
+	}
+	s.resumeRunAfterDecision(r.Context(), action.RunID, chi.URLParam(r, "approvalID"))
+	http.Redirect(w, r, "/approvals?history=1&status=rejected", http.StatusSeeOther)
+}
+
+func (s *Server) resumeRunAfterDecision(ctx context.Context, runID *domain.RunID, approvalID string) {
+	if runID == nil {
+		return
+	}
+	if err := s.dispatcher.ApprovalDecision(ctx, *runID, approvalID); err != nil {
+		s.logger.Error("resume run after approval decision", "run_id", runID.String(), "approval_id", approvalID, "error", err)
+	}
+}
+
+func approvalViews(items []toolbroker.Approval) []components.ApprovalView {
+	views := make([]components.ApprovalView, 0, len(items))
+	for _, item := range items {
+		payload := string(item.RequestPayload)
+		var pretty bytes.Buffer
+		if json.Indent(&pretty, item.RequestPayload, "", "  ") == nil {
+			payload = pretty.String()
+		}
+		views = append(views, components.ApprovalView{
+			ID: item.ID, RunID: item.RunID.String(), PersonaName: item.PersonaName, PersonaRole: item.PersonaRole,
+			ActionType: item.ActionType, Reason: item.Reason, Evidence: item.Evidence, RequestPayload: payload,
+			ActionStatus: item.ActionStatus, Status: item.Status, RequestedAt: item.RequestedAt, DecidedAt: item.DecidedAt,
+		})
+	}
+	return views
+}
+
+func (s *Server) operationsPage(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	if session.User.Role != "owner" && session.User.Role != "admin" {
+		s.renderError(w, http.StatusForbidden, "Only an owner or administrator can view agent operations.")
+		return
+	}
+	snapshot, err := s.usage.Snapshot(r.Context())
+	if err != nil {
+		s.logger.Error("load operations snapshot", "error", err)
+		s.renderError(w, http.StatusServiceUnavailable, "Agent operations are temporarily unavailable.")
+		return
+	}
+	view := components.OperationsView{
+		QueuedRuns: snapshot.QueuedRuns, RunningRuns: snapshot.RunningRuns, AwaitingApproval: snapshot.AwaitingApproval,
+		FailedRuns: snapshot.FailedRuns, ActiveInvocations: snapshot.ActiveInvocations,
+		CompletedInvocations: snapshot.CompletedInvocations, FailedInvocations: snapshot.FailedInvocations,
+		MonthlyTokens: snapshot.MonthlyTokens, MonthlyCost: fmt.Sprintf("$%.2f", float64(snapshot.MonthlyCostMicros)/1_000_000),
+		AverageLatency: snapshot.AverageLatency.Round(time.Millisecond).String(), ToolDenials: snapshot.ToolDenials,
+	}
+	for _, circuit := range snapshot.ProviderCircuits {
+		view.ProviderCircuits = append(view.ProviderCircuits, components.ProviderCircuitView{
+			Provider: circuit.Provider, ConsecutiveFailures: circuit.ConsecutiveFailures,
+			OpenUntil: circuit.OpenUntil, LastErrorCategory: circuit.LastErrorCategory,
+		})
+	}
+	s.render(w, http.StatusOK, components.OperationsPage(s.tenantName(r.Context()), s.userView(session.User), view, s.csrfToken(session)))
 }
 
 func emailIntegrationView(value mailbox.Integration) components.EmailIntegrationView {

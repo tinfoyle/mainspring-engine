@@ -1,4 +1,4 @@
-.PHONY: generate fmt lint test build run-control run-gateway run-tenant docker-up docker-down smoke smoke-work smoke-startup smoke-saas smoke-software
+.PHONY: generate fmt lint test build run-control run-gateway run-tenant docker-up docker-down smoke smoke-agent smoke-capacity smoke-codex smoke-work smoke-startup smoke-saas smoke-software
 
 GO ?= go
 
@@ -34,12 +34,24 @@ docker-down:
 
 smoke:
 	bash scripts/onboarding-smoke-test.sh
+	bash scripts/agent-platform-smoke-test.sh
 	bash scripts/startup-onboarding-smoke-test.sh
 	bash scripts/documents-smoke-test.sh
 	bash scripts/email-smoke-test.sh
 	bash scripts/workqueue-smoke-test.sh
 	bash scripts/smoke-test.sh
 	bash scripts/rag-smoke-test.sh
+
+smoke-agent:
+	bash scripts/agent-platform-smoke-test.sh
+
+smoke-capacity:
+	bash scripts/capacity-smoke-test.sh
+
+# Requires a worker started with MAINSPRING_RUNNER_PROVIDER=codex and a
+# single-turn test boardroom. It incurs a real provider invocation.
+smoke-codex:
+	bash scripts/codex-runner-smoke-test.sh
 
 smoke-work:
 	bash scripts/workqueue-smoke-test.sh

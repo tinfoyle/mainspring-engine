@@ -14,15 +14,20 @@ import (
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/tinfoyle/mainspring-engine/internal/agent"
 	"github.com/tinfoyle/mainspring-engine/internal/boardroom"
 	"github.com/tinfoyle/mainspring-engine/internal/domain"
 )
 
 const (
-	BoardroomWorkflowName       = "mainspring.boardroom.run.v1"
-	CreateScheduledRunActivity  = "mainspring.boardroom.create-scheduled-run.v1"
-	ExecuteBoardroomActivity    = "mainspring.boardroom.execute.v1"
-	defaultActivityStartToClose = 30 * time.Minute
+	BoardroomWorkflowName        = "mainspring.boardroom.run.v1"
+	CreateScheduledRunActivity   = "mainspring.boardroom.create-scheduled-run.v1"
+	PrepareBoardroomRunActivity  = "mainspring.boardroom.prepare.v1"
+	ExecutePersonaTurnActivity   = "mainspring.boardroom.execute-turn.v1"
+	CompleteBoardroomRunActivity = "mainspring.boardroom.complete.v1"
+	FailBoardroomRunActivity     = "mainspring.boardroom.fail.v1"
+	ApprovalDecisionSignal       = "mainspring.approval.decided.v1"
+	defaultActivityStartToClose  = 30 * time.Minute
 )
 
 type BoardroomWorkflowInput struct {
@@ -35,6 +40,18 @@ type BoardroomWorkflowInput struct {
 	ScheduleTimeZone  string
 }
 
+type PersonaTurnInput struct {
+	TenantID   string
+	RunID      string
+	TurnNumber int
+}
+
+type FailRunInput struct {
+	TenantID string
+	RunID    string
+	Error    string
+}
+
 // BoardroomWorkflow deliberately contains only deterministic coordination.
 // Database access and model invocation are performed by the Activity.
 func BoardroomWorkflow(ctx workflow.Context, input BoardroomWorkflowInput) error {
@@ -44,7 +61,7 @@ func BoardroomWorkflow(ctx workflow.Context, input BoardroomWorkflowInput) error
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2,
 			MaximumInterval:    30 * time.Second,
-			MaximumAttempts:    3,
+			MaximumAttempts:    100,
 		},
 	}
 	ctx = workflow.WithActivityOptions(ctx, options)
@@ -53,7 +70,39 @@ func BoardroomWorkflow(ctx workflow.Context, input BoardroomWorkflowInput) error
 			return err
 		}
 	}
-	return workflow.ExecuteActivity(ctx, ExecuteBoardroomActivity, input).Get(ctx, nil)
+	var turnCount int
+	if err := workflow.ExecuteActivity(ctx, PrepareBoardroomRunActivity, input).Get(ctx, &turnCount); err != nil {
+		markRunFailed(ctx, input, err)
+		return err
+	}
+	for turnNumber := 1; turnNumber <= turnCount; turnNumber++ {
+		turnInput := PersonaTurnInput{TenantID: input.TenantID, RunID: input.RunID, TurnNumber: turnNumber}
+		if err := workflow.ExecuteActivity(ctx, ExecutePersonaTurnActivity, turnInput).Get(ctx, nil); err != nil {
+			markRunFailed(ctx, input, err)
+			return err
+		}
+	}
+	var awaitingApproval bool
+	if err := workflow.ExecuteActivity(ctx, CompleteBoardroomRunActivity, input).Get(ctx, &awaitingApproval); err != nil {
+		markRunFailed(ctx, input, err)
+		return err
+	}
+	for awaitingApproval {
+		var decision map[string]string
+		workflow.GetSignalChannel(ctx, ApprovalDecisionSignal).Receive(ctx, &decision)
+		if err := workflow.ExecuteActivity(ctx, CompleteBoardroomRunActivity, input).Get(ctx, &awaitingApproval); err != nil {
+			markRunFailed(ctx, input, err)
+			return err
+		}
+	}
+	return nil
+}
+
+func markRunFailed(ctx workflow.Context, input BoardroomWorkflowInput, runErr error) {
+	disconnected, _ := workflow.NewDisconnectedContext(ctx)
+	_ = workflow.ExecuteActivity(disconnected, FailBoardroomRunActivity, FailRunInput{
+		TenantID: input.TenantID, RunID: input.RunID, Error: runErr.Error(),
+	}).Get(disconnected, nil)
 }
 
 type Activities struct {
@@ -65,7 +114,22 @@ func NewActivities(tenantID domain.TenantID, service *boardroom.Service) *Activi
 	return &Activities{tenantID: tenantID, service: service}
 }
 
-func (a *Activities) ExecuteBoardroomRun(ctx context.Context, input BoardroomWorkflowInput) error {
+func (a *Activities) PrepareBoardroomRun(ctx context.Context, input BoardroomWorkflowInput) (int, error) {
+	if input.TenantID != a.tenantID.String() {
+		return 0, temporal.NewNonRetryableApplicationError("workflow tenant does not match worker tenant", "tenant_mismatch", nil)
+	}
+	runID, err := domain.ParseRunID(input.RunID)
+	if err != nil {
+		return 0, temporal.NewNonRetryableApplicationError("workflow run ID is invalid", "invalid_run_id", err)
+	}
+	plan, err := a.service.PrepareRun(ctx, runID)
+	if err != nil {
+		return 0, err
+	}
+	return len(plan.Personas), nil
+}
+
+func (a *Activities) ExecutePersonaTurn(ctx context.Context, input PersonaTurnInput) error {
 	if input.TenantID != a.tenantID.String() {
 		return temporal.NewNonRetryableApplicationError("workflow tenant does not match worker tenant", "tenant_mismatch", nil)
 	}
@@ -73,8 +137,37 @@ func (a *Activities) ExecuteBoardroomRun(ctx context.Context, input BoardroomWor
 	if err != nil {
 		return temporal.NewNonRetryableApplicationError("workflow run ID is invalid", "invalid_run_id", err)
 	}
-	activity.RecordHeartbeat(ctx, "starting", runID.String())
-	return a.service.ExecuteRun(ctx, runID)
+	activity.RecordHeartbeat(ctx, "invoking", runID.String(), input.TurnNumber)
+	if err := a.service.ExecuteTurn(ctx, runID, input.TurnNumber); err != nil {
+		category, retryable := agent.Failure(err)
+		if !retryable {
+			return temporal.NewNonRetryableApplicationError(err.Error(), string(category), err)
+		}
+		return err
+	}
+	return nil
+}
+
+func (a *Activities) CompleteBoardroomRun(ctx context.Context, input BoardroomWorkflowInput) (bool, error) {
+	if input.TenantID != a.tenantID.String() {
+		return false, temporal.NewNonRetryableApplicationError("workflow tenant does not match worker tenant", "tenant_mismatch", nil)
+	}
+	runID, err := domain.ParseRunID(input.RunID)
+	if err != nil {
+		return false, temporal.NewNonRetryableApplicationError("workflow run ID is invalid", "invalid_run_id", err)
+	}
+	return a.service.FinalizeRun(ctx, runID)
+}
+
+func (a *Activities) FailBoardroomRun(ctx context.Context, input FailRunInput) error {
+	if input.TenantID != a.tenantID.String() {
+		return temporal.NewNonRetryableApplicationError("workflow tenant does not match worker tenant", "tenant_mismatch", nil)
+	}
+	runID, err := domain.ParseRunID(input.RunID)
+	if err != nil {
+		return temporal.NewNonRetryableApplicationError("workflow run ID is invalid", "invalid_run_id", err)
+	}
+	return a.service.FailRun(ctx, runID, input.Error)
 }
 
 func (a *Activities) CreateScheduledRun(ctx context.Context, input BoardroomWorkflowInput) (string, error) {
@@ -127,6 +220,11 @@ func (d *TemporalDispatcher) Dispatch(ctx context.Context, runID domain.RunID) e
 	return err
 }
 
+func (d *TemporalDispatcher) ApprovalDecision(ctx context.Context, runID domain.RunID, approvalID string) error {
+	workflowID := fmt.Sprintf("tenant:%s:boardroom-run:%s", d.tenantID.String(), runID.String())
+	return d.client.SignalWorkflow(ctx, workflowID, "", ApprovalDecisionSignal, map[string]string{"approval_id": approvalID})
+}
+
 func DialTemporal(cfgAddress, namespace string) (client.Client, error) {
 	return client.Dial(client.Options{HostPort: cfgAddress, Namespace: namespace})
 }
@@ -135,7 +233,10 @@ func RunWorker(ctx context.Context, logger *slog.Logger, temporalClient client.C
 	w := worker.New(temporalClient, taskQueue, worker.Options{})
 	w.RegisterWorkflowWithOptions(BoardroomWorkflow, workflow.RegisterOptions{Name: BoardroomWorkflowName})
 	w.RegisterActivityWithOptions(activities.CreateScheduledRun, activity.RegisterOptions{Name: CreateScheduledRunActivity})
-	w.RegisterActivityWithOptions(activities.ExecuteBoardroomRun, activity.RegisterOptions{Name: ExecuteBoardroomActivity})
+	w.RegisterActivityWithOptions(activities.PrepareBoardroomRun, activity.RegisterOptions{Name: PrepareBoardroomRunActivity})
+	w.RegisterActivityWithOptions(activities.ExecutePersonaTurn, activity.RegisterOptions{Name: ExecutePersonaTurnActivity})
+	w.RegisterActivityWithOptions(activities.CompleteBoardroomRun, activity.RegisterOptions{Name: CompleteBoardroomRunActivity})
+	w.RegisterActivityWithOptions(activities.FailBoardroomRun, activity.RegisterOptions{Name: FailBoardroomRunActivity})
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start Temporal worker: %w", err)
 	}
@@ -175,4 +276,8 @@ func (d *LocalDispatcher) Dispatch(_ context.Context, runID domain.RunID) error 
 		}
 	}()
 	return nil
+}
+
+func (d *LocalDispatcher) ApprovalDecision(ctx context.Context, runID domain.RunID, _ string) error {
+	return d.service.CompleteRun(ctx, runID)
 }

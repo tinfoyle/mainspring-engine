@@ -1,0 +1,35 @@
+package components
+
+import "fmt"
+
+templ OperationsPage(tenantName string, user UserView, snapshot OperationsView, csrfToken string) {
+	@Layout("Operations", tenantName, &user, csrfToken) {
+		<section class="hero operations-hero"><div><p class="eyebrow">Runtime health</p><h1>Agent operations</h1><p>Capacity, provider health, usage, and safety signals for this tenant.</p></div></section>
+		<section class="operations-grid">
+			<div class="panel operation-stat"><span>Queued runs</span><strong>{ fmt.Sprint(snapshot.QueuedRuns) }</strong></div>
+			<div class="panel operation-stat"><span>Running runs</span><strong>{ fmt.Sprint(snapshot.RunningRuns) }</strong></div>
+			<div class="panel operation-stat"><span>Awaiting approval</span><strong>{ fmt.Sprint(snapshot.AwaitingApproval) }</strong></div>
+			<div class="panel operation-stat"><span>Failed runs</span><strong>{ fmt.Sprint(snapshot.FailedRuns) }</strong></div>
+			<div class="panel operation-stat"><span>Active invocations</span><strong>{ fmt.Sprint(snapshot.ActiveInvocations) }</strong></div>
+			<div class="panel operation-stat"><span>Completed invocations</span><strong>{ fmt.Sprint(snapshot.CompletedInvocations) }</strong></div>
+			<div class="panel operation-stat"><span>Monthly tokens</span><strong>{ fmt.Sprint(snapshot.MonthlyTokens) }</strong></div>
+			<div class="panel operation-stat"><span>Average latency</span><strong>{ snapshot.AverageLatency }</strong></div>
+		</section>
+		<section class="panel operations-detail"><h2>Provider protection</h2>
+			if len(snapshot.ProviderCircuits) == 0 {
+				<p>No provider calls have been recorded yet.</p>
+			}
+			for _, circuit := range snapshot.ProviderCircuits {
+				<div class="provider-row"><strong>{ circuit.Provider }</strong><span>{ fmt.Sprintf("%d consecutive failures", circuit.ConsecutiveFailures) }</span>
+					if circuit.OpenUntil != nil {
+						<span>Circuit open until { circuit.OpenUntil.Local().Format("3:04 PM") }</span>
+					}
+					if circuit.LastErrorCategory != "" {
+						<span>Last error: { circuit.LastErrorCategory }</span>
+					}
+				</div>
+			}
+		</section>
+		<section class="panel operations-detail"><h2>Safety signals</h2><p>{ fmt.Sprintf("%d denied tool calls in the last 24 hours.", snapshot.ToolDenials) }</p><p>{ fmt.Sprintf("%d failed invocations recorded overall.", snapshot.FailedInvocations) }</p></section>
+	}
+}

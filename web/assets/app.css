@@ -448,3 +448,23 @@ input:focus, textarea:focus, select:focus { border-color: var(--green); box-shad
 	.onboarding-stage-form { grid-template-columns: 1fr; }
 	.onboarding-stage-choice { min-height: 190px; }
 }
+.approvals-hero { align-items: end; }
+.approval-tabs { display: flex; gap: .5rem; }
+.approval-tabs a { padding: .55rem .85rem; border-radius: 999px; color: var(--muted); text-decoration: none; }
+.approval-tabs a.is-current { background: var(--ink); color: white; }
+.approval-list { display: grid; gap: 1rem; }
+.approval-card header, .approval-actions { display: flex; justify-content: space-between; align-items: start; gap: 1rem; }
+.approval-card details { margin: 1rem 0; }
+.approval-card pre { overflow: auto; padding: 1rem; border-radius: .75rem; background: #f4f2ec; white-space: pre-wrap; }
+.approval-status { border-radius: 999px; padding: .35rem .65rem; background: #ece8de; font-size: .82rem; font-weight: 700; }
+.approval-status-pending { background: #fff0bf; color: #795600; }
+.approval-status-approved { background: #dff3e6; color: #1e6539; }
+.approval-status-rejected { background: #f7dfdf; color: #8a2929; }
+.approval-actions { justify-content: flex-end; margin-top: 1rem; }
+.operations-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 1rem; margin-bottom: 1rem; }
+.operation-stat { display: grid; gap: .4rem; }
+.operation-stat span { color: var(--muted); }
+.operation-stat strong { font-size: 1.8rem; }
+.operations-detail { margin-top: 1rem; }
+.provider-row { display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 1rem; padding: .8rem 0; border-top: 1px solid var(--line); }
+@media (max-width: 800px) { .operations-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } .provider-row { grid-template-columns: 1fr; } }

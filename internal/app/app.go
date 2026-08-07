@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tinfoyle/mainspring-engine/internal/agent"
 	"github.com/tinfoyle/mainspring-engine/internal/boardroom"
 	"github.com/tinfoyle/mainspring-engine/internal/config"
@@ -19,6 +20,7 @@ import (
 	"github.com/tinfoyle/mainspring-engine/internal/migrate"
 	"github.com/tinfoyle/mainspring-engine/internal/orchestration"
 	"github.com/tinfoyle/mainspring-engine/internal/rag"
+	"github.com/tinfoyle/mainspring-engine/internal/runner"
 	"github.com/tinfoyle/mainspring-engine/internal/scheduling"
 	"github.com/tinfoyle/mainspring-engine/internal/secretbox"
 	"github.com/tinfoyle/mainspring-engine/internal/tenant"
@@ -41,6 +43,13 @@ func Run(ctx context.Context, logger *slog.Logger, cfg config.Config, mode strin
 		return runProvision(ctx, logger, cfg)
 	case "worker":
 		return runWorker(ctx, logger, cfg)
+	case "runner-controller":
+		return runRunnerController(ctx, logger, cfg)
+	case "runner":
+		if len(args) != 2 {
+			return fmt.Errorf("usage: mainspring runner <input.json> <output.json>")
+		}
+		return runner.RunJob(ctx, args[0], args[1], cfg.CodexBinary)
 	default:
 		return fmt.Errorf("unknown mode %q", mode)
 	}
@@ -126,7 +135,10 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 	if cfg.EmailProvider == "mock" {
 		emailConnector = mailbox.NewMockConnector()
 	}
-	emailService := mailbox.NewService(mailbox.NewStore(pool, credentialBox), emailConnector, toolbroker.NewActionLedger(pool))
+	actionLedger := toolbroker.NewActionLedger(pool)
+	emailService := mailbox.NewService(mailbox.NewStore(pool, credentialBox), emailConnector, actionLedger)
+	approvalService := toolbroker.NewApprovalService(pool, actionLedger)
+	usageService := boardroom.NewUsageService(pool, logger.With("service", "usage"))
 	var dispatcher tenant.RunDispatcher
 	var scheduleService *scheduling.Service
 	if cfg.OrchestrationMode == "temporal" {
@@ -138,7 +150,7 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 		dispatcher = orchestration.NewTemporalDispatcher(temporalClient, tenantID, tenantTaskQueue(cfg, tenantID))
 		scheduleService = scheduling.NewService(scheduling.NewStore(pool), temporalClient, tenantID, tenantTaskQueue(cfg, tenantID))
 	} else {
-		provider, err := agent.NewProvider(cfg.AgentProvider, cfg.CodexBinary)
+		provider, err := newAgentProvider(cfg)
 		if err != nil {
 			return err
 		}
@@ -146,7 +158,14 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 		if err != nil {
 			return err
 		}
-		runService := boardroom.NewService(logger.With("service", "boardroom"), boardroomStore, provider, tenantID, cfg.AgentTimeout, issuer)
+		broker, err := newToolBroker(pool, issuer, documentClient)
+		if err != nil {
+			return err
+		}
+		runService := boardroom.NewService(logger.With("service", "boardroom"), boardroomStore, provider, tenantID, cfg.AgentTimeout, issuer, broker)
+		runService.SetApprovalService(approvalService)
+		runService.SetUsageService(usageService)
+		runService.SetBudgets(int64(cfg.AgentContextTokens), int64(cfg.AgentOutputTokens), int64(cfg.AgentTurnCostMicros))
 		dispatcher = orchestration.NewLocalDispatcher(ctx, logger.With("service", "dispatcher"), runService, cfg.RunConcurrency)
 	}
 	server, err := tenant.NewServer(logger.With("service", "tenant"), tenant.ServerConfig{
@@ -154,7 +173,7 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 		BusinessTemplate: businessTemplate,
 		BaseDomain:       cfg.GatewayBaseDomain, SessionSecret: []byte(cfg.SessionSecret), SetupToken: cfg.SetupToken,
 		CookieSecure: cfg.CookieSecure, Development: cfg.Environment == "development",
-	}, tenantStore, boardroomStore, dispatcher, scheduleService, documentClient, emailService)
+	}, tenantStore, boardroomStore, dispatcher, scheduleService, documentClient, emailService, approvalService, usageService)
 	if err != nil {
 		return err
 	}
@@ -176,7 +195,7 @@ func runWorker(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 			return err
 		}
 	}
-	provider, err := agent.NewProvider(cfg.AgentProvider, cfg.CodexBinary)
+	provider, err := newAgentProvider(cfg)
 	if err != nil {
 		return err
 	}
@@ -184,13 +203,57 @@ func runWorker(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 	if err != nil {
 		return err
 	}
-	service := boardroom.NewService(logger.With("service", "boardroom"), boardroom.NewStore(pool), provider, tenantID, cfg.AgentTimeout, issuer)
+	documentClient, err := rag.NewClient(cfg.RAGInternalURL, cfg.RAGToken, tenantID)
+	if err != nil {
+		return err
+	}
+	broker, err := newToolBroker(pool, issuer, documentClient)
+	if err != nil {
+		return err
+	}
+	service := boardroom.NewService(logger.With("service", "boardroom"), boardroom.NewStore(pool), provider, tenantID, cfg.AgentTimeout, issuer, broker)
+	service.SetApprovalService(toolbroker.NewApprovalService(pool, toolbroker.NewActionLedger(pool)))
+	service.SetUsageService(boardroom.NewUsageService(pool, logger.With("service", "usage")))
+	service.SetBudgets(int64(cfg.AgentContextTokens), int64(cfg.AgentOutputTokens), int64(cfg.AgentTurnCostMicros))
 	temporalClient, err := orchestration.DialTemporal(cfg.TemporalAddress, cfg.TemporalNamespace)
 	if err != nil {
 		return fmt.Errorf("connect to Temporal: %w", err)
 	}
 	defer temporalClient.Close()
 	return orchestration.RunWorker(ctx, logger.With("service", "worker"), temporalClient, tenantTaskQueue(cfg, tenantID), orchestration.NewActivities(tenantID, service))
+}
+
+func newAgentProvider(cfg config.Config) (agent.Provider, error) {
+	if cfg.AgentProvider == "remote" || cfg.AgentProvider == "runner" {
+		return agent.NewRemoteProvider(cfg.RunnerURL, cfg.RunnerProvider, cfg.AgentTimeout)
+	}
+	return agent.NewProvider(cfg.AgentProvider, cfg.CodexBinary)
+}
+
+func runRunnerController(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
+	server, err := runner.NewServer(logger.With("service", "runner-controller"), runner.NewDockerClient(cfg.RunnerSocket), runner.ContainerLimits{
+		Image: cfg.RunnerImage, Network: cfg.RunnerNetwork, MemoryBytes: int64(cfg.RunnerMemoryMB) << 20,
+		NanoCPUs: int64(cfg.RunnerCPUMillis) * 1_000_000, PIDs: int64(cfg.RunnerPIDs), Timeout: cfg.AgentTimeout,
+		CodexAuthPath: cfg.RunnerCodexAuthPath, CACertPath: cfg.RunnerCACertPath,
+	}, cfg.RunnerConcurrency)
+	if err != nil {
+		return err
+	}
+	cleanup, cancel := context.WithTimeout(ctx, 15*time.Second)
+	if err := server.CleanupOrphans(cleanup, true); err != nil {
+		logger.Warn("initial runner reconciliation", "error", err)
+	}
+	cancel()
+	go server.RunCleanup(ctx, time.Minute)
+	return httpserver.Run(ctx, logger, cfg.RunnerAddr, server.Handler(), cfg.ShutdownTimeout)
+}
+
+func newToolBroker(pool *pgxpool.Pool, issuer *toolbroker.TokenIssuer, documentClient *rag.Client) (*toolbroker.Broker, error) {
+	broker := toolbroker.NewBroker(issuer, toolbroker.NewPostgresAuditor(pool))
+	if err := toolbroker.RegisterDocumentSearch(broker, documentClient); err != nil {
+		return nil, fmt.Errorf("register document search tool: %w", err)
+	}
+	return broker, nil
 }
 
 func tenantTaskQueue(cfg config.Config, tenantID domain.TenantID) string {

@@ -69,6 +69,22 @@ func (c *Client) IngestText(ctx context.Context, name, mediaType, content, creat
 	return document, nil
 }
 
+func (c *Client) Search(ctx context.Context, query string, limit int, documentIDs []string) ([]SearchResult, error) {
+	values := url.Values{}
+	values.Set("q", query)
+	values.Set("limit", fmt.Sprintf("%d", limit))
+	for _, documentID := range documentIDs {
+		values.Add("document_id", documentID)
+	}
+	var response struct {
+		Results []SearchResult `json:"results"`
+	}
+	if err := c.request(ctx, http.MethodGet, "/search?"+values.Encode(), nil, &response); err != nil {
+		return nil, err
+	}
+	return response.Results, nil
+}
+
 func (c *Client) request(ctx context.Context, method, path string, input, output any) error {
 	var body io.Reader
 	if input != nil {

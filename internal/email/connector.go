@@ -47,7 +47,7 @@ type Message struct {
 
 type OutgoingMessage struct {
 	To      []string `json:"to"`
-	CC      []string `json:"cc,omitempty"`
+	CC      []string `json:"cc"`
 	Subject string   `json:"subject"`
 	Body    string   `json:"body"`
 }

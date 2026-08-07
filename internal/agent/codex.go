@@ -50,14 +50,22 @@ func (p *CodexProvider) Invoke(ctx context.Context, invocation Invocation) (Resu
 	defer os.RemoveAll(workspace)
 
 	prompt := buildPrompt(invocation)
-	command := exec.CommandContext(ctx, p.binary,
+	arguments := []string{
 		"exec",
 		"--json",
 		"--ephemeral",
 		"--skip-git-repo-check",
 		"--sandbox", "read-only",
-		"-",
-	)
+	}
+	if len(invocation.OutputSchema) > 0 {
+		schemaPath := workspace + string(os.PathSeparator) + "output-schema.json"
+		if err := os.WriteFile(schemaPath, invocation.OutputSchema, 0o600); err != nil {
+			return Result{}, fmt.Errorf("write Codex output schema: %w", err)
+		}
+		arguments = append(arguments, "--output-schema", schemaPath)
+	}
+	arguments = append(arguments, "-")
+	command := exec.CommandContext(ctx, p.binary, arguments...)
 	command.Dir = workspace
 	command.Stdin = strings.NewReader(prompt)
 	var stderr bytes.Buffer
@@ -81,6 +89,7 @@ func (p *CodexProvider) Invoke(ctx context.Context, invocation Invocation) (Resu
 	}
 
 	result := Result{Provider: p.Name(), Metadata: make(map[string]any)}
+	var eventErrors []string
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
@@ -90,6 +99,16 @@ func (p *CodexProvider) Invoke(ctx context.Context, invocation Invocation) (Resu
 		}
 		typeName, _ := event["type"].(string)
 		switch typeName {
+		case "error", "turn.failed":
+			message, _ := event["message"].(string)
+			if message == "" {
+				if detail, ok := event["error"].(map[string]any); ok {
+					message, _ = detail["message"].(string)
+				}
+			}
+			if message != "" {
+				eventErrors = append(eventErrors, message)
+			}
 		case "thread.started":
 			result.ProviderThreadID, _ = event["thread_id"].(string)
 		case "item.completed":
@@ -113,12 +132,26 @@ func (p *CodexProvider) Invoke(ctx context.Context, invocation Invocation) (Resu
 	}
 	if err := command.Wait(); err != nil {
 		if ctx.Err() != nil {
-			return Result{}, ctx.Err()
+			category, retryable := Failure(ctx.Err())
+			return Result{}, &InvocationError{Category: category, Retryable: retryable, Err: ctx.Err()}
 		}
-		return Result{}, fmt.Errorf("Codex failed: %w: %s", err, truncateText(stderr.String(), 2048))
+		detail := stderr.String()
+		if strings.TrimSpace(detail) == "" {
+			detail = strings.Join(eventErrors, "; ")
+		}
+		return Result{}, classifyCodexError(err, detail)
 	}
 	if strings.TrimSpace(result.Body) == "" {
-		return Result{}, errors.New("Codex completed without an agent message")
+		return Result{}, &InvocationError{Category: FailureInvalidOutput, Err: errors.New("Codex completed without an agent message")}
+	}
+	if len(invocation.OutputSchema) > 0 {
+		if err := json.Unmarshal([]byte(result.Body), &result.Structured); err != nil {
+			return Result{}, &InvocationError{Category: FailureInvalidOutput, Err: fmt.Errorf("decode structured Codex result: %w", err)}
+		}
+		if err := result.Structured.Validate(); err != nil {
+			return Result{}, &InvocationError{Category: FailureInvalidOutput, Err: fmt.Errorf("validate structured Codex result: %w", err)}
+		}
+		result.Body = result.Structured.Contribution
 	}
 	return result, nil
 }
@@ -138,11 +171,27 @@ func buildPrompt(invocation Invocation) string {
 	builder.WriteString("You are participating as a bounded persona in a Mainspring boardroom.\n")
 	builder.WriteString("The Mainspring application owns turn selection and orchestration. Do not attempt to invoke another agent.\n")
 	builder.WriteString("Respond only with your professional contribution to the boardroom discussion.\n\n")
+	if len(invocation.OutputSchema) > 0 {
+		builder.WriteString("Return a JSON object matching the supplied output schema. Put the complete human-readable boardroom response in contribution. Do not wrap the JSON in Markdown.\n\n")
+	}
 	builder.WriteString("Persona: ")
 	builder.WriteString(invocation.PersonaName)
 	builder.WriteString(" (" + invocation.PersonaRole + ")\n")
 	builder.WriteString("Instructions: ")
 	builder.WriteString(invocation.SystemInstructions)
+	if len(invocation.Tools) > 0 {
+		builder.WriteString("\n\nAvailable tools:\n")
+		for _, tool := range invocation.Tools {
+			builder.WriteString("- ")
+			builder.WriteString(tool.Name)
+			builder.WriteString(": ")
+			builder.WriteString(tool.Description)
+			builder.WriteString(" Input schema: ")
+			builder.Write(tool.InputSchema)
+			builder.WriteString("\n")
+		}
+		builder.WriteString("To use a tool, return it in tool_requests with a unique id and arguments. Mainspring will execute authorized requests and call you again with the results. Do not claim to have used a tool until its result appears in the conversation.\n")
+	}
 	builder.WriteString("\n\nConversation:\n")
 	for _, message := range invocation.Conversation {
 		label := string(message.Role)
@@ -155,6 +204,20 @@ func buildPrompt(invocation Invocation) string {
 		builder.WriteString("\n")
 	}
 	return builder.String()
+}
+
+func classifyCodexError(commandErr error, stderr string) error {
+	message := strings.ToLower(stderr)
+	category, retryable := FailureUnavailable, true
+	switch {
+	case strings.Contains(message, "unauthorized"), strings.Contains(message, "authentication"), strings.Contains(message, "api key"):
+		category, retryable = FailureAuthentication, false
+	case strings.Contains(message, "rate limit"), strings.Contains(message, "too many requests"):
+		category = FailureRateLimited
+	case strings.Contains(message, "context") && (strings.Contains(message, "large") || strings.Contains(message, "length")):
+		category, retryable = FailureContextTooLarge, false
+	}
+	return &InvocationError{Category: category, Retryable: retryable, Err: fmt.Errorf("Codex failed: %w: %s", commandErr, truncateText(stderr, 2048))}
 }
 
 func jsonInteger(value any) int64 {

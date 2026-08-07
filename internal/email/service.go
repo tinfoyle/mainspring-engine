@@ -70,11 +70,7 @@ func (s *Service) Send(ctx context.Context, key string, message OutgoingMessage,
 	if err != nil {
 		return SendResult{}, err
 	}
-	request := struct {
-		IntegrationID string          `json:"integration_id"`
-		Message       OutgoingMessage `json:"message"`
-	}{integration.ID, message}
-	action, err := s.ledger.Prepare(ctx, runID, key, "email.send", request)
+	action, err := s.ledger.Prepare(ctx, runID, key, "email.send", message)
 	if err != nil {
 		return SendResult{}, err
 	}

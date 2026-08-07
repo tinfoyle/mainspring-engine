@@ -110,6 +110,7 @@ post_step /onboarding/permissions \
   --data-urlencode "prepare_invoice_drafts=true" \
   --data-urlencode "draft_customer_email=true" \
   --data-urlencode "read_email_inbox=true" \
+  --data-urlencode "send_email=true" \
   --data-urlencode "propose_schedule_edits=true" \
   --data-urlencode "propose_payments=true"
 

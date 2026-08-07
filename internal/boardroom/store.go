@@ -20,6 +20,7 @@ var (
 	ErrRunNotFound          = errors.New("boardroom run not found")
 	ErrConversationNotFound = errors.New("conversation not found")
 	ErrConversationBusy     = errors.New("conversation already has an active boardroom run")
+	ErrRunQueueFull         = errors.New("tenant boardroom run queue is full")
 )
 
 type Summary struct {
@@ -148,7 +149,11 @@ func (s *Store) Get(ctx context.Context, id domain.BoardroomID) (Summary, error)
 }
 
 func (s *Store) Personas(ctx context.Context, boardroomID domain.BoardroomID) ([]Persona, error) {
-	rows, err := s.pool.Query(ctx, `
+	return queryPersonas(ctx, s.pool, boardroomID)
+}
+
+func queryPersonas(ctx context.Context, source queryer, boardroomID domain.BoardroomID) ([]Persona, error) {
+	rows, err := source.Query(ctx, `
 		SELECT p.id::text, p.name, p.role, p.system_instructions, p.position,
 		       COALESCE(jsonb_agg(jsonb_build_object('capability', g.capability, 'conditions', g.conditions))
 		           FILTER (WHERE g.capability IS NOT NULL), '[]'::jsonb)
@@ -322,6 +327,19 @@ func (s *Store) createRun(
 		return Run{}, fmt.Errorf("begin run: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('mainspring-tenant-run-admission'))`); err != nil {
+		return Run{}, fmt.Errorf("lock run admission: %w", err)
+	}
+	var maximumQueued, queued int
+	if err := tx.QueryRow(ctx, `SELECT max_queued_runs FROM tenant_execution_policy WHERE singleton`).Scan(&maximumQueued); err != nil {
+		return Run{}, fmt.Errorf("read run admission policy: %w", err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM boardroom_runs WHERE status IN ('pending','queued')`).Scan(&queued); err != nil {
+		return Run{}, fmt.Errorf("count queued runs: %w", err)
+	}
+	if queued >= maximumQueued {
+		return Run{}, ErrRunQueueFull
+	}
 
 	if createConversation {
 		if strings.TrimSpace(title) == "" {
@@ -481,10 +499,12 @@ type rowScanner interface {
 
 func queryMessages(ctx context.Context, source queryer, runID domain.RunID) ([]Message, error) {
 	rows, err := source.Query(ctx, `
-		SELECT m.id::text, m.run_id::text, m.persona_id::text, COALESCE(p.name, ''), COALESCE(p.role, ''),
+		SELECT m.id::text, m.run_id::text, m.persona_id::text, COALESCE(pv.name, p.name, ''), COALESCE(pv.role, p.role, ''),
 		       m.role, m.body, m.sequence, m.created_at
 		FROM boardroom_messages m
 		LEFT JOIN personas p ON p.id = m.persona_id
+		LEFT JOIN agent_invocations ai ON ai.id = m.invocation_id
+		LEFT JOIN persona_versions pv ON pv.id = ai.persona_version_id
 		WHERE m.run_id = $1
 		ORDER BY m.sequence
 	`, runID.String())
@@ -519,11 +539,13 @@ func queryMessages(ctx context.Context, source queryer, runID domain.RunID) ([]M
 
 func queryConversationMessages(ctx context.Context, source queryer, conversationID domain.ConversationID) ([]Message, error) {
 	rows, err := source.Query(ctx, `
-		SELECT m.id::text, m.run_id::text, m.persona_id::text, COALESCE(p.name, ''), COALESCE(p.role, ''),
+		SELECT m.id::text, m.run_id::text, m.persona_id::text, COALESCE(pv.name, p.name, ''), COALESCE(pv.role, p.role, ''),
 		       m.role, m.body, m.sequence, m.created_at
 		FROM boardroom_messages m
 		JOIN boardroom_runs r ON r.id = m.run_id
 		LEFT JOIN personas p ON p.id = m.persona_id
+		LEFT JOIN agent_invocations ai ON ai.id = m.invocation_id
+		LEFT JOIN persona_versions pv ON pv.id = ai.persona_version_id
 		WHERE r.conversation_id = $1
 		ORDER BY r.created_at, m.sequence
 	`, conversationID.String())

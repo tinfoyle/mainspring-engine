@@ -25,6 +25,10 @@ templ Layout(title string, tenantName string, user *UserView, csrfToken string) 
 					<div class="user-menu">
 						<a href="/work">Work</a>
 						<a href="/email">Email</a>
+						<a href="/approvals">Approvals</a>
+						if user.Role == "owner" || user.Role == "admin" {
+							<a href="/operations">Operations</a>
+						}
 						<a href="/documents">Documents</a>
 						<a href="/schedules">Schedules</a>
 						if user.Development {

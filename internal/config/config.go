@@ -44,10 +44,25 @@ type Config struct {
 	TemporalTaskQueue string
 	OrchestrationMode string
 
-	AgentProvider   string
-	CodexBinary     string
-	AgentTimeout    time.Duration
-	ToolTokenSecret string
+	AgentProvider       string
+	CodexBinary         string
+	AgentTimeout        time.Duration
+	ToolTokenSecret     string
+	AgentContextTokens  int
+	AgentOutputTokens   int
+	AgentTurnCostMicros int
+	RunnerAddr          string
+	RunnerURL           string
+	RunnerSocket        string
+	RunnerImage         string
+	RunnerNetwork       string
+	RunnerProvider      string
+	RunnerMemoryMB      int
+	RunnerCPUMillis     int
+	RunnerPIDs          int
+	RunnerConcurrency   int
+	RunnerCodexAuthPath string
+	RunnerCACertPath    string
 }
 
 func Load() (Config, error) {
@@ -83,6 +98,21 @@ func Load() (Config, error) {
 		AgentProvider:           strings.ToLower(env("MAINSPRING_AGENT_PROVIDER", "mock")),
 		CodexBinary:             env("MAINSPRING_CODEX_BINARY", "codex"),
 		ToolTokenSecret:         os.Getenv("MAINSPRING_TOOL_TOKEN_SECRET"),
+		AgentContextTokens:      integer("MAINSPRING_AGENT_CONTEXT_TOKENS", 12000),
+		AgentOutputTokens:       integer("MAINSPRING_AGENT_OUTPUT_TOKENS", 2000),
+		AgentTurnCostMicros:     integer("MAINSPRING_AGENT_TURN_COST_MICROS", 1),
+		RunnerAddr:              env("MAINSPRING_RUNNER_ADDR", ":8090"),
+		RunnerURL:               env("MAINSPRING_RUNNER_URL", "http://runner-controller:8090"),
+		RunnerSocket:            env("MAINSPRING_RUNNER_SOCKET", "/var/run/docker.sock"),
+		RunnerImage:             env("MAINSPRING_RUNNER_IMAGE", "mainspring-agent-runner:dev"),
+		RunnerNetwork:           env("MAINSPRING_RUNNER_NETWORK", "mainspring-dev_agent-egress"),
+		RunnerProvider:          strings.ToLower(env("MAINSPRING_RUNNER_PROVIDER", "mock")),
+		RunnerMemoryMB:          integer("MAINSPRING_RUNNER_MEMORY_MB", 512),
+		RunnerCPUMillis:         integer("MAINSPRING_RUNNER_CPU_MILLIS", 1000),
+		RunnerPIDs:              integer("MAINSPRING_RUNNER_PIDS", 128),
+		RunnerConcurrency:       integer("MAINSPRING_RUNNER_CONCURRENCY", 2),
+		RunnerCodexAuthPath:     strings.TrimSpace(os.Getenv("MAINSPRING_RUNNER_CODEX_AUTH_PATH")),
+		RunnerCACertPath:        strings.TrimSpace(os.Getenv("MAINSPRING_RUNNER_CA_CERT_PATH")),
 	}
 
 	var err error
