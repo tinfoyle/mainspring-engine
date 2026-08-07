@@ -148,6 +148,12 @@ func (s *Server) Handler() http.Handler {
 			router.Group(func(router chi.Router) {
 				router.Use(s.requireOnboarding)
 				router.Get("/", s.dashboard)
+				router.Get("/agents", s.agentsPage)
+				router.Get("/agents/new", s.newAgentPage)
+				router.Post("/agents", s.requireCSRF(s.createAgent))
+				router.Get("/agents/{personaID}", s.agentPage)
+				router.Post("/agents/{personaID}", s.requireCSRF(s.updateAgent))
+				router.Post("/agents/{personaID}/duplicate", s.requireCSRF(s.duplicateAgent))
 				router.Get("/boardrooms/{boardroomID}", s.boardroomPage)
 				router.Post("/boardrooms/{boardroomID}/conversations", s.requireCSRF(s.createRun))
 				router.Post("/boardrooms/{boardroomID}/runs", s.requireCSRF(s.createRun))
@@ -427,6 +433,293 @@ func (s *Server) operationsPage(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	s.render(w, http.StatusOK, components.OperationsPage(s.tenantName(r.Context()), s.userView(session.User), view, s.csrfToken(session)))
+}
+
+func (s *Server) agentsPage(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireAgentAdministrator(w, r)
+	if !ok {
+		return
+	}
+	agents, err := s.boardrooms.ListAgents(r.Context())
+	if err != nil {
+		s.logger.Error("list agents", "error", err)
+		s.renderError(w, http.StatusServiceUnavailable, "Agents are temporarily unavailable.")
+		return
+	}
+	rooms, err := s.boardrooms.List(r.Context())
+	if err != nil {
+		s.renderError(w, http.StatusServiceUnavailable, "Boardrooms are temporarily unavailable.")
+		return
+	}
+	roomNames := make(map[domain.BoardroomID]boardroom.Summary, len(rooms))
+	for _, room := range rooms {
+		roomNames[room.ID] = room
+	}
+	views := make([]components.AgentCardView, 0, len(agents))
+	for _, item := range agents {
+		room := roomNames[item.BoardroomID]
+		views = append(views, components.AgentCardView{ID: item.ID.String(), Name: item.Name, Role: item.Role,
+			Description: item.Description, BoardroomName: room.Name, Provider: item.Settings.Provider, Model: item.Settings.Model,
+			ReasoningEffort: item.Settings.ReasoningEffort, Position: item.Position, MaxTurns: room.MaxTurns,
+			ToolCount: len(item.Grants), Enabled: item.Enabled})
+	}
+	notice := map[string]string{"created": "Agent created.", "updated": "Agent settings saved for future runs.", "duplicated": "Agent duplicated as inactive."}[r.URL.Query().Get("status")]
+	s.render(w, http.StatusOK, components.AgentsPage(s.tenantName(r.Context()), s.userView(session.User), views, s.csrfToken(session), notice))
+}
+
+func (s *Server) newAgentPage(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireAgentAdministrator(w, r)
+	if !ok {
+		return
+	}
+	rooms, err := s.boardrooms.List(r.Context())
+	if err != nil || len(rooms) == 0 {
+		s.renderError(w, http.StatusServiceUnavailable, "Create a boardroom before adding an agent.")
+		return
+	}
+	settings := boardroom.DefaultAgentSettings()
+	input := boardroom.AgentInput{BoardroomID: rooms[0].ID, Position: 1, Enabled: true, Settings: settings}
+	s.renderAgentForm(w, r, session, input, domain.PersonaID{}, nil, http.StatusOK, "", "")
+}
+
+func (s *Server) agentPage(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireAgentAdministrator(w, r)
+	if !ok {
+		return
+	}
+	id, err := domain.ParsePersonaID(chi.URLParam(r, "personaID"))
+	if err != nil {
+		s.renderError(w, http.StatusNotFound, "Agent was not found.")
+		return
+	}
+	item, err := s.boardrooms.GetAgent(r.Context(), id)
+	if errors.Is(err, boardroom.ErrPersonaNotFound) {
+		s.renderError(w, http.StatusNotFound, "Agent was not found.")
+		return
+	}
+	if err != nil {
+		s.renderError(w, http.StatusServiceUnavailable, "Agent settings are temporarily unavailable.")
+		return
+	}
+	versions, err := s.boardrooms.AgentVersions(r.Context(), id)
+	if err != nil {
+		s.renderError(w, http.StatusServiceUnavailable, "Agent version history is temporarily unavailable.")
+		return
+	}
+	input := boardroom.AgentInput{BoardroomID: item.BoardroomID, Name: item.Name, Role: item.Role, Description: item.Description,
+		SystemInstructions: item.SystemInstructions, Position: item.Position, Enabled: item.Enabled, Grants: item.Grants, Settings: item.Settings}
+	s.renderAgentForm(w, r, session, input, id, versions, http.StatusOK, "", map[string]string{"updated": "Agent settings saved for future runs."}[r.URL.Query().Get("status")])
+}
+
+func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireAgentAdministrator(w, r)
+	if !ok {
+		return
+	}
+	input, err := agentInputFromRequest(r)
+	if err != nil {
+		s.renderAgentForm(w, r, session, input, domain.PersonaID{}, nil, http.StatusUnprocessableEntity, err.Error(), "")
+		return
+	}
+	if _, err := s.boardrooms.CreateAgent(r.Context(), input); err != nil {
+		s.renderAgentForm(w, r, session, input, domain.PersonaID{}, nil, http.StatusUnprocessableEntity, err.Error(), "")
+		return
+	}
+	http.Redirect(w, r, "/agents?status=created", http.StatusSeeOther)
+}
+
+func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
+	session, ok := s.requireAgentAdministrator(w, r)
+	if !ok {
+		return
+	}
+	id, err := domain.ParsePersonaID(chi.URLParam(r, "personaID"))
+	if err != nil {
+		s.renderError(w, http.StatusNotFound, "Agent was not found.")
+		return
+	}
+	input, parseErr := agentInputFromRequest(r)
+	versions, _ := s.boardrooms.AgentVersions(r.Context(), id)
+	if parseErr != nil {
+		s.renderAgentForm(w, r, session, input, id, versions, http.StatusUnprocessableEntity, parseErr.Error(), "")
+		return
+	}
+	if _, err := s.boardrooms.UpdateAgent(r.Context(), id, input); err != nil {
+		status := http.StatusUnprocessableEntity
+		if errors.Is(err, boardroom.ErrPersonaNotFound) {
+			status = http.StatusNotFound
+		}
+		s.renderAgentForm(w, r, session, input, id, versions, status, err.Error(), "")
+		return
+	}
+	http.Redirect(w, r, "/agents/"+id.String()+"?status=updated", http.StatusSeeOther)
+}
+
+func (s *Server) duplicateAgent(w http.ResponseWriter, r *http.Request) {
+	_, ok := s.requireAgentAdministrator(w, r)
+	if !ok {
+		return
+	}
+	id, err := domain.ParsePersonaID(chi.URLParam(r, "personaID"))
+	if err != nil {
+		s.renderError(w, http.StatusNotFound, "Agent was not found.")
+		return
+	}
+	if _, err := s.boardrooms.DuplicateAgent(r.Context(), id); err != nil {
+		s.renderError(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	http.Redirect(w, r, "/agents?status=duplicated", http.StatusSeeOther)
+}
+
+func (s *Server) requireAgentAdministrator(w http.ResponseWriter, r *http.Request) (authenticatedSession, bool) {
+	session, _ := sessionFromContext(r.Context())
+	if session.User.Role != "owner" && session.User.Role != "admin" {
+		s.renderError(w, http.StatusForbidden, "Only an owner or administrator can customize agents.")
+		return authenticatedSession{}, false
+	}
+	return session, true
+}
+
+func agentInputFromRequest(r *http.Request) (boardroom.AgentInput, error) {
+	settings := boardroom.DefaultAgentSettings()
+	input := boardroom.AgentInput{Name: r.FormValue("name"), Role: r.FormValue("role"), Description: r.FormValue("description"),
+		SystemInstructions: r.FormValue("system_instructions"), Enabled: r.FormValue("enabled") == "true", Settings: settings}
+	var err error
+	input.BoardroomID, err = domain.ParseBoardroomID(r.FormValue("boardroom_id"))
+	if err != nil {
+		return input, errors.New("select a valid boardroom")
+	}
+	if input.Position, err = strconv.Atoi(r.FormValue("position")); err != nil {
+		return input, errors.New("turn position must be a number")
+	}
+	input.Settings.Provider = r.FormValue("provider")
+	input.Settings.Model = r.FormValue("model")
+	input.Settings.ReasoningEffort = r.FormValue("reasoning_effort")
+	if input.Settings.Temperature, err = optionalFloat(r.FormValue("temperature")); err != nil {
+		return input, errors.New("temperature must be a number")
+	}
+	if input.Settings.TopP, err = optionalFloat(r.FormValue("top_p")); err != nil {
+		return input, errors.New("top-p must be a number")
+	}
+	if input.Settings.ContextTokenLimit, err = strconv.ParseInt(r.FormValue("context_token_limit"), 10, 64); err != nil {
+		return input, errors.New("context token limit must be a number")
+	}
+	if input.Settings.MaxOutputTokens, err = strconv.ParseInt(r.FormValue("max_output_tokens"), 10, 64); err != nil {
+		return input, errors.New("output token limit must be a number")
+	}
+	if input.Settings.TimeoutSeconds, err = strconv.Atoi(r.FormValue("timeout_seconds")); err != nil {
+		return input, errors.New("timeout must be a number")
+	}
+	if input.Settings.MaxToolCalls, err = strconv.Atoi(r.FormValue("max_tool_calls")); err != nil {
+		return input, errors.New("tool-call limit must be a number")
+	}
+	if input.Settings.MaxCostMicros, err = strconv.ParseInt(r.FormValue("max_cost_micros"), 10, 64); err != nil {
+		return input, errors.New("cost reservation must be a number")
+	}
+	input.Settings.ResponseStyle = r.FormValue("response_style")
+	input.Settings.CitationPolicy = r.FormValue("citation_policy")
+	input.Settings.ActionPolicy = r.FormValue("action_policy")
+	for _, capability := range boardroom.AllCapabilities() {
+		if r.FormValue("tool_"+string(capability)) != "true" {
+			continue
+		}
+		conditions := map[string]string{}
+		value := strings.TrimSpace(r.FormValue("conditions_" + string(capability)))
+		if value != "" && value != "{}" {
+			if err := json.Unmarshal([]byte(value), &conditions); err != nil {
+				return input, fmt.Errorf("conditions for %s must be a JSON object containing string values", capability)
+			}
+		}
+		input.Grants = append(input.Grants, domain.ToolGrant{Capability: capability, Conditions: conditions})
+	}
+	return input, input.NormalizeAndValidate()
+}
+
+func optionalFloat(value string) (*float64, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func (s *Server) renderAgentForm(w http.ResponseWriter, r *http.Request, session authenticatedSession, input boardroom.AgentInput, id domain.PersonaID, versions []boardroom.AgentVersion, status int, formError, notice string) {
+	rooms, err := s.boardrooms.List(r.Context())
+	if err != nil {
+		s.renderError(w, http.StatusServiceUnavailable, "Boardrooms are temporarily unavailable.")
+		return
+	}
+	view := components.AgentFormView{ID: id.String(), Name: input.Name, Role: input.Role, Description: input.Description,
+		SystemInstructions: input.SystemInstructions, BoardroomID: input.BoardroomID.String(), Position: input.Position, Enabled: input.Enabled,
+		Provider: input.Settings.Provider, Model: input.Settings.Model, ReasoningEffort: input.Settings.ReasoningEffort,
+		Temperature: formatOptionalFloat(input.Settings.Temperature), TopP: formatOptionalFloat(input.Settings.TopP),
+		ContextTokenLimit: input.Settings.ContextTokenLimit, MaxOutputTokens: input.Settings.MaxOutputTokens,
+		TimeoutSeconds: input.Settings.TimeoutSeconds, MaxToolCalls: input.Settings.MaxToolCalls, MaxCostMicros: input.Settings.MaxCostMicros,
+		ResponseStyle: input.Settings.ResponseStyle, CitationPolicy: input.Settings.CitationPolicy, ActionPolicy: input.Settings.ActionPolicy,
+		IsNew: id.String() == "00000000-0000-0000-0000-000000000000"}
+	for _, room := range rooms {
+		view.Boardrooms = append(view.Boardrooms, components.AgentBoardroomOptionView{ID: room.ID.String(), Name: room.Name, Selected: room.ID == input.BoardroomID})
+		if room.ID == input.BoardroomID {
+			view.BoardroomName = room.Name
+		}
+	}
+	selected := make(map[domain.Capability]domain.ToolGrant, len(input.Grants))
+	for _, grant := range input.Grants {
+		selected[grant.Capability] = grant
+	}
+	for _, definition := range agentToolDefinitions() {
+		grant, enabled := selected[definition.Capability]
+		conditions := "{}"
+		if enabled && len(grant.Conditions) > 0 {
+			body, _ := json.Marshal(grant.Conditions)
+			conditions = string(body)
+		}
+		view.Tools = append(view.Tools, components.AgentToolView{Capability: string(definition.Capability), Label: definition.Label,
+			Description: definition.Description, Selected: enabled, Conditions: conditions})
+	}
+	for _, version := range versions {
+		view.Versions = append(view.Versions, components.AgentVersionView{Version: version.Version, Name: version.Name, Role: version.Role, CreatedAt: version.CreatedAt})
+	}
+	s.render(w, status, components.AgentFormPage(s.tenantName(r.Context()), s.userView(session.User), view, s.csrfToken(session), formError, notice))
+}
+
+func formatOptionalFloat(value *float64) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*value, 'f', -1, 64)
+}
+
+type agentToolDefinition struct {
+	Capability  domain.Capability
+	Label       string
+	Description string
+}
+
+func agentToolDefinitions() []agentToolDefinition {
+	return []agentToolDefinition{
+		{domain.CapabilityDocumentsRead, "Search documents", "Retrieve bounded, citable passages from the tenant document library."},
+		{domain.CapabilityDocumentsComment, "Comment on documents", "Propose comments without replacing source documents."},
+		{domain.CapabilityWebSearch, "Search the web", "Search public sources when the web connector is enabled."},
+		{domain.CapabilityWebRead, "Read websites", "Open public webpages for analysis and recommendations."},
+		{domain.CapabilityEmailRead, "Read inbox", "Read messages from the connected tenant mailbox."},
+		{domain.CapabilityEmailDraft, "Draft email", "Prepare customer and vendor messages."},
+		{domain.CapabilityEmailSend, "Propose email sends", "Propose SMTP delivery; every send still requires owner approval."},
+		{domain.CapabilityTicketRead, "Read work queue", "Review tenant to-dos and tickets."},
+		{domain.CapabilityTicketCreate, "Create tickets", "Create work-queue tickets with provenance."},
+		{domain.CapabilityScheduleRead, "Read schedules", "Review schedules and recurring boardroom jobs."},
+		{domain.CapabilitySchedulePropose, "Propose schedule changes", "Suggest scheduling changes for review."},
+		{domain.CapabilityScheduleModify, "Modify schedules", "Apply approved schedule changes."},
+		{domain.CapabilityInvoicePrepare, "Prepare invoices", "Draft invoice records and line items."},
+		{domain.CapabilityInvoiceIssue, "Issue invoices", "Propose customer invoice issuance."},
+		{domain.CapabilityPaymentPropose, "Propose payments", "Prepare a payment request for owner review."},
+		{domain.CapabilityPaymentExecute, "Execute payments", "Execute separately approved payment actions when supported."},
+	}
 }
 
 func emailIntegrationView(value mailbox.Integration) components.EmailIntegrationView {

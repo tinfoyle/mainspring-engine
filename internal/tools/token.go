@@ -19,14 +19,15 @@ var (
 )
 
 type Claims struct {
-	TenantID     string   `json:"tenant_id"`
-	BoardroomID  string   `json:"boardroom_id"`
-	RunID        string   `json:"run_id"`
-	PersonaID    string   `json:"persona_id"`
-	InvocationID string   `json:"invocation_id"`
-	Grants       []string `json:"grants"`
-	IssuedAt     int64    `json:"iat"`
-	ExpiresAt    int64    `json:"exp"`
+	TenantID     string                       `json:"tenant_id"`
+	BoardroomID  string                       `json:"boardroom_id"`
+	RunID        string                       `json:"run_id"`
+	PersonaID    string                       `json:"persona_id"`
+	InvocationID string                       `json:"invocation_id"`
+	Grants       []string                     `json:"grants"`
+	Conditions   map[string]map[string]string `json:"conditions,omitempty"`
+	IssuedAt     int64                        `json:"iat"`
+	ExpiresAt    int64                        `json:"exp"`
 }
 
 type TokenIssuer struct {
@@ -53,10 +54,13 @@ func (i *TokenIssuer) Mint(invocation domain.InvocationContext) (string, error) 
 	claims := Claims{
 		TenantID: invocation.TenantID.String(), BoardroomID: invocation.BoardroomID.String(), RunID: invocation.RunID.String(),
 		PersonaID: invocation.PersonaID.String(), InvocationID: invocation.InvocationID.String(),
-		IssuedAt: now.Unix(), ExpiresAt: invocation.ExpiresAt.Unix(),
+		IssuedAt: now.Unix(), ExpiresAt: invocation.ExpiresAt.Unix(), Conditions: make(map[string]map[string]string),
 	}
 	for _, grant := range invocation.Grants {
 		claims.Grants = append(claims.Grants, string(grant.Capability))
+		if len(grant.Conditions) > 0 {
+			claims.Conditions[string(grant.Capability)] = grant.Conditions
+		}
 	}
 	payload, err := json.Marshal(claims)
 	if err != nil {

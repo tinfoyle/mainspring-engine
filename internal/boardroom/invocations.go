@@ -19,9 +19,11 @@ type PlannedPersona struct {
 	PersonaVersionID   string
 	Name               string
 	Role               string
+	Description        string
 	SystemInstructions string
 	Grants             []domain.ToolGrant
 	OutputSchema       json.RawMessage
+	Settings           AgentSettings
 }
 
 type RunPlan struct {
@@ -128,10 +130,12 @@ func ensurePersonaVersion(ctx context.Context, tx pgx.Tx, persona Persona, outpu
 	content, err := json.Marshal(struct {
 		Name         string          `json:"name"`
 		Role         string          `json:"role"`
+		Description  string          `json:"description"`
 		Instructions string          `json:"instructions"`
 		Grants       json.RawMessage `json:"grants"`
 		Schema       json.RawMessage `json:"schema"`
-	}{persona.Name, persona.Role, persona.SystemInstructions, grants, outputSchema})
+		Settings     AgentSettings   `json:"settings"`
+	}{persona.Name, persona.Role, persona.Description, persona.SystemInstructions, grants, outputSchema, persona.Settings})
 	if err != nil {
 		return "", fmt.Errorf("encode persona version: %w", err)
 	}
@@ -145,10 +149,10 @@ func ensurePersonaVersion(ctx context.Context, tx pgx.Tx, persona Persona, outpu
 		return "", fmt.Errorf("find persona version: %w", err)
 	}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO persona_versions (persona_id, version, content_hash, name, role, system_instructions, tool_grants, output_schema)
-		VALUES ($1, COALESCE((SELECT max(version)+1 FROM persona_versions WHERE persona_id=$1), 1), $2, $3, $4, $5, $6, $7)
+		INSERT INTO persona_versions (persona_id, version, content_hash, name, role, description, system_instructions, tool_grants, output_schema, runtime_config)
+		VALUES ($1, COALESCE((SELECT max(version)+1 FROM persona_versions WHERE persona_id=$1), 1), $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id::text
-	`, persona.ID.String(), hash[:], persona.Name, persona.Role, persona.SystemInstructions, grants, outputSchema).Scan(&id); err != nil {
+	`, persona.ID.String(), hash[:], persona.Name, persona.Role, persona.Description, persona.SystemInstructions, grants, outputSchema, persona.Settings).Scan(&id); err != nil {
 		return "", fmt.Errorf("create persona version: %w", err)
 	}
 	return id, nil
@@ -161,7 +165,7 @@ func (s *Store) GetRunPlan(ctx context.Context, runID domain.RunID) (RunPlan, er
 func queryRunPlan(ctx context.Context, source queryer, runID domain.RunID) (RunPlan, error) {
 	rows, err := source.Query(ctx, `
 		SELECT rp.turn_number, rp.persona_id::text, rp.persona_version_id::text,
-		       pv.name, pv.role, pv.system_instructions, pv.tool_grants, pv.output_schema
+		       pv.name, pv.role, pv.description, pv.system_instructions, pv.tool_grants, pv.output_schema, pv.runtime_config
 		FROM boardroom_run_personas rp
 		JOIN persona_versions pv ON pv.id=rp.persona_version_id
 		WHERE rp.run_id=$1 ORDER BY rp.turn_number
@@ -175,7 +179,8 @@ func queryRunPlan(ctx context.Context, source queryer, runID domain.RunID) (RunP
 		var item PlannedPersona
 		var personaIDText string
 		var grants []byte
-		if err := rows.Scan(&item.TurnNumber, &personaIDText, &item.PersonaVersionID, &item.Name, &item.Role, &item.SystemInstructions, &grants, &item.OutputSchema); err != nil {
+		var runtimeConfig []byte
+		if err := rows.Scan(&item.TurnNumber, &personaIDText, &item.PersonaVersionID, &item.Name, &item.Role, &item.Description, &item.SystemInstructions, &grants, &item.OutputSchema, &runtimeConfig); err != nil {
 			return RunPlan{}, fmt.Errorf("scan run plan: %w", err)
 		}
 		item.PersonaID, err = domain.ParsePersonaID(personaIDText)
@@ -184,6 +189,12 @@ func queryRunPlan(ctx context.Context, source queryer, runID domain.RunID) (RunP
 		}
 		if err := json.Unmarshal(grants, &item.Grants); err != nil {
 			return RunPlan{}, fmt.Errorf("decode snapshotted grants: %w", err)
+		}
+		item.Settings = DefaultAgentSettings()
+		if len(runtimeConfig) > 2 {
+			if err := json.Unmarshal(runtimeConfig, &item.Settings); err != nil {
+				return RunPlan{}, fmt.Errorf("decode snapshotted runtime config: %w", err)
+			}
 		}
 		plan.Personas = append(plan.Personas, item)
 	}

@@ -58,6 +58,33 @@ func RegisterDocumentSearch(broker *Broker, searcher DocumentSearcher) error {
 		if input.Limit < 1 || input.Limit > 10 {
 			return nil, errors.New("documents.search limit must be between 1 and 10")
 		}
+		conditions := call.Claims.Conditions[string(domain.CapabilityDocumentsRead)]
+		if value := conditions["max_results"]; value != "" {
+			var maximum int
+			if _, err := fmt.Sscan(value, &maximum); err != nil || maximum < 1 || maximum > 10 {
+				return nil, errors.New("documents.search grant condition max_results must be between 1 and 10")
+			}
+			if input.Limit > maximum {
+				input.Limit = maximum
+			}
+		}
+		if value := strings.TrimSpace(conditions["document_ids"]); value != "" {
+			allowed := make(map[string]bool)
+			for _, id := range strings.Split(value, ",") {
+				allowed[strings.TrimSpace(id)] = true
+			}
+			if len(input.DocumentIDs) == 0 {
+				for id := range allowed {
+					input.DocumentIDs = append(input.DocumentIDs, id)
+				}
+			} else {
+				for _, id := range input.DocumentIDs {
+					if !allowed[id] {
+						return nil, errors.New("documents.search requested a document outside the agent grant")
+					}
+				}
+			}
+		}
 		if len(input.DocumentIDs) > 20 {
 			return nil, errors.New("documents.search accepts at most 20 document filters")
 		}

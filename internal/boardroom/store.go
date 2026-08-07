@@ -35,11 +35,33 @@ type Summary struct {
 
 type Persona struct {
 	ID                 domain.PersonaID
+	BoardroomID        domain.BoardroomID
 	Name               string
 	Role               string
+	Description        string
 	SystemInstructions string
 	Position           int
+	Enabled            bool
 	Grants             []domain.ToolGrant
+	Settings           AgentSettings
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type AgentSettings struct {
+	Provider          string   `json:"provider"`
+	Model             string   `json:"model"`
+	ReasoningEffort   string   `json:"reasoning_effort"`
+	Temperature       *float64 `json:"temperature,omitempty"`
+	TopP              *float64 `json:"top_p,omitempty"`
+	ContextTokenLimit int64    `json:"context_token_limit"`
+	MaxOutputTokens   int64    `json:"max_output_tokens"`
+	TimeoutSeconds    int      `json:"timeout_seconds"`
+	MaxToolCalls      int      `json:"max_tool_calls"`
+	MaxCostMicros     int64    `json:"max_cost_micros"`
+	ResponseStyle     string   `json:"response_style"`
+	CitationPolicy    string   `json:"citation_policy"`
+	ActionPolicy      string   `json:"action_policy"`
 }
 
 type Run struct {
@@ -154,7 +176,11 @@ func (s *Store) Personas(ctx context.Context, boardroomID domain.BoardroomID) ([
 
 func queryPersonas(ctx context.Context, source queryer, boardroomID domain.BoardroomID) ([]Persona, error) {
 	rows, err := source.Query(ctx, `
-		SELECT p.id::text, p.name, p.role, p.system_instructions, p.position,
+		SELECT p.id::text, p.boardroom_id::text, p.name, p.role, p.description, p.system_instructions, p.position, p.enabled,
+		       p.provider, p.model, p.reasoning_effort, p.temperature, p.top_p,
+		       p.context_token_limit, p.max_output_tokens, p.timeout_seconds, p.max_tool_calls,
+		       p.max_cost_micros, p.response_style, p.citation_policy, p.action_policy,
+		       p.created_at, p.updated_at,
 		       COALESCE(jsonb_agg(jsonb_build_object('capability', g.capability, 'conditions', g.conditions))
 		           FILTER (WHERE g.capability IS NOT NULL), '[]'::jsonb)
 		FROM personas p
@@ -171,12 +197,20 @@ func queryPersonas(ctx context.Context, source queryer, boardroomID domain.Board
 	var result []Persona
 	for rows.Next() {
 		var item Persona
-		var id string
+		var id, boardroomIDText string
 		var grantsJSON []byte
-		if err := rows.Scan(&id, &item.Name, &item.Role, &item.SystemInstructions, &item.Position, &grantsJSON); err != nil {
+		if err := rows.Scan(&id, &boardroomIDText, &item.Name, &item.Role, &item.Description, &item.SystemInstructions, &item.Position, &item.Enabled,
+			&item.Settings.Provider, &item.Settings.Model, &item.Settings.ReasoningEffort, &item.Settings.Temperature, &item.Settings.TopP,
+			&item.Settings.ContextTokenLimit, &item.Settings.MaxOutputTokens, &item.Settings.TimeoutSeconds, &item.Settings.MaxToolCalls,
+			&item.Settings.MaxCostMicros, &item.Settings.ResponseStyle, &item.Settings.CitationPolicy, &item.Settings.ActionPolicy,
+			&item.CreatedAt, &item.UpdatedAt, &grantsJSON); err != nil {
 			return nil, fmt.Errorf("scan persona: %w", err)
 		}
 		item.ID, err = domain.ParsePersonaID(id)
+		if err != nil {
+			return nil, err
+		}
+		item.BoardroomID, err = domain.ParseBoardroomID(boardroomIDText)
 		if err != nil {
 			return nil, err
 		}

@@ -1,0 +1,119 @@
+package components
+
+import (
+	"fmt"
+	"strings"
+)
+
+templ AgentsPage(tenantName string, user UserView, agents []AgentCardView, csrfToken, notice string) {
+	@Layout("Agents", tenantName, &user, csrfToken) {
+		<section class="page-heading"><div><p class="eyebrow">Boardroom team</p><h1>Agents</h1><p>Control each agent's purpose, instructions, provider behavior, limits, tools, and turn order. The room cap follows the number of active agents.</p></div><a class="button" href="/agents/new">Create agent</a></section>
+		if notice != "" {
+			<div class="notice">{ notice }</div>
+		}
+		if len(agents) == 0 {
+			<section class="panel empty-state"><h2>No agents yet</h2><p>Create the first specialist for a boardroom.</p></section>
+		} else {
+			<section class="agent-grid">
+				for _, item := range agents {
+					<a class={ "panel", "agent-card", templ.KV("agent-disabled", !item.Enabled) } href={ templ.URL("/agents/" + item.ID) }>
+						<header><span class="avatar">{ Initial(item.Name) }</span><div><h2>{ item.Name }</h2><p>{ item.Role }</p></div><span class={ "status-pill", templ.KV("status-muted", !item.Enabled) }>{ AgentState(item.Enabled) }</span></header>
+						<p>{ item.Description }</p>
+						<dl class="agent-facts"><div><dt>Boardroom</dt><dd>{ item.BoardroomName }</dd></div><div><dt>Order</dt><dd>{ fmt.Sprint(item.Position) }</dd></div><div><dt>Room cap</dt><dd>{ fmt.Sprintf("%d turns", item.MaxTurns) }</dd></div><div><dt>Provider</dt><dd>{ AgentProviderLabel(item.Provider) }</dd></div><div><dt>Tools</dt><dd>{ fmt.Sprint(item.ToolCount) }</dd></div></dl>
+					</a>
+				}
+			</section>
+		}
+	}
+}
+
+templ AgentFormPage(tenantName string, user UserView, agent AgentFormView, csrfToken, formError, notice string) {
+	@Layout("Agent settings", tenantName, &user, csrfToken) {
+		<section class="page-heading"><div><a class="back-link" href="/agents">← All agents</a><p class="eyebrow">Agent customization</p><h1>{ AgentFormTitle(agent) }</h1><p>Changes affect future runs only. Runs already prepared retain their immutable agent version.</p></div></section>
+		if formError != "" {
+			<div class="form-error">{ formError }</div>
+		}
+		if notice != "" {
+			<div class="notice">{ notice }</div>
+		}
+		<form class="agent-editor" method="post" action={ templ.URL(AgentFormAction(agent)) }>
+			<input type="hidden" name="csrf_token" value={ csrfToken }/>
+			<section class="panel form-section"><header><p class="eyebrow">Identity and placement</p><h2>Who this agent is</h2></header><div class="form-grid">
+				<label><span>Name</span><input required maxlength="80" name="name" value={ agent.Name }/></label>
+				<label><span>Role</span><input required maxlength="120" name="role" value={ agent.Role }/></label>
+				<label class="field-wide"><span>Purpose</span><textarea maxlength="500" rows="2" name="description">{ agent.Description }</textarea><small>A plain-language summary shown to the owner and supplied to the provider.</small></label>
+				if agent.IsNew {
+					<label><span>Boardroom</span><select name="boardroom_id">
+						for _, room := range agent.Boardrooms {
+							<option value={ room.ID } selected?={ room.Selected }>{ room.Name }</option>
+						}
+					</select></label>
+				} else {
+					<label><span>Boardroom</span><input value={ agent.BoardroomName } disabled/><input type="hidden" name="boardroom_id" value={ agent.BoardroomID }/><small>Duplicate the agent to create a separate identity in another boardroom.</small></label>
+				}
+				<label><span>Turn position</span><input type="number" min="1" max="50" name="position" value={ fmt.Sprint(agent.Position) }/></label>
+				<label class="checkbox-field"><input type="checkbox" name="enabled" value="true" checked?={ agent.Enabled }/><span>Active in future boardroom runs</span></label>
+			</div></section>
+
+			<section class="panel form-section"><header><p class="eyebrow">Core prompt</p><h2>Instructions</h2></header><label><span>System instructions</span><textarea required minlength="20" maxlength="12000" rows="12" name="system_instructions">{ agent.SystemInstructions }</textarea><small>Define responsibilities, decision standards, boundaries, escalation rules, and how this specialist should contribute.</small></label></section>
+
+			<section class="panel form-section"><header><p class="eyebrow">Provider controls</p><h2>Model and reasoning</h2></header><div class="form-grid">
+				<label><span>Provider</span><select name="provider"><option value="inherit" selected?={ agent.Provider == "inherit" }>Tenant default</option><option value="codex" selected?={ agent.Provider == "codex" }>Codex CLI</option><option value="mock" selected?={ agent.Provider == "mock" }>Development mock</option></select></label>
+				<label><span>Model override</span><input maxlength="120" name="model" value={ agent.Model } placeholder="Use provider default"/></label>
+				<label><span>Reasoning effort</span><select name="reasoning_effort">
+					for _, value := range []string{"inherit", "minimal", "low", "medium", "high", "xhigh"} {
+						<option value={ value } selected?={ agent.ReasoningEffort == value }>{ AgentOptionLabel(value) }</option>
+					}
+				</select></label>
+				<label><span>Temperature</span><input type="number" min="0" max="2" step="0.1" name="temperature" value={ agent.Temperature } placeholder="Provider default"/></label>
+				<label><span>Top-p</span><input type="number" min="0" max="1" step="0.05" name="top_p" value={ agent.TopP } placeholder="Provider default"/></label>
+			</div><p class="field-note">Sampling controls are stored provider-neutrally. Codex currently honors model and reasoning; future adapters may honor temperature and top-p.</p></section>
+
+			<section class="panel form-section"><header><p class="eyebrow">Hard limits</p><h2>Context, time, tools, and cost</h2></header><div class="form-grid">
+				<label><span>Context tokens</span><input type="number" min="1000" max="200000" name="context_token_limit" value={ fmt.Sprint(agent.ContextTokenLimit) }/></label>
+				<label><span>Maximum output tokens</span><input type="number" min="128" max="64000" name="max_output_tokens" value={ fmt.Sprint(agent.MaxOutputTokens) }/></label>
+				<label><span>Timeout in seconds</span><input type="number" min="10" max="3600" name="timeout_seconds" value={ fmt.Sprint(agent.TimeoutSeconds) }/></label>
+				<label><span>Maximum tool calls</span><input type="number" min="0" max="20" name="max_tool_calls" value={ fmt.Sprint(agent.MaxToolCalls) }/></label>
+				<label><span>Estimated cost reservation (micros)</span><input type="number" min="0" max="1000000000" name="max_cost_micros" value={ fmt.Sprint(agent.MaxCostMicros) }/><small>Reserved against the tenant quota per turn. Provider-specific pricing is still pending; 1,000,000 micros = $1.00.</small></label>
+			</div></section>
+
+			<section class="panel form-section"><header><p class="eyebrow">Behavior</p><h2>Response and action policies</h2></header><div class="form-grid">
+				<label><span>Response style</span><select name="response_style">
+					for _, value := range []string{"concise", "balanced", "detailed"} {
+						<option value={ value } selected?={ agent.ResponseStyle == value }>{ AgentOptionLabel(value) }</option>
+					}
+				</select></label>
+				<label><span>Citation policy</span><select name="citation_policy"><option value="when_available" selected?={ agent.CitationPolicy == "when_available" }>When available</option><option value="required_for_research" selected?={ agent.CitationPolicy == "required_for_research" }>Required for research</option><option value="always" selected?={ agent.CitationPolicy == "always" }>Always cite evidence</option></select></label>
+				<label><span>External actions</span><select name="action_policy"><option value="propose_only" selected?={ agent.ActionPolicy == "propose_only" }>May propose; owner approval required</option><option value="disabled" selected?={ agent.ActionPolicy == "disabled" }>Cannot propose actions</option></select></label>
+			</div></section>
+
+			<section class="panel form-section"><header><p class="eyebrow">Capabilities</p><h2>Tool permissions</h2><p>Every tool remains server-authorized. Optional conditions are a JSON object of string keys and values.</p></header><div class="tool-permission-grid">
+				for _, tool := range agent.Tools {
+					<div class="tool-permission"><label class="checkbox-field"><input type="checkbox" name={ "tool_" + tool.Capability } value="true" checked?={ tool.Selected }/><span><strong>{ tool.Label }</strong><small>{ tool.Description }</small></span></label><label><span>Conditions</span><input name={ "conditions_" + tool.Capability } value={ tool.Conditions } placeholder="{}"/></label></div>
+				}
+			</div></section>
+
+			<footer class="form-actions"><button class="button" type="submit">{ AgentSaveLabel(agent) }</button><a class="button button-quiet" href="/agents">Cancel</a></footer>
+		</form>
+		if !agent.IsNew {
+			<section class="agent-secondary-actions panel"><div><h2>Version history</h2><p>Versions are created lazily when a future run snapshots changed settings.</p></div><form method="post" action={ templ.URL("/agents/" + agent.ID + "/duplicate") }><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-quiet" type="submit">Duplicate agent</button></form>
+				if len(agent.Versions) == 0 {
+					<p>No run snapshots yet.</p>
+				} else {
+					<ol class="version-list">
+						for _, version := range agent.Versions {
+							<li><strong>{ fmt.Sprintf("Version %d", version.Version) }</strong><span>{ version.Name } · { version.Role }</span><time>{ version.CreatedAt.Local().Format("Jan 2, 2006 at 3:04 PM") }</time></li>
+						}
+					</ol>
+				}
+			</section>
+		}
+	}
+}
+
+func AgentState(enabled bool) string { if enabled { return "Active" }; return "Inactive" }
+func AgentProviderLabel(value string) string { if value == "inherit" { return "Tenant default" }; if value == "codex" { return "Codex CLI" }; return "Development mock" }
+func AgentFormTitle(agent AgentFormView) string { if agent.IsNew { return "Create an agent" }; return agent.Name }
+func AgentFormAction(agent AgentFormView) string { if agent.IsNew { return "/agents" }; return "/agents/" + agent.ID }
+func AgentSaveLabel(agent AgentFormView) string { if agent.IsNew { return "Create agent" }; return "Save changes" }
+func AgentOptionLabel(value string) string { if value == "inherit" { return "Provider default" }; return strings.ToUpper(value[:1]) + value[1:] }

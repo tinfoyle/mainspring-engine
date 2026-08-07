@@ -35,6 +35,7 @@ Architecture decision records capture consequential technical choices and the re
 | [0019](0019-agent-action-approvals.md) | Gate external agent actions with durable approval | Proposed |
 | [0020](0020-ephemeral-agent-runners.md) | Run provider CLIs in ephemeral constrained containers | Proposed |
 | [0021](0021-agent-capacity-and-operations.md) | Enforce tenant execution capacity and usage budgets | Proposed |
+| [0022](0022-agent-customization.md) | Store typed, versioned agent configuration | Proposed |
 
 ## Template
 

@@ -114,6 +114,9 @@ func (b *Broker) Invoke(ctx context.Context, call Call) (json.RawMessage, error)
 		return nil, err
 	}
 	allowed := claims.TenantID == call.TenantID.String() && hasGrant(claims.Grants, call.Capability)
+	if conditions := claims.Conditions[string(call.Capability)]; conditions["disabled"] == "true" {
+		allowed = false
+	}
 	if !allowed {
 		b.audit(ctx, claims, call.Capability, false, ErrCapabilityDenied)
 		return nil, ErrCapabilityDenied

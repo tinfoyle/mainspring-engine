@@ -57,6 +57,12 @@ func (p *CodexProvider) Invoke(ctx context.Context, invocation Invocation) (Resu
 		"--skip-git-repo-check",
 		"--sandbox", "read-only",
 	}
+	if invocation.Model != "" {
+		arguments = append(arguments, "--model", invocation.Model)
+	}
+	if invocation.ReasoningEffort != "" && invocation.ReasoningEffort != "inherit" {
+		arguments = append(arguments, "-c", "model_reasoning_effort="+invocation.ReasoningEffort)
+	}
 	if len(invocation.OutputSchema) > 0 {
 		schemaPath := workspace + string(os.PathSeparator) + "output-schema.json"
 		if err := os.WriteFile(schemaPath, invocation.OutputSchema, 0o600); err != nil {
@@ -177,8 +183,19 @@ func buildPrompt(invocation Invocation) string {
 	builder.WriteString("Persona: ")
 	builder.WriteString(invocation.PersonaName)
 	builder.WriteString(" (" + invocation.PersonaRole + ")\n")
+	if invocation.PersonaDescription != "" {
+		builder.WriteString("Purpose: ")
+		builder.WriteString(invocation.PersonaDescription)
+		builder.WriteString("\n")
+	}
 	builder.WriteString("Instructions: ")
 	builder.WriteString(invocation.SystemInstructions)
+	builder.WriteString("\nResponse style: ")
+	builder.WriteString(invocation.ResponseStyle)
+	builder.WriteString(". Citation policy: ")
+	builder.WriteString(invocation.CitationPolicy)
+	builder.WriteString(". External action policy: ")
+	builder.WriteString(invocation.ActionPolicy)
 	if len(invocation.Tools) > 0 {
 		builder.WriteString("\n\nAvailable tools:\n")
 		for _, tool := range invocation.Tools {

@@ -48,7 +48,11 @@ func (p *RemoteProvider) Capabilities() Capabilities {
 }
 
 func (p *RemoteProvider) Invoke(ctx context.Context, invocation Invocation) (Result, error) {
-	body, err := json.Marshal(RemoteInvocation{Provider: p.inner, Invocation: invocation})
+	selected := p.inner
+	if invocation.Provider != "" && invocation.Provider != "inherit" {
+		selected = invocation.Provider
+	}
+	body, err := json.Marshal(RemoteInvocation{Provider: selected, Invocation: invocation})
 	if err != nil {
 		return Result{}, err
 	}

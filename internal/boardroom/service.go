@@ -84,12 +84,28 @@ func (s *Service) ExecuteTurn(ctx context.Context, runID domain.RunID, turnNumbe
 	if run.Status == domain.RunCompleted || run.Status == domain.RunCanceled {
 		return nil
 	}
+	plan, err := s.store.GetRunPlan(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if turnNumber < 1 || turnNumber > len(plan.Personas) {
+		return fmt.Errorf("turn %d is outside the prepared run plan", turnNumber)
+	}
+	planned := plan.Personas[turnNumber-1]
+	settings := planned.Settings
+	if settings.ContextTokenLimit <= 0 {
+		settings = DefaultAgentSettings()
+	}
+	providerKey := s.provider.Name()
+	if settings.Provider != "" && settings.Provider != "inherit" {
+		providerKey += ":" + settings.Provider
+	}
 	messages, err := s.store.ConversationMessages(ctx, run.ConversationID)
 	if err != nil {
 		return err
 	}
-	conversation, manifest := BuildContext(messages, int(s.inputTokenBudget))
-	record, persona, err := s.store.StartInvocation(ctx, runID, turnNumber, s.provider.Name(), manifest)
+	conversation, manifest := BuildContext(messages, int(settings.ContextTokenLimit))
+	record, persona, err := s.store.StartInvocation(ctx, runID, turnNumber, providerKey, manifest)
 	if err != nil {
 		return err
 	}
@@ -100,7 +116,7 @@ func (s *Service) ExecuteTurn(ctx context.Context, runID domain.RunID, turnNumbe
 		return nil
 	}
 	if s.usage != nil {
-		if err := s.usage.Reserve(ctx, record.ID, s.provider.Name(), s.inputTokenBudget+s.outputTokenBudget, s.costBudgetMicros); err != nil {
+		if err := s.usage.Reserve(ctx, record.ID, providerKey, settings.ContextTokenLimit+settings.MaxOutputTokens, settings.MaxCostMicros); err != nil {
 			if errors.Is(err, ErrInvocationCapacity) || errors.Is(err, ErrProviderCircuitOpen) {
 				_ = s.store.SetRunStatus(ctx, runID, domain.RunQueued, err.Error())
 			}
@@ -113,10 +129,13 @@ func (s *Service) ExecuteTurn(ctx context.Context, runID domain.RunID, turnNumbe
 	}
 	invocation := agent.Invocation{
 		ID: record.ID, TenantID: s.tenantID, BoardroomID: run.BoardroomID, RunID: runID,
-		PersonaID: persona.PersonaID, PersonaName: persona.Name, PersonaRole: persona.Role,
+		PersonaID: persona.PersonaID, PersonaName: persona.Name, PersonaRole: persona.Role, PersonaDescription: persona.Description,
 		SystemInstructions: persona.SystemInstructions, Conversation: conversation, ToolGrants: persona.Grants,
-		OutputSchema: persona.OutputSchema, Timeout: s.timeout,
-		MaxInputTokens: s.inputTokenBudget, MaxOutputTokens: s.outputTokenBudget, MaxCostMicros: s.costBudgetMicros,
+		OutputSchema: persona.OutputSchema, Timeout: time.Duration(settings.TimeoutSeconds) * time.Second,
+		MaxInputTokens: settings.ContextTokenLimit, MaxOutputTokens: settings.MaxOutputTokens, MaxCostMicros: settings.MaxCostMicros,
+		Provider: settings.Provider, Model: settings.Model, ReasoningEffort: settings.ReasoningEffort,
+		Temperature: settings.Temperature, TopP: settings.TopP, ResponseStyle: settings.ResponseStyle,
+		CitationPolicy: settings.CitationPolicy, ActionPolicy: settings.ActionPolicy,
 	}
 	if s.broker != nil {
 		for _, definition := range s.broker.Definitions(persona.Grants) {
@@ -124,8 +143,8 @@ func (s *Service) ExecuteTurn(ctx context.Context, runID domain.RunID, turnNumbe
 		}
 	}
 	if s.issuer != nil {
-		expiresAt := time.Now().Add(s.timeout)
-		if s.timeout <= 0 {
+		expiresAt := time.Now().Add(invocation.Timeout)
+		if invocation.Timeout <= 0 {
 			expiresAt = time.Now().Add(5 * time.Minute)
 		}
 		invocation.CapabilityToken, err = s.issuer.Mint(domain.InvocationContext{
@@ -137,11 +156,11 @@ func (s *Service) ExecuteTurn(ctx context.Context, runID domain.RunID, turnNumbe
 			return fmt.Errorf("mint capability token for %s: %w", persona.Name, err)
 		}
 	}
-	result, citations, err := s.invokeWithTools(ctx, invocation)
+	result, citations, err := s.invokeWithTools(ctx, invocation, settings.MaxToolCalls)
 	if err != nil {
 		if s.usage != nil {
 			s.usage.Release(ctx, record.ID)
-			s.usage.RecordProviderResult(ctx, s.provider.Name(), err)
+			s.usage.RecordProviderResult(ctx, providerKey, err)
 		}
 		category, _ := agent.Failure(err)
 		_ = s.store.FailInvocation(ctx, record.ID, string(category), err.Error())
@@ -152,18 +171,26 @@ func (s *Service) ExecuteTurn(ctx context.Context, runID domain.RunID, turnNumbe
 		_ = s.store.FailInvocation(ctx, record.ID, string(agent.FailureInvalidOutput), err.Error())
 		return invocationErr
 	}
+	if err := enforceCitationPolicy(settings.CitationPolicy, result.Structured.Citations, citations); err != nil {
+		invocationErr := &agent.InvocationError{Category: agent.FailureInvalidOutput, Err: err}
+		_ = s.store.FailInvocation(ctx, record.ID, string(agent.FailureInvalidOutput), err.Error())
+		return invocationErr
+	}
+	if settings.ActionPolicy == "disabled" {
+		result.Structured.ProposedActions = []agent.ProposedAction{}
+	}
 	result.Body = result.Structured.Contribution
-	if err := s.store.CompleteInvocation(ctx, record, persona, result, s.costBudgetMicros); err != nil {
+	if err := s.store.CompleteInvocation(ctx, record, persona, result, settings.MaxCostMicros); err != nil {
 		if s.usage != nil {
 			s.usage.Release(ctx, record.ID)
 		}
 		return err
 	}
 	if s.usage != nil {
-		if err := s.usage.Reconcile(ctx, record.ID, result.Usage, s.costBudgetMicros); err != nil {
+		if err := s.usage.Reconcile(ctx, record.ID, result.Usage, settings.MaxCostMicros); err != nil {
 			return err
 		}
-		s.usage.RecordProviderResult(ctx, s.provider.Name(), nil)
+		s.usage.RecordProviderResult(ctx, providerKey, nil)
 	}
 	if s.approvals != nil {
 		if err := s.approvals.EnsureInvocationActions(ctx, record.ID); err != nil {
@@ -178,11 +205,13 @@ type returnedCitation struct {
 	ChunkID    string
 }
 
-func (s *Service) invokeWithTools(ctx context.Context, invocation agent.Invocation) (agent.Result, map[string]returnedCitation, error) {
-	const maximumToolCalls = 5
+func (s *Service) invokeWithTools(ctx context.Context, invocation agent.Invocation, maximumToolCalls int) (agent.Result, map[string]returnedCitation, error) {
 	citations := make(map[string]returnedCitation)
 	requestIDs := make(map[string]bool)
 	toolCalls := 0
+	if maximumToolCalls < 0 {
+		maximumToolCalls = 0
+	}
 	for {
 		result, err := s.provider.Invoke(ctx, invocation)
 		if err != nil {
@@ -258,6 +287,13 @@ func validateCitations(citations []agent.Citation, returned map[string]returnedC
 		if citation.ChunkID != "" && citation.ChunkID != source.ChunkID {
 			return fmt.Errorf("citation %q has the wrong chunk id", citation.ID)
 		}
+	}
+	return nil
+}
+
+func enforceCitationPolicy(policy string, citations []agent.Citation, returned map[string]returnedCitation) error {
+	if (policy == "required_for_research" || policy == "always") && len(returned) > 0 && len(citations) == 0 {
+		return errors.New("agent citation policy requires citing evidence returned by research tools")
 	}
 	return nil
 }

@@ -65,6 +65,7 @@ Each purchased boardroom receives a tenant runtime reached through a unique subd
 
 - Its own login and sessions
 - Boardrooms, personas, prompts, and tool grants
+- Typed agent provider settings, execution ceilings, behavior policies, and immutable versions
 - Conversations, messages, runs, and approvals
 - Documents, chunks, embeddings, and citations
 - Schedules and boardroom configuration
@@ -167,6 +168,24 @@ question, or issue within that workspace. A run is one durable round of persona 
 Recurring schedules create a new, dated conversation for each occurrence so reports do
 not blend into one endless transcript. Historical `/runs/{id}` links resolve to the
 conversation that owns the run.
+
+### Agent customization
+
+```text
+Owner or admin edits an agent
+  -> tenant service validates identity, prompt, provider settings, and hard limits
+  -> application replaces the explicit capability grant set and signed conditions
+  -> turn positions are normalized transactionally within the boardroom
+  -> future runs hash and snapshot the complete agent configuration
+  -> runner receives only that immutable version and a short-lived capability token
+  -> application enforces resource, citation, action, and tool-call policies
+```
+
+Live edits never alter an already prepared round. Deactivation removes an agent from
+future run plans without erasing its history. The boardroom turn cap follows the active
+agent count, and the last active agent cannot be disabled. Tool conditions are interpreted by the
+server-side capability implementation; for example, document search may be restricted
+to a maximum result count or a document allowlist.
 
 ### Tenant work queue
 
@@ -319,6 +338,7 @@ docs/
 - [ADR-0019: Gate external agent actions with durable approval](adr/0019-agent-action-approvals.md)
 - [ADR-0020: Run provider CLIs in ephemeral constrained containers](adr/0020-ephemeral-agent-runners.md)
 - [ADR-0021: Enforce tenant execution capacity and usage budgets](adr/0021-agent-capacity-and-operations.md)
+- [ADR-0022: Store typed, versioned agent configuration](adr/0022-agent-customization.md)
 
 ## Open questions
 

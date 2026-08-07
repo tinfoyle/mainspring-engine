@@ -31,6 +31,7 @@ type Invocation struct {
 	PersonaID          domain.PersonaID
 	PersonaName        string
 	PersonaRole        string
+	PersonaDescription string
 	SystemInstructions string
 	Conversation       []ConversationMessage
 	ToolGrants         []domain.ToolGrant
@@ -41,6 +42,14 @@ type Invocation struct {
 	MaxInputTokens     int64
 	MaxOutputTokens    int64
 	MaxCostMicros      int64
+	Provider           string
+	Model              string
+	ReasoningEffort    string
+	Temperature        *float64
+	TopP               *float64
+	ResponseStyle      string
+	CitationPolicy     string
+	ActionPolicy       string
 }
 
 type ToolDefinition struct {

@@ -583,6 +583,46 @@ type PersonaView struct {
 	Tools []string
 }
 
+type AgentCardView struct {
+	ID, Name, Role, Description, BoardroomName, Provider, Model, ReasoningEffort string
+	Position, MaxTurns, ToolCount                                                int
+	Enabled                                                                      bool
+}
+
+type AgentToolView struct {
+	Capability, Label, Description, Conditions string
+	Selected                                   bool
+}
+
+type AgentBoardroomOptionView struct {
+	ID, Name string
+	Selected bool
+}
+
+type AgentVersionView struct {
+	Version   int
+	Name      string
+	Role      string
+	CreatedAt time.Time
+}
+
+type AgentFormView struct {
+	ID, Name, Role, Description, SystemInstructions string
+	BoardroomID, BoardroomName                      string
+	Position                                        int
+	Enabled                                         bool
+	Provider, Model, ReasoningEffort                string
+	Temperature, TopP                               string
+	ContextTokenLimit, MaxOutputTokens              int64
+	TimeoutSeconds, MaxToolCalls                    int
+	MaxCostMicros                                   int64
+	ResponseStyle, CitationPolicy, ActionPolicy     string
+	Tools                                           []AgentToolView
+	Boardrooms                                      []AgentBoardroomOptionView
+	Versions                                        []AgentVersionView
+	IsNew                                           bool
+}
+
 type RunView struct {
 	ID          string
 	Status      string
