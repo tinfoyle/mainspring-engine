@@ -1,0 +1,8 @@
+# Local credentials
+github-token.txt
+
+# Local configuration and build output
+.env
+bin/
+coverage.out
+ui/node_modules/

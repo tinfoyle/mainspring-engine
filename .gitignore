@@ -1,8 +1,19 @@
-# Local credentials
+# Local credentials and environment overrides.
+.env
+.env.*
+!.env.example
 github-token.txt
 
-# Local configuration and build output
-.env
-bin/
-coverage.out
-ui/node_modules/
+# Editor and operating-system state.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Build, test, and dependency output anywhere in the repository.
+**/node_modules/
+**/dist/
+**/coverage/
+**/*.test
+**/*.out
+**/tmp/
