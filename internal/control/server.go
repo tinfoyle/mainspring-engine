@@ -5,9 +5,11 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -22,10 +24,11 @@ type Server struct {
 	pool           *pgxpool.Pool
 	store          *Store
 	adminTokenHash [sha256.Size]byte
+	adminToken     string
 }
 
 func NewServer(logger *slog.Logger, pool *pgxpool.Pool, adminToken string) *Server {
-	return &Server{logger: logger, pool: pool, store: NewStore(pool), adminTokenHash: sha256.Sum256([]byte(adminToken))}
+	return &Server{logger: logger, pool: pool, store: NewStore(pool), adminToken: adminToken, adminTokenHash: sha256.Sum256([]byte(adminToken))}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -37,7 +40,9 @@ func (s *Server) Handler() http.Handler {
 		router.Get("/", s.listTenants)
 		router.Post("/", s.createTenant)
 		router.Put("/{tenantID}/runtime", s.setRuntime)
+		router.Post("/{tenantID}/owner", s.transferOwner)
 	})
+	router.Route("/api/announcements", func(router chi.Router) { router.Use(s.requireAdminToken); router.Post("/", s.createAnnouncement) })
 
 	return httpx.Chain(router,
 		httpx.RequestID,
@@ -45,6 +50,98 @@ func (s *Server) Handler() http.Handler {
 		httpx.Recover(s.logger),
 		httpx.AccessLog(s.logger),
 	)
+}
+
+func (s *Server) transferOwner(w http.ResponseWriter, r *http.Request) {
+	tenantID, err := domain.ParseTenantID(chi.URLParam(r, "tenantID"))
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "invalid_tenant_id", "Tenant ID is invalid.")
+		return
+	}
+	var input struct {
+		UserID string `json:"user_id"`
+	}
+	if decodeJSON(w, r, &input) != nil {
+		return
+	}
+	tenant, err := s.store.TenantByID(r.Context(), tenantID)
+	if errors.Is(err, ErrTenantNotFound) {
+		httpx.WriteProblem(w, http.StatusNotFound, "tenant_not_found", "Tenant was not found.")
+		return
+	}
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusInternalServerError, "tenant_load_failed", "Tenant could not be loaded.")
+		return
+	}
+	if err := s.platformRequest(r, tenant, "/internal/platform/ownership", map[string]string{"user_id": input.UserID}); err != nil {
+		httpx.WriteProblem(w, http.StatusBadGateway, "ownership_transfer_failed", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) createAnnouncement(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Title    string `json:"title"`
+		Body     string `json:"body"`
+		Category string `json:"category"`
+		Target   string `json:"target"`
+		TenantID string `json:"tenant_id"`
+	}
+	if decodeJSON(w, r, &input) != nil {
+		return
+	}
+	announcement, err := s.store.CreatePlatformAnnouncement(r.Context(), input.Title, input.Body, input.Category, input.Target, input.TenantID, "platform_administrator")
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "invalid_announcement", err.Error())
+		return
+	}
+	tenants, err := s.store.AnnouncementTenants(r.Context(), announcement)
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "announcement_targets_unavailable", err.Error())
+		return
+	}
+	for _, tenant := range tenants {
+		target := announcement.Target
+		if target == "all_users" {
+			target = "all_users"
+		}
+		if err := s.platformRequest(r, tenant, "/internal/platform/announcements", map[string]string{"id": announcement.ID, "title": announcement.Title, "body": announcement.Body, "category": announcement.Category, "target": target}); err != nil {
+			httpx.WriteProblem(w, http.StatusBadGateway, "announcement_delivery_failed", "Announcement was recorded but could not be delivered to "+tenant.Slug+": "+err.Error())
+			return
+		}
+	}
+	httpx.WriteJSON(w, http.StatusCreated, announcement)
+}
+
+func (s *Server) platformRequest(r *http.Request, tenant Tenant, path string, payload any) error {
+	base, err := url.Parse(tenant.InternalURL)
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return errors.New("tenant runtime is unavailable")
+	}
+	endpoint, err := base.Parse(path)
+	if err != nil {
+		return errors.New("tenant maintenance endpoint is invalid")
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(r.Context(), http.MethodPost, endpoint.String(), strings.NewReader(string(body)))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+s.adminToken)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("tenant returned %s", response.Status)
+	}
+	return nil
 }
 
 func (s *Server) requireAdminToken(next http.Handler) http.Handler {

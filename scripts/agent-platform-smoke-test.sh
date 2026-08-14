@@ -63,7 +63,7 @@ for _ in $(seq 1 160); do
 done
 grep -q 'run-status-awaiting_approval' "$page"
 
-request --cookie "$cookies" --output "$page" "$base_url/approvals"
+request --cookie "$cookies" --output "$page" "$base_url/your-turn?tab=approvals"
 grep -q 'Mainspring approval demonstration' "$page"
 mapfile -t approval_ids < <(grep -oE '/approvals/[0-9a-f-]+/approve' "$page" | sed -E 's#^/approvals/([^/]+)/approve$#\1#' | sort -u)
 [[ "${#approval_ids[@]}" -ge 1 ]]
@@ -80,7 +80,7 @@ for _ in $(seq 1 80); do
 done
 grep -q 'run-status-completed' "$page"
 
-request --cookie "$cookies" --output "$page" "$base_url/approvals?history=1"
+request --cookie "$cookies" --output "$page" "$base_url/your-turn?tab=approvals&history=1"
 grep -q 'Approved' "$page"
 request --cookie "$cookies" --output "$page" "$base_url/operations"
 grep -q 'Agent operations' "$page"

@@ -58,6 +58,51 @@ func (s *Service) Message(ctx context.Context, uid uint32) (Message, error) {
 	return message, err
 }
 
+func (s *Service) Folders(ctx context.Context) ([]string, error) {
+	integration, err := s.store.Primary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	connector, ok := s.connector.(EvidenceConnector)
+	if !ok {
+		return []string{"INBOX"}, nil
+	}
+	folders, err := connector.Folders(ctx, integration)
+	if err != nil {
+		s.store.MarkError(ctx, integration.ID, err)
+	}
+	return folders, err
+}
+
+func (s *Service) Evidence(ctx context.Context, scope EvidenceScope) ([]EvidenceMessage, error) {
+	integration, err := s.store.Primary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if connector, ok := s.connector.(EvidenceConnector); ok {
+		items, err := connector.Evidence(ctx, integration, scope)
+		if err != nil {
+			s.store.MarkError(ctx, integration.ID, err)
+		}
+		return items, err
+	}
+	messages, err := s.connector.Inbox(ctx, integration, scope.MaxItems)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]EvidenceMessage, 0, len(messages))
+	for _, item := range messages {
+		if scope.Since != nil && item.Date.Before(*scope.Since) || scope.Until != nil && item.Date.After(scope.Until.AddDate(0, 0, 1)) {
+			continue
+		}
+		message, err := s.connector.Message(ctx, integration, item.UID)
+		if err == nil {
+			result = append(result, EvidenceMessage{Message: message, Folder: "INBOX"})
+		}
+	}
+	return result, nil
+}
+
 func (s *Service) Send(ctx context.Context, key string, message OutgoingMessage, actorType, actorID string, runID *domain.RunID) (SendResult, error) {
 	key = strings.TrimSpace(key)
 	if key == "" || len(key) > 200 {

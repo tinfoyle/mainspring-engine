@@ -69,6 +69,34 @@ func (c *Client) IngestText(ctx context.Context, name, mediaType, content, creat
 	return document, nil
 }
 
+func (c *Client) CreateAgentDocument(ctx context.Context, name, mediaType, content string, provenance DocumentProvenance) (Document, error) {
+	input := struct {
+		Name       string             `json:"name"`
+		MediaType  string             `json:"media_type"`
+		Content    string             `json:"content"`
+		Provenance DocumentProvenance `json:"provenance"`
+	}{Name: name, MediaType: mediaType, Content: content, Provenance: provenance}
+	var document Document
+	if err := c.request(ctx, http.MethodPost, "/documents/agent", input, &document); err != nil {
+		return Document{}, err
+	}
+	return document, nil
+}
+
+func (c *Client) UpdateAgentDocument(ctx context.Context, documentID, name, mediaType, content string, provenance DocumentProvenance) (Document, error) {
+	input := struct {
+		Name       string             `json:"name"`
+		MediaType  string             `json:"media_type"`
+		Content    string             `json:"content"`
+		Provenance DocumentProvenance `json:"provenance"`
+	}{Name: name, MediaType: mediaType, Content: content, Provenance: provenance}
+	var document Document
+	if err := c.request(ctx, http.MethodPut, "/documents/"+url.PathEscape(documentID)+"/agent", input, &document); err != nil {
+		return Document{}, err
+	}
+	return document, nil
+}
+
 func (c *Client) Search(ctx context.Context, query string, limit int, documentIDs []string) ([]SearchResult, error) {
 	values := url.Values{}
 	values.Set("q", query)

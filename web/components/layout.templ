@@ -11,6 +11,10 @@ templ Layout(title string, tenantName string, user *UserView, csrfToken string) 
 			<link rel="stylesheet" href="/assets/app.css"/>
 			<script defer src="/assets/htmx.min.js"></script>
 			<script defer src="/assets/htmx-sse.min.js"></script>
+			<script defer src="/assets/boardroom.js"></script>
+			<script defer src="/assets/messenger.js"></script>
+			<script defer src="/assets/baseline.js"></script>
+			<script defer src="/assets/your_turn.js"></script>
 		</head>
 		<body>
 			<header class="topbar">
@@ -24,15 +28,21 @@ templ Layout(title string, tenantName string, user *UserView, csrfToken string) 
 				if user != nil {
 					<div class="user-menu">
 						<a href="/work">Work</a>
-						if user.Role == "owner" || user.Role == "admin" {
+						<a href="/baseline">Baseline</a>
+						if user.Role == "owner" {
 							<a href="/agents">Agents</a>
 						}
+						if user.Role == "owner" {
+							<a href="/team">Team</a>
+						}
+						<a href="/inbox">Inbox</a>
 						<a href="/email">Email</a>
-						<a href="/approvals">Approvals</a>
-						if user.Role == "owner" || user.Role == "admin" {
+						<a href="/your-turn">Your turn</a>
+						if user.Role == "owner" {
 							<a href="/operations">Operations</a>
 						}
 						<a href="/documents">Documents</a>
+						<a href="/finance">Finance</a>
 						<a href="/schedules">Schedules</a>
 						if user.Development {
 							<a href="/development">Demo tools</a>
@@ -48,6 +58,17 @@ templ Layout(title string, tenantName string, user *UserView, csrfToken string) 
 			<main class="page">
 				{ children... }
 			</main>
+			if user != nil {
+				<aside class="messenger" data-messenger data-csrf={ csrfToken } aria-label="Messenger">
+					<button class="messenger-toggle" type="button" data-messenger-toggle>Messenger</button>
+					<section class="messenger-panel" data-messenger-panel hidden>
+						<div class="messenger-tabs"><button class="is-active" type="button" data-messenger-channel="team">Team</button><button type="button" data-messenger-channel="support">Support</button></div>
+						<div class="messenger-messages" data-messenger-messages aria-live="polite"></div>
+						<p class="messenger-status" data-messenger-status></p>
+						<form><textarea aria-label="Message" maxlength="4000" placeholder="Write a message…"></textarea><button class="button button-primary" type="submit">Send</button></form>
+					</section>
+				</aside>
+			}
 		</body>
 	</html>
 }

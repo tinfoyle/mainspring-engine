@@ -2,16 +2,16 @@ package components
 
 import "fmt"
 
-templ BoardroomPage(tenantName string, user UserView, room BoardroomCardView, personas []PersonaView, conversations []ConversationView, csrfToken, template string) {
+templ BoardroomPage(tenantName string, user UserView, room BoardroomCardView, personas []PersonaView, conversations []ConversationView, documents []DocumentOptionView, csrfToken, template string) {
 	@Layout(room.Name, tenantName, &user, csrfToken) {
 		<div class="boardroom-layout">
 			@BoardroomSidebar(room, personas, "/")
 			<section class="boardroom-main panel">
 				<header class="conversation-list-header">
 					if IsSoftwareTemplate(template) {
-						<div><p class="eyebrow">Workspace</p><h2>Conversations</h2><p>Keep each product, client service, growth, or operating question in its own continuing conversation.</p></div>
+						<div><p class="eyebrow">Workspace</p><h2>Conversations</h2><p>Main Manager is your primary contact and brings in only the specialists needed for each question.</p></div>
 					} else {
-						<div><p class="eyebrow">Workspace</p><h2>Conversations</h2><p>Keep each job, question, or issue in its own continuing conversation.</p></div>
+						<div><p class="eyebrow">Workspace</p><h2>Conversations</h2><p>Main Manager is your primary contact and brings in only the specialists needed for each question.</p></div>
 					}
 				</header>
 				<form class="prompt-form prompt-form-new" method="post" action={ templ.URL("/boardrooms/" + room.ID + "/conversations") }>
@@ -22,6 +22,7 @@ templ BoardroomPage(tenantName string, user UserView, room BoardroomCardView, pe
 					} else {
 						<textarea id="prompt" name="prompt" required maxlength="12000" placeholder="Review completed jobs that have not been invoiced and tell me what needs attention."></textarea>
 					}
+					@DocumentPicker(documents, "document_id", "Attach documents", false)
 					<button class="button button-primary" type="submit">Convene boardroom</button>
 				</form>
 				<div class="conversation-list">
@@ -44,7 +45,7 @@ templ BoardroomPage(tenantName string, user UserView, room BoardroomCardView, pe
 	}
 }
 
-templ ConversationPage(tenantName string, user UserView, room BoardroomCardView, personas []PersonaView, conversation ConversationView, run RunView, messages []MessageView, csrfToken string) {
+templ ConversationPage(tenantName string, user UserView, room BoardroomCardView, personas []PersonaView, conversation ConversationView, run RunView, messages []MessageView, attachments []DocumentOptionView, documents []DocumentOptionView, approvals []ApprovalView, csrfToken string) {
 	@Layout(conversation.Title, tenantName, &user, csrfToken) {
 		<div class="boardroom-layout">
 			@BoardroomSidebar(room, personas, "/boardrooms/" + room.ID)
@@ -53,6 +54,13 @@ templ ConversationPage(tenantName string, user UserView, room BoardroomCardView,
 					<div><p class="eyebrow">Conversation</p><h1 class="conversation-title">{ conversation.Title }</h1><p class="conversation-meta">{ ConversationSourceLabel(conversation.Source) } &middot; Updated { conversation.UpdatedAt.Local().Format("Jan 2 at 3:04 PM") }</p></div>
 					<div id="current-run-status" sse-swap="status" hx-swap="innerHTML">@RunStatus(run)</div>
 				</header>
+				if len(attachments) > 0 {
+					<section class="conversation-knowledge" aria-label="Attached conversation documents"><strong>Attached knowledge</strong><div class="document-chip-list">
+						for _, document := range attachments {
+							<a class="document-chip" href={ templ.URL("/documents/" + document.ID) }>{ document.Name }</a>
+						}
+					</div></section>
+				}
 				<div class="conversation">
 					<div id="messages" sse-swap="message" hx-swap="beforeend">
 						for _, message := range messages {
@@ -60,14 +68,46 @@ templ ConversationPage(tenantName string, user UserView, room BoardroomCardView,
 						}
 					</div>
 					<div id="follow-up" sse-swap="finished" hx-swap="innerHTML">
-						if RunIsTerminal(run.Status) {
-							@FollowUpForm(conversation.ID, csrfToken)
+						if run.Status == "awaiting_approval" {
+							@ApprovalOffers(approvals, csrfToken)
+						} else if RunIsTerminal(run.Status) {
+							@FollowUpForm(conversation.ID, documents, csrfToken, run.Status)
 						}
 					</div>
 				</div>
 			</section>
 		</div>
 	}
+}
+
+templ ApprovalOffers(approvals []ApprovalView, csrfToken string) {
+	<section class="conversation-approval" aria-label="Proposed next step">
+		<p class="eyebrow">Proposed next step</p>
+		if len(approvals) == 0 {
+			<h2>Owner review is required</h2>
+			<p>Open Approvals to review the proposed action before anything is created.</p>
+			<a class="button button-primary" href="/approvals">Open approvals</a>
+		} else {
+			for _, approval := range approvals {
+				<div class="conversation-approval-card">
+					<h2>{ approval.Reason }</h2>
+					<p><strong>{ ActionTypeLabel(approval.ActionType) }</strong> proposed by { approval.PersonaName }.</p>
+					if len(approval.Evidence) > 0 {
+						<ul>
+							for _, evidence := range approval.Evidence {
+								<li>{ evidence }</li>
+							}
+						</ul>
+					}
+					<details><summary>Review exact work item</summary><pre>{ approval.RequestPayload }</pre></details>
+					<div class="approval-actions">
+						<form method="post" action={ templ.URL("/approvals/" + approval.ID + "/reject") }><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-quiet" type="submit">Not now</button></form>
+						<form method="post" action={ templ.URL("/approvals/" + approval.ID + "/approve") }><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-primary" type="submit">{ ApprovalButtonLabel(approval.ActionType) }</button></form>
+					</div>
+				</div>
+			}
+		}
+	</section>
 }
 
 templ BoardroomSidebar(room BoardroomCardView, personas []PersonaView, backURL string) {
@@ -82,14 +122,47 @@ templ BoardroomSidebar(room BoardroomCardView, personas []PersonaView, backURL s
 	</aside>
 }
 
-templ FollowUpForm(conversationID, csrfToken string) {
-	<div class="follow-up-ready"><p><strong>The boardroom is ready for your follow-up.</strong></p><p>Continue this conversation or return to the boardroom to start a separate piece of work.</p></div>
+templ FollowUpForm(conversationID string, documents []DocumentOptionView, csrfToken, runStatus string) {
+	if runStatus == "failed" {
+		<div class="follow-up-ready follow-up-failed"><p><strong>The boardroom could not complete this run.</strong></p><p>Try the request again, add more context, or return to the boardroom to start separately.</p></div>
+	} else if runStatus == "canceled" {
+		<div class="follow-up-ready"><p><strong>This boardroom run was canceled.</strong></p><p>You can continue the conversation whenever you are ready.</p></div>
+	} else {
+		<div class="follow-up-ready"><p><strong>The boardroom is ready for your follow-up.</strong></p><p>Continue this conversation or return to the boardroom to start a separate piece of work.</p></div>
+	}
 	<form class="prompt-form follow-up-form" method="post" action={ templ.URL("/conversations/" + conversationID + "/runs") }>
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
 		<label for="follow-up-prompt">Ask a follow-up</label>
 		<textarea id="follow-up-prompt" name="prompt" required maxlength="12000" placeholder="Ask for clarification, give the team more information, or tell them what to do next."></textarea>
-		<button class="button button-primary" type="submit">Continue conversation</button>
+		@DocumentPicker(documents, "document_id", "Add documents to this conversation", true)
+		<button class="button button-primary" type="submit">{ FollowUpButtonLabel(runStatus) }</button>
 	</form>
+}
+
+func FollowUpButtonLabel(runStatus string) string {
+	if runStatus == "failed" { return "Retry conversation" }
+	return "Continue conversation"
+}
+
+templ DocumentPicker(documents []DocumentOptionView, fieldName, label string, onlyUnselected bool) {
+	if HasSelectableDocuments(documents, onlyUnselected) {
+		<details class="document-picker"><summary>{ label }</summary><p>Selected documents become persistent conversation knowledge and are snapshotted for each boardroom run.</p><div class="document-picker-grid">
+			for _, document := range documents {
+				if !onlyUnselected || !document.Selected {
+					<label><input type="checkbox" name={ fieldName } value={ document.ID }/><span><strong>{ document.Name }</strong><small>{ DocumentTypeLabel(document.MediaType) }</small></span></label>
+				}
+			}
+		</div></details>
+	} else if len(documents) == 0 {
+		<p class="document-picker-empty">Upload documents in the library to attach business context to this conversation.</p>
+	}
+}
+
+func HasSelectableDocuments(documents []DocumentOptionView, onlyUnselected bool) bool {
+	for _, document := range documents {
+		if !onlyUnselected || !document.Selected { return true }
+	}
+	return false
 }
 
 templ MessageBubble(message MessageView) {
@@ -103,6 +176,45 @@ templ MessageBubble(message MessageView) {
 			<time>{ message.CreatedAt.Local().Format("3:04 PM") }</time>
 		</header>
 		<p>{ message.Body }</p>
+		if message.Role != "user" && len(message.Research) > 0 {
+			<section class="research-trace" aria-label="Research activity">
+				<strong class="research-trace-title">Research activity</strong>
+				for _, activity := range message.Research {
+					<div class="research-activity">
+						<div class="research-query">
+							<span>{ ResearchActivityLabel(activity.Tool) }</span>
+							if activity.Query != "" {
+								<strong>{ activity.Query }</strong>
+							} else if ResearchURL(activity.URL) != "" {
+								<a href={ templ.URL(ResearchURL(activity.URL)) } target="_blank" rel="noopener noreferrer">{ activity.URL }</a>
+							}
+						</div>
+						if activity.Status == "failed" || activity.Status == "skipped" {
+							<p class="research-empty">The research request did not complete.</p>
+						} else if activity.Status == "running" {
+							<p class="research-empty">Research is in progress.</p>
+						} else if len(activity.Results) == 0 {
+							<p class="research-empty">No matching results were returned.</p>
+						} else {
+							<ul class="research-results">
+								for _, result := range activity.Results {
+									<li>
+										if ResearchURL(result.URL) != "" {
+											<a href={ templ.URL(ResearchURL(result.URL)) } target="_blank" rel="noopener noreferrer">{ result.Title }</a>
+										} else {
+											<strong>{ result.Title }</strong>
+										}
+										if result.Excerpt != "" {
+											<p>{ result.Excerpt }</p>
+										}
+									</li>
+								}
+							</ul>
+						}
+					</div>
+				}
+			</section>
+		}
 	</article>
 }
 

@@ -19,12 +19,12 @@ func TestChunkTextPreservesContentAndOverlap(t *testing.T) {
 }
 
 func TestSupportedTextMediaType(t *testing.T) {
-	for _, mediaType := range []string{"text/plain", "text/markdown; charset=utf-8", "text/csv", "application/json", "application/xml"} {
+	for _, mediaType := range []string{"text/plain", "text/markdown; charset=utf-8", "text/csv", "application/json", "application/xml", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"} {
 		if !supportedTextMediaType(mediaType) {
 			t.Fatalf("expected %q to be supported", mediaType)
 		}
 	}
-	for _, mediaType := range []string{"application/pdf", "application/octet-stream", "image/png"} {
+	for _, mediaType := range []string{"application/octet-stream", "image/png"} {
 		if supportedTextMediaType(mediaType) {
 			t.Fatalf("expected %q to be rejected", mediaType)
 		}

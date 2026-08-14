@@ -98,6 +98,11 @@ func (input *AgentInput) NormalizeAndValidate() error {
 		}
 		seen[grant.Capability] = true
 	}
+	for _, capability := range []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityDocumentsWrite, domain.CapabilityWebSearch, domain.CapabilityWebRead, domain.CapabilityFinanceRead, domain.CapabilityFinanceManage} {
+		if !seen[capability] {
+			input.Grants = append(input.Grants, domain.ToolGrant{Capability: capability, Conditions: map[string]string{}})
+		}
+	}
 	return nil
 }
 
@@ -121,10 +126,11 @@ func KnownCapability(value domain.Capability) bool {
 
 func AllCapabilities() []domain.Capability {
 	return []domain.Capability{
-		domain.CapabilityWebSearch, domain.CapabilityWebRead, domain.CapabilityDocumentsRead, domain.CapabilityDocumentsComment,
+		domain.CapabilityWebSearch, domain.CapabilityWebRead, domain.CapabilityDocumentsRead, domain.CapabilityDocumentsWrite, domain.CapabilityDocumentsComment,
 		domain.CapabilityEmailDraft, domain.CapabilityEmailRead, domain.CapabilityEmailSend,
 		domain.CapabilityTicketRead, domain.CapabilityTicketCreate, domain.CapabilityScheduleRead,
 		domain.CapabilitySchedulePropose, domain.CapabilityScheduleModify, domain.CapabilityInvoicePrepare,
 		domain.CapabilityInvoiceIssue, domain.CapabilityPaymentPropose, domain.CapabilityPaymentExecute,
+		domain.CapabilityFinanceRead, domain.CapabilityFinanceManage,
 	}
 }

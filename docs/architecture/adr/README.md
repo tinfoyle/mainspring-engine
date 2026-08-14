@@ -14,7 +14,7 @@ Architecture decision records capture consequential technical choices and the re
 
 | ADR | Decision | Status |
 | --- | --- | --- |
-| [0001](0001-go-html-over-the-wire.md) | Use Go and an HTML-over-the-wire frontend | Proposed |
+| [0001](0001-go-html-over-the-wire.md) | Use Go and an HTML-over-the-wire frontend | Superseded by ADR-0026 for interactive tenant surfaces |
 | [0002](0002-control-plane-and-tenant-runtime.md) | Separate the control plane from tenant runtimes | Proposed |
 | [0003](0003-tenant-database-isolation.md) | Use a database and role per tenant | Proposed |
 | [0004](0004-temporal-orchestration.md) | Use Temporal for durable orchestration | Proposed |
@@ -36,6 +36,10 @@ Architecture decision records capture consequential technical choices and the re
 | [0020](0020-ephemeral-agent-runners.md) | Run provider CLIs in ephemeral constrained containers | Proposed |
 | [0021](0021-agent-capacity-and-operations.md) | Enforce tenant execution capacity and usage budgets | Proposed |
 | [0022](0022-agent-customization.md) | Store typed, versioned agent configuration | Proposed |
+| [0023](0023-self-hosted-web-research.md) | Self-host web research behind the tool broker | Accepted |
+| [0024](0024-documented-business-baseline.md) | Make the documented business baseline the onboarding spine | Accepted |
+| [0025](0025-shared-business-knowledge-and-input-coordination.md) | Coordinate owner input through shared business knowledge | Accepted |
+| [0026](0026-persistent-react-workspace.md) | Use a persistent React workspace for interactive tenant surfaces | Accepted |
 
 ## Template
 

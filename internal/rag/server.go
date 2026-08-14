@@ -40,10 +40,49 @@ func (s *Server) Handler() http.Handler {
 		router.Use(s.authorize)
 		router.Get("/documents", s.listDocuments)
 		router.Post("/documents/text", s.ingestText)
+		router.Post("/documents/agent", s.createAgentDocument)
 		router.Get("/documents/{documentID}", s.getDocument)
+		router.Put("/documents/{documentID}/agent", s.updateAgentDocument)
 		router.Get("/search", s.search)
 	})
 	return httpx.Chain(router, httpx.RequestID, httpx.Recover(s.logger), httpx.AccessLog(s.logger))
+}
+
+type agentDocumentInput struct {
+	Name       string             `json:"name"`
+	MediaType  string             `json:"media_type"`
+	Content    string             `json:"content"`
+	Provenance DocumentProvenance `json:"provenance"`
+}
+
+func (s *Server) createAgentDocument(w http.ResponseWriter, r *http.Request) {
+	var input agentDocumentInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		return
+	}
+	document, err := s.store.IngestTextByAgent(r.Context(), input.Name, input.MediaType, input.Content, input.Provenance)
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "agent_document_create_failed", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, document)
+}
+
+func (s *Server) updateAgentDocument(w http.ResponseWriter, r *http.Request) {
+	var input agentDocumentInput
+	if err := decodeJSON(w, r, &input); err != nil {
+		return
+	}
+	document, err := s.store.UpdateTextByAgent(r.Context(), chi.URLParam(r, "documentID"), input.Name, input.MediaType, input.Content, input.Provenance)
+	if errors.Is(err, ErrDocumentNotFound) {
+		httpx.WriteProblem(w, http.StatusNotFound, "document_not_found", "The document was not found.")
+		return
+	}
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "agent_document_update_failed", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, document)
 }
 
 func (s *Server) authorize(next http.Handler) http.Handler {

@@ -24,6 +24,8 @@ type Claims struct {
 	RunID        string                       `json:"run_id"`
 	PersonaID    string                       `json:"persona_id"`
 	InvocationID string                       `json:"invocation_id"`
+	ActorType    string                       `json:"actor_type,omitempty"`
+	ActorID      string                       `json:"actor_id,omitempty"`
 	Grants       []string                     `json:"grants"`
 	Conditions   map[string]map[string]string `json:"conditions,omitempty"`
 	IssuedAt     int64                        `json:"iat"`
@@ -54,6 +56,7 @@ func (i *TokenIssuer) Mint(invocation domain.InvocationContext) (string, error) 
 	claims := Claims{
 		TenantID: invocation.TenantID.String(), BoardroomID: invocation.BoardroomID.String(), RunID: invocation.RunID.String(),
 		PersonaID: invocation.PersonaID.String(), InvocationID: invocation.InvocationID.String(),
+		ActorType: invocation.ActorType, ActorID: invocation.ActorID,
 		IssuedAt: now.Unix(), ExpiresAt: invocation.ExpiresAt.Unix(), Conditions: make(map[string]map[string]string),
 	}
 	for _, grant := range invocation.Grants {
@@ -108,6 +111,12 @@ func (i *TokenIssuer) Verify(token string) (Claims, error) {
 	}
 	if _, err := domain.ParseInvocationID(claims.InvocationID); err != nil {
 		return Claims{}, fmt.Errorf("%w: invocation", ErrInvalidToken)
+	}
+	if claims.ActorType != "" && claims.ActorType != "persona" && claims.ActorType != "user" {
+		return Claims{}, fmt.Errorf("%w: actor type", ErrInvalidToken)
+	}
+	if claims.ActorType != "" && strings.TrimSpace(claims.ActorID) == "" {
+		return Claims{}, fmt.Errorf("%w: actor id", ErrInvalidToken)
 	}
 	return claims, nil
 }

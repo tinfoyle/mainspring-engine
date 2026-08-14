@@ -87,9 +87,32 @@ templ AgentFormPage(tenantName string, user UserView, agent AgentFormView, csrfT
 				<label><span>External actions</span><select name="action_policy"><option value="propose_only" selected?={ agent.ActionPolicy == "propose_only" }>May propose; owner approval required</option><option value="disabled" selected?={ agent.ActionPolicy == "disabled" }>Cannot propose actions</option></select></label>
 			</div></section>
 
-			<section class="panel form-section"><header><p class="eyebrow">Capabilities</p><h2>Tool permissions</h2><p>Every tool remains server-authorized. Optional conditions are a JSON object of string keys and values.</p></header><div class="tool-permission-grid">
+			<section class="panel form-section knowledge-access"><header><p class="eyebrow">Knowledge</p><h2>Document access</h2><p>Choose which tenant documents this agent may search. Documents attached to a conversation narrow this scope for that run.</p></header>
+				<div class="form-grid">
+					<label><span>Access</span><select name="knowledge_mode"><option value="none" selected?={ agent.KnowledgeMode == "none" }>No document access</option><option value="all" selected?={ agent.KnowledgeMode == "all" }>Entire document library</option><option value="selected" selected?={ agent.KnowledgeMode == "selected" }>Selected documents</option></select></label>
+					<label><span>Maximum results per search</span><input type="number" min="1" max="10" name="knowledge_max_results" value={ fmt.Sprint(agent.KnowledgeMaxResults) }/></label>
+				</div>
+				if len(agent.Documents) > 0 {
+					<div class="knowledge-document-grid" aria-label="Documents available to this agent">
+						for _, document := range agent.Documents {
+							<label><input type="checkbox" name="knowledge_document_id" value={ document.ID } checked?={ document.Selected }/><span><strong>{ document.Name }</strong><small>{ DocumentTypeLabel(document.MediaType) }</small></span></label>
+						}
+					</div>
+				} else {
+					<p class="field-note">No ready documents are available yet. Upload them in Documents, then return here to select them.</p>
+				}
+				<p class="field-note">The selected-document list is used only when Access is set to “Selected documents.”</p>
+			</section>
+
+			<section class="panel form-section"><header><p class="eyebrow">Capabilities</p><h2>Tool permissions</h2><p>Web search and website reading are baseline, read-only capabilities for every agent. Other tools remain configurable and server-authorized. Optional conditions are a JSON object of string keys and values.</p></header><div class="tool-permission-grid">
 				for _, tool := range agent.Tools {
-					<div class="tool-permission"><label class="checkbox-field"><input type="checkbox" name={ "tool_" + tool.Capability } value="true" checked?={ tool.Selected }/><span><strong>{ tool.Label }</strong><small>{ tool.Description }</small></span></label><label><span>Conditions</span><input name={ "conditions_" + tool.Capability } value={ tool.Conditions } placeholder="{}"/></label></div>
+					if tool.Capability != "documents.read" {
+						if tool.Capability == "web.search" || tool.Capability == "web.read" {
+							<div class="tool-permission"><input type="hidden" name={ "tool_" + tool.Capability } value="true"/><label class="checkbox-field"><input type="checkbox" checked disabled/><span><strong>{ tool.Label }</strong><small>{ tool.Description } Baseline for every agent.</small></span></label><label><span>Conditions</span><input name={ "conditions_" + tool.Capability } value={ tool.Conditions } placeholder="{}"/></label></div>
+						} else {
+							<div class="tool-permission"><label class="checkbox-field"><input type="checkbox" name={ "tool_" + tool.Capability } value="true" checked?={ tool.Selected }/><span><strong>{ tool.Label }</strong><small>{ tool.Description }</small></span></label><label><span>Conditions</span><input name={ "conditions_" + tool.Capability } value={ tool.Conditions } placeholder="{}"/></label></div>
+						}
+					}
 				}
 			</div></section>
 

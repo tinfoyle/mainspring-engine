@@ -48,7 +48,7 @@ reset_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$co
   "$base_url/development/reset-onboarding")"
 [[ "$reset_status" == "303" ]]
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?legacy=1"
 grep -q 'Unified demo' "$page"
 grep -q 'SaaS' "$page"
 grep -q 'MSP' "$page"
@@ -64,7 +64,7 @@ post_step() {
 }
 
 post_step /onboarding/template --data-urlencode "template_selection=saas"
-request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?legacy=1"
 grep -q 'Business model' "$page"
 grep -q 'Target market' "$page"
 
@@ -82,7 +82,7 @@ post_step /onboarding/business \
   --data-urlencode "current_systems=Git provider" \
   --data-urlencode "current_systems=Subscription billing"
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=2"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=2&legacy=1"
 grep -q 'How are product, project, support, and recurring-service priorities decided' "$page"
 
 post_step /onboarding/operations \
@@ -100,7 +100,7 @@ post_step /onboarding/priorities \
   --data-urlencode "priorities=Ship roadmap more predictably" \
   --data-urlencode "priorities=Monitor reliability, security, and incident follow-up"
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=4"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=4&legacy=1"
 grep -q 'Product Manager' "$page"
 grep -q 'Engineering Manager' "$page"
 grep -q 'Service Delivery Manager' "$page"
@@ -127,14 +127,14 @@ post_step /onboarding/permissions \
   --data-urlencode "propose_schedule_edits=true" \
   --data-urlencode "propose_payments=true"
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=6"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=6&legacy=1"
 grep -q 'Relay Cloud' "$page"
 grep -q 'Company Operating Room' "$page"
 
 post_step /onboarding/launch
 request --cookie "$cookies" --output "$page" "$base_url/"
 grep -q 'Company Operating Room' "$page"
-grep -q 'focus on building the company' "$page"
+grep -q 'cross-functional operating team' "$page"
 room_path="$(grep -oE '/boardrooms/[0-9a-f-]+' "$page" | head -n 1)"
 request --cookie "$cookies" --output "$page" "$base_url$room_path"
 grep -q 'Product Manager' "$page"

@@ -473,6 +473,50 @@ func (s *Store) ResetOnboarding(ctx context.Context, tenantID domain.TenantID, d
 	`, tenantID.String(), strings.TrimSpace(displayName)); err != nil {
 		return fmt.Errorf("reset tenant business profile: %w", err)
 	}
+	// Preserve connected source credentials, but close the current assessment
+	// so the next visit begins a clean interview.
+	if _, err := tx.Exec(ctx, `
+		UPDATE baseline_assessments
+		SET status = 'archived', updated_at = now()
+		WHERE tenant_id = $1 AND status <> 'archived'
+	`, tenantID.String()); err != nil {
+		return fmt.Errorf("archive current business baseline: %w", err)
+	}
+	// Work items are tenant-local demo data. Clear both the visible queue and
+	// ticket proposals from earlier agent runs so an old approval cannot
+	// recreate stale work after the reset. The serial is reset as well so the
+	// next onboarding plan looks like a new customer's first workspace.
+	if _, err := tx.Exec(ctx, `DELETE FROM external_actions WHERE action_type = 'tickets.create'`); err != nil {
+		return fmt.Errorf("clear demo ticket proposals: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM input_coordinator_messages`); err != nil {
+		return fmt.Errorf("clear demo input conversation: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM business_knowledge_fact_history`); err != nil {
+		return fmt.Errorf("clear demo business knowledge history: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM business_knowledge_facts`); err != nil {
+		return fmt.Errorf("clear demo business knowledge: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM work_items`); err != nil {
+		return fmt.Errorf("clear demo work queue: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT setval(pg_get_serial_sequence('work_items', 'number'), 1, false)`); err != nil {
+		return fmt.Errorf("reset demo work item numbering: %w", err)
+	}
+	// A development reset must also restore a clean document corpus. Attachment
+	// rows deliberately use RESTRICT so normal document deletion cannot silently
+	// alter a conversation or run; the explicit demo reset removes those links
+	// first. Document chunks and baseline evidence links then cascade safely.
+	if _, err := tx.Exec(ctx, `DELETE FROM conversation_documents`); err != nil {
+		return fmt.Errorf("clear conversation document attachments: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM boardroom_run_documents`); err != nil {
+		return fmt.Errorf("clear boardroom run document attachments: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM documents`); err != nil {
+		return fmt.Errorf("clear demo documents: %w", err)
+	}
 	if err := resetDefaultBoardroom(ctx, tx, s.template); err != nil {
 		return err
 	}
@@ -480,10 +524,10 @@ func (s *Store) ResetOnboarding(ctx context.Context, tenantID domain.TenantID, d
 }
 
 func personaCapabilities(key string, permissions PermissionPlan) []domain.Capability {
-	var result []domain.Capability
-	if permissions.ReadBusinessRecords {
-		result = append(result, domain.CapabilityDocumentsRead)
-	}
+	// Public-web research is a baseline read-only capability for every agent.
+	// Role-specific permissions below continue to govern business data and all
+	// mutating actions.
+	result := []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityDocumentsWrite, domain.CapabilityWebSearch, domain.CapabilityWebRead, domain.CapabilityFinanceRead, domain.CapabilityFinanceManage}
 	switch key {
 	case "office_manager":
 		result = append(result, domain.CapabilityTicketCreate)
@@ -514,9 +558,6 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 			result = append(result, domain.CapabilitySchedulePropose)
 		}
 	case "business_developer":
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebSearch)
-		}
 		if permissions.ReadBusinessRecords {
 			result = append(result, domain.CapabilityTicketRead)
 		}
@@ -531,13 +572,7 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 			result = append(result, domain.CapabilityEmailSend)
 		}
 	case "market_analyst":
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebSearch)
-		}
 	case "website_advisor":
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebRead, domain.CapabilityWebSearch)
-		}
 	case "software_ops_manager", "saas_ops_manager":
 		result = append(result, domain.CapabilityTicketCreate)
 		if permissions.ReadBusinessRecords {
@@ -578,9 +613,6 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		if permissions.ReadBusinessRecords {
 			result = append(result, domain.CapabilityTicketRead)
 		}
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebSearch)
-		}
 	case "engineering_manager":
 		result = append(result, domain.CapabilityTicketCreate)
 		if permissions.ReadBusinessRecords {
@@ -602,9 +634,6 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		if permissions.ReadBusinessRecords {
 			result = append(result, domain.CapabilityTicketRead)
 		}
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebSearch)
-		}
 		if permissions.DraftCustomerEmail {
 			result = append(result, domain.CapabilityEmailDraft)
 		}
@@ -616,9 +645,6 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		}
 	case "reliability_advisor", "security_advisor", "cloud_operations_advisor":
 		result = append(result, domain.CapabilityTicketCreate)
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebSearch)
-		}
 		if permissions.ReadBusinessRecords && permissions.CommentOnDocuments {
 			result = append(result, domain.CapabilityDocumentsComment)
 		}
@@ -626,9 +652,6 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 		result = append(result, domain.CapabilityTicketCreate)
 		if permissions.ReadBusinessRecords {
 			result = append(result, domain.CapabilityTicketRead)
-		}
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebRead, domain.CapabilityWebSearch)
 		}
 		if permissions.DraftCustomerEmail {
 			result = append(result, domain.CapabilityEmailDraft)
@@ -640,9 +663,6 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 			result = append(result, domain.CapabilityEmailSend)
 		}
 	case "ux_researcher":
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebRead, domain.CapabilityWebSearch)
-		}
 		if permissions.ReadBusinessRecords && permissions.CommentOnDocuments {
 			result = append(result, domain.CapabilityDocumentsComment)
 		}
@@ -661,9 +681,6 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 			result = append(result, domain.CapabilityEmailSend)
 		}
 	case "legal_advisor", "hr_safety":
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebSearch)
-		}
 		if permissions.ReadBusinessRecords && permissions.CommentOnDocuments {
 			result = append(result, domain.CapabilityDocumentsComment)
 		}
@@ -671,17 +688,11 @@ func personaCapabilities(key string, permissions PermissionPlan) []domain.Capabi
 			result = append(result, domain.CapabilityTicketCreate)
 		}
 	case "estimator":
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebSearch)
-		}
 		if permissions.ReadBusinessRecords {
 			result = append(result, domain.CapabilityTicketRead)
 		}
 		result = append(result, domain.CapabilityTicketCreate)
 	case "procurement":
-		if permissions.ResearchPublicWeb {
-			result = append(result, domain.CapabilityWebSearch)
-		}
 		result = append(result, domain.CapabilityTicketCreate)
 		if permissions.ProposePayments {
 			result = append(result, domain.CapabilityPaymentPropose)

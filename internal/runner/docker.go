@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -103,7 +104,11 @@ func (d *DockerClient) CreateRunner(ctx context.Context, name string, limits Con
 	}
 	var binds []string
 	if limits.CodexAuthPath != "" {
-		binds = append(binds, limits.CodexAuthPath+":/home/node/.codex/auth.json:ro")
+		// Codex refreshes its session when the short-lived access token expires.
+		// Mount the directory rather than a single file: Codex replaces auth.json
+		// atomically during refresh, and a file mount would leave future runner
+		// processes attached to the old inode. This is never a tenant mount.
+		binds = append(binds, filepath.Dir(limits.CodexAuthPath)+":/home/node/.codex:rw")
 	}
 	if limits.CACertPath != "" {
 		binds = append(binds, limits.CACertPath+":/etc/ssl/certs/ca-certificates.crt:ro")

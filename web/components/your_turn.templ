@@ -1,0 +1,148 @@
+package components
+
+import "fmt"
+
+templ YourTurnPage(tenantName string, user UserView, tab string, counts YourTurnCountsView, inputs []HumanInputRequestView, coordinator InputCoordinatorView, approvals []ApprovalView, documents []DocumentOptionView, csrfToken, notice, pageError string, includeHistory bool) {
+	@Layout("Your turn", tenantName, &user, csrfToken) {
+		<section class="hero your-turn-hero">
+			<div><p class="eyebrow">Focused owner attention</p><h1>Your turn</h1><p>Mia consolidates private-business questions across the agent team, while completed work and consequential actions remain available for review.</p></div>
+			<nav class="your-turn-history"><a class={ templ.KV("is-current", !includeHistory) } href={ templ.URL("/your-turn?tab=" + tab) }>Open</a><a class={ templ.KV("is-current", includeHistory) } href={ templ.URL("/your-turn?tab=" + tab + "&history=1") }>History</a></nav>
+		</section>
+		<nav class="your-turn-tabs" aria-label="Your turn categories">
+			<a class={ templ.KV("is-current", tab == "input") } href="/your-turn?tab=input"><span>Talk with Mia</span><strong data-your-turn-input-count>{ fmt.Sprintf("%d", counts.Inputs) }</strong><small>One conversation, shared facts</small></a>
+			<a class={ templ.KV("is-current", tab == "reviews") } href="/your-turn?tab=reviews"><span>Ready for review</span><strong data-your-turn-review-count>{ fmt.Sprintf("%d", counts.Reviews) }</strong><small>Completed agent work</small></a>
+			<a class={ templ.KV("is-current", tab == "approvals") } href="/your-turn?tab=approvals"><span>Approvals</span><strong data-your-turn-approval-count>{ fmt.Sprintf("%d", counts.Approvals) }</strong><small>Consequential actions</small></a>
+		</nav>
+		if notice != "" {
+			<div class="alert alert-success">{ notice }</div>
+		}
+		if pageError != "" {
+			<div class="alert alert-error">{ pageError }</div>
+		}
+		if tab == "input" {
+			if includeHistory {
+				@HumanInputHistory(inputs)
+			} else {
+				@InputCoordinator(coordinator, inputs, documents, csrfToken)
+			}
+		} else {
+			if len(approvals) == 0 {
+				<section class="panel approval-empty"><h2>No { ChooseText(tab == "reviews", "reviews", "approvals") } in this view</h2><p>{ ChooseText(tab == "reviews", "Completed agent work will appear here for acceptance or revision.", "Only consequential proposed actions appear here.") }</p></section>
+			}
+			<div class="approval-list">
+				for _, approval := range approvals {
+					@ApprovalCard(approval, csrfToken)
+				}
+			</div>
+		}
+	}
+}
+
+templ InputCoordinator(coordinator InputCoordinatorView, inputs []HumanInputRequestView, documents []DocumentOptionView, csrfToken string) {
+	<section class="input-coordinator-layout">
+		<article class="panel input-coordinator">
+			<header class="input-coordinator-header">
+				<div class="coordinator-identity"><span class="coordinator-avatar">M</span><div><p class="eyebrow">Business analyst</p><h2>Mia</h2><p>Answers become reusable business facts for every agent.</p></div></div>
+				<div class="coordinator-stats"><span><strong data-coordinator-stat="requests">{ fmt.Sprintf("%d", coordinator.PendingRequests) }</strong> tickets waiting</span><span><strong data-coordinator-stat="topics">{ fmt.Sprintf("%d", coordinator.RemainingTopics) }</strong> topics left</span><span><strong data-coordinator-stat="facts">{ fmt.Sprintf("%d", coordinator.KnownFacts) }</strong> facts known</span></div>
+			</header>
+			<div class="coordinator-transcript" data-input-transcript data-message-count={ fmt.Sprintf("%d", len(coordinator.Messages)) } aria-live="polite">
+				for _, message := range coordinator.Messages {
+					<div class={ "coordinator-message", "coordinator-message-" + message.Role }>
+						<div class="coordinator-message-meta"><strong>{ ChooseText(message.Role == "user", "You", "Mia") }</strong><time>{ message.CreatedAt.Local().Format("3:04 PM") }</time></div>
+						<p>{ message.Body }</p>
+					</div>
+				}
+			</div>
+			@InputCoordinatorCompose(coordinator.Current, documents, csrfToken)
+			<div class={ "coordinator-complete", templ.KV("is-hidden", coordinator.Current != nil) } data-coordinator-complete><strong>Mia is caught up.</strong><p>There are no unresolved owner questions. Agents will continue as their newly unblocked tickets become available.</p></div>
+		</article>
+		<aside class="input-coordinator-sidebar">
+			<section class="panel"><p class="eyebrow">Current workload</p><h2><span data-coordinator-stat="questions">{ fmt.Sprintf("%d", coordinator.PendingQuestions) }</span> questions → <span data-coordinator-stat="sidebar-topics">{ fmt.Sprintf("%d", coordinator.RemainingTopics) }</span> conversations</h2><p>Mia groups equivalent questions and starts with the answer that releases the most agent work.</p></section>
+			if len(coordinator.RecentFacts) > 0 {
+				<details class="panel source-request-details"><summary>See what Mia already knows</summary>
+					<div class="known-fact-list" data-known-fact-list>
+						for _, fact := range coordinator.RecentFacts {
+							<div><strong>{ fact.Label }</strong><p>{ fact.Value }</p><small>{ fact.SourceType } · updated { fact.UpdatedAt.Local().Format("Jan 2") }</small></div>
+						}
+					</div>
+				</details>
+			}
+			if len(inputs) > 0 {
+				<details class="panel source-request-details"><summary>See the { fmt.Sprintf("%d", len(inputs)) } original agent requests</summary>
+					<div class="source-request-list">
+						for _, request := range inputs {
+							<article><p class="eyebrow">Ticket #{ fmt.Sprintf("%04d", request.ParentNumber) }</p><h3>{ request.ParentTitle }</h3><p>{ request.PersonaName } asked:</p><ul>
+								for _, question := range request.Questions {
+									<li>{ question }</li>
+								}
+							</ul></article>
+						}
+					</div>
+				</details>
+			}
+		</aside>
+	</section>
+}
+
+templ InputCoordinatorCompose(current *InputCoordinatorQuestionView, documents []DocumentOptionView, csrfToken string) {
+	<form class={ "coordinator-compose", templ.KV("is-hidden", current == nil) } data-coordinator-form method="post" action="/your-turn/coordinator/answer" enctype="multipart/form-data" aria-hidden={ fmt.Sprintf("%t", current == nil) }>
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<input type="hidden" name="fact_key" data-current-fact-key value={ InputCoordinatorFactKey(current) }/>
+		<div class="coordinator-current-question" data-current-question><p class="eyebrow">Mia is asking</p><p data-current-prompt>{ InputCoordinatorPrompt(current) }</p></div>
+		<label><span>Your answer about <strong data-current-label>{ InputCoordinatorLabel(current) }</strong></span><textarea name="answer" maxlength="12000" data-input-compose placeholder="Answer naturally. Mia will turn the useful details into shared business context."></textarea></label>
+		<details class="coordinator-evidence"><summary>Add documents or supporting records <small>optional</small></summary>
+			@DocumentPicker(documents, "document_id", "Attach existing records", true)
+			<label class="ticket-upload"><span>Upload a new record</span><input type="file" name="document" accept=".pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.yaml,.yml,.log"/><small>It will be indexed and supplied to every ticket this answer unblocks.</small></label>
+		</details>
+		<div class={ "coordinator-impact", templ.KV("is-hidden", len(InputCoordinatorTickets(current)) == 0) } data-current-impact><strong>This answer helps:</strong>
+			for _, ticket := range InputCoordinatorTickets(current) {
+				<a href={ templ.URL("/work/" + ticket.ID) }>#{ fmt.Sprintf("%04d", ticket.Number) } { ticket.Title }</a>
+			}
+		</div>
+		<footer><div class="coordinator-secondary-actions"><button class="button button-quiet" type="submit" name="response_mode" value="unknown">I don't know yet</button><button class="button button-quiet" type="submit" name="response_mode" value="not_applicable">Not applicable</button></div><button class="button button-primary" type="submit">Answer and continue</button></footer>
+		<p class="field-note coordinator-submit-error" data-coordinator-error hidden></p>
+		<p class="field-note">Press Enter to send. Use Shift+Enter for a new line.</p>
+	</form>
+}
+
+func InputCoordinatorFactKey(current *InputCoordinatorQuestionView) string {
+	if current == nil { return "" }
+	return current.FactKey
+}
+
+func InputCoordinatorLabel(current *InputCoordinatorQuestionView) string {
+	if current == nil { return "the next business topic" }
+	return current.Label
+}
+
+func InputCoordinatorPrompt(current *InputCoordinatorQuestionView) string {
+	if current == nil { return "" }
+	return current.Prompt
+}
+
+func InputCoordinatorTickets(current *InputCoordinatorQuestionView) []InputCoordinatorTicketView {
+	if current == nil { return nil }
+	return current.Tickets
+}
+
+templ HumanInputHistory(inputs []HumanInputRequestView) {
+	if len(inputs) == 0 {
+		<section class="panel approval-empty"><h2>No answered questions yet</h2><p>Answers supplied through Mia or an individual ticket will appear here as an audit trail.</p></section>
+	}
+	<div class="human-input-list">
+		for _, request := range inputs {
+			<article class="panel human-input-card">
+				<header><div><p class="eyebrow">Ticket #{ fmt.Sprintf("%04d", request.ParentNumber) }</p><h2>{ request.ParentTitle }</h2></div><span class={ "approval-status", "approval-status-" + request.Status }>{ ChooseText(request.Status == "pending", "Waiting for you", "Answered") }</span></header>
+				<p><strong>{ request.PersonaName }</strong> requested this private business context.</p>
+				if len(request.Answers) > 0 {
+					<div class="human-input-answers">
+						for _, answer := range request.Answers {
+							<div><strong>{ answer.Question }</strong><p>{ answer.Answer }</p></div>
+						}
+					</div>
+				}
+				<a class="back-link" href={ templ.URL("/work/" + request.ParentWorkItemID) }>Open ticket</a>
+			</article>
+		}
+	</div>
+}

@@ -41,6 +41,7 @@ type Definition struct {
 
 type AuditRecord struct {
 	TenantID, RunID, PersonaID, InvocationID string
+	ActorType, ActorID                       string
 	Capability                               domain.Capability
 	Allowed                                  bool
 	Error                                    string
@@ -55,11 +56,12 @@ type Broker struct {
 	issuer      *TokenIssuer
 	auditor     Auditor
 	handlers    map[domain.Capability]Handler
+	named       map[string]Handler
 	definitions map[string]Definition
 }
 
 func NewBroker(issuer *TokenIssuer, auditor Auditor) *Broker {
-	return &Broker{issuer: issuer, auditor: auditor, handlers: make(map[domain.Capability]Handler), definitions: make(map[string]Definition)}
+	return &Broker{issuer: issuer, auditor: auditor, handlers: make(map[domain.Capability]Handler), named: make(map[string]Handler), definitions: make(map[string]Definition)}
 }
 
 func (b *Broker) Register(capability domain.Capability, handler Handler) error {
@@ -74,13 +76,13 @@ func (b *Broker) RegisterDefinition(definition Definition, handler Handler) erro
 	if definition.Name == "" {
 		return errors.New("tool name is required")
 	}
-	if _, exists := b.handlers[capability]; exists {
-		return fmt.Errorf("tool capability %q is already registered", capability)
-	}
 	if _, exists := b.definitions[definition.Name]; exists {
 		return fmt.Errorf("tool name %q is already registered", definition.Name)
 	}
-	b.handlers[capability] = handler
+	if _, exists := b.handlers[capability]; !exists {
+		b.handlers[capability] = handler
+	}
+	b.named[definition.Name] = handler
 	b.definitions[definition.Name] = definition
 	return nil
 }
@@ -105,10 +107,18 @@ func (b *Broker) InvokeNamed(ctx context.Context, token string, tenantID domain.
 	if !exists {
 		return nil, ErrToolUnavailable
 	}
-	return b.Invoke(ctx, Call{Token: token, TenantID: tenantID, Capability: definition.Capability, Input: input})
+	handler, exists := b.named[name]
+	if !exists {
+		return nil, ErrToolUnavailable
+	}
+	return b.invoke(ctx, Call{Token: token, TenantID: tenantID, Capability: definition.Capability, Input: input}, handler)
 }
 
 func (b *Broker) Invoke(ctx context.Context, call Call) (json.RawMessage, error) {
+	return b.invoke(ctx, call, b.handlers[call.Capability])
+}
+
+func (b *Broker) invoke(ctx context.Context, call Call, handler Handler) (json.RawMessage, error) {
 	claims, err := b.issuer.Verify(call.Token)
 	if err != nil {
 		return nil, err
@@ -121,8 +131,7 @@ func (b *Broker) Invoke(ctx context.Context, call Call) (json.RawMessage, error)
 		b.audit(ctx, claims, call.Capability, false, ErrCapabilityDenied)
 		return nil, ErrCapabilityDenied
 	}
-	handler, exists := b.handlers[call.Capability]
-	if !exists {
+	if handler == nil {
 		b.audit(ctx, claims, call.Capability, false, ErrToolUnavailable)
 		return nil, ErrToolUnavailable
 	}
@@ -142,6 +151,7 @@ func (b *Broker) audit(ctx context.Context, claims Claims, capability domain.Cap
 	}
 	record := AuditRecord{
 		TenantID: claims.TenantID, RunID: claims.RunID, PersonaID: claims.PersonaID, InvocationID: claims.InvocationID,
+		ActorType: claims.ActorType, ActorID: claims.ActorID,
 		Capability: capability, Allowed: allowed, CreatedAt: time.Now().UTC(),
 	}
 	if callErr != nil {

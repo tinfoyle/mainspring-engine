@@ -358,15 +358,45 @@ func TestPersonaEmailSendRequiresExplicitPermission(t *testing.T) {
 	}
 }
 
-func TestPersonaCapabilitiesCanRemoveBusinessReadAccess(t *testing.T) {
+func TestPersonaCapabilitiesKeepDocumentKnowledgeWhileRestrictingOperationalRecords(t *testing.T) {
 	capabilities := personaCapabilities("dispatcher", PermissionPlan{ProposeScheduleEdits: true})
+	wanted := map[domain.Capability]bool{
+		domain.CapabilityDocumentsRead:   true,
+		domain.CapabilityDocumentsWrite:  true,
+		domain.CapabilityWebSearch:       true,
+		domain.CapabilityWebRead:         true,
+		domain.CapabilitySchedulePropose: true,
+	}
 	for _, capability := range capabilities {
-		if capability == domain.CapabilityDocumentsRead || capability == domain.CapabilityScheduleRead || capability == domain.CapabilityTicketRead {
+		if capability == domain.CapabilityScheduleRead || capability == domain.CapabilityTicketRead {
 			t.Fatalf("read capability granted when business record access is disabled: %s", capability)
 		}
+		delete(wanted, capability)
 	}
-	if len(capabilities) != 1 || capabilities[0] != domain.CapabilitySchedulePropose {
-		t.Fatalf("dispatcher capabilities = %#v, want schedule proposal only", capabilities)
+	if len(wanted) != 0 {
+		t.Fatalf("dispatcher missing baseline or explicitly permitted capabilities: %#v", wanted)
+	}
+}
+
+func TestEveryPersonaGetsBaselineWebResearch(t *testing.T) {
+	blueprints := []BoardroomBlueprint{
+		GenerateBlueprintForTemplate(Onboarding{}, TemplateTrades),
+		GenerateBlueprintForTemplate(Onboarding{}, TemplateSoftware),
+		GenerateBlueprintForTemplate(Onboarding{Business: BusinessProfile{Trade: "managed service provider"}}, TemplateSoftware),
+	}
+	for _, blueprint := range blueprints {
+		for _, persona := range blueprint.Personas {
+			capabilities := personaCapabilities(persona.Key, PermissionPlan{})
+			seen := make(map[domain.Capability]int)
+			for _, capability := range capabilities {
+				seen[capability]++
+			}
+			for _, required := range []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityDocumentsWrite, domain.CapabilityWebSearch, domain.CapabilityWebRead} {
+				if seen[required] != 1 {
+					t.Fatalf("%s has %d grants for baseline capability %s: %#v", persona.Role, seen[required], required, capabilities)
+				}
+			}
+		}
 	}
 }
 
@@ -400,7 +430,7 @@ func TestSpecialistCapabilitiesStayBounded(t *testing.T) {
 	}
 	legalWithoutRecords := personaCapabilities("legal_advisor", PermissionPlan{ResearchPublicWeb: true, CommentOnDocuments: true})
 	for _, capability := range legalWithoutRecords {
-		if capability == domain.CapabilityDocumentsRead || capability == domain.CapabilityDocumentsComment {
+		if capability == domain.CapabilityDocumentsComment {
 			t.Fatalf("legal advisor received document capability without record access: %s", capability)
 		}
 	}

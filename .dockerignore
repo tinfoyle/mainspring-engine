@@ -4,4 +4,5 @@
 github-token.txt
 bin
 deploy/docker/data
+ui/node_modules
 **/*_test.go

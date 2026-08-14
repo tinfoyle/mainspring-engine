@@ -35,19 +35,137 @@ type UserView struct {
 	Development bool
 }
 
+type FinanceLedgerView struct {
+	ID, Name, Code, Description, Currency, Status string
+	AccountCount, DraftCount                      int
+	Income, Expenses, Net                         string
+}
+
+type FinanceAccountView struct {
+	ID, ParentAccountID, Code, Name, Description, Type, Status, Balance string
+	AllowPosting                                                        bool
+}
+
+type FinanceLineView struct {
+	AccountID, AccountCode, AccountName, Memo, Debit, Credit string
+}
+
+type FinanceEntryView struct {
+	ID, LedgerID, Number, Date, Description, Reference, Status, Source, Total string
+	ReversalOfID                                                              string
+	Lines                                                                     []FinanceLineView
+}
+
+type FinancePageView struct {
+	Ledgers  []FinanceLedgerView
+	Selected *FinanceLedgerView
+	Accounts []FinanceAccountView
+	Entries  []FinanceEntryView
+	Notice   string
+	Error    string
+	Today    string
+}
+
+func FinanceSubAccountLabel(parentID string) string {
+	if parentID != "" {
+		return " · sub-account"
+	}
+	return ""
+}
+
+func FinanceReferenceLabel(reference string) string {
+	if reference != "" {
+		return " · " + reference
+	}
+	return ""
+}
+
 type ApprovalView struct {
-	ID             string
-	RunID          string
-	PersonaName    string
-	PersonaRole    string
-	ActionType     string
-	Reason         string
-	Evidence       []string
-	RequestPayload string
-	ActionStatus   string
-	Status         string
-	RequestedAt    time.Time
-	DecidedAt      *time.Time
+	ID              string
+	RunID           string
+	PersonaName     string
+	PersonaRole     string
+	ActionType      string
+	Reason          string
+	Evidence        []string
+	RequestPayload  string
+	ActionStatus    string
+	Status          string
+	RequestedAt     time.Time
+	DecidedAt       *time.Time
+	WorkItemID      string
+	WorkItemNumber  int64
+	WorkItemTitle   string
+	ReviewSummary   string
+	Recommendations []string
+}
+
+type HumanInputAnswerView struct {
+	Question string
+	Answer   string
+}
+
+type HumanInputRequestView struct {
+	ID               string
+	ParentWorkItemID string
+	ParentNumber     int64
+	ParentTitle      string
+	WorkItemID       string
+	WorkItemNumber   int64
+	PersonaName      string
+	PersonaRole      string
+	Questions        []string
+	Answers          []HumanInputAnswerView
+	DocumentIDs      []string
+	Status           string
+	RequestedAt      time.Time
+	AnsweredAt       *time.Time
+}
+
+type YourTurnCountsView struct {
+	Inputs    int
+	Reviews   int
+	Approvals int
+}
+
+type InputCoordinatorMessageView struct {
+	Role        string
+	MessageKind string
+	Body        string
+	CreatedAt   time.Time
+}
+
+type InputCoordinatorTicketView struct {
+	ID     string
+	Number int64
+	Title  string
+}
+
+type InputCoordinatorQuestionView struct {
+	FactKey       string
+	Label         string
+	Prompt        string
+	TicketCount   int
+	QuestionCount int
+	Tickets       []InputCoordinatorTicketView
+}
+
+type BusinessKnowledgeFactView struct {
+	Key        string
+	Label      string
+	Value      string
+	SourceType string
+	UpdatedAt  time.Time
+}
+
+type InputCoordinatorView struct {
+	Messages         []InputCoordinatorMessageView
+	Current          *InputCoordinatorQuestionView
+	PendingQuestions int
+	PendingRequests  int
+	RemainingTopics  int
+	KnownFacts       int
+	RecentFacts      []BusinessKnowledgeFactView
 }
 
 type ProviderCircuitView struct {
@@ -86,10 +204,32 @@ func ApprovalStatusLabel(status string) string {
 }
 
 func ActionTypeLabel(actionType string) string {
-	if actionType == "email.send" {
+	switch actionType {
+	case "email.send":
 		return "Send email"
+	case "tickets.create":
+		return "Create work item"
+	case "work.review":
+		return "Review agent work"
 	}
 	return actionType
+}
+
+func ApprovalButtonLabel(actionType string) string {
+	if actionType == "tickets.create" {
+		return "Approve and create work item"
+	}
+	if actionType == "work.review" {
+		return "Accept and complete ticket"
+	}
+	return "Approve and execute"
+}
+
+func ApprovalRejectLabel(actionType string) string {
+	if actionType == "work.review" {
+		return "Needs more work"
+	}
+	return "Reject"
 }
 
 type WorkItemView struct {
@@ -104,6 +244,9 @@ type WorkItemView struct {
 	CreatedByName  string
 	AssignedToName string
 	AssignedToType string
+	Responsibility string
+	ParentID       string
+	ParentNumber   int64
 	DueLabel       string
 	IsOverdue      bool
 	CreatedAt      time.Time
@@ -142,6 +285,19 @@ func WorkStatusLabel(status string) string {
 		return "Canceled"
 	default:
 		return "Open"
+	}
+}
+
+func WorkResponsibilityLabel(value string) string {
+	switch value {
+	case "agent":
+		return "Agent work"
+	case "shared":
+		return "Shared"
+	case "external":
+		return "External"
+	default:
+		return "Owner work"
 	}
 }
 
@@ -210,12 +366,19 @@ type DocumentView struct {
 	ChunkCount     int
 	CharacterCount int
 	UploadedBy     string
+	Revision       int
 	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }
 
 type DocumentDetailView struct {
 	DocumentView
 	Content string
+}
+
+type DocumentOptionView struct {
+	ID, Name, MediaType string
+	Selected            bool
 }
 
 type EmailIntegrationView struct {
@@ -227,6 +390,24 @@ type EmailIntegrationView struct {
 	Status         string
 	LastVerifiedAt *time.Time
 	LastError      string
+}
+
+type EmailSettingsView struct {
+	Name         string
+	EmailAddress string
+	DisplayName  string
+	IMAPHost     string
+	IMAPPort     int
+	IMAPSecurity string
+	IMAPUsername string
+	SMTPHost     string
+	SMTPPort     int
+	SMTPSecurity string
+	SMTPUsername string
+}
+
+func BlankEmailSettings() EmailSettingsView {
+	return EmailSettingsView{Name: "Company inbox", IMAPPort: 993, IMAPSecurity: "tls", SMTPPort: 465, SMTPSecurity: "tls"}
 }
 
 type EmailInboxMessageView struct {
@@ -417,6 +598,88 @@ type OnboardingStepView struct {
 	Label  string
 }
 
+type BaselineView struct {
+	ID                   string
+	Status               string
+	Phase                string
+	CurrentQuestion      int
+	QuestionCount        int
+	CurrentPrompt        string
+	CurrentExplanation   string
+	Messages             []BaselineMessageView
+	Facts                []BusinessFactView
+	Sources              []BaselineSourceView
+	Requirements         []EvidenceRequirementView
+	Documents            []DocumentOptionView
+	EmailFolders         []string
+	InventoryCurrent     *EvidenceRequirementView
+	InventoryAnswered    int
+	InventoryTotal       int
+	EvidenceScopeTitle   string
+	EvidenceScopeSummary string
+	PlanParentWorkItemID string
+	NextReassessment     string
+}
+
+type BaselineMessageView struct {
+	Role string
+	Body string
+}
+
+type BusinessFactView struct {
+	Key         string
+	Label       string
+	Value       string
+	SourceLabel string
+}
+
+type BaselineSourceView struct {
+	Type        string
+	DisplayName string
+	Status      string
+	ScopeLabel  string
+}
+
+type GoogleDriveFolderView struct {
+	ID   string
+	Name string
+}
+
+type EvidenceRequirementView struct {
+	ID             string
+	Domain         string
+	Label          string
+	Rationale      string
+	Status         string
+	Disposition    string
+	Responsibility string
+	RenewalDue     string
+	OwnerAnswer    string
+	Interviewed    bool
+	Evidence       []EvidenceLinkView
+	Research       []BaselineResearchView
+}
+
+type BaselineResearchView struct {
+	Query     string
+	Status    string
+	LastError string
+	Results   []BaselineResearchResultView
+}
+
+type BaselineResearchResultView struct {
+	Title       string
+	URL         string
+	Description string
+	CitationID  string
+}
+
+type EvidenceLinkView struct {
+	Label string
+	URL   string
+	Type  string
+}
+
 func OnboardingSteps() []OnboardingStepView {
 	return []OnboardingStepView{
 		{1, "Your business"},
@@ -578,9 +841,11 @@ type BoardroomCardView struct {
 }
 
 type PersonaView struct {
-	Name  string
-	Role  string
-	Tools []string
+	ID                string
+	Name              string
+	Role              string
+	Tools             []string
+	CanCreateSubtasks bool
 }
 
 type AgentCardView struct {
@@ -618,6 +883,9 @@ type AgentFormView struct {
 	MaxCostMicros                                   int64
 	ResponseStyle, CitationPolicy, ActionPolicy     string
 	Tools                                           []AgentToolView
+	Documents                                       []DocumentOptionView
+	KnowledgeMode                                   string
+	KnowledgeMaxResults                             int
 	Boardrooms                                      []AgentBoardroomOptionView
 	Versions                                        []AgentVersionView
 	IsNew                                           bool
@@ -646,6 +914,10 @@ type ConversationView struct {
 
 func RunIsTerminal(status string) bool {
 	return status == "completed" || status == "failed" || status == "canceled"
+}
+
+func RunIsActive(status string) bool {
+	return status == "pending" || status == "queued" || status == "preparing" || status == "running" || status == "awaiting_approval"
 }
 
 func RunStatusLabel(status string) string {
@@ -680,6 +952,42 @@ type MessageView struct {
 	Body        string
 	Sequence    int64
 	CreatedAt   time.Time
+	Research    []ResearchActivityView
+}
+
+type ResearchActivityView struct {
+	Tool    string
+	Query   string
+	URL     string
+	Status  string
+	Results []ResearchResultView
+}
+
+type ResearchResultView struct {
+	Title   string
+	URL     string
+	Excerpt string
+}
+
+func ResearchActivityLabel(tool string) string {
+	switch tool {
+	case "documents.search":
+		return "Searched documents"
+	case "web.search":
+		return "Searched the web"
+	case "web.read":
+		return "Read a source"
+	default:
+		return "Research"
+	}
+}
+
+func ResearchURL(value string) string {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return ""
+	}
+	return parsed.String()
 }
 
 type ScheduleView struct {

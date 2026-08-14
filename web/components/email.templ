@@ -2,7 +2,7 @@ package components
 
 import "fmt"
 
-templ EmailPage(tenantName string, user UserView, integration *EmailIntegrationView, messages []EmailInboxMessageView, csrfToken, notice, pageError, idempotencyKey string, simulated bool) {
+templ EmailPage(tenantName string, user UserView, integration *EmailIntegrationView, messages []EmailInboxMessageView, csrfToken, notice, pageError, idempotencyKey string, simulated, baselineSetup bool) {
 	@Layout("Email", tenantName, &user, csrfToken) {
 		<section class="documents-hero email-hero">
 			<div><p class="eyebrow">Connected communication</p><h1>Email inbox</h1><p>Connect the company mailbox so authorized agents can read incoming work, draft replies, and—only when granted—send through your SMTP server.</p></div>
@@ -19,10 +19,26 @@ templ EmailPage(tenantName string, user UserView, integration *EmailIntegrationV
 		if simulated {
 			<div class="guardrail email-simulator"><strong>Development mail simulator</strong><p>This demo exercises the same encrypted settings, inbox UI, send ledger, and permission boundary without contacting a real mail server. Production uses IMAP and SMTP over TLS.</p></div>
 		}
-		if integration == nil {
+		if baselineSetup {
+			<section class="panel email-setup-panel baseline-email-setup">
+				<a class="back-link" href="/baseline">&larr; Back to baseline sources</a>
+				<div class="onboarding-heading"><p class="eyebrow">Optional integration &middot; Email source</p><h2>Connect a mailbox to the documented baseline</h2><p>Onboarding is already complete. Enter credentials only when you are ready; Mainspring verifies and encrypts them, then reads only the folders and dates you select.</p></div>
+				if integration != nil {
+					<div class="guardrail"><strong>Mailbox already connected</strong><p>{ integration.EmailAddress } is active. You can keep it and return to source selection, or verify replacement credentials below.</p></div>
+					<div class="baseline-email-actions"><a class="button button-primary" href="/baseline?email=configured">Use this mailbox</a></div>
+					<details class="email-replace-settings">
+						<summary>Replace with a different mailbox</summary>
+						<p class="muted">Replacement settings start blank. Saved usernames and passwords are never copied into onboarding fields.</p>
+						@EmailSettingsForm(csrfToken, "Verify and replace mailbox", BlankEmailSettings(), "baseline")
+					</details>
+				} else {
+					@EmailSettingsForm(csrfToken, "Connect and use mailbox", BlankEmailSettings(), "baseline")
+				}
+			</section>
+		} else if integration == nil {
 			<section class="panel email-setup-panel">
 				<div class="onboarding-heading"><p class="eyebrow">Mailbox setup</p><h2>Connect an inbox</h2><p>Use an app password or dedicated mailbox credential. Mainspring verifies both connections before saving the encrypted credentials.</p></div>
-				@EmailSettingsForm(csrfToken, "Connect and verify mailbox")
+				@EmailSettingsForm(csrfToken, "Connect and verify mailbox", BlankEmailSettings(), "")
 			</section>
 		} else {
 			<div class="email-layout">
@@ -51,20 +67,23 @@ templ EmailPage(tenantName string, user UserView, integration *EmailIntegrationV
 							<button class="button button-primary" type="submit">Send through SMTP</button>
 						</form>
 					</section>
-					<details class="panel email-settings"><summary>Connection settings</summary><dl><div><dt>IMAP</dt><dd>{ integration.IMAPServer }</dd></div><div><dt>SMTP</dt><dd>{ integration.SMTPServer }</dd></div></dl><p>Submitting new settings replaces the current encrypted credentials after a successful connection test.</p>@EmailSettingsForm(csrfToken, "Verify and replace")</details>
+					<details class="panel email-settings"><summary>Connection settings</summary><dl><div><dt>IMAP</dt><dd>{ integration.IMAPServer }</dd></div><div><dt>SMTP</dt><dd>{ integration.SMTPServer }</dd></div></dl><p>Replacement fields start blank. Saved credentials are never re-displayed.</p>@EmailSettingsForm(csrfToken, "Verify and replace", BlankEmailSettings(), "")</details>
 				</aside>
 			</div>
 		}
 	}
 }
 
-templ EmailSettingsForm(csrfToken, submitLabel string) {
+templ EmailSettingsForm(csrfToken, submitLabel string, settings EmailSettingsView, returnTo string) {
 	<form class="email-settings-form" method="post" action="/email/settings">
 		<input type="hidden" name="csrf_token" value={ csrfToken }/>
-		<div class="form-grid"><label><span>Mailbox name</span><input name="name" required maxlength="120" value="Company inbox"/></label><label><span>Email address</span><input name="email_address" type="email" required maxlength="320"/></label></div>
-		<label><span>Sender display name</span><input name="display_name" maxlength="120" placeholder="Your company name"/></label>
-		<fieldset><legend>Incoming mail (IMAP)</legend><div class="mail-server-grid"><label><span>Host</span><input name="imap_host" required maxlength="253" placeholder="imap.example.com"/></label><label><span>Port</span><input name="imap_port" type="number" required min="1" max="65535" value="993"/></label><label><span>Security</span><select name="imap_security"><option value="tls">TLS</option><option value="starttls">STARTTLS</option></select></label></div><div class="form-grid"><label><span>Username</span><input name="imap_username" required maxlength="320" autocomplete="off"/></label><label><span>Password / app password</span><input name="imap_password" type="password" required maxlength="4096" autocomplete="new-password"/></label></div></fieldset>
-		<fieldset><legend>Outgoing mail (SMTP)</legend><div class="mail-server-grid"><label><span>Host</span><input name="smtp_host" required maxlength="253" placeholder="smtp.example.com"/></label><label><span>Port</span><input name="smtp_port" type="number" required min="1" max="65535" value="465"/></label><label><span>Security</span><select name="smtp_security"><option value="tls">TLS</option><option value="starttls">STARTTLS</option></select></label></div><div class="form-grid"><label><span>Username</span><input name="smtp_username" required maxlength="320" autocomplete="off"/></label><label><span>Password / app password</span><input name="smtp_password" type="password" required maxlength="4096" autocomplete="new-password"/></label></div></fieldset>
+		if returnTo != "" {
+			<input type="hidden" name="return_to" value={ returnTo }/>
+		}
+		<div class="form-grid"><label><span>Mailbox name</span><input name="name" required maxlength="120" value={ settings.Name }/></label><label><span>Email address</span><input name="email_address" type="email" required maxlength="320" value={ settings.EmailAddress }/></label></div>
+		<label><span>Sender display name</span><input name="display_name" maxlength="120" placeholder="Your company name" value={ settings.DisplayName }/></label>
+		<fieldset><legend>Incoming mail (IMAP)</legend><div class="mail-server-grid"><label><span>Host</span><input name="imap_host" required maxlength="253" placeholder="imap.example.com" value={ settings.IMAPHost }/></label><label><span>Port</span><input name="imap_port" type="number" required min="1" max="65535" value={ fmt.Sprint(settings.IMAPPort) }/></label><label><span>Security</span><select name="imap_security"><option value="tls" selected?={ settings.IMAPSecurity == "tls" }>TLS</option><option value="starttls" selected?={ settings.IMAPSecurity == "starttls" }>STARTTLS</option></select></label></div><div class="form-grid"><label><span>Username</span><input name="imap_username" required maxlength="320" autocomplete="off" value={ settings.IMAPUsername }/></label><label><span>Password / app password</span><input name="imap_password" type="password" required maxlength="4096" autocomplete="new-password" placeholder="Enter the mailbox app password"/></label></div></fieldset>
+		<fieldset><legend>Outgoing mail (SMTP)</legend><div class="mail-server-grid"><label><span>Host</span><input name="smtp_host" required maxlength="253" placeholder="smtp.example.com" value={ settings.SMTPHost }/></label><label><span>Port</span><input name="smtp_port" type="number" required min="1" max="65535" value={ fmt.Sprint(settings.SMTPPort) }/></label><label><span>Security</span><select name="smtp_security"><option value="tls" selected?={ settings.SMTPSecurity == "tls" }>TLS</option><option value="starttls" selected?={ settings.SMTPSecurity == "starttls" }>STARTTLS</option></select></label></div><div class="form-grid"><label><span>Username</span><input name="smtp_username" required maxlength="320" autocomplete="off" value={ settings.SMTPUsername }/></label><label><span>Password / app password</span><input name="smtp_password" type="password" required maxlength="4096" autocomplete="new-password" placeholder="Enter the SMTP app password"/></label></div></fieldset>
 		<button class="button button-primary" type="submit">{ submitLabel }</button>
 	</form>
 }

@@ -1,0 +1,181 @@
+package components
+
+import "fmt"
+
+templ FinancePage(tenantName string, user UserView, page FinancePageView, csrfToken string) {
+	@Layout("Finance", tenantName, &user, csrfToken) {
+		<section class="hero finance-hero">
+			<div><p class="eyebrow">Financial records</p><h1>Ledgers</h1><p>Keep balanced books that you and your agents can maintain together, with every change attributable and reversible.</p></div>
+		</section>
+		if page.Notice != "" {
+			<div class="alert alert-success">{ page.Notice }</div>
+		}
+		if page.Error != "" {
+			<div class="alert alert-error">{ page.Error }</div>
+		}
+		<div class="finance-layout">
+			<aside class="panel finance-sidebar">
+				<header><h2>Books</h2><span>{ fmt.Sprintf("%d", len(page.Ledgers)) }</span></header>
+				<nav>
+					for _, ledger := range page.Ledgers {
+						<a class={ templ.KV("is-current", page.Selected != nil && page.Selected.ID == ledger.ID) } href={ templ.URL("/finance?ledger=" + ledger.ID) }><strong>{ ledger.Name }</strong><small>{ ledger.Code } · { ledger.Currency }</small></a>
+					}
+				</nav>
+				<details class="finance-create"><summary>Create ledger</summary>
+					<form method="post" action="/finance/ledgers">
+						<input type="hidden" name="csrf_token" value={ csrfToken }/>
+						<label><span>Name</span><input name="name" required maxlength="160" placeholder="Operating books"/></label>
+						<div class="finance-inline"><label><span>Code</span><input name="code" required maxlength="40" placeholder="MAIN"/></label><label><span>Currency</span><input name="currency" required maxlength="3" value="USD"/></label></div>
+						<label><span>Description</span><textarea name="description" maxlength="500" placeholder="Primary company ledger"></textarea></label>
+						<label class="checkbox-row"><input type="checkbox" name="standard_accounts" value="yes" checked/><span>Create a standard chart of accounts</span></label>
+						<button class="button button-primary" type="submit">Create ledger</button>
+					</form>
+				</details>
+			</aside>
+			<main class="finance-main">
+				if page.Selected == nil {
+					<section class="panel finance-empty"><h2>Create your first ledger</h2><p>Start with the standard chart, then let your agents add sub-accounts and record income or expenses as the business needs them.</p></section>
+				} else {
+					@FinanceLedgerOverview(*page.Selected, csrfToken)
+					<div class="finance-columns">
+						@FinanceAccountsPanel(*page.Selected, page.Accounts, csrfToken)
+						@FinanceNewEntryPanel(*page.Selected, page.Accounts, page.Today, csrfToken)
+					</div>
+					@FinanceJournalPanel(page.Entries)
+				}
+			</main>
+		</div>
+	}
+}
+
+templ FinanceLedgerOverview(ledger FinanceLedgerView, csrfToken string) {
+	<section class="panel finance-overview">
+		<header><div><p class="eyebrow">{ ledger.Code }</p><h2>{ ledger.Name }</h2><p>{ ledger.Description }</p></div><span class="status-pill">{ ledger.Status }</span></header>
+		<div class="finance-metrics"><div><span>Income</span><strong>{ ledger.Income }</strong></div><div><span>Expenses</span><strong>{ ledger.Expenses }</strong></div><div><span>Net</span><strong>{ ledger.Net }</strong></div><div><span>Drafts</span><strong>{ fmt.Sprintf("%d", ledger.DraftCount) }</strong></div></div>
+		<details><summary>Edit ledger settings</summary>
+			<form class="finance-settings" method="post" action={ templ.URL("/finance/ledgers/" + ledger.ID) }>
+				<input type="hidden" name="csrf_token" value={ csrfToken }/>
+				<div class="finance-inline"><label><span>Name</span><input name="name" value={ ledger.Name } required/></label><label><span>Code</span><input name="code" value={ ledger.Code } required/></label><label><span>Currency</span><input name="currency" value={ ledger.Currency } required maxlength="3"/></label><label><span>Status</span><select name="status"><option value="active" selected?={ ledger.Status == "active" }>Active</option><option value="archived" selected?={ ledger.Status == "archived" }>Archived</option></select></label></div>
+				<label><span>Description</span><textarea name="description">{ ledger.Description }</textarea></label>
+				<button class="button button-quiet" type="submit">Save settings</button>
+			</form>
+		</details>
+	</section>
+}
+
+templ FinanceAccountsPanel(ledger FinanceLedgerView, accounts []FinanceAccountView, csrfToken string) {
+	<section class="panel finance-accounts">
+		<header><div><p class="eyebrow">Chart of accounts</p><h2>Accounts and sub-accounts</h2></div><span>{ fmt.Sprintf("%d", len(accounts)) }</span></header>
+		<div class="finance-account-list">
+			for _, account := range accounts {
+				<details class="finance-account"><summary><span><strong>{ account.Code } · { account.Name }</strong><small>{ account.Type }{ FinanceSubAccountLabel(account.ParentAccountID) }</small></span><b>{ account.Balance }</b></summary>
+					<form method="post" action={ templ.URL("/finance/accounts/" + account.ID) }>
+						<input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="ledger_id" value={ ledger.ID }/>
+						<div class="finance-inline"><label><span>Code</span><input name="code" value={ account.Code } required/></label><label><span>Name</span><input name="name" value={ account.Name } required/></label></div>
+						<label><span>Parent account</span><select name="parent_account_id"><option value="">Top level</option>
+							for _, candidate := range accounts {
+								if candidate.ID != account.ID {
+									<option value={ candidate.ID } selected?={ candidate.ID == account.ParentAccountID }>{ candidate.Code } · { candidate.Name }</option>
+								}
+							}
+						</select></label>
+						<label><span>Description</span><input name="description" value={ account.Description }/></label>
+						<div class="finance-inline"><label><span>Status</span><select name="status"><option value="active" selected?={ account.Status == "active" }>Active</option><option value="archived" selected?={ account.Status == "archived" }>Archived</option></select></label><label class="checkbox-row"><input type="checkbox" name="allow_posting" value="yes" checked?={ account.AllowPosting }/><span>Allow posting</span></label></div>
+						<button class="button button-quiet" type="submit">Save account</button>
+					</form>
+				</details>
+			}
+		</div>
+		<details class="finance-create"><summary>Add account or sub-account</summary>
+			<form method="post" action={ templ.URL("/finance/ledgers/" + ledger.ID + "/accounts") }>
+				<input type="hidden" name="csrf_token" value={ csrfToken }/>
+				<div class="finance-inline"><label><span>Code</span><input name="code" required/></label><label><span>Name</span><input name="name" required/></label></div>
+				<div class="finance-inline"><label><span>Type</span><select name="account_type"><option value="asset">Asset</option><option value="liability">Liability</option><option value="equity">Equity</option><option value="income">Income</option><option value="expense">Expense</option></select></label><label><span>Parent</span><select name="parent_account_id"><option value="">Top level</option>
+					for _, account := range accounts {
+						<option value={ account.ID }>{ account.Code } · { account.Name }</option>
+					}
+				</select></label></div>
+				<label><span>Description</span><input name="description"/></label><label class="checkbox-row"><input type="checkbox" name="allow_posting" value="yes" checked/><span>Allow journal postings</span></label>
+				<button class="button button-primary" type="submit">Add account</button>
+			</form>
+		</details>
+	</section>
+}
+
+templ FinanceNewEntryPanel(ledger FinanceLedgerView, accounts []FinanceAccountView, today, csrfToken string) {
+	<section class="panel finance-new-entry"><header><p class="eyebrow">Double-entry journal</p><h2>Record a transaction</h2><p>Drafts must balance before they can be saved or posted.</p></header>
+		<form method="post" action={ templ.URL("/finance/ledgers/" + ledger.ID + "/entries") }>
+			<input type="hidden" name="csrf_token" value={ csrfToken }/>
+			<div class="finance-inline"><label><span>Date</span><input type="date" name="entry_date" value={ today } required/></label><label><span>Reference</span><input name="reference" placeholder="Invoice or receipt #"/></label></div>
+			<label><span>Description</span><input name="description" required maxlength="500" placeholder="What happened?"/></label>
+			@FinanceLineFields(1, accounts, FinanceLineView{})
+			@FinanceLineFields(2, accounts, FinanceLineView{})
+			@FinanceLineFields(3, accounts, FinanceLineView{})
+			@FinanceLineFields(4, accounts, FinanceLineView{})
+			<button class="button button-primary" type="submit">Save balanced draft</button>
+		</form>
+	</section>
+}
+
+templ FinanceJournalPanel(entries []FinanceEntryView) {
+	<section class="panel finance-journal"><header><div><p class="eyebrow">Journal</p><h2>Recent entries</h2></div></header>
+		if len(entries) == 0 {
+			<p class="empty-copy">No entries yet. Record the first balanced transaction above, or ask an agent to do it.</p>
+		}
+		<div class="finance-entry-list">
+			for _, entry := range entries {
+				<a href={ templ.URL("/finance/entries/" + entry.ID) }><span><strong>#{ entry.Number } · { entry.Description }</strong><small>{ entry.Date } · { entry.Source }{ FinanceReferenceLabel(entry.Reference) }</small></span><span><b>{ entry.Total }</b><em class={ "status-pill status-" + entry.Status }>{ entry.Status }</em></span></a>
+			}
+		</div>
+	</section>
+}
+
+templ FinanceLineFields(index int, accounts []FinanceAccountView, line FinanceLineView) {
+	<div class="finance-entry-line">
+		<label><span>Account</span><select name={ fmt.Sprintf("line_%d_account", index) }><option value="">Select account</option>
+			for _, account := range accounts {
+				if account.AllowPosting && account.Status == "active" {
+					<option value={ account.ID } selected?={ account.ID == line.AccountID }>{ account.Code } · { account.Name }</option>
+				}
+			}
+		</select></label>
+		<label><span>Memo</span><input name={ fmt.Sprintf("line_%d_memo", index) } value={ line.Memo }/></label>
+		<label><span>Debit</span><input inputmode="decimal" name={ fmt.Sprintf("line_%d_debit", index) } value={ line.Debit } placeholder="0.00"/></label>
+		<label><span>Credit</span><input inputmode="decimal" name={ fmt.Sprintf("line_%d_credit", index) } value={ line.Credit } placeholder="0.00"/></label>
+	</div>
+}
+
+templ FinanceEntryPage(tenantName string, user UserView, ledger FinanceLedgerView, entry FinanceEntryView, accounts []FinanceAccountView, csrfToken, pageError string) {
+	@Layout("Journal entry #" + entry.Number, tenantName, &user, csrfToken) {
+		<section class="hero hero-compact"><div><p class="eyebrow">{ ledger.Name } · journal entry #{ entry.Number }</p><h1>{ entry.Description }</h1><p>{ entry.Date } · { entry.Source }</p></div><a class="button button-quiet" href={ templ.URL("/finance?ledger=" + ledger.ID) }>Back to ledger</a></section>
+		if pageError != "" {
+			<div class="alert alert-error">{ pageError }</div>
+		}
+		<section class="panel finance-entry-detail"><header><div><h2>{ entry.Total }</h2><p>Debits and credits</p></div><span class={ "status-pill status-" + entry.Status }>{ entry.Status }</span></header>
+			if entry.Status == "draft" {
+				<form method="post" action={ templ.URL("/finance/entries/" + entry.ID) }>
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<div class="finance-inline"><label><span>Date</span><input type="date" name="entry_date" value={ entry.Date } required/></label><label><span>Reference</span><input name="reference" value={ entry.Reference }/></label></div><label><span>Description</span><input name="description" value={ entry.Description } required/></label>
+					for index := 0; index < 8; index++ {
+						if index < len(entry.Lines) {
+							@FinanceLineFields(index + 1, accounts, entry.Lines[index])
+						} else {
+							@FinanceLineFields(index + 1, accounts, FinanceLineView{})
+						}
+					}
+					<button class="button button-quiet" type="submit">Save draft</button>
+				</form>
+				<form method="post" action={ templ.URL("/finance/entries/" + entry.ID + "/post") }><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-primary" type="submit">Post entry</button></form>
+			} else {
+				<table class="finance-lines-table"><thead><tr><th>Account</th><th>Memo</th><th>Debit</th><th>Credit</th></tr></thead><tbody>
+					for _, line := range entry.Lines {
+						<tr><td>{ line.AccountCode } · { line.AccountName }</td><td>{ line.Memo }</td><td>{ line.Debit }</td><td>{ line.Credit }</td></tr>
+					}
+				</tbody></table>
+				if entry.Status == "posted" && entry.ReversalOfID == "" {
+					<form method="post" action={ templ.URL("/finance/entries/" + entry.ID + "/void") }><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-danger" type="submit">Void with reversal</button><small>This preserves the original and posts an equal opposite entry.</small></form>
+				}
+			}
+		</section>
+	}
+}

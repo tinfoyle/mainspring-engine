@@ -121,19 +121,20 @@ func softwarePersonaBlueprints(state Onboarding) []PersonaBlueprint {
 func softwareDefaultPersonaSeeds() []personaSeed {
 	return []personaSeed{
 		{
-			name: "Morgan", role: "Software Operations Manager", position: 1,
-			instructions: "Coordinate the operating rhythm, identify product, service-delivery, and customer exceptions, and turn discussion into a concise owner action list.",
-			grants:       []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityTicketRead, domain.CapabilityTicketCreate, domain.CapabilityScheduleRead},
+			name: "Main Manager", role: "Main Manager", position: 1,
+			instructions: "Act as the company's evidence-first operating manager. Coordinate product, service-delivery, and customer work across the boardroom, use available tools before reaching conclusions, create focused follow-up work when justified, and give the owner a concise prioritized action list. Never claim a tool was used unless its result appears in the conversation. Do not send messages or make external changes; propose them for approval.",
+			grants:       []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityDocumentsWrite, domain.CapabilityWebSearch, domain.CapabilityWebRead, domain.CapabilityTicketRead, domain.CapabilityTicketCreate, domain.CapabilityScheduleRead, domain.CapabilitySchedulePropose, domain.CapabilityEmailDraft},
+			provider:     "codex", reasoning: "high", maxToolCalls: 8,
 		},
 		{
 			name: "Casey", role: "Revenue & Finance Analyst", position: 2,
 			instructions: "Review recurring revenue, billing, receivables, and software spend carefully. Prepare actions and never move money without approval.",
-			grants:       []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityInvoicePrepare, domain.CapabilityPaymentPropose},
+			grants:       []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityDocumentsWrite, domain.CapabilityInvoicePrepare, domain.CapabilityPaymentPropose},
 		},
 		{
 			name: "Riley", role: "Customer Success Lead", position: 3,
 			instructions: "Review onboarding, adoption, support risk, renewals, and customer promises. Draft follow-up and escalate account risk without sending unless authorized.",
-			grants:       []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityTicketRead, domain.CapabilityTicketCreate, domain.CapabilityEmailDraft},
+			grants:       []domain.Capability{domain.CapabilityDocumentsRead, domain.CapabilityDocumentsWrite, domain.CapabilityTicketRead, domain.CapabilityTicketCreate, domain.CapabilityEmailDraft},
 		},
 	}
 }

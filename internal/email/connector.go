@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -45,6 +46,30 @@ type Message struct {
 	Body string `json:"body"`
 }
 
+type Attachment struct {
+	Filename  string `json:"filename"`
+	MediaType string `json:"media_type"`
+	Content   []byte `json:"-"`
+}
+
+type EvidenceMessage struct {
+	Message
+	Folder      string       `json:"folder"`
+	Attachments []Attachment `json:"attachments"`
+}
+
+type EvidenceScope struct {
+	Folders  []string
+	Since    *time.Time
+	Until    *time.Time
+	MaxItems int
+}
+
+type EvidenceConnector interface {
+	Folders(context.Context, Integration) ([]string, error)
+	Evidence(context.Context, Integration, EvidenceScope) ([]EvidenceMessage, error)
+}
+
 type OutgoingMessage struct {
 	To      []string `json:"to"`
 	CC      []string `json:"cc"`
@@ -62,6 +87,109 @@ type Connector interface {
 	Inbox(context.Context, Integration, int) ([]InboxMessage, error)
 	Message(context.Context, Integration, uint32) (Message, error)
 	Send(context.Context, Integration, OutgoingMessage) (SendResult, error)
+}
+
+func (c *NetworkConnector) Folders(ctx context.Context, integration Integration) ([]string, error) {
+	connection, err := c.connectIMAP(ctx, integration)
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Logout()
+	mailboxes := make(chan *imap.MailboxInfo, 64)
+	done := make(chan error, 1)
+	go func() { done <- connection.List("", "*", mailboxes) }()
+	var result []string
+	for item := range mailboxes {
+		if item != nil && !slices.Contains(item.Attributes, imap.NoSelectAttr) {
+			result = append(result, item.Name)
+		}
+	}
+	if err := <-done; err != nil {
+		return nil, fmt.Errorf("list IMAP folders: %w", err)
+	}
+	slices.Sort(result)
+	return result, nil
+}
+
+func (c *NetworkConnector) Evidence(ctx context.Context, integration Integration, scope EvidenceScope) ([]EvidenceMessage, error) {
+	folders := canonicalFolders(scope.Folders)
+	if len(folders) == 0 {
+		folders = []string{"INBOX"}
+	}
+	if scope.MaxItems <= 0 || scope.MaxItems > 500 {
+		scope.MaxItems = 100
+	}
+	remaining := scope.MaxItems
+	var result []EvidenceMessage
+	for _, folder := range folders {
+		if remaining == 0 {
+			break
+		}
+		items, err := c.evidenceFolder(ctx, integration, folder, scope, remaining)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, items...)
+		remaining -= len(items)
+	}
+	slices.SortFunc(result, func(left, right EvidenceMessage) int { return right.Date.Compare(left.Date) })
+	return result, nil
+}
+
+func (c *NetworkConnector) evidenceFolder(ctx context.Context, integration Integration, folder string, scope EvidenceScope, limit int) ([]EvidenceMessage, error) {
+	connection, err := c.connectIMAP(ctx, integration)
+	if err != nil {
+		return nil, err
+	}
+	defer connection.Logout()
+	if _, err := connection.Select(folder, true); err != nil {
+		return nil, fmt.Errorf("select IMAP folder %q: %w", folder, err)
+	}
+	criteria := imap.NewSearchCriteria()
+	if scope.Since != nil {
+		criteria.Since = *scope.Since
+	}
+	if scope.Until != nil {
+		criteria.Before = scope.Until.AddDate(0, 0, 1)
+	}
+	uids, err := connection.UidSearch(criteria)
+	if err != nil {
+		return nil, fmt.Errorf("search IMAP folder %q: %w", folder, err)
+	}
+	if len(uids) > limit {
+		uids = uids[len(uids)-limit:]
+	}
+	if len(uids) == 0 {
+		return []EvidenceMessage{}, nil
+	}
+	set := new(imap.SeqSet)
+	set.AddNum(uids...)
+	section := &imap.BodySectionName{Peek: true}
+	messages := make(chan *imap.Message, len(uids))
+	done := make(chan error, 1)
+	go func() {
+		done <- connection.UidFetch(set, []imap.FetchItem{imap.FetchUid, imap.FetchEnvelope, imap.FetchFlags, imap.FetchInternalDate, section.FetchItem()}, messages)
+	}()
+	result := make([]EvidenceMessage, 0, len(uids))
+	for item := range messages {
+		literal := item.GetBody(section)
+		if literal == nil {
+			continue
+		}
+		parsed, err := mail.ReadMessage(literal)
+		if err != nil {
+			continue
+		}
+		body, attachments, err := extractEvidenceParts(parsed.Header, parsed.Body, 0)
+		if err != nil {
+			continue
+		}
+		result = append(result, EvidenceMessage{Message: Message{InboxMessage: inboxMessage(item), Body: body}, Folder: folder, Attachments: attachments})
+	}
+	if err := <-done; err != nil {
+		return nil, fmt.Errorf("fetch IMAP evidence from %q: %w", folder, err)
+	}
+	return result, nil
 }
 
 type NetworkConnector struct {
@@ -462,4 +590,92 @@ func decodeTransferEncoding(reader io.Reader, encoding string) io.Reader {
 	default:
 		return reader
 	}
+}
+
+func canonicalFolders(values []string) []string {
+	seen := map[string]bool{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || len(value) > 200 || strings.ContainsAny(value, "\r\n\x00") || seen[value] {
+			continue
+		}
+		seen[value] = true
+		result = append(result, value)
+		if len(result) == 20 {
+			break
+		}
+	}
+	return result
+}
+
+func extractEvidenceParts(header mail.Header, body io.Reader, depth int) (string, []Attachment, error) {
+	if depth > 8 {
+		return "", nil, errors.New("email MIME nesting is too deep")
+	}
+	mediaType, parameters, err := mime.ParseMediaType(header.Get("Content-Type"))
+	if err != nil || mediaType == "" {
+		mediaType = "text/plain"
+	}
+	decodedBody := decodeTransferEncoding(body, header.Get("Content-Transfer-Encoding"))
+	if strings.HasPrefix(mediaType, "multipart/") {
+		boundary := parameters["boundary"]
+		if boundary == "" {
+			return "", nil, errors.New("multipart email is missing a boundary")
+		}
+		reader := multipart.NewReader(decodedBody, boundary)
+		var bodies []string
+		var attachments []Attachment
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return "", nil, err
+			}
+			partHeader := mail.Header(part.Header)
+			partType, _, _ := mime.ParseMediaType(part.Header.Get("Content-Type"))
+			filename := strings.TrimSpace(part.FileName())
+			disposition := strings.ToLower(part.Header.Get("Content-Disposition"))
+			if filename != "" || strings.HasPrefix(disposition, "attachment") {
+				content, readErr := io.ReadAll(io.LimitReader(decodeTransferEncoding(part, part.Header.Get("Content-Transfer-Encoding")), (15<<20)+1))
+				part.Close()
+				if readErr == nil && len(content) > 0 && len(content) <= 15<<20 && filename != "" {
+					attachments = append(attachments, Attachment{Filename: filepath.Base(filename), MediaType: partType, Content: content})
+				}
+				continue
+			}
+			text, nested, nestedErr := extractEvidenceParts(partHeader, part, depth+1)
+			part.Close()
+			if nestedErr == nil {
+				if strings.TrimSpace(text) != "" {
+					bodies = append(bodies, text)
+				}
+				attachments = append(attachments, nested...)
+			}
+		}
+		return strings.Join(bodies, "\n\n"), attachments, nil
+	}
+	if mediaType != "text/plain" && mediaType != "text/html" {
+		filename := strings.TrimSpace(parameters["name"])
+		if filename == "" {
+			return "", nil, nil
+		}
+		content, err := io.ReadAll(io.LimitReader(decodedBody, (15<<20)+1))
+		if err != nil || len(content) > 15<<20 {
+			return "", nil, err
+		}
+		return "", []Attachment{{Filename: filepath.Base(filename), MediaType: mediaType, Content: content}}, nil
+	}
+	content, err := io.ReadAll(io.LimitReader(decodedBody, 256<<10))
+	if err != nil {
+		return "", nil, err
+	}
+	text := string(content)
+	if mediaType == "text/html" {
+		text = html.UnescapeString(htmlTagPattern.ReplaceAllString(text, " "))
+		text = strings.Join(strings.Fields(text), " ")
+	}
+	return strings.TrimSpace(text), nil, nil
 }

@@ -20,7 +20,7 @@ request --cookie "$cookies" --output "$page" "$base_url/agents/new"
 csrf_token="$(grep -oE 'name="csrf_token" value="[^"]+' "$page" | head -n 1 | cut -d'"' -f4)"
 boardroom_id="$(grep -oE 'option value="[0-9a-f-]+"' "$page" | head -n 1 | cut -d'"' -f2)"
 
-create_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$cookies" --output "$page" --write-out '%{http_code}' \
+create_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$cookies" --dump-header "$headers" --output "$page" --write-out '%{http_code}' \
   --data-urlencode "csrf_token=$csrf_token" --data-urlencode "boardroom_id=$boardroom_id" \
   --data-urlencode 'name=Customization Smoke Agent' --data-urlencode 'role=Workflow Auditor' \
   --data-urlencode 'description=Verifies that owner-defined agent controls reach a durable invocation.' \
@@ -31,18 +31,21 @@ create_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$c
   --data-urlencode 'context_token_limit=3456' --data-urlencode 'max_output_tokens=789' \
   --data-urlencode 'timeout_seconds=45' --data-urlencode 'max_tool_calls=2' --data-urlencode 'max_cost_micros=7' \
   --data-urlencode 'response_style=concise' --data-urlencode 'citation_policy=required_for_research' \
-  --data-urlencode 'action_policy=disabled' --data-urlencode 'tool_documents.read=true' \
-  --data-urlencode 'conditions_documents.read={"max_results":"2"}' "$base_url/agents")"
+  --data-urlencode 'action_policy=disabled' --data-urlencode 'knowledge_mode=all' \
+  --data-urlencode 'knowledge_max_results=2' "$base_url/agents")"
 [[ "$create_status" == "303" ]]
+agent_path="$(awk 'tolower($1) == "location:" {gsub("\r", "", $2); print $2}' "$headers" | tail -n 1 | cut -d'?' -f1)"
+[[ "$agent_path" == /agents/* ]]
 
 request --cookie "$cookies" --output "$page" "$base_url/agents"
 grep -q 'Customization Smoke Agent' "$page"
-agent_path="$(grep -oE '/agents/[0-9a-f-]+' "$page" | head -n 1)"
 request --cookie "$cookies" --output "$page" "$base_url$agent_path"
 grep -q 'custom-smoke-model' "$page"
 grep -q 'value="3456"' "$page"
 grep -q 'value="789"' "$page"
 grep -q 'max_results' "$page"
+grep -q 'name="tool_web.search" value="true"' "$page"
+grep -q 'name="tool_web.read" value="true"' "$page"
 
 request --cookie "$cookies" --output "$page" "$base_url/"
 room_path="$(grep -oE '/boardrooms/[0-9a-f-]+' "$page" | head -n 1)"
@@ -71,9 +74,12 @@ update_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$c
   --data-urlencode 'context_token_limit=3456' --data-urlencode 'max_output_tokens=789' --data-urlencode 'timeout_seconds=45' \
   --data-urlencode 'max_tool_calls=2' --data-urlencode 'max_cost_micros=7' --data-urlencode 'response_style=concise' \
   --data-urlencode 'citation_policy=required_for_research' --data-urlencode 'action_policy=disabled' \
-  --data-urlencode 'tool_documents.read=true' --data-urlencode 'conditions_documents.read={"max_results":"2"}' \
+  --data-urlencode 'knowledge_mode=all' --data-urlencode 'knowledge_max_results=2' \
   "$base_url$agent_path")"
 [[ "$update_status" == "303" ]]
+request --cookie "$cookies" --output "$page" "$base_url$agent_path"
+grep -q 'name="tool_web.search" value="true"' "$page"
+grep -q 'name="tool_web.read" value="true"' "$page"
 
 duplicate_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$cookies" --output "$page" --write-out '%{http_code}' \
   --data-urlencode "csrf_token=$csrf_token" "$base_url$agent_path/duplicate")"

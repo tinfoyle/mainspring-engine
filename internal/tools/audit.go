@@ -29,10 +29,18 @@ func (a *PostgresAuditor) RecordToolCall(ctx context.Context, record AuditRecord
 	if !record.Allowed {
 		eventType = "tool.denied"
 	}
+	actorType, actorID := record.ActorType, record.ActorID
+	if actorType == "" {
+		actorType, actorID = "persona", record.PersonaID
+	}
+	var runID any = record.RunID
+	if actorType != "persona" {
+		runID = nil
+	}
 	_, err = a.pool.Exec(ctx, `
 		INSERT INTO tenant_audit_events (actor_type, actor_id, run_id, event_type, correlation_id, payload, created_at)
-		VALUES ('persona', $1, $2, $3, $4, $5, $6)
-	`, record.PersonaID, record.RunID, eventType, record.InvocationID, payload, record.CreatedAt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, actorType, actorID, runID, eventType, record.InvocationID, payload, record.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("record tool audit event: %w", err)
 	}

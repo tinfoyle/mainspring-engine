@@ -284,7 +284,7 @@ templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
 			} else {
 				@PermissionChoice("read_business_records", "Read connected business records", "Documents, job information, calendars, and accounting records that you connect.", state.Permissions.ReadBusinessRecords)
 			}
-			@PermissionChoice("research_public_web", "Research the public web", "Research-focused specialists can search public sources; findings must cite evidence and remain advisory.", state.Permissions.ResearchPublicWeb)
+			<div class="guardrail"><strong>Public web research</strong><p>Every agent can search and read public sources. Results remain bounded, server-authorized, and citable; web content is treated as untrusted evidence.</p></div>
 			@PermissionChoice("comment_on_documents", "Add review comments to documents", "Legal, compliance, and safety specialists may annotate documents, but cannot replace or delete them.", state.Permissions.CommentOnDocuments)
 			if IsSoftwareTemplate(state.Template) {
 				@PermissionChoice("prepare_invoice_drafts", "Prepare billing drafts", "The revenue analyst can organize subscription or service billing details, but cannot issue a charge.", state.Permissions.PrepareInvoiceDrafts)
@@ -302,7 +302,7 @@ templ OnboardingPermissionsStep(state OnboardingView, csrfToken string) {
 				@PermissionChoice("propose_payments", "Propose payments", "The bookkeeper can prepare a payment recommendation; execution always requires approval.", state.Permissions.ProposePayments)
 			}
 		</div>
-		<div class="guardrail"><strong>Hard guardrail</strong><p>Email sending is disabled unless you explicitly grant it and connect a mailbox; every send is idempotent and audited. Invoice issuing, payment execution, ordering, contract acceptance, and calendar modification remain disabled. Legal and HR guidance is advisory and must be reviewed by a qualified human.</p></div>
+		<div class="guardrail"><strong>Hard guardrail</strong><p>Public web research is read-only. Email sending is disabled unless you explicitly grant it and connect a mailbox; every send is idempotent and audited. Invoice issuing, payment execution, ordering, contract acceptance, and calendar modification remain disabled. Legal and HR guidance is advisory and must be reviewed by a qualified human.</p></div>
 		<div class="onboarding-actions"><a href="/onboarding?step=4">Back</a><button class="button button-primary" type="submit">Review the plan</button></div>
 	</form>
 }
@@ -374,11 +374,14 @@ templ OnboardingCompletePage(tenantName string, user UserView, room BoardroomCar
 	}
 }
 
-templ DevelopmentPage(tenantName string, user UserView, csrfToken string) {
+templ DevelopmentPage(tenantName string, user UserView, rooms []BoardroomCardView, csrfToken string) {
 	@Layout("Demo tools", tenantName, &user, csrfToken) {
 		<section class="development-shell">
 			<header><p class="eyebrow">Development only</p><h1>Demo tools</h1><p>Utilities for repeatedly testing the customer experience. These routes do not exist when Mainspring is not running in development mode.</p></header>
-			<article class="panel development-card"><div><h2>Reset onboarding</h2><p>Clears the onboarding draft and restores this tenant template's default personas. Your owner login, conversations, documents, and connected mailbox are preserved.</p></div><form method="post" action="/development/reset-onboarding"><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="confirm" value="reset"/><button class="button button-danger-solid" type="submit">Reset onboarding</button></form></article>
+			if len(rooms) > 0 {
+				<article class="panel development-card"><div><h2>Test an unknown answer</h2><p>Asks the boardroom a legal-compliance question to exercise the search-first evidence-gap path. When no sufficient documentation is found, the manager should offer an actionable Work ticket for owner approval.</p></div><form method="post" action={ templ.URL("/boardrooms/" + rooms[0].ID + "/conversations") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="prompt" value="[demo:unknown-answer:legal-compliance] Are we in legal compliance?"/><button class="button button-primary" type="submit">Run unknown-answer test</button></form></article>
+			}
+			<article class="panel development-card"><div><h2>Reset demo account</h2><p>Starts onboarding from scratch, restores the default agents, and clears the Work queue, ticket proposals, uploaded documents, and indexed evidence. Your owner login, conversations, and connected mailbox are preserved.</p></div><form method="post" action="/development/reset-onboarding"><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="confirm" value="reset"/><button class="button button-danger-solid" type="submit">Reset demo data</button></form></article>
 		</section>
 	}
 }

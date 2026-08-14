@@ -8,6 +8,7 @@ const (
 	CapabilityWebSearch        Capability = "web.search"
 	CapabilityWebRead          Capability = "web.read"
 	CapabilityDocumentsRead    Capability = "documents.read"
+	CapabilityDocumentsWrite   Capability = "documents.write"
 	CapabilityDocumentsComment Capability = "documents.comment"
 	CapabilityEmailDraft       Capability = "email.draft"
 	CapabilityEmailRead        Capability = "email.read"
@@ -21,6 +22,8 @@ const (
 	CapabilityInvoiceIssue     Capability = "invoice.issue"
 	CapabilityPaymentPropose   Capability = "payment.propose"
 	CapabilityPaymentExecute   Capability = "payment.execute"
+	CapabilityFinanceRead      Capability = "finance.read"
+	CapabilityFinanceManage    Capability = "finance.manage"
 )
 
 type ToolGrant struct {
@@ -34,6 +37,8 @@ type InvocationContext struct {
 	RunID        RunID
 	PersonaID    PersonaID
 	InvocationID InvocationID
+	ActorType    string
+	ActorID      string
 	Grants       []ToolGrant
 	ExpiresAt    time.Time
 }

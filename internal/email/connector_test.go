@@ -1,11 +1,30 @@
 package email
 
 import (
+	"bytes"
 	"io"
 	"net/mail"
 	"strings"
 	"testing"
 )
+
+func TestExtractEvidencePartsIncludesAttachments(t *testing.T) {
+	raw := "Content-Type: multipart/mixed; boundary=test\r\n\r\n" +
+		"--test\r\nContent-Type: text/plain\r\n\r\nPlease review the license.\r\n" +
+		"--test\r\nContent-Type: text/plain; name=license.txt\r\nContent-Disposition: attachment; filename=license.txt\r\n\r\nLicense number 123\r\n" +
+		"--test--\r\n"
+	message, err := mail.ReadMessage(bytes.NewBufferString(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, attachments, err := extractEvidenceParts(message.Header, message.Body, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "review the license") || len(attachments) != 1 || attachments[0].Filename != "license.txt" || !strings.Contains(string(attachments[0].Content), "123") {
+		t.Fatalf("body=%q attachments=%#v", body, attachments)
+	}
+}
 
 func TestSettingsRequireEncryptedTransportAndCredentials(t *testing.T) {
 	valid := SettingsInput{Name: "Office", EmailAddress: "office@example.com", IMAPHost: "imap.example.com", IMAPPort: 993, IMAPSecurity: SecurityTLS, IMAPUsername: "office@example.com", IMAPPassword: "secret", SMTPHost: "smtp.example.com", SMTPPort: 587, SMTPSecurity: SecurityStartTLS, SMTPUsername: "office@example.com", SMTPPassword: "secret"}

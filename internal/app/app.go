@@ -15,7 +15,9 @@ import (
 	"github.com/tinfoyle/mainspring-engine/internal/database"
 	"github.com/tinfoyle/mainspring-engine/internal/domain"
 	mailbox "github.com/tinfoyle/mainspring-engine/internal/email"
+	"github.com/tinfoyle/mainspring-engine/internal/finance"
 	"github.com/tinfoyle/mainspring-engine/internal/gateway"
+	"github.com/tinfoyle/mainspring-engine/internal/gdrive"
 	"github.com/tinfoyle/mainspring-engine/internal/httpserver"
 	"github.com/tinfoyle/mainspring-engine/internal/migrate"
 	"github.com/tinfoyle/mainspring-engine/internal/orchestration"
@@ -25,6 +27,7 @@ import (
 	"github.com/tinfoyle/mainspring-engine/internal/secretbox"
 	"github.com/tinfoyle/mainspring-engine/internal/tenant"
 	toolbroker "github.com/tinfoyle/mainspring-engine/internal/tools"
+	"github.com/tinfoyle/mainspring-engine/internal/webresearch"
 )
 
 func Run(ctx context.Context, logger *slog.Logger, cfg config.Config, mode string, args []string) error {
@@ -122,6 +125,7 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 	if err := tenantStore.Bootstrap(ctx, tenantID, cfg.TenantSlug, cfg.TenantName); err != nil {
 		return err
 	}
+	go tenantStore.RunBaselineMaintenance(ctx, tenantID, 12*time.Hour)
 	boardroomStore := boardroom.NewStore(pool)
 	documentClient, err := rag.NewClient(cfg.RAGInternalURL, cfg.RAGToken, tenantID)
 	if err != nil {
@@ -137,8 +141,21 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 	}
 	actionLedger := toolbroker.NewActionLedger(pool)
 	emailService := mailbox.NewService(mailbox.NewStore(pool, credentialBox), emailConnector, actionLedger)
+	driveService := gdrive.NewService(pool, tenantID, credentialBox, cfg.GoogleDriveClientID, cfg.GoogleDriveClientSecret, cfg.GoogleDriveRedirectURL)
 	approvalService := toolbroker.NewApprovalService(pool, actionLedger)
 	usageService := boardroom.NewUsageService(pool, logger.With("service", "usage"))
+	issuer, err := toolbroker.NewTokenIssuer([]byte(cfg.ToolTokenSecret), 61*time.Minute)
+	if err != nil {
+		return err
+	}
+	webProvider, err := newWebResearchProvider(cfg)
+	if err != nil {
+		return err
+	}
+	broker, err := newToolBroker(pool, issuer, documentClient, webProvider)
+	if err != nil {
+		return err
+	}
 	var dispatcher tenant.RunDispatcher
 	var scheduleService *scheduling.Service
 	if cfg.OrchestrationMode == "temporal" {
@@ -154,29 +171,48 @@ func runTenant(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 		if err != nil {
 			return err
 		}
-		issuer, err := toolbroker.NewTokenIssuer([]byte(cfg.ToolTokenSecret), cfg.AgentTimeout+time.Minute)
-		if err != nil {
-			return err
-		}
-		broker, err := newToolBroker(pool, issuer, documentClient)
-		if err != nil {
-			return err
-		}
 		runService := boardroom.NewService(logger.With("service", "boardroom"), boardroomStore, provider, tenantID, cfg.AgentTimeout, issuer, broker)
 		runService.SetApprovalService(approvalService)
 		runService.SetUsageService(usageService)
 		runService.SetBudgets(int64(cfg.AgentContextTokens), int64(cfg.AgentOutputTokens), int64(cfg.AgentTurnCostMicros))
 		dispatcher = orchestration.NewLocalDispatcher(ctx, logger.With("service", "dispatcher"), runService, cfg.RunConcurrency)
 	}
+	migratedInputRuns, err := approvalService.MigratePendingOwnerInputs(ctx)
+	if err != nil {
+		return fmt.Errorf("migrate pending owner input approvals: %w", err)
+	}
+	recoveredInputs, err := approvalService.RecoverMissingHumanInputs(ctx)
+	if err != nil {
+		return fmt.Errorf("recover missing owner inputs: %w", err)
+	}
+	if recoveredInputs > 0 {
+		logger.Info("recovered missing owner inputs", "count", recoveredInputs)
+	}
+	strandedRuns, err := approvalService.RunsAwaitingNoApproval(ctx)
+	if err != nil {
+		return fmt.Errorf("find stranded approval runs: %w", err)
+	}
+	runsToResume := map[domain.RunID]bool{}
+	for _, runID := range append(migratedInputRuns, strandedRuns...) {
+		runsToResume[runID] = true
+	}
+	for runID := range runsToResume {
+		if err := dispatcher.ApprovalDecision(ctx, runID, "migrated-to-your-turn"); err != nil {
+			logger.Warn("resume owner input run", "run_id", runID.String(), "error", err)
+		}
+	}
 	server, err := tenant.NewServer(logger.With("service", "tenant"), tenant.ServerConfig{
 		TenantID: tenantID, TenantSlug: cfg.TenantSlug, TenantName: cfg.TenantName,
 		BusinessTemplate: businessTemplate,
 		BaseDomain:       cfg.GatewayBaseDomain, SessionSecret: []byte(cfg.SessionSecret), SetupToken: cfg.SetupToken,
-		CookieSecure: cfg.CookieSecure, Development: cfg.Environment == "development",
-	}, tenantStore, boardroomStore, dispatcher, scheduleService, documentClient, emailService, approvalService, usageService)
+		CookieSecure: cfg.CookieSecure, Development: cfg.Environment == "development", ControlAdminToken: cfg.ControlAdminToken,
+		MCPToken: cfg.MCPToken, MCPUserEmail: cfg.MCPUserEmail,
+	}, tenantStore, boardroomStore, dispatcher, scheduleService, documentClient, emailService, driveService, webProvider, approvalService, usageService)
 	if err != nil {
 		return err
 	}
+	server.SetToolBroker(issuer, broker)
+	go tenant.RunAgentWorkDispatcher(ctx, logger.With("service", "agent-work"), tenantStore, boardroomStore, dispatcher, cfg.RunConcurrency, 5*time.Second)
 	return httpserver.Run(ctx, logger, cfg.TenantAddr, server.Handler(), cfg.ShutdownTimeout)
 }
 
@@ -199,7 +235,7 @@ func runWorker(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 	if err != nil {
 		return err
 	}
-	issuer, err := toolbroker.NewTokenIssuer([]byte(cfg.ToolTokenSecret), cfg.AgentTimeout+time.Minute)
+	issuer, err := toolbroker.NewTokenIssuer([]byte(cfg.ToolTokenSecret), 61*time.Minute)
 	if err != nil {
 		return err
 	}
@@ -207,7 +243,11 @@ func runWorker(ctx context.Context, logger *slog.Logger, cfg config.Config) erro
 	if err != nil {
 		return err
 	}
-	broker, err := newToolBroker(pool, issuer, documentClient)
+	webProvider, err := newWebResearchProvider(cfg)
+	if err != nil {
+		return err
+	}
+	broker, err := newToolBroker(pool, issuer, documentClient, webProvider)
 	if err != nil {
 		return err
 	}
@@ -248,12 +288,34 @@ func runRunnerController(ctx context.Context, logger *slog.Logger, cfg config.Co
 	return httpserver.Run(ctx, logger, cfg.RunnerAddr, server.Handler(), cfg.ShutdownTimeout)
 }
 
-func newToolBroker(pool *pgxpool.Pool, issuer *toolbroker.TokenIssuer, documentClient *rag.Client) (*toolbroker.Broker, error) {
+func newToolBroker(pool *pgxpool.Pool, issuer *toolbroker.TokenIssuer, documentClient *rag.Client, webProvider webresearch.Provider) (*toolbroker.Broker, error) {
 	broker := toolbroker.NewBroker(issuer, toolbroker.NewPostgresAuditor(pool))
 	if err := toolbroker.RegisterDocumentSearch(broker, documentClient); err != nil {
 		return nil, fmt.Errorf("register document search tool: %w", err)
 	}
+	if err := toolbroker.RegisterDocumentWrite(broker, documentClient); err != nil {
+		return nil, fmt.Errorf("register document write tools: %w", err)
+	}
+	if webProvider != nil {
+		if err := toolbroker.RegisterWebResearch(broker, webProvider); err != nil {
+			return nil, fmt.Errorf("register web research tools: %w", err)
+		}
+	}
+	if err := toolbroker.RegisterFinance(broker, finance.NewService(pool)); err != nil {
+		return nil, fmt.Errorf("register finance tools: %w", err)
+	}
 	return broker, nil
+}
+
+func newWebResearchProvider(cfg config.Config) (webresearch.Provider, error) {
+	if cfg.WebResearchProvider == "disabled" {
+		return nil, nil
+	}
+	provider, err := webresearch.NewFirecrawl(cfg.FirecrawlURL, cfg.FirecrawlToken, cfg.FirecrawlTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("configure Firecrawl web research: %w", err)
+	}
+	return provider, nil
 }
 
 func tenantTaskQueue(cfg config.Config, tenantID domain.TenantID) string {

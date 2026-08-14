@@ -40,7 +40,7 @@ reset_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$co
   "$base_url/development/reset-onboarding")"
 [[ "$reset_status" == "303" ]]
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?legacy=1"
 grep -q 'Unified demo' "$page"
 grep -q 'Mia' "$page"
 grep -q 'Trades' "$page"
@@ -57,7 +57,7 @@ post_step() {
 }
 
 post_step /onboarding/template --data-urlencode "template_selection=trades"
-request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?legacy=1"
 grep -q 'Primary trade' "$page"
 
 post_step /onboarding/business \
@@ -89,7 +89,7 @@ post_step /onboarding/priorities \
   --data-urlencode "priorities=Reduce scheduling mistakes" \
   --data-urlencode "priorities=Catch jobs falling through the cracks"
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=4"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=4&legacy=1"
 grep -q 'Website Advisor' "$page"
 grep -q 'name_website_advisor' "$page"
 
@@ -114,7 +114,7 @@ post_step /onboarding/permissions \
   --data-urlencode "propose_schedule_edits=true" \
   --data-urlencode "propose_payments=true"
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=6"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=6&legacy=1"
 grep -q 'Smoke Test Plumbing' "$page"
 grep -q 'Alex' "$page"
 

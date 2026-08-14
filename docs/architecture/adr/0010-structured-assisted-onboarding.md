@@ -24,7 +24,7 @@ Launch grants read, research, document-comment, draft, and proposal capabilities
 
 The generated blueprint contains a lean three-person operations team and an opt-in specialist catalog covering growth, customers, legal and compliance, people and safety, estimating, and procurement. The application sets the boardroom turn limit to the selected persona count during launch, ensuring every selected role receives its bounded turn without enabling unused specialists by default.
 
-Development runtimes expose an owner-only, CSRF-protected reset that clears the onboarding draft and restores default personas while preserving the login, conversations, and documents. The route is unavailable outside development mode.
+Development runtimes expose an owner-only, CSRF-protected reset that clears the onboarding draft and document corpus, removes document attachments, and restores default personas while preserving the login and conversations. The route is unavailable outside development mode.
 
 ## Consequences
 

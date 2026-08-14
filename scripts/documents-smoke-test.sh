@@ -13,10 +13,10 @@ cookies="$work_dir/cookies"
 page="$work_dir/page.html"
 headers="$work_dir/headers"
 document_file="$work_dir/technician-closeout.md"
-unsupported_file="$work_dir/sample.pdf"
+unsupported_file="$work_dir/sample.png"
 
 printf '%s\n' '# Technician closeout checklist' '' '- Record labor and materials.' '- Attach job photos.' '- Submit notes before leaving the site.' >"$document_file"
-printf '%s\n' 'This is not a parsed PDF.' >"$unsupported_file"
+printf '%s\n' 'This is not a supported business document.' >"$unsupported_file"
 
 request() {
   curl --silent --show-error --fail-with-body -H "Host: $tenant_host" "$@"
@@ -58,8 +58,8 @@ grep -q 'Technician closeout checklist' "$page"
 
 unsupported_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$cookies" \
   --output "$page" --write-out '%{http_code}' \
-  --form "csrf_token=$csrf_token" --form "document=@$unsupported_file;type=application/pdf" "$base_url/documents")"
+  --form "csrf_token=$csrf_token" --form "document=@$unsupported_file;type=image/png" "$base_url/documents")"
 [[ "$unsupported_status" == "400" ]]
-grep -q 'Supported formats are TXT' "$page"
+grep -qi 'supported formats are PDF, DOCX, TXT' "$page"
 
 printf 'Mainspring document smoke test passed: upload, index, list, view, and file-type rejection.\n'

@@ -14,22 +14,27 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/tinfoyle/mainspring-engine/internal/auth"
 	"github.com/tinfoyle/mainspring-engine/internal/boardroom"
+	"github.com/tinfoyle/mainspring-engine/internal/documentextract"
 	"github.com/tinfoyle/mainspring-engine/internal/domain"
 	mailbox "github.com/tinfoyle/mainspring-engine/internal/email"
+	"github.com/tinfoyle/mainspring-engine/internal/finance"
+	"github.com/tinfoyle/mainspring-engine/internal/gdrive"
 	"github.com/tinfoyle/mainspring-engine/internal/httpx"
 	"github.com/tinfoyle/mainspring-engine/internal/rag"
 	"github.com/tinfoyle/mainspring-engine/internal/scheduling"
 	toolbroker "github.com/tinfoyle/mainspring-engine/internal/tools"
+	"github.com/tinfoyle/mainspring-engine/internal/webresearch"
 	"github.com/tinfoyle/mainspring-engine/web/assets"
 	"github.com/tinfoyle/mainspring-engine/web/components"
 )
@@ -57,18 +62,22 @@ type DocumentService interface {
 	ListDocuments(context.Context) ([]rag.Document, error)
 	GetDocument(context.Context, string) (rag.DocumentDetail, error)
 	IngestText(context.Context, string, string, string, string) (rag.Document, error)
+	Search(context.Context, string, int, []string) ([]rag.SearchResult, error)
 }
 
 type ServerConfig struct {
-	TenantID         domain.TenantID
-	TenantSlug       string
-	TenantName       string
-	BusinessTemplate BusinessTemplate
-	BaseDomain       string
-	SessionSecret    []byte
-	SetupToken       string
-	CookieSecure     bool
-	Development      bool
+	TenantID          domain.TenantID
+	TenantSlug        string
+	TenantName        string
+	BusinessTemplate  BusinessTemplate
+	BaseDomain        string
+	SessionSecret     []byte
+	SetupToken        string
+	CookieSecure      bool
+	Development       bool
+	ControlAdminToken string
+	MCPToken          string
+	MCPUserEmail      string
 }
 
 type Server struct {
@@ -80,16 +89,34 @@ type Server struct {
 	schedules  *scheduling.Service
 	documents  DocumentService
 	email      *mailbox.Service
+	drive      *gdrive.Service
+	research   webresearch.Provider
 	approvals  *toolbroker.ApprovalService
 	usage      *boardroom.UsageService
+	toolIssuer *toolbroker.TokenIssuer
+	toolBroker *toolbroker.Broker
+	finance    *finance.Service
 }
 
-func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardrooms *boardroom.Store, dispatcher RunDispatcher, schedules *scheduling.Service, documents DocumentService, emailService *mailbox.Service, approvals *toolbroker.ApprovalService, usage *boardroom.UsageService) (*Server, error) {
+func (s *Server) SetToolBroker(issuer *toolbroker.TokenIssuer, broker *toolbroker.Broker) {
+	s.toolIssuer = issuer
+	s.toolBroker = broker
+}
+
+func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardrooms *boardroom.Store, dispatcher RunDispatcher, schedules *scheduling.Service, documents DocumentService, emailService *mailbox.Service, driveService *gdrive.Service, researchProvider webresearch.Provider, approvals *toolbroker.ApprovalService, usage *boardroom.UsageService) (*Server, error) {
 	if len(config.SessionSecret) < 32 {
 		return nil, errors.New("MAINSPRING_SESSION_SECRET must contain at least 32 bytes")
 	}
 	if strings.TrimSpace(config.SetupToken) == "" {
 		return nil, errors.New("MAINSPRING_SETUP_TOKEN is required")
+	}
+	if config.MCPToken != "" {
+		if len(config.MCPToken) < 32 {
+			return nil, errors.New("MAINSPRING_MCP_TOKEN must contain at least 32 bytes when MCP is enabled")
+		}
+		if strings.TrimSpace(config.MCPUserEmail) == "" {
+			return nil, errors.New("MAINSPRING_MCP_USER_EMAIL is required when MCP is enabled")
+		}
 	}
 	if documents == nil {
 		return nil, errors.New("tenant document service is required")
@@ -112,8 +139,11 @@ func NewServer(logger *slog.Logger, config ServerConfig, store *Store, boardroom
 		schedules:  schedules,
 		documents:  documents,
 		email:      emailService,
+		drive:      driveService,
+		research:   researchProvider,
 		approvals:  approvals,
 		usage:      usage,
+		finance:    finance.NewService(store.pool),
 	}, nil
 }
 
@@ -121,6 +151,9 @@ func (s *Server) Handler() http.Handler {
 	router := chi.NewRouter()
 	router.Get("/healthz", s.health)
 	router.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServerFS(assets.Files)))
+	router.Post("/internal/platform/ownership", s.requirePlatformControl(s.transferOwnership))
+	router.Post("/internal/platform/announcements", s.requirePlatformControl(s.deliverAnnouncement))
+	router.With(s.tenantBoundary).Handle("/mcp", s.mcpHTTPHandler())
 
 	router.Group(func(router chi.Router) {
 		router.Use(s.tenantBoundary)
@@ -129,6 +162,8 @@ func (s *Server) Handler() http.Handler {
 		router.Post("/setup", s.setup)
 		router.Get("/login", s.loginPage)
 		router.Post("/login", s.login)
+		router.Get("/invitations/accept", s.acceptInvitationPage)
+		router.Post("/invitations/accept", s.acceptInvitation)
 
 		router.Group(func(router chi.Router) {
 			router.Use(s.requireAuthentication)
@@ -141,9 +176,55 @@ func (s *Server) Handler() http.Handler {
 			router.Post("/onboarding/team", s.requireCSRF(s.saveOnboardingTeam))
 			router.Post("/onboarding/permissions", s.requireCSRF(s.saveOnboardingPermissions))
 			router.Post("/onboarding/launch", s.requireCSRF(s.launchOnboarding))
+			router.Get("/baseline", s.baselinePage)
+			router.Post("/baseline/interview", s.requireCSRF(s.answerBaselineInterview))
+			router.Post("/baseline/facts", s.requireCSRF(s.saveBaselineFact))
+			router.Post("/baseline/sources", s.requireCSRF(s.configureBaselineSource))
+			router.Post("/baseline/sources/email/sync", s.requireCSRF(s.syncBaselineEmail))
+			router.Get("/baseline/google-drive/connect", s.connectGoogleDrive)
+			router.Get("/baseline/google-drive/callback", s.googleDriveCallback)
+			router.Get("/baseline/google-drive/folders", s.googleDriveFolders)
+			router.Post("/baseline/google-drive/sync", s.requireCSRF(s.syncGoogleDrive))
+			router.Post("/baseline/google-drive/disconnect", s.requireCSRF(s.disconnectGoogleDrive))
+			router.Post("/baseline/advance", s.requireCSRF(s.advanceBaseline))
+			router.Post("/baseline/evidence/{requirementID}", s.requireCSRF(s.resolveBaselineEvidence))
+			router.Post("/baseline/evidence/{requirementID}/interview", s.requireCSRF(s.answerBaselineEvidenceInterview))
+			router.Post("/baseline/evidence/{requirementID}/documents", s.requireCSRF(s.linkBaselineDocument))
+			router.Post("/baseline/evidence/{requirementID}/public", s.requireCSRF(s.addBaselinePublicEvidence))
+			router.Post("/baseline/evidence/{requirementID}/research", s.requireCSRF(s.researchBaselineEvidence))
+			router.Post("/baseline/evidence/{requirementID}/upload", s.uploadBaselineDocument)
+			router.Post("/baseline/plan", s.requireCSRF(s.createBaselinePlan))
+			router.Post("/baseline/reassess", s.requireCSRF(s.reassessBaseline))
+			router.Get("/documents", s.documentsPage)
+			router.Post("/documents", s.uploadDocument)
+			router.Get("/documents/{documentID}", s.documentPage)
+			router.Get("/api/v2/documents", s.v2DocumentsAPI)
+			router.Post("/api/v2/documents", s.uploadDocument)
+			router.Get("/api/v2/documents/{documentID}", s.v2DocumentAPI)
+			router.Get("/api/v2/home", s.v2HomeAPI)
+			router.Get("/api/v2/baseline", s.v2BaselineAPI)
+			router.Post("/api/v2/baseline/interview", s.requireCSRF(s.v2AnswerBaselineInterview))
+			router.Post("/api/v2/baseline/evidence/{requirementID}/interview", s.requireCSRF(s.v2AnswerBaselineEvidence))
+			router.Post("/api/v2/baseline/evidence/{requirementID}/documents", s.requireCSRF(s.v2LinkBaselineDocument))
+			router.Post("/api/v2/baseline/evidence/{requirementID}", s.requireCSRF(s.v2ResolveBaselineEvidence))
+			router.Post("/api/v2/baseline/advance", s.requireCSRF(s.v2AdvanceBaseline))
+			router.Post("/api/v2/baseline/plan", s.requireCSRF(s.v2CreateBaselinePlan))
+			router.Post("/api/v2/baseline/reassess", s.requireCSRF(s.v2ReassessBaseline))
+			router.Get("/api/v2/inbox", s.v2InboxAPI)
+			router.Post("/api/v2/inbox/{announcementID}/read", s.requireCSRF(s.v2ReadAnnouncement))
+			router.Get("/email", s.emailPage)
+			router.Post("/email/settings", s.requireCSRF(s.saveEmailSettings))
+			router.Get("/email/messages/{uid}", s.emailMessagePage)
 			router.Get("/development", s.developmentPage)
 			router.Post("/development/reset-onboarding", s.requireCSRF(s.resetOnboarding))
 			router.Post("/logout", s.requireCSRF(s.logout))
+			router.Get("/team", s.membersPage)
+			router.Post("/team/invitations", s.requireCSRF(s.createMemberInvitation))
+			router.Post("/team/members/{userID}/remove", s.requireCSRF(s.removeMember))
+			router.Get("/inbox", s.announcementsPage)
+			router.Post("/inbox/{announcementID}/read", s.requireCSRF(s.readAnnouncement))
+			router.Get("/api/messenger/{channel}", s.listMessengerMessages)
+			router.Post("/api/messenger/{channel}", s.requireCSRF(s.createMessengerMessage))
 
 			router.Group(func(router chi.Router) {
 				router.Use(s.requireOnboarding)
@@ -168,18 +249,52 @@ func (s *Server) Handler() http.Handler {
 				router.Post("/schedules/{scheduleID}/delete", s.requireCSRF(s.deleteSchedule))
 				router.Get("/work", s.workQueuePage)
 				router.Post("/work", s.requireCSRF(s.createWorkItem))
+				router.Get("/work/{workItemID}", s.workItemPage)
+				router.Post("/work/{workItemID}/messages", s.createWorkItemMessage)
 				router.Post("/work/{workItemID}/status", s.requireCSRF(s.updateWorkItemStatus))
-				router.Get("/documents", s.documentsPage)
-				router.Post("/documents", s.uploadDocument)
-				router.Get("/documents/{documentID}", s.documentPage)
-				router.Get("/email", s.emailPage)
-				router.Post("/email/settings", s.requireCSRF(s.saveEmailSettings))
-				router.Get("/email/messages/{uid}", s.emailMessagePage)
+				router.Get("/api/v2/work", s.v2WorkQueueAPI)
+				router.Post("/api/v2/work", s.requireCSRF(s.createWorkItem))
+				router.Get("/api/v2/work/{workItemID}", s.v2WorkItemAPI)
+				router.Get("/api/v2/work/{workItemID}/events", s.v2WorkItemEvents)
+				router.Post("/api/v2/work/{workItemID}/messages", s.createWorkItemMessage)
+				router.Post("/api/v2/work/{workItemID}/status", s.requireCSRF(s.updateWorkItemStatus))
+				router.Get("/api/v2/your-turn", s.v2YourTurnAPI)
+				router.Get("/api/v2/your-turn/events", s.v2YourTurnEvents)
+				router.Get("/api/v2/boardrooms/{boardroomID}", s.v2BoardroomAPI)
+				router.Get("/api/v2/agents", s.v2AgentsAPI)
+				router.Get("/api/v2/finance", s.v2FinanceAPI)
+				router.Post("/api/v2/finance/ledgers", s.requireCSRF(s.v2CreateFinanceLedger))
+				router.Post("/api/v2/finance/ledgers/{ledgerID}/accounts", s.requireCSRF(s.v2CreateFinanceAccount))
+				router.Post("/api/v2/finance/ledgers/{ledgerID}/entries", s.requireCSRF(s.v2CreateFinanceEntry))
+				router.Get("/api/v2/finance/entries/{entryID}", s.v2FinanceEntryAPI)
+				router.Post("/api/v2/finance/entries/{entryID}/post", s.requireCSRF(s.v2PostFinanceEntry))
+				router.Post("/api/v2/finance/entries/{entryID}/void", s.requireCSRF(s.v2VoidFinanceEntry))
+				router.Post("/api/v2/boardrooms/{boardroomID}/conversations", s.requireCSRF(s.createRun))
+				router.Get("/api/v2/conversations/{conversationID}", s.v2ConversationAPI)
+				router.Get("/api/v2/conversations/{conversationID}/events", s.v2ConversationEvents)
+				router.Post("/api/v2/conversations/{conversationID}/runs", s.requireCSRF(s.createFollowUp))
+				router.Post("/api/v2/your-turn/coordinator/answer", s.answerInputCoordinator)
+				router.Post("/api/v2/your-turn/approvals/{approvalID}/approve", s.requireCSRF(s.approveAction))
+				router.Post("/api/v2/your-turn/approvals/{approvalID}/reject", s.requireCSRF(s.rejectAction))
 				router.Post("/email/send", s.requireCSRF(s.sendEmail))
+				router.Get("/your-turn", s.yourTurnPage)
+				router.Get("/your-turn/coordinator/state", s.inputCoordinatorState)
+				router.Post("/your-turn/coordinator/answer", s.answerInputCoordinator)
+				router.Post("/your-turn/input/{requestID}/answer", s.answerHumanInput)
 				router.Get("/approvals", s.approvalsPage)
 				router.Post("/approvals/{approvalID}/approve", s.requireCSRF(s.approveAction))
 				router.Post("/approvals/{approvalID}/reject", s.requireCSRF(s.rejectAction))
 				router.Get("/operations", s.operationsPage)
+				router.Get("/finance", s.financePage)
+				router.Post("/finance/ledgers", s.requireCSRF(s.createFinanceLedger))
+				router.Post("/finance/ledgers/{ledgerID}", s.requireCSRF(s.updateFinanceLedger))
+				router.Post("/finance/ledgers/{ledgerID}/accounts", s.requireCSRF(s.createFinanceAccount))
+				router.Post("/finance/accounts/{accountID}", s.requireCSRF(s.updateFinanceAccount))
+				router.Post("/finance/ledgers/{ledgerID}/entries", s.requireCSRF(s.createFinanceEntry))
+				router.Get("/finance/entries/{entryID}", s.financeEntryPage)
+				router.Post("/finance/entries/{entryID}", s.requireCSRF(s.updateFinanceEntry))
+				router.Post("/finance/entries/{entryID}/post", s.requireCSRF(s.postFinanceEntry))
+				router.Post("/finance/entries/{entryID}/void", s.requireCSRF(s.voidFinanceEntry))
 			})
 		})
 	})
@@ -192,7 +307,7 @@ func (s *Server) Handler() http.Handler {
 	)
 }
 
-const documentUploadLimit = rag.TextDocumentLimit
+const documentUploadLimit = documentextract.MaxUploadBytes
 
 func (s *Server) emailPage(w http.ResponseWriter, r *http.Request) {
 	s.renderEmailPage(w, r, http.StatusOK, "")
@@ -200,10 +315,11 @@ func (s *Server) emailPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) renderEmailPage(w http.ResponseWriter, r *http.Request, status int, formError string) {
 	session, _ := sessionFromContext(r.Context())
+	baselineSetup := r.URL.Query().Get("return_to") == "baseline" || r.FormValue("return_to") == "baseline"
 	integration, err := s.email.Integration(r.Context())
 	if errors.Is(err, mailbox.ErrNotConfigured) {
 		s.render(w, status, components.EmailPage(s.tenantName(r.Context()), s.userView(session.User), nil, nil,
-			s.csrfToken(session), "", formError, uuid.NewString(), s.config.Development))
+			s.csrfToken(session), "", formError, uuid.NewString(), s.config.Development, baselineSetup))
 		return
 	}
 	if err != nil {
@@ -224,7 +340,7 @@ func (s *Server) renderEmailPage(w http.ResponseWriter, r *http.Request, status 
 		notice = "Email sent and recorded in the outbound audit ledger."
 	}
 	s.render(w, status, components.EmailPage(s.tenantName(r.Context()), s.userView(session.User), &view,
-		emailInboxViews(messages), s.csrfToken(session), notice, formError, uuid.NewString(), s.config.Development))
+		emailInboxViews(messages), s.csrfToken(session), notice, formError, uuid.NewString(), s.config.Development, baselineSetup))
 }
 
 func (s *Server) saveEmailSettings(w http.ResponseWriter, r *http.Request) {
@@ -253,6 +369,10 @@ func (s *Server) saveEmailSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Warn("verify email integration", "error", err)
 		s.renderEmailPage(w, r, http.StatusBadRequest, "The mailbox could not be verified: "+err.Error())
+		return
+	}
+	if r.FormValue("return_to") == "baseline" {
+		http.Redirect(w, r, "/baseline?email=configured", http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, "/email?status=configured", http.StatusSeeOther)
@@ -313,31 +433,224 @@ func (s *Server) emailMessagePage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) approvalsPage(w http.ResponseWriter, r *http.Request) {
-	s.renderApprovalsPage(w, r, http.StatusOK, "")
+	http.Redirect(w, r, "/your-turn?tab=approvals", http.StatusSeeOther)
 }
 
 func (s *Server) renderApprovalsPage(w http.ResponseWriter, r *http.Request, status int, pageError string) {
+	tab := strings.TrimSpace(r.FormValue("return_tab"))
+	if tab != "reviews" {
+		tab = "approvals"
+	}
+	s.renderYourTurnPage(w, r, status, pageError, tab)
+}
+
+func (s *Server) yourTurnPage(w http.ResponseWriter, r *http.Request) {
+	if requestWantsV2Page(r) {
+		s.renderV2App(w, r, "Your turn")
+		return
+	}
+	tab := strings.TrimSpace(r.URL.Query().Get("tab"))
+	if tab != "reviews" && tab != "approvals" {
+		tab = "input"
+	}
+	s.renderYourTurnPage(w, r, http.StatusOK, "", tab)
+}
+
+func (s *Server) inputCoordinatorState(w http.ResponseWriter, r *http.Request) {
+	state, err := s.approvals.InputCoordinatorState(r.Context())
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusServiceUnavailable, "coordinator_unavailable", "Mia could not load the latest owner questions.")
+		return
+	}
+	inputs, reviews, approvals, err := s.approvals.YourTurnCounts(r.Context())
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusServiceUnavailable, "coordinator_unavailable", "Mia could not load the latest owner attention counts.")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"state":  state,
+		"counts": map[string]int{"inputs": inputs, "reviews": reviews, "approvals": approvals},
+	})
+}
+
+func (s *Server) renderYourTurnPage(w http.ResponseWriter, r *http.Request, status int, pageError, tab string) {
 	session, _ := sessionFromContext(r.Context())
 	includeHistory := r.URL.Query().Get("history") == "1"
-	items, err := s.approvals.List(r.Context(), includeHistory)
+	var coordinator toolbroker.InputCoordinatorState
+	var err error
+	if tab == "input" {
+		coordinator, err = s.approvals.InputCoordinatorState(r.Context())
+		if err != nil {
+			s.logger.Error("coordinate your turn inputs", "error", err)
+			s.renderError(w, http.StatusServiceUnavailable, "Your turn is temporarily unavailable.")
+			return
+		}
+	}
+	inputsCount, reviewsCount, approvalsCount, err := s.approvals.YourTurnCounts(r.Context())
 	if err != nil {
-		s.logger.Error("list approvals", "error", err)
-		s.renderError(w, http.StatusServiceUnavailable, "Approvals are temporarily unavailable.")
+		s.logger.Error("count your turn items", "error", err)
+		s.renderError(w, http.StatusServiceUnavailable, "Your turn is temporarily unavailable.")
+		return
+	}
+	var inputs []toolbroker.HumanInputRequest
+	var approvals []toolbroker.Approval
+	var documents []components.DocumentOptionView
+	if tab == "input" {
+		inputs, err = s.approvals.ListHumanInputs(r.Context(), includeHistory)
+		if err == nil {
+			documents, err = s.documentOptions(r.Context(), nil)
+		}
+	} else {
+		var all []toolbroker.Approval
+		all, err = s.approvals.List(r.Context(), includeHistory)
+		for _, item := range all {
+			isReview := item.ActionType == toolbroker.WorkReviewAction
+			if (tab == "reviews" && isReview) || (tab == "approvals" && !isReview) {
+				approvals = append(approvals, item)
+			}
+		}
+	}
+	if err != nil {
+		s.logger.Error("list your turn items", "tab", tab, "error", err)
+		s.renderError(w, http.StatusServiceUnavailable, "Your turn is temporarily unavailable.")
 		return
 	}
 	notice := ""
 	switch r.URL.Query().Get("status") {
 	case "approved":
-		notice = "The action was approved and executed through its idempotent integration boundary."
+		notice = "Your decision was recorded and the workflow continued."
 	case "rejected":
-		notice = "The proposed action was rejected and will not execute."
+		notice = "The proposed action was declined."
+	case "answered":
+		notice = "Your answers were added to the ticket. The assigned agent will resume automatically as soon as any other required decisions are resolved."
+	case "coordinated":
+		notice = "Mia saved that answer to the business fact registry and applied it to every matching open request."
 	}
-	s.render(w, status, components.ApprovalsPage(s.tenantName(r.Context()), s.userView(session.User), approvalViews(items), s.csrfToken(session), notice, pageError, includeHistory))
+	s.render(w, status, components.YourTurnPage(
+		s.tenantName(r.Context()), s.userView(session.User), tab,
+		components.YourTurnCountsView{Inputs: inputsCount, Reviews: reviewsCount, Approvals: approvalsCount},
+		humanInputRequestViews(inputs), inputCoordinatorView(coordinator), approvalViews(approvals), documents, s.csrfToken(session), notice, pageError, includeHistory,
+	))
+}
+
+func (s *Server) answerInputCoordinator(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	wantsJSON := strings.Contains(r.Header.Get("Accept"), "application/json")
+	respondError := func(status int, code, detail string) {
+		if wantsJSON {
+			httpx.WriteProblem(w, status, code, detail)
+			return
+		}
+		s.renderYourTurnPage(w, r, status, detail, "input")
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, documentUploadLimit+(512<<10))
+	if err := r.ParseMultipartForm(documentUploadLimit); err != nil {
+		respondError(http.StatusBadRequest, "invalid_coordinator_answer", "The answer or uploaded document is too large.")
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	if !auth.CheckCSRF(session.RawToken, r.FormValue("csrf_token"), s.config.SessionSecret) {
+		httpx.WriteProblem(w, http.StatusForbidden, "invalid_csrf", "The form expired or could not be verified.")
+		return
+	}
+	answer := strings.TrimSpace(r.FormValue("answer"))
+	switch r.FormValue("response_mode") {
+	case "unknown":
+		answer = "I do not know this yet. Treat it as unknown, use only conservative reversible assumptions, and identify any evidence needed to confirm it."
+	case "not_applicable":
+		answer = "This does not apply to the business based on its current operations. Revisit it if the business scope changes."
+	}
+	attachments, err := s.documentAttachmentsFromRequest(r)
+	if err != nil {
+		respondError(http.StatusBadRequest, "invalid_document_attachment", err.Error())
+		return
+	}
+	if uploaded, ok, uploadErr := s.ticketUploadedDocument(r, session.User.ID); uploadErr != nil {
+		respondError(http.StatusBadRequest, "document_upload_failed", uploadErr.Error())
+		return
+	} else if ok {
+		attachments = append(attachments, uploaded)
+	}
+	documentIDs := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		documentIDs = append(documentIDs, attachment.ID)
+	}
+	if _, err := s.approvals.AnswerInputCoordinator(r.Context(), r.FormValue("fact_key"), session.User.ID, answer, documentIDs); err != nil {
+		respondError(http.StatusConflict, "coordinator_answer_failed", "Mia could not apply that answer: "+err.Error())
+		return
+	}
+	if wantsJSON {
+		s.inputCoordinatorState(w, r)
+		return
+	}
+	http.Redirect(w, r, "/your-turn?tab=input&status=coordinated", http.StatusSeeOther)
+}
+
+func (s *Server) answerHumanInput(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, documentUploadLimit+(512<<10))
+	if err := r.ParseMultipartForm(documentUploadLimit); err != nil {
+		s.renderYourTurnPage(w, r, http.StatusBadRequest, "The answers or uploaded document are too large.", "input")
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	if !auth.CheckCSRF(session.RawToken, r.FormValue("csrf_token"), s.config.SessionSecret) {
+		httpx.WriteProblem(w, http.StatusForbidden, "invalid_csrf", "The form expired or could not be verified.")
+		return
+	}
+	request, err := s.approvals.GetHumanInput(r.Context(), chi.URLParam(r, "requestID"))
+	if errors.Is(err, pgx.ErrNoRows) {
+		s.renderError(w, http.StatusNotFound, "The information request was not found.")
+		return
+	}
+	if err != nil || request.Status != "pending" {
+		s.renderYourTurnPage(w, r, http.StatusConflict, "This information request is no longer available.", "input")
+		return
+	}
+	values := r.Form["answer"]
+	if len(values) != len(request.Questions) {
+		s.renderYourTurnPage(w, r, http.StatusBadRequest, "Answer every requested item before resuming the agent.", "input")
+		return
+	}
+	answers := make([]toolbroker.HumanInputAnswer, 0, len(values))
+	for index, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || len([]rune(value)) > 12000 {
+			s.renderYourTurnPage(w, r, http.StatusBadRequest, fmt.Sprintf("Answer %d must contain between 1 and 12,000 characters.", index+1), "input")
+			return
+		}
+		answer := toolbroker.HumanInputAnswer{Question: request.Questions[index], Answer: value}
+		answers = append(answers, answer)
+	}
+	attachments, err := s.documentAttachmentsFromRequest(r)
+	if err != nil {
+		s.renderYourTurnPage(w, r, http.StatusBadRequest, err.Error(), "input")
+		return
+	}
+	if uploaded, ok, uploadErr := s.ticketUploadedDocument(r, session.User.ID); uploadErr != nil {
+		s.renderYourTurnPage(w, r, http.StatusBadRequest, uploadErr.Error(), "input")
+		return
+	} else if ok {
+		attachments = append(attachments, uploaded)
+	}
+	documentIDs := make([]string, 0, len(attachments))
+	for _, attachment := range attachments {
+		documentIDs = append(documentIDs, attachment.ID)
+	}
+	if _, err := s.approvals.AnswerHumanInput(r.Context(), request.ID, session.User.ID, answers, documentIDs); err != nil {
+		s.renderYourTurnPage(w, r, http.StatusConflict, "The answers could not be recorded: "+err.Error(), "input")
+		return
+	}
+	http.Redirect(w, r, "/your-turn?tab=input&status=answered", http.StatusSeeOther)
 }
 
 func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionFromContext(r.Context())
-	if session.User.Role != "owner" && session.User.Role != "admin" {
+	if session.User.Role != "owner" {
 		s.renderApprovalsPage(w, r, http.StatusForbidden, "Only an owner or administrator can approve external actions.")
 		return
 	}
@@ -358,17 +671,105 @@ func (s *Server) approveAction(w http.ResponseWriter, r *http.Request) {
 			s.renderApprovalsPage(w, r, http.StatusBadGateway, "The action was approved, but execution needs attention: "+err.Error())
 			return
 		}
+	case toolbroker.TicketCreateAction:
+		if err := s.executeApprovedTicket(r.Context(), action, session.User.ID); err != nil {
+			s.logger.Error("execute approved ticket", "action_id", action.ID.String(), "error", err)
+			s.renderApprovalsPage(w, r, http.StatusUnprocessableEntity, "The work item was approved, but creation needs attention: "+err.Error())
+			return
+		}
+	case toolbroker.WorkReviewAction:
+		if err := s.executeApprovedWorkReview(r.Context(), action); err != nil {
+			s.logger.Error("complete approved agent work", "action_id", action.ID.String(), "error", err)
+			s.renderApprovalsPage(w, r, http.StatusUnprocessableEntity, "The review was approved, but the ticket could not be completed: "+err.Error())
+			return
+		}
 	default:
 		s.renderApprovalsPage(w, r, http.StatusUnprocessableEntity, "The approved action type does not have an executor.")
 		return
 	}
 	s.resumeRunAfterDecision(r.Context(), action.RunID, chi.URLParam(r, "approvalID"))
-	http.Redirect(w, r, "/approvals?history=1&status=approved", http.StatusSeeOther)
+	tab := "approvals"
+	if action.ActionType == toolbroker.WorkReviewAction {
+		tab = "reviews"
+	}
+	if requestWantsJSON(r) {
+		payload, err := s.loadV2YourTurn(r.Context(), tab, false)
+		if err != nil {
+			httpx.WriteProblem(w, http.StatusServiceUnavailable, "your_turn_unavailable", "The decision was recorded, but Your turn could not be refreshed.")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, payload)
+		return
+	}
+	http.Redirect(w, r, "/your-turn?tab="+tab+"&history=1&status=approved", http.StatusSeeOther)
+}
+
+func (s *Server) executeApprovedWorkReview(ctx context.Context, proposed toolbroker.ExternalAction) error {
+	action, execute, err := s.approvals.BeginExecution(ctx, proposed.ID)
+	if err != nil {
+		return err
+	}
+	if !execute {
+		if action.Status == "succeeded" {
+			return nil
+		}
+		return fmt.Errorf("work review is already %s", action.Status)
+	}
+	payload, err := toolbroker.DecodeWorkReviewPayload(action.RequestPayload)
+	if err != nil {
+		_ = s.approvals.MarkFailed(ctx, action.ID, err)
+		return err
+	}
+	if err := s.store.UpdateWorkItemStatus(ctx, payload.WorkItemID, "done"); err != nil {
+		_ = s.approvals.MarkFailed(ctx, action.ID, err)
+		return err
+	}
+	return s.approvals.MarkSucceeded(ctx, action.ID, map[string]any{"work_item_id": payload.WorkItemID, "status": "done"}, payload.WorkItemID)
+}
+
+func (s *Server) executeApprovedTicket(ctx context.Context, proposed toolbroker.ExternalAction, userID string) error {
+	action, execute, err := s.approvals.BeginExecution(ctx, proposed.ID)
+	if err != nil {
+		return err
+	}
+	if !execute {
+		if action.Status == "succeeded" {
+			return nil
+		}
+		return fmt.Errorf("work-item action is already %s", action.Status)
+	}
+	payload, err := toolbroker.DecodeTicketCreatePayload(action.RequestPayload)
+	if err != nil {
+		_ = s.approvals.MarkFailed(ctx, action.ID, err)
+		return err
+	}
+	if action.RunID == nil {
+		err = errors.New("approved work-item action is not linked to a boardroom run")
+		_ = s.approvals.MarkFailed(ctx, action.ID, err)
+		return err
+	}
+	run, err := s.boardrooms.GetRun(ctx, *action.RunID)
+	if err != nil {
+		_ = s.approvals.MarkFailed(ctx, action.ID, err)
+		return err
+	}
+	item, err := s.store.CreateWorkItem(ctx, CreateWorkItemInput{
+		Kind: "ticket", Title: payload.Title, Description: payload.Description, Priority: payload.Priority,
+		Source: "persona", CreatedByUserID: userID, BoardroomID: run.BoardroomID.String(),
+		ConversationID: run.ConversationID.String(), RunID: run.ID.String(),
+		ParentID: payload.ParentWorkItemID,
+	})
+	if err != nil {
+		_ = s.approvals.MarkFailed(ctx, action.ID, err)
+		return err
+	}
+	response := map[string]any{"work_item_id": item.ID, "work_item_number": item.Number, "title": item.Title}
+	return s.approvals.MarkSucceeded(ctx, action.ID, response, item.ID)
 }
 
 func (s *Server) rejectAction(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionFromContext(r.Context())
-	if session.User.Role != "owner" && session.User.Role != "admin" {
+	if session.User.Role != "owner" {
 		s.renderApprovalsPage(w, r, http.StatusForbidden, "Only an owner or administrator can reject external actions.")
 		return
 	}
@@ -377,8 +778,26 @@ func (s *Server) rejectAction(w http.ResponseWriter, r *http.Request) {
 		s.renderApprovalsPage(w, r, http.StatusConflict, "The action could not be rejected: "+err.Error())
 		return
 	}
+	if action.ActionType == toolbroker.WorkReviewAction {
+		if payload, decodeErr := toolbroker.DecodeWorkReviewPayload(action.RequestPayload); decodeErr == nil {
+			_ = s.store.UpdateWorkItemStatus(r.Context(), payload.WorkItemID, "waiting")
+		}
+	}
 	s.resumeRunAfterDecision(r.Context(), action.RunID, chi.URLParam(r, "approvalID"))
-	http.Redirect(w, r, "/approvals?history=1&status=rejected", http.StatusSeeOther)
+	tab := "approvals"
+	if action.ActionType == toolbroker.WorkReviewAction {
+		tab = "reviews"
+	}
+	if requestWantsJSON(r) {
+		payload, err := s.loadV2YourTurn(r.Context(), tab, false)
+		if err != nil {
+			httpx.WriteProblem(w, http.StatusServiceUnavailable, "your_turn_unavailable", "The decision was recorded, but Your turn could not be refreshed.")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, payload)
+		return
+	}
+	http.Redirect(w, r, "/your-turn?tab="+tab+"&history=1&status=rejected", http.StatusSeeOther)
 }
 
 func (s *Server) resumeRunAfterDecision(ctx context.Context, runID *domain.RunID, approvalID string) {
@@ -398,18 +817,77 @@ func approvalViews(items []toolbroker.Approval) []components.ApprovalView {
 		if json.Indent(&pretty, item.RequestPayload, "", "  ") == nil {
 			payload = pretty.String()
 		}
-		views = append(views, components.ApprovalView{
+		view := components.ApprovalView{
 			ID: item.ID, RunID: item.RunID.String(), PersonaName: item.PersonaName, PersonaRole: item.PersonaRole,
 			ActionType: item.ActionType, Reason: item.Reason, Evidence: item.Evidence, RequestPayload: payload,
 			ActionStatus: item.ActionStatus, Status: item.Status, RequestedAt: item.RequestedAt, DecidedAt: item.DecidedAt,
+			WorkItemID: item.WorkItemID, WorkItemNumber: item.WorkItemNumber, WorkItemTitle: item.WorkItemTitle,
+		}
+		if item.ActionType == toolbroker.WorkReviewAction {
+			if review, err := toolbroker.DecodeWorkReviewPayload(item.RequestPayload); err == nil {
+				view.ReviewSummary = review.Summary
+				view.Recommendations = review.Recommendations
+			}
+		}
+		if item.ActionType == toolbroker.TicketCreateAction && view.WorkItemTitle == "" {
+			if ticket, err := toolbroker.DecodeTicketCreatePayload(item.RequestPayload); err == nil {
+				view.WorkItemTitle = ticket.Title
+			}
+		}
+		views = append(views, view)
+	}
+	return views
+}
+
+func humanInputRequestViews(items []toolbroker.HumanInputRequest) []components.HumanInputRequestView {
+	views := make([]components.HumanInputRequestView, 0, len(items))
+	for _, item := range items {
+		answers := make([]components.HumanInputAnswerView, 0, len(item.Answers))
+		for _, answer := range item.Answers {
+			answers = append(answers, components.HumanInputAnswerView{Question: answer.Question, Answer: answer.Answer})
+		}
+		views = append(views, components.HumanInputRequestView{
+			ID: item.ID, ParentWorkItemID: item.ParentWorkItemID, ParentNumber: item.ParentNumber,
+			ParentTitle: item.ParentTitle, WorkItemID: item.WorkItemID, WorkItemNumber: item.WorkItemNumber,
+			PersonaName: item.PersonaName, PersonaRole: item.PersonaRole, Questions: item.Questions,
+			Answers: answers, DocumentIDs: item.DocumentIDs, Status: item.Status,
+			RequestedAt: item.RequestedAt, AnsweredAt: item.AnsweredAt,
 		})
 	}
 	return views
 }
 
+func inputCoordinatorView(state toolbroker.InputCoordinatorState) components.InputCoordinatorView {
+	view := components.InputCoordinatorView{
+		PendingQuestions: state.PendingQuestions, PendingRequests: state.PendingRequests,
+		RemainingTopics: state.RemainingTopics, KnownFacts: state.KnownFacts,
+	}
+	for _, message := range state.Messages {
+		view.Messages = append(view.Messages, components.InputCoordinatorMessageView{
+			Role: message.Role, MessageKind: message.MessageKind, Body: message.Body, CreatedAt: message.CreatedAt,
+		})
+	}
+	for _, fact := range state.RecentFacts {
+		view.RecentFacts = append(view.RecentFacts, components.BusinessKnowledgeFactView{
+			Key: fact.Key, Label: fact.Label, Value: fact.Value, SourceType: fact.SourceType, UpdatedAt: fact.UpdatedAt,
+		})
+	}
+	if state.Current != nil {
+		current := components.InputCoordinatorQuestionView{
+			FactKey: state.Current.FactKey, Label: state.Current.Label, Prompt: state.Current.Prompt,
+			TicketCount: state.Current.TicketCount, QuestionCount: state.Current.QuestionCount,
+		}
+		for _, ticket := range state.Current.Tickets {
+			current.Tickets = append(current.Tickets, components.InputCoordinatorTicketView{ID: ticket.ID, Number: ticket.Number, Title: ticket.Title})
+		}
+		view.Current = &current
+	}
+	return view
+}
+
 func (s *Server) operationsPage(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionFromContext(r.Context())
-	if session.User.Role != "owner" && session.User.Role != "admin" {
+	if session.User.Role != "owner" {
 		s.renderError(w, http.StatusForbidden, "Only an owner or administrator can view agent operations.")
 		return
 	}
@@ -436,6 +914,13 @@ func (s *Server) operationsPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) agentsPage(w http.ResponseWriter, r *http.Request) {
+	if requestWantsV2Page(r) {
+		if _, ok := s.requireAgentAdministrator(w, r); !ok {
+			return
+		}
+		s.renderV2App(w, r, "Agents")
+		return
+	}
 	session, ok := s.requireAgentAdministrator(w, r)
 	if !ok {
 		return
@@ -508,7 +993,10 @@ func (s *Server) agentPage(w http.ResponseWriter, r *http.Request) {
 	}
 	input := boardroom.AgentInput{BoardroomID: item.BoardroomID, Name: item.Name, Role: item.Role, Description: item.Description,
 		SystemInstructions: item.SystemInstructions, Position: item.Position, Enabled: item.Enabled, Grants: item.Grants, Settings: item.Settings}
-	s.renderAgentForm(w, r, session, input, id, versions, http.StatusOK, "", map[string]string{"updated": "Agent settings saved for future runs."}[r.URL.Query().Get("status")])
+	s.renderAgentForm(w, r, session, input, id, versions, http.StatusOK, "", map[string]string{
+		"created": "Agent created.",
+		"updated": "Agent settings saved for future runs.",
+	}[r.URL.Query().Get("status")])
 }
 
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
@@ -521,11 +1009,16 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		s.renderAgentForm(w, r, session, input, domain.PersonaID{}, nil, http.StatusUnprocessableEntity, err.Error(), "")
 		return
 	}
-	if _, err := s.boardrooms.CreateAgent(r.Context(), input); err != nil {
+	if err := s.validateAgentDocumentGrant(r.Context(), input.Grants); err != nil {
 		s.renderAgentForm(w, r, session, input, domain.PersonaID{}, nil, http.StatusUnprocessableEntity, err.Error(), "")
 		return
 	}
-	http.Redirect(w, r, "/agents?status=created", http.StatusSeeOther)
+	persona, err := s.boardrooms.CreateAgent(r.Context(), input)
+	if err != nil {
+		s.renderAgentForm(w, r, session, input, domain.PersonaID{}, nil, http.StatusUnprocessableEntity, err.Error(), "")
+		return
+	}
+	http.Redirect(w, r, "/agents/"+persona.ID.String()+"?status=created", http.StatusSeeOther)
 }
 
 func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
@@ -542,6 +1035,10 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) {
 	versions, _ := s.boardrooms.AgentVersions(r.Context(), id)
 	if parseErr != nil {
 		s.renderAgentForm(w, r, session, input, id, versions, http.StatusUnprocessableEntity, parseErr.Error(), "")
+		return
+	}
+	if err := s.validateAgentDocumentGrant(r.Context(), input.Grants); err != nil {
+		s.renderAgentForm(w, r, session, input, id, versions, http.StatusUnprocessableEntity, err.Error(), "")
 		return
 	}
 	if _, err := s.boardrooms.UpdateAgent(r.Context(), id, input); err != nil {
@@ -574,7 +1071,7 @@ func (s *Server) duplicateAgent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) requireAgentAdministrator(w http.ResponseWriter, r *http.Request) (authenticatedSession, bool) {
 	session, _ := sessionFromContext(r.Context())
-	if session.User.Role != "owner" && session.User.Role != "admin" {
+	if session.User.Role != "owner" {
 		s.renderError(w, http.StatusForbidden, "Only an owner or administrator can customize agents.")
 		return authenticatedSession{}, false
 	}
@@ -620,7 +1117,58 @@ func agentInputFromRequest(r *http.Request) (boardroom.AgentInput, error) {
 	input.Settings.ResponseStyle = r.FormValue("response_style")
 	input.Settings.CitationPolicy = r.FormValue("citation_policy")
 	input.Settings.ActionPolicy = r.FormValue("action_policy")
+	knowledgeMode := r.FormValue("knowledge_mode")
+	if knowledgeMode == "" && r.FormValue("tool_"+string(domain.CapabilityDocumentsRead)) == "true" {
+		conditions := map[string]string{}
+		value := strings.TrimSpace(r.FormValue("conditions_" + string(domain.CapabilityDocumentsRead)))
+		if value != "" && value != "{}" {
+			if err := json.Unmarshal([]byte(value), &conditions); err != nil {
+				return input, errors.New("legacy document conditions must be a JSON object containing string values")
+			}
+		}
+		input.Grants = append(input.Grants, domain.ToolGrant{Capability: domain.CapabilityDocumentsRead, Conditions: conditions})
+	} else if knowledgeMode == "all" || knowledgeMode == "selected" {
+		maximumResults := 5
+		if value := strings.TrimSpace(r.FormValue("knowledge_max_results")); value != "" {
+			maximumResults, err = strconv.Atoi(value)
+			if err != nil || maximumResults < 1 || maximumResults > 10 {
+				return input, errors.New("document results must be between 1 and 10")
+			}
+		}
+		conditions := map[string]string{"max_results": strconv.Itoa(maximumResults)}
+		if knowledgeMode == "selected" {
+			if err := r.ParseForm(); err != nil {
+				return input, errors.New("document selection was invalid")
+			}
+			seen := make(map[string]bool)
+			for _, documentID := range r.Form["knowledge_document_id"] {
+				documentID = strings.TrimSpace(documentID)
+				if _, parseErr := uuid.Parse(documentID); parseErr != nil {
+					return input, errors.New("select valid agent documents")
+				}
+				seen[documentID] = true
+			}
+			if len(seen) == 0 {
+				return input, errors.New("select at least one document or choose the entire library")
+			}
+			if len(seen) > 20 {
+				return input, errors.New("an agent can select at most 20 documents")
+			}
+			documentIDs := make([]string, 0, len(seen))
+			for documentID := range seen {
+				documentIDs = append(documentIDs, documentID)
+			}
+			slices.Sort(documentIDs)
+			conditions["document_ids"] = strings.Join(documentIDs, ",")
+		}
+		input.Grants = append(input.Grants, domain.ToolGrant{Capability: domain.CapabilityDocumentsRead, Conditions: conditions})
+	} else if knowledgeMode != "none" && knowledgeMode != "" {
+		return input, errors.New("document access mode is invalid")
+	}
 	for _, capability := range boardroom.AllCapabilities() {
+		if capability == domain.CapabilityDocumentsRead {
+			continue
+		}
 		if r.FormValue("tool_"+string(capability)) != "true" {
 			continue
 		}
@@ -634,6 +1182,36 @@ func agentInputFromRequest(r *http.Request) (boardroom.AgentInput, error) {
 		input.Grants = append(input.Grants, domain.ToolGrant{Capability: capability, Conditions: conditions})
 	}
 	return input, input.NormalizeAndValidate()
+}
+
+func (s *Server) validateAgentDocumentGrant(ctx context.Context, grants []domain.ToolGrant) error {
+	wanted := make(map[string]bool)
+	for _, grant := range grants {
+		if grant.Capability != domain.CapabilityDocumentsRead {
+			continue
+		}
+		for _, id := range strings.Split(grant.Conditions["document_ids"], ",") {
+			if id = strings.TrimSpace(id); id != "" {
+				wanted[id] = true
+			}
+		}
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+	documents, err := s.documents.ListDocuments(ctx)
+	if err != nil {
+		return errors.New("documents are temporarily unavailable")
+	}
+	for _, document := range documents {
+		if document.Status == "ready" {
+			delete(wanted, document.ID)
+		}
+	}
+	if len(wanted) != 0 {
+		return errors.New("one or more selected agent documents are unavailable")
+	}
+	return nil
 }
 
 func optionalFloat(value string) (*float64, error) {
@@ -661,7 +1239,7 @@ func (s *Server) renderAgentForm(w http.ResponseWriter, r *http.Request, session
 		ContextTokenLimit: input.Settings.ContextTokenLimit, MaxOutputTokens: input.Settings.MaxOutputTokens,
 		TimeoutSeconds: input.Settings.TimeoutSeconds, MaxToolCalls: input.Settings.MaxToolCalls, MaxCostMicros: input.Settings.MaxCostMicros,
 		ResponseStyle: input.Settings.ResponseStyle, CitationPolicy: input.Settings.CitationPolicy, ActionPolicy: input.Settings.ActionPolicy,
-		IsNew: id.String() == "00000000-0000-0000-0000-000000000000"}
+		IsNew: id.String() == "00000000-0000-0000-0000-000000000000", KnowledgeMode: "none", KnowledgeMaxResults: 5}
 	for _, room := range rooms {
 		view.Boardrooms = append(view.Boardrooms, components.AgentBoardroomOptionView{ID: room.ID.String(), Name: room.Name, Selected: room.ID == input.BoardroomID})
 		if room.ID == input.BoardroomID {
@@ -671,6 +1249,24 @@ func (s *Server) renderAgentForm(w http.ResponseWriter, r *http.Request, session
 	selected := make(map[domain.Capability]domain.ToolGrant, len(input.Grants))
 	for _, grant := range input.Grants {
 		selected[grant.Capability] = grant
+	}
+	selectedDocuments := make(map[string]bool)
+	if grant, enabled := selected[domain.CapabilityDocumentsRead]; enabled {
+		view.KnowledgeMode = "all"
+		if value := strings.TrimSpace(grant.Conditions["max_results"]); value != "" {
+			_, _ = fmt.Sscan(value, &view.KnowledgeMaxResults)
+		}
+		if value := strings.TrimSpace(grant.Conditions["document_ids"]); value != "" {
+			view.KnowledgeMode = "selected"
+			for _, documentID := range strings.Split(value, ",") {
+				selectedDocuments[strings.TrimSpace(documentID)] = true
+			}
+		}
+	}
+	view.Documents, err = s.documentOptions(r.Context(), selectedDocuments)
+	if err != nil {
+		s.renderError(w, http.StatusServiceUnavailable, "Documents could not be loaded for agent settings.")
+		return
 	}
 	for _, definition := range agentToolDefinitions() {
 		grant, enabled := selected[definition.Capability]
@@ -704,6 +1300,7 @@ type agentToolDefinition struct {
 func agentToolDefinitions() []agentToolDefinition {
 	return []agentToolDefinition{
 		{domain.CapabilityDocumentsRead, "Search documents", "Retrieve bounded, citable passages from the tenant document library."},
+		{domain.CapabilityDocumentsWrite, "Create and update documents", "Publish durable, versioned internal knowledge for future agent work."},
 		{domain.CapabilityDocumentsComment, "Comment on documents", "Propose comments without replacing source documents."},
 		{domain.CapabilityWebSearch, "Search the web", "Search public sources when the web connector is enabled."},
 		{domain.CapabilityWebRead, "Read websites", "Open public webpages for analysis and recommendations."},
@@ -741,7 +1338,19 @@ func emailMessageView(value mailbox.Message) components.EmailMessageView {
 }
 
 func (s *Server) documentsPage(w http.ResponseWriter, r *http.Request) {
+	if requestWantsV2Page(r) {
+		s.renderV2App(w, r, "Documents")
+		return
+	}
 	s.renderDocumentsPage(w, r, http.StatusOK, "")
+}
+
+func (s *Server) documentUploadError(w http.ResponseWriter, r *http.Request, status int, detail string) {
+	if requestWantsJSON(r) {
+		httpx.WriteProblem(w, status, "document_upload_failed", detail)
+		return
+	}
+	s.renderDocumentsPage(w, r, status, detail)
 }
 
 func (s *Server) renderDocumentsPage(w http.ResponseWriter, r *http.Request, status int, formError string) {
@@ -761,7 +1370,7 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionFromContext(r.Context())
 	r.Body = http.MaxBytesReader(w, r.Body, documentUploadLimit+(256<<10))
 	if err := r.ParseMultipartForm(documentUploadLimit); err != nil {
-		s.renderDocumentsPage(w, r, http.StatusBadRequest, "Choose a supported text document no larger than 2 MB.")
+		s.documentUploadError(w, r, http.StatusBadRequest, "Choose a supported document no larger than 15 MB.")
 		return
 	}
 	if r.MultipartForm != nil {
@@ -773,22 +1382,18 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	file, header, err := r.FormFile("document")
 	if err != nil {
-		s.renderDocumentsPage(w, r, http.StatusBadRequest, "Choose a document to upload.")
+		s.documentUploadError(w, r, http.StatusBadRequest, "Choose a document to upload.")
 		return
 	}
 	defer file.Close()
 	content, err := io.ReadAll(io.LimitReader(file, documentUploadLimit+1))
 	if err != nil || len(content) == 0 || len(content) > documentUploadLimit {
-		s.renderDocumentsPage(w, r, http.StatusBadRequest, "The document must contain text and be no larger than 2 MB.")
+		s.documentUploadError(w, r, http.StatusBadRequest, "The document must be no larger than 15 MB.")
 		return
 	}
-	if !utf8.Valid(content) || strings.IndexByte(string(content), 0) >= 0 {
-		s.renderDocumentsPage(w, r, http.StatusBadRequest, "This file is not a supported text document. PDF and Word extraction will be added later.")
-		return
-	}
-	mediaType, ok := documentMediaType(header.Filename)
-	if !ok {
-		s.renderDocumentsPage(w, r, http.StatusBadRequest, "Supported formats are TXT, Markdown, CSV, TSV, JSON, XML, HTML, YAML, and LOG.")
+	extracted, mediaType, err := documentextract.Extract(header.Filename, content)
+	if err != nil {
+		s.documentUploadError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
@@ -796,19 +1401,32 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		name = filepath.Base(header.Filename)
 	}
 	if name == "" || len(name) > 255 {
-		s.renderDocumentsPage(w, r, http.StatusBadRequest, "Give the document a name of 255 characters or fewer.")
+		s.documentUploadError(w, r, http.StatusBadRequest, "Give the document a name of 255 characters or fewer.")
 		return
 	}
-	document, err := s.documents.IngestText(r.Context(), name, mediaType, string(content), session.User.ID)
+	document, err := s.documents.IngestText(r.Context(), name, mediaType, extracted, session.User.ID)
 	if err != nil {
 		s.logger.Error("upload tenant document", "error", err, "name", name)
-		s.renderDocumentsPage(w, r, http.StatusBadRequest, "The document could not be indexed. Check the file and try again.")
+		s.documentUploadError(w, r, http.StatusBadRequest, "The document could not be indexed. Check the file and try again.")
+		return
+	}
+	if requestWantsJSON(r) {
+		detail, detailErr := s.documents.GetDocument(r.Context(), document.ID)
+		if detailErr != nil {
+			httpx.WriteJSON(w, http.StatusCreated, v2DocumentPayload{Document: components.DocumentDetailView{DocumentView: documentView(document)}})
+			return
+		}
+		httpx.WriteJSON(w, http.StatusCreated, v2DocumentPayload{Document: documentDetailView(detail)})
 		return
 	}
 	http.Redirect(w, r, "/documents/"+document.ID+"?uploaded=1", http.StatusSeeOther)
 }
 
 func (s *Server) documentPage(w http.ResponseWriter, r *http.Request) {
+	if requestWantsV2Page(r) {
+		s.renderV2App(w, r, "Document")
+		return
+	}
 	session, _ := sessionFromContext(r.Context())
 	documentID := chi.URLParam(r, "documentID")
 	if _, err := uuid.Parse(documentID); err != nil {
@@ -830,6 +1448,62 @@ func (s *Server) documentPage(w http.ResponseWriter, r *http.Request) {
 	))
 }
 
+func (s *Server) documentOptions(ctx context.Context, selected map[string]bool) ([]components.DocumentOptionView, error) {
+	documents, err := s.documents.ListDocuments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]components.DocumentOptionView, 0, len(documents))
+	for _, document := range documents {
+		if document.Status != "ready" {
+			continue
+		}
+		result = append(result, components.DocumentOptionView{
+			ID: document.ID, Name: document.Name, MediaType: document.MediaType, Selected: selected[document.ID],
+		})
+	}
+	return result, nil
+}
+
+func (s *Server) documentAttachmentsFromRequest(r *http.Request) ([]boardroom.DocumentAttachment, error) {
+	if err := r.ParseForm(); err != nil {
+		return nil, errors.New("the document selection was invalid")
+	}
+	requested := r.Form["document_id"]
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	if len(requested) > 20 {
+		return nil, boardroom.ErrTooManyDocuments
+	}
+	wanted := make(map[string]bool, len(requested))
+	for _, id := range requested {
+		id = strings.TrimSpace(id)
+		if _, err := uuid.Parse(id); err != nil {
+			return nil, errors.New("select valid documents from the tenant library")
+		}
+		wanted[id] = true
+	}
+	if len(wanted) > 20 {
+		return nil, boardroom.ErrTooManyDocuments
+	}
+	documents, err := s.documents.ListDocuments(r.Context())
+	if err != nil {
+		return nil, errors.New("documents are temporarily unavailable")
+	}
+	result := make([]boardroom.DocumentAttachment, 0, len(wanted))
+	for _, document := range documents {
+		if wanted[document.ID] && document.Status == "ready" {
+			result = append(result, boardroom.DocumentAttachment{ID: document.ID, Name: document.Name})
+			delete(wanted, document.ID)
+		}
+	}
+	if len(wanted) != 0 {
+		return nil, errors.New("one or more selected documents are unavailable")
+	}
+	return result, nil
+}
+
 func documentMediaType(filename string) (string, bool) {
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".txt", ".log":
@@ -848,6 +1522,10 @@ func documentMediaType(filename string) (string, bool) {
 		return "text/html", true
 	case ".yaml", ".yml":
 		return "text/yaml", true
+	case ".pdf":
+		return "application/pdf", true
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document", true
 	default:
 		return "", false
 	}
@@ -946,6 +1624,190 @@ func (s *Server) requireCSRF(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// requirePlatformControl guards narrow maintenance endpoints used only by the
+// control plane. It deliberately does not grant a platform credential a tenant
+// browser session or normal end-user access.
+func (s *Server) requirePlatformControl(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		expected := sha256.Sum256([]byte(s.config.ControlAdminToken))
+		actual := sha256.Sum256([]byte(provided))
+		if s.config.ControlAdminToken == "" || provided == "" || subtle.ConstantTimeCompare(expected[:], actual[:]) != 1 {
+			httpx.WriteProblem(w, http.StatusUnauthorized, "platform_authentication_required", "A platform administrator credential is required.")
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) membersPage(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	if session.User.Role != "owner" {
+		s.renderError(w, http.StatusForbidden, "Only the organization owner can manage members.")
+		return
+	}
+	members, err := s.store.ListMembers(r.Context())
+	if err != nil {
+		s.renderError(w, http.StatusServiceUnavailable, "Members are temporarily unavailable.")
+		return
+	}
+	views := make([]components.MemberView, 0, len(members))
+	for _, member := range members {
+		views = append(views, components.MemberView{ID: member.ID, Email: member.Email, DisplayName: member.DisplayName, Role: member.Role, State: member.State})
+	}
+	notice := map[string]string{"invited": "Invitation created.", "removed": "Member removed."}[r.URL.Query().Get("status")]
+	s.render(w, http.StatusOK, components.MembersPage(s.tenantName(r.Context()), s.userView(session.User), views, s.csrfToken(session), notice, "", ""))
+}
+
+func (s *Server) createMemberInvitation(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	if session.User.Role != "owner" {
+		s.renderError(w, http.StatusForbidden, "Only the organization owner can invite members.")
+		return
+	}
+	invitation, raw, err := s.store.CreateMemberInvitation(r.Context(), r.FormValue("email"), r.FormValue("display_name"))
+	if err != nil {
+		s.renderMembersError(w, r, err.Error(), "")
+		return
+	}
+	inviteURL := "https://" + s.config.TenantSlug + "." + s.config.BaseDomain + "/invitations/accept?token=" + url.QueryEscape(raw)
+	if s.config.Development {
+		s.renderMembersError(w, r, "", inviteURL)
+		return
+	}
+	_, err = s.email.Send(r.Context(), "member-invite-"+invitation.ID, mailbox.OutgoingMessage{To: []string{invitation.Email}, Subject: "You’re invited to " + s.tenantName(r.Context()), Body: "You have been invited to join " + s.tenantName(r.Context()) + ". Set your password and activate your account: " + inviteURL}, "system", session.User.ID, nil)
+	if err != nil {
+		s.renderMembersError(w, r, "Invitation was created, but email could not be sent. Configure the organization mailbox and invite again: "+err.Error(), "")
+		return
+	}
+	http.Redirect(w, r, "/team?status=invited", http.StatusSeeOther)
+}
+
+func (s *Server) renderMembersError(w http.ResponseWriter, r *http.Request, formError, inviteURL string) {
+	session, _ := sessionFromContext(r.Context())
+	members, err := s.store.ListMembers(r.Context())
+	if err != nil {
+		s.renderError(w, http.StatusServiceUnavailable, "Members are temporarily unavailable.")
+		return
+	}
+	views := make([]components.MemberView, 0, len(members))
+	for _, member := range members {
+		views = append(views, components.MemberView{ID: member.ID, Email: member.Email, DisplayName: member.DisplayName, Role: member.Role, State: member.State})
+	}
+	s.render(w, http.StatusBadRequest, components.MembersPage(s.tenantName(r.Context()), s.userView(session.User), views, s.csrfToken(session), "", formError, inviteURL))
+}
+
+func (s *Server) removeMember(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	if session.User.Role != "owner" {
+		s.renderError(w, http.StatusForbidden, "Only the organization owner can remove members.")
+		return
+	}
+	if err := s.store.DisableMember(r.Context(), chi.URLParam(r, "userID")); err != nil {
+		s.renderMembersError(w, r, "That member could not be removed.", "")
+		return
+	}
+	http.Redirect(w, r, "/team?status=removed", http.StatusSeeOther)
+}
+
+func (s *Server) acceptInvitationPage(w http.ResponseWriter, r *http.Request) {
+	s.render(w, http.StatusOK, components.AcceptInvitationPage(s.tenantName(r.Context()), r.URL.Query().Get("token"), ""))
+}
+func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		s.render(w, http.StatusBadRequest, components.AcceptInvitationPage(s.tenantName(r.Context()), "", "The invitation form could not be read."))
+		return
+	}
+	user, err := s.store.AcceptMemberInvitation(r.Context(), r.FormValue("token"), r.FormValue("password"))
+	if err != nil {
+		s.render(w, http.StatusBadRequest, components.AcceptInvitationPage(s.tenantName(r.Context()), r.FormValue("token"), "This invitation is invalid, expired, or could not be activated."))
+		return
+	}
+	if err := s.startSession(w, r, user); err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Your account was activated, but sign-in could not be completed.")
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) announcementsPage(w http.ResponseWriter, r *http.Request) {
+	if requestWantsV2Page(r) {
+		s.renderV2App(w, r, "Inbox")
+		return
+	}
+	session, _ := sessionFromContext(r.Context())
+	items, err := s.store.ListAnnouncements(r.Context(), session.User.ID)
+	if err != nil {
+		s.renderError(w, http.StatusServiceUnavailable, "Service announcements are temporarily unavailable.")
+		return
+	}
+	views := make([]components.AnnouncementView, 0, len(items))
+	for _, item := range items {
+		views = append(views, components.AnnouncementView{ID: item.ID, Title: item.Title, Body: item.Body, Category: strings.ReplaceAll(item.Category, "_", " "), PublishedAt: item.PublishedAt.Local().Format("Jan 2, 2006 3:04 PM"), Read: item.ReadAt != nil})
+	}
+	s.render(w, http.StatusOK, components.AnnouncementsPage(s.tenantName(r.Context()), s.userView(session.User), views, s.csrfToken(session)))
+}
+func (s *Server) readAnnouncement(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	if err := s.store.MarkAnnouncementRead(r.Context(), session.User.ID, chi.URLParam(r, "announcementID")); err != nil {
+		s.renderError(w, http.StatusInternalServerError, "The announcement could not be marked read.")
+		return
+	}
+	http.Redirect(w, r, "/inbox", http.StatusSeeOther)
+}
+
+func (s *Server) listMessengerMessages(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListMessengerMessages(r.Context(), chi.URLParam(r, "channel"))
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "invalid_messenger_channel", "The requested chat channel is not available.")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"messages": items})
+}
+
+func (s *Server) createMessengerMessage(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	item, err := s.store.CreateMessengerMessage(r.Context(), chi.URLParam(r, "channel"), session.User, r.FormValue("body"))
+	if err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "invalid_messenger_message", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, item)
+}
+
+func (s *Server) transferOwnership(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&input); err != nil || input.UserID == "" {
+		httpx.WriteProblem(w, http.StatusBadRequest, "invalid_owner", "A member user ID is required.")
+		return
+	}
+	if err := s.store.TransferOwnership(r.Context(), input.UserID); err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "ownership_transfer_failed", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+func (s *Server) deliverAnnouncement(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		Body     string `json:"body"`
+		Category string `json:"category"`
+		Target   string `json:"target"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&input); err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "invalid_announcement", "Announcement payload is invalid.")
+		return
+	}
+	if err := s.store.DeliverAnnouncement(r.Context(), input.ID, input.Title, input.Body, input.Category, input.Target); err != nil {
+		httpx.WriteProblem(w, http.StatusBadRequest, "announcement_delivery_failed", err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) setupPage(w http.ResponseWriter, r *http.Request) {
@@ -1056,6 +1918,10 @@ func (s *Server) onboardingPage(w http.ResponseWriter, r *http.Request) {
 		state.Business.TimeZone = "America/New_York"
 		state.Business.CustomerMix = "mixed"
 		state.Business.TeamSize = 1
+	}
+	if state.Business.Template != "" && r.URL.Query().Get("legacy") != "1" {
+		http.Redirect(w, r, "/baseline", http.StatusSeeOther)
+		return
 	}
 	if r.URL.Query().Get("choose_template") == "true" {
 		state.Business.Template = ""
@@ -1337,7 +2203,7 @@ func (s *Server) saveOnboardingPermissions(w http.ResponseWriter, r *http.Reques
 	readBusinessRecords := r.FormValue("read_business_records") == "true"
 	state.Permissions = PermissionPlan{
 		ReadBusinessRecords:  readBusinessRecords,
-		ResearchPublicWeb:    r.FormValue("research_public_web") == "true",
+		ResearchPublicWeb:    true,
 		CommentOnDocuments:   readBusinessRecords && r.FormValue("comment_on_documents") == "true",
 		PrepareInvoiceDrafts: r.FormValue("prepare_invoice_drafts") == "true",
 		DraftCustomerEmail:   r.FormValue("draft_customer_email") == "true",
@@ -1379,11 +2245,16 @@ func (s *Server) developmentPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, _ := sessionFromContext(r.Context())
-	if session.User.Role != "owner" && session.User.Role != "admin" {
+	if session.User.Role != "owner" {
 		httpx.WriteProblem(w, http.StatusForbidden, "permission_denied", "Only an owner or administrator can use demo tools.")
 		return
 	}
-	s.render(w, http.StatusOK, components.DevelopmentPage(s.tenantName(r.Context()), s.userView(session.User), s.csrfToken(session)))
+	rooms, err := s.boardrooms.List(r.Context())
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Demo tools could not load the boardroom.")
+		return
+	}
+	s.render(w, http.StatusOK, components.DevelopmentPage(s.tenantName(r.Context()), s.userView(session.User), boardroomViews(rooms), s.csrfToken(session)))
 }
 
 func (s *Server) resetOnboarding(w http.ResponseWriter, r *http.Request) {
@@ -1392,7 +2263,7 @@ func (s *Server) resetOnboarding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	session, _ := sessionFromContext(r.Context())
-	if (session.User.Role != "owner" && session.User.Role != "admin") || r.FormValue("confirm") != "reset" {
+	if session.User.Role != "owner" || r.FormValue("confirm") != "reset" {
 		httpx.WriteProblem(w, http.StatusForbidden, "permission_denied", "The onboarding reset was not authorized.")
 		return
 	}
@@ -1438,6 +2309,10 @@ func (s *Server) tenantBusinessTemplate(ctx context.Context) BusinessTemplate {
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
+	if requestWantsV2Page(r) {
+		s.renderV2App(w, r, "Home")
+		return
+	}
 	session, _ := sessionFromContext(r.Context())
 	rooms, err := s.boardrooms.List(r.Context())
 	if err != nil {
@@ -1448,10 +2323,15 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	for _, room := range rooms {
 		views = append(views, boardroomView(room))
 	}
-	s.render(w, http.StatusOK, components.DashboardPage(s.tenantName(r.Context()), s.userView(session.User), views, s.csrfToken(session), s.tenantBusinessTemplate(r.Context()).String()))
+	welcome := r.URL.Query().Get("welcome") == "1"
+	s.render(w, http.StatusOK, components.DashboardPage(s.tenantName(r.Context()), s.userView(session.User), views, s.csrfToken(session), welcome))
 }
 
 func (s *Server) boardroomPage(w http.ResponseWriter, r *http.Request) {
+	if requestWantsV2Page(r) {
+		s.renderV2App(w, r, "Boardroom")
+		return
+	}
 	session, _ := sessionFromContext(r.Context())
 	roomID, err := domain.ParseBoardroomID(chi.URLParam(r, "boardroomID"))
 	if err != nil {
@@ -1477,8 +2357,13 @@ func (s *Server) boardroomPage(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, http.StatusInternalServerError, "Boardroom conversations could not be loaded.")
 		return
 	}
+	documents, err := s.documentOptions(r.Context(), nil)
+	if err != nil {
+		s.logger.Warn("load boardroom document options", "boardroom_id", roomID.String(), "error", err)
+		documents = nil
+	}
 	s.render(w, http.StatusOK, components.BoardroomPage(
-		s.tenantName(r.Context()), s.userView(session.User), boardroomView(room), personaViews(personas), conversationViews(conversations), s.csrfToken(session), s.tenantBusinessTemplate(r.Context()).String(),
+		s.tenantName(r.Context()), s.userView(session.User), boardroomView(room), personaViews(personas), conversationViews(conversations), documents, s.csrfToken(session), s.tenantBusinessTemplate(r.Context()).String(),
 	))
 }
 
@@ -1486,29 +2371,67 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionFromContext(r.Context())
 	roomID, err := domain.ParseBoardroomID(chi.URLParam(r, "boardroomID"))
 	if err != nil {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusNotFound, "boardroom_not_found", "Boardroom was not found.")
+			return
+		}
 		s.renderError(w, http.StatusNotFound, "Boardroom was not found.")
 		return
 	}
 	prompt := strings.TrimSpace(r.FormValue("prompt"))
 	if prompt == "" || len(prompt) > 12000 {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusBadRequest, "invalid_prompt", "The boardroom request must contain between 1 and 12,000 characters.")
+			return
+		}
 		s.renderError(w, http.StatusBadRequest, "The boardroom request must contain between 1 and 12,000 characters.")
 		return
 	}
-	run, err := s.boardrooms.CreateRun(r.Context(), roomID, session.User.ID, prompt)
+	attachments, err := s.documentAttachmentsFromRequest(r)
 	if err != nil {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusBadRequest, "invalid_documents", err.Error())
+			return
+		}
+		s.renderError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	run, err := s.boardrooms.CreateRunWithDocuments(r.Context(), roomID, session.User.ID, prompt, attachments)
+	if err != nil {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusBadRequest, "run_not_created", err.Error())
+			return
+		}
 		s.renderError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := s.dispatcher.Dispatch(r.Context(), run.ID); err != nil {
 		_ = s.boardrooms.SetRunStatus(r.Context(), run.ID, domain.RunFailed, "The durable workflow could not be started.")
 		s.logger.Error("dispatch boardroom run", "run_id", run.ID.String(), "error", err)
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusServiceUnavailable, "dispatch_failed", "The boardroom could not be started. Please try again.")
+			return
+		}
 		s.renderError(w, http.StatusServiceUnavailable, "The boardroom could not be started. Please try again.")
+		return
+	}
+	if requestWantsJSON(r) {
+		payload, payloadErr := s.loadV2Conversation(r.Context(), run.ConversationID.String())
+		if payloadErr != nil {
+			httpx.WriteProblem(w, http.StatusServiceUnavailable, "conversation_unavailable", "The conversation was created but could not be loaded.")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusAccepted, payload)
 		return
 	}
 	http.Redirect(w, r, "/conversations/"+run.ConversationID.String(), http.StatusSeeOther)
 }
 
 func (s *Server) conversationPage(w http.ResponseWriter, r *http.Request) {
+	if requestWantsV2Page(r) {
+		s.renderV2App(w, r, "Conversation")
+		return
+	}
 	session, _ := sessionFromContext(r.Context())
 	conversationID, err := domain.ParseConversationID(chi.URLParam(r, "conversationID"))
 	if err != nil {
@@ -1544,10 +2467,29 @@ func (s *Server) conversationPage(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, http.StatusInternalServerError, "Conversation messages could not be loaded.")
 		return
 	}
+	attachments, err := s.boardrooms.ConversationDocuments(r.Context(), conversation.ID)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Conversation documents could not be loaded.")
+		return
+	}
+	selected := make(map[string]bool, len(attachments))
+	for _, attachment := range attachments {
+		selected[attachment.ID] = true
+	}
+	documents, err := s.documentOptions(r.Context(), selected)
+	if err != nil {
+		s.logger.Warn("load conversation document options", "conversation_id", conversation.ID.String(), "error", err)
+		documents = nil
+	}
+	pendingApprovals, err := s.approvals.PendingApprovalsForRun(r.Context(), run.ID)
+	if err != nil {
+		s.logger.Warn("load conversation approvals", "run_id", run.ID.String(), "error", err)
+		pendingApprovals = nil
+	}
 	runView := componentRun(run, cursor)
 	s.render(w, http.StatusOK, components.ConversationPage(
 		s.tenantName(r.Context()), s.userView(session.User), boardroomView(room), personaViews(personas),
-		conversationView(conversation), runView, messageViews(messages), s.csrfToken(session),
+		conversationView(conversation), runView, messageViews(messages), documentAttachmentViews(attachments), documents, approvalViews(pendingApprovals), s.csrfToken(session),
 	))
 }
 
@@ -1555,31 +2497,73 @@ func (s *Server) createFollowUp(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionFromContext(r.Context())
 	conversationID, err := domain.ParseConversationID(chi.URLParam(r, "conversationID"))
 	if err != nil {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusNotFound, "conversation_not_found", "Conversation was not found.")
+			return
+		}
 		s.renderError(w, http.StatusNotFound, "Conversation was not found.")
 		return
 	}
 	prompt := strings.TrimSpace(r.FormValue("prompt"))
 	if prompt == "" || len(prompt) > 12000 {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusBadRequest, "invalid_prompt", "The follow-up must contain between 1 and 12,000 characters.")
+			return
+		}
 		s.renderError(w, http.StatusBadRequest, "The follow-up must contain between 1 and 12,000 characters.")
 		return
 	}
-	run, err := s.boardrooms.CreateFollowUpRun(r.Context(), conversationID, session.User.ID, prompt)
+	attachments, err := s.documentAttachmentsFromRequest(r)
+	if err != nil {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusBadRequest, "invalid_documents", err.Error())
+			return
+		}
+		s.renderError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	run, err := s.boardrooms.CreateFollowUpRunWithDocuments(r.Context(), conversationID, session.User.ID, prompt, attachments)
 	if errors.Is(err, boardroom.ErrConversationBusy) {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusConflict, "conversation_busy", "The boardroom is still working on the previous message.")
+			return
+		}
 		http.Redirect(w, r, "/conversations/"+conversationID.String(), http.StatusSeeOther)
 		return
 	}
 	if errors.Is(err, boardroom.ErrConversationNotFound) {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusNotFound, "conversation_not_found", "Conversation was not found.")
+			return
+		}
 		s.renderError(w, http.StatusNotFound, "Conversation was not found.")
 		return
 	}
 	if err != nil {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusBadRequest, "follow_up_failed", "The follow-up could not be added.")
+			return
+		}
 		s.renderError(w, http.StatusBadRequest, "The follow-up could not be added.")
 		return
 	}
 	if err := s.dispatcher.Dispatch(r.Context(), run.ID); err != nil {
 		_ = s.boardrooms.SetRunStatus(r.Context(), run.ID, domain.RunFailed, "The durable workflow could not be started.")
 		s.logger.Error("dispatch conversation follow-up", "run_id", run.ID.String(), "error", err)
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusServiceUnavailable, "dispatch_failed", "The boardroom could not be started. Please try again.")
+			return
+		}
 		s.renderError(w, http.StatusServiceUnavailable, "The boardroom could not be started. Please try again.")
+		return
+	}
+	if requestWantsJSON(r) {
+		payload, payloadErr := s.loadV2Conversation(r.Context(), conversationID.String())
+		if payloadErr != nil {
+			httpx.WriteProblem(w, http.StatusServiceUnavailable, "conversation_unavailable", "The follow-up was added but the conversation could not be loaded.")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusAccepted, payload)
 		return
 	}
 	http.Redirect(w, r, "/conversations/"+conversationID.String(), http.StatusSeeOther)
@@ -1590,7 +2574,11 @@ func (s *Server) schedulesPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) workQueuePage(w http.ResponseWriter, r *http.Request) {
-	s.renderWorkQueue(w, r, http.StatusOK, "")
+	if !requestWantsV2Page(r) {
+		s.renderWorkQueue(w, r, http.StatusOK, "")
+		return
+	}
+	s.renderV2App(w, r, "Work")
 }
 
 func (s *Server) createWorkItem(w http.ResponseWriter, r *http.Request) {
@@ -1609,13 +2597,21 @@ func (s *Server) createWorkItem(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("assign_to_me") == "true" {
 		assignedUserID = session.User.ID
 	}
-	_, err := s.store.CreateWorkItem(r.Context(), CreateWorkItemInput{
+	item, err := s.store.CreateWorkItem(r.Context(), CreateWorkItemInput{
 		Kind: r.FormValue("kind"), Title: r.FormValue("title"), Description: r.FormValue("description"),
 		Priority: r.FormValue("priority"), Source: "user", CreatedByUserID: session.User.ID,
 		AssignedUserID: assignedUserID, DueAt: dueAt,
 	})
 	if err != nil {
+		if requestWantsJSON(r) {
+			httpx.WriteProblem(w, http.StatusBadRequest, "invalid_work_item", err.Error())
+			return
+		}
 		s.renderWorkQueue(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if requestWantsJSON(r) {
+		httpx.WriteJSON(w, http.StatusCreated, map[string]any{"item": workItemViews([]WorkItem{item})[0]})
 		return
 	}
 	http.Redirect(w, r, "/work?status=active&created=true", http.StatusSeeOther)
@@ -1630,7 +2626,247 @@ func (s *Server) updateWorkItemStatus(w http.ResponseWriter, r *http.Request) {
 		s.renderWorkQueue(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
+	if requestWantsJSON(r) {
+		payload, err := s.loadV2Ticket(r.Context(), chi.URLParam(r, "workItemID"))
+		if err != nil {
+			httpx.WriteProblem(w, http.StatusServiceUnavailable, "work_item_unavailable", "The updated ticket could not be loaded.")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, payload)
+		return
+	}
+	if r.FormValue("return_to") == "detail" {
+		http.Redirect(w, r, "/work/"+chi.URLParam(r, "workItemID")+"?updated=true", http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, workQueueReturnURL(r, true), http.StatusSeeOther)
+}
+
+func (s *Server) workItemPage(w http.ResponseWriter, r *http.Request) {
+	if !requestWantsV2Page(r) {
+		s.renderWorkItemPage(w, r, http.StatusOK, "")
+		return
+	}
+	s.renderV2App(w, r, "Ticket")
+}
+
+func (s *Server) renderWorkItemPage(w http.ResponseWriter, r *http.Request, status int, formError string) {
+	session, _ := sessionFromContext(r.Context())
+	item, err := s.store.GetWorkItem(r.Context(), chi.URLParam(r, "workItemID"))
+	if errors.Is(err, ErrWorkItemNotFound) {
+		s.renderError(w, http.StatusNotFound, "The work item was not found.")
+		return
+	}
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "The work item could not be loaded.")
+		return
+	}
+	subtasks, err := s.store.ListSubtasks(r.Context(), item.ID)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Ticket subtasks could not be loaded.")
+		return
+	}
+	room, err := s.workItemBoardroom(r.Context(), item)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "The ticket's agent workspace could not be loaded.")
+		return
+	}
+	personas, err := s.boardrooms.Personas(r.Context(), room.ID)
+	if err != nil {
+		s.renderError(w, http.StatusInternalServerError, "Ticket agents could not be loaded.")
+		return
+	}
+	var run boardroom.Run
+	var messages []boardroom.Message
+	var attachments []boardroom.DocumentAttachment
+	var approvals []toolbroker.Approval
+	selectedDocuments := map[string]bool{}
+	if item.ConversationID != "" {
+		conversationID, parseErr := domain.ParseConversationID(item.ConversationID)
+		if parseErr == nil {
+			conversation, conversationErr := s.boardrooms.GetConversation(r.Context(), conversationID)
+			if conversationErr == nil {
+				run, _ = s.boardrooms.GetRun(r.Context(), conversation.LatestRunID)
+				messages, _, _ = s.boardrooms.MessagesSnapshot(r.Context(), conversationID, conversation.LatestRunID)
+				attachments, _ = s.boardrooms.ConversationDocuments(r.Context(), conversationID)
+				for _, attachment := range attachments {
+					selectedDocuments[attachment.ID] = true
+				}
+				if run.ID.String() != "" {
+					approvals, _ = s.approvals.PendingApprovalsForRun(r.Context(), run.ID)
+				}
+			}
+		}
+	}
+	documents, err := s.documentOptions(r.Context(), selectedDocuments)
+	if err != nil {
+		documents = nil
+	}
+	notice := ""
+	if r.URL.Query().Get("sent") == "true" {
+		notice = "The selected agents are working on the ticket."
+	} else if r.URL.Query().Get("updated") == "true" {
+		notice = "Ticket status updated."
+	}
+	s.render(w, status, components.TicketDetailsPage(
+		s.tenantName(r.Context()), s.userView(session.User), workItemViews([]WorkItem{item})[0], workItemViews(subtasks), personaViews(personas),
+		messageViews(messages), documentAttachmentViews(attachments), documents, componentRun(run, 0), approvalViews(approvals), s.csrfToken(session), notice, formError,
+	))
+}
+
+func (s *Server) workItemBoardroom(ctx context.Context, item WorkItem) (boardroom.Summary, error) {
+	if item.BoardroomID != "" {
+		if id, err := domain.ParseBoardroomID(item.BoardroomID); err == nil {
+			return s.boardrooms.Get(ctx, id)
+		}
+	}
+	rooms, err := s.boardrooms.List(ctx)
+	if err != nil || len(rooms) == 0 {
+		return boardroom.Summary{}, errors.New("no active boardroom")
+	}
+	return rooms[0], nil
+}
+
+func (s *Server) createWorkItemMessage(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionFromContext(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, documentUploadLimit+(512<<10))
+	if err := r.ParseMultipartForm(documentUploadLimit); err != nil {
+		s.renderWorkItemPage(w, r, http.StatusBadRequest, "The message or uploaded document is too large.")
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	if !auth.CheckCSRF(session.RawToken, r.FormValue("csrf_token"), s.config.SessionSecret) {
+		httpx.WriteProblem(w, http.StatusForbidden, "invalid_csrf", "The form expired or could not be verified.")
+		return
+	}
+	item, err := s.store.GetWorkItem(r.Context(), chi.URLParam(r, "workItemID"))
+	if err != nil {
+		s.renderError(w, http.StatusNotFound, "The work item was not found.")
+		return
+	}
+	prompt := strings.TrimSpace(r.FormValue("prompt"))
+	if prompt == "" || len(prompt) > 12000 {
+		s.renderWorkItemPage(w, r, http.StatusBadRequest, "The message must contain between 1 and 12,000 characters.")
+		return
+	}
+	room, err := s.workItemBoardroom(r.Context(), item)
+	if err != nil {
+		s.renderWorkItemPage(w, r, http.StatusBadRequest, "Choose a ticket with an active boardroom.")
+		return
+	}
+	personas, err := s.boardrooms.Personas(r.Context(), room.ID)
+	if err != nil {
+		s.renderWorkItemPage(w, r, http.StatusInternalServerError, "Ticket agents could not be loaded.")
+		return
+	}
+	selectedIDs, err := selectedWorkItemPersonas(r.Form["persona_id"], personas, room.MaxTurns)
+	if err != nil {
+		s.renderWorkItemPage(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	attachments, err := s.documentAttachmentsFromRequest(r)
+	if err != nil {
+		s.renderWorkItemPage(w, r, http.StatusBadRequest, err.Error())
+		return
+	}
+	if uploaded, ok, uploadErr := s.ticketUploadedDocument(r, session.User.ID); uploadErr != nil {
+		s.renderWorkItemPage(w, r, http.StatusBadRequest, uploadErr.Error())
+		return
+	} else if ok {
+		attachments = append(attachments, uploaded)
+	}
+	var run boardroom.Run
+	if item.ConversationID == "" {
+		run, err = s.boardrooms.CreateTargetedRunWithDocuments(r.Context(), room.ID, session.User.ID, fmt.Sprintf("Ticket #%04d: %s", item.Number, item.Title), prompt, item.ID, selectedIDs, attachments)
+	} else {
+		conversationID, parseErr := domain.ParseConversationID(item.ConversationID)
+		if parseErr != nil {
+			err = parseErr
+		} else {
+			run, err = s.boardrooms.CreateTargetedFollowUpRunWithDocuments(r.Context(), conversationID, session.User.ID, prompt, item.ID, selectedIDs, attachments)
+		}
+	}
+	if errors.Is(err, boardroom.ErrConversationBusy) {
+		s.renderWorkItemPage(w, r, http.StatusConflict, "Agents are already working in this ticket. Wait for the current run or resolve its approval.")
+		return
+	}
+	if err != nil {
+		s.renderWorkItemPage(w, r, http.StatusBadRequest, "The agent conversation could not be started: "+err.Error())
+		return
+	}
+	if err := s.store.LinkWorkItemConversation(r.Context(), item.ID, room.ID.String(), run.ConversationID.String(), run.ID.String()); err != nil {
+		_ = s.boardrooms.SetRunStatus(r.Context(), run.ID, domain.RunFailed, "The ticket conversation could not be linked.")
+		s.renderWorkItemPage(w, r, http.StatusInternalServerError, "The ticket conversation could not be linked.")
+		return
+	}
+	if err := s.dispatcher.Dispatch(r.Context(), run.ID); err != nil {
+		_ = s.boardrooms.SetRunStatus(r.Context(), run.ID, domain.RunFailed, "The durable workflow could not be started.")
+		s.renderWorkItemPage(w, r, http.StatusServiceUnavailable, "The selected agents could not be started.")
+		return
+	}
+	if requestWantsJSON(r) {
+		payload, err := s.loadV2Ticket(r.Context(), item.ID)
+		if err != nil {
+			httpx.WriteProblem(w, http.StatusServiceUnavailable, "work_item_unavailable", "The ticket was started, but its live state could not be loaded.")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusAccepted, payload)
+		return
+	}
+	http.Redirect(w, r, "/work/"+item.ID+"?sent=true", http.StatusSeeOther)
+}
+
+func selectedWorkItemPersonas(requested []string, personas []boardroom.Persona, maximum int) ([]string, error) {
+	if len(requested) == 0 {
+		return nil, errors.New("Choose at least one agent.")
+	}
+	available := make(map[string]bool, len(personas))
+	for _, persona := range personas {
+		available[persona.ID.String()] = true
+	}
+	seen := map[string]bool{}
+	result := make([]string, 0, len(requested))
+	for _, id := range requested {
+		id = strings.TrimSpace(id)
+		if !available[id] {
+			return nil, errors.New("Choose enabled agents from this boardroom.")
+		}
+		if !seen[id] {
+			seen[id] = true
+			result = append(result, id)
+		}
+	}
+	if len(result) > maximum {
+		return nil, fmt.Errorf("Choose no more than %d agents for one message.", maximum)
+	}
+	return result, nil
+}
+
+func (s *Server) ticketUploadedDocument(r *http.Request, userID string) (boardroom.DocumentAttachment, bool, error) {
+	file, header, err := r.FormFile("document")
+	if errors.Is(err, http.ErrMissingFile) {
+		return boardroom.DocumentAttachment{}, false, nil
+	}
+	if err != nil {
+		return boardroom.DocumentAttachment{}, false, errors.New("The uploaded document could not be read.")
+	}
+	defer file.Close()
+	content, err := io.ReadAll(io.LimitReader(file, documentUploadLimit+1))
+	if err != nil || len(content) == 0 || len(content) > documentUploadLimit {
+		return boardroom.DocumentAttachment{}, false, errors.New("Upload a supported document no larger than 15 MB.")
+	}
+	extracted, mediaType, err := documentextract.Extract(header.Filename, content)
+	if err != nil {
+		return boardroom.DocumentAttachment{}, false, err
+	}
+	name := filepath.Base(header.Filename)
+	document, err := s.documents.IngestText(r.Context(), name, mediaType, extracted, userID)
+	if err != nil {
+		return boardroom.DocumentAttachment{}, false, errors.New("The uploaded document could not be indexed.")
+	}
+	return boardroom.DocumentAttachment{ID: document.ID, Name: document.Name}, true, nil
 }
 
 func (s *Server) renderWorkQueue(w http.ResponseWriter, r *http.Request, status int, formError string) {
@@ -1829,7 +3065,7 @@ func (s *Server) renderSchedules(w http.ResponseWriter, r *http.Request, status 
 
 func scheduleAdmin(ctx context.Context) bool {
 	session, ok := sessionFromContext(ctx)
-	return ok && (session.User.Role == "owner" || session.User.Role == "admin")
+	return ok && session.User.Role == "owner"
 }
 
 func (s *Server) runPage(w http.ResponseWriter, r *http.Request) {
@@ -1886,7 +3122,34 @@ func (s *Server) runEvents(w http.ResponseWriter, r *http.Request) {
 			run, runErr := s.boardrooms.GetRun(r.Context(), runID)
 			session, hasSession := sessionFromContext(r.Context())
 			if runErr == nil && hasSession {
-				fragment, renderErr := renderString(components.FollowUpForm(run.ConversationID.String(), s.csrfToken(session)))
+				if run.Status == domain.RunAwaitingApproval {
+					items, approvalErr := s.approvals.PendingApprovalsForRun(r.Context(), run.ID)
+					if approvalErr != nil {
+						s.logger.Warn("load streamed conversation approvals", "run_id", run.ID.String(), "error", approvalErr)
+					}
+					fragment, renderErr := renderString(components.ApprovalOffers(approvalViews(items), s.csrfToken(session)))
+					if renderErr == nil {
+						writeSSE(w, after, "finished", fragment)
+					} else {
+						writeSSE(w, after, "finished", "")
+					}
+					_ = controller.Flush()
+					return
+				}
+				attachments, attachmentErr := s.boardrooms.ConversationDocuments(r.Context(), run.ConversationID)
+				selected := make(map[string]bool, len(attachments))
+				for _, attachment := range attachments {
+					selected[attachment.ID] = true
+				}
+				documents, documentErr := s.documentOptions(r.Context(), selected)
+				if attachmentErr != nil {
+					s.logger.Warn("load follow-up attachments", "conversation_id", run.ConversationID.String(), "error", attachmentErr)
+				}
+				if documentErr != nil {
+					s.logger.Warn("load follow-up document options", "conversation_id", run.ConversationID.String(), "error", documentErr)
+					documents = nil
+				}
+				fragment, renderErr := renderString(components.FollowUpForm(run.ConversationID.String(), documents, s.csrfToken(session), string(run.Status)))
 				if renderErr == nil {
 					writeSSE(w, after, "finished", fragment)
 				} else {
@@ -1937,9 +3200,15 @@ func (s *Server) writePendingEvents(ctx context.Context, w http.ResponseWriter, 
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				return false, err
 			}
+			research, err := s.boardrooms.MessageResearch(ctx, runID, payload.MessageID)
+			if err != nil {
+				s.logger.Warn("load completed message research", "run_id", runID.String(), "message_id", payload.MessageID, "error", err)
+				research = nil
+			}
 			fragment, err := renderString(components.MessageBubble(components.MessageView{
 				ID: payload.MessageID, Sequence: payload.Sequence, PersonaName: payload.PersonaName,
 				PersonaRole: payload.PersonaRole, Role: payload.Role, Body: payload.Body, CreatedAt: payload.CreatedAt,
+				Research: researchActivityViews(research),
 			}))
 			if err != nil {
 				return false, err
@@ -1955,7 +3224,7 @@ func (s *Server) writePendingEvents(ctx context.Context, w http.ResponseWriter, 
 				return false, err
 			}
 			writeSSE(w, event.ID, "status", fragment)
-			terminal = run.Status == domain.RunCompleted || run.Status == domain.RunFailed || run.Status == domain.RunCanceled
+			terminal = run.Status == domain.RunCompleted || run.Status == domain.RunFailed || run.Status == domain.RunCanceled || run.Status == domain.RunAwaitingApproval
 		}
 	}
 	if !terminal {
@@ -1963,7 +3232,7 @@ func (s *Server) writePendingEvents(ctx context.Context, w http.ResponseWriter, 
 		if err != nil {
 			return false, err
 		}
-		terminal = run.Status == domain.RunCompleted || run.Status == domain.RunFailed || run.Status == domain.RunCanceled
+		terminal = run.Status == domain.RunCompleted || run.Status == domain.RunFailed || run.Status == domain.RunCanceled || run.Status == domain.RunAwaitingApproval
 	}
 	return terminal, nil
 }
@@ -2111,7 +3380,7 @@ func documentView(document rag.Document) components.DocumentView {
 	return components.DocumentView{
 		ID: document.ID, Name: document.Name, MediaType: document.MediaType, Status: document.Status,
 		ChunkCount: document.ChunkCount, CharacterCount: document.CharacterCount,
-		UploadedBy: document.UploadedBy, CreatedAt: document.CreatedAt,
+		UploadedBy: document.UploadedBy, Revision: document.Revision, CreatedAt: document.CreatedAt, UpdatedAt: document.UpdatedAt,
 	}
 }
 
@@ -2187,6 +3456,8 @@ func workItemViews(items []WorkItem) []components.WorkItemView {
 			ID: item.ID, Number: item.Number, Kind: item.Kind, Title: item.Title, Description: item.Description,
 			Status: item.Status, Priority: item.Priority, Source: item.Source,
 			CreatedByName: item.CreatedByName, AssignedToName: item.AssignedToName, AssignedToType: item.AssignedToType,
+			Responsibility: item.Responsibility,
+			ParentID:       item.ParentID, ParentNumber: item.ParentNumber,
 			DueLabel: dueLabel, IsOverdue: overdue, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 		})
 	}
@@ -2225,9 +3496,12 @@ func scheduleViews(items []scheduling.Schedule) []components.ScheduleView {
 func personaViews(personas []boardroom.Persona) []components.PersonaView {
 	result := make([]components.PersonaView, 0, len(personas))
 	for _, persona := range personas {
-		view := components.PersonaView{Name: persona.Name, Role: persona.Role}
+		view := components.PersonaView{ID: persona.ID.String(), Name: persona.Name, Role: persona.Role}
 		for _, grant := range persona.Grants {
 			view.Tools = append(view.Tools, string(grant.Capability))
+			if grant.Capability == domain.CapabilityTicketCreate {
+				view.CanCreateSubtasks = true
+			}
 		}
 		result = append(result, view)
 	}
@@ -2247,7 +3521,31 @@ func messageViews(messages []boardroom.Message) []components.MessageView {
 		result = append(result, components.MessageView{
 			ID: message.ID, PersonaName: message.PersonaName, PersonaRole: message.PersonaRole,
 			Role: string(message.Role), Body: message.Body, Sequence: message.Sequence, CreatedAt: message.CreatedAt,
+			Research: researchActivityViews(message.Research),
 		})
+	}
+	return result
+}
+
+func researchActivityViews(activities []boardroom.ResearchActivity) []components.ResearchActivityView {
+	result := make([]components.ResearchActivityView, 0, len(activities))
+	for _, activity := range activities {
+		view := components.ResearchActivityView{
+			Tool: activity.Tool, Query: activity.Query, URL: activity.URL, Status: activity.Status,
+			Results: make([]components.ResearchResultView, 0, len(activity.Results)),
+		}
+		for _, item := range activity.Results {
+			view.Results = append(view.Results, components.ResearchResultView{Title: item.Title, URL: item.URL, Excerpt: item.Excerpt})
+		}
+		result = append(result, view)
+	}
+	return result
+}
+
+func documentAttachmentViews(documents []boardroom.DocumentAttachment) []components.DocumentOptionView {
+	result := make([]components.DocumentOptionView, 0, len(documents))
+	for _, document := range documents {
+		result = append(result, components.DocumentOptionView{ID: document.ID, Name: document.Name, Selected: true})
 	}
 	return result
 }

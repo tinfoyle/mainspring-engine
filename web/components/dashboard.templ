@@ -1,24 +1,78 @@
 package components
 
-templ DashboardPage(tenantName string, user UserView, boardrooms []BoardroomCardView, csrfToken, template string) {
-	@Layout("Boardrooms", tenantName, &user, csrfToken) {
-		<section class="hero">
+type ProductToolView struct {
+	Name, Eyebrow, Description, Outcome, Href, Initial string
+}
+
+func ProductTools(user UserView) []ProductToolView {
+	tools := []ProductToolView{
+		{"Baseline", "Your business record", "Build and maintain a source-backed picture of how your business operates, what evidence exists, and what is still missing.", "Use it to review progress, answer follow-up questions, and keep the baseline current.", "/baseline", "B"},
+		{"Boardrooms", "Ask the team", "Bring a question or decision to a group of specialist agents. They can use your documents, search the web, and turn conclusions into accountable work.", "Use it when you need an answer, a recommendation, or a coordinated plan.", "#boardrooms", "B"},
+		{"Work", "Make progress visible", "Track owner tasks, agent tasks, shared work, external dependencies, and the subtasks created from conversations.", "Use it to see what is next, what is blocked, and what has been completed.", "/work", "W"},
+		{"Documents", "Ground agents in evidence", "Upload and organize policies, licenses, contracts, procedures, and other records that agents can recall in their work.", "Use it when you find a missing record or want an answer grounded in your own files.", "/documents", "D"},
+		{"Finance", "Keep the books together", "Maintain audited ledgers, nested accounts, income, expenses, and balanced journal entries that both you and your agents can update.", "Use it to review the company books, post transactions, or inspect agent-maintained financial records.", "/finance", "F"},
+		{"Inbox", "Stay on top of handoffs", "See the updates, questions, and results that need your attention without reopening every conversation or ticket.", "Use it as your daily review of what Mainspring needs from you.", "/inbox", "I"},
+		{"Approvals", "Keep control", "Review consequential actions before an agent can execute them, with the reason and supporting evidence kept visible.", "Use it to approve, reject, or inspect actions that require owner judgment.", "/approvals", "A"},
+		{"Schedules", "Run recurring work", "Set up repeatable reviews and agent work so important checks happen on a dependable cadence.", "Use it for periodic compliance, document, and operational follow-ups.", "/schedules", "S"},
+		{"Email", "Add context when ready", "Connect a business mailbox after onboarding so agents can locate relevant messages and attachments within the scope you choose.", "Use it when the baseline needs evidence that lives in email.", "/email", "E"},
+	}
+	if user.Role == "owner" {
+		tools = append(tools,
+			ProductToolView{"Agents", "Shape your specialist team", "Review the agents available to your business and the roles, instructions, and tools they use.", "Use it to understand or tune who Mainspring brings into a piece of work.", "/agents", "A"},
+			ProductToolView{"Operations", "See the system at work", "Inspect run health, usage, tool activity, failures, and other operational details behind agent execution.", "Use it when you need to troubleshoot or audit how the system is performing.", "/operations", "O"},
+		)
+	}
+	return tools
+}
+
+templ DashboardPage(tenantName string, user UserView, boardrooms []BoardroomCardView, csrfToken string, welcome bool) {
+	@Layout("Home", tenantName, &user, csrfToken) {
+		<section class={ "hero", templ.KV("home-hero-welcome", welcome) }>
 			<div>
-				<p class="eyebrow">Back office</p>
-				<h1>Good to see you, { user.DisplayName }</h1>
-				if IsSoftwareTemplate(template) {
-					<p>Your boardrooms track product, client services, revenue, delivery, and risk while you focus on building the company.</p>
+				if welcome {
+					<p class="eyebrow">Onboarding complete</p>
+					<h1>Welcome to Mainspring, { user.DisplayName }</h1>
+					<p>Your documented baseline is in motion. Here is where to go next and what each part of Mainspring does for your business.</p>
 				} else {
-					<p>Your boardrooms monitor the paperwork while you focus on the trade.</p>
+					<p class="eyebrow">Your workspace</p>
+					<h1>Good to see you, { user.DisplayName }</h1>
+					<p>Mainspring turns business evidence, questions, and decisions into a documented baseline and accountable work.</p>
 				}
 			</div>
 			<div class="status-chip"><span></span> System ready</div>
 		</section>
-		<section>
+		if welcome {
+			<section class="home-welcome-note" aria-label="Onboarding result">
+				<div class="home-welcome-check">Done</div>
+				<div><strong>Your baseline work plan is running in the background.</strong><p>The tickets created during onboarding are waiting in Work. You can explore the workspace first and return to them when you are ready.</p></div>
+				<a class="button button-secondary" href="/work">View work queue</a>
+			</section>
+		}
+		<section class="home-tools">
 			<div class="section-heading">
 				<div>
-					<p class="eyebrow">Your team</p>
-					<h2>Boardrooms</h2>
+					<p class="eyebrow">Meet Mainspring</p>
+					<h2>Your business toolkit</h2>
+					<p>Start with the outcome you need. Everything remains connected to the same business baseline.</p>
+				</div>
+			</div>
+			<div class="tool-grid">
+				for _, tool := range ProductTools(user) {
+					<a class="tool-card" href={ templ.URL(tool.Href) }>
+						<div class="tool-card-heading"><span class="tool-icon">{ tool.Initial }</span><span>{ tool.Eyebrow }</span></div>
+						<h3>{ tool.Name }</h3>
+						<p>{ tool.Description }</p>
+						<footer><span>{ tool.Outcome }</span><strong>Open</strong></footer>
+					</a>
+				}
+			</div>
+		</section>
+		<section id="boardrooms" class="home-boardrooms">
+			<div class="section-heading">
+				<div>
+					<p class="eyebrow">Ask the team</p>
+					<h2>Your boardrooms</h2>
+					<p>Choose a room when you are ready to ask a question or plan a new piece of work.</p>
 				</div>
 			</div>
 			<div class="card-grid">
@@ -30,7 +84,7 @@ templ DashboardPage(tenantName string, user UserView, boardrooms []BoardroomCard
 						</div>
 						<h3>{ room.Name }</h3>
 						<p>{ room.Description }</p>
-						<footer>{ room.PersonaCount } active personas <span>Open →</span></footer>
+						<footer>{ room.PersonaCount } active personas <span>Open</span></footer>
 					</a>
 				}
 			</div>

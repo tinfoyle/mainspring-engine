@@ -1,0 +1,72 @@
+package components
+
+type MemberView struct {
+	ID string
+	Email string
+	DisplayName string
+	Role string
+	State string
+}
+
+type AnnouncementView struct {
+	ID string
+	Title string
+	Body string
+	Category string
+	PublishedAt string
+	Read bool
+}
+
+templ MembersPage(tenantName string, user UserView, members []MemberView, csrfToken string, notice string, formError string, invitationURL string) {
+	@Layout("Team", tenantName, &user, csrfToken) {
+		<section class="page-header"><p class="eyebrow">Organization</p><h1>Team</h1><p>The organization owner is protected. Members can be invited, managed, or removed here.</p></section>
+		if notice != "" {
+			<div class="alert alert-success" role="status">{ notice }</div>
+		}
+		if formError != "" {
+			<div class="alert alert-error" role="alert">{ formError }</div>
+		}
+		if invitationURL != "" {
+			<div class="alert"><strong>Development invitation link:</strong> <a href={ invitationURL }>{ invitationURL }</a></div>
+		}
+		<div class="two-column">
+			<section class="panel"><h2>Invite member</h2><form method="post" action="/team/invitations"><input type="hidden" name="csrf_token" value={ csrfToken }/><label><span>Name</span><input name="display_name" required maxlength="120"/></label><label><span>Email</span><input name="email" type="email" required maxlength="320"/></label><button class="button button-primary" type="submit">Send invitation</button></form></section>
+			<section class="panel"><h2>Members</h2><div class="stack">
+				for _, member := range members {
+					<article class="list-item"><div><strong>{ member.DisplayName }</strong><p>{ member.Email } · { member.Role } · { member.State }</p></div>
+						if member.Role == "member" && member.State != "disabled" {
+							<form method="post" action={ "/team/members/" + member.ID + "/remove" }><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-quiet" type="submit">Remove</button></form>
+						}
+					</article>
+				}
+			</div></section>
+		</div>
+	}
+}
+
+templ AcceptInvitationPage(tenantName string, token string, formError string) {
+	@Layout("Accept invitation", tenantName, nil, "") {
+		<section class="auth-shell"><div class="auth-copy"><p class="eyebrow">You’re invited</p><h1>Join { tenantName }</h1><p>Set your password to activate your member account.</p></div><form class="panel auth-form" method="post" action="/invitations/accept"><input type="hidden" name="token" value={ token }/>
+			if formError != "" {
+				<div class="alert alert-error" role="alert">{ formError }</div>
+			}
+			<label><span>Password</span><input name="password" type="password" required minlength="12" autocomplete="new-password"/></label><button class="button button-primary" type="submit">Activate account</button></form></section>
+	}
+}
+
+templ AnnouncementsPage(tenantName string, user UserView, items []AnnouncementView, csrfToken string) {
+	@Layout("Service inbox", tenantName, &user, csrfToken) {
+		<section class="page-header"><p class="eyebrow">Mainspring</p><h1>Service inbox</h1><p>Planned downtime and important service notices from the platform team.</p></section><section class="stack">
+			if len(items) == 0 {
+				<div class="panel"><p>No service announcements.</p></div>
+			}
+			for _, item := range items {
+				<article class="panel"><p class="eyebrow">{ item.Category } · { item.PublishedAt }</p><h2>{ item.Title }</h2><p>{ item.Body }</p>
+					if !item.Read {
+						<form method="post" action={ "/inbox/" + item.ID + "/read" }><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-quiet" type="submit">Mark read</button></form>
+					}
+				</article>
+			}
+		</section>
+	}
+}

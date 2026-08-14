@@ -19,6 +19,8 @@ The application, rather than an agent, owns boardroom orchestration. Models are 
 4. **Control-plane data and tenant business data remain separate.** Billing and provisioning do not require access to customer documents, conversations, invoices, or integrations.
 5. **Tools are capabilities, not prompt suggestions.** The Go harness enforces every tool grant and approval boundary.
 6. **Work is durable.** Temporal records boardroom progress, schedules, retries, timers, and human approval waits.
+7. **Agents work toward exceptions.** Agent-owned tickets are claimed within tenant concurrency limits, researched from tenant evidence and authoritative web sources, and returned to the owner only for unavailable private facts or final review.
+8. **Human attention is typed.** “Your turn” separates reversible information requests from completed-work reviews and consequential approvals. Owner answers close an attached owner subtask and become durable parent-ticket context; the dispatcher resumes the assigned agent only after all required owner work and decisions are resolved.
 7. **External effects are idempotent or reconciled.** A retry must not silently duplicate an email, invoice, payment, or integration mutation.
 8. **Deployment is replaceable.** Docker Compose is the MVP runtime; Kubernetes can replace it through a runtime-provisioner interface.
 9. **The MVP is simple, not disposable.** Advanced hardening may wait, but tenant isolation, secret handling, auditability, and recovery boundaries must be correct initially.
@@ -113,16 +115,15 @@ Billing provider confirms purchase
 
 ```text
 Owner creates the tenant login
-  -> owner selects trades, SaaS, MSP, or the new-business path in one tenant
-  -> a new-business owner selects the closest industry context
-  -> onboarding records both business template and operating/starting stage
-  -> guided workflow collects canonical facts or clearly labeled launch assumptions
-  -> onboarding assistant captures current processes or a proposed first operating playbook
-  -> application generates an editable persona and permission blueprint
-  -> owner keeps a lean core team and opts into bounded specialists as needed
-  -> owner reviews and explicitly launches
-  -> application validates and transactionally applies the profile, personas, and grants
-  -> tenant request boundary opens the normal dashboard and boardrooms
+  -> owner selects the closest business template
+  -> Mia interviews the owner and records source-attributed business facts
+  -> owner grants narrow, read-only access to uploads, inbox folders, Drive folders, or public sources
+  -> application inventories a fixed evidence-requirement catalog and records provenance
+  -> every gap is explicitly classified as locate, search, create, obtain, or not applicable
+  -> owner assigns agent, owner, shared, or external responsibility
+  -> owner approves one parent baseline plan and its child work items
+  -> application transactionally applies the profile and opens the operational tenant
+  -> ticket completion confirms evidence; renewals and reassessments reopen stale gaps
 ```
 
 The business-stage choice is independent of the tenant's industry template: a trade,
@@ -216,17 +217,18 @@ Browser requests tenant subdomain
 ### Document ingestion
 
 ```text
-Authenticated owner uploads a supported text-native file
-  -> tenant runtime validates CSRF, extension, size, and UTF-8 content
+Authenticated owner uploads a supported business document
+  -> tenant runtime validates CSRF, extension, size, and content structure
+  -> PDF or DOCX text is extracted inside the tenant runtime with strict bounds
   -> tenant runtime calls the tenant RAG service with internal credentials
   -> RAG stores the exact source text and creates searchable chunks
   -> document library lists the ready document and exposes a read-only detail view
   -> only personas with documents.read receive document retrieval capability
 ```
 
-The MVP stores source text in the tenant database so uploaded documents can be
-viewed faithfully while indexed chunks evolve independently. Binary extraction and
-object storage are deferred until PDF and Word support is implemented.
+The MVP stores extracted source text in the tenant database so uploaded documents can
+be viewed while indexed chunks evolve independently. Original binary object storage is
+deferred; the current evidence record retains filename, media type, hash, and provenance.
 
 ### Tenant email
 
@@ -317,6 +319,10 @@ docs/
 
 ## Architecture decision records
 
+Product-facing implementation notes:
+
+- [Mobile-friendly web UI adoption plan](../mobile-web-readiness.md)
+
 - [ADR-0001: Use Go and an HTML-over-the-wire frontend](adr/0001-go-html-over-the-wire.md)
 - [ADR-0002: Separate the control plane from tenant runtimes](adr/0002-control-plane-and-tenant-runtime.md)
 - [ADR-0003: Use a database and role per tenant](adr/0003-tenant-database-isolation.md)
@@ -339,6 +345,9 @@ docs/
 - [ADR-0020: Run provider CLIs in ephemeral constrained containers](adr/0020-ephemeral-agent-runners.md)
 - [ADR-0021: Enforce tenant execution capacity and usage budgets](adr/0021-agent-capacity-and-operations.md)
 - [ADR-0022: Store typed, versioned agent configuration](adr/0022-agent-customization.md)
+- [ADR-0023: Self-host governed public-web research](adr/0023-self-hosted-web-research.md)
+- [ADR-0024: Make the documented business baseline the onboarding spine](adr/0024-documented-business-baseline.md)
+- [ADR-0025: Coordinate owner input through shared business knowledge](adr/0025-shared-business-knowledge-and-input-coordination.md)
 
 ## Open questions
 
@@ -346,8 +355,7 @@ docs/
 - Tenant authentication method for the first release
 - Billing provider and subscription lifecycle rules
 - Offsite backup destination, recovery targets, and restore cadence
-- PDF and Word extraction strategy and object-storage backend
-- Exact web-search provider available to the MVP
+- Object-storage backend for preserving original uploaded binaries
 - Production model credential ownership and plan-specific pricing
 - Criteria for moving a tenant to dedicated database infrastructure
 - Kubernetes distribution and cluster topology after MVP validation

@@ -185,7 +185,7 @@ func DocumentsPage(tenantName string, user UserView, documents []DocumentView, c
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</section><aside class=\"panel document-upload-panel\"><p class=\"eyebrow\">Add knowledge</p><h2>Upload a document</h2><p>Text-based files are indexed immediately and remain scoped to this tenant.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</section><aside class=\"panel document-upload-panel\"><p class=\"eyebrow\">Add knowledge</p><h2>Upload a document</h2><p>PDF, Word, and text-based files are extracted, indexed immediately, and remain scoped to this tenant.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -221,7 +221,7 @@ func DocumentsPage(tenantName string, user UserView, documents []DocumentView, c
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\"> <label><span>Display name <small>optional</small></span><input name=\"name\" maxlength=\"255\" placeholder=\"Defaults to the filename\"></label> <label class=\"file-choice\"><span>Choose a file</span><input type=\"file\" name=\"document\" required accept=\".txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.yaml,.yml,.log,text/plain,text/markdown,text/csv,application/json,application/xml,text/html,text/yaml\"></label><p class=\"upload-help\">TXT, Markdown, CSV, TSV, JSON, XML, HTML, YAML, or LOG · 2 MB maximum</p><button class=\"button button-primary\" type=\"submit\">Upload and index</button></form><div class=\"upload-roadmap\"><strong>Coming next</strong><p>PDF and Word extraction, document replacement, and version history.</p></div></aside></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\"> <label><span>Display name <small>optional</small></span><input name=\"name\" maxlength=\"255\" placeholder=\"Defaults to the filename\"></label> <label class=\"file-choice\"><span>Choose a file</span><input type=\"file\" name=\"document\" required accept=\".pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.yaml,.yml,.log,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,application/json,application/xml,text/html,text/yaml\"></label><p class=\"upload-help\">PDF, DOCX, TXT, Markdown, CSV, TSV, JSON, XML, HTML, YAML, or LOG · 15 MB upload maximum</p><button class=\"button button-primary\" type=\"submit\">Upload and index</button></form><div class=\"upload-roadmap\"><strong>Evidence ready</strong><p>PDF and Word text extraction is available now. Scanned-image OCR and version history remain future improvements.</p></div></aside></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

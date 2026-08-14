@@ -24,13 +24,21 @@ x-app: &app
     MAINSPRING_TOOL_TOKEN_SECRET: local-development-tool-secret-change-before-production
     MAINSPRING_RAG_TOKEN: local-development-rag-secret-change-before-production
     MAINSPRING_RAG_INTERNAL_URL: http://rag-demo:8083
+    MAINSPRING_WEB_RESEARCH_PROVIDER: firecrawl
+    MAINSPRING_FIRECRAWL_URL: http://firecrawl-api:3002
+    MAINSPRING_FIRECRAWL_TIMEOUT: 30s
+    MAINSPRING_GOOGLE_DRIVE_CLIENT_ID: ${MAINSPRING_GOOGLE_DRIVE_CLIENT_ID:-}
+    MAINSPRING_GOOGLE_DRIVE_CLIENT_SECRET: ${MAINSPRING_GOOGLE_DRIVE_CLIENT_SECRET:-}
+    MAINSPRING_GOOGLE_DRIVE_REDIRECT_URL: ${MAINSPRING_GOOGLE_DRIVE_REDIRECT_URL:-http://demo.localhost:8088/baseline/google-drive/callback}
     MAINSPRING_SETUP_TOKEN: mainspring-local-setup
     MAINSPRING_COOKIE_SECURE: "false"
     MAINSPRING_AGENT_PROVIDER: remote
     MAINSPRING_RUNNER_URL: http://runner-controller:8090
-    MAINSPRING_RUNNER_PROVIDER: ${MAINSPRING_RUNNER_PROVIDER:-mock}
+    # Real agents are the development default. The isolated test suite exports
+    # MAINSPRING_RUNNER_PROVIDER=mock explicitly for deterministic tests.
+    MAINSPRING_RUNNER_PROVIDER: ${MAINSPRING_RUNNER_PROVIDER:-codex}
     MAINSPRING_RUNNER_IMAGE: mainspring-agent-runner:dev
-    MAINSPRING_RUNNER_NETWORK: mainspring-dev_agent-egress
+    MAINSPRING_RUNNER_NETWORK: ${MAINSPRING_RUNNER_NETWORK:-mainspring-dev_agent-egress}
     MAINSPRING_RUNNER_CODEX_AUTH_PATH: ${MAINSPRING_RUNNER_CODEX_AUTH_PATH:-/home/rojo/.codex/auth.json}
     MAINSPRING_RUNNER_CA_CERT_PATH: ${MAINSPRING_RUNNER_CA_CERT_PATH:-/etc/ssl/certs/ca-certificates.crt}
     MAINSPRING_TEMPORAL_ADDRESS: temporal:7233
@@ -43,7 +51,7 @@ services:
     image: caddy:2.10.2-alpine
     restart: unless-stopped
     ports:
-      - "8088:8080"
+      - "${MAINSPRING_EDGE_PORT:-8088}:8080"
     volumes:
       - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
     depends_on:
@@ -65,7 +73,10 @@ services:
       - postgres-data:/var/lib/postgresql
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mainspring -d postgres"]
+      # The image's temporary init server listens on a Unix socket. Probe TCP
+      # so dependents start only after the final database server is accepting
+      # the same kind of connections they use.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U mainspring -d postgres"]
       interval: 3s
       timeout: 3s
       retries: 30
@@ -138,9 +149,9 @@ services:
     restart: unless-stopped
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_CORS_ORIGINS: http://localhost:8233
+      TEMPORAL_CORS_ORIGINS: http://localhost:${MAINSPRING_TEMPORAL_UI_PORT:-8233}
     ports:
-      - "127.0.0.1:8233:8080"
+      - "127.0.0.1:${MAINSPRING_TEMPORAL_UI_PORT:-8233}:8080"
     depends_on:
       temporal-namespace:
         condition: service_completed_successfully
@@ -153,6 +164,9 @@ services:
     environment:
       <<: *app-environment
       MAINSPRING_CONTROL_ADDR: :8080
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "/usr/local/bin/mainspring", "healthcheck", "http://127.0.0.1:8080/healthz"]
       interval: 5s
@@ -173,6 +187,8 @@ services:
     environment:
       <<: *app-environment
       MAINSPRING_TENANT_ADDR: :8082
+      MAINSPRING_MCP_TOKEN: local-development-mcp-token-change-before-production
+      MAINSPRING_MCP_USER_EMAIL: owner@example.test
     depends_on:
       postgres:
         condition: service_healthy
@@ -183,6 +199,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    networks:
+      - platform
+      - research-control
 
   worker-demo:
     <<: *app
@@ -194,6 +213,9 @@ services:
         condition: service_completed_successfully
       runner-controller:
         condition: service_healthy
+    networks:
+      - platform
+      - research-control
 
   runner-image:
     build:
@@ -215,7 +237,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "127.0.0.1:8090:8090"
+      - "127.0.0.1:${MAINSPRING_RUNNER_PORT:-8090}:8090"
     group_add:
       - "${DOCKER_GID:-109}"
     depends_on:
@@ -244,6 +266,147 @@ services:
       timeout: 3s
       retries: 20
 
+  # Firecrawl is an internal retrieval subsystem. It is deliberately absent
+  # from the platform and agent-egress networks; only tenant and worker brokers
+  # can call its API over research-control.
+  firecrawl-api:
+    image: ghcr.io/firecrawl/firecrawl@sha256:d4fef17701ca388b2f06074b0624c95d2a4dced655d9267ef0545f2231bd325f
+    restart: unless-stopped
+    command: ["node", "dist/src/harness.js", "--start-docker"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3002
+      ENV: local
+      USE_DB_AUTHENTICATION: "false"
+      REDIS_URL: redis://firecrawl-redis:6379
+      REDIS_RATE_LIMIT_URL: redis://firecrawl-redis:6379
+      PLAYWRIGHT_MICROSERVICE_URL: http://firecrawl-playwright:3000/scrape
+      POSTGRES_USER: firecrawl
+      POSTGRES_PASSWORD: ${FIRECRAWL_POSTGRES_PASSWORD:-local-firecrawl-postgres-change-me}
+      POSTGRES_DB: postgres
+      POSTGRES_HOST: firecrawl-postgres
+      POSTGRES_PORT: 5432
+      NUQ_RABBITMQ_URL: amqp://firecrawl-rabbitmq:5672
+      NUM_WORKERS_PER_QUEUE: ${FIRECRAWL_WORKERS_PER_QUEUE:-2}
+      CRAWL_CONCURRENT_REQUESTS: ${FIRECRAWL_CRAWL_CONCURRENCY:-4}
+      MAX_CONCURRENT_JOBS: ${FIRECRAWL_MAX_CONCURRENT_JOBS:-2}
+      BROWSER_POOL_SIZE: ${FIRECRAWL_BROWSER_POOL_SIZE:-2}
+      SEARXNG_ENDPOINT: http://firecrawl-searxng:8080
+      SEARXNG_ENGINES: google,bing
+      SEARXNG_CATEGORIES: general
+      BULL_AUTH_KEY: ${FIRECRAWL_BULL_AUTH_KEY:-local-firecrawl-admin-change-me}
+      ALLOW_LOCAL_WEBHOOKS: "false"
+    expose:
+      - "3002"
+    depends_on:
+      firecrawl-redis:
+        condition: service_healthy
+      firecrawl-rabbitmq:
+        condition: service_healthy
+      firecrawl-postgres:
+        condition: service_healthy
+      firecrawl-playwright:
+        condition: service_started
+      firecrawl-searxng:
+        condition: service_started
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cpus: 2.0
+    mem_limit: 4G
+    memswap_limit: 4G
+    networks:
+      - research-control
+      - research-backend
+      - research-egress
+
+  firecrawl-playwright:
+    image: ghcr.io/firecrawl/playwright-service@sha256:468009bae00911d40d7120d58489a1d529362c22c45585cb9076094fe61b0025
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      MAX_CONCURRENT_PAGES: ${FIRECRAWL_CRAWL_CONCURRENCY:-4}
+      ALLOW_LOCAL_WEBHOOKS: "false"
+      BLOCK_MEDIA: "true"
+    expose:
+      - "3000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cpus: 2.0
+    mem_limit: 4G
+    memswap_limit: 4G
+    tmpfs:
+      - /tmp/.cache:noexec,nosuid,size=1g
+    networks:
+      - research-backend
+      - research-egress
+
+  firecrawl-redis:
+    image: redis:8.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--bind", "0.0.0.0"]
+    volumes:
+      - firecrawl-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - research-backend
+
+  firecrawl-rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    restart: unless-stopped
+    volumes:
+      - firecrawl-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - research-backend
+
+  firecrawl-postgres:
+    image: ghcr.io/firecrawl/nuq-postgres@sha256:aed86f62858f29bd971abddcdeb301c12888098d2cf5d33c1ba42b053bc460f6
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: firecrawl
+      POSTGRES_PASSWORD: ${FIRECRAWL_POSTGRES_PASSWORD:-local-firecrawl-postgres-change-me}
+      POSTGRES_DB: postgres
+    volumes:
+      - firecrawl-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U firecrawl -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - research-backend
+
+  firecrawl-searxng:
+    image: searxng/searxng:2026.7.26-b060c780d
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: http://firecrawl-searxng:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-local-searxng-secret-change-me}
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - firecrawl-searxng-data:/var/cache/searxng
+    expose:
+      - "8080"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - research-backend
+      - research-egress
+
   gateway:
     <<: *app
     command: ["gateway"]
@@ -263,10 +426,22 @@ services:
 
 volumes:
   postgres-data:
+  firecrawl-postgres-data:
+  firecrawl-redis-data:
+  firecrawl-rabbitmq-data:
+  firecrawl-searxng-data:
 
 networks:
   platform:
     driver: bridge
   agent-egress:
     driver: bridge
-    name: mainspring-dev_agent-egress
+    name: ${MAINSPRING_RUNNER_NETWORK:-mainspring-dev_agent-egress}
+  research-control:
+    driver: bridge
+    internal: true
+  research-backend:
+    driver: bridge
+    internal: true
+  research-egress:
+    driver: bridge

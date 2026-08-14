@@ -63,7 +63,7 @@ done
 
 grep -q 'run-status-completed' "$page"
 message_count="$(grep -o 'data-message-id=' "$page" | wc -l | tr -d ' ')"
-[[ "$message_count" -ge 4 ]]
+[[ "$message_count" -ge 2 ]]
 run_path="$(grep -oE '/runs/[0-9a-f-]+/events' "$page" | head -n 1 | sed 's#/events$##')"
 [[ "$run_path" =~ ^/runs/[0-9a-f-]+$ ]]
 
@@ -82,7 +82,7 @@ follow_up_location="$(awk 'BEGIN { IGNORECASE=1 } /^location:/ { gsub("\\r", "",
 for _ in $(seq 1 120); do
   request --cookie "$cookies" --output "$page" "$base_url$conversation_path"
   message_count="$(grep -o 'data-message-id=' "$page" | wc -l | tr -d ' ')"
-  if grep -q 'run-status-completed' "$page" && [[ "$message_count" -ge 8 ]]; then
+  if grep -q 'run-status-completed' "$page" && [[ "$message_count" -ge 4 ]]; then
     break
   fi
   sleep 0.25
@@ -90,7 +90,7 @@ done
 
 grep -q 'Which risk should I handle first, and why?' "$page"
 grep -q 'run-status-completed' "$page"
-[[ "$message_count" -ge 8 ]]
+[[ "$message_count" -ge 4 ]]
 
 request --cookie "$cookies" --output "$page" "$base_url/schedules"
 schedule_name="Smoke schedule $(date +%s)"

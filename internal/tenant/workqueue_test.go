@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/tinfoyle/mainspring-engine/internal/boardroom"
+	"github.com/tinfoyle/mainspring-engine/internal/domain"
 )
 
 func TestNormalizeWorkFilter(t *testing.T) {
@@ -21,6 +23,25 @@ func TestNormalizeWorkFilter(t *testing.T) {
 	longQuery := NormalizeWorkFilter(WorkFilter{Query: strings.Repeat("x", 250)})
 	if len(longQuery.Query) != 200 {
 		t.Fatalf("query length = %d, want 200", len(longQuery.Query))
+	}
+}
+
+func TestSelectedWorkItemPersonasRequiresEnabledUniqueAgents(t *testing.T) {
+	first := domain.NewPersonaID()
+	second := domain.NewPersonaID()
+	personas := []boardroom.Persona{{ID: first}, {ID: second}}
+	selected, err := selectedWorkItemPersonas([]string{first.String(), first.String(), second.String()}, personas, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 2 || selected[0] != first.String() || selected[1] != second.String() {
+		t.Fatalf("selected = %#v", selected)
+	}
+	if _, err := selectedWorkItemPersonas(nil, personas, 3); err == nil {
+		t.Fatal("expected empty selection error")
+	}
+	if _, err := selectedWorkItemPersonas([]string{uuid.NewString()}, personas, 3); err == nil {
+		t.Fatal("expected unavailable agent error")
 	}
 }
 

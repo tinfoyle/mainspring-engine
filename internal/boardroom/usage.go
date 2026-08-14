@@ -38,6 +38,20 @@ func (s *UsageService) Reserve(ctx context.Context, invocationID domain.Invocati
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('mainspring-tenant-admission'))`); err != nil {
 		return err
 	}
+	// A reservation is a lease on live invocation capacity, not a permanent
+	// record of an attempted call. Older error paths could leave the lease active
+	// after the invocation had already reached a terminal state. Reclaim those
+	// leases under the same admission lock before counting capacity.
+	if _, err := tx.Exec(ctx, `
+		UPDATE usage_reservations AS reservation
+		SET status='released',reconciled_at=now()
+		FROM agent_invocations AS invocation
+		WHERE reservation.invocation_id=invocation.id
+		  AND reservation.status='active'
+		  AND invocation.status IN ('failed','canceled')
+	`); err != nil {
+		return err
+	}
 	var existing string
 	err = tx.QueryRow(ctx, `SELECT status FROM usage_reservations WHERE invocation_id=$1`, invocationID.String()).Scan(&existing)
 	if err == nil && (existing == "active" || existing == "reconciled") {

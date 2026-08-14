@@ -34,18 +34,18 @@ csrf_token="$(grep -oE 'name="csrf_token" value="[^"]+' "$page" | head -n 1 | cu
 [[ -n "$csrf_token" ]]
 
 post_step /development/reset-onboarding --data-urlencode "confirm=reset"
-request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?legacy=1"
 grep -q 'What are you bringing to Mainspring' "$page"
 grep -q 'Trades' "$page"
 grep -q 'Start a new business' "$page"
 
 post_step /onboarding/template --data-urlencode "template_selection=startup"
-request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?legacy=1"
 grep -q 'What kind of business are you planning' "$page"
 grep -q 'SaaS or software product' "$page"
 
 post_step /onboarding/template --data-urlencode "template_selection=saas"
-request --cookie "$cookies" --output "$page" "$base_url/onboarding"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?legacy=1"
 grep -q 'Describe the business you want to start' "$page"
 grep -q 'Systems you have chosen so far' "$page"
 
@@ -61,7 +61,7 @@ post_step /onboarding/business \
   --data-urlencode "current_systems=Email" \
   --data-urlencode "current_systems=GitHub or GitLab"
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=2"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=2&legacy=1"
 grep -q 'Design the first operating playbook' "$page"
 grep -q 'biggest unknown that could make this business fail' "$page"
 
@@ -80,7 +80,7 @@ post_step /onboarding/priorities \
   --data-urlencode "priorities=Define the offer, pricing, and revenue model" \
   --data-urlencode "priorities=Build the website and go-to-market plan"
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=4"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=4&legacy=1"
 grep -q 'Startup Operations Lead' "$page"
 grep -q 'Startup Finance &amp; Revenue Planner' "$page"
 grep -q 'Product &amp; Market Strategist' "$page"
@@ -101,7 +101,7 @@ post_step /onboarding/permissions \
   --data-urlencode "propose_schedule_edits=true" \
   --data-urlencode "propose_payments=true"
 
-request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=6"
+request --cookie "$cookies" --output "$page" "$base_url/onboarding?step=6&legacy=1"
 grep -q 'Starting from scratch' "$page"
 grep -q 'Launch Room' "$page"
 post_step /onboarding/launch

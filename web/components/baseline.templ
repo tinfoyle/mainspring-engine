@@ -1,0 +1,325 @@
+package components
+
+import "fmt"
+
+templ BaselinePage(tenantName string, user UserView, baseline BaselineView, csrfToken, notice, formError string) {
+	@Layout("Business baseline", tenantName, &user, csrfToken) {
+		<section class="baseline-shell">
+			<header class="baseline-header">
+				<div><p class="eyebrow">Documented business baseline</p><h1>Teach Mainspring how the business really works</h1><p>Interview, collect, verify, assign, and reassess. Every conclusion remains tied to its source.</p></div>
+				<span class={ "status-badge", "status-" + baseline.Status }>{ BaselineStatusLabel(baseline.Status) }</span>
+			</header>
+			@BaselineProgress(baseline.Phase)
+			if notice != "" {
+				<div class="alert alert-success" role="status">{ notice }</div>
+			}
+			if formError != "" {
+				<div class="alert alert-error" role="alert">{ formError }</div>
+			}
+
+			if baseline.Phase == "interview" {
+				@BaselineInterview(baseline, csrfToken)
+			} else if baseline.Phase == "inventory" {
+				@BaselineInventory(baseline, csrfToken)
+			} else if baseline.Phase == "gap_review" {
+				@BaselineGapReview(baseline, csrfToken)
+			} else if baseline.Phase == "plan_approval" {
+				@BaselinePlanApproval(baseline, csrfToken)
+			} else {
+				@BaselineActive(baseline, csrfToken)
+			}
+		</section>
+	}
+}
+
+templ BaselineProgress(phase string) {
+	<nav class="baseline-progress" aria-label="Baseline progress">
+		for _, step := range BaselineSteps() {
+			<div class={ "baseline-progress-step", templ.KV("is-current", step.Key == phase), templ.KV("is-complete", BaselineStepComplete(step.Key, phase)) }>
+				<span>{ fmt.Sprintf("%d", step.Number) }</span><strong>{ step.Label }</strong>
+			</div>
+		}
+	</nav>
+}
+
+templ BaselineInterview(baseline BaselineView, csrfToken string) {
+	<div class="baseline-interview-layout">
+		<section class="panel baseline-conversation">
+			<div class="baseline-section-heading"><div><p class="eyebrow">Interview with Mia</p><h2>Start with what you know</h2></div><span>{ fmt.Sprintf("%d of %d", baseline.CurrentQuestion+1, baseline.QuestionCount) }</span></div>
+			<div class="baseline-messages" data-baseline-transcript aria-live="polite">
+				for _, message := range baseline.Messages {
+					<article class={ "baseline-message", "is-" + message.Role }>
+						<header><span class="agent-avatar">{ BaselineMessageInitial(message.Role) }</span><strong>{ BaselineMessageAuthor(message.Role) }</strong></header>
+						<p>{ message.Body }</p>
+					</article>
+				}
+			</div>
+			<form class="baseline-answer-form" method="post" action="/baseline/interview">
+				<input type="hidden" name="csrf_token" value={ csrfToken }/>
+				<label><span>Your answer</span><textarea name="answer" required maxlength="2000" autofocus placeholder="Answer in your own words, or say “not sure”…"></textarea><small>{ baseline.CurrentExplanation }</small></label>
+				<button class="button button-primary" type="submit">Send answer</button>
+			</form>
+		</section>
+		@BaselineFactsPanel(baseline.Facts, csrfToken)
+	</div>
+}
+
+templ BaselineFactsPanel(facts []BusinessFactView, csrfToken string) {
+	<aside class="panel baseline-facts">
+		<p class="eyebrow">What Mainspring knows</p><h2>Confirmed business facts</h2><p class="muted">You stay in control. Correct a fact at any time.</p>
+		if len(facts) == 0 {
+			<div class="empty-state"><p>Your answers will appear here with their source.</p></div>
+		}
+		for _, fact := range facts {
+			<form class="baseline-fact" method="post" action="/baseline/facts">
+				<input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="key" value={ fact.Key }/>
+				<label><span>{ fact.Label }</span><input name="value" maxlength="2000" value={ fact.Value }/></label>
+				<div><small>{ fact.SourceLabel }</small><button class="button button-quiet" type="submit">Save</button></div>
+			</form>
+		}
+	</aside>
+}
+
+templ BaselineInventory(baseline BaselineView, csrfToken string) {
+	<section class="panel baseline-evidence-interview">
+		<header class="baseline-stage-heading"><div><p class="eyebrow">Evidence interview with Mia</p><h2>Let’s work through this together</h2><p>One topic at a time. Answer normally; Mia will turn what you say into evidence to verify or a concrete follow-up.</p></div><span class="interview-progress-count">{ fmt.Sprintf("%d of %d", baseline.InventoryAnswered, baseline.InventoryTotal) }</span></header>
+		<div class="guardrail evidence-scope-summary"><strong>Scoped for a { baseline.EvidenceScopeTitle }</strong><p>{ baseline.EvidenceScopeSummary }</p></div>
+		<details class="evidence-scope-topics"><summary>See the { fmt.Sprintf("%d", baseline.InventoryTotal) } topics Mia selected</summary><ul>
+			for _, requirement := range baseline.Requirements {
+				<li><strong>{ requirement.Label }</strong><small>{ requirement.Domain }</small></li>
+			}
+		</ul></details>
+		<div class="interview-progress-track"><span style={ fmt.Sprintf("width: %.2f%%", EvidenceInterviewPercent(baseline.InventoryAnswered, baseline.InventoryTotal)) }></span></div>
+		<div class="baseline-messages evidence-interview-messages" data-baseline-transcript aria-live="polite">
+			for _, requirement := range BaselineRecentInterviewed(baseline.Requirements, 3) {
+				@EvidenceInterviewExchange(requirement)
+			}
+			if baseline.InventoryCurrent != nil {
+				<article class="baseline-message is-agent">
+					<header><span class="agent-avatar">M</span><strong>Mia · Setup manager</strong></header>
+					<p>{ EvidenceInterviewPrompt(*baseline.InventoryCurrent) }</p>
+				</article>
+			} else {
+				<article class="baseline-message is-agent">
+					<header><span class="agent-avatar">M</span><strong>Mia · Setup manager</strong></header>
+					<p>That covers every baseline topic. I’ve translated your answers into a proposed evidence and work plan. Let’s review the summary before creating any tickets.</p>
+				</article>
+			}
+		</div>
+		if baseline.InventoryCurrent != nil {
+			<div id="evidence-interview-current">@EvidenceInterviewComposer(*baseline.InventoryCurrent, baseline.Documents, csrfToken)</div>
+		} else {
+			<div id="evidence-interview-complete" class="evidence-interview-complete" tabindex="-1"><strong>Interview complete</strong><p>{ fmt.Sprintf("All %d topics have an answer or verified record.", baseline.InventoryTotal) }</p></div>
+			<form class="baseline-stage-action" method="post" action="/baseline/advance"><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="phase" value="gap_review"/><button class="button button-primary" type="submit">Review Mia’s proposed plan</button></form>
+		}
+	</section>
+}
+
+templ EvidenceInterviewExchange(requirement EvidenceRequirementView) {
+	<article class="baseline-message is-agent evidence-history-message">
+		<header><span class="agent-avatar">M</span><strong>Mia · Setup manager</strong></header>
+		<p>{ EvidenceInterviewPrompt(requirement) }</p>
+	</article>
+	<article class="baseline-message is-user evidence-history-message">
+		<header><span class="agent-avatar">Y</span><strong>You</strong></header>
+		<p>{ requirement.OwnerAnswer }</p>
+	</article>
+	<article class="baseline-message is-agent evidence-history-message">
+		<header><span class="agent-avatar">M</span><strong>Mia · Setup manager</strong></header>
+		<p>{ EvidenceInterviewAcknowledgement(requirement) }</p>
+	</article>
+}
+
+templ EvidenceInterviewComposer(requirement EvidenceRequirementView, documents []DocumentOptionView, csrfToken string) {
+	<div class="evidence-interview-context">
+		<div><p class="eyebrow">{ requirement.Domain }</p><strong>{ requirement.Label }</strong><p>{ requirement.Rationale }</p></div>
+		if len(requirement.Evidence) > 0 {
+			<div class="evidence-found-card"><strong>Mia found { fmt.Sprintf("%d possible record(s)", len(requirement.Evidence)) }</strong><ul class="evidence-links">
+				for _, link := range requirement.Evidence {
+					<li>{ link.Label } <small>{ link.Type }</small></li>
+				}
+			</ul><form method="post" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/interview") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="choice" value="confirm_evidence"/><input type="hidden" name="answer" value="Yes, those records are the right evidence."/><button class="button button-secondary" type="submit">Yes, use this evidence</button></form></div>
+		}
+		if len(requirement.Research) > 0 {
+			<details class="evidence-interview-research"><summary>See what Mia searched</summary>
+				for _, run := range requirement.Research {
+					<section class="research-trace"><header><strong>Searched</strong><code>{ run.Query }</code><span>{ run.Status }</span></header>
+						for _, result := range run.Results {
+							<article class="research-result"><div><a href={ templ.SafeURL(result.URL) } target="_blank" rel="noreferrer">{ result.Title }</a><p>{ result.Description }</p></div><form method="post" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/public") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="public_url" value={ result.URL }/><input type="hidden" name="citation" value={ result.Title + ": " + result.Description }/><button class="button button-quiet" type="submit">Use this source</button></form></article>
+						}
+					</section>
+				}
+			</details>
+		}
+		<details class="evidence-add-record"><summary>I have a record to add</summary><div class="evidence-add-options">
+			<form method="post" enctype="multipart/form-data" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/upload") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="file" name="document" required/><button class="button button-secondary" type="submit">Upload and use record</button></form>
+		</div></details>
+	</div>
+	if len(documents) > 0 {
+		<form class="evidence-existing-document-form" method="post" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/documents") }>
+			<input type="hidden" name="csrf_token" value={ csrfToken }/>
+			<select name="document_id" required><option value="">Choose an uploaded document…</option>
+				for _, document := range documents {
+					<option value={ document.ID }>{ document.Name }</option>
+				}
+			</select><button class="button button-secondary" type="submit">Use document</button>
+		</form>
+	}
+	<div class="evidence-quick-replies" aria-label="Suggested answers">
+		@EvidenceQuickReply(requirement.ID, csrfToken, "have_it", "I have it", "I have this, but I need to locate or upload it later.")
+		@EvidenceQuickReply(requirement.ID, csrfToken, "search_sources", "Please find it", "Please search the available sources for this.")
+		@EvidenceQuickReply(requirement.ID, csrfToken, "create_it", "We need to create it", "We do not have this yet; Mainspring should help create it.")
+		@EvidenceQuickReply(requirement.ID, csrfToken, "obtain_it", "We need to obtain it", "We need to obtain this from an outside provider or authority.")
+		@EvidenceQuickReply(requirement.ID, csrfToken, "not_applicable", "Doesn’t apply", "This does not apply to our business.")
+	</div>
+	<form class="baseline-answer-form baseline-evidence-answer-form" method="post" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/interview") }>
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<label><span>Tell Mia what you know</span><textarea name="answer" required maxlength="2000" autofocus placeholder="For example: We have this somewhere, but I’m not sure where…"></textarea><small>Enter sends · Shift+Enter adds a new line</small></label>
+		<button class="button button-primary" type="submit">Send answer</button>
+	</form>
+}
+
+templ EvidenceQuickReply(requirementID, csrfToken, choice, label, answer string) {
+	<form method="post" action={ templ.URL("/baseline/evidence/" + requirementID + "/interview") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="choice" value={ choice }/><input type="hidden" name="answer" value={ answer }/><button class="button button-quiet" type="submit">{ label }</button></form>
+}
+
+templ EvidenceInventoryCard(requirement EvidenceRequirementView, documents []DocumentOptionView, csrfToken string) {
+	<article class="panel evidence-card">
+		<header><div><p class="eyebrow">{ requirement.Domain }</p><h3>{ requirement.Label }</h3></div><span class={ "evidence-status", "is-" + requirement.Status }>{ EvidenceStatusLabel(requirement.Status) }</span></header>
+		<p>{ requirement.Rationale }</p>
+		if len(requirement.Evidence) > 0 {
+			<ul class="evidence-links">
+				for _, link := range requirement.Evidence {
+					<li>{ link.Label } <small>{ link.Type }</small></li>
+				}
+			</ul>
+		}
+		<div class="evidence-actions">
+			if len(documents) > 0 {
+				<form method="post" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/documents") }>
+					<input type="hidden" name="csrf_token" value={ csrfToken }/>
+					<select name="document_id" required>
+						<option value="">Choose an indexed document...</option>
+						for _, document := range documents {
+							<option value={ document.ID }>{ document.Name }</option>
+						}
+					</select>
+					<button class="button button-secondary" type="submit">Attach</button>
+				</form>
+			}
+			<form method="post" enctype="multipart/form-data" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/upload") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="file" name="document" required/><button class="button button-secondary" type="submit">Upload and attach</button></form>
+			<details><summary>Add authoritative public source</summary><form method="post" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/public") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="url" name="public_url" required placeholder="https://…"/><input name="citation" maxlength="1000" required placeholder="What this source establishes"/><button class="button button-secondary" type="submit">Record source</button></form></details>
+			<details class="baseline-research"><summary>Search public sources</summary>
+				<form method="post" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/research") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input name="query" maxlength="500" required placeholder={ "Authoritative records for " + requirement.Label }/><button class="button button-secondary" type="submit">Search web</button></form>
+				for _, run := range requirement.Research {
+					<section class="research-trace"><header><strong>Searched</strong><code>{ run.Query }</code><span>{ run.Status }</span></header>
+						if run.LastError != "" {
+							<p class="alert alert-error">{ run.LastError }</p>
+						}
+						for _, result := range run.Results {
+							<article class="research-result"><div><a href={ templ.SafeURL(result.URL) } target="_blank" rel="noreferrer">{ result.Title }</a><p>{ result.Description }</p><small>{ result.CitationID }</small></div><form method="post" action={ templ.URL("/baseline/evidence/" + requirement.ID + "/public") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="public_url" value={ result.URL }/><input type="hidden" name="citation" value={ result.Title + ": " + result.Description }/><button class="button button-quiet" type="submit">Use as evidence</button></form></article>
+						}
+					</section>
+				}
+			</details>
+		</div>
+	</article>
+}
+
+templ BaselineGapReview(baseline BaselineView, csrfToken string) {
+	<section class="panel baseline-stage-panel baseline-gap-recap">
+		<header class="baseline-stage-heading"><div><p class="eyebrow">What Mia heard</p><h2>Review the documented gaps</h2><p>You already made these decisions during the interview. This is a plain-language recap of each record, what you told Mia, and what Mainspring will do next.</p></div></header>
+		<div class="evidence-review-list" aria-label="Evidence interview recap">
+			for _, requirement := range baseline.Requirements {
+				<article class="evidence-review-card">
+					<header><div><p class="eyebrow">{ requirement.Domain }</p><h3>{ requirement.Label }</h3></div><span class={ "evidence-status", "is-" + requirement.Status }>{ EvidenceStatusLabel(requirement.Status) }</span></header>
+					<div class="evidence-review-recap">
+						<div class="evidence-owner-answer"><span>You told Mia</span><blockquote>{ ChooseText(requirement.OwnerAnswer != "", requirement.OwnerAnswer, "No additional explanation was recorded.") }</blockquote></div>
+						<div class="evidence-recorded-outcome"><span>Recorded outcome</span><strong>{ EvidenceDispositionLabel(requirement.Disposition, requirement.Status) }</strong><small>{ WorkResponsibilityLabel(requirement.Responsibility) }</small></div>
+					</div>
+					if len(requirement.Evidence) > 0 {
+						<div class="evidence-review-sources"><span>Evidence attached</span><ul>
+							for _, evidence := range requirement.Evidence {
+								<li>{ evidence.Label } <small>{ evidence.Type }</small></li>
+							}
+						</ul></div>
+					}
+					if requirement.Status != "confirmed" {
+						<details class="evidence-review-correction"><summary>Correct this summary</summary><form method="post" action={ templ.URL("/baseline/evidence/" + requirement.ID) }>
+							<input type="hidden" name="csrf_token" value={ csrfToken }/>
+							<label><span>Next step</span><select name="disposition" required><option value="have_it" selected?={ requirement.Disposition == "have_it" }>I have it</option><option value="search_sources" selected?={ requirement.Disposition == "search_sources" }>Search connected sources</option><option value="create_it" selected?={ requirement.Disposition == "create_it" }>We need to create it</option><option value="obtain_it" selected?={ requirement.Disposition == "obtain_it" }>We need to obtain it</option><option value="not_applicable" selected?={ requirement.Disposition == "not_applicable" }>Not applicable</option></select></label>
+							<label><span>Responsibility</span><select name="responsibility"><option value="agent" selected?={ requirement.Responsibility == "agent" }>Agent</option><option value="owner" selected?={ requirement.Responsibility == "owner" }>Owner</option><option value="shared" selected?={ requirement.Responsibility == "shared" }>Shared</option><option value="external" selected?={ requirement.Responsibility == "external" }>External professional</option></select></label>
+							<label><span>Renewal date <small>optional</small></span><input type="date" name="renewal_due" value={ requirement.RenewalDue }/></label>
+							<button class="button button-secondary" type="submit">Save correction</button>
+						</form></details>
+					}
+				</article>
+			}
+		</div>
+		<form class="baseline-stage-action" method="post" action="/baseline/advance"><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="phase" value="plan_approval"/><button class="button button-primary" type="submit">Review the baseline plan</button></form>
+	</section>
+}
+
+templ BaselinePlanApproval(baseline BaselineView, csrfToken string) {
+	<section class="panel baseline-plan-approval">
+		<p class="eyebrow">Owner approval</p><h2>Create the Business Baseline Plan</h2><p>Mainspring will create one parent ticket and a child ticket for each unresolved evidence requirement. Agent work, owner work, shared handoffs, and external dependencies remain visibly distinct.</p>
+		<div class="baseline-plan-summary">
+			for _, count := range BaselineResponsibilityCounts(baseline.Requirements) {
+				<div><strong>{ fmt.Sprintf("%d", count.Count) }</strong><span>{ count.Label }</span></div>
+			}
+		</div>
+		<form method="post" action="/baseline/plan"><input type="hidden" name="csrf_token" value={ csrfToken }/><label class="check-row"><input type="checkbox" name="approve" value="true" required/><span>I approve creation of this internal work plan. This does not submit applications, make payments, send email, or authorize external actions.</span></label><button class="button button-primary" type="submit">Approve and create work</button></form>
+	</section>
+}
+
+templ BaselineActive(baseline BaselineView, csrfToken string) {
+	<section class="panel baseline-active">
+		<p class="eyebrow">{ ChooseText(baseline.Phase == "baseline_ready", "Baseline ready", "Onboarding complete") }</p><h2>{ ChooseText(baseline.Phase == "baseline_ready", "The business now has a documented baseline", "Your Mainspring workspace is ready") }</h2><p>{ ChooseText(baseline.Phase == "baseline_ready", "Every required item has been confirmed or marked not applicable. Mainspring will help you keep this baseline current.", "Your approved baseline plan has been added to the Work queue. It can progress in the background while you get to know the rest of Mainspring.") }</p>
+		<div class="baseline-active-actions">
+			<a class="button button-primary" href="/?welcome=1">Finish onboarding</a>
+			<a class="button button-secondary" href="/work">View work queue</a>
+		</div>
+		if baseline.NextReassessment != "" {
+			<p class="muted">Next reassessment: { baseline.NextReassessment }</p>
+		}
+		if baseline.Phase == "baseline_ready" {
+			<form method="post" action="/baseline/reassess"><input type="hidden" name="csrf_token" value={ csrfToken }/><button class="button button-secondary" type="submit">Start reassessment now</button></form>
+		}
+	</section>
+}
+
+templ BaselineEmailScopeForm(folders []string, csrfToken string) {
+	<form class="baseline-source-scope" method="post" action="/baseline/sources/email/sync">
+		<input type="hidden" name="csrf_token" value={ csrfToken }/>
+		<label><span>Folders</span><select name="folders" multiple size="3">
+			if len(folders) == 0 {
+				<option value="INBOX" selected>INBOX</option>
+			}
+			for _, folder := range folders {
+				<option value={ folder } selected?={ folder == "INBOX" }>{ folder }</option>
+			}
+		</select></label>
+		<div class="form-grid"><label><span>Since <small>optional</small></span><input name="since" type="date"/></label><label><span>Through <small>optional</small></span><input name="until" type="date"/></label></div>
+		<button class="button button-secondary" type="submit">Inspect selected scope</button>
+	</form>
+}
+
+type BaselineStep struct { Number int; Key, Label string }
+func BaselineSteps() []BaselineStep { return []BaselineStep{{1,"interview","Interview"},{2,"inventory","Evidence"},{3,"gap_review","Gaps"},{4,"plan_approval","Plan"},{5,"active","Welcome"}} }
+func BaselineStepIndex(phase string) int { switch phase { case "interview": return 1; case "source_access", "inventory": return 2; case "gap_review": return 3; case "plan_approval": return 4; default: return 5 } }
+func BaselineStepComplete(key, phase string) bool { return BaselineStepIndex(key) < BaselineStepIndex(phase) }
+func BaselineStatusLabel(value string) string { switch value { case "ready": return "Ready"; case "active": return "In progress"; default: return "Building" } }
+func BaselineMessageInitial(role string) string { if role == "user" { return "Y" }; return "M" }
+func BaselineMessageAuthor(role string) string { if role == "user" { return "You" }; return "Mia · Setup manager" }
+func BaselineSourceInitial(value string) string { switch value { case "email": return "E"; case "google_drive": return "G"; case "public_web": return "W"; default: return "F" } }
+func SourceStatusLabel(value string) string { switch value { case "connected": return "Connected · read-only"; case "error": return "Needs attention"; case "disconnected": return "Disconnected"; default: return "Available" } }
+func BaselineSourceDescription(value string) string { switch value { case "email": return "Select folders and a date range; ingest only messages and attachments that support the baseline."; case "google_drive": return "Grant metadata and file-read access only to folders you explicitly select."; case "public_web": return "Search the company website and authoritative registries with visible queries and citations."; default: return "Upload policies, licenses, checklists, exports, contracts, and other business records." } }
+func BaselineDeferredSources(sources []BaselineSourceView) []BaselineSourceView { result := []BaselineSourceView{}; for _, source := range sources { if source.Type == "email" || source.Type == "google_drive" { result = append(result, source) } }; return result }
+func EvidenceInterviewPercent(answered, total int) float64 { if total <= 0 { return 0 }; return float64(answered) * 100 / float64(total) }
+func BaselineRecentInterviewed(requirements []EvidenceRequirementView, limit int) []EvidenceRequirementView { result := []EvidenceRequirementView{}; for _, requirement := range requirements { if requirement.Interviewed { result = append(result, requirement) } }; if limit > 0 && len(result) > limit { result = result[len(result)-limit:] }; return result }
+func EvidenceInterviewPrompt(requirement EvidenceRequirementView) string { if len(requirement.Evidence) > 0 { return fmt.Sprintf("I found %d possible record(s) related to %s. Do these accurately document how the business works, or should we take a different next step?", len(requirement.Evidence), requirement.Label) }; return fmt.Sprintf("Next, let’s cover %s. %s Do you already have this, should I help find or create it, or does it not apply?", requirement.Label, requirement.Rationale) }
+func EvidenceInterviewAcknowledgement(requirement EvidenceRequirementView) string { if requirement.Status == "confirmed" { return "Got it. I’ll treat that as verified evidence and keep its source attached to the baseline." }; switch requirement.Disposition { case "have_it": return "Understood. I’ll add a follow-up to locate and verify the record without making you stop onboarding."; case "search_sources": return "I’ll make this an agent research item and preserve what was searched and found."; case "create_it": return "I’ll turn this into an agent work item to draft the missing business record for your review."; case "obtain_it": return "I’ll track this as something the business needs to obtain, including any outside provider, authority, or cost involved."; case "not_applicable": return "Understood. I’ll mark this not applicable so it does not create unnecessary work."; default: return "I’ve recorded that and will carry it into the review." } }
+func EvidenceStatusLabel(value string) string { switch value { case "confirmed": return "Confirmed"; case "partial": return "Partial"; case "stale": return "Stale"; case "not_applicable": return "Not applicable"; case "blocked": return "Blocked"; default: return "Missing" } }
+func EvidenceDispositionLabel(disposition, status string) string { if status == "confirmed" { return "Verified evidence is attached" }; if status == "not_applicable" || disposition == "not_applicable" { return "Not applicable to this business" }; switch disposition { case "have_it": return "Locate and verify the existing record"; case "search_sources": return "Mia will search the available sources"; case "create_it": return "Mainspring will draft the missing record"; case "obtain_it": return "The business will obtain it from an outside source"; default: return "Follow-up is still required" } }
+type ResponsibilityCount struct { Label string; Count int }
+func BaselineResponsibilityCounts(requirements []EvidenceRequirementView) []ResponsibilityCount { counts := map[string]int{}; for _, requirement := range requirements { if requirement.Status != "confirmed" && requirement.Status != "not_applicable" { counts[requirement.Responsibility]++ } }; return []ResponsibilityCount{{"agent tasks",counts["agent"]},{"owner tasks",counts["owner"]},{"shared tasks",counts["shared"]},{"external dependencies",counts["external"]}} }

@@ -23,6 +23,15 @@ type ConversationMessage struct {
 	Body        string             `json:"body"`
 }
 
+// ToolResult carries application-authorized output separately from the boardroom
+// conversation. Providers must treat Content as untrusted source data, never as
+// instructions that can override the persona or application policy.
+type ToolResult struct {
+	RequestID string          `json:"request_id"`
+	Name      string          `json:"name"`
+	Content   json.RawMessage `json:"content"`
+}
+
 type Invocation struct {
 	ID                 domain.InvocationID
 	TenantID           domain.TenantID
@@ -34,9 +43,11 @@ type Invocation struct {
 	PersonaDescription string
 	SystemInstructions string
 	Conversation       []ConversationMessage
+	ToolResults        []ToolResult
 	ToolGrants         []domain.ToolGrant
 	Tools              []ToolDefinition
-	CapabilityToken    string
+	CapabilityToken    string `json:"-"`
+	MaxToolResultBytes int
 	OutputSchema       json.RawMessage
 	Timeout            time.Duration
 	MaxInputTokens     int64
@@ -64,6 +75,14 @@ type ToolRequest struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
+// Delegation is a manager's request for a specialist contribution. It is part
+// of the structured agent result rather than a provider tool call because
+// Mainspring, not the model provider, owns boardroom turn scheduling.
+type Delegation struct {
+	Agent   string `json:"agent"`
+	Request string `json:"request"`
+}
+
 type Citation struct {
 	ID         string `json:"id"`
 	DocumentID string `json:"document_id,omitempty"`
@@ -86,6 +105,7 @@ type ResultEnvelope struct {
 	Citations       []Citation       `json:"citations"`
 	ProposedActions []ProposedAction `json:"proposed_actions"`
 	ToolRequests    []ToolRequest    `json:"tool_requests"`
+	Delegations     []Delegation     `json:"delegations"`
 	Confidence      string           `json:"confidence"`
 }
 
@@ -108,25 +128,58 @@ func (r ResultEnvelope) Validate() error {
 			return fmt.Errorf("tool request %d is invalid", index)
 		}
 	}
+	for index, delegation := range r.Delegations {
+		if delegation.Agent == "" || delegation.Request == "" {
+			return fmt.Errorf("delegation %d is invalid", index)
+		}
+	}
 	return nil
 }
 
 func DefaultOutputSchema() json.RawMessage {
-	return json.RawMessage(`{
+	schema := json.RawMessage(`{
   "type":"object",
   "additionalProperties":false,
-  "required":["contribution","findings","recommendations","questions","citations","proposed_actions","tool_requests","confidence"],
+  "required":["contribution","findings","recommendations","questions","citations","proposed_actions","tool_requests","delegations","confidence"],
   "properties":{
     "contribution":{"type":"string","minLength":1},
     "findings":{"type":"array","items":{"type":"string"}},
     "recommendations":{"type":"array","items":{"type":"string"}},
     "questions":{"type":"array","items":{"type":"string"}},
     "citations":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","document_id","chunk_id","label"],"properties":{"id":{"type":"string"},"document_id":{"type":"string"},"chunk_id":{"type":"string"},"label":{"type":"string"}}}},
-    "proposed_actions":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["action_type","reason","payload","evidence"],"properties":{"action_type":{"type":"string","enum":["email.send"]},"reason":{"type":"string"},"payload":{"type":"object","additionalProperties":false,"required":["to","cc","subject","body"],"properties":{"to":{"type":"array","items":{"type":"string"}},"cc":{"type":"array","items":{"type":"string"}},"subject":{"type":"string"},"body":{"type":"string"}}},"evidence":{"type":"array","items":{"type":"string"}}}}},
-    "tool_requests":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","name","arguments"],"properties":{"id":{"type":"string"},"name":{"type":"string","enum":["documents.search"]},"arguments":{"type":"object","additionalProperties":false,"required":["query","document_ids","limit"],"properties":{"query":{"type":"string"},"document_ids":{"type":"array","items":{"type":"string"}},"limit":{"type":"integer","minimum":1,"maximum":10}}}}}},
+    "proposed_actions":{"type":"array","items":{"anyOf":[{"type":"object","additionalProperties":false,"required":["action_type","reason","payload","evidence"],"properties":{"action_type":{"type":"string","const":"email.send"},"reason":{"type":"string"},"payload":{"type":"object","additionalProperties":false,"required":["to","cc","subject","body"],"properties":{"to":{"type":"array","items":{"type":"string"}},"cc":{"type":"array","items":{"type":"string"}},"subject":{"type":"string"},"body":{"type":"string"}}},"evidence":{"type":"array","items":{"type":"string"}}}},{"type":"object","additionalProperties":false,"required":["action_type","reason","payload","evidence"],"properties":{"action_type":{"type":"string","const":"tickets.create"},"reason":{"type":"string"},"payload":{"type":"object","additionalProperties":false,"required":["title","description","priority","origin","search_query","parent_work_item_id"],"properties":{"title":{"type":"string"},"description":{"type":"string"},"priority":{"type":"string","enum":["low","normal","high","urgent"]},"origin":{"type":"string","enum":["unknown_answer","direct_request"]},"search_query":{"type":"string"},"parent_work_item_id":{"type":["string","null"]}}},"evidence":{"type":"array","items":{"type":"string"}}}}]}},
+    "tool_requests":{"type":"array","items":{"anyOf":[{"type":"object","additionalProperties":false,"required":["id","name","arguments"],"properties":{"id":{"type":"string"},"name":{"type":"string","const":"documents.search"},"arguments":{"type":"object","additionalProperties":false,"required":["query","document_ids","limit"],"properties":{"query":{"type":"string"},"document_ids":{"type":"array","items":{"type":"string"}},"limit":{"type":"integer","minimum":1,"maximum":10}}}}},{"type":"object","additionalProperties":false,"required":["id","name","arguments"],"properties":{"id":{"type":"string"},"name":{"type":"string","const":"web.search"},"arguments":{"type":"object","additionalProperties":false,"required":["query","limit","include_domains","exclude_domains","recency_days"],"properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":10},"include_domains":{"type":"array","items":{"type":"string"}},"exclude_domains":{"type":"array","items":{"type":"string"}},"recency_days":{"type":["integer","null"],"minimum":1,"maximum":3650}}}}},{"type":"object","additionalProperties":false,"required":["id","name","arguments"],"properties":{"id":{"type":"string"},"name":{"type":"string","const":"web.read"},"arguments":{"type":"object","additionalProperties":false,"required":["url","max_characters"],"properties":{"url":{"type":"string"},"max_characters":{"type":["integer","null"],"minimum":500,"maximum":12000}}}}}]}},
+    "delegations":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["agent","request"],"properties":{"agent":{"type":"string"},"request":{"type":"string"}}}},
     "confidence":{"type":"string","enum":["low","medium","high"]}
   }
 }`)
+	return withDocumentWriteToolSchemas(schema)
+}
+
+func withDocumentWriteToolSchemas(schema json.RawMessage) json.RawMessage {
+	var root map[string]any
+	if json.Unmarshal(schema, &root) != nil {
+		return schema
+	}
+	properties, _ := root["properties"].(map[string]any)
+	toolRequests, _ := properties["tool_requests"].(map[string]any)
+	items, _ := toolRequests["items"].(map[string]any)
+	anyOf, _ := items["anyOf"].([]any)
+	for _, raw := range []string{
+		`{"type":"object","additionalProperties":false,"required":["id","name","arguments"],"properties":{"id":{"type":"string"},"name":{"type":"string","const":"documents.create"},"arguments":{"type":"object","additionalProperties":false,"required":["name","media_type","content","change_summary"],"properties":{"name":{"type":"string"},"media_type":{"type":"string"},"content":{"type":"string"},"change_summary":{"type":"string"}}}}}`,
+		`{"type":"object","additionalProperties":false,"required":["id","name","arguments"],"properties":{"id":{"type":"string"},"name":{"type":"string","const":"documents.update"},"arguments":{"type":"object","additionalProperties":false,"required":["document_id","name","media_type","content","change_summary"],"properties":{"document_id":{"type":"string"},"name":{"type":"string"},"media_type":{"type":"string"},"content":{"type":"string"},"change_summary":{"type":"string"}}}}}`,
+	} {
+		var definition any
+		if json.Unmarshal([]byte(raw), &definition) == nil {
+			anyOf = append(anyOf, definition)
+		}
+	}
+	items["anyOf"] = anyOf
+	encoded, err := json.Marshal(root)
+	if err != nil {
+		return schema
+	}
+	return encoded
 }
 
 type Usage struct {
@@ -152,6 +205,7 @@ const (
 	FailureRateLimited     FailureCategory = "rate_limited"
 	FailureUnavailable     FailureCategory = "provider_unavailable"
 	FailureContextTooLarge FailureCategory = "context_too_large"
+	FailureInvalidRequest  FailureCategory = "invalid_request"
 	FailureInvalidOutput   FailureCategory = "invalid_output"
 	FailureTimeout         FailureCategory = "timeout"
 	FailureCanceled        FailureCategory = "canceled"

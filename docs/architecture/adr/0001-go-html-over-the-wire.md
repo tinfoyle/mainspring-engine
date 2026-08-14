@@ -1,6 +1,6 @@
 # ADR-0001: Use Go and an HTML-over-the-wire frontend
 
-Status: Proposed  
+Status: Superseded by ADR-0026 for interactive authenticated tenant surfaces
 Date: 2026-08-06
 
 ## Context
@@ -43,4 +43,3 @@ Node.js is not required at production runtime. A future feature may use build-ti
 - Offline-first operation becomes a product requirement.
 - The application gains complex local editing or visualization that is inefficient with HTML-over-the-wire updates.
 - Frontend staffing or ecosystem requirements materially change.
-

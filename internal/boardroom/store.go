@@ -21,6 +21,7 @@ var (
 	ErrConversationNotFound = errors.New("conversation not found")
 	ErrConversationBusy     = errors.New("conversation already has an active boardroom run")
 	ErrRunQueueFull         = errors.New("tenant boardroom run queue is full")
+	ErrTooManyDocuments     = errors.New("a conversation can attach at most 20 documents")
 )
 
 type Summary struct {
@@ -73,6 +74,8 @@ type Run struct {
 	TurnCount      int
 	MaxTurns       int
 	Error          string
+	Orchestration  string
+	WorkItemID     string
 	CreatedAt      time.Time
 	StartedAt      *time.Time
 	CompletedAt    *time.Time
@@ -102,6 +105,21 @@ type Message struct {
 	Body        string
 	Sequence    int64
 	CreatedAt   time.Time
+	Research    []ResearchActivity
+}
+
+type DocumentAttachment struct {
+	ID         string
+	Name       string
+	AttachedAt time.Time
+}
+
+type WorkItemContext struct {
+	Number            int64
+	Title             string
+	Description       string
+	OwnerInput        string
+	BusinessKnowledge string
 }
 
 type Event struct {
@@ -316,16 +334,37 @@ func scanConversation(row rowScanner) (Conversation, error) {
 }
 
 func (s *Store) CreateRun(ctx context.Context, boardroomID domain.BoardroomID, userID, prompt string) (Run, error) {
+	return s.CreateRunWithDocuments(ctx, boardroomID, userID, prompt, nil)
+}
+
+func (s *Store) CreateRunWithDocuments(ctx context.Context, boardroomID domain.BoardroomID, userID, prompt string, documents []DocumentAttachment) (Run, error) {
 	conversationID := domain.NewConversationID()
-	return s.createRun(ctx, boardroomID, conversationID, &userID, nil, conversationTitle(prompt), "user", nil, prompt, true)
+	return s.createRun(ctx, boardroomID, conversationID, &userID, nil, conversationTitle(prompt), "user", nil, prompt, true, documents, nil, "")
+}
+
+func (s *Store) CreateTargetedRunWithDocuments(ctx context.Context, boardroomID domain.BoardroomID, userID, title, prompt, workItemID string, personaIDs []string, documents []DocumentAttachment) (Run, error) {
+	conversationID := domain.NewConversationID()
+	return s.createRun(ctx, boardroomID, conversationID, &userID, nil, title, "user", nil, prompt, true, documents, personaIDs, workItemID)
 }
 
 func (s *Store) CreateFollowUpRun(ctx context.Context, conversationID domain.ConversationID, userID, prompt string) (Run, error) {
+	return s.CreateFollowUpRunWithDocuments(ctx, conversationID, userID, prompt, nil)
+}
+
+func (s *Store) CreateFollowUpRunWithDocuments(ctx context.Context, conversationID domain.ConversationID, userID, prompt string, documents []DocumentAttachment) (Run, error) {
 	conversation, err := s.GetConversation(ctx, conversationID)
 	if err != nil {
 		return Run{}, err
 	}
-	return s.createRun(ctx, conversation.BoardroomID, conversationID, &userID, nil, "", "", nil, prompt, false)
+	return s.createRun(ctx, conversation.BoardroomID, conversationID, &userID, nil, "", "", nil, prompt, false, documents, nil, "")
+}
+
+func (s *Store) CreateTargetedFollowUpRunWithDocuments(ctx context.Context, conversationID domain.ConversationID, userID, prompt, workItemID string, personaIDs []string, documents []DocumentAttachment) (Run, error) {
+	conversation, err := s.GetConversation(ctx, conversationID)
+	if err != nil {
+		return Run{}, err
+	}
+	return s.createRun(ctx, conversation.BoardroomID, conversationID, &userID, nil, "", "", nil, prompt, false, documents, personaIDs, workItemID)
 }
 
 func (s *Store) CreateScheduledRun(ctx context.Context, boardroomID domain.BoardroomID, workflowID, title, prompt, scheduleID string) (Run, error) {
@@ -334,7 +373,7 @@ func (s *Store) CreateScheduledRun(ctx context.Context, boardroomID domain.Board
 	if scheduleID != "" {
 		scheduleIDValue = &scheduleID
 	}
-	return s.createRun(ctx, boardroomID, conversationID, nil, &workflowID, title, "schedule", scheduleIDValue, prompt, true)
+	return s.createRun(ctx, boardroomID, conversationID, nil, &workflowID, title, "schedule", scheduleIDValue, prompt, true, nil, nil, "")
 }
 
 func (s *Store) createRun(
@@ -346,6 +385,9 @@ func (s *Store) createRun(
 	scheduleID *string,
 	prompt string,
 	createConversation bool,
+	documents []DocumentAttachment,
+	selectedPersonaIDs []string,
+	workItemID string,
 ) (Run, error) {
 	boardroom, err := s.Get(ctx, boardroomID)
 	if err != nil {
@@ -399,14 +441,41 @@ func (s *Store) createRun(
 			return Run{}, ErrConversationBusy
 		}
 	}
+	if len(documents) > 20 {
+		return Run{}, ErrTooManyDocuments
+	}
+	for _, document := range documents {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO conversation_documents (conversation_id, document_id, document_name, attached_by)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (conversation_id, document_id) DO UPDATE SET document_name=EXCLUDED.document_name
+		`, conversationID.String(), document.ID, document.Name, userID); err != nil {
+			return Run{}, fmt.Errorf("attach conversation document: %w", err)
+		}
+	}
+	var attachedCount int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM conversation_documents WHERE conversation_id=$1`, conversationID.String()).Scan(&attachedCount); err != nil {
+		return Run{}, fmt.Errorf("count conversation documents: %w", err)
+	}
+	if attachedCount > 20 {
+		return Run{}, ErrTooManyDocuments
+	}
 
-	run := Run{ID: runID, BoardroomID: boardroomID, ConversationID: conversationID, Status: domain.RunPending, Prompt: prompt, MaxTurns: boardroom.MaxTurns}
+	selectedPayload, err := json.Marshal(selectedPersonaIDs)
+	if err != nil {
+		return Run{}, fmt.Errorf("encode selected agents: %w", err)
+	}
+	orchestration := "manager_led"
+	if len(selectedPersonaIDs) > 0 {
+		orchestration = "selected_agents"
+	}
+	run := Run{ID: runID, BoardroomID: boardroomID, ConversationID: conversationID, Status: domain.RunPending, Prompt: prompt, MaxTurns: boardroom.MaxTurns, Orchestration: orchestration, WorkItemID: workItemID}
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO boardroom_runs (id, boardroom_id, conversation_id, workflow_id, status, prompt, created_by, configuration_snapshot)
-		VALUES ($1, $2, $3, $4, 'pending', $5, $6, jsonb_build_object('max_turns', $7::integer))
+		VALUES ($1, $2, $3, $4, 'pending', $5, $6, jsonb_build_object('max_turns', $7::integer, 'selected_persona_ids', $8::jsonb, 'orchestration', $9::text, 'work_item_id', $10::text))
 		ON CONFLICT (workflow_id) DO NOTHING
 		RETURNING created_at
-	`, runID.String(), boardroomID.String(), conversationID.String(), workflowID, prompt, userID, boardroom.MaxTurns).Scan(&run.CreatedAt); err != nil {
+	`, runID.String(), boardroomID.String(), conversationID.String(), workflowID, prompt, userID, boardroom.MaxTurns, selectedPayload, orchestration, workItemID).Scan(&run.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) && workflowID != nil {
 			_ = tx.Rollback(ctx)
 			return s.GetRunByWorkflowID(ctx, *workflowID)
@@ -422,6 +491,13 @@ func (s *Store) createRun(
 		VALUES ($1, 'user', $2, 1)
 	`, runID.String(), prompt); err != nil {
 		return Run{}, fmt.Errorf("create run prompt: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO boardroom_run_documents (run_id, document_id, document_name, attached_at)
+		SELECT $1, document_id, document_name, attached_at
+		FROM conversation_documents WHERE conversation_id=$2
+	`, runID.String(), conversationID.String()); err != nil {
+		return Run{}, fmt.Errorf("snapshot run documents: %w", err)
 	}
 	payload, _ := json.Marshal(map[string]any{"status": domain.RunPending, "prompt": prompt})
 	if _, err := tx.Exec(ctx, `
@@ -457,10 +533,12 @@ func (s *Store) GetRunByWorkflowID(ctx context.Context, workflowID string) (Run,
 	err := s.pool.QueryRow(ctx, `
 		SELECT id::text, boardroom_id::text, conversation_id::text, status, prompt, turn_count,
 		       COALESCE(error, ''), created_at, started_at, completed_at,
-		       COALESCE((configuration_snapshot->>'max_turns')::integer, 6)
+		       COALESCE((configuration_snapshot->>'max_turns')::integer, 6),
+		       COALESCE(configuration_snapshot->>'orchestration', 'manager_led'),
+		       COALESCE(configuration_snapshot->>'work_item_id', '')
 		FROM boardroom_runs WHERE workflow_id = $1
 	`, workflowID).Scan(&id, &boardroomID, &conversationID, &status, &run.Prompt, &run.TurnCount, &run.Error,
-		&run.CreatedAt, &run.StartedAt, &run.CompletedAt, &run.MaxTurns)
+		&run.CreatedAt, &run.StartedAt, &run.CompletedAt, &run.MaxTurns, &run.Orchestration, &run.WorkItemID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, ErrRunNotFound
 	}
@@ -489,13 +567,15 @@ func (s *Store) GetRun(ctx context.Context, runID domain.RunID) (Run, error) {
 	err := s.pool.QueryRow(ctx, `
 		SELECT r.id::text, r.boardroom_id::text, r.conversation_id::text, r.status, r.prompt, r.turn_count,
 		       COALESCE((r.configuration_snapshot->>'max_turns')::integer, b.max_turns),
-		       COALESCE(r.error, ''), r.created_at, r.started_at, r.completed_at
+		       COALESCE(r.error, ''), r.created_at, r.started_at, r.completed_at,
+		       COALESCE(r.configuration_snapshot->>'orchestration', 'manager_led'),
+		       COALESCE(r.configuration_snapshot->>'work_item_id', '')
 		FROM boardroom_runs r
 		JOIN boardrooms b ON b.id = r.boardroom_id
 		WHERE r.id = $1
 	`, runID.String()).Scan(
 		&id, &boardroomID, &conversationID, &run.Status, &run.Prompt, &run.TurnCount, &run.MaxTurns,
-		&run.Error, &run.CreatedAt, &run.StartedAt, &run.CompletedAt,
+		&run.Error, &run.CreatedAt, &run.StartedAt, &run.CompletedAt, &run.Orchestration, &run.WorkItemID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Run{}, ErrRunNotFound
@@ -523,6 +603,107 @@ func (s *Store) ConversationMessages(ctx context.Context, conversationID domain.
 	return queryConversationMessages(ctx, s.pool, conversationID)
 }
 
+func (s *Store) ConversationDocuments(ctx context.Context, conversationID domain.ConversationID) ([]DocumentAttachment, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT document_id::text, document_name, attached_at
+		FROM conversation_documents WHERE conversation_id=$1
+		ORDER BY attached_at, document_name
+	`, conversationID.String())
+	if err != nil {
+		return nil, fmt.Errorf("list conversation documents: %w", err)
+	}
+	defer rows.Close()
+	var result []DocumentAttachment
+	for rows.Next() {
+		var item DocumentAttachment
+		if err := rows.Scan(&item.ID, &item.Name, &item.AttachedAt); err != nil {
+			return nil, fmt.Errorf("scan conversation document: %w", err)
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) RunDocumentIDs(ctx context.Context, runID domain.RunID) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT document_id::text FROM boardroom_run_documents WHERE run_id=$1 ORDER BY document_id`, runID.String())
+	if err != nil {
+		return nil, fmt.Errorf("list run documents: %w", err)
+	}
+	defer rows.Close()
+	var result []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		result = append(result, id)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) WorkItemContext(ctx context.Context, workItemID string) (WorkItemContext, error) {
+	var item WorkItemContext
+	if err := s.pool.QueryRow(ctx, `SELECT number, title, description FROM work_items WHERE id=$1`, workItemID).Scan(&item.Number, &item.Title, &item.Description); err != nil {
+		return WorkItemContext{}, fmt.Errorf("load ticket workspace context: %w", err)
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT response FROM human_input_requests
+		WHERE parent_work_item_id=$1 AND status='answered'
+		ORDER BY answered_at
+	`, workItemID)
+	if err != nil {
+		return WorkItemContext{}, fmt.Errorf("load ticket owner input: %w", err)
+	}
+	defer rows.Close()
+	var input strings.Builder
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return WorkItemContext{}, err
+		}
+		var answers []struct {
+			Question string `json:"question"`
+			Answer   string `json:"answer"`
+		}
+		if json.Unmarshal(raw, &answers) != nil {
+			continue
+		}
+		for _, answer := range answers {
+			fmt.Fprintf(&input, "Question: %s\nOwner answer: %s\n", answer.Question, answer.Answer)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return WorkItemContext{}, err
+	}
+	item.OwnerInput = strings.TrimSpace(input.String())
+	factRows, err := s.pool.Query(ctx, `
+		SELECT label,value,scope,source_type,confidence::float8,confirmed_at
+		FROM business_knowledge_facts
+		WHERE status='active'
+		ORDER BY CASE sensitivity WHEN 'public' THEN 0 WHEN 'internal' THEN 1 ELSE 2 END,updated_at DESC
+		LIMIT 100
+	`)
+	if err != nil {
+		return WorkItemContext{}, fmt.Errorf("load shared business facts: %w", err)
+	}
+	defer factRows.Close()
+	var facts strings.Builder
+	for factRows.Next() {
+		var label, value, scope, source string
+		var confidence float64
+		var confirmedAt *time.Time
+		if err := factRows.Scan(&label, &value, &scope, &source, &confidence, &confirmedAt); err != nil {
+			return WorkItemContext{}, err
+		}
+		fmt.Fprintf(&facts, "- %s: %s (scope: %s; source: %s; confidence: %.2f)\n", label, value, scope, source, confidence)
+	}
+	if err := factRows.Err(); err != nil {
+		return WorkItemContext{}, err
+	}
+	item.BusinessKnowledge = strings.TrimSpace(facts.String())
+	return item, nil
+}
+
 type queryer interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }
@@ -534,7 +715,9 @@ type rowScanner interface {
 func queryMessages(ctx context.Context, source queryer, runID domain.RunID) ([]Message, error) {
 	rows, err := source.Query(ctx, `
 		SELECT m.id::text, m.run_id::text, m.persona_id::text, COALESCE(pv.name, p.name, ''), COALESCE(pv.role, p.role, ''),
-		       m.role, m.body, m.sequence, m.created_at
+		       m.role, m.body, m.sequence, m.created_at,
+		       COALESCE((SELECT jsonb_agg(jsonb_build_object('event_type', e.event_type, 'payload', e.payload) ORDER BY e.event_sequence)
+		                 FROM agent_invocation_events e WHERE e.invocation_id=m.invocation_id AND e.event_type LIKE 'tool.%'), '[]'::jsonb)
 		FROM boardroom_messages m
 		LEFT JOIN personas p ON p.id = m.persona_id
 		LEFT JOIN agent_invocations ai ON ai.id = m.invocation_id
@@ -552,9 +735,11 @@ func queryMessages(ctx context.Context, source queryer, runID domain.RunID) ([]M
 		var item Message
 		var runIDText string
 		var personaID *string
-		if err := rows.Scan(&item.ID, &runIDText, &personaID, &item.PersonaName, &item.PersonaRole, &item.Role, &item.Body, &item.Sequence, &item.CreatedAt); err != nil {
+		var researchEvents json.RawMessage
+		if err := rows.Scan(&item.ID, &runIDText, &personaID, &item.PersonaName, &item.PersonaRole, &item.Role, &item.Body, &item.Sequence, &item.CreatedAt, &researchEvents); err != nil {
 			return nil, fmt.Errorf("scan message: %w", err)
 		}
+		item.Research = parseResearchEvents(researchEvents)
 		item.RunID, err = domain.ParseRunID(runIDText)
 		if err != nil {
 			return nil, err
@@ -574,7 +759,9 @@ func queryMessages(ctx context.Context, source queryer, runID domain.RunID) ([]M
 func queryConversationMessages(ctx context.Context, source queryer, conversationID domain.ConversationID) ([]Message, error) {
 	rows, err := source.Query(ctx, `
 		SELECT m.id::text, m.run_id::text, m.persona_id::text, COALESCE(pv.name, p.name, ''), COALESCE(pv.role, p.role, ''),
-		       m.role, m.body, m.sequence, m.created_at
+		       m.role, m.body, m.sequence, m.created_at,
+		       COALESCE((SELECT jsonb_agg(jsonb_build_object('event_type', e.event_type, 'payload', e.payload) ORDER BY e.event_sequence)
+		                 FROM agent_invocation_events e WHERE e.invocation_id=m.invocation_id AND e.event_type LIKE 'tool.%'), '[]'::jsonb)
 		FROM boardroom_messages m
 		JOIN boardroom_runs r ON r.id = m.run_id
 		LEFT JOIN personas p ON p.id = m.persona_id
@@ -592,9 +779,11 @@ func queryConversationMessages(ctx context.Context, source queryer, conversation
 		var item Message
 		var runIDText string
 		var personaID *string
-		if err := rows.Scan(&item.ID, &runIDText, &personaID, &item.PersonaName, &item.PersonaRole, &item.Role, &item.Body, &item.Sequence, &item.CreatedAt); err != nil {
+		var researchEvents json.RawMessage
+		if err := rows.Scan(&item.ID, &runIDText, &personaID, &item.PersonaName, &item.PersonaRole, &item.Role, &item.Body, &item.Sequence, &item.CreatedAt, &researchEvents); err != nil {
 			return nil, fmt.Errorf("scan conversation message: %w", err)
 		}
+		item.Research = parseResearchEvents(researchEvents)
 		item.RunID, err = domain.ParseRunID(runIDText)
 		if err != nil {
 			return nil, err
@@ -609,6 +798,20 @@ func queryConversationMessages(ctx context.Context, source queryer, conversation
 		result = append(result, item)
 	}
 	return result, rows.Err()
+}
+
+func (s *Store) MessageResearch(ctx context.Context, runID domain.RunID, messageID string) ([]ResearchActivity, error) {
+	var events json.RawMessage
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(jsonb_agg(jsonb_build_object('event_type', e.event_type, 'payload', e.payload) ORDER BY e.event_sequence), '[]'::jsonb)
+		FROM boardroom_messages m
+		JOIN agent_invocation_events e ON e.invocation_id=m.invocation_id AND e.event_type LIKE 'tool.%'
+		WHERE m.run_id=$1 AND m.id=$2
+	`, runID.String(), messageID).Scan(&events)
+	if err != nil {
+		return nil, fmt.Errorf("load message research: %w", err)
+	}
+	return parseResearchEvents(events), nil
 }
 
 func (s *Store) MessagesSnapshot(ctx context.Context, conversationID domain.ConversationID, runID domain.RunID) ([]Message, int64, error) {

@@ -2,6 +2,32 @@ package components
 
 import "fmt"
 
+type WorkItemNodeView struct {
+	Item WorkItemView
+	Children []*WorkItemNodeView
+	Detached bool
+}
+
+func WorkItemTree(items []WorkItemView) []*WorkItemNodeView {
+	nodes := make(map[string]*WorkItemNodeView, len(items))
+	for _, item := range items {
+		itemCopy := item
+		nodes[item.ID] = &WorkItemNodeView{Item: itemCopy}
+	}
+	roots := make([]*WorkItemNodeView, 0, len(items))
+	for _, item := range items {
+		node := nodes[item.ID]
+		parent, hasVisibleParent := nodes[item.ParentID]
+		if item.ParentID != "" && hasVisibleParent && item.ParentID != item.ID {
+			parent.Children = append(parent.Children, node)
+			continue
+		}
+		node.Detached = item.ParentID != ""
+		roots = append(roots, node)
+	}
+	return roots
+}
+
 templ WorkQueuePage(tenantName string, user UserView, items []WorkItemView, summary WorkSummaryView, filter WorkFilterView, csrfToken, notice, formError string) {
 	@Layout("Work queue", tenantName, &user, csrfToken) {
 		<section class="hero work-hero">
@@ -39,43 +65,8 @@ templ WorkQueuePage(tenantName string, user UserView, items []WorkItemView, summ
 					<div class="panel work-empty"><div class="spring-glyph">✓</div><h2>Nothing in this view</h2><p>Add a quick to-do, open a ticket, or change the filters.</p></div>
 				}
 				<div class="work-list">
-					for _, item := range items {
-						<article class={ "panel", "work-item", "work-priority-" + item.Priority, templ.KV("is-done", item.Status == "done") }>
-							<header>
-								<div class="work-item-reference"><span>#{ fmt.Sprintf("%04d", item.Number) }</span><span class={ "work-kind", "work-kind-" + item.Kind }>{ WorkKindLabel(item.Kind) }</span></div>
-								<div class="work-item-badges"><span class={ "work-priority", "work-priority-label-" + item.Priority }>{ WorkPriorityLabel(item.Priority) }</span><span class={ "work-state", "work-state-" + item.Status }>{ WorkStatusLabel(item.Status) }</span></div>
-							</header>
-							<h2>{ item.Title }</h2>
-							if item.Description != "" {
-								<p class="work-description">{ item.Description }</p>
-							}
-							<div class="work-item-meta">
-								<span>Created by { WorkSourceLabel(item.Source) }</span>
-								if item.AssignedToName != "" {
-									<span>Assigned to { item.AssignedToName }</span>
-								} else {
-									<span>Unassigned</span>
-								}
-								if item.DueLabel != "" {
-									<span class={ templ.KV("is-overdue", item.IsOverdue) }>Due { item.DueLabel }</span>
-								}
-								<span>Updated { item.UpdatedAt.Local().Format("Jan 2 at 3:04 PM") }</span>
-							</div>
-							if len(WorkStatusActions(item.Status)) > 0 {
-								<footer class="work-actions">
-									for _, action := range WorkStatusActions(item.Status) {
-										<form method="post" action={ templ.URL("/work/" + item.ID + "/status") }>
-											<input type="hidden" name="csrf_token" value={ csrfToken }/>
-											<input type="hidden" name="status" value={ action.Status }/>
-											<input type="hidden" name="return_status" value={ filter.Status }/>
-											<input type="hidden" name="return_kind" value={ filter.Kind }/>
-											<input type="hidden" name="return_q" value={ filter.Query }/>
-											<button class={ "button", action.Class } type="submit">{ action.Label }</button>
-										</form>
-									}
-								</footer>
-							}
-						</article>
+					for _, node := range WorkItemTree(items) {
+						@WorkItemTreeNode(node, 0, filter, csrfToken)
 					}
 				</div>
 			</section>
@@ -93,5 +84,156 @@ templ WorkQueuePage(tenantName string, user UserView, items []WorkItemView, summ
 				<div class="work-agent-note"><strong>One shared queue</strong><p>Authorized persona and schedule-created tickets are stored here too, retaining their source and run context.</p></div>
 			</aside>
 		</div>
+	}
+}
+
+templ WorkItemTreeNode(node *WorkItemNodeView, depth int, filter WorkFilterView, csrfToken string) {
+	<section class={ "work-item-family", templ.KV("is-detached-subtask", node.Detached) }>
+		@WorkQueueItemCard(node.Item, depth > 0 || node.Detached, len(node.Children), filter, csrfToken)
+		if len(node.Children) > 0 {
+			<div class="work-subtask-tree">
+				<div class="work-subtask-heading"><strong>{ fmt.Sprintf("%d", len(node.Children)) } { ChooseText(len(node.Children) == 1, "subtask", "subtasks") }</strong><span>Attached to #{ fmt.Sprintf("%04d", node.Item.Number) }</span></div>
+				for _, child := range node.Children {
+					@WorkItemTreeNode(child, depth + 1, filter, csrfToken)
+				}
+			</div>
+		}
+	</section>
+}
+
+templ WorkQueueItemCard(item WorkItemView, isSubtask bool, visibleSubtaskCount int, filter WorkFilterView, csrfToken string) {
+	<article class={ "panel", "work-item", "work-priority-" + item.Priority, templ.KV("work-item-subtask", isSubtask), templ.KV("is-done", item.Status == "done") }>
+		<header>
+			<div class="work-item-reference">
+				<span>#{ fmt.Sprintf("%04d", item.Number) }</span>
+				if isSubtask {
+					<span class="work-kind work-kind-subtask">Subtask</span>
+				} else {
+					<span class={ "work-kind", "work-kind-" + item.Kind }>{ WorkKindLabel(item.Kind) }</span>
+				}
+				if visibleSubtaskCount > 0 {
+					<span class="work-visible-subtasks">{ fmt.Sprintf("%d", visibleSubtaskCount) } { ChooseText(visibleSubtaskCount == 1, "subtask", "subtasks") } shown</span>
+				}
+			</div>
+			<div class="work-item-badges"><span class="work-responsibility">{ WorkResponsibilityLabel(item.Responsibility) }</span><span class={ "work-priority", "work-priority-label-" + item.Priority }>{ WorkPriorityLabel(item.Priority) }</span><span class={ "work-state", "work-state-" + item.Status }>{ WorkStatusLabel(item.Status) }</span></div>
+		</header>
+		<h2><a class="work-item-link" href={ templ.URL("/work/" + item.ID) }>{ item.Title }</a></h2>
+		if item.Description != "" {
+			<p class="work-description">{ item.Description }</p>
+		}
+		<div class="work-item-meta">
+			if item.ParentID != "" {
+				<span><a href={ templ.URL("/work/" + item.ParentID) }>Parent #{ fmt.Sprintf("%04d", item.ParentNumber) }</a></span>
+			}
+			<span>Created by { WorkSourceLabel(item.Source) }</span>
+			if item.AssignedToName != "" {
+				<span>Assigned to { item.AssignedToName }</span>
+			} else {
+				<span>Unassigned</span>
+			}
+			if item.DueLabel != "" {
+				<span class={ templ.KV("is-overdue", item.IsOverdue) }>Due { item.DueLabel }</span>
+			}
+			<span>Updated { item.UpdatedAt.Local().Format("Jan 2 at 3:04 PM") }</span>
+		</div>
+		if len(WorkStatusActions(item.Status)) > 0 {
+			<footer class="work-actions">
+				<a class="button button-quiet" href={ templ.URL("/work/" + item.ID) }>Open details</a>
+				for _, action := range WorkStatusActions(item.Status) {
+					<form method="post" action={ templ.URL("/work/" + item.ID + "/status") }>
+						<input type="hidden" name="csrf_token" value={ csrfToken }/>
+						<input type="hidden" name="status" value={ action.Status }/>
+						<input type="hidden" name="return_status" value={ filter.Status }/>
+						<input type="hidden" name="return_kind" value={ filter.Kind }/>
+						<input type="hidden" name="return_q" value={ filter.Query }/>
+						<button class={ "button", action.Class } type="submit">{ action.Label }</button>
+					</form>
+				}
+			</footer>
+		}
+	</article>
+}
+
+templ TicketDetailsPage(tenantName string, user UserView, item WorkItemView, subtasks []WorkItemView, personas []PersonaView, messages []MessageView, attachments, documents []DocumentOptionView, run RunView, approvals []ApprovalView, csrfToken, notice, formError string) {
+	@Layout(fmt.Sprintf("Ticket #%04d", item.Number), tenantName, &user, csrfToken) {
+		<section class="ticket-detail-shell">
+			<a class="back-link" href="/work">&larr; Work queue</a>
+			if notice != "" {
+				<div class="alert alert-success">{ notice }</div>
+			}
+			if formError != "" {
+				<div class="alert alert-error">{ formError }</div>
+			}
+			<header class="panel ticket-detail-header">
+				<div><p class="eyebrow">{ WorkKindLabel(item.Kind) } #{ fmt.Sprintf("%04d", item.Number) }</p><h1>{ item.Title }</h1><p>{ item.Description }</p></div>
+				<div class="work-item-badges"><span class="work-responsibility">{ WorkResponsibilityLabel(item.Responsibility) }</span><span class={ "work-priority", "work-priority-label-" + item.Priority }>{ WorkPriorityLabel(item.Priority) }</span><span class={ "work-state", "work-state-" + item.Status }>{ WorkStatusLabel(item.Status) }</span></div>
+			</header>
+			<div class="ticket-detail-layout">
+				<main class="ticket-dialogue panel">
+					<div class="section-heading"><div><p class="eyebrow">Agent workspace</p><h2>Ticket conversation</h2><p>Bring one or more agents into this ticket. Their replies and proposed subtasks stay linked to the parent work.</p></div>
+						if RunIsActive(run.Status) {
+							<a class="button button-quiet" href={ templ.URL("/work/" + item.ID) }>Refresh progress</a>
+						}
+					</div>
+					if len(attachments) > 0 {
+						<section class="conversation-knowledge" aria-label="Ticket documents"><strong>Attached knowledge</strong><div class="document-chip-list">
+							for _, document := range attachments {
+								<a class="document-chip" href={ templ.URL("/documents/" + document.ID) }>{ document.Name }</a>
+							}
+						</div></section>
+					}
+					<div id="messages" class="conversation ticket-messages">
+						if len(messages) == 0 {
+							<div class="work-empty"><p>No agent dialogue yet. Choose agents and send the first message.</p></div>
+						}
+						for _, message := range messages {
+							@MessageBubble(message)
+						}
+					</div>
+					if len(approvals) > 0 {
+						@ApprovalOffers(approvals, csrfToken)
+					}
+					<form class="ticket-dialogue-form" method="post" action={ templ.URL("/work/" + item.ID + "/messages") } enctype="multipart/form-data">
+						<input type="hidden" name="csrf_token" value={ csrfToken }/>
+						<fieldset disabled?={ RunIsActive(run.Status) }><legend>Ask agents to work this ticket</legend>
+							<div class="ticket-agent-picker">
+								for index, persona := range personas {
+									<label><input type="checkbox" name="persona_id" value={ persona.ID } checked?={ index == 0 }/><span><strong>{ persona.Name }</strong><small>{ persona.Role }</small></span></label>
+								}
+							</div>
+							<label><span>Message</span><textarea name="prompt" required maxlength="12000" placeholder="Ask for analysis, a decision, or a concrete next step. Ask agents to split the work when subtasks would help."></textarea></label>
+							@DocumentPicker(documents, "document_id", "Attach existing documents", true)
+							<label class="ticket-upload"><span>Upload a new document <small>optional</small></span><input type="file" name="document" accept=".pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.xml,.html,.htm,.yaml,.yml,.log"/><small>PDF, Word, and text documents up to 15 MB are extracted, indexed, and attached to this ticket.</small></label>
+							<button class="button button-primary" type="submit">Send to selected agents</button>
+						</fieldset>
+						if RunIsActive(run.Status) {
+							<p class="field-note">The selected agents are working. Refresh when the run finishes or after resolving any approval.</p>
+						}
+					</form>
+				</main>
+				<aside class="ticket-sidebar">
+					<section class="panel"><p class="eyebrow">Progress</p><h2>Ticket status</h2>
+						<div class="work-item-meta"><span>Created by { WorkSourceLabel(item.Source) }</span><span>Updated { item.UpdatedAt.Local().Format("Jan 2 at 3:04 PM") }</span></div>
+						if len(WorkStatusActions(item.Status)) > 0 {
+							<div class="work-actions">
+								for _, action := range WorkStatusActions(item.Status) {
+									<form method="post" action={ templ.URL("/work/" + item.ID + "/status") }><input type="hidden" name="csrf_token" value={ csrfToken }/><input type="hidden" name="status" value={ action.Status }/><input type="hidden" name="return_to" value="detail"/><button class={ "button", action.Class } type="submit">{ action.Label }</button></form>
+								}
+							</div>
+						}
+					</section>
+					<section class="panel"><p class="eyebrow">Breakdown</p><h2>Subtasks</h2>
+						if len(subtasks) == 0 {
+							<p>No subtasks yet. Agents can propose them for approval from the conversation.</p>
+						}
+						<div class="ticket-subtask-list">
+							for _, subtask := range subtasks {
+								<a href={ templ.URL("/work/" + subtask.ID) }><span>#{ fmt.Sprintf("%04d", subtask.Number) }</span><strong>{ subtask.Title }</strong><small>{ WorkResponsibilityLabel(subtask.Responsibility) } · { WorkStatusLabel(subtask.Status) }</small></a>
+							}
+						</div>
+					</section>
+				</aside>
+			</div>
+		</section>
 	}
 }

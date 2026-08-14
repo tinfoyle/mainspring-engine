@@ -5,3 +5,4 @@ github-token.txt
 .env
 bin/
 coverage.out
+ui/node_modules/

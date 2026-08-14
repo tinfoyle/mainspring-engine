@@ -89,6 +89,40 @@ grep -q 'Unassigned' "$page"
 ticket_id="$(grep -oE '/work/[0-9a-f-]{36}/status' "$page" | head -n 1 | cut -d/ -f3)"
 [[ -n "$ticket_id" ]]
 
+request --cookie "$cookies" --output "$page" "$base_url/work/$ticket_id"
+grep -q 'Ticket conversation' "$page"
+grep -q 'Upload a new document' "$page"
+grep -q 'Send to selected agents' "$page"
+persona_id="$(grep -oE 'name="persona_id" value="[0-9a-f-]{36}' "$page" | head -n 1 | cut -d'"' -f4)"
+[[ -n "$persona_id" ]]
+workspace_document="$work_dir/ticket-evidence.txt"
+printf 'Ticket workspace evidence marker: QUARTZ-%s\n' "$stamp" > "$workspace_document"
+message_status="$(curl --silent --show-error -H "Host: $tenant_host" --cookie "$cookies" \
+  --dump-header "$headers" --output "$page" --write-out '%{http_code}' \
+  --form "csrf_token=$csrf_token" \
+  --form "persona_id=$persona_id" \
+  --form 'prompt=[demo:ticket-workspace] Break this ticket into a concrete evidence-collection subtask.' \
+  --form "document=@$workspace_document;type=text/plain" \
+  "$base_url/work/$ticket_id/messages")"
+[[ "$message_status" == "303" ]]
+
+for _ in $(seq 1 120); do
+  request --cookie "$cookies" --output "$page" "$base_url/work/$ticket_id"
+  if grep -q 'Approve and create work item' "$page" && grep -q 'reviewed the parent ticket' "$page"; then
+    break
+  fi
+  sleep 0.5
+done
+grep -q 'Approve and create work item' "$page"
+grep -q 'reviewed the parent ticket' "$page"
+grep -q 'ticket-evidence.txt' "$page"
+approval_path="$(grep -oE '/approvals/[0-9a-f-]{36}/approve' "$page" | head -n 1)"
+[[ -n "$approval_path" ]]
+post_work "$approval_path"
+request --cookie "$cookies" --output "$page" "$base_url/work/$ticket_id"
+grep -q 'Collect supporting evidence' "$page"
+grep -q 'Subtasks' "$page"
+
 post_work "/work/$todo_id/status" --data-urlencode "status=done"
 request --cookie "$cookies" --get --data-urlencode "status=done" --data-urlencode "q=$todo_title" \
   --output "$page" "$base_url/work"
@@ -99,4 +133,4 @@ grep -q '>Done<' "$page"
 post_work "/work/$todo_id/status" --data-urlencode "status=canceled"
 post_work "/work/$ticket_id/status" --data-urlencode "status=canceled"
 
-printf 'Mainspring work queue smoke test passed: to-do and ticket creation, assignment, filtering, priority, and status lifecycle.\n'
+printf 'Mainspring work queue smoke test passed: ticket details, selected-agent dialogue, document upload, approval-gated subtasks, and status lifecycle.\n'

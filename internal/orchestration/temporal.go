@@ -24,6 +24,7 @@ const (
 	CreateScheduledRunActivity   = "mainspring.boardroom.create-scheduled-run.v1"
 	PrepareBoardroomRunActivity  = "mainspring.boardroom.prepare.v1"
 	ExecutePersonaTurnActivity   = "mainspring.boardroom.execute-turn.v1"
+	PlanDelegationsActivity      = "mainspring.boardroom.plan-delegations.v1"
 	CompleteBoardroomRunActivity = "mainspring.boardroom.complete.v1"
 	FailBoardroomRunActivity     = "mainspring.boardroom.fail.v1"
 	ApprovalDecisionSignal       = "mainspring.approval.decided.v1"
@@ -75,7 +76,18 @@ func BoardroomWorkflow(ctx workflow.Context, input BoardroomWorkflowInput) error
 		markRunFailed(ctx, input, err)
 		return err
 	}
-	for turnNumber := 1; turnNumber <= turnCount; turnNumber++ {
+	if turnCount > 0 {
+		turnInput := PersonaTurnInput{TenantID: input.TenantID, RunID: input.RunID, TurnNumber: 1}
+		if err := workflow.ExecuteActivity(ctx, ExecutePersonaTurnActivity, turnInput).Get(ctx, nil); err != nil {
+			markRunFailed(ctx, input, err)
+			return err
+		}
+	}
+	if err := workflow.ExecuteActivity(ctx, PlanDelegationsActivity, input).Get(ctx, &turnCount); err != nil {
+		markRunFailed(ctx, input, err)
+		return err
+	}
+	for turnNumber := 2; turnNumber <= turnCount; turnNumber++ {
 		turnInput := PersonaTurnInput{TenantID: input.TenantID, RunID: input.RunID, TurnNumber: turnNumber}
 		if err := workflow.ExecuteActivity(ctx, ExecutePersonaTurnActivity, turnInput).Get(ctx, nil); err != nil {
 			markRunFailed(ctx, input, err)
@@ -146,6 +158,21 @@ func (a *Activities) ExecutePersonaTurn(ctx context.Context, input PersonaTurnIn
 		return err
 	}
 	return nil
+}
+
+func (a *Activities) PlanDelegations(ctx context.Context, input BoardroomWorkflowInput) (int, error) {
+	if input.TenantID != a.tenantID.String() {
+		return 0, temporal.NewNonRetryableApplicationError("workflow tenant does not match worker tenant", "tenant_mismatch", nil)
+	}
+	runID, err := domain.ParseRunID(input.RunID)
+	if err != nil {
+		return 0, temporal.NewNonRetryableApplicationError("workflow run ID is invalid", "invalid_run_id", err)
+	}
+	turnCount, err := a.service.ScheduleDelegations(ctx, runID)
+	if errors.Is(err, boardroom.ErrInvalidDelegation) {
+		return 0, temporal.NewNonRetryableApplicationError(err.Error(), "invalid_delegation", err)
+	}
+	return turnCount, err
 }
 
 func (a *Activities) CompleteBoardroomRun(ctx context.Context, input BoardroomWorkflowInput) (bool, error) {
@@ -235,6 +262,7 @@ func RunWorker(ctx context.Context, logger *slog.Logger, temporalClient client.C
 	w.RegisterActivityWithOptions(activities.CreateScheduledRun, activity.RegisterOptions{Name: CreateScheduledRunActivity})
 	w.RegisterActivityWithOptions(activities.PrepareBoardroomRun, activity.RegisterOptions{Name: PrepareBoardroomRunActivity})
 	w.RegisterActivityWithOptions(activities.ExecutePersonaTurn, activity.RegisterOptions{Name: ExecutePersonaTurnActivity})
+	w.RegisterActivityWithOptions(activities.PlanDelegations, activity.RegisterOptions{Name: PlanDelegationsActivity})
 	w.RegisterActivityWithOptions(activities.CompleteBoardroomRun, activity.RegisterOptions{Name: CompleteBoardroomRunActivity})
 	w.RegisterActivityWithOptions(activities.FailBoardroomRun, activity.RegisterOptions{Name: FailBoardroomRunActivity})
 	if err := w.Start(); err != nil {

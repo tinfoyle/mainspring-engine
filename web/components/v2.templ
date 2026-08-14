@@ -1,0 +1,30 @@
+package components
+
+import "fmt"
+
+templ V2AppPage(title, tenantName string, user UserView, csrfToken string) {
+	<!doctype html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="light"/>
+			<meta name="theme-color" content="#f4f6f2"/>
+			<title>{ title } · Mainspring</title>
+			<link rel="stylesheet" href="/assets/v2.css"/>
+			<script type="module" src="/assets/v2.js"></script>
+		</head>
+		<body>
+			<div
+				id="mainspring-v2-root"
+				data-tenant={ tenantName }
+				data-user={ user.DisplayName }
+				data-email={ user.Email }
+				data-role={ user.Role }
+				data-development={ fmt.Sprintf("%t", user.Development) }
+				data-csrf={ csrfToken }
+			></div>
+			<noscript>Mainspring V2 requires JavaScript for its live workspace.</noscript>
+		</body>
+	</html>
+}

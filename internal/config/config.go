@@ -34,6 +34,15 @@ type Config struct {
 	RunConcurrency          int
 	CredentialEncryptionKey string
 	EmailProvider           string
+	MCPToken                string
+	MCPUserEmail            string
+	WebResearchProvider     string
+	FirecrawlURL            string
+	FirecrawlToken          string
+	FirecrawlTimeout        time.Duration
+	GoogleDriveClientID     string
+	GoogleDriveClientSecret string
+	GoogleDriveRedirectURL  string
 
 	RAGAddr        string
 	RAGInternalURL string
@@ -88,6 +97,14 @@ func Load() (Config, error) {
 		RunConcurrency:          integer("MAINSPRING_RUN_CONCURRENCY", 4),
 		CredentialEncryptionKey: os.Getenv("MAINSPRING_CREDENTIAL_ENCRYPTION_KEY"),
 		EmailProvider:           strings.ToLower(env("MAINSPRING_EMAIL_PROVIDER", "network")),
+		MCPToken:                strings.TrimSpace(os.Getenv("MAINSPRING_MCP_TOKEN")),
+		MCPUserEmail:            strings.ToLower(strings.TrimSpace(os.Getenv("MAINSPRING_MCP_USER_EMAIL"))),
+		WebResearchProvider:     strings.ToLower(env("MAINSPRING_WEB_RESEARCH_PROVIDER", "disabled")),
+		FirecrawlURL:            strings.TrimSpace(os.Getenv("MAINSPRING_FIRECRAWL_URL")),
+		FirecrawlToken:          strings.TrimSpace(os.Getenv("MAINSPRING_FIRECRAWL_TOKEN")),
+		GoogleDriveClientID:     strings.TrimSpace(os.Getenv("MAINSPRING_GOOGLE_DRIVE_CLIENT_ID")),
+		GoogleDriveClientSecret: strings.TrimSpace(os.Getenv("MAINSPRING_GOOGLE_DRIVE_CLIENT_SECRET")),
+		GoogleDriveRedirectURL:  strings.TrimSpace(os.Getenv("MAINSPRING_GOOGLE_DRIVE_REDIRECT_URL")),
 		RAGAddr:                 env("MAINSPRING_RAG_ADDR", ":8083"),
 		RAGInternalURL:          env("MAINSPRING_RAG_INTERNAL_URL", "http://127.0.0.1:8083"),
 		RAGToken:                os.Getenv("MAINSPRING_RAG_TOKEN"),
@@ -125,11 +142,28 @@ func Load() (Config, error) {
 	if cfg.AgentTimeout, err = duration("MAINSPRING_AGENT_TIMEOUT", 5*time.Minute); err != nil {
 		return Config{}, err
 	}
+	if cfg.FirecrawlTimeout, err = duration("MAINSPRING_FIRECRAWL_TIMEOUT", 30*time.Second); err != nil {
+		return Config{}, err
+	}
 	if strings.TrimSpace(cfg.ToolTokenSecret) == "" {
 		cfg.ToolTokenSecret = cfg.SessionSecret
 	}
 	if strings.TrimSpace(cfg.CredentialEncryptionKey) == "" && cfg.Environment == "development" {
 		cfg.CredentialEncryptionKey = cfg.SessionSecret
+	}
+	if cfg.MCPToken != "" {
+		if len(cfg.MCPToken) < 32 {
+			return Config{}, errors.New("MAINSPRING_MCP_TOKEN must contain at least 32 bytes when MCP is enabled")
+		}
+		if cfg.MCPUserEmail == "" {
+			return Config{}, errors.New("MAINSPRING_MCP_USER_EMAIL is required when MCP is enabled")
+		}
+	}
+	if (cfg.GoogleDriveClientID == "") != (cfg.GoogleDriveClientSecret == "") {
+		return Config{}, errors.New("MAINSPRING_GOOGLE_DRIVE_CLIENT_ID and MAINSPRING_GOOGLE_DRIVE_CLIENT_SECRET must be configured together")
+	}
+	if cfg.GoogleDriveClientID != "" && cfg.GoogleDriveRedirectURL == "" {
+		return Config{}, errors.New("MAINSPRING_GOOGLE_DRIVE_REDIRECT_URL is required when Google Drive is enabled")
 	}
 
 	switch cfg.LogLevel {
@@ -146,6 +180,15 @@ func Load() (Config, error) {
 	case "network", "mock":
 	default:
 		return Config{}, errors.New("MAINSPRING_EMAIL_PROVIDER must be network or mock")
+	}
+	switch cfg.WebResearchProvider {
+	case "disabled":
+	case "firecrawl":
+		if cfg.FirecrawlURL == "" {
+			return Config{}, errors.New("MAINSPRING_FIRECRAWL_URL is required when Firecrawl web research is enabled")
+		}
+	default:
+		return Config{}, errors.New("MAINSPRING_WEB_RESEARCH_PROVIDER must be disabled or firecrawl")
 	}
 	switch cfg.TenantTemplate {
 	case "trades", "software", "saas":

@@ -1,0 +1,25 @@
+package components
+
+templ GoogleDriveFoldersPage(tenantName string, user UserView, folders []GoogleDriveFolderView, csrfToken, formError string) {
+	@Layout("Select Google Drive folders", tenantName, &user, csrfToken) {
+		<section class="panel baseline-drive-picker">
+			<a class="back-link" href="/baseline">← Business baseline</a>
+			<p class="eyebrow">Read-only Google Drive</p><h1>Select evidence folders</h1><p>Mainspring will only list and read files in the folders selected below. It cannot edit, move, share, or delete Drive content.</p>
+			if formError != "" {
+				<div class="alert alert-error">{ formError }</div>
+			}
+			<form method="post" action="/baseline/google-drive/sync">
+				<input type="hidden" name="csrf_token" value={ csrfToken }/>
+				<div class="drive-folder-list">
+					for _, folder := range folders {
+						<label class="check-row"><input type="checkbox" name="folder_ids" value={ folder.ID }/><span>{ folder.Name }</span></label>
+					}
+				</div>
+				if len(folders) == 0 {
+					<div class="empty-state"><p>No folders were returned by this Drive account.</p></div>
+				}
+				<button class="button button-primary" type="submit" disabled?={ len(folders) == 0 }>Index selected folders</button>
+			</form>
+		</section>
+	}
+}

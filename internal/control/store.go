@@ -16,6 +16,7 @@ import (
 var slugPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$`)
 
 var ErrTenantNotFound = errors.New("tenant not found")
+var ErrAnnouncementNotFound = errors.New("announcement not found")
 
 type TenantStatus string
 
@@ -37,6 +38,16 @@ type Tenant struct {
 	RuntimeHostID *string         `json:"runtime_host_id,omitempty"`
 	CreatedAt     time.Time       `json:"created_at"`
 	ReadyAt       *time.Time      `json:"ready_at,omitempty"`
+}
+
+type PlatformAnnouncement struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	Category  string    `json:"category"`
+	Target    string    `json:"target"`
+	TenantID  *string   `json:"tenant_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Store struct {
@@ -202,4 +213,84 @@ func (s *Store) SetRuntime(ctx context.Context, tenantID domain.TenantID, intern
 		return ErrTenantNotFound
 	}
 	return nil
+}
+
+func (s *Store) CreatePlatformAnnouncement(ctx context.Context, title, body, category, target, tenantID, actor string) (PlatformAnnouncement, error) {
+	title, body, category, target = strings.TrimSpace(title), strings.TrimSpace(body), strings.TrimSpace(category), strings.TrimSpace(target)
+	if title == "" || len(title) > 200 || body == "" || len(body) > 10000 {
+		return PlatformAnnouncement{}, errors.New("title and body are required and must be within their limits")
+	}
+	if category != "planned_downtime" && category != "service_notice" {
+		return PlatformAnnouncement{}, errors.New("category must be planned_downtime or service_notice")
+	}
+	if target != "owners" && target != "tenant_members" && target != "all_users" {
+		return PlatformAnnouncement{}, errors.New("target must be owners, tenant_members, or all_users")
+	}
+	var tenant any
+	if target == "all_users" {
+		if tenantID != "" {
+			return PlatformAnnouncement{}, errors.New("all_users announcements cannot select a tenant")
+		}
+	} else {
+		if _, err := domain.ParseTenantID(tenantID); err != nil {
+			return PlatformAnnouncement{}, errors.New("a valid tenant ID is required for this target")
+		}
+		tenant = tenantID
+	}
+	var result PlatformAnnouncement
+	err := s.pool.QueryRow(ctx, `INSERT INTO platform_announcements (title,body,category,target,tenant_id,created_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id::text,title,body,category,target,tenant_id::text,created_at`, title, body, category, target, tenant, actor).Scan(&result.ID, &result.Title, &result.Body, &result.Category, &result.Target, &result.TenantID, &result.CreatedAt)
+	if err != nil {
+		return PlatformAnnouncement{}, fmt.Errorf("create platform announcement: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Store) TenantByID(ctx context.Context, id domain.TenantID) (Tenant, error) {
+	var tenant Tenant
+	var raw string
+	err := s.pool.QueryRow(ctx, `SELECT id::text,slug::text,display_name,status,COALESCE(internal_url,''),database_name,runtime_host_id::text,created_at,ready_at FROM tenants WHERE id=$1`, id.String()).Scan(&raw, &tenant.Slug, &tenant.DisplayName, &tenant.Status, &tenant.InternalURL, &tenant.DatabaseName, &tenant.RuntimeHostID, &tenant.CreatedAt, &tenant.ReadyAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Tenant{}, ErrTenantNotFound
+	}
+	if err != nil {
+		return Tenant{}, fmt.Errorf("get tenant: %w", err)
+	}
+	tenant.ID, err = domain.ParseTenantID(raw)
+	return tenant, err
+}
+
+func (s *Store) AnnouncementTenants(ctx context.Context, announcement PlatformAnnouncement) ([]Tenant, error) {
+	if announcement.Target != "all_users" {
+		if announcement.TenantID == nil {
+			return nil, errors.New("announcement tenant is missing")
+		}
+		id, err := domain.ParseTenantID(*announcement.TenantID)
+		if err != nil {
+			return nil, err
+		}
+		tenant, err := s.TenantByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return []Tenant{tenant}, nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT id::text,slug::text,display_name,status,COALESCE(internal_url,''),database_name,runtime_host_id::text,created_at,ready_at FROM tenants WHERE status='ready' AND internal_url IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("list announcement tenants: %w", err)
+	}
+	defer rows.Close()
+	var result []Tenant
+	for rows.Next() {
+		var tenant Tenant
+		var raw string
+		if err := rows.Scan(&raw, &tenant.Slug, &tenant.DisplayName, &tenant.Status, &tenant.InternalURL, &tenant.DatabaseName, &tenant.RuntimeHostID, &tenant.CreatedAt, &tenant.ReadyAt); err != nil {
+			return nil, fmt.Errorf("scan announcement tenant: %w", err)
+		}
+		tenant.ID, err = domain.ParseTenantID(raw)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, tenant)
+	}
+	return result, rows.Err()
 }

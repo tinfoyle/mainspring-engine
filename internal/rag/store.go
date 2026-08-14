@@ -23,12 +23,22 @@ type Document struct {
 	ChunkCount     int       `json:"chunk_count"`
 	CharacterCount int       `json:"character_count"`
 	UploadedBy     string    `json:"uploaded_by"`
+	Revision       int       `json:"revision"`
 	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type DocumentDetail struct {
 	Document
 	Content string `json:"content"`
+}
+
+type DocumentProvenance struct {
+	CreatedBy     string `json:"created_by,omitempty"`
+	PersonaID     string `json:"persona_id,omitempty"`
+	RunID         string `json:"run_id,omitempty"`
+	InvocationID  string `json:"invocation_id,omitempty"`
+	ChangeSummary string `json:"change_summary,omitempty"`
 }
 
 var ErrDocumentNotFound = errors.New("document was not found")
@@ -56,6 +66,20 @@ func (s *Store) IngestText(ctx context.Context, name, mediaType, content string)
 }
 
 func (s *Store) IngestTextBy(ctx context.Context, name, mediaType, content, createdBy string) (Document, error) {
+	return s.ingestText(ctx, name, mediaType, content, DocumentProvenance{CreatedBy: createdBy, ChangeSummary: "Initial document revision"})
+}
+
+func (s *Store) IngestTextByAgent(ctx context.Context, name, mediaType, content string, provenance DocumentProvenance) (Document, error) {
+	if strings.TrimSpace(provenance.PersonaID) == "" || strings.TrimSpace(provenance.RunID) == "" || strings.TrimSpace(provenance.InvocationID) == "" {
+		return Document{}, errors.New("agent document provenance is required")
+	}
+	if strings.TrimSpace(provenance.ChangeSummary) == "" {
+		provenance.ChangeSummary = "Created by agent"
+	}
+	return s.ingestText(ctx, name, mediaType, content, provenance)
+}
+
+func (s *Store) ingestText(ctx context.Context, name, mediaType, content string, provenance DocumentProvenance) (Document, error) {
 	name = strings.TrimSpace(name)
 	mediaType = strings.TrimSpace(mediaType)
 	if name == "" || len(name) > 255 {
@@ -65,7 +89,7 @@ func (s *Store) IngestTextBy(ctx context.Context, name, mediaType, content, crea
 		mediaType = "text/plain"
 	}
 	if !supportedTextMediaType(mediaType) {
-		return Document{}, errors.New("only plain text, Markdown, CSV, JSON, XML, HTML, and log files are supported")
+		return Document{}, errors.New("only extracted PDF, Word, and supported text documents are accepted")
 	}
 	if strings.TrimSpace(content) == "" {
 		return Document{}, errors.New("document content is required")
@@ -82,13 +106,14 @@ func (s *Store) IngestTextBy(ctx context.Context, name, mediaType, content, crea
 	var existing Document
 	err := s.pool.QueryRow(ctx, `
 		SELECT d.id::text, d.name, d.media_type, d.storage_key, d.status, count(c.id),
-		       COALESCE(length(d.content), 0), COALESCE(u.display_name, 'System'), d.created_at
+		       COALESCE(length(d.content), 0), COALESCE(p.name, u.display_name, 'System'), d.revision, d.created_at, d.updated_at
 		FROM documents d LEFT JOIN document_chunks c ON c.document_id = d.id
 		LEFT JOIN users u ON u.id = d.created_by
+		LEFT JOIN personas p ON p.id = d.created_by_persona
 		WHERE d.storage_key = $1 AND d.deleted_at IS NULL
-		GROUP BY d.id, u.display_name
+		GROUP BY d.id, u.display_name, p.name
 	`, storageKey).Scan(&existing.ID, &existing.Name, &existing.MediaType, &existing.StorageKey, &existing.Status,
-		&existing.ChunkCount, &existing.CharacterCount, &existing.UploadedBy, &existing.CreatedAt)
+		&existing.ChunkCount, &existing.CharacterCount, &existing.UploadedBy, &existing.Revision, &existing.CreatedAt, &existing.UpdatedAt)
 	if err == nil {
 		return existing, nil
 	}
@@ -102,15 +127,35 @@ func (s *Store) IngestTextBy(ctx context.Context, name, mediaType, content, crea
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	document := Document{ID: uuid.NewString(), Name: name, MediaType: mediaType, StorageKey: storageKey, Status: "ready", CharacterCount: len([]rune(content)), CreatedAt: time.Now().UTC()}
-	var creator any
-	if strings.TrimSpace(createdBy) != "" {
-		creator = strings.TrimSpace(createdBy)
+	var creator, personaID, runID, invocationID any
+	if strings.TrimSpace(provenance.CreatedBy) != "" {
+		creator = strings.TrimSpace(provenance.CreatedBy)
+	}
+	if strings.TrimSpace(provenance.PersonaID) != "" {
+		personaID = strings.TrimSpace(provenance.PersonaID)
+	}
+	if strings.TrimSpace(provenance.RunID) != "" {
+		runID = strings.TrimSpace(provenance.RunID)
+	}
+	if strings.TrimSpace(provenance.InvocationID) != "" {
+		invocationID = strings.TrimSpace(provenance.InvocationID)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO documents (id, name, media_type, storage_key, sha256, status, content, created_by)
-		VALUES ($1, $2, $3, $4, $5, 'processing', $6, $7)
-	`, document.ID, name, mediaType, storageKey, digest[:], content, creator); err != nil {
+		INSERT INTO documents (
+			id, name, media_type, storage_key, sha256, status, content, created_by,
+			created_by_persona, last_updated_by_persona, source_run_id, source_invocation_id
+		)
+		VALUES ($1, $2, $3, $4, $5, 'processing', $6, $7, $8, $8, $9, $10)
+	`, document.ID, name, mediaType, storageKey, digest[:], content, creator, personaID, runID, invocationID); err != nil {
 		return Document{}, fmt.Errorf("create document: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO document_revisions (
+			document_id, revision, name, media_type, content, sha256, change_summary,
+			created_by, created_by_persona, source_run_id, source_invocation_id
+		) VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, document.ID, name, mediaType, content, digest[:], strings.TrimSpace(provenance.ChangeSummary), creator, personaID, runID, invocationID); err != nil {
+		return Document{}, fmt.Errorf("create document revision: %w", err)
 	}
 	chunks := chunkText(content, 1500, 200)
 	for index, chunk := range chunks {
@@ -125,7 +170,11 @@ func (s *Store) IngestTextBy(ctx context.Context, name, mediaType, content, crea
 		return Document{}, err
 	}
 	document.ChunkCount = len(chunks)
-	if creator != nil {
+	document.Revision = 1
+	document.UpdatedAt = document.CreatedAt
+	if personaID != nil {
+		_ = s.pool.QueryRow(ctx, `SELECT name FROM personas WHERE id = $1`, personaID).Scan(&document.UploadedBy)
+	} else if creator != nil {
 		_ = s.pool.QueryRow(ctx, `SELECT display_name FROM users WHERE id = $1`, creator).Scan(&document.UploadedBy)
 	}
 	if document.UploadedBy == "" {
@@ -134,15 +183,88 @@ func (s *Store) IngestTextBy(ctx context.Context, name, mediaType, content, crea
 	return document, nil
 }
 
+func (s *Store) UpdateTextByAgent(ctx context.Context, documentID, name, mediaType, content string, provenance DocumentProvenance) (Document, error) {
+	if _, err := uuid.Parse(documentID); err != nil {
+		return Document{}, ErrDocumentNotFound
+	}
+	if strings.TrimSpace(provenance.PersonaID) == "" || strings.TrimSpace(provenance.RunID) == "" || strings.TrimSpace(provenance.InvocationID) == "" {
+		return Document{}, errors.New("agent document provenance is required")
+	}
+	name = strings.TrimSpace(name)
+	mediaType = strings.TrimSpace(mediaType)
+	if name == "" || len(name) > 255 {
+		return Document{}, errors.New("document name must contain between 1 and 255 characters")
+	}
+	if mediaType == "" {
+		mediaType = "text/markdown"
+	}
+	if !supportedTextMediaType(mediaType) || strings.TrimSpace(content) == "" || len([]byte(content)) > TextDocumentLimit || !utf8.ValidString(content) || strings.ContainsRune(content, '\x00') {
+		return Document{}, errors.New("document update must contain valid supported text no larger than 2 MB")
+	}
+	digest := sha256.Sum256([]byte(content))
+	storageKey := fmt.Sprintf("inline:sha256:%x", digest[:])
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Document{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var revision int
+	var currentDigest []byte
+	if err := tx.QueryRow(ctx, `SELECT revision, sha256 FROM documents WHERE id=$1 AND deleted_at IS NULL AND status <> 'deleted' FOR UPDATE`, documentID).Scan(&revision, &currentDigest); errors.Is(err, pgx.ErrNoRows) {
+		return Document{}, ErrDocumentNotFound
+	} else if err != nil {
+		return Document{}, err
+	}
+	if string(currentDigest) == string(digest[:]) {
+		if err := tx.Commit(ctx); err != nil {
+			return Document{}, err
+		}
+		detail, err := s.GetDocument(ctx, documentID)
+		return detail.Document, err
+	}
+	revision++
+	if _, err := tx.Exec(ctx, `DELETE FROM document_chunks WHERE document_id=$1`, documentID); err != nil {
+		return Document{}, err
+	}
+	chunks := chunkText(content, 1500, 200)
+	for index, chunk := range chunks {
+		if _, err := tx.Exec(ctx, `INSERT INTO document_chunks (document_id, chunk_index, content) VALUES ($1,$2,$3)`, documentID, index, chunk); err != nil {
+			return Document{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE documents SET name=$2, media_type=$3, storage_key=$4, sha256=$5, content=$6,
+			revision=$7, last_updated_by_persona=$8, source_run_id=$9, source_invocation_id=$10,
+			status='ready', updated_at=now()
+		WHERE id=$1
+	`, documentID, name, mediaType, storageKey, digest[:], content, revision, provenance.PersonaID, provenance.RunID, provenance.InvocationID); err != nil {
+		return Document{}, fmt.Errorf("update document: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO document_revisions (
+			document_id, revision, name, media_type, content, sha256, change_summary,
+			created_by_persona, source_run_id, source_invocation_id
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+	`, documentID, revision, name, mediaType, content, digest[:], strings.TrimSpace(provenance.ChangeSummary), provenance.PersonaID, provenance.RunID, provenance.InvocationID); err != nil {
+		return Document{}, fmt.Errorf("create document revision: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Document{}, err
+	}
+	detail, err := s.GetDocument(ctx, documentID)
+	return detail.Document, err
+}
+
 func (s *Store) ListDocuments(ctx context.Context) ([]Document, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT d.id::text, d.name, d.media_type, d.storage_key, d.status, count(c.id),
-		       COALESCE(length(d.content), 0), COALESCE(u.display_name, 'System'), d.created_at
+		       COALESCE(length(d.content), 0), COALESCE(p.name, u.display_name, 'System'), d.revision, d.created_at, d.updated_at
 		FROM documents d
 		LEFT JOIN document_chunks c ON c.document_id = d.id
 		LEFT JOIN users u ON u.id = d.created_by
+		LEFT JOIN personas p ON p.id = d.created_by_persona
 		WHERE d.deleted_at IS NULL AND d.status <> 'deleted'
-		GROUP BY d.id, u.display_name
+		GROUP BY d.id, u.display_name, p.name
 		ORDER BY d.created_at DESC, d.id DESC
 	`)
 	if err != nil {
@@ -153,7 +275,7 @@ func (s *Store) ListDocuments(ctx context.Context) ([]Document, error) {
 	for rows.Next() {
 		var document Document
 		if err := rows.Scan(&document.ID, &document.Name, &document.MediaType, &document.StorageKey, &document.Status,
-			&document.ChunkCount, &document.CharacterCount, &document.UploadedBy, &document.CreatedAt); err != nil {
+			&document.ChunkCount, &document.CharacterCount, &document.UploadedBy, &document.Revision, &document.CreatedAt, &document.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan document: %w", err)
 		}
 		documents = append(documents, document)
@@ -166,13 +288,14 @@ func (s *Store) GetDocument(ctx context.Context, documentID string) (DocumentDet
 	err := s.pool.QueryRow(ctx, `
 		SELECT d.id::text, d.name, d.media_type, d.storage_key, d.status,
 		       (SELECT count(*) FROM document_chunks c WHERE c.document_id = d.id),
-		       COALESCE(length(d.content), 0), COALESCE(u.display_name, 'System'), d.created_at,
+		       COALESCE(length(d.content), 0), COALESCE(p.name, u.display_name, 'System'), d.revision, d.created_at, d.updated_at,
 		       COALESCE(d.content, '')
 		FROM documents d
 		LEFT JOIN users u ON u.id = d.created_by
+		LEFT JOIN personas p ON p.id = d.created_by_persona
 		WHERE d.id = $1 AND d.deleted_at IS NULL AND d.status <> 'deleted'
 	`, documentID).Scan(&document.ID, &document.Name, &document.MediaType, &document.StorageKey, &document.Status,
-		&document.ChunkCount, &document.CharacterCount, &document.UploadedBy, &document.CreatedAt, &document.Content)
+		&document.ChunkCount, &document.CharacterCount, &document.UploadedBy, &document.Revision, &document.CreatedAt, &document.UpdatedAt, &document.Content)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DocumentDetail{}, ErrDocumentNotFound
 	}
@@ -184,7 +307,8 @@ func (s *Store) GetDocument(ctx context.Context, documentID string) (DocumentDet
 
 func supportedTextMediaType(mediaType string) bool {
 	mediaType = strings.ToLower(strings.TrimSpace(strings.Split(mediaType, ";")[0]))
-	return strings.HasPrefix(mediaType, "text/") || mediaType == "application/json" || mediaType == "application/xml" || mediaType == "application/xhtml+xml"
+	return strings.HasPrefix(mediaType, "text/") || mediaType == "application/json" || mediaType == "application/xml" || mediaType == "application/xhtml+xml" ||
+		mediaType == "application/pdf" || mediaType == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 }
 
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]SearchResult, error) {
@@ -208,12 +332,36 @@ func (s *Store) SearchDocuments(ctx context.Context, query string, limit int, do
 	if len(documentIDs) > 0 {
 		filters = documentIDs
 	}
+	if query == "*" {
+		if len(documentIDs) == 0 {
+			return nil, errors.New("wildcard document retrieval requires document filters")
+		}
+		rows, err := s.pool.Query(ctx, `
+			SELECT c.document_id::text, d.name, c.chunk_index, c.content, 0::real
+			FROM document_chunks c JOIN documents d ON d.id = c.document_id
+			WHERE d.status = 'ready' AND d.deleted_at IS NULL
+			  AND c.document_id::text = ANY($2::text[])
+			ORDER BY c.document_id, c.chunk_index
+			LIMIT $1
+		`, limit, documentIDs)
+		if err != nil {
+			return nil, fmt.Errorf("retrieve document chunks: %w", err)
+		}
+		return scanSearchResults(rows)
+	}
 	rows, err := s.pool.Query(ctx, `
+		WITH search_query AS (
+			SELECT to_tsquery('english', string_agg(quote_literal(term), ' | ')) AS value
+			FROM unnest(tsvector_to_array(to_tsvector('english', $1))) AS term
+		)
 		SELECT c.document_id::text, d.name, c.chunk_index, c.content,
-		       ts_rank_cd(c.search_vector, websearch_to_tsquery('english', $1)) AS rank
-		FROM document_chunks c JOIN documents d ON d.id = c.document_id
+		       ts_rank_cd(c.search_vector, search_query.value) AS rank
+		FROM document_chunks c
+		JOIN documents d ON d.id = c.document_id
+		CROSS JOIN search_query
 		WHERE d.status = 'ready' AND d.deleted_at IS NULL
-		  AND c.search_vector @@ websearch_to_tsquery('english', $1)
+		  AND search_query.value IS NOT NULL
+		  AND c.search_vector @@ search_query.value
 		  AND ($3::text[] IS NULL OR c.document_id::text = ANY($3::text[]))
 		ORDER BY rank DESC, c.document_id, c.chunk_index
 		LIMIT $2
@@ -221,6 +369,10 @@ func (s *Store) SearchDocuments(ctx context.Context, query string, limit int, do
 	if err != nil {
 		return nil, fmt.Errorf("search documents: %w", err)
 	}
+	return scanSearchResults(rows)
+}
+
+func scanSearchResults(rows pgx.Rows) ([]SearchResult, error) {
 	defer rows.Close()
 	var results []SearchResult
 	for rows.Next() {
