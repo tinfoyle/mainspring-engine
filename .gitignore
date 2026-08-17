@@ -17,3 +17,6 @@ Thumbs.db
 **/*.test
 **/*.out
 **/tmp/
+
+# Workspace-local toolchains used for reproducible development.
+.tools/

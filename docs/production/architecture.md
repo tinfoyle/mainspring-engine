@@ -5,38 +5,46 @@
 
 ## 1. System context
 
-Mainspring is a tenant-isolated business operating system whose AI workers operate inside application-owned workflows.
+Infinite Ocean: Spyglass is an account-isolated business operating system whose AI workers operate inside application-owned workflows.
 
 ```mermaid
 flowchart TB
-    Owner["Business owner or member"] --> Edge["Edge, TLS, and rate limits"]
+    Visitor["Visitor"] --> Edge["CDN, WAF, TLS, ingress"]
+    Member["Authenticated member"] --> Edge
     ExternalAgent["Authorized external agent"] --> Edge
-    PlatformAdmin["Platform operator"] --> Edge
+    Operator["Platform operator"] --> Edge
 
-    Edge --> Control["Control-plane API"]
-    Edge --> TenantAPI["Tenant API and web workspace"]
-    Edge --> MCP["Tenant MCP transport"]
+    Edge --> Website["infiniteocean.net public website"]
+    Edge --> AccountAPI["Identity, Account, Catalog, Billing API"]
+    Edge --> Router["Spyglass application router"]
+    Edge --> MCP["Account-bound MCP transport"]
 
-    Control --> ControlDB["Control database"]
-    Control --> Provisioning["Provisioning workflow"]
+    AccountAPI --> GlobalDB["Global control database"]
+    AccountAPI --> Stripe["Stripe Checkout and Portal"]
+    Stripe --> BillingInbox["Signed webhook inbox and workers"]
+    BillingInbox --> GlobalDB
 
-    TenantAPI --> Modules["Tenant application modules"]
-    MCP --> Modules
-    Modules --> TenantDB["Isolated tenant database"]
+    Router --> Directory["Account Directory"]
+    MCP --> Directory
+    Directory --> GlobalDB
+    Router --> Cell["Assigned application cell"]
+    MCP --> Cell
+
+    Cell --> Modules["Account-scoped application modules"]
+    Modules --> CellDB["Cell account-data PostgreSQL with RLS"]
     Modules --> Objects["Encrypted object storage"]
     Modules --> Temporal["Temporal coordination"]
-
-    Temporal --> Worker["Tenant workflow worker"]
-    Worker --> Execution["Execution engine"]
+    Temporal --> Workers["Shared workload-specific workers"]
+    Workers --> Execution["Execution engine"]
     Execution --> RunnerController["Private runner controller"]
-    RunnerController --> Runner["Ephemeral constrained runner"]
+    RunnerController --> Runner["Ephemeral constrained runner job"]
     Runner --> Provider["Model provider"]
     Execution --> Broker["Capability broker"]
-    Broker --> Knowledge["Knowledge and RAG"]
+    Broker --> Knowledge["Knowledge and retrieval"]
     Broker --> Connectors["Scoped external connectors"]
 ```
 
-The first production release keeps the control plane physically separate from tenant business data and keeps a physical database and credential boundary per tenant.
+The global control plane is physically separate from customer business data. Each cell serves many Accounts through shared stateless workloads and a cell database protected by explicit account scope, relational constraints, and row-level security. There is no always-on application stack per ordinary Account.
 
 ## 2. Runtime modes
 
@@ -44,14 +52,16 @@ One signed application artifact supports distinct process modes so supply-chain 
 
 | Mode | Responsibility | Privileges |
 |---|---|---|
-| `control` | Tenant registry, subscriptions, provisioning requests, platform operations | Control database; Temporal control namespace; no tenant record queries |
-| `gateway` | Host validation, tenant route resolution, forwarding identity | Read-only route registry; no tenant databases |
-| `tenant-api` | Browser/API/MCP requests for one resolved tenant | Tenant database and tenant-scoped service credentials; no Docker socket |
-| `worker` | Temporal activities and durable business automation | Tenant database, capability broker, runner-controller client |
-| `runner-controller` | Create, cancel, and reconcile ephemeral provider containers | Container runtime; private network only; no business database |
+| `website` | Public company/product pages, package discovery, pricing, signup/login entry | Public catalog; no customer business data or payment mutation |
+| `account-api` | Identity, Accounts, Memberships, Catalog, Entitlements, Billing, Account Directory, platform operations | Global control database; no account business-record queries |
+| `app-router` | Authenticate selected Account, resolve its cell, sign route context | Bounded directory cache; no cell data queries |
+| `app-api` | Browser/API/MCP use cases for Accounts assigned to one cell | One cell database, object store, account context; no Kubernetes authority |
+| `worker` | Temporal activities and durable business automation for one cell/workload class | One cell database, capability broker, runner-controller client |
+| `billing-worker` | Verify/project queued Stripe events and reconcile provider state | Billing subset of global database and Stripe adapter; no business data |
+| `runner-controller` | Create, cancel, and reconcile ephemeral provider runner jobs | Narrow Kubernetes workload authority; private network; no business database |
 | `runner` | Execute one bounded provider invocation | Disposable workspace, provider credential, short-lived tool token |
-| `migrate` | Apply verified control or tenant schema migrations | Migration credential only; never used by serving processes |
-| `provision` | Create tenant infrastructure through a provisioner port | Narrow infrastructure authority and control-plane workflow identity |
+| `migrate` | Apply verified global or cell schema migrations | Migration credential only; never used by serving processes |
+| `placement` | Assign or move Accounts between existing cells | Account Directory and migration workflow authority; no Kubernetes creation on signup |
 
 Readiness checks validate required downstreams for the mode. Liveness checks report only whether the process can continue making progress; they do not restart a healthy process merely because a connector is unavailable.
 
@@ -81,7 +91,30 @@ Interfaces belong to the code that consumes them. Do not introduce an applicatio
 
 ## 4. Domain relationships
 
-### 4.1 Workspace and execution
+### 4.1 Identity, account, and commercial access
+
+```text
+User
+  is a system-wide login identity
+Membership
+  grants a User a role in one Spyglass Account
+Account
+  owns business data, lifecycle, cell placement, billing relationship, and entitlements
+FeaturePackage
+  identifies a versioned capability group such as Work, Agents, Finance, or Marketing
+Plan and Offer
+  describe a published commercial selection and map it to provider prices
+Subscription
+  projects billed provider state for one Account
+EntitlementGrant
+  grants package access from free plan, subscription, trial, promotion, grandfathering, or support override
+EntitlementSnapshot
+  is the immutable effective access and limit projection consumed at runtime
+```
+
+Authentication establishes a User. Account selection plus an active Membership establishes where that User is acting. Entitlement evaluation establishes which package use cases and limits are available. These checks remain distinct so a User can belong to multiple Accounts and a free Account can exist without billing information.
+
+### 4.2 Workspace and execution
 
 ```text
 Boardroom
@@ -102,7 +135,7 @@ Message
 
 The run plan is immutable after preparation except for deterministic application-owned delegation expansion. A workflow never looks up mutable persona configuration to reinterpret an already prepared turn.
 
-### 4.2 Work and attention
+### 4.3 Work and attention
 
 ```text
 WorkItem
@@ -119,7 +152,7 @@ ExternalAction
 
 Work state is not inferred from workflow history. Temporal observes and coordinates work; the Work module is authoritative for visible lifecycle.
 
-### 4.3 Baseline and knowledge
+### 4.4 Baseline and knowledge
 
 ```text
 BaselineAssessment
@@ -213,28 +246,30 @@ Compatibility database values are mapped at the adapter edge and are not carried
 ### Events
 
 - Represent completed facts: `WorkItemCompleted`, `HumanInputAnswered`, `ActionApproved`.
-- Include event ID, schema version, tenant ID, aggregate ID, timestamp, causation, correlation, and actor.
+- Include event ID, schema version, account ID when scoped, aggregate ID, timestamp, causation, correlation, and actor.
 - Are written transactionally with the aggregate change using an outbox where asynchronous delivery is required.
 - Consumers are idempotent and record their processing checkpoint.
 - Sensitive payloads contain references or redacted summaries rather than copied document bodies or credentials.
 
 Use synchronous module calls when the caller requires an immediate invariant. Use events for projections, notifications, and independently recoverable reactions. Do not add an event bus merely to avoid a clear function call.
 
-## 7. Tenancy and authorization
+## 7. Account isolation and authorization
 
-### Tenant resolution
+### Identity, Account, and cell resolution
 
-1. Edge validates the host and forwards a signed route identity or resolves through a trusted internal gateway.
-2. Session or bearer authentication yields an actor.
-3. Tenant middleware verifies route tenant, session tenant, requested resource tenant, and runtime assignment.
-4. A `TenantContext` is created once and passed explicitly.
-5. Database resolution selects the tenant credential using the immutable tenant ID, never a user-facing slug.
+1. Edge validates the host and forwards trusted ingress metadata.
+2. Session or bearer authentication yields a system-wide User or workload actor.
+3. The requested Account is selected explicitly; middleware verifies active Membership, Account state, and allowed role.
+4. The Account Directory resolves immutable `account_id` to `cell_id` and `placement_generation`; a slug is never routing authority.
+5. The router signs internal route context and the target cell verifies it.
+6. An immutable `AccountContext` is created once and passed explicitly to use cases, workflows, jobs, and repositories.
+7. The cell opens a transaction on its shared pool and sets transaction-local account context for RLS.
 
 ### Authorization layers
 
 1. Platform authentication and platform role.
-2. Tenant membership and state.
-3. Tenant role and feature entitlement.
+2. Account Membership and Account state.
+3. Membership role and effective Feature Package entitlement.
 4. Object-level relationship, such as conversation membership or assigned responsibility.
 5. Agent persona grant and invocation-bound capability conditions.
 6. Approval or policy authority for consequential effects.
@@ -245,11 +280,14 @@ Authorization decisions return a stable decision code and emit a redacted audit 
 
 ### Database ownership
 
-The control database owns only platform records. A tenant database owns all business records for exactly one immutable tenant ID. Within a tenant database, table ownership is documented by module even if existing table names remain unchanged during migration.
+The global control database owns Users, Accounts, Memberships, Catalog, Billing, Entitlements, Account Directory, and platform records. It does not own ordinary customer business records.
+
+A cell database owns business records for many Accounts assigned to that cell. Every customer-owned table has a non-null immutable `account_id`. Account-local uniqueness and cross-table references include `account_id`; runtime roles do not own protected tables or have `BYPASSRLS`. PostgreSQL RLS uses transaction-local account context as a backstop, while repositories also use explicit account predicates. Table ownership is documented by module.
 
 Repositories:
 
 - Accept `context.Context` and a module-level transaction interface.
+- Require `AccountContext` for every account-owned operation and reject absent or conflicting scope.
 - Use typed IDs and scan into persistence records before mapping to domain objects.
 - Implement optimistic concurrency for records with competing writers.
 - Return classified errors: not found, conflict, constraint, unavailable, and corruption.
@@ -258,13 +296,13 @@ Repositories:
 
 ### Transactions
 
-A use case declares one transaction boundary. Cross-module invariants use a coordinating application service whose transaction supplies module repository adapters over the same tenant connection. If a future deployment splits a module, the coordinating contract must be redesigned rather than pretending a distributed transaction exists.
+A use case declares one transaction boundary. The adapter sets RLS account context with `SET LOCAL` at transaction start. Cross-module invariants use a coordinating application service whose transaction supplies module repository adapters over the same cell connection. Global-to-cell operations use durable workflows, outboxes, and idempotent reconciliation rather than distributed transactions.
 
 ### Documents and object storage
 
 The database stores metadata, extracted bounded text, chunk identity, revision provenance, and object references. Original binaries live in encrypted object storage with:
 
-- Tenant-prefixed immutable keys.
+- Account-prefixed immutable keys whose requested account is verified before signed access is issued.
 - Content hash and size validation.
 - Quarantine and malware-scan status.
 - Server-side encryption and restricted service identity.
@@ -296,7 +334,7 @@ It owns:
 - Tool-definition registration.
 - Grant-to-definition visibility.
 - Signed claim verification.
-- Tenant, actor, persona, invocation, expiry, and condition enforcement.
+- Account, actor, persona, invocation, expiry, and condition enforcement.
 - Input schema validation and bounds.
 - Handler invocation and bounded output.
 - Allow/deny/error audit.
@@ -341,7 +379,7 @@ The provider contract includes:
 - Cancellation.
 - Structured usage and classified failure.
 
-The runner receives no database credential, Docker socket, tenant integration secret, or long-lived capability. It runs as non-root with a read-only root filesystem, dropped capabilities, bounded tmpfs, CPU/memory/PID/time limits, an allowlisted egress policy, and a disposable work directory.
+The runner receives no database credential, Docker socket, account integration secret, Kubernetes API authority, or long-lived capability. It runs as non-root with a read-only root filesystem, dropped capabilities, bounded tmpfs, CPU/memory/PID/time limits, an allowlisted egress policy, and a disposable work directory.
 
 The runner controller is private privileged infrastructure. Every container has an invocation label and lease so startup and periodic reconciliation can remove orphans safely.
 
@@ -350,7 +388,16 @@ The runner controller is private privileged infrastructure. Every container has 
 Route organization mirrors features, not page technology:
 
 ```text
-/api/v1/session
+/api/v1/identity/*
+/api/v1/users/me
+/api/v1/accounts
+/api/v1/accounts/{account_id}/memberships
+/api/v1/accounts/{account_id}/entitlements
+/api/v1/catalog/public
+/api/v1/accounts/{account_id}/checkout-sessions
+/api/v1/accounts/{account_id}/billing-portal-sessions
+/api/v1/accounts/{account_id}/billing
+/webhooks/stripe
 /api/v1/work-items
 /api/v1/attention
 /api/v1/baselines
@@ -365,6 +412,8 @@ Route organization mirrors features, not page technology:
 ```
 
 The API version is independent from the prototype's internal `/api/v2` label. Compatibility adapters may expose old paths temporarily.
+
+Public catalog endpoints expose only published presentation data and opaque local Offer IDs. Stripe webhook ingestion is a separate raw-body, signature-verified surface. Account-scoped routes verify that URL Account, Membership, route context, cell assignment, resource Account, and entitlement agree. Package denial uses stable machine-readable errors and applies equally through HTTP, MCP, schedules, workers, and agent tools.
 
 SSE streams publish lightweight invalidation or resource events:
 
@@ -384,12 +433,19 @@ Clients refetch authoritative resources after an invalidation. Streams are not t
 ## 14. Frontend architecture
 
 ```text
+website/
+  public company and product routes
+  package and pricing pages
+  signup, login, legal, support
 ui/src/
   app/
     router/
     providers/
     shell/
   features/
+    account/
+    packages/
+    billing/
     work/
       api/
       components/
@@ -415,6 +471,8 @@ ui/src/
 Rules:
 
 - Features import shared primitives, never another feature's private components.
+- Account selection is explicit; changing Account cancels in-flight account queries and replaces account-keyed caches.
+- Package-aware navigation improves discovery but is never treated as authorization.
 - Server state stays in TanStack Query; local UI state stays local or in a narrowly scoped store.
 - Query keys are generated from resource identity and filters.
 - Mutations invalidate or update exact resources; broad cache clearing is avoided.
@@ -433,12 +491,12 @@ Configuration is typed, documented, and validated at process start.
 - Each runtime mode receives only the secrets it requires.
 - Secret values are redacted from logs, errors, traces, panic reports, and support exports.
 - Encryption keys are versioned so credentials can be rewrapped during rotation.
-- Provider auth is isolated from tenant integration credentials.
+- Provider auth is isolated from account integration credentials.
 - Configuration exposes safe effective values on an operator endpoint without secret material.
 
 ## 16. Observability
 
-All telemetry carries request/correlation ID, service mode, release, environment, and safe tenant hash. Raw document content, prompts, message bodies, credentials, email content, and owner answers are excluded by default.
+All telemetry carries request/correlation ID, service mode, release, environment, cell, and safe account hash. Raw document content, prompts, message bodies, credentials, email content, and owner answers are excluded by default.
 
 Required signals include:
 
@@ -450,6 +508,8 @@ Required signals include:
 - Tool allow/deny/error, latency, result bytes, and capability name.
 - Approval age, human-input age, unknown actions, outbox age, and reconciliation outcome.
 - Document ingestion, extraction failure, indexing lag, retrieval latency, and citation validation failure.
+- Signup completion, cell placement, entitlement projection age, billing webhook backlog, reconciliation mismatch, and package denials.
+- Per-cell saturation, account fairness, queue age, pod scaling latency, PostgreSQL connection headroom, and placement capacity.
 
 Trace propagation stops at provider boundaries that cannot safely accept internal trace context; correlation continues through application IDs.
 
@@ -462,9 +522,11 @@ Production changes progress through:
 3. Deploy to an ephemeral environment from the produced artifact.
 4. Run end-to-end and security smoke tests.
 5. Deploy to staging and execute synthetic flows.
-6. Migrate a canary tenant cohort.
+6. Migrate an internal Account cohort and deploy to a canary cell.
 7. Compare health, business invariants, costs, and compatibility mismatches.
-8. Increase cohorts with automated stop conditions.
+8. Increase cell and Account cohorts with automated stop conditions.
 9. Retain the previous application image and backward-compatible schema during the rollback window.
 
 Database rollback normally means application rollback against additive schema, not reversing a migration that may already contain customer writes.
+
+Kubernetes uses separate shared deployments for the website, account API, app router/API, workflow workers, ingestion/indexing workers, connector workers, billing workers, and runner controller. HPA and event-driven scaling use CPU/request signals plus queue age and Temporal schedule-to-start latency. Resource bounds, fair admission, topology spread, disruption budgets, and downstream connection/provider ceilings prevent scaling from simply moving overload elsewhere. See [kubernetes-topology.md](kubernetes-topology.md).

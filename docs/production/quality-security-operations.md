@@ -20,7 +20,7 @@ Production confidence comes from complementary test layers. End-to-end tests alo
 | Frontend unit/component | Every change | Rendering, forms, cache updates, accessibility, error states |
 | Browser E2E | Pull request subset; full scheduled/release | Critical cross-surface user journeys |
 | Security | Every change plus scheduled dynamic tests | Dependency, secret, static, authorization, SSRF, upload boundaries |
-| Migration fleet | Release candidate | Upgrade representative tenant snapshots and reconcile invariants |
+| Migration fleet | Release candidate | Upgrade representative Account snapshots and cell schemas; reconcile invariants |
 | Load/soak/failure injection | Scheduled and release gate | Capacity, leaks, recovery, dependency isolation |
 | Restore/DR exercise | Scheduled and major release | Prove backups and operational recovery |
 
@@ -28,13 +28,13 @@ Production confidence comes from complementary test layers. End-to-end tests alo
 
 Tests use injected clocks, ID generators, fake providers, fixed pricing, deterministic embeddings/search fixtures, and controlled connector servers. Retry and timeout tests use virtual workflow time where supported.
 
-No test depends on execution order, a developer mailbox, a shared tenant database, a real clock boundary, or an unversioned remote response.
+No test depends on execution order, a developer mailbox, a real clock boundary, a live payment/provider service, or an unversioned remote response.
 
 ### 1.3 Test data
 
 - Synthetic only; no production customer content in fixtures.
-- Tenant A/Tenant B pairs exist for every authorization and query suite.
-- Representative small, medium, and high-cardinality tenant datasets are generated reproducibly.
+- Account A/Account B pairs sharing one cell exist for every authorization, RLS, queue, object, cache, search, and query suite.
+- Representative small, medium, high-cardinality, and deliberately hot Account datasets are generated reproducibly.
 - Document fixtures cover supported, malformed, oversized, compressed, encrypted, macro-bearing, and adversarial formats.
 - Prompt/tool fixtures include injection attempts and forged citations.
 - Migration snapshots are scrubbed and generated, with recorded schema versions and hashes.
@@ -43,18 +43,20 @@ No test depends on execution order, a developer mailbox, a shared tenant databas
 
 The release suite must cover:
 
-1. Provision tenant, create owner, authenticate, invite member, and enforce roles.
-2. Complete a business baseline and approve its work plan.
-3. Upload evidence, retrieve it in an agent run, preserve citations, and recall it later.
-4. Create agent-owned work, request owner input, reuse a fact, resume, review, and complete.
-5. Run a manager-led boardroom with delegation and synthesis.
-6. Propose, approve, execute, and reconcile an external action without duplication.
-7. Schedule a run across timezone/DST behavior.
-8. Connect and revoke an evidence connector with scoped reads.
-9. Create, post, and reverse a balanced finance entry under correct authorization.
-10. Perform equivalent authorized operations through MCP and deny unauthorized ones.
-11. Lose and restore SSE/network connectivity without lost or duplicated visible state.
-12. Expire a session during a draft and recover without leaking or silently submitting it.
+1. Visit `infiniteocean.net`, register a system User, create a free Account without billing, enter Spyglass, invite a member, switch Accounts, and enforce roles.
+2. Upgrade through Stripe Checkout, process asynchronous billing state, enable paid packages, manage billing in Customer Portal, downgrade safely, and reconcile provider/local state.
+3. Complete a business baseline and approve its work plan.
+4. Upload evidence, retrieve it in an agent run, preserve citations, and recall it later.
+5. Create agent-owned work, request owner input, reuse a fact, resume, review, and complete.
+6. Run a manager-led boardroom with delegation and synthesis.
+7. Propose, approve, execute, and reconcile an external action without duplication.
+8. Schedule a run across timezone/DST behavior.
+9. Connect and revoke an evidence connector with scoped reads.
+10. Create, post, and reverse a balanced finance entry under correct authorization.
+11. Perform equivalent authorized operations through MCP and deny unauthorized ones.
+12. Lose and restore SSE/network connectivity without lost or duplicated visible state.
+13. Expire a session during a draft and recover without leaking or silently submitting it.
+14. Move one Account between cells and restore one Account from backup without affecting neighboring Accounts.
 
 ## 2. Security program
 
@@ -62,7 +64,8 @@ The release suite must cover:
 
 Assets include:
 
-- Tenant identity and membership.
+- System-wide User identity, Account identity, Membership, roles, and sessions.
+- Published Catalog, billing projection, entitlement grants/snapshots, and package limits.
 - Business facts, messages, documents, financial records, and email.
 - Provider, OAuth, SMTP/IMAP, database, signing, and encryption credentials.
 - Capability grants and approval authority.
@@ -70,9 +73,9 @@ Assets include:
 - Docker/Kubernetes control plane and runner infrastructure.
 - Audit records and backups.
 
-Threat actors include unauthenticated internet clients, malicious tenant users, compromised agent/provider output, hostile document/web/email content, compromised connectors, leaked credentials, supply-chain compromise, and privileged operators exceeding intended authority.
+Threat actors include unauthenticated internet clients, malicious Account members, billing/webhook spoofers, compromised agent/provider output, hostile document/web/email content, compromised connectors, leaked credentials, supply-chain compromise, and privileged operators exceeding intended authority.
 
-Review trust boundaries for edge-to-control, edge-to-tenant, tenant-to-database, workflow-to-worker, worker-to-runner-controller, runner-to-provider, runner-to-broker, broker-to-connector, and backup/restore paths.
+Review trust boundaries for browser-to-public-site, browser-to-identity/account API, Stripe-to-webhook ingress, router-to-cell, Account-to-shared-cell-database, workflow-to-worker, worker-to-runner-controller, runner-to-provider, runner-to-broker, broker-to-connector, and global/cell backup/restore paths.
 
 ### 2.2 Authentication and sessions
 
@@ -86,7 +89,7 @@ Production authentication requires an ADR. Minimum requirements:
 - Reauthentication for ownership transfer, credential changes, and high-risk approvals.
 - Brute-force, credential-stuffing, enumeration, and recovery abuse controls.
 - One-time invitation and recovery tokens stored as hashes with expiry and consumption audit.
-- Platform administration isolated from tenant roles and normal tenant sessions.
+- Platform administration isolated from Account roles and normal customer sessions.
 
 ### 2.3 Authorization
 
@@ -95,18 +98,31 @@ Production authentication requires an ADR. Minimum requirements:
 - Role plus relationship checks; role alone is insufficient for sensitive objects.
 - Explicit actor propagation through background and workflow commands.
 - Service identities are narrow and independently revocable.
-- Authorization matrix tests cover role, state, tenant mismatch, ownership, assignment, grant, and object existence.
+- Authorization matrix tests cover User, selected Account, Membership role/state, package entitlement, object relationship, Account mismatch, ownership, assignment, capability grant, and object existence.
 
-### 2.4 Tenant isolation
+### 2.4 Account and cell isolation
 
-- Immutable tenant ID is derived from trusted routing and authenticated context, never request body alone.
-- Physical tenant database credentials remain separate.
-- Connection pools cannot be reused across tenant identity without a verified resolver boundary.
-- Cache keys, object keys, workflow IDs, task queues, log attributes, metrics, and search indexes include safe tenant identity.
-- Cross-tenant test cases exist for every repository and transport.
+- Immutable Account ID is verified from authenticated Membership and trusted cell routing, never request body, slug, or host alone.
+- Global control data and cell business data use separate credentials and service roles.
+- Shared cell connection pools set transaction-local Account context; serving roles cannot own protected tables or bypass RLS.
+- Every customer-owned row has non-null `account_id`; account-local unique and foreign-key relationships include it.
+- Cache keys, object keys, workflow IDs, queue messages, log attributes, controlled metrics, and search indexes include safe Account identity.
+- Cross-account test cases exist for every repository, transport, workflow/job, cache, object, export, and search path.
 - Support/operator access is time-bounded, reason-bound, audited, and customer-visible where policy requires.
 
-### 2.5 Agent and prompt security
+### 2.5 Billing and entitlement security
+
+- The application accepts local Offer IDs only; server-side Catalog mappings select allowlisted Stripe Prices.
+- Checkout success redirects are advisory and never grant access.
+- Stripe signatures are verified against the untouched raw body with mode-specific secrets and replay-age policy.
+- Webhook events are persisted and deduplicated before asynchronous projection; duplicate and out-of-order delivery must converge.
+- Customer Portal sessions are created only after Account role checks and reauthentication where policy requires; return destinations are allowlisted.
+- Runtime authorization reads a local immutable EntitlementSnapshot, not Stripe, browser claims, cached navigation, or plan names.
+- Free, paid, trial, promotion, grandfathered, suspension, safety, and support-override grants have reviewed precedence and complete audit trails.
+- Payment instrument details remain in Stripe; logs, traces, analytics, support exports, and audit events exclude sensitive payment data.
+- Billing support actions are time/reason-bound, cannot silently weaken global safety ceilings, and trigger snapshot recomputation.
+
+### 2.6 Agent and prompt security
 
 - Provider output is untrusted data until schema and policy validation completes.
 - Retrieved documents, web pages, and email are clearly delimited untrusted evidence.
@@ -116,7 +132,7 @@ Production authentication requires an ADR. Minimum requirements:
 - Agent-produced instructions cannot alter persona grants, budgets, approval policy, or orchestration.
 - Sensitive prompt logging is disabled by default and requires audited diagnostic enablement.
 
-### 2.6 Network and SSRF controls
+### 2.7 Network and SSRF controls
 
 - Egress is deny-by-default for runners.
 - Web research occurs through a controlled service boundary.
@@ -126,7 +142,7 @@ Production authentication requires an ADR. Minimum requirements:
 - Response bytes, decompression, redirects, and duration are bounded.
 - Internal service hostnames and credentials never enter public research requests.
 
-### 2.7 File security
+### 2.8 File security
 
 - Verify actual content type independently from filename.
 - Enforce upload, expanded archive, page, entry, character, and extraction-time limits.
@@ -134,9 +150,9 @@ Production authentication requires an ADR. Minimum requirements:
 - Extract in a sandbox with no network and read-only tooling.
 - Never execute macros, scripts, active PDF content, or embedded objects.
 - Escape or safely render extracted HTML and user-controlled filenames.
-- Object storage is private, encrypted, tenant-prefixed, and access logged.
+- Object storage is private, encrypted, Account-prefixed, and access logged.
 
-### 2.8 Secret and key management
+### 2.9 Secret and key management
 
 - No secrets in source, images, Compose files, logs, crash dumps, or workflow payloads.
 - Managed secret store or workload identity in production.
@@ -146,7 +162,7 @@ Production authentication requires an ADR. Minimum requirements:
 - Production startup rejects placeholder, short, shared-purpose, or missing secrets.
 - Secret scanner runs locally, in CI, and against release history.
 
-### 2.9 Supply chain and runtime
+### 2.10 Supply chain and runtime
 
 - Pin and review base images and dependencies.
 - Build in an isolated reproducible pipeline.
@@ -157,12 +173,13 @@ Production authentication requires an ADR. Minimum requirements:
 - Admission policy accepts only signed images from the release pipeline.
 - Critical vulnerability remediation policy has severity-based deadlines and emergency release procedure.
 
-### 2.10 Audit
+### 2.11 Audit
 
 Audit events cover:
 
 - Authentication, session, invitation, and recovery changes.
 - Membership, role, ownership, and administrative access.
+- Account creation/state/cell assignment, Catalog publication, billing transitions, webhook projection/reconciliation, grants, overrides, snapshots, and package denials.
 - Agent/persona configuration and immutable version creation.
 - Capability issuance, tool allow/deny/error, and scope.
 - Baseline fact/evidence changes and document revisions.
@@ -170,7 +187,7 @@ Audit events cover:
 - Approval decisions and action execution/reconciliation.
 - Integration connect, scope change, error, and revoke.
 - Finance create/update/post/void/reversal.
-- Platform provisioning, migration, support access, export, retention, and deletion.
+- Platform placement, cell migration, support access, export, retention, and deletion.
 
 Audit events are append-only, timestamped, actor-attributed, correlated, redacted, retained by policy, and exportable. Application administrators cannot silently rewrite them.
 
@@ -182,10 +199,11 @@ For every dependency, specify timeout, retry class, circuit behavior, degraded e
 
 | Dependency | Expected degraded behavior |
 |---|---|
-| Tenant PostgreSQL | Reject stateful requests; do not accept work that cannot be persisted |
-| Control PostgreSQL | Existing resolved tenant runtimes continue within safe cache TTL; provisioning/admin pause |
+| One cell PostgreSQL | Reject stateful requests for that cell; do not accept work that cannot be persisted; other cells continue |
+| Global control PostgreSQL | Existing Account routes may continue within bounded signed/cache TTL; signup, identity changes, billing management, and placement pause |
+| Stripe | Free/application access continues from local snapshots; Checkout, Portal, projection refresh, and reconciliation degrade visibly |
 | Temporal | Persist commands where possible and show queued state; no local untracked durable substitute |
-| Runner controller | Runs remain queued/retryable; tenant reads and manual work remain available |
+| Runner controller | Runs remain queued/retryable; Account reads and manual work remain available |
 | Model provider | Circuit opens by provider; runs remain visible and recoverable |
 | Knowledge/RAG | Agents declare evidence capability unavailable; no unsupported answer presented as sourced |
 | Email/Drive/research | Only dependent tools degrade; credentials and last successful sync remain visible |
@@ -196,7 +214,7 @@ For every dependency, specify timeout, retry class, circuit behavior, degraded e
 
 Required for:
 
-- Tenant provisioning and inbound billing events.
+- Account creation/placement and inbound billing events.
 - Conversation/run creation.
 - Invocation attempts and message projection.
 - Tool calls with mutations.
@@ -208,7 +226,7 @@ Required for:
 - Finance posting/reversal.
 - Document ingestion and agent publication.
 
-Idempotency records include key, operation kind, actor/tenant, canonical request hash, status, response reference, expiry/retention, and conflict behavior.
+Idempotency records include key, operation kind, actor/Account, canonical request hash, status, response reference, expiry/retention, and conflict behavior.
 
 ### 3.3 Reconciliation
 
@@ -223,22 +241,23 @@ Provide safe reconcilers for:
 - Documents stuck scanning/extracting/indexing.
 - Connector checkpoints and imported source items.
 - Usage reservations without a live invocation.
-- Tenant provisioning resources versus registry state.
+- Account Directory/cell placement versus copied data and active workflows.
+- Stripe Customer/subscription state versus local Billing projections, Entitlement Grants, and snapshots.
 
 Reconcilers are bounded, observable, idempotent, and runnable in dry-run mode. They use application commands, not hidden cross-module SQL fixes.
 
 ### 3.4 Backup and restore
 
-- Automated encrypted control and tenant database backups with point-in-time recovery.
+- Automated encrypted global-control and per-cell database backups with point-in-time recovery.
 - Encrypted object-store versioning/replication according to retention policy.
-- Backup catalog associates tenant, schema version, application compatibility, and encryption-key version.
+- Backup catalog associates global/cell identity, included Account manifests, schema version, application compatibility, and encryption-key version.
 - Restore into an isolated environment first.
 - Run migrations only after verifying the restored schema and artifact compatibility.
 - Reconcile Temporal state, schedules, actions, connector checkpoints, and indexes.
 - Rotate exposed or environment-specific credentials during restore.
-- Run synthetic tenant journeys and data-integrity checks before reopening traffic.
+- Run synthetic Account journeys, RLS/cross-account probes, billing-entitlement checks, and data-integrity checks before reopening traffic.
 
-Restore tests sample different tenant sizes and schema ages. A backup that has not been restored successfully within the policy window is considered unverified.
+Restore tests cover the global control plane, a complete cell, and one Account extracted/restored under policy across different sizes and schema ages. A backup that has not been restored successfully within the policy window is considered unverified.
 
 ### 3.5 Disaster recovery
 
@@ -247,7 +266,7 @@ The initial proposed targets are RPO 15 minutes and RTO 4 hours. Final targets r
 Exercises cover:
 
 - Loss of one application zone.
-- Loss/corruption of tenant database infrastructure.
+- Loss/corruption of one cell database and isolation from unaffected cells.
 - Loss of control database.
 - Loss of object storage region.
 - Temporal cluster failure and recovery.
@@ -258,7 +277,7 @@ Exercises cover:
 
 ### 4.1 Proposed SLIs
 
-- Successful authenticated tenant API requests divided by eligible requests.
+- Successful authenticated Spyglass API requests divided by eligible requests, broken down by cell and workload class.
 - Latency distributions for reads, writes, and durable command acceptance.
 - Run time in queued/preparing/running/awaiting-attention states.
 - Invocation success and retry rate by provider and failure category.
@@ -269,7 +288,9 @@ Exercises cover:
 - Database availability, pool saturation, lock waits, transaction retries, and replica/backup lag.
 - SSE connection errors, reconnect success, cursor replay gaps, and event lag.
 - Retrieval latency, empty results, citation failure, and evaluation quality.
-- Cost and token usage by tenant, run kind, provider, and model.
+- Cost and token usage by Account, package, run kind, provider, and model.
+- Signup completion, entitlement projection age, Stripe webhook/reconciliation backlog, package-denial rate, and Account placement/move health.
+- Cell capacity, queue age, scaling latency, fairness/throttling, database connection headroom, and hot-Account concentration.
 
 ### 4.2 Alert design
 
@@ -277,7 +298,8 @@ Alerts must identify user impact, scope, owning service, likely cause, and runbo
 
 Page-worthy conditions include:
 
-- Tenant isolation or authorization correctness signal.
+- Cross-account isolation, entitlement, or authorization correctness signal.
+- Verified billing projection divergence that may grant or revoke access incorrectly.
 - Consequential action duplication or unexplained payload mismatch.
 - Broad API SLO burn.
 - Database unavailable or restore/backup outside objective.
@@ -290,7 +312,7 @@ Ticket-worthy conditions include gradual capacity saturation, provider cost regr
 
 ## 5. Performance and capacity
 
-Define capacity in terms of active tenants, users, HTTP concurrency, SSE connections, documents/bytes/chunks, work items, conversations/messages, schedules, concurrent invocations, provider tokens, and connector sync volume.
+Define capacity in terms of active Accounts per cell, Users, HTTP concurrency, SSE connections, database rows/bytes/IOPS/connections, documents/bytes/chunks, work items, conversations/messages, schedules, concurrent invocations, provider tokens, connector sync volume, and queue age.
 
 Required tests:
 
@@ -300,7 +322,7 @@ Required tests:
 - Concurrent agent-owned work claims and owner-answer resumes.
 - Large but valid document ingestion and reindex.
 - Provider slowdown and rate limiting.
-- Tenant-fleet startup, migration, backup, and reconciliation.
+- Many-small-Account load, one-hot-Account fairness, burst free signup, cell startup/move/backup/reconciliation, and autoscaling response.
 - 24-hour minimum soak for connection, goroutine, memory, and disk leaks before general availability.
 
 Performance budgets include database query count and bytes, API payload size, JavaScript route chunk size, rendering responsiveness, and external call concurrency.
@@ -310,7 +332,7 @@ Performance budgets include database query count and bytes, API payload size, Ja
 Classify at minimum:
 
 - Public platform content.
-- Tenant metadata.
+- Account and Membership metadata.
 - Confidential business content.
 - Highly sensitive credentials and authentication material.
 - Financial and personnel-related business records.
@@ -318,7 +340,7 @@ Classify at minimum:
 
 For each class define collection purpose, authorized roles/services, encryption, logging rules, retention, export, deletion, backup expiry, and support access.
 
-Tenant deletion is a durable workflow with owner/platform authorization, cooling-off policy, active-run cancellation, connector revocation, database/object deletion, backup-expiry tracking, and final auditable tombstone without retained business content.
+Account deletion is a durable workflow with owner/platform authorization, cooling-off policy, billing cancellation policy, active-run cancellation, connector revocation, cell-row/object/search deletion, global-record minimization, backup-expiry tracking, and a final auditable tombstone without retained business content.
 
 ## 7. Accessibility and UX quality
 
@@ -342,7 +364,8 @@ Automated checks are necessary but not sufficient; release candidates receive ma
 
 Operators need supported tools rather than database access for:
 
-- Tenant/runtime health and placement.
+- Account/cell health, capacity, placement, and move state.
+- Stripe webhook/reconciliation health and account entitlement explanation/recompute.
 - Workflow/run lookup and safe retry/cancel/reconcile.
 - Stuck work lease inspection.
 - Attention and action reconciliation.
@@ -351,14 +374,14 @@ Operators need supported tools rather than database access for:
 - Document ingestion/reindex retry.
 - Migration cohort status and pause/rollback.
 - Backup/restore execution and evidence.
-- Tenant export/deletion progress.
+- Account export/deletion progress across global and cell stores.
 - Time-bounded support access with reason and audit.
 
 Minimum runbooks:
 
 1. API SLO burn.
-2. Tenant cannot authenticate.
-3. Suspected cross-tenant access.
+2. User cannot authenticate or select an Account.
+3. Suspected cross-account access or RLS failure.
 4. PostgreSQL outage or corruption.
 5. Temporal backlog or nondeterminism.
 6. Runner controller failure or orphaned containers.
@@ -367,10 +390,12 @@ Minimum runbooks:
 9. Unknown/duplicate external action.
 10. Email or OAuth credential compromise.
 11. Document malware or extraction incident.
-12. Failed tenant migration.
-13. Restore one tenant.
-14. Regional disaster recovery.
-15. Bad release rollback.
+12. Stripe webhook backlog or billing/entitlement divergence.
+13. Hot Account/noisy-neighbor saturation or failed autoscaling.
+14. Failed Account cell move or cell schema migration.
+15. Restore one Account, one cell, or global control data.
+16. Cell evacuation or regional disaster recovery.
+17. Bad release rollback.
 
 Runbooks list detection, immediate safety actions, diagnosis, recovery, validation, communication, and follow-up evidence.
 
@@ -400,23 +425,24 @@ Runbooks list detection, immediate safety actions, diagnosis, recovery, validati
 - Backup restore and incident exercises meet targets.
 - SLO dashboards and alerts have staging/canary evidence.
 - Penetration-test findings are closed or explicitly risk-accepted.
-- Canary tenant cohort meets stability and reconciliation window.
+- Canary Account/cell cohort meets stability, isolation, scaling, and reconciliation windows.
 - Support and incident teams have exercised the runbooks.
 
 ## 10. Production-readiness review checklist
 
 - [ ] Product invariants are implemented and traced to tests.
 - [ ] Module ownership and dependency rules pass automatically.
-- [ ] Tenant and object authorization matrices pass.
+- [ ] User, Account, Membership, entitlement, capability, object, and RLS authorization matrices pass.
+- [ ] Free signup and Stripe duplicate/out-of-order/failure/reconciliation suites pass.
 - [ ] Threat model is current and mitigations complete.
 - [ ] Secrets and keys have rotation procedures.
 - [ ] Provider and connector degraded modes are verified.
 - [ ] Idempotency and reconciliation cover every retryable effect.
 - [ ] Temporal replay corpus passes.
-- [ ] Schema migration, fleet rollout, and application rollback are rehearsed.
+- [ ] Global/cell schema migration, Account move, cohort rollout, and application rollback are rehearsed.
 - [ ] Backup and restore evidence is current.
 - [ ] SLOs, dashboards, alerts, and runbooks are owned.
-- [ ] Load, soak, and failure-injection results meet budgets.
+- [ ] Many-account load, noisy-neighbor, autoscaling, soak, and failure-injection results meet budgets.
 - [ ] Accessibility review passes critical journeys.
 - [ ] Privacy retention, export, and deletion are implemented.
 - [ ] Artifacts are signed with SBOM and provenance.
