@@ -8,7 +8,7 @@ This repository now contains the first executable production slice for Infinite 
 - `cmd/spyglass`: a development-only composition for the account API.
 - Identity domain: pending User registration and verified activation.
 - Accounts domain: free Account creation and owner Membership.
-- Catalog domain: versioned Feature Packages, free Plan, and a public offer projection that omits Stripe references.
+- Catalog domain: versioned Feature Packages, Free/Team/Operating Plans, and a public offer projection that omits Stripe references.
 - Entitlements domain: grants, deterministic priority evaluation, immutable snapshots, and read versus mutation checks.
 - Placement domain: capacity-aware Account assignment to a shared cell.
 - Registration application flow: verification challenge followed by atomic User/Account/Membership/placement/free-entitlement provisioning.
@@ -21,6 +21,9 @@ This repository now contains the first executable production slice for Infinite 
 - Invitation creation and acceptance for existing system-wide identities. Acceptance creates a Membership, not a duplicate User or per-customer runtime.
 - A responsive private application shell for signup, verification, login, Account switching, invitation acceptance, package visibility, and the operational overview.
 - Raw-body Stripe signature verification, durable event deduplication, leased asynchronous processing, crash recovery, and bounded retry scheduling.
+- Server-created Stripe Customer, hosted Checkout, and Customer Portal sessions using authorized Account roles, UUID idempotency keys, exact return origins, and private Offer-to-Price mappings.
+- Current-object Subscription projection: webhook events are invalidation signals, paid grants are replaced transactionally, snapshots only advance when effective access changes, and `past_due` becomes read-only.
+- Leased reconciliation and verified-event replay boundaries for billing workers and future operator tooling.
 - Global and cell PostgreSQL migration drafts, including Account-scoped row-level security.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, and default-deny networking.
 - GitHub verification for Go format/test/vet and public-site build/lint/production dependency audit.
@@ -47,6 +50,8 @@ DELETE /api/v1/session
 GET  /api/v1/session/accounts
 POST /api/v1/session/account
 POST /api/v1/accounts/{accountID}/invitations
+POST /api/v1/accounts/{accountID}/checkout-sessions
+POST /api/v1/accounts/{accountID}/billing-portal-sessions
 POST /api/v1/invitations/accept
 POST /webhooks/stripe                 # only when a development webhook secret is configured
 ```
@@ -79,16 +84,16 @@ npm run dev
 
 1. Execute the PostgreSQL migrations and repository contracts against disposable real PostgreSQL in CI; no PostgreSQL runtime is available in the current workstation environment.
 2. Add passkeys/MFA, credential recovery, security-event history, reauthentication for sensitive operations, session-management UI, and distributed rate limiting by both identifier and network actor.
-3. Add Catalog draft/review/publication administration, Offer allowlisting, and enforcement adapters for every HTTP/MCP/job/tool entry point.
-4. Add Stripe Checkout and Customer Portal adapters, current-object projection, Subscription/Grant convergence, reconciliation, and operator replay tooling.
+3. Add Catalog draft/review/publication administration and enforcement adapters for every HTTP/MCP/job/tool entry point.
+4. Execute Stripe test-mode contract tests, add audited operator commands over the reconciliation/replay boundaries, and implement billing status/history UI.
 5. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
 6. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.
 
 ## Evidence and current limits
 
 - `go test ./...`, `go vet ./...`, and `govulncheck ./...` pass with Go 1.26.6. Go 1.26.5 was rejected after the vulnerability scan found reachable standard-library advisories fixed by 1.26.6.
-- Rendered browser journey coverage proves signup → verification/password → login → Account shell, and API journey coverage proves invitation → existing identity → Membership → Account list.
+- Rendered browser journey coverage proves signup â†’ verification/password â†’ login â†’ Account shell, and API journey coverage proves invitation â†’ existing identity â†’ Membership â†’ Account list.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
 - PostgreSQL SQL and Kubernetes resources are reviewable but have not been integration-tested or applied from this workstation because neither PostgreSQL nor a Kubernetes/Docker runtime is installed.
-- Stripe event ingestion and queue behavior are tested with signed fixtures; no live/test Stripe account mutation has been performed.
+- Stripe request translation, event ingestion, deduplication, out-of-order convergence, and queue behavior are tested with local fixtures; no Stripe account mutation has been performed.

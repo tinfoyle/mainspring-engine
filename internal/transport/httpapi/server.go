@@ -11,8 +11,10 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
+	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -34,6 +36,8 @@ type Server struct {
 	invitations           *invitations.Service
 	invitationTokens      InvitationTokenSource
 	exposeInvitationToken bool
+	commercialAccess      *commercialaccess.Service
+	commercialOrigin      string
 }
 
 type SessionCookie struct {
@@ -87,6 +91,13 @@ func WithInvitations(service *invitations.Service, tokens InvitationTokenSource,
 	}
 }
 
+func WithCommercialAccess(service *commercialaccess.Service, applicationOrigin string) Option {
+	return func(server *Server) {
+		server.commercialAccess = service
+		server.commercialOrigin = strings.TrimSuffix(applicationOrigin, "/")
+	}
+}
+
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
 	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
 	for _, option := range options {
@@ -107,9 +118,82 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/session/accounts", s.listAccounts)
 	mux.HandleFunc("POST /api/v1/session/account", s.selectAccount)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/invitations", s.createInvitation)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/checkout-sessions", s.createCheckoutSession)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/billing-portal-sessions", s.createBillingPortalSession)
 	mux.HandleFunc("POST /api/v1/invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
+}
+
+func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.commercialRequest(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		OfferCode string `json:"offer_code"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	session, err := s.commercialAccess.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID, AccountID: accountID, OfferCode: input.OfferCode, RequestID: r.Header.Get("Idempotency-Key")})
+	if err != nil {
+		s.writeCommercialError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"session_id": session.ID, "url": session.URL, "expires_at": session.ExpiresAt})
+}
+
+func (s *Server) createBillingPortalSession(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.commercialRequest(w, r)
+	if !ok {
+		return
+	}
+	session, err := s.commercialAccess.Portal(r.Context(), commercialaccess.PortalCommand{ActorUserID: authenticated.Session.UserID, AccountID: accountID, RequestID: r.Header.Get("Idempotency-Key")})
+	if err != nil {
+		s.writeCommercialError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"session_id": session.ID, "url": session.URL, "expires_at": session.ExpiresAt})
+}
+
+func (s *Server) commercialRequest(w http.ResponseWriter, r *http.Request) (sessions.Authenticated, ids.AccountID, bool) {
+	if origin := r.Header.Get("Origin"); origin != "" && origin != s.commercialOrigin {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return sessions.Authenticated{}, "", false
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return sessions.Authenticated{}, "", false
+	}
+	if s.commercialAccess == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "billing_unconfigured", "billing is not configured")
+		return sessions.Authenticated{}, "", false
+	}
+	raw := r.PathValue("accountID")
+	if err := ids.Validate(raw); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_account_id", "account ID is invalid")
+		return sessions.Authenticated{}, "", false
+	}
+	return authenticated, ids.AccountID(raw), true
+}
+
+func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, commercialaccess.ErrInvalidRequestID):
+		writeProblem(w, http.StatusBadRequest, "invalid_idempotency_key", "a UUID Idempotency-Key header is required")
+	case errors.Is(err, commercialaccess.ErrOfferUnavailable):
+		writeProblem(w, http.StatusNotFound, "offer_unavailable", "the selected offer is unavailable")
+	case errors.Is(err, commercialaccess.ErrCustomerRequired):
+		writeProblem(w, http.StatusConflict, "billing_customer_required", "this Account has not started billing")
+	case errors.Is(err, commercialaccess.ErrBillingUnavailable):
+		writeProblem(w, http.StatusServiceUnavailable, "billing_unavailable", "billing is temporarily unavailable")
+	case access.IsDenied(err, access.DenialRole), access.IsDenied(err, access.DenialMembership), access.IsDenied(err, access.DenialAccountUnavailable):
+		writeProblem(w, http.StatusForbidden, "billing_denied", "billing access was denied")
+	default:
+		writeProblem(w, http.StatusServiceUnavailable, "billing_failed", "billing could not be completed")
+	}
 }
 
 func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {

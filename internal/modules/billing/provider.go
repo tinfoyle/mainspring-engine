@@ -37,9 +37,10 @@ type CreateCheckoutCommand struct {
 }
 
 type CreatePortalCommand struct {
-	AccountID  ids.AccountID
-	CustomerID string
-	ReturnURL  string
+	AccountID      ids.AccountID
+	CustomerID     string
+	ReturnURL      string
+	IdempotencyKey string
 }
 
 type HostedSession struct {
@@ -50,6 +51,7 @@ type HostedSession struct {
 
 type ProviderSubscription struct {
 	ID                 string
+	Mode               string
 	CustomerID         string
 	State              string
 	PriceIDs           []string
@@ -57,4 +59,7 @@ type ProviderSubscription struct {
 	CurrentPeriodEnd   time.Time
 	CancelAt           *time.Time
 	ObjectVersion      string
+	AccountID          ids.AccountID
+	OfferCode          string
+	OfferVersion       uint64
 }

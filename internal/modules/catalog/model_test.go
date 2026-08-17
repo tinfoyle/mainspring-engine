@@ -25,3 +25,15 @@ func TestCatalogRejectsOfferPlanVersionMismatch(t *testing.T) {
 		t.Fatal("expected offer version rejection")
 	}
 }
+
+func TestCatalogRejectsPlanWithMissingPackageDependency(t *testing.T) {
+	catalog := Default(time.Now())
+	for index := range catalog.Plans {
+		if catalog.Plans[index].Code == "operating" {
+			delete(catalog.Plans[index].Packages, PackageKnowledge)
+		}
+	}
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("expected missing package dependency to be rejected")
+	}
+}

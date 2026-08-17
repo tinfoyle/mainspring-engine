@@ -43,6 +43,7 @@ The focused design documents are:
 
 - [Target architecture](docs/production/architecture.md)
 - [Website, Accounts, Packages, and Billing](docs/production/accounts-packages-billing.md)
+- [Stripe commercial access operations](docs/production/stripe-operations.md)
 - [Pooled Kubernetes and cell topology](docs/production/kubernetes-topology.md)
 - [Detailed delivery backlog](docs/production/delivery-plan.md)
 - [Quality, security, and operations gates](docs/production/quality-security-operations.md)

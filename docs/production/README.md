@@ -199,7 +199,7 @@ Add subpackages only when the module genuinely contains multiple cohesive concep
 | Platform control | Account directory, cell placement, capacity, migration state, and platform operations | Account business records or customer payment instruments |
 | Website | Infinite Ocean and Spyglass public content, package discovery, signup entry, legal/support surfaces | Authentication truth, entitlement evaluation, or billing mutation |
 
-The detailed designs are in [architecture.md](architecture.md), [accounts-packages-billing.md](accounts-packages-billing.md), and [kubernetes-topology.md](kubernetes-topology.md).
+The detailed designs are in [architecture.md](architecture.md), [accounts-packages-billing.md](accounts-packages-billing.md), [stripe-operations.md](stripe-operations.md), and [kubernetes-topology.md](kubernetes-topology.md).
 
 ## 7. Dependency rules
 

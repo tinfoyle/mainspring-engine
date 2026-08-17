@@ -26,7 +26,7 @@ These origins may be served through one edge and one frontend deployment initial
 
 ## 2. Terminology
 
-The word “account” is often overloaded. Production code uses these explicit concepts:
+The word â€œaccountâ€ is often overloaded. Production code uses these explicit concepts:
 
 ### User
 
@@ -34,7 +34,7 @@ A system-wide human login identity. A User has one authentication identity, prof
 
 ### Spyglass Account
 
-The customer/business boundary for Spyglass. It owns memberships, business data, package entitlements, usage, billing relationship, and lifecycle. It replaces the prototype's use of “tenant” in customer-facing language.
+The customer/business boundary for Spyglass. It owns memberships, business data, package entitlements, usage, billing relationship, and lifecycle. It replaces the prototype's use of â€œtenantâ€ in customer-facing language.
 
 ### Membership
 
@@ -156,7 +156,7 @@ FeaturePackageDefinition
   default_limits
 
 PlanDefinition
-  code                 free | starter | growth | ...
+  code                 free | team | operating | ...
   version
   included_package_grants[]
   availability

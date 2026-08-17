@@ -71,7 +71,13 @@ func Default(now time.Time) PublishedCatalog {
 		{Code: PackageIntegrations, Version: 1, Name: "Integrations", Description: "Scoped, observable external connectors.", Features: []string{"integrations.read", "integrations.connect"}},
 	}
 	free := Plan{Code: "free", Version: 1, Name: "Free", Description: "A real Spyglass Account for exploring the operating model.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled}}
-	return PublishedCatalog{Version: 1, PublishedAt: now.UTC(), Packages: packages, Plans: []Plan{free}, Offers: []Offer{{Code: "free-v1", PlanCode: "free", PlanVersion: 1, Currency: "USD", AmountMinor: 0, BillingInterval: "none", Published: true, EffectiveFrom: now.UTC()}}}
+	team := Plan{Code: "team", Version: 1, Name: "Team", Description: "A focused operating surface for a growing team.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled, PackageWork: ModeEnabled, PackageIntegrations: ModeEnabled}}
+	operating := Plan{Code: "operating", Version: 1, Name: "Operating", Description: "The coordinated Spyglass operating system.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled, PackageWork: ModeEnabled, PackageAgents: ModeEnabled, PackageFinance: ModeEnabled, PackageMarketing: ModeEnabled, PackageIntegrations: ModeEnabled}}
+	return PublishedCatalog{Version: 2, PublishedAt: now.UTC(), Packages: packages, Plans: []Plan{free, team, operating}, Offers: []Offer{
+		{Code: "free-v1", PlanCode: "free", PlanVersion: 1, Currency: "USD", AmountMinor: 0, BillingInterval: "none", Published: true, EffectiveFrom: now.UTC()},
+		{Code: "team-monthly-v1", PlanCode: "team", PlanVersion: 1, Currency: "USD", AmountMinor: 4900, BillingInterval: "month", Published: true, EffectiveFrom: now.UTC()},
+		{Code: "operating-monthly-v1", PlanCode: "operating", PlanVersion: 1, Currency: "USD", AmountMinor: 14900, BillingInterval: "month", Published: true, EffectiveFrom: now.UTC()},
+	}}
 }
 
 func (c PublishedCatalog) Plan(code string) (Plan, bool) {
@@ -119,11 +125,20 @@ func (c PublishedCatalog) Validate() error {
 			return fmt.Errorf("duplicate plan %q", plan.Code)
 		}
 		for code, mode := range plan.Packages {
-			if _, exists := packages[code]; !exists {
+			definition, exists := packages[code]
+			if !exists {
 				return fmt.Errorf("plan %q contains unknown package %q", plan.Code, code)
 			}
 			if mode != ModeEnabled && mode != ModeReadOnly && mode != ModeSuspended {
 				return fmt.Errorf("plan %q contains invalid package mode", plan.Code)
+			}
+			if mode != ModeSuspended {
+				for _, dependency := range definition.Dependencies {
+					dependencyMode, included := plan.Packages[dependency]
+					if !included || dependencyMode == ModeSuspended {
+						return fmt.Errorf("plan %q package %q requires package %q", plan.Code, code, dependency)
+					}
+				}
 			}
 		}
 		plans[plan.Code] = plan

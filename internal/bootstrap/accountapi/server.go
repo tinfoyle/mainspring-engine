@@ -10,8 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	stripeadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
+	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -27,6 +29,8 @@ import (
 type Config struct {
 	DatabaseURL         string
 	StripeWebhookSecret string
+	StripeSecretKey     string
+	StripeAPIVersion    string
 	StripeMode          string
 	MaxDatabaseConns    int32
 	AppOrigin           string
@@ -34,8 +38,10 @@ type Config struct {
 }
 
 type Server struct {
-	Handler http.Handler
-	pool    *pgxpool.Pool
+	Handler           http.Handler
+	BillingProcessor  *billing.Processor
+	BillingReconciler *billing.Reconciler
+	pool              *pgxpool.Pool
 }
 
 type NotificationSender interface {
@@ -120,8 +126,38 @@ func New(ctx context.Context, config Config, sender NotificationSender, logger *
 		pool.Close()
 		return nil, err
 	}
+	stripeProvider, err := stripeadapter.New(config.StripeSecretKey, config.StripeAPIVersion, nil)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if stripeProvider.Mode() != config.StripeMode {
+		pool.Close()
+		return nil, errors.New("Stripe secret key mode does not match configured mode")
+	}
+	commercialService, err := commercialaccess.New(stripeProvider, postgres.NewCommercialAccessRepository(pool), authorizer, func() catalog.PublishedCatalog { return publishedCatalog }, clock, config.AppOrigin, config.StripeMode)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	projector, err := billing.NewProjector(stripeProvider, postgres.NewBillingProjectionRepository(pool), ids.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	processor, err := billing.NewProcessor(postgres.NewBillingInbox(pool), projector, clock, 2*time.Minute)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	reconciler, err := billing.NewReconciler(postgres.NewBillingProjectionRepository(pool), projector, clock, 2*time.Minute)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	apiHandler := httpapi.NewServer(registrations, func() catalog.PublishedCatalog { return publishedCatalog }, nil, false, logger,
 		httpapi.WithBillingWebhook(webhook),
+		httpapi.WithCommercialAccess(commercialService, config.AppOrigin),
 		httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Secure: true}),
 		httpapi.WithAccountAccess(accountAccess),
 		httpapi.WithInvitations(invitationService, nil, false),
@@ -131,7 +167,7 @@ func New(ctx context.Context, config Config, sender NotificationSender, logger *
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: browser.Handler(apiHandler), pool: pool}, nil
+	return &Server{Handler: browser.Handler(apiHandler), BillingProcessor: processor, BillingReconciler: reconciler, pool: pool}, nil
 }
 
 func (s *Server) Close() { s.pool.Close() }

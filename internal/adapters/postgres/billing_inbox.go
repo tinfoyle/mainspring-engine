@@ -85,4 +85,14 @@ func (i *BillingInbox) MarkFailed(ctx context.Context, eventID string, _ time.Ti
 	return err
 }
 
+// Replay is an operator boundary: it requeues a durably stored, previously
+// verified event without accepting a new payload or bypassing projection.
+func (i *BillingInbox) Replay(ctx context.Context, eventID string, now time.Time) error {
+	command, err := i.pool.Exec(ctx, `UPDATE billing_event_inbox SET processing_state='accepted',next_attempt_at=$2,lease_expires_at=NULL,processed_at=NULL,last_error_code=NULL WHERE provider_event_id=$1 AND processing_state IN ('processed','failed')`, eventID, now.UTC())
+	if err == nil && command.RowsAffected() != 1 {
+		return errors.New("billing event is missing or currently processing")
+	}
+	return err
+}
+
 var _ billing.WorkQueue = (*BillingInbox)(nil)
