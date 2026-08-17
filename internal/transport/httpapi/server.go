@@ -9,21 +9,38 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tinfoyle/spyglass-engine/internal/adapters/memory"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 )
 
 type Server struct {
 	registrations  *registration.Service
 	catalog        func() catalog.PublishedCatalog
-	verification   *memory.VerificationSink
+	verification   VerificationTokenSource
 	exposeDevToken bool
+	billingWebhook *billing.WebhookService
 	logger         *slog.Logger
 }
 
-func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification *memory.VerificationSink, exposeDevToken bool, logger *slog.Logger) *Server {
-	return &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
+// VerificationTokenSource is development-only. Production compositions leave
+// it nil so raw verification credentials can never enter an API response.
+type VerificationTokenSource interface {
+	Latest() (registration.VerificationMessage, bool)
+}
+
+type Option func(*Server)
+
+func WithBillingWebhook(service *billing.WebhookService) Option {
+	return func(server *Server) { server.billingWebhook = service }
+}
+
+func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
+	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
+	for _, option := range options {
+		option(server)
+	}
+	return server
 }
 
 func (s *Server) Handler() http.Handler {
@@ -33,7 +50,40 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/catalog/public", s.publicCatalog)
 	mux.HandleFunc("POST /api/v1/registrations", s.beginRegistration)
 	mux.HandleFunc("POST /api/v1/registrations/verify", s.completeRegistration)
+	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
+}
+
+func (s *Server) stripeWebhook(w http.ResponseWriter, r *http.Request) {
+	if s.billingWebhook == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "billing_webhook_unconfigured", "billing webhook ingestion is not configured")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	payload, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_webhook", "webhook payload could not be read")
+		return
+	}
+	result, err := s.billingWebhook.Ingest(r.Context(), payload, r.Header.Get("Stripe-Signature"))
+	if err != nil {
+		switch {
+		case errors.Is(err, billing.ErrInvalidSignature), errors.Is(err, billing.ErrStaleSignature):
+			writeProblem(w, http.StatusBadRequest, "invalid_webhook_signature", "webhook signature verification failed")
+		case errors.Is(err, billing.ErrWrongMode):
+			writeProblem(w, http.StatusBadRequest, "wrong_webhook_mode", "webhook mode does not match this endpoint")
+		case errors.Is(err, billing.ErrInvalidEvent):
+			writeProblem(w, http.StatusBadRequest, "invalid_webhook_event", "webhook event is invalid")
+		default:
+			writeProblem(w, http.StatusServiceUnavailable, "webhook_acceptance_failed", "webhook event could not be durably accepted")
+		}
+		return
+	}
+	status := "accepted"
+	if !result.Accepted {
+		status = "duplicate"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": status, "event_id": result.EventID})
 }
 
 func (s *Server) live(w http.ResponseWriter, _ *http.Request) {
@@ -82,7 +132,7 @@ func (s *Server) beginRegistration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := map[string]any{"registration_id": result.RegistrationID, "expires_at": result.ExpiresAt, "status": "verification_required"}
-	if s.exposeDevToken {
+	if s.exposeDevToken && s.verification != nil {
 		if message, ok := s.verification.Latest(); ok && message.RegistrationID == result.RegistrationID {
 			response["development_verification_token"] = message.Token
 		}

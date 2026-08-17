@@ -11,6 +11,7 @@ type UserID string
 type AccountID string
 type MembershipID string
 type RegistrationID string
+type SessionID string
 type GrantID string
 type CellID string
 

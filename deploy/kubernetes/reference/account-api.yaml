@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: account-api
+  namespace: spyglass-reference
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: account-api}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: account-api, app.kubernetes.io/part-of: spyglass}
+    spec:
+      serviceAccountName: account-api
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: account-api}
+      containers:
+        - name: account-api
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [account-api]
+          ports: [{name: http, containerPort: 8080}]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: http}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: http}, periodSeconds: 15}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: account-api, namespace: spyglass-reference}
+spec:
+  selector: {app.kubernetes.io/name: account-api}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: account-api, namespace: spyglass-reference}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: account-api}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: account-api, namespace: spyglass-reference}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: account-api}
+  minReplicas: 2
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 65}

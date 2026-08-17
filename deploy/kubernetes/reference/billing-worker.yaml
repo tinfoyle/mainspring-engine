@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: billing-worker, namespace: spyglass-reference}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: billing-worker}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: billing-worker, app.kubernetes.io/part-of: spyglass}
+    spec:
+      serviceAccountName: billing-worker
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: billing-worker
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [billing-worker]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}

@@ -2,7 +2,11 @@ package httpapi_test
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -61,6 +65,28 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 }
 
+func TestStripeWebhookHTTPAcceptsThenDeduplicatesSignedEvent(t *testing.T) {
+	secret := "whsec_http_test_secret"
+	t.Setenv("SPYGLASS_STRIPE_WEBHOOK_SECRET", secret)
+	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	defer server.Close()
+	now := time.Now().UTC()
+	payload := []byte(fmt.Sprintf(`{"id":"evt_http_phase2","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_http"}}}`, now.Unix()))
+	header := stripeSignature(secret, now.Unix(), payload)
+	first := postWebhook(t, server.URL+"/webhooks/stripe", payload, header)
+	if first.StatusCode != http.StatusOK || !bytes.Contains(first.Body, []byte(`"status":"accepted"`)) {
+		t.Fatalf("first delivery: %d %s", first.StatusCode, first.Body)
+	}
+	second := postWebhook(t, server.URL+"/webhooks/stripe", payload, header)
+	if second.StatusCode != http.StatusOK || !bytes.Contains(second.Body, []byte(`"status":"duplicate"`)) {
+		t.Fatalf("duplicate delivery: %d %s", second.StatusCode, second.Body)
+	}
+	tampered := postWebhook(t, server.URL+"/webhooks/stripe", append(payload, ' '), header)
+	if tampered.StatusCode != http.StatusBadRequest {
+		t.Fatalf("tampered delivery status: %d", tampered.StatusCode)
+	}
+}
+
 type response struct {
 	StatusCode int
 	Header     http.Header
@@ -79,4 +105,25 @@ func postJSON(t *testing.T, url, body string) response {
 	defer result.Body.Close()
 	bytes, _ := io.ReadAll(result.Body)
 	return response{StatusCode: result.StatusCode, Header: result.Header.Clone(), Body: bytes}
+}
+
+func postWebhook(t *testing.T, url string, body []byte, signature string) response {
+	t.Helper()
+	request, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Stripe-Signature", signature)
+	client := http.Client{Timeout: 2 * time.Second}
+	result, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer result.Body.Close()
+	responseBody, _ := io.ReadAll(result.Body)
+	return response{StatusCode: result.StatusCode, Header: result.Header.Clone(), Body: responseBody}
+}
+
+func stripeSignature(secret string, timestamp int64, payload []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write(append([]byte(fmt.Sprintf("%d.", timestamp)), payload...))
+	return fmt.Sprintf("t=%d,v1=%s", timestamp, hex.EncodeToString(mac.Sum(nil)))
 }

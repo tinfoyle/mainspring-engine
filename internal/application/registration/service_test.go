@@ -26,6 +26,23 @@ func pad(value int) string {
 	return string(raw)
 }
 
+func TestBeginReplacesExpiredChallenge(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	clock := &fixedClock{value: now}
+	published := catalog.Default(now)
+	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-1"), Region: "us-east", State: "active", SoftLimit: 10}})
+	sink := &memory.VerificationSink{}
+	service := registration.NewService(store, sink, store, published, ids.RandomGenerator{}, clock)
+	command := registration.BeginCommand{Email: "owner@example.com", DisplayName: "Owner", AccountName: "Example", Region: "us-east"}
+	if _, err := service.Begin(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	clock.value = now.Add(31 * time.Minute)
+	if _, err := service.Begin(context.Background(), command); err != nil {
+		t.Fatalf("expired challenge should be replaceable: %v", err)
+	}
+}
+
 func TestFreeRegistrationRequiresVerificationThenProvisionsAtomically(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	clock := fixedClock{value: now}

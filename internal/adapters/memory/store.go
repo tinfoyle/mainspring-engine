@@ -41,7 +41,12 @@ func (s *Store) CreatePending(_ context.Context, pending registration.Pending) e
 	}
 	for _, current := range s.pending {
 		if current.User.PrimaryEmail == pending.User.PrimaryEmail && current.ConsumedAt == nil {
-			return registration.ErrEmailExists
+			if current.ExpiresAt.After(pending.CreatedAt) {
+				return registration.ErrEmailExists
+			}
+			expiredAt := pending.CreatedAt.UTC()
+			current.ConsumedAt = &expiredAt
+			s.pending[current.ID] = current
 		}
 	}
 	s.pending[pending.ID] = pending

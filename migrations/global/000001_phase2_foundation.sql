@@ -12,6 +12,20 @@ CREATE TABLE users (
 );
 CREATE UNIQUE INDEX users_primary_email_unique ON users (primary_email);
 
+CREATE TABLE sessions (
+    id uuid PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES users (id),
+    token_hash bytea NOT NULL UNIQUE,
+    security_version bigint NOT NULL CHECK (security_version > 0),
+    authenticated_at timestamptz NOT NULL,
+    last_seen_at timestamptz NOT NULL,
+    rotated_at timestamptz NOT NULL,
+    expires_at timestamptz NOT NULL,
+    revoked_at timestamptz,
+    CONSTRAINT sessions_time_order CHECK (expires_at > authenticated_at)
+);
+CREATE INDEX sessions_user_active ON sessions (user_id, expires_at) WHERE revoked_at IS NULL;
+
 CREATE TABLE registration_challenges (
     id uuid PRIMARY KEY,
     proposed_user_id uuid NOT NULL,
@@ -26,6 +40,7 @@ CREATE TABLE registration_challenges (
     CONSTRAINT registration_email_normalized CHECK (primary_email = lower(btrim(primary_email)))
 );
 CREATE INDEX registration_challenges_expiry ON registration_challenges (expires_at) WHERE consumed_at IS NULL;
+CREATE UNIQUE INDEX registration_challenges_pending_email_unique ON registration_challenges (primary_email) WHERE consumed_at IS NULL;
 
 CREATE TABLE cells (
     id text PRIMARY KEY,
@@ -107,9 +122,11 @@ CREATE TABLE billing_event_inbox (
     mode text NOT NULL CHECK (mode IN ('test', 'live')),
     payload_hash bytea NOT NULL,
     payload_reference text NOT NULL,
+    payload bytea NOT NULL,
     signature_verified_at timestamptz NOT NULL,
     processing_state text NOT NULL CHECK (processing_state IN ('accepted', 'processing', 'processed', 'failed')),
     attempt_count integer NOT NULL DEFAULT 0,
+    lease_expires_at timestamptz,
     next_attempt_at timestamptz,
     last_error_code text,
     processed_at timestamptz,
