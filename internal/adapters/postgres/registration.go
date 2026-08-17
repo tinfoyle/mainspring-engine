@@ -163,6 +163,9 @@ func insertProvisioned(ctx context.Context, tx pgx.Tx, value registration.Provis
 	if _, err := tx.Exec(ctx, `INSERT INTO users (id,primary_email,display_name,state,email_verified_at,security_version,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, value.User.ID, value.User.PrimaryEmail, value.User.DisplayName, value.User.State, value.User.EmailVerifiedAt, value.User.SecurityVersion, value.User.CreatedAt); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO authentication_identities (user_id,provider,identifier,secret_hash,created_at,updated_at) VALUES ($1,'local',$2,$3,$4,$5)`, value.Credential.UserID, value.User.PrimaryEmail, value.Credential.PasswordHash, value.Credential.CreatedAt, value.Credential.UpdatedAt); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO accounts (id,slug,display_name,account_type,state,cell_id,placement_generation,entitlement_version,created_by_user_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, value.Account.ID, value.Account.Slug, value.Account.DisplayName, value.Account.Type, value.Account.State, value.Account.CellID, value.Account.PlacementGeneration, value.Account.EntitlementVersion, value.Account.CreatedByUserID, value.Account.CreatedAt); err != nil {
 		return err
 	}

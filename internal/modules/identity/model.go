@@ -27,6 +27,13 @@ type User struct {
 	CreatedAt       time.Time
 }
 
+type LocalCredential struct {
+	UserID       ids.UserID
+	PasswordHash string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
 func NormalizeEmail(value string) (string, error) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	parsed, err := mail.ParseAddress(value)

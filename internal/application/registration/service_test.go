@@ -2,6 +2,7 @@ package registration_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -18,6 +19,15 @@ func (c fixedClock) Now() time.Time { return c.value }
 
 type sequenceIDs struct{ next int }
 
+type passwordHasher struct{}
+
+func (passwordHasher) Hash(value string) (string, error) {
+	if len(value) < 12 {
+		return "", errors.New("password must be at least 12 characters")
+	}
+	return "hashed:" + value, nil
+}
+
 func (g *sequenceIDs) New() string { g.next++; return "00000000-0000-4000-8000-" + pad(g.next) }
 func pad(value int) string {
 	digits := "000000000000"
@@ -32,7 +42,7 @@ func TestBeginReplacesExpiredChallenge(t *testing.T) {
 	published := catalog.Default(now)
 	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-1"), Region: "us-east", State: "active", SoftLimit: 10}})
 	sink := &memory.VerificationSink{}
-	service := registration.NewService(store, sink, store, published, ids.RandomGenerator{}, clock)
+	service := registration.NewService(store, sink, store, published, ids.RandomGenerator{}, clock, passwordHasher{})
 	command := registration.BeginCommand{Email: "owner@example.com", DisplayName: "Owner", AccountName: "Example", Region: "us-east"}
 	if _, err := service.Begin(context.Background(), command); err != nil {
 		t.Fatal(err)
@@ -49,7 +59,7 @@ func TestFreeRegistrationRequiresVerificationThenProvisionsAtomically(t *testing
 	published := catalog.Default(now)
 	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 10}})
 	messages := &memory.VerificationSink{}
-	service := registration.NewService(store, messages, store, published, &sequenceIDs{}, clock)
+	service := registration.NewService(store, messages, store, published, &sequenceIDs{}, clock, passwordHasher{})
 
 	begin, err := service.Begin(context.Background(), registration.BeginCommand{Email: "Avery@Example.com", DisplayName: "Avery Johnson", AccountName: "Northstar Studio", Region: "us-east"})
 	if err != nil {
@@ -63,7 +73,7 @@ func TestFreeRegistrationRequiresVerificationThenProvisionsAtomically(t *testing
 		t.Fatal("verification message not sent")
 	}
 
-	result, err := service.Complete(context.Background(), registration.CompleteCommand{Token: message.Token})
+	result, err := service.Complete(context.Background(), registration.CompleteCommand{Token: message.Token, Password: "strong-password"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +89,7 @@ func TestFreeRegistrationRequiresVerificationThenProvisionsAtomically(t *testing
 	if len(result.Snapshot.Packages) == 0 {
 		t.Fatal("free entitlement snapshot is empty")
 	}
-	if _, err := service.Complete(context.Background(), registration.CompleteCommand{Token: message.Token}); err != registration.ErrRegistrationConsumed {
+	if _, err := service.Complete(context.Background(), registration.CompleteCommand{Token: message.Token, Password: "strong-password"}); err != registration.ErrRegistrationConsumed {
 		t.Fatalf("expected consumed error, got %v", err)
 	}
 }
@@ -88,7 +98,7 @@ func TestRegistrationRejectsDuplicatePendingEmail(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	published := catalog.Default(now)
 	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 10}})
-	service := registration.NewService(store, &memory.VerificationSink{}, store, published, &sequenceIDs{}, fixedClock{value: now})
+	service := registration.NewService(store, &memory.VerificationSink{}, store, published, &sequenceIDs{}, fixedClock{value: now}, passwordHasher{})
 	command := registration.BeginCommand{Email: "avery@example.com", DisplayName: "Avery", AccountName: "Northstar"}
 	if _, err := service.Begin(context.Background(), command); err != nil {
 		t.Fatal(err)

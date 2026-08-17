@@ -6,7 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
@@ -20,6 +23,7 @@ type Store struct {
 	pending      map[ids.RegistrationID]registration.Pending
 	users        map[ids.UserID]identity.User
 	usersByEmail map[string]ids.UserID
+	credentials  map[ids.UserID]identity.LocalCredential
 	accounts     map[ids.AccountID]accounts.Account
 	memberships  map[ids.MembershipID]accounts.Membership
 	assignments  map[ids.AccountID]placement.Assignment
@@ -27,10 +31,18 @@ type Store struct {
 	snapshots    map[ids.AccountID]entitlements.Snapshot
 	cells        []placement.Cell
 	catalog      catalog.PublishedCatalog
+	authAttempts map[[32]byte]authAttempt
+	invitations  map[ids.InvitationID]accounts.Invitation
+}
+
+type authAttempt struct {
+	WindowStarted time.Time
+	Count         int
+	LockedUntil   time.Time
 }
 
 func NewStore(publishedCatalog catalog.PublishedCatalog, cells []placement.Cell) *Store {
-	return &Store{pending: map[ids.RegistrationID]registration.Pending{}, users: map[ids.UserID]identity.User{}, usersByEmail: map[string]ids.UserID{}, accounts: map[ids.AccountID]accounts.Account{}, memberships: map[ids.MembershipID]accounts.Membership{}, assignments: map[ids.AccountID]placement.Assignment{}, grants: map[ids.AccountID][]entitlements.Grant{}, snapshots: map[ids.AccountID]entitlements.Snapshot{}, cells: append([]placement.Cell(nil), cells...), catalog: publishedCatalog}
+	return &Store{pending: map[ids.RegistrationID]registration.Pending{}, users: map[ids.UserID]identity.User{}, usersByEmail: map[string]ids.UserID{}, credentials: map[ids.UserID]identity.LocalCredential{}, accounts: map[ids.AccountID]accounts.Account{}, memberships: map[ids.MembershipID]accounts.Membership{}, assignments: map[ids.AccountID]placement.Assignment{}, grants: map[ids.AccountID][]entitlements.Grant{}, snapshots: map[ids.AccountID]entitlements.Snapshot{}, cells: append([]placement.Cell(nil), cells...), catalog: publishedCatalog, authAttempts: map[[32]byte]authAttempt{}, invitations: map[ids.InvitationID]accounts.Invitation{}}
 }
 
 func (s *Store) CreatePending(_ context.Context, pending registration.Pending) error {
@@ -97,6 +109,7 @@ func (s *Store) Complete(_ context.Context, tokenHash [32]byte, now time.Time, b
 	s.pending[pending.ID] = pending
 	s.users[provisioned.User.ID] = provisioned.User
 	s.usersByEmail[provisioned.User.PrimaryEmail] = provisioned.User.ID
+	s.credentials[provisioned.User.ID] = provisioned.Credential
 	s.accounts[provisioned.Account.ID] = provisioned.Account
 	s.memberships[provisioned.Membership.ID] = provisioned.Membership
 	s.assignments[provisioned.Account.ID] = provisioned.Assignment
@@ -127,6 +140,93 @@ func (s *Store) Snapshot(accountID ids.AccountID) (entitlements.Snapshot, bool) 
 	value, ok := s.snapshots[accountID]
 	return value, ok
 }
+
+func (s *Store) LocalIdentity(_ context.Context, email string) (authentication.LocalIdentity, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	userID, ok := s.usersByEmail[email]
+	if !ok {
+		return authentication.LocalIdentity{}, authentication.ErrIdentityNotFound
+	}
+	credential, ok := s.credentials[userID]
+	if !ok {
+		return authentication.LocalIdentity{}, authentication.ErrIdentityNotFound
+	}
+	return authentication.LocalIdentity{User: s.users[userID], PasswordHash: credential.PasswordHash}, nil
+}
+
+func (s *Store) Blocked(_ context.Context, key [32]byte, now time.Time) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	value, ok := s.authAttempts[key]
+	return ok && value.LockedUntil.After(now), nil
+}
+
+func (s *Store) Failure(_ context.Context, key [32]byte, now time.Time, threshold int, lock time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value := s.authAttempts[key]
+	if value.WindowStarted.IsZero() || !value.WindowStarted.Add(lock).After(now) {
+		value = authAttempt{WindowStarted: now}
+	}
+	value.Count++
+	if value.Count >= threshold {
+		value.LockedUntil = now.Add(lock)
+	}
+	s.authAttempts[key] = value
+	return nil
+}
+
+func (s *Store) Success(_ context.Context, key [32]byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.authAttempts, key)
+	return nil
+}
+
+func (s *Store) AccessState(_ context.Context, userID ids.UserID, accountID ids.AccountID) (access.State, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	account, ok := s.accounts[accountID]
+	if !ok {
+		return access.State{}, &access.DeniedError{Code: access.DenialMembership}
+	}
+	var membership accounts.Membership
+	found := false
+	for _, candidate := range s.memberships {
+		if candidate.AccountID == accountID && candidate.UserID == userID {
+			membership = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		return access.State{}, &access.DeniedError{Code: access.DenialMembership}
+	}
+	return access.State{Account: account, Membership: membership, Entitlements: s.snapshots[accountID]}, nil
+}
+
+func (s *Store) Choices(_ context.Context, userID ids.UserID) ([]accountaccess.Choice, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]accountaccess.Choice, 0)
+	for _, membership := range s.memberships {
+		if membership.UserID != userID || membership.State != accounts.MembershipActive {
+			continue
+		}
+		account, ok := s.accounts[membership.AccountID]
+		if !ok || account.State != accounts.AccountActive {
+			continue
+		}
+		result = append(result, accountaccess.Choice{AccountID: account.ID, Slug: account.Slug, DisplayName: account.DisplayName, AccountType: account.Type, Role: membership.Role, CellID: account.CellID, PlacementGeneration: account.PlacementGeneration, Entitlements: s.snapshots[account.ID]})
+	}
+	return result, nil
+}
+
+var _ authentication.IdentitySource = (*Store)(nil)
+var _ authentication.AttemptLimiter = (*Store)(nil)
+var _ access.StateSource = (*Store)(nil)
+var _ accountaccess.Repository = (*Store)(nil)
 
 func subtleHashEqual(left, right [32]byte) bool {
 	var different byte

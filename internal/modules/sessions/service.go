@@ -32,6 +32,7 @@ type Repository interface {
 	Create(context.Context, Session) error
 	Use(context.Context, [32]byte, time.Time, time.Duration) (Session, error)
 	Rotate(context.Context, ids.SessionID, [32]byte, [32]byte, time.Time) (bool, error)
+	Revoke(context.Context, ids.SessionID, time.Time) error
 	RevokeAll(context.Context, ids.UserID, time.Time) error
 }
 
@@ -118,6 +119,13 @@ func (s *Service) RevokeAll(ctx context.Context, userID ids.UserID) error {
 		return errors.New("user ID is required")
 	}
 	return s.repository.RevokeAll(ctx, userID, s.clock.Now().UTC())
+}
+
+func (s *Service) Revoke(ctx context.Context, sessionID ids.SessionID) error {
+	if sessionID == "" {
+		return errors.New("session ID is required")
+	}
+	return s.repository.Revoke(ctx, sessionID, s.clock.Now().UTC())
 }
 
 func newToken() (string, [32]byte, error) {

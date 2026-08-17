@@ -35,11 +35,12 @@ type Actor struct {
 }
 
 type AccountContext struct {
-	AccountID           ids.AccountID
-	CellID              ids.CellID
-	PlacementGeneration uint64
-	EntitlementVersion  uint64
-	Role                accounts.MembershipRole
+	AccountID           ids.AccountID           `json:"account_id"`
+	AccountName         string                  `json:"account_name"`
+	CellID              ids.CellID              `json:"cell_id"`
+	PlacementGeneration uint64                  `json:"placement_generation"`
+	EntitlementVersion  uint64                  `json:"entitlement_version"`
+	Role                accounts.MembershipRole `json:"role"`
 }
 
 type State struct {
@@ -92,7 +93,7 @@ func (a *Authorizer) Authorize(ctx context.Context, actor Actor, accountID ids.A
 	if requirement.Package != "" && !state.Entitlements.Allows(requirement.Package, requirement.Mutation) {
 		return AccountContext{}, &DeniedError{Code: DenialPackage}
 	}
-	return AccountContext{AccountID: accountID, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, Role: state.Membership.Role}, nil
+	return AccountContext{AccountID: accountID, AccountName: state.Account.DisplayName, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, Role: state.Membership.Role}, nil
 }
 
 func containsRole(roles []accounts.MembershipRole, role accounts.MembershipRole) bool {

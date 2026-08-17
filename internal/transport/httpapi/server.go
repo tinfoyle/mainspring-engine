@@ -9,18 +9,38 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
+	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 type Server struct {
-	registrations  *registration.Service
-	catalog        func() catalog.PublishedCatalog
-	verification   VerificationTokenSource
-	exposeDevToken bool
-	billingWebhook *billing.WebhookService
-	logger         *slog.Logger
+	registrations         *registration.Service
+	catalog               func() catalog.PublishedCatalog
+	verification          VerificationTokenSource
+	exposeDevToken        bool
+	billingWebhook        *billing.WebhookService
+	logger                *slog.Logger
+	authentication        *authentication.Service
+	sessions              *sessions.Service
+	cookie                SessionCookie
+	accounts              *accountaccess.Service
+	invitations           *invitations.Service
+	invitationTokens      InvitationTokenSource
+	exposeInvitationToken bool
+}
+
+type SessionCookie struct {
+	Name        string
+	AccountName string
+	Secure      bool
+	Domain      string
 }
 
 // VerificationTokenSource is development-only. Production compositions leave
@@ -29,10 +49,42 @@ type VerificationTokenSource interface {
 	Latest() (registration.VerificationMessage, bool)
 }
 
+type InvitationTokenSource interface {
+	Latest() (invitations.Message, bool)
+}
+
 type Option func(*Server)
 
 func WithBillingWebhook(service *billing.WebhookService) Option {
 	return func(server *Server) { server.billingWebhook = service }
+}
+
+func WithAuthentication(service *authentication.Service, sessionService *sessions.Service, cookie SessionCookie) Option {
+	return func(server *Server) {
+		server.authentication, server.sessions, server.cookie = service, sessionService, cookie
+		if server.cookie.Name == "" {
+			server.cookie.Name = "__Host-spyglass_session"
+		}
+		if server.cookie.AccountName == "" {
+			if server.cookie.Secure {
+				server.cookie.AccountName = "__Host-spyglass_account"
+			} else {
+				server.cookie.AccountName = "spyglass_development_account"
+			}
+		}
+	}
+}
+
+func WithAccountAccess(service *accountaccess.Service) Option {
+	return func(server *Server) { server.accounts = service }
+}
+
+func WithInvitations(service *invitations.Service, tokens InvitationTokenSource, exposeDevelopmentToken bool) Option {
+	return func(server *Server) {
+		server.invitations = service
+		server.invitationTokens = tokens
+		server.exposeInvitationToken = exposeDevelopmentToken
+	}
 }
 
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
@@ -50,8 +102,203 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/catalog/public", s.publicCatalog)
 	mux.HandleFunc("POST /api/v1/registrations", s.beginRegistration)
 	mux.HandleFunc("POST /api/v1/registrations/verify", s.completeRegistration)
+	mux.HandleFunc("POST /api/v1/sessions", s.login)
+	mux.HandleFunc("DELETE /api/v1/session", s.logout)
+	mux.HandleFunc("GET /api/v1/session/accounts", s.listAccounts)
+	mux.HandleFunc("POST /api/v1/session/account", s.selectAccount)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/invitations", s.createInvitation)
+	mux.HandleFunc("POST /api/v1/invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
+}
+
+func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	if s.invitations == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "invitations_unconfigured", "invitations are not configured")
+		return
+	}
+	rawAccountID := r.PathValue("accountID")
+	if err := ids.Validate(rawAccountID); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_account_id", "account ID is invalid")
+		return
+	}
+	var input struct {
+		Email string                  `json:"email"`
+		Role  accounts.MembershipRole `json:"role"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	created, err := s.invitations.Create(r.Context(), invitations.CreateCommand{ActorUserID: authenticated.Session.UserID, AccountID: ids.AccountID(rawAccountID), Email: input.Email, Role: input.Role})
+	if err != nil {
+		s.writeInvitationError(w, err)
+		return
+	}
+	response := map[string]any{"invitation_id": created.InvitationID, "expires_at": created.ExpiresAt, "status": "pending"}
+	if s.exposeInvitationToken && s.invitationTokens != nil {
+		if message, ok := s.invitationTokens.Latest(); ok && message.InvitationID == created.InvitationID {
+			response["development_invitation_token"] = message.Token
+		}
+	}
+	writeJSON(w, http.StatusCreated, response)
+}
+
+func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	if s.invitations == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "invitations_unconfigured", "invitations are not configured")
+		return
+	}
+	var input struct {
+		Token string `json:"token"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	membership, err := s.invitations.Accept(r.Context(), invitations.AcceptCommand{UserID: authenticated.Session.UserID, Token: input.Token})
+	if err != nil {
+		s.writeInvitationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"membership": membership})
+}
+
+func (s *Server) writeInvitationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, invitations.ErrMembershipExists):
+		writeProblem(w, http.StatusConflict, "membership_exists", "the identity is already a member")
+	case errors.Is(err, invitations.ErrInvitationExpired):
+		writeProblem(w, http.StatusGone, "invitation_expired", "the invitation has expired")
+	case errors.Is(err, invitations.ErrInvitationConsumed):
+		writeProblem(w, http.StatusConflict, "invitation_consumed", "the invitation has already been used")
+	case errors.Is(err, invitations.ErrInvitationNotFound), errors.Is(err, invitations.ErrInvitationEmailMismatch):
+		writeProblem(w, http.StatusNotFound, "invitation_not_found", "the invitation is invalid")
+	default:
+		writeProblem(w, http.StatusForbidden, "invitation_denied", "the invitation operation was denied")
+	}
+}
+
+func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	if s.accounts == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "account_access_unconfigured", "account access is not configured")
+		return
+	}
+	choices, err := s.accounts.List(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "account_access_failed", "accounts could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accounts": choices})
+}
+
+func (s *Server) selectAccount(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	if s.accounts == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "account_access_unconfigured", "account access is not configured")
+		return
+	}
+	var input struct {
+		AccountID string `json:"account_id"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if err := ids.Validate(input.AccountID); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_account_id", "account ID is invalid")
+		return
+	}
+	resolved, err := s.accounts.Select(r.Context(), authenticated.Session.UserID, ids.AccountID(input.AccountID))
+	if err != nil {
+		writeProblem(w, http.StatusForbidden, "account_access_denied", "the selected Account is unavailable")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: s.cookie.AccountName, Value: string(resolved.AccountID), Path: "/", HttpOnly: true, Secure: s.cookie.Secure, SameSite: http.SameSiteLaxMode})
+	writeJSON(w, http.StatusOK, map[string]any{"account_context": resolved})
+}
+
+func (s *Server) authenticateSession(w http.ResponseWriter, r *http.Request) (sessions.Authenticated, bool) {
+	if s.sessions == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "authentication_unconfigured", "authentication is not configured")
+		return sessions.Authenticated{}, false
+	}
+	cookie, err := r.Cookie(s.cookie.Name)
+	if err != nil {
+		writeProblem(w, http.StatusUnauthorized, "authentication_required", "authentication is required")
+		return sessions.Authenticated{}, false
+	}
+	authenticated, err := s.sessions.Authenticate(r.Context(), cookie.Value)
+	if err != nil {
+		s.clearSessionCookie(w)
+		writeProblem(w, http.StatusUnauthorized, "session_invalid", "the session is invalid or expired")
+		return sessions.Authenticated{}, false
+	}
+	if authenticated.RotatedToken != "" {
+		s.setSessionCookie(w, authenticated.RotatedToken, authenticated.Session.ExpiresAt)
+	}
+	return authenticated, true
+}
+
+func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if s.authentication == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "authentication_unconfigured", "authentication is not configured")
+		return
+	}
+	var input struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: input.Email, Password: input.Password})
+	if err != nil {
+		if errors.Is(err, authentication.ErrInvalidCredentials) {
+			writeProblem(w, http.StatusUnauthorized, "invalid_credentials", "the email or password is incorrect")
+			return
+		}
+		writeProblem(w, http.StatusServiceUnavailable, "authentication_failed", "authentication could not be completed")
+		return
+	}
+	s.setSessionCookie(w, issued.Token, issued.Session.ExpiresAt)
+	writeJSON(w, http.StatusCreated, map[string]any{"status": "authenticated", "user_id": issued.Session.UserID, "expires_at": issued.Session.ExpiresAt})
+}
+
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	if s.sessions != nil {
+		if cookie, err := r.Cookie(s.cookie.Name); err == nil {
+			if authenticated, err := s.sessions.Authenticate(r.Context(), cookie.Value); err == nil {
+				_ = s.sessions.Revoke(r.Context(), authenticated.Session.ID)
+			}
+		}
+	}
+	s.clearSessionCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) setSessionCookie(w http.ResponseWriter, token string, expires time.Time) {
+	http.SetCookie(w, &http.Cookie{Name: s.cookie.Name, Value: token, Path: "/", Domain: s.cookie.Domain, HttpOnly: true, Secure: s.cookie.Secure, SameSite: http.SameSiteLaxMode, Expires: expires, MaxAge: int(time.Until(expires).Seconds())})
+}
+
+func (s *Server) clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: s.cookie.Name, Value: "", Path: "/", Domain: s.cookie.Domain, HttpOnly: true, Secure: s.cookie.Secure, SameSite: http.SameSiteLaxMode, Expires: time.Unix(1, 0), MaxAge: -1})
 }
 
 func (s *Server) stripeWebhook(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +389,8 @@ func (s *Server) beginRegistration(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) completeRegistration(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		Token string `json:"token"`
+		Token    string `json:"token"`
+		Password string `json:"password"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -152,7 +400,7 @@ func (s *Server) completeRegistration(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", "token is required")
 		return
 	}
-	result, err := s.registrations.Complete(r.Context(), registration.CompleteCommand{Token: input.Token})
+	result, err := s.registrations.Complete(r.Context(), registration.CompleteCommand{Token: input.Token, Password: input.Password})
 	if err != nil {
 		s.writeRegistrationError(w, err)
 		return
@@ -176,6 +424,10 @@ func (s *Server) writeRegistrationError(w http.ResponseWriter, err error) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
+	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
+	if mediaType != "application/json" {
+		return errors.New("content type must be application/json")
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()

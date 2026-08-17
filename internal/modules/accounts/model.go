@@ -13,6 +13,7 @@ type AccountState string
 type AccountType string
 type MembershipRole string
 type MembershipState string
+type InvitationState string
 
 const (
 	AccountFree   AccountType  = "free"
@@ -25,7 +26,10 @@ const (
 	RoleMember        MembershipRole = "member"
 	RoleViewer        MembershipRole = "viewer"
 
-	MembershipActive MembershipState = "active"
+	MembershipActive   MembershipState = "active"
+	InvitationPending  InvitationState = "pending"
+	InvitationAccepted InvitationState = "accepted"
+	InvitationRevoked  InvitationState = "revoked"
 )
 
 type Account struct {
@@ -49,6 +53,20 @@ type Membership struct {
 	State     MembershipState
 	Version   uint64
 	CreatedAt time.Time
+}
+
+type Invitation struct {
+	ID              ids.InvitationID
+	AccountID       ids.AccountID
+	Email           string
+	Role            MembershipRole
+	State           InvitationState
+	InvitedByUserID ids.UserID
+	TokenHash       [32]byte
+	ExpiresAt       time.Time
+	CreatedAt       time.Time
+	AcceptedAt      *time.Time
+	RevokedAt       *time.Time
 }
 
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)

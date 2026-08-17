@@ -46,5 +46,8 @@ func (r *CatalogRepository) Published(ctx context.Context) (catalog.PublishedCat
 	if result.Version == 0 {
 		return catalog.PublishedCatalog{}, errors.New("published catalog has no version")
 	}
+	if err := result.Validate(); err != nil {
+		return catalog.PublishedCatalog{}, err
+	}
 	return result, nil
 }

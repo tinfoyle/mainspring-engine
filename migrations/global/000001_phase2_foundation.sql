@@ -12,6 +12,21 @@ CREATE TABLE users (
 );
 CREATE UNIQUE INDEX users_primary_email_unique ON users (primary_email);
 
+CREATE TABLE authentication_identities (
+    user_id uuid NOT NULL REFERENCES users (id),
+    provider text NOT NULL CHECK (provider IN ('local', 'oidc', 'passkey')),
+    identifier text NOT NULL,
+    secret_hash text,
+    failed_attempts integer NOT NULL DEFAULT 0 CHECK (failed_attempts >= 0),
+    locked_until timestamptz,
+    last_authenticated_at timestamptz,
+    created_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL,
+    PRIMARY KEY (provider, identifier),
+    UNIQUE (user_id, provider),
+    CONSTRAINT local_identity_has_secret CHECK (provider <> 'local' OR secret_hash IS NOT NULL)
+);
+
 CREATE TABLE sessions (
     id uuid PRIMARY KEY,
     user_id uuid NOT NULL REFERENCES users (id),
@@ -25,6 +40,15 @@ CREATE TABLE sessions (
     CONSTRAINT sessions_time_order CHECK (expires_at > authenticated_at)
 );
 CREATE INDEX sessions_user_active ON sessions (user_id, expires_at) WHERE revoked_at IS NULL;
+
+CREATE TABLE authentication_rate_limits (
+    identifier_hash bytea PRIMARY KEY,
+    window_started_at timestamptz NOT NULL,
+    attempt_count integer NOT NULL CHECK (attempt_count > 0),
+    locked_until timestamptz,
+    updated_at timestamptz NOT NULL
+);
+CREATE INDEX authentication_rate_limits_cleanup ON authentication_rate_limits (updated_at);
 
 CREATE TABLE registration_challenges (
     id uuid PRIMARY KEY,
@@ -77,6 +101,23 @@ CREATE TABLE memberships (
 );
 CREATE UNIQUE INDEX memberships_one_active_owner ON memberships (account_id) WHERE role = 'owner' AND state = 'active';
 CREATE INDEX memberships_user_active ON memberships (user_id, account_id) WHERE state = 'active';
+
+CREATE TABLE invitations (
+    id uuid PRIMARY KEY,
+    account_id uuid NOT NULL REFERENCES accounts (id),
+    email text NOT NULL,
+    role text NOT NULL CHECK (role IN ('administrator','billing_admin','member','viewer')),
+    state text NOT NULL CHECK (state IN ('pending','accepted','revoked')),
+    invited_by_user_id uuid NOT NULL REFERENCES users (id),
+    token_hash bytea NOT NULL UNIQUE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL,
+    accepted_at timestamptz,
+    revoked_at timestamptz,
+    CONSTRAINT invitations_email_normalized CHECK (email = lower(btrim(email)))
+);
+CREATE UNIQUE INDEX invitations_pending_account_email ON invitations (account_id,email) WHERE state='pending';
+CREATE INDEX invitations_expiry ON invitations (expires_at) WHERE state='pending';
 
 CREATE TABLE catalog_publications (
     version bigint PRIMARY KEY CHECK (version > 0),

@@ -59,4 +59,9 @@ func (r *SessionRepository) RevokeAll(ctx context.Context, userID ids.UserID, no
 	return err
 }
 
+func (r *SessionRepository) Revoke(ctx context.Context, sessionID ids.SessionID, now time.Time) error {
+	_, err := r.pool.Exec(ctx, `UPDATE sessions SET revoked_at=$2 WHERE id=$1 AND revoked_at IS NULL`, sessionID, now.UTC())
+	return err
+}
+
 var _ sessions.Repository = (*SessionRepository)(nil)

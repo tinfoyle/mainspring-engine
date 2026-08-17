@@ -66,4 +66,17 @@ func (s *SessionStore) RevokeAll(_ context.Context, userID ids.UserID, now time.
 	return nil
 }
 
+func (s *SessionStore) Revoke(_ context.Context, sessionID ids.SessionID, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, ok := s.values[sessionID]
+	if !ok {
+		return nil
+	}
+	revoked := now.UTC()
+	value.RevokedAt = &revoked
+	s.values[sessionID] = value
+	return nil
+}
+
 var _ sessions.Repository = (*SessionStore)(nil)

@@ -7,11 +7,18 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/memory"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
+	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/placement"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/authn"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/transport/browserapp"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/httpapi"
 )
 
@@ -20,8 +27,34 @@ func Handler(logger *slog.Logger) http.Handler {
 	publishedCatalog := catalog.Default(clock.Now())
 	store := memory.NewStore(publishedCatalog, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 1000}})
 	verification := &memory.VerificationSink{}
-	service := registration.NewService(store, verification, store, publishedCatalog, ids.RandomGenerator{}, clock)
-	options := make([]httpapi.Option, 0, 1)
+	passwords := authn.Passwords{}
+	service := registration.NewService(store, verification, store, publishedCatalog, ids.RandomGenerator{}, clock, passwords)
+	sessionService, err := sessions.NewService(memory.NewSessionStore(), ids.RandomGenerator{}, clock, 24*time.Hour, time.Hour, 15*time.Minute)
+	if err != nil {
+		panic(err)
+	}
+	dummyHash, err := passwords.Hash("development dummy password")
+	if err != nil {
+		panic(err)
+	}
+	authenticationService, err := authentication.NewService(store, store, passwords, sessionService, clock, dummyHash)
+	if err != nil {
+		panic(err)
+	}
+	authorizer, err := access.NewAuthorizer(store)
+	if err != nil {
+		panic(err)
+	}
+	accountAccess, err := accountaccess.NewService(store, authorizer)
+	if err != nil {
+		panic(err)
+	}
+	invitationSink := &memory.InvitationSink{}
+	invitationService, err := invitations.NewService(store, invitationSink, authorizer, ids.RandomGenerator{}, clock)
+	if err != nil {
+		panic(err)
+	}
+	options := []httpapi.Option{httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Name: "spyglass_development_session"}), httpapi.WithAccountAccess(accountAccess), httpapi.WithInvitations(invitationService, invitationSink, true)}
 	if secret := os.Getenv("SPYGLASS_STRIPE_WEBHOOK_SECRET"); secret != "" {
 		verifier, err := billing.NewSignatureVerifier(secret, 5*time.Minute, clock)
 		if err != nil {
@@ -33,5 +66,10 @@ func Handler(logger *slog.Logger) http.Handler {
 		}
 		options = append(options, httpapi.WithBillingWebhook(webhook))
 	}
-	return httpapi.NewServer(service, store.Catalog, verification, true, logger, options...).Handler()
+	apiHandler := httpapi.NewServer(service, store.Catalog, verification, true, logger, options...).Handler()
+	browser, err := browserapp.New(service, authenticationService, sessionService, accountAccess, invitationService, store.Catalog, verification, invitationSink, browserapp.Config{SessionCookieName: "spyglass_development_session", AccountCookieName: "spyglass_development_account", TrustedOrigins: []string{"http://localhost:8080", "http://127.0.0.1:8080", "https://infiniteocean.net"}, ExposeDevelopmentTokens: true}, logger)
+	if err != nil {
+		panic(err)
+	}
+	return browser.Handler(apiHandler)
 }

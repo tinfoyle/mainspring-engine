@@ -15,7 +15,11 @@ This repository now contains the first executable production slice for Infinite 
 - PostgreSQL registration, published Catalog, session, access-state, and signed billing-inbox adapters.
 - Production account-api composition that requires PostgreSQL, real verification delivery, a published Catalog, and a valid Stripe webhook configuration.
 - Opaque rotating session tokens with absolute/idle expiry and user-wide revocation.
+- Argon2id local credentials created atomically with verified identity and Account provisioning, plus generic login failures and durable identifier-hash lockouts.
 - A shared authorization policy that keeps authentication, Account Membership, role, Account state, and Feature Package access separate.
+- Explicit Account listing and selection; the selected browser Account is never treated as authorization without rechecking Membership and placement.
+- Invitation creation and acceptance for existing system-wide identities. Acceptance creates a Membership, not a duplicate User or per-customer runtime.
+- A responsive private application shell for signup, verification, login, Account switching, invitation acceptance, package visibility, and the operational overview.
 - Raw-body Stripe signature verification, durable event deduplication, leased asynchronous processing, crash recovery, and bounded retry scheduling.
 - Global and cell PostgreSQL migration drafts, including Account-scoped row-level security.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, and default-deny networking.
@@ -38,8 +42,29 @@ GET  /health/ready
 GET  /api/v1/catalog/public
 POST /api/v1/registrations
 POST /api/v1/registrations/verify
+POST /api/v1/sessions
+DELETE /api/v1/session
+GET  /api/v1/session/accounts
+POST /api/v1/session/account
+POST /api/v1/accounts/{accountID}/invitations
+POST /api/v1/invitations/accept
 POST /webhooks/stripe                 # only when a development webhook secret is configured
 ```
+
+Browser routes on the same private application origin are:
+
+```text
+GET|POST /signup
+GET|POST /verify
+GET|POST /login
+GET      /app
+POST     /app/account
+POST     /app/invitations
+GET|POST /invitations/accept
+POST     /logout
+```
+
+Browser mutations require an allowlisted exact Origin. Production cookies use the `__Host-` prefix, `Secure`, `HttpOnly`, `SameSite=Lax`, and root-only scope. Development uses visibly named non-secure cookies so browsers do not silently reject invalid `__Host-` combinations on localhost.
 
 Development registration responses include `development_verification_token` because there is no email delivery adapter yet. The composition refuses to expose this behavior outside the explicit development environment.
 
@@ -53,7 +78,7 @@ npm run dev
 ## Next production slices
 
 1. Execute the PostgreSQL migrations and repository contracts against disposable real PostgreSQL in CI; no PostgreSQL runtime is available in the current workstation environment.
-2. Add authentication identities, credential/passkey verification, recovery, CSRF-safe cookie transport, invitation and Account-switching endpoints around the session/access primitives.
+2. Add passkeys/MFA, credential recovery, security-event history, reauthentication for sensitive operations, session-management UI, and distributed rate limiting by both identifier and network actor.
 3. Add Catalog draft/review/publication administration, Offer allowlisting, and enforcement adapters for every HTTP/MCP/job/tool entry point.
 4. Add Stripe Checkout and Customer Portal adapters, current-object projection, Subscription/Grant convergence, reconciliation, and operator replay tooling.
 5. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
@@ -61,7 +86,8 @@ npm run dev
 
 ## Evidence and current limits
 
-- `go test ./...` and `go vet ./...` pass with Go 1.26.5.
+- `go test ./...`, `go vet ./...`, and `govulncheck ./...` pass with Go 1.26.6. Go 1.26.5 was rejected after the vulnerability scan found reachable standard-library advisories fixed by 1.26.6.
+- Rendered browser journey coverage proves signup → verification/password → login → Account shell, and API journey coverage proves invitation → existing identity → Membership → Account list.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
 - PostgreSQL SQL and Kubernetes resources are reviewable but have not been integration-tested or applied from this workstation because neither PostgreSQL nor a Kubernetes/Docker runtime is installed.

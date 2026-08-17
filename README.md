@@ -51,7 +51,7 @@ The focused design documents are:
 Current executable production surfaces:
 
 - [`website/`](website/) contains the public Infinite Ocean site and Spyglass product/package/pricing experience.
-- [`cmd/spyglass`](cmd/spyglass/) composes the development Account API.
+- [`cmd/spyglass`](cmd/spyglass/) composes the development Account API and private browser application.
 - [`internal/modules`](internal/modules/) contains Identity, Accounts, Sessions, Access, Catalog, Entitlements, Billing, and Placement boundaries.
 - [`migrations/`](migrations/) contains the initial global and cell PostgreSQL schemas.
 - [`deploy/kubernetes/reference/`](deploy/kubernetes/reference/) captures the review-only pooled workload topology; it is deliberately fail-closed until release and environment overlays supply real artifacts and managed configuration.

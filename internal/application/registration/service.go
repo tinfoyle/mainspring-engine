@@ -42,6 +42,7 @@ type Pending struct {
 
 type Provisioned struct {
 	User       identity.User
+	Credential identity.LocalCredential
 	Account    accounts.Account
 	Membership accounts.Membership
 	Assignment placement.Assignment
@@ -71,6 +72,10 @@ type CellSource interface {
 	AvailableCells(context.Context) ([]placement.Cell, error)
 }
 
+type PasswordHasher interface {
+	Hash(string) (string, error)
+}
+
 type Service struct {
 	repository Repository
 	sender     VerificationSender
@@ -78,11 +83,12 @@ type Service struct {
 	catalog    catalog.PublishedCatalog
 	ids        ids.Generator
 	clock      Clock
+	passwords  PasswordHasher
 	tokenTTL   time.Duration
 }
 
-func NewService(repository Repository, sender VerificationSender, cells CellSource, publishedCatalog catalog.PublishedCatalog, idGenerator ids.Generator, clock Clock) *Service {
-	return &Service{repository: repository, sender: sender, cells: cells, catalog: publishedCatalog, ids: idGenerator, clock: clock, tokenTTL: 30 * time.Minute}
+func NewService(repository Repository, sender VerificationSender, cells CellSource, publishedCatalog catalog.PublishedCatalog, idGenerator ids.Generator, clock Clock, passwords PasswordHasher) *Service {
+	return &Service{repository: repository, sender: sender, cells: cells, catalog: publishedCatalog, ids: idGenerator, clock: clock, passwords: passwords, tokenTTL: 30 * time.Minute}
 }
 
 type BeginCommand struct{ Email, DisplayName, AccountName, Region string }
@@ -120,11 +126,18 @@ func (s *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult,
 	return BeginResult{RegistrationID: pending.ID, ExpiresAt: pending.ExpiresAt}, nil
 }
 
-type CompleteCommand struct{ Token string }
+type CompleteCommand struct{ Token, Password string }
 
 func (s *Service) Complete(ctx context.Context, command CompleteCommand) (Provisioned, error) {
+	if s.passwords == nil {
+		return Provisioned{}, errors.New("password hashing is not configured")
+	}
 	hash := sha256.Sum256([]byte(command.Token))
 	now := s.clock.Now().UTC()
+	passwordHash, err := s.passwords.Hash(command.Password)
+	if err != nil {
+		return Provisioned{}, err
+	}
 	cells, err := s.cells.AvailableCells(ctx)
 	if err != nil {
 		return Provisioned{}, err
@@ -153,7 +166,8 @@ func (s *Service) Complete(ctx context.Context, command CompleteCommand) (Provis
 			return Provisioned{}, err
 		}
 		assignment := placement.Assignment{AccountID: account.ID, CellID: cell.ID, PlacementGeneration: account.PlacementGeneration, State: "active"}
-		return Provisioned{User: user, Account: account, Membership: membership, Assignment: assignment, Grants: grants, Snapshot: snapshot}, nil
+		credential := identity.LocalCredential{UserID: user.ID, PasswordHash: passwordHash, CreatedAt: now, UpdatedAt: now}
+		return Provisioned{User: user, Credential: credential, Account: account, Membership: membership, Assignment: assignment, Grants: grants, Snapshot: snapshot}, nil
 	})
 }
 

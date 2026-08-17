@@ -1,6 +1,11 @@
 package catalog
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
 
 type PackageCode string
 type PackageMode string
@@ -76,4 +81,103 @@ func (c PublishedCatalog) Plan(code string) (Plan, bool) {
 		}
 	}
 	return Plan{}, false
+}
+
+func (c PublishedCatalog) Validate() error {
+	if c.Version == 0 {
+		return errors.New("catalog version is required")
+	}
+	packages := make(map[PackageCode]FeaturePackage, len(c.Packages))
+	for _, item := range c.Packages {
+		if item.Code == "" || item.Version == 0 || strings.TrimSpace(item.Name) == "" {
+			return errors.New("package code, version, and name are required")
+		}
+		if _, exists := packages[item.Code]; exists {
+			return fmt.Errorf("duplicate package %q", item.Code)
+		}
+		packages[item.Code] = item
+	}
+	for _, item := range c.Packages {
+		for _, dependency := range item.Dependencies {
+			if dependency == item.Code {
+				return fmt.Errorf("package %q depends on itself", item.Code)
+			}
+			if _, exists := packages[dependency]; !exists {
+				return fmt.Errorf("package %q has unknown dependency %q", item.Code, dependency)
+			}
+		}
+	}
+	if hasDependencyCycle(packages) {
+		return errors.New("package dependencies contain a cycle")
+	}
+	plans := make(map[string]Plan, len(c.Plans))
+	for _, plan := range c.Plans {
+		if plan.Code == "" || plan.Version == 0 || strings.TrimSpace(plan.Name) == "" {
+			return errors.New("plan code, version, and name are required")
+		}
+		if _, exists := plans[plan.Code]; exists {
+			return fmt.Errorf("duplicate plan %q", plan.Code)
+		}
+		for code, mode := range plan.Packages {
+			if _, exists := packages[code]; !exists {
+				return fmt.Errorf("plan %q contains unknown package %q", plan.Code, code)
+			}
+			if mode != ModeEnabled && mode != ModeReadOnly && mode != ModeSuspended {
+				return fmt.Errorf("plan %q contains invalid package mode", plan.Code)
+			}
+		}
+		plans[plan.Code] = plan
+	}
+	offers := make(map[string]struct{}, len(c.Offers))
+	for _, offer := range c.Offers {
+		if offer.Code == "" || offer.PlanCode == "" || offer.PlanVersion == 0 {
+			return errors.New("offer code and plan version are required")
+		}
+		if _, exists := offers[offer.Code]; exists {
+			return fmt.Errorf("duplicate offer %q", offer.Code)
+		}
+		plan, exists := plans[offer.PlanCode]
+		if !exists || plan.Version != offer.PlanVersion {
+			return fmt.Errorf("offer %q references an unknown plan version", offer.Code)
+		}
+		if offer.AmountMinor < 0 || len(offer.Currency) != 3 || offer.Currency != strings.ToUpper(offer.Currency) {
+			return fmt.Errorf("offer %q has invalid money", offer.Code)
+		}
+		if offer.BillingInterval != "none" && offer.BillingInterval != "month" && offer.BillingInterval != "year" {
+			return fmt.Errorf("offer %q has invalid billing interval", offer.Code)
+		}
+		offers[offer.Code] = struct{}{}
+	}
+	return nil
+}
+
+func hasDependencyCycle(packages map[PackageCode]FeaturePackage) bool {
+	const (
+		visiting = 1
+		visited  = 2
+	)
+	states := map[PackageCode]int{}
+	var visit func(PackageCode) bool
+	visit = func(code PackageCode) bool {
+		if states[code] == visiting {
+			return true
+		}
+		if states[code] == visited {
+			return false
+		}
+		states[code] = visiting
+		for _, dependency := range packages[code].Dependencies {
+			if visit(dependency) {
+				return true
+			}
+		}
+		states[code] = visited
+		return false
+	}
+	for code := range packages {
+		if visit(code) {
+			return true
+		}
+	}
+	return false
 }

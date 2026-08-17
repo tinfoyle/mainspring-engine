@@ -1,0 +1,40 @@
+.account-switch button {
+  width: 100%;
+  margin-top: 7px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 5px;
+  color: var(--green);
+  cursor: pointer;
+  font-size: .58rem;
+  font-weight: 800;
+}
+
+.panel > header > span {
+  color: var(--muted);
+  font-size: .58rem;
+}
+
+.work-empty {
+  min-height: 168px;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  padding: 30px;
+  text-align: center;
+}
+
+.work-empty strong { font-size: .76rem; }
+.work-empty p {
+  max-width: 540px;
+  margin: 0;
+  color: var(--muted);
+  font-size: .66rem;
+  line-height: 1.6;
+}
+
+.mia button:disabled {
+  cursor: default;
+  opacity: .68;
+}
