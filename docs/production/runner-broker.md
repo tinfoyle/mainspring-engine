@@ -1,6 +1,6 @@
 # Runner Broker Identity and Exchange Boundary
 
-- Status: Pod-bound identity and encrypted PostgreSQL exchange executable; HTTP broker, runner client, capability gateway, and deployment evidence pending
+- Status: Pod-bound encrypted HTTPS broker and rotating-token runner client executable; execution harness, capability gateway, and deployment evidence pending
 - Product: Infinite Ocean: Spyglass
 - Parent: [Fair Runner Control Plane](runner-control.md)
 
@@ -63,7 +63,9 @@ The identity verifier deliberately returns no payload. The application broker an
 
 Requests and results use AES-256-GCM with an integer key version. Associated data binds a request to invocation, Account, and profile, and binds a result to invocation and Pod UID. Idempotency compares the SHA-256 digest of canonical plaintext plus immutable expiry or outcome, not randomized ciphertext. A keyring reads retained old versions while new writes use one active version; key material remains outside PostgreSQL.
 
-Producer and broker roles receive execute-only functions and no direct queue or exchange-table access. The application package is transport-neutral. The next slice must expose it through bounded HTTPS endpoints, map errors without identity or content disclosure, append content-free lifecycle audit facts, define terminal exchange retention, enforce current entitlement/capability policy at provisioning, and make the runner reread its rotating projected token for every fetch and submit operation.
+Producer and broker roles receive execute-only functions and no direct queue or exchange-table access. `spyglass runner-broker` exposes only `POST /internal/v1/runner/invocations/{id}/request` and idempotent `PUT /internal/v1/runner/invocations/{id}/result` over TLS 1.3. It rejects redirects, queries, unbounded or noncanonical JSON, malformed/duplicate bearer credentials, and backend-detail disclosure. Responses are non-cacheable. The runner-side client rereads the projected token file for every operation, refuses redirects, disables ambient proxies by default, and maps only content-free problem codes.
+
+The next slice must add the execution harness and cancellation-aware capability gateway, append content-free lifecycle audit facts, define terminal exchange retention, and enforce current entitlement/capability policy at provisioning.
 
 Cancellation revocation must also be enforced by every provider/tool gateway. Pod deletion or broker denial cannot erase plaintext already in runner memory, so a canceled or partitioned runner must have no direct provider, connector, customer-service, or unrestricted internet path on which it can continue side effects.
 

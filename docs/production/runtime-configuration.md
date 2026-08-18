@@ -247,7 +247,25 @@ Every reconciler replica periodically deletes at most the configured batch of co
 
 The controller uses its in-cluster projected service-account token and CA only to create, get, and exactly delete Jobs. Its database role cannot insert work or request cancellation; the separate producer role has no table grants and executes only bounded configure, atomic encrypted-provision, and cancel functions. Ambiguous create results retain their Account slot under `launch_uncertain` until the exact Job or its exact absence is observed. Runner Jobs receive no database credential and set `automountServiceAccountToken: false`; they explicitly project only a short-lived token for the exact configured broker URL. The three compiled resource profiles (`agent-small`, `agent-medium`, and `agent-large`) are deployment policy rather than invocation input.
 
-Do not deploy this process until the executable Pod-bound identity and encrypted exchange boundary are exposed through bounded HTTPS endpoints, consumed by the runner client, and protected by a tested NetworkPolicy/capability-gateway path. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow Job RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation and database exchange revocation are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+## Runner broker values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_CELL_DATABASE_URL` | Required broker credential with execute-only claim/result functions and no direct table grants |
+| `SPYGLASS_CELL_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `10` for the broker process |
+| `SPYGLASS_RUNNER_BROKER_URL` | Exact HTTPS URL used both as projected-token audience and runner client origin |
+| `SPYGLASS_RUNNER_NAMESPACE` | Exact namespace whose runner Pods and Jobs the online verifier accepts |
+| `SPYGLASS_RUNNER_SERVICE_ACCOUNT` | Exact no-RBAC ServiceAccount used by runner Pods |
+| `SPYGLASS_RUNNER_ENCRYPTION_KEYS` | Required comma-separated `positive-version=base64-32-byte-key` keyring; runtime secret, never database configuration |
+| `SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION` | Required positive version present in the keyring; all new envelopes use it |
+| `SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES` | Optional positive result-request limit through 2 MiB; defaults to 2 MiB while the application envelope remains capped at 1 MiB |
+| `SPYGLASS_WORKLOAD_CERT_FILE` / `SPYGLASS_WORKLOAD_KEY_FILE` / `SPYGLASS_WORKLOAD_CA_FILE` | Required rotating TLS 1.3 server material |
+| `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
+| `SPYGLASS_HTTP_ADDRESS` | Optional broker HTTPS address; defaults to `:8443` |
+
+The broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. Its database role has execute-only exchange authority. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
+
+Do not deploy the runner fleet until the executable broker/client boundary is consumed by the execution harness and protected by a tested NetworkPolicy/cancellation-aware capability-gateway path. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation and database exchange revocation are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
 
 ## Work release operator values
 

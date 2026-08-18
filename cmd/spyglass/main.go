@@ -42,6 +42,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	passkeycommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/passkeyadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/routereceiptworker"
+	runnerbrokerbootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/runnerbrokerapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/runnercontroller"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
@@ -88,6 +89,8 @@ func main() {
 		err = runWorkReconciler(ctx, logger)
 	case "runner-controller":
 		err = runRunnerController(ctx, logger)
+	case "runner-broker":
+		err = runRunnerBroker(ctx, logger)
 	case "route-receipt-worker":
 		err = runRouteReceiptWorker(ctx, logger)
 	case "route-canary":
@@ -103,7 +106,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -1074,6 +1077,58 @@ func runRunnerController(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "runner-controller", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
+}
+
+func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Cell, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
+	brokerAudience, err := requiredEnv("SPYGLASS_RUNNER_BROKER_URL")
+	if err != nil {
+		return err
+	}
+	namespace, err := requiredEnv("SPYGLASS_RUNNER_NAMESPACE")
+	if err != nil {
+		return err
+	}
+	runnerServiceAccount, err := requiredEnv("SPYGLASS_RUNNER_SERVICE_ACCOUNT")
+	if err != nil {
+		return err
+	}
+	keys, activeVersion, err := versionedEncryptionKeysEnv("SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 10)
+	if err != nil {
+		return err
+	}
+	maxBody, err := int64Env("SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES", int64(2<<20))
+	if err != nil || maxBody > 2<<20 {
+		return errors.New("SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES must be between 1 and 2097152")
+	}
+	serverTLS, err := workloadidentity.NewServerConfig(workloadTLSFilesEnv())
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	server, err := runnerbrokerbootstrap.New(startup, runnerbrokerbootstrap.Config{
+		CellDatabaseURL: databaseURL, BrokerAudience: brokerAudience, Namespace: namespace,
+		RunnerServiceAccount: runnerServiceAccount, EncryptionKeys: keys, ActiveKeyVersion: activeVersion,
+		MaxDatabaseConns: maxConns, MaxRequestBody: maxBody,
+	}, logger)
+	if err != nil {
+		return err
+	}
+	defer server.Close()
+	return serveHTTPS(ctx, httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), serverTLS, logger)
 }
 
 func runRouteReceiptWorker(ctx context.Context, logger *slog.Logger) error {
