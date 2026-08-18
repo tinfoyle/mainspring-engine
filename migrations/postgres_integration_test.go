@@ -1025,11 +1025,14 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	}
 	var itemRows, eventRows int64
 	var nextNumber uint64
-	if err := rawPool.QueryRow(ctx, `
-		SELECT
-			(SELECT count(*) FROM spyglass.work_items WHERE account_id=$1 AND id=$2),
-			(SELECT count(*) FROM spyglass.work_item_events WHERE account_id=$1 AND work_item_id=$2),
-			(SELECT next_number FROM spyglass.work_item_number_counters WHERE account_id=$1)`, accountA, itemID).Scan(&itemRows, &eventRows, &nextNumber); err != nil || itemRows != 1 || eventRows != 1 || nextNumber != 2 {
+	err = cellPool.WithAccountTx(ctx, accountA, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT
+				(SELECT count(*) FROM spyglass.work_items WHERE account_id=$1 AND id=$2),
+				(SELECT count(*) FROM spyglass.work_item_events WHERE account_id=$1 AND work_item_id=$2),
+				(SELECT next_number FROM spyglass.work_item_number_counters WHERE account_id=$1)`, accountA, itemID).Scan(&itemRows, &eventRows, &nextNumber)
+	})
+	if err != nil || itemRows != 1 || eventRows != 1 || nextNumber != 2 {
 		t.Fatalf("durable Work replay invariant: items=%d events=%d next_number=%d err=%v", itemRows, eventRows, nextNumber, err)
 	}
 
