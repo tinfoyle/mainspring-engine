@@ -16,12 +16,16 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
+	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/approuter"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingworker"
 	catalogcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/catalogadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -41,6 +45,10 @@ func main() {
 		err = runDevelopment(ctx, logger)
 	case "account-api":
 		err = runAccountAPI(ctx, logger)
+	case "app-router":
+		err = runAppRouter(ctx, logger)
+	case "app-api":
+		err = runAppAPI(ctx, logger)
 	case "billing-worker":
 		err = runBillingWorker(ctx, logger)
 	case "notification-worker":
@@ -52,7 +60,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | billing-worker | notification-worker | entitlement-worker | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | billing-worker | notification-worker | entitlement-worker | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -155,6 +163,84 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
+	if err != nil {
+		return err
+	}
+	defer server.Close()
+	return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+}
+
+func runAppRouter(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	issuer, err := requiredEnv("SPYGLASS_ROUTE_ISSUER")
+	if err != nil {
+		return err
+	}
+	keyID, err := requiredEnv("SPYGLASS_ROUTE_SIGNING_KEY_ID")
+	if err != nil {
+		return err
+	}
+	key, err := base64KeyEnv("SPYGLASS_ROUTE_SIGNING_KEY")
+	if err != nil {
+		return err
+	}
+	routes, err := cellRoutesEnv("SPYGLASS_CELL_ROUTES")
+	if err != nil {
+		return err
+	}
+	appOrigin, err := requiredEnv("SPYGLASS_APP_ORIGIN")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
+	if err != nil {
+		return err
+	}
+	lifetime, err := durationEnv("SPYGLASS_ROUTE_CONTEXT_TTL", 20*time.Second)
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	server, err := approuter.New(startup, approuter.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, RouteIssuer: issuer, RouteSigningKeyID: keyID, RouteSigningKey: key, RouteLifetime: lifetime, CellRoutes: routes, SessionCookieName: os.Getenv("SPYGLASS_SESSION_COOKIE_NAME"), SecureCookies: true, TrustedOrigins: []string{appOrigin}}, logger, registration.SystemClock{})
+	if err != nil {
+		return err
+	}
+	defer server.Close()
+	return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+}
+
+func runAppAPI(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	cellID, err := requiredEnv("SPYGLASS_CELL_ID")
+	if err != nil {
+		return err
+	}
+	issuer, err := requiredEnv("SPYGLASS_ROUTE_ISSUER")
+	if err != nil {
+		return err
+	}
+	keys, err := routeVerifyKeysEnv("SPYGLASS_ROUTE_VERIFY_KEYS")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
+	if err != nil {
+		return err
+	}
+	maxBody, err := int64Env("SPYGLASS_MAX_REQUEST_BODY_BYTES", 1<<20)
+	if err != nil || maxBody > 16<<20 {
+		return errors.New("SPYGLASS_MAX_REQUEST_BODY_BYTES must be between 1 and 16777216")
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	server, err := appapi.New(startup, appapi.Config{DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody}, logger, registration.SystemClock{})
 	if err != nil {
 		return err
 	}
@@ -427,6 +513,17 @@ func int32Env(name string, fallback int32) (int32, error) {
 	}
 	return int32(value), nil
 }
+func int64Env(name string, fallback int64) (int64, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return value, nil
+}
 func uint64Env(name string) (uint64, error) {
 	raw, err := requiredEnv(name)
 	if err != nil {
@@ -450,3 +547,54 @@ func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 	return value, nil
 }
 func httpAddress(fallback string) string { return envOr("SPYGLASS_HTTP_ADDRESS", fallback) }
+
+func cellRoutesEnv(name string) (map[ids.CellID]string, error) {
+	values, err := keyValueEnv(name)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[ids.CellID]string, len(values))
+	for key, value := range values {
+		result[ids.CellID(key)] = value
+	}
+	return result, nil
+}
+
+func routeVerifyKeysEnv(name string) (map[string][]byte, error) {
+	values, err := keyValueEnv(name)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string][]byte, len(values))
+	for keyID, encoded := range values {
+		value, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(value) != 32 {
+			return nil, fmt.Errorf("%s key %q must be standard base64 encoding of exactly 32 bytes", name, keyID)
+		}
+		result[keyID] = value
+	}
+	return result, nil
+}
+
+func keyValueEnv(name string) (map[string]string, error) {
+	raw, err := requiredEnv(name)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]string{}
+	for _, entry := range strings.Split(raw, ",") {
+		key, value, found := strings.Cut(entry, "=")
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		if !found || key == "" || value == "" || strings.ContainsAny(key, " \t\r\n") {
+			return nil, fmt.Errorf("%s must contain comma-separated key=value entries", name)
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("%s contains duplicate key %q", name, key)
+		}
+		result[key] = value
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("%s must not be empty", name)
+	}
+	return result, nil
+}

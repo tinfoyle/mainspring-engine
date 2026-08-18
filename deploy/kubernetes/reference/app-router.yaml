@@ -1,30 +1,35 @@
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: app-api-cell-reference, namespace: spyglass-reference}
+metadata: {name: app-router, namespace: spyglass-reference}
 spec:
   replicas: 2
   selector:
-    matchLabels: {app.kubernetes.io/name: app-api, spyglass.io/cell: reference}
+    matchLabels: {app.kubernetes.io/name: app-router}
   template:
     metadata:
-      labels: {app.kubernetes.io/name: app-api, app.kubernetes.io/part-of: spyglass, spyglass.io/cell: reference}
+      labels: {app.kubernetes.io/name: app-router, app.kubernetes.io/part-of: spyglass}
     spec:
-      serviceAccountName: app-api
-      terminationGracePeriodSeconds: 45
+      serviceAccountName: app-router
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: app-router}
       containers:
-        - name: app-api
+        - name: app-router
           image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
-          args: [app-api]
+          args: [app-router]
           ports: [{name: http, containerPort: 8080}]
           env:
             - {name: SPYGLASS_HTTP_ADDRESS, value: ":8080"}
-            - {name: SPYGLASS_CELL_ID, value: "reference"}
           envFrom:
-            - configMapRef: {name: spyglass-cell-reference-runtime}
-            - secretRef: {name: spyglass-app-api-secrets}
+            - configMapRef: {name: spyglass-global-runtime}
+            - secretRef: {name: spyglass-app-router-secrets}
           resources:
-            requests: {cpu: 200m, memory: 256Mi}
-            limits: {cpu: "2", memory: 1Gi}
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -36,26 +41,26 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: app-api-cell-reference, namespace: spyglass-reference}
+metadata: {name: app-router, namespace: spyglass-reference}
 spec:
-  selector: {app.kubernetes.io/name: app-api, spyglass.io/cell: reference}
+  selector: {app.kubernetes.io/name: app-router}
   ports: [{name: http, port: 80, targetPort: http}]
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
-metadata: {name: app-api-cell-reference, namespace: spyglass-reference}
+metadata: {name: app-router, namespace: spyglass-reference}
 spec:
   minAvailable: 1
   selector:
-    matchLabels: {app.kubernetes.io/name: app-api, spyglass.io/cell: reference}
+    matchLabels: {app.kubernetes.io/name: app-router}
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
-metadata: {name: app-api-cell-reference, namespace: spyglass-reference}
+metadata: {name: app-router, namespace: spyglass-reference}
 spec:
-  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: app-api-cell-reference}
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: app-router}
   minReplicas: 2
-  maxReplicas: 30
+  maxReplicas: 20
   metrics:
     - type: Resource
       resource:

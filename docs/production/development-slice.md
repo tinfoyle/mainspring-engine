@@ -40,6 +40,7 @@ This repository now contains the first executable production slice for Infinite 
 - PostgreSQL-backed capacity counters and UUID-keyed reservations with entitlement-version fencing, concurrency-safe admission, idempotent retry/release, conflict detection, and lease expiry reclamation.
 - A typed Work aggregate and transport-neutral application boundary with exhaustive lifecycle/role policy, three-level hierarchy, assignment/provenance values, optimistic versions, Work package enforcement, and governed active-item admission.
 - Pooled-cell Work persistence with Account-local numbers, composite relationships, forced RLS, mutation events, cursor queue/direct-child/summary queries, explicit capacity-release checkpoints, and classified adapter errors.
+- Executable global `app-router` and cell `app-api` modes with session-backed Account authorization, allowlisted cell destinations, short-lived method/target/body-bound route signatures, rotating verification keys, credential stripping, bounded proxying, shared replay receipts, and placement-generation enforcement.
 - Embedded global, cell, and development PostgreSQL migrations with advisory locking, immutable checksums, an application ledger, and a one-shot production runner.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, and default-deny networking.
 - GitHub verification for Go format/test/race/vet, disposable PostgreSQL contracts, vulnerability scanning, and public-site build/lint/production dependency audit.
@@ -115,9 +116,9 @@ npm run dev
 ## Next production slices
 
 1. Add passkeys/MFA, multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
-2. Complete the Work capacity-release reconciler, signed app-router/cell API boundary, generated HTTP contracts, and queue/detail UI described in [work-module.md](work-module.md); then apply the same shared admission boundary to Agents/Knowledge/Finance/Marketing use cases.
+2. Complete the Work capacity-release reconciler, extend the signed app-router/cell API probe into generated Work HTTP contracts, and build the queue/detail UI described in [work-module.md](work-module.md); then apply the same shared admission boundary to Agents/Knowledge/Finance/Marketing use cases.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
-4. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
+4. Replace static cell routing with the bounded directory cache, then implement fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
 5. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.
 
 ## Evidence and current limits

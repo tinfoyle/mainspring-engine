@@ -1,0 +1,107 @@
+package appapi
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
+	"github.com/tinfoyle/spyglass-engine/internal/transport/cellapi"
+)
+
+type Config struct {
+	DatabaseURL      string
+	CellID           ids.CellID
+	RouteIssuer      string
+	RouteVerifyKeys  map[string][]byte
+	MaxDatabaseConns int32
+	MaxRequestBody   int64
+}
+
+type Server struct {
+	Handler http.Handler
+	pool    *pgxpool.Pool
+}
+
+func New(ctx context.Context, config Config, logger *slog.Logger, clock routecontext.Clock) (*Server, error) {
+	if config.DatabaseURL == "" || !routecontext.ValidCellID(config.CellID) || config.RouteIssuer == "" || len(config.RouteVerifyKeys) == 0 || logger == nil || clock == nil {
+		return nil, errors.New("cell app API configuration is required")
+	}
+	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if config.MaxDatabaseConns > 0 {
+		poolConfig.MaxConns = config.MaxDatabaseConns
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, err
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	cellPool, err := database.NewCellPool(pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	receipts, err := postgres.NewRouteContextReceiptRepository(cellPool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	verifier, err := routecontext.NewVerifier(config.RouteIssuer, routecontext.Audience(config.CellID), config.RouteVerifyKeys, routecontext.MaximumLifetime, routecontext.DefaultClockSkew, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	acceptor, err := routecontext.NewAcceptor(verifier, receipts, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	maxBody := config.MaxRequestBody
+	if maxBody == 0 {
+		maxBody = cellapi.DefaultMaxBody
+	}
+	transport, err := cellapi.New(acceptor, logger, maxBody)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return &Server{Handler: withHealth(pool, transport.Handler()), pool: pool}, nil
+}
+
+func (s *Server) Close() { s.pool.Close() }
+
+func withHealth(pool *pgxpool.Pool, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/health/live" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"alive"}`))
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/health/ready" {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			w.Header().Set("Content-Type", "application/json")
+			if err := pool.Ping(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"unavailable"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"status":"ready"}`))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

@@ -3,8 +3,8 @@
 These manifests encode Phase 2 workload and security defaults for review. They
 are intentionally not a deployable environment yet: release automation must
 replace `registry.invalid/...:release-placeholder`, inject managed secret
-references and supply the remaining app-api process mode before promotion. The
-account-api, billing-worker, notification-worker, and entitlement-worker arguments are executable today.
+references and provide environment-specific network/database destinations before promotion. The
+account-api, app-router, cell app-api, billing-worker, notification-worker, and entitlement-worker arguments are executable today.
 
 The reference proves the intended unit of scaling: shared workload classes in
 a cell. Nothing here creates a Deployment, Service, namespace, database, or
@@ -19,7 +19,9 @@ Before an environment overlay may use these resources it must add:
 - HPA custom metrics for request latency, queue age, and schedule-to-start.
 - Tested NetworkPolicy egress destinations and cluster admission policy.
 - Pod monitor, alerts, SLO metadata, and a load-tested replica/connection cap.
-- `spyglass-global-runtime`, `spyglass-account-api-secrets`,
+- `spyglass-global-runtime`, `spyglass-cell-reference-runtime`,
+  `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
+  `spyglass-app-api-secrets`,
   `spyglass-billing-worker-secrets`, and
   `spyglass-notification-worker-secrets`, and
   `spyglass-entitlement-worker-secrets` objects from environment configuration
@@ -27,6 +29,10 @@ Before an environment overlay may use these resources it must add:
   Secrets prevent each worker from receiving webhook, Stripe, or SMTP
   credentials it does not use. The entitlement worker receives only a
   constrained global-database credential.
+- The app-router secret supplies one active route-signing key and the cell API
+  secret supplies the active plus retained verification keys during rotation.
+  The router receives only the global database credential; the cell API
+  receives only its cell database credential.
 - The account API secret supplies `SPYGLASS_NETWORK_ACTOR_KEY`; the environment
   ConfigMap supplies only the exact ingress/load-balancer CIDRs through
   `SPYGLASS_TRUSTED_PROXY_CIDRS`. Leaving the CIDR list empty safely ignores

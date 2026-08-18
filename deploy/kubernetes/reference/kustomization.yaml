@@ -4,6 +4,7 @@ resources:
   - namespace.yaml
   - service-accounts.yaml
   - account-api.yaml
+  - app-router.yaml
   - app-api.yaml
   - billing-worker.yaml
   - notification-worker.yaml

@@ -115,8 +115,8 @@ The UI will send idempotency keys on create and `If-Match`/expected version on m
 ## Remaining delivery order
 
 1. Add a leased cell scan/reconciliation command for terminal rows whose global capacity release is not checkpointed.
-2. Implement signed route-context keys, rotation, replay bounds, placement-generation verification, and directory caching.
-3. Add the executable cell `app-api` mode with separate connection limits/readiness and no global customer-data ownership.
+2. Replace the implemented signed route-context/static route boundary with the bounded directory cache and internal TLS identity described in [routing-boundary.md](routing-boundary.md).
+3. Extend the executable cell `app-api` mode from its Account probe to Work commands and queries without adding global customer-data ownership.
 4. Publish generated Work command/query contracts and problem mappings; add session-backed router endpoints.
 5. Build the Work queue/detail surfaces in the Spyglass shell using the production API, not direct repository calls.
 6. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
@@ -128,4 +128,4 @@ The UI will send idempotency keys on create and `If-Match`/expected version on m
 
 Table-driven domain tests cover every state/role pair and reject invalid construction, stale versions, and missing reasons. Application tests cover role denial, capacity admission, failed-create compensation, and terminal release. The disposable PostgreSQL 17 contract applies every migration twice, runs through a non-owner role, proves guessed cross-Account Work IDs are invisible, exercises Account-local summary/list queries, and proves a stale writer loses after a competing transition.
 
-There is not yet a production Work HTTP route, browser screen, signed app-router, release reconciler, Persona foreign key, or representative-scale query-plan result. The Kubernetes `app-api` resources remain review-only until those executable and operational boundaries exist.
+There is not yet a production Work HTTP route, browser screen, release reconciler, Persona foreign key, or representative-scale query-plan result. The signed app-router/cell app-api Account probe is executable, but it does not yet expose Work. The Kubernetes resources remain review-only until the remaining operational boundaries exist.

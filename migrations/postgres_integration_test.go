@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -40,6 +41,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/authn"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -658,7 +660,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 14 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 15 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
@@ -686,7 +688,7 @@ func testAccountIsolation(t *testing.T, ctx context.Context, owner *pgxpool.Pool
 		t.Fatalf("create serving role: %v", err)
 	}
 	defer func() { _, _ = owner.Exec(context.Background(), `DROP ROLE IF EXISTS `+role) }()
-	if _, err := owner.Exec(ctx, `GRANT USAGE ON SCHEMA spyglass TO `+role+`; GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA spyglass TO `+role); err != nil {
+	if _, err := owner.Exec(ctx, `GRANT USAGE ON SCHEMA spyglass TO `+role+`; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA spyglass TO `+role); err != nil {
 		t.Fatalf("grant serving role: %v", err)
 	}
 
@@ -745,6 +747,56 @@ func testAccountIsolation(t *testing.T, ctx context.Context, owner *pgxpool.Pool
 	}
 
 	testWorkIsolationAndConcurrency(t, ctx, cellPool, accountA, accountB)
+	testRouteContextReceipts(t, ctx, cellPool, accountA)
+}
+
+func testRouteContextReceipts(t *testing.T, ctx context.Context, cellPool *database.CellPool, accountID ids.AccountID) {
+	t.Helper()
+	repository, err := postgresadapter.NewRouteContextReceiptRepository(cellPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)
+	binding, err := routecontext.Bind(http.MethodPost, "/api/v1/accounts/"+string(accountID)+"/work-items", []byte(`{"title":"Bound"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := routecontext.Claims{Issuer: "router", Audience: routecontext.Audience("cell-us-east-01"), IssuedAt: now.Unix(), ExpiresAt: now.Add(20 * time.Second).Unix(), Authority: routecontext.Authority{RequestID: "60000000-0000-4000-8000-000000000006", AccountID: accountID, ActorKind: "user", ActorID: "40000000-0000-4000-8000-000000000004", Role: "owner", CellID: "cell-us-east-01", PlacementGeneration: 1, EntitlementVersion: 1}, Binding: binding}
+	if err := repository.Consume(ctx, claims, now); err != nil {
+		t.Fatalf("consume route context: %v", err)
+	}
+	if err := repository.Consume(ctx, claims, now); !errors.Is(err, routecontext.ErrReplay) {
+		t.Fatalf("replay error = %v", err)
+	}
+	stale := claims
+	stale.Authority.RequestID = "70000000-0000-4000-8000-000000000007"
+	stale.Authority.PlacementGeneration = 2
+	if err := repository.Consume(ctx, stale, now); !errors.Is(err, routecontext.ErrPlacement) {
+		t.Fatalf("stale placement error = %v", err)
+	}
+	if err := cellPool.WithAccountTx(ctx, accountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE spyglass.account_namespaces SET state='draining' WHERE account_id=$1`, accountID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	drainingWrite := claims
+	drainingWrite.Authority.RequestID = "80000000-0000-4000-8000-000000000008"
+	if err := repository.Consume(ctx, drainingWrite, now); !errors.Is(err, routecontext.ErrUnavailable) {
+		t.Fatalf("draining write error = %v", err)
+	}
+	drainingRead := drainingWrite
+	drainingRead.Authority.RequestID = "90000000-0000-4000-8000-000000000009"
+	drainingRead.Binding, _ = routecontext.Bind(http.MethodGet, "/api/v1/accounts/"+string(accountID)+"/context", nil)
+	if err := repository.Consume(ctx, drainingRead, now); err != nil {
+		t.Fatalf("draining read: %v", err)
+	}
+	if err := cellPool.WithAccountTx(ctx, accountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE spyglass.account_namespaces SET state='active' WHERE account_id=$1`, accountID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, cellPool *database.CellPool, accountA, accountB ids.AccountID) {

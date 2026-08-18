@@ -87,3 +87,25 @@ func TestPositiveUnsignedEnvironmentParser(t *testing.T) {
 		t.Fatal("expected zero version to fail closed")
 	}
 }
+
+func TestCellRouteAndVerificationKeyParsers(t *testing.T) {
+	t.Setenv("SPYGLASS_TEST_ROUTES", "cell-a=https://app-api-a.internal,cell-b=https://app-api-b.internal")
+	routes, err := cellRoutesEnv("SPYGLASS_TEST_ROUTES")
+	if err != nil || routes["cell-a"] != "https://app-api-a.internal" || len(routes) != 2 {
+		t.Fatalf("routes=%v err=%v", routes, err)
+	}
+	key := bytes.Repeat([]byte{0x31}, 32)
+	t.Setenv("SPYGLASS_TEST_ROUTE_KEYS", "current="+base64.StdEncoding.EncodeToString(key)+",previous="+base64.StdEncoding.EncodeToString(key))
+	keys, err := routeVerifyKeysEnv("SPYGLASS_TEST_ROUTE_KEYS")
+	if err != nil || !bytes.Equal(keys["current"], key) || len(keys) != 2 {
+		t.Fatalf("keys=%v err=%v", keys, err)
+	}
+	for name, value := range map[string]string{"missing_equals": "cell-a", "duplicate": "cell-a=https://one,cell-a=https://two", "empty": ""} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("SPYGLASS_TEST_ROUTES", value)
+			if _, err := cellRoutesEnv("SPYGLASS_TEST_ROUTES"); err == nil {
+				t.Fatal("expected invalid route map")
+			}
+		})
+	}
+}

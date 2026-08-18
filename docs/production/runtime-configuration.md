@@ -1,14 +1,16 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, billing, notification, entitlement-rollout, migration, and Catalog operator processes
+- Status: executable Phase 2 account, global router, cell API, billing, notification, entitlement-rollout, migration, and Catalog operator processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `billing-worker`, `notification-worker`, `entitlement-worker`, one-shot `catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `billing-worker`, `notification-worker`, `entitlement-worker`, one-shot `catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
 | Mode | Owns | Does not own |
 |---|---|---|
 | `account-api` | Signup, login/recovery, session security/reauthentication, Account selection, invitations, encrypted notification enqueueing, local billing reads, Checkout/Portal creation, signed Stripe webhook acceptance, private browser shell | SMTP delivery, billing event projection, reconciliation polling, Account business workloads |
+| `app-router` | Authenticate the global session, recheck Account authority, select an allowlisted cell, issue request-bound route context, and proxy bounded Account API traffic | Cell database access, business-record queries, dynamic arbitrary destinations |
+| `app-api` | Verify and consume route context, reject replay/stale placement, and execute Account-owned use cases through one shared cell pool | Global database, session cookies, Account/Billing mutation, arbitrary cell routing |
 | `billing-worker` | Leased Stripe inbox processing, current Subscription retrieval, transactional grant/snapshot projection, reconciliation queue | Browser/API traffic, raw webhook acceptance, customer business work |
 | `notification-worker` | Leased encrypted identity-notification delivery, bounded retries, terminal dead-letter state | Browser/API traffic, identity mutation, billing credentials, customer business work |
 | `entitlement-worker` | Bounded existing-Account Catalog rollout seeding, leased free-plan recomputation, immutable changed-access snapshots, and drift repair | Catalog publication decisions, paid-grant mutation, Stripe or SMTP operations, customer business work |
@@ -22,7 +24,7 @@ The account API and workers share no in-memory state. Multiple replicas coordina
 
 | Environment variable | Consumers | Meaning |
 |---|---|---|
-| `SPYGLASS_DATABASE_URL` | All persistent processes | Global PostgreSQL connection string supplied through the environment secret manager |
+| `SPYGLASS_DATABASE_URL` | All persistent processes | Workload-specific PostgreSQL connection string: global for control-plane modes and one cell database for `app-api` |
 | `SPYGLASS_STRIPE_SECRET_KEY` | Account API, billing worker | Environment-specific `sk_test_` or `sk_live_` key |
 | `SPYGLASS_STRIPE_MODE` | Account API, billing worker | Exact `test` or `live` mode; must match the key |
 | `SPYGLASS_STRIPE_API_VERSION` | Account API, billing worker | Optional deliberate override; defaults to the compiled, tested pin |
@@ -52,6 +54,22 @@ Anonymous login and recovery budgets are shared across replicas in PostgreSQL. T
 Forwarding headers are ignored unless the immediate socket peer belongs to `SPYGLASS_TRUSTED_PROXY_CIDRS`. Behind trusted proxies, Spyglass walks `X-Forwarded-For` from right to left and selects the first untrusted hop, preventing a client-supplied leftmost value from becoming authoritative. Malformed trusted forwarding chains fail closed. Environment overlays must set only the exact ingress or load-balancer networks they operate; broad private-network ranges are not safe defaults.
 
 Each account-api replica holds one immutable Catalog snapshot. It polls for the newest effective `published_at` and atomically replaces the snapshot, including deliberate rollback to a lower version. A request or registration completion reads one snapshot, so a concurrent refresh cannot mix versions inside that operation.
+
+## App router and cell API values
+
+| Environment variable | Consumers | Requirement |
+|---|---|---|
+| `SPYGLASS_ROUTE_ISSUER` | App router, app API | Exact shared issuer name, normally `spyglass-app-router` |
+| `SPYGLASS_ROUTE_SIGNING_KEY_ID` | App router | Active non-secret key identifier |
+| `SPYGLASS_ROUTE_SIGNING_KEY` | App router | Standard Base64 encoding of exactly 32 random secret bytes |
+| `SPYGLASS_ROUTE_VERIFY_KEYS` | App API | Comma-separated `key-id=base64-key` keyring containing active and retained rotation keys |
+| `SPYGLASS_ROUTE_CONTEXT_TTL` | App router | Optional positive duration; defaults to `20s` and has a hard `30s` maximum |
+| `SPYGLASS_CELL_ROUTES` | App router | Comma-separated `cell-id=https://service-origin` allowlist; production entries allow no paths, credentials, queries, fragments, or HTTP |
+| `SPYGLASS_CELL_ID` | App API | Exact cell identity used as token audience and deployment identity |
+| `SPYGLASS_SESSION_COOKIE_NAME` | App router | Optional; defaults to `__Host-spyglass_session` |
+| `SPYGLASS_MAX_REQUEST_BODY_BYTES` | App API | Optional positive limit up to 16 MiB; defaults to 1 MiB |
+
+The signing and verification keys follow the add-verifier, switch-signer, wait-for-expiry, remove-old-key sequence in [routing-boundary.md](routing-boundary.md). The app-router database credential is global and cannot read cell schemas. The app-api credential is cell-local and cannot read global Users, Memberships, Entitlements, Billing, or sessions.
 
 ## Billing worker values
 
@@ -95,6 +113,8 @@ Each Account records the Catalog version last reconciled. A recomputation advanc
 
 ```text
 spyglass account-api
+spyglass app-router
+spyglass app-api
 spyglass billing-worker
 spyglass notification-worker
 spyglass entitlement-worker
@@ -120,6 +140,6 @@ Migration credentials are an independent deployment secret. They may own or alte
 
 CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, concurrency-safe package capacity admission and recovery, registration provisioning, Checkout reservation concurrency, transaction-local Account context, and attempted cross-Account reads and writes through a non-owner serving role.
 
-The Kubernetes reference uses these exact arguments and expects environment overlays to supply `spyglass-global-runtime` plus workload-specific `spyglass-account-api-secrets`, `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`, and `spyglass-entitlement-worker-secrets`. Those objects are intentionally absent from the repository. The entitlement worker secret needs only its constrained global-database credential. Workload-specific secrets keep SMTP credentials out of the account API and billing and entitlement workers, and keep Stripe credentials out of the notification and entitlement workers. No literal production credential belongs in source control or a rendered manifest.
+The Kubernetes reference uses these exact arguments and expects environment overlays to supply `spyglass-global-runtime`, `spyglass-cell-reference-runtime`, plus workload-specific `spyglass-account-api-secrets`, `spyglass-app-router-secrets`, `spyglass-app-api-secrets`, `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`, and `spyglass-entitlement-worker-secrets`. Those objects are intentionally absent from the repository. The router receives a constrained global credential and signing key; app-api receives only a cell credential and verification keyring. The entitlement worker secret needs only its constrained global-database credential. Workload-specific secrets keep SMTP credentials out of the account API and billing and entitlement workers, and keep Stripe credentials out of the notification and entitlement workers. No literal production credential belongs in source control or a rendered manifest.
 
 The `development` process still requires `SPYGLASS_ENV=development`; omitting both a mode and that explicit marker fails closed.

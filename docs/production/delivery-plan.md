@@ -261,6 +261,8 @@ Acceptance:
 
 ### P2.7 Global control plane and cell data boundary
 
+Implementation checkpoint: transaction-local Account RLS, versioned request-bound signed route context, key rotation, shared cell replay receipts, placement-generation rejection, draining/frozen write denial, executable app-router/app-api modes, and a routed Account probe are implemented. Directory caching, internal TLS identity, two-cell attack fixtures, and business route rollout remain. See [routing-boundary.md](routing-boundary.md).
+
 - Create global schemas for Identity, Accounts, Catalog, Billing, Entitlements, Account Directory, and platform operations.
 - Create cell schemas for account business records with non-null `account_id`, RLS, explicit predicates, and composite account-scoped keys/foreign keys.
 - Define database roles so serving users neither own protected tables nor bypass RLS.
