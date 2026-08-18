@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,6 +14,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/tinfoyle/spyglass-engine/internal/platform/operatorauth"
 )
 
 type readinessStub struct{ err error }
@@ -151,6 +156,64 @@ func TestVerificationKeyParser(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOperatorAuthorizationIsVerifiedBeforeAdministratorExecution(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor, environment, reason := "admin@example.com", "production", "Inspect passkey key rotation state"
+	action, scope := "passkey-admin:inspect", operatorScope(map[string]string{"active_key_version": "2", "batch": "0", "key_versions": "1,2"})
+	t.Setenv("SPYGLASS_OPERATOR_AUTH_VERIFY_KEYS", "operator-1="+base64.StdEncoding.EncodeToString(publicKey))
+	t.Setenv("SPYGLASS_OPERATOR_AUTH_ISSUER", "https://operators.infiniteocean.net")
+	t.Setenv("SPYGLASS_OPERATOR_AUTHORIZATION", signedOperatorToken(t, privateKey, "operator-1", actor, action, environment, reason, scope, operatorauth.ModeStandard, "", nil))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	audited, err := requireOperatorAuthorization(logger, "passkey-admin", "inspect", actor, reason, environment, scope)
+	if err != nil || audited == reason || !bytes.Contains([]byte(audited), []byte("authorization=")) {
+		t.Fatalf("audited reason=%q err=%v", audited, err)
+	}
+	if _, err := requireOperatorAuthorization(logger, "passkey-admin", "inspect", actor, reason, environment, scope+"changed"); err == nil {
+		t.Fatal("authorization was not bound to exact operation scope")
+	}
+}
+
+func TestOperatorBreakGlassRequiresDeploymentConfirmation(t *testing.T) {
+	publicKey, privateKey, _ := ed25519.GenerateKey(rand.Reader)
+	actor, environment, reason, scope := "responder@example.com", "production", "Respond to incident IO-49", `{"request_id":"r1"}`
+	t.Setenv("SPYGLASS_OPERATOR_AUTH_VERIFY_KEYS", "break-glass="+base64.StdEncoding.EncodeToString(publicKey))
+	t.Setenv("SPYGLASS_OPERATOR_AUTH_ISSUER", "https://operators.infiniteocean.net")
+	t.Setenv("SPYGLASS_OPERATOR_AUTHORIZATION", signedOperatorToken(t, privateKey, "break-glass", actor, "account-erasure-admin:inspect", environment, reason, scope, operatorauth.ModeBreakGlass, "IO-49", []string{"security@example.com", "operations@example.com"}))
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	if _, err := requireOperatorAuthorization(logger, "account-erasure-admin", "inspect", actor, reason, environment, scope); err == nil {
+		t.Fatal("break glass was accepted without deployment enablement")
+	}
+	t.Setenv("SPYGLASS_ALLOW_BREAK_GLASS", "true")
+	t.Setenv("SPYGLASS_CONFIRM_BREAK_GLASS_ENVIRONMENT", environment)
+	if _, err := requireOperatorAuthorization(logger, "account-erasure-admin", "inspect", actor, reason, environment, scope); err != nil {
+		t.Fatalf("confirmed break glass=%v", err)
+	}
+}
+
+func signedOperatorToken(t *testing.T, privateKey ed25519.PrivateKey, keyID, actor, action, environment, reason, scope, mode, incident string, approvers []string) string {
+	t.Helper()
+	now := time.Now().UTC()
+	header, _ := json.Marshal(map[string]string{"alg": "EdDSA", "typ": operatorauth.Type, "kid": keyID})
+	claims := map[string]any{
+		"version": 1, "issuer": "https://operators.infiniteocean.net", "authorization_id": "40000000-0000-4000-8000-000000000004",
+		"actor": actor, "action": action, "environment": environment, "reason_sha256": operatorauth.Digest(reason),
+		"scope_sha256": operatorauth.Digest(scope), "assurance": operatorauth.Assurance, "mode": mode,
+		"issued_at": now.Add(-time.Minute).Unix(), "expires_at": now.Add(4 * time.Minute).Unix(),
+	}
+	if incident != "" {
+		claims["incident_id"] = incident
+		claims["approvers"] = approvers
+	}
+	payload, _ := json.Marshal(claims)
+	encodedHeader := base64.RawURLEncoding.EncodeToString(header)
+	encodedPayload := base64.RawURLEncoding.EncodeToString(payload)
+	signature := ed25519.Sign(privateKey, []byte(encodedHeader+"."+encodedPayload))
+	return encodedHeader + "." + encodedPayload + "." + base64.RawURLEncoding.EncodeToString(signature)
 }
 
 func TestRouteCanaryRejectsUnknownTargetBeforeLoadingSecrets(t *testing.T) {

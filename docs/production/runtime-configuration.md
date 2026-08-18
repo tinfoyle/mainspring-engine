@@ -39,6 +39,9 @@ The account API and workers share no in-memory state. Multiple replicas coordina
 | `SPYGLASS_NETWORK_ACTOR_KEY` | Account API | Standard Base64 encoding of exactly 32 random bytes used only for keyed request-actor hashing |
 | `SPYGLASS_PASSKEY_ENCRYPTION_KEYS` | Account API, passkey admin | Comma-separated `positive-version=standard-base64-key` keyring; every key is exactly 32 bytes |
 | `SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION` | Account API, passkey admin | Positive version present in the keyring; new and updated passkey envelopes use only this version |
+| `SPYGLASS_OPERATOR_AUTH_ISSUER` | All administrator processes | Exact external operator identity-plane issuer |
+| `SPYGLASS_OPERATOR_AUTH_VERIFY_KEYS` | All administrator processes | Comma-separated `key-id=standard-base64` Ed25519 public-key rotation set |
+| `SPYGLASS_OPERATOR_AUTHORIZATION` | All administrator processes | Short-lived signed, action/environment/reason/scope-bound authorization envelope |
 | `SPYGLASS_MAX_DATABASE_CONNS` | Persistent processes except `work-reconciler` | Positive per-process pool cap with a workload-specific default |
 
 Database connection limits are per replica. Environment overlays must ensure the replica maximum multiplied by the pool cap fits the managed PostgreSQL connection budget.
@@ -270,7 +273,7 @@ SPYGLASS_MIGRATION_TARGET=global spyglass migrate
 
 `catalog-admin` is a one-shot process documented in [catalog-operations.md](catalog-operations.md). Every action requires `SPYGLASS_DATABASE_URL`, `SPYGLASS_OPERATOR_ID`, and `SPYGLASS_OPERATOR_REASON`. Draft creation additionally requires `SPYGLASS_CATALOG_FILE`; other actions require `SPYGLASS_CATALOG_VERSION`. `map-price` also requires `SPYGLASS_CATALOG_OFFER_CODE`, `SPYGLASS_STRIPE_MODE`, and `SPYGLASS_STRIPE_PRICE_ID`. `publish` accepts optional RFC3339 `SPYGLASS_CATALOG_EFFECTIVE_AT`.
 
-Run this mode with a dedicated operator database credential in a short-lived controlled job. It does not require or accept account-api, webhook, notification, SMTP, or Stripe secret keys.
+Run this mode with a dedicated operator database credential in a short-lived controlled job. All administrator modes require the signed external authorization described in [Platform Operator Authorization](operator-authorization.md); an operator-name string is not authority. It does not require or accept account-api, webhook, notification, SMTP, or Stripe secret keys.
 
 ## Database migrations
 

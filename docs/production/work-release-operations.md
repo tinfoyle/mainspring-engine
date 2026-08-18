@@ -20,7 +20,7 @@ GRANT EXECUTE ON FUNCTION public.spyglass_requeue_work_capacity_release_dead_let
 
 Do not grant this role `SELECT`, `INSERT`, `UPDATE`, or `DELETE` on the queue, audit table, Account namespaces, or Work tables. The security-definer functions validate bounded operator metadata and perform inspection/audit or requeue/audit atomically. PostgreSQL supplies the audit and scheduling timestamp; the caller cannot backdate it. PUBLIC has no execute grant. Audit rows reject update and deletion, including by the table owner.
 
-Deployment access must authenticate and authorize the human separately. `SPYGLASS_OPERATOR_ID` records that external identity; it is not authentication by itself. The short-lived job must use the target cell's operator credential and no global, serving, Stripe, SMTP, or route-signing secret.
+The short-lived job verifies the signed phishing-resistant envelope in [Platform Operator Authorization](operator-authorization.md) before opening the cell database. `SPYGLASS_OPERATOR_ID` records the bound external identity; it is not authentication by itself. The job must use the target cell's operator credential and no global, serving, Stripe, SMTP, or route-signing secret.
 
 ## Inspect
 

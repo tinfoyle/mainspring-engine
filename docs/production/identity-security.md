@@ -144,13 +144,14 @@ Automated evidence covers:
 - PostgreSQL encrypted credential/ceremony round trips, stale counter rejection, replay rejection, and cross-User list isolation;
 - active-plus-retained keyring reads, active-only writes, bounded PostgreSQL credential/ceremony re-encryption, old-key retirement, and immutable aggregate operator evidence;
 - passkey-only recovery-set rotation, plaintext non-persistence, single-use and concurrent code consumption, replacement-set invalidation, session-bound grants, replay rejection, lost-passkey replacement policy, and concurrent final-factor deletion fencing;
+- platform-administrator Ed25519 authorization bound to phishing-resistant assurance, exact action/environment/reason/scope, ten-minute lifetime, and explicit incident/two-approver break-glass evidence before database composition;
 - HTTP response contracts containing no Account identity and browser presentation on login and identity security pages.
 
 ## 8. Remaining identity work
 
 Passkeys are now a production authentication and strong-reauthentication option, but the broader Phase 2 identity program is not complete:
 
-1. Complete mandatory owner/platform-administrator factor enrollment and reviewed factor-loss/break-glass governance. Self-service recovery codes and ownership-transfer strong authentication are executable; recovery codes deliberately cannot authorize Account or operator actions.
+1. Complete mandatory customer-owner enrollment and customer-visible factor-loss review. Platform-administrator signed authorization and dual-approved break glass are executable; the external workforce identity plane remains the enrollment and approval authority. Self-service recovery codes deliberately cannot authorize Account or operator actions.
 2. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
 3. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
 4. Add verified contact-method change, passkey rename, compromised-credential response, and customer-visible notification delivery.

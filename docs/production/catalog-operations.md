@@ -20,13 +20,15 @@ draft -> in_review -> approved -> published -> retired
 
 ## Credential boundary
 
-Run `catalog-admin` as a short-lived operator job with a dedicated database role allowed to modify Catalog and Catalog audit tables. Do not give it account-api, notification, webhook, SMTP, or Stripe secret keys. Deployment access controls must authenticate the human operator; `SPYGLASS_OPERATOR_ID` records that external identity and is not itself authentication.
+Run `catalog-admin` as a short-lived operator job with a dedicated database role allowed to modify Catalog and Catalog audit tables. Do not give it account-api, notification, webhook, SMTP, or Stripe secret keys. The job verifies the phishing-resistant exact-scope envelope in [Platform Operator Authorization](operator-authorization.md) before opening PostgreSQL; `SPYGLASS_OPERATOR_ID` remains audit metadata rather than authority.
 
 Required for every action:
 
 ```powershell
 $env:SPYGLASS_DATABASE_URL = '<operator database secret>'
 $env:SPYGLASS_OPERATOR_ID = 'operator@example.com'
+$env:SPYGLASS_ENVIRONMENT = 'production'
+$env:SPYGLASS_CONFIRM_ENVIRONMENT = 'production'
 $env:SPYGLASS_OPERATOR_REASON = 'ticket IO-123: publish reviewed annual offers'
 ```
 

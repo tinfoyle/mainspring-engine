@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -41,6 +42,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/operatorauth"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/restoregate"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/workloadidentity"
 	"github.com/tinfoyle/spyglass-engine/migrations"
@@ -141,6 +143,14 @@ func runPasskeyAdmin(ctx context.Context, logger *slog.Logger) error {
 		}
 		config.Batch = int(batch)
 	}
+	config.Reason, err = requireOperatorAuthorization(logger, "passkey-admin", config.Action, config.Actor, config.Reason, config.Environment, operatorScope(map[string]string{
+		"active_key_version": strconv.Itoa(config.ActiveKeyVersion),
+		"batch":              strconv.Itoa(config.Batch),
+		"key_versions":       encryptionKeyVersions(config.EncryptionKeys),
+	}))
+	if err != nil {
+		return err
+	}
 	return passkeycommand.Run(ctx, config, logger)
 }
 
@@ -159,6 +169,17 @@ func runCatalogAdmin(ctx context.Context, logger *slog.Logger) error {
 	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
 	if err != nil {
 		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	confirmation, err := requiredEnv("SPYGLASS_CONFIRM_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	if confirmation != environment {
+		return errors.New("SPYGLASS_CONFIRM_ENVIRONMENT must exactly match SPYGLASS_ENVIRONMENT")
 	}
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
 	if err != nil {
@@ -199,6 +220,22 @@ func runCatalogAdmin(ctx context.Context, logger *slog.Logger) error {
 		if err != nil {
 			return errors.New("SPYGLASS_CATALOG_EFFECTIVE_AT must be RFC3339")
 		}
+	}
+	scope := map[string]string{
+		"version":      strconv.FormatUint(config.Version, 10),
+		"offer_code":   config.OfferCode,
+		"stripe_mode":  config.StripeMode,
+		"stripe_price": config.PriceID,
+	}
+	if len(config.CatalogJSON) > 0 {
+		scope["catalog_sha256"] = operatorauth.Digest(string(config.CatalogJSON))
+	}
+	if !config.EffectiveAt.IsZero() {
+		scope["effective_at"] = config.EffectiveAt.UTC().Format(time.RFC3339Nano)
+	}
+	config.Reason, err = requireOperatorAuthorization(logger, "catalog-admin", config.Action, config.Actor, config.Reason, environment, operatorScope(scope))
+	if err != nil {
+		return err
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -255,6 +292,15 @@ func runWorkReleaseAdmin(ctx context.Context, logger *slog.Logger) error {
 			return err
 		}
 		config.Target = workreleaseapp.Target{AccountID: ids.AccountID(accountID), WorkItemID: ids.WorkItemID(itemID), ReservationID: reservationID}
+	}
+	config.Reason, err = requireOperatorAuthorization(logger, "work-release-admin", config.Action, config.Actor, config.Reason, config.Environment, operatorScope(map[string]string{
+		"inspect_limit":  strconv.Itoa(config.InspectLimit),
+		"account_id":     string(config.Target.AccountID),
+		"work_item_id":   string(config.Target.WorkItemID),
+		"reservation_id": config.Target.ReservationID,
+	}))
+	if err != nil {
+		return err
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -413,6 +459,25 @@ func runAccountErasureAdmin(ctx context.Context, logger *slog.Logger) error {
 		default:
 			return errors.New("SPYGLASS_ACCOUNT_ERASURE_EXPORT_DISPOSITION must be artifact or not_applicable")
 		}
+	}
+	config.Reason, err = requireOperatorAuthorization(logger, "account-erasure-admin", config.Action, config.Actor, config.Reason, config.Environment, operatorScope(map[string]string{
+		"request_id":             config.RequestID,
+		"account_id":             string(config.AccountID),
+		"confirm_account_id":     string(config.ConfirmAccountID),
+		"cell_id":                string(config.CellID),
+		"expected_version":       strconv.FormatUint(config.ExpectedVersion, 10),
+		"policy_version":         strconv.FormatUint(config.PolicyVersion, 10),
+		"export_disposition":     string(config.Export.Disposition),
+		"export_reference":       config.Export.Reference,
+		"export_sha256":          hex.EncodeToString(config.Export.SHA256),
+		"export_expires_at":      formatOptionalTimePointer(config.Export.ExpiresAt),
+		"export_reason_sha256":   operatorauth.Digest(config.Export.Reason),
+		"backup_expires_at":      formatOptionalTime(config.BackupExpiresAt),
+		"lease_nanoseconds":      strconv.FormatInt(int64(config.LeaseDuration), 10),
+		"restore_directive_file": config.RestoreDirectiveFile,
+	}))
+	if err != nil {
+		return err
 	}
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -1112,6 +1177,93 @@ func versionedEncryptionKeysEnv(keysName, activeName string) (map[int][]byte, in
 		return nil, 0, fmt.Errorf("%s version %d is absent from %s", activeName, active, keysName)
 	}
 	return result, active, nil
+}
+
+func requireOperatorAuthorization(logger *slog.Logger, mode, action, actor, reason, environment, scope string) (string, error) {
+	if logger == nil {
+		return "", errors.New("operator authorization logger is required")
+	}
+	keys, err := routeVerifyKeysEnv("SPYGLASS_OPERATOR_AUTH_VERIFY_KEYS")
+	if err != nil {
+		return "", err
+	}
+	issuer, err := requiredEnv("SPYGLASS_OPERATOR_AUTH_ISSUER")
+	if err != nil {
+		return "", err
+	}
+	expectedAction := mode + ":" + action
+	logger.Info("Operator authorization scope prepared", "actor", actor, "action", expectedAction, "environment", environment,
+		"reason_sha256", operatorauth.Digest(reason), "scope_sha256", operatorauth.Digest(scope))
+	token, err := requiredEnv("SPYGLASS_OPERATOR_AUTHORIZATION")
+	if err != nil {
+		return "", err
+	}
+	allowBreakGlass := false
+	if raw := os.Getenv("SPYGLASS_ALLOW_BREAK_GLASS"); raw != "" {
+		if raw != "true" {
+			return "", errors.New("SPYGLASS_ALLOW_BREAK_GLASS must be exactly true when set")
+		}
+		confirmation, err := requiredEnv("SPYGLASS_CONFIRM_BREAK_GLASS_ENVIRONMENT")
+		if err != nil {
+			return "", err
+		}
+		if confirmation != environment {
+			return "", errors.New("SPYGLASS_CONFIRM_BREAK_GLASS_ENVIRONMENT must exactly match SPYGLASS_ENVIRONMENT")
+		}
+		allowBreakGlass = true
+	}
+	evidence, err := operatorauth.Verify(operatorauth.Request{
+		Token: token, VerifyKeys: keys, Issuer: issuer, Actor: actor, Action: expectedAction,
+		Environment: environment, Reason: reason, Scope: scope, AllowBreakGlass: allowBreakGlass, Now: time.Now().UTC(),
+	})
+	if err != nil {
+		return "", errors.New("operator authorization was rejected")
+	}
+	auditedReason := reason + " [authorization=" + evidence.AuthorizationID + ";mode=" + evidence.Mode + "]"
+	if len(auditedReason) > 500 {
+		return "", errors.New("SPYGLASS_OPERATOR_REASON is too long after authorization evidence is attached")
+	}
+	fields := []any{"authorization_id", evidence.AuthorizationID, "mode", evidence.Mode, "key_id", evidence.KeyID, "expires_at", evidence.ExpiresAt}
+	if evidence.IncidentID != "" {
+		fields = append(fields, "incident_id", evidence.IncidentID, "approval_count", len(evidence.Approvers))
+	}
+	logger.Info("Operator authorization verified", fields...)
+	return auditedReason, nil
+}
+
+func operatorScope(values map[string]string) string {
+	raw, err := json.Marshal(values)
+	if err != nil {
+		panic("operator authorization scope is not serializable: " + err.Error())
+	}
+	return string(raw)
+}
+
+func encryptionKeyVersions(values map[int][]byte) string {
+	versions := make([]int, 0, len(values))
+	for version := range values {
+		versions = append(versions, version)
+	}
+	sort.Ints(versions)
+	parts := make([]string, len(versions))
+	for index, version := range versions {
+		parts[index] = strconv.Itoa(version)
+	}
+	return strings.Join(parts, ",")
+}
+
+func formatOptionalTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func formatOptionalTimePointer(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return formatOptionalTime(*value)
 }
 
 func serveHTTP(ctx context.Context, address string, handler http.Handler, logger *slog.Logger) error {

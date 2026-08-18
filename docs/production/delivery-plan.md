@@ -206,7 +206,7 @@ Acceptance:
 - Authentication never implies Account Membership or package authorization.
 - Passkey challenge, origin, RP-ID, signature, replay, expiry, counter-race, and cross-User isolation tests pass against application and PostgreSQL boundaries.
 
-Implementation checkpoint: system-wide password/passkey authentication, durable sessions, password recovery, shared abuse budgets, user-verified cryptographic step-up, encrypted replica-independent passkey ceremonies/credentials, active-plus-retained envelope keyrings, audited bounded key re-encryption, and hashed single-use recovery codes with session-bound lost-passkey replacement are executable. Mandatory owner/platform-administrator enrollment, reviewed factor-loss/break-glass governance, verified contact change, credential response, retention operations, and real-device/browser certification remain.
+Implementation checkpoint: system-wide password/passkey authentication, durable sessions, password recovery, shared abuse budgets, user-verified cryptographic step-up, encrypted replica-independent passkey ceremonies/credentials, active-plus-retained envelope keyrings, audited bounded key re-encryption, hashed single-use recovery codes with session-bound lost-passkey replacement, and signed phishing-resistant platform-administrator authorization with explicit dual-approved break glass are executable. Mandatory customer-owner enrollment, customer-visible factor-loss review, verified contact change, credential response, retention operations, and real-device/browser certification remain.
 
 ### P2.3 Accounts and Memberships
 

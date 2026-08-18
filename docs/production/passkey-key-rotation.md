@@ -3,7 +3,7 @@
 - Status: executable operator contract
 - Scope: encrypted WebAuthn credential and ceremony envelopes in the global database
 
-Passkey rotation is a staged migration, not a secret replacement. Removing a key while any credential or ceremony still uses its version causes customer factor loss. `spyglass passkey-admin inspect|reencrypt` exists so an operator can prove the old version has reached zero before changing the deployed keyring.
+Passkey rotation is a staged migration, not a secret replacement. Removing a key while any credential or ceremony still uses its version causes customer factor loss. `spyglass passkey-admin inspect|reencrypt` exists so an operator can prove the old version has reached zero before changing the deployed keyring. Each invocation also verifies the signed exact-scope authorization in [Platform Operator Authorization](operator-authorization.md) before opening PostgreSQL.
 
 ## Invariants
 

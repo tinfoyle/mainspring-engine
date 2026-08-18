@@ -45,6 +45,7 @@ The focused design documents are:
 - [Website, Accounts, Packages, and Billing](docs/production/accounts-packages-billing.md)
 - [Identity security and passkeys](docs/production/identity-security.md)
 - [Passkey envelope-key rotation operations](docs/production/passkey-key-rotation.md)
+- [Platform operator authorization](docs/production/operator-authorization.md)
 - [Stripe commercial access operations](docs/production/stripe-operations.md)
 - [Catalog publication operations](docs/production/catalog-operations.md)
 - [Package and usage admission](docs/production/usage-admission.md)
