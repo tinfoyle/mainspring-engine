@@ -115,7 +115,7 @@ func (r *AccountErasureRepository) RecordCellErasure(ctx context.Context, comman
 const globalTombstoneColumns = `
 	request_id::text,account_fingerprint,policy_version,final_request_version,environment,prepared_at,approved_at,
 	cell_erased_at,completed_at,cell_row_counts,global_row_counts,export_sha256,cell_tombstone_sha256,
-	operator_evidence_sha256,backup_expires_at`
+	operator_evidence_sha256,backup_expires_at,ledger_sequence,ledger_root`
 
 func (r *AccountErasureRepository) FinalizeGlobalErasure(ctx context.Context, command accounterasure.GlobalFinalize) (accounterasure.GlobalTombstone, error) {
 	query := `SELECT ` + globalTombstoneColumns + ` FROM public.spyglass_finalize_account_erasure($1,$2,$3,$4,$5,$6,$7)`
@@ -131,6 +131,31 @@ func (r *AccountErasureRepository) FinalizeGlobalErasure(ctx context.Context, co
 func (r *AccountErasureRepository) AttestGlobalErasure(ctx context.Context, requestID string, fingerprint []byte) (accounterasure.GlobalTombstone, error) {
 	query := `SELECT ` + globalTombstoneColumns + ` FROM public.spyglass_attest_global_account_erasure($1,$2)`
 	result, err := scanGlobalTombstone(r.pool.QueryRow(ctx, query, requestID, fingerprint))
+	if err != nil {
+		return accounterasure.GlobalTombstone{}, classifyErasureExecutionError(err)
+	}
+	return result, nil
+}
+
+func (r *AccountErasureRepository) ResolveRestore(ctx context.Context, requestID string, accountID ids.AccountID, fingerprint []byte) (accounterasure.RestoreTarget, error) {
+	var result accounterasure.RestoreTarget
+	err := r.pool.QueryRow(ctx, `SELECT completed,COALESCE(cell_id,''),COALESCE(placement_generation,0) FROM public.spyglass_resolve_account_erasure_restore($1,$2,$3)`, requestID, accountID, fingerprint).
+		Scan(&result.Completed, &result.CellID, &result.PlacementGeneration)
+	if err != nil {
+		return accounterasure.RestoreTarget{}, classifyErasureExecutionError(err)
+	}
+	return result, nil
+}
+
+func (r *AccountErasureRepository) ReplayGlobalRestore(ctx context.Context, command accounterasure.GlobalRestoreReplay) (accounterasure.GlobalTombstone, error) {
+	d := command.Directive
+	query := `SELECT ` + globalTombstoneColumns + ` FROM public.spyglass_replay_global_account_erasure($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`
+	result, err := scanGlobalTombstone(r.pool.QueryRow(ctx, query,
+		d.RequestID, d.AccountID, command.RestoredCellID, command.RestoredPlacementGeneration,
+		d.AccountFingerprint, d.PolicyVersion, d.FinalRequestVersion, d.Environment,
+		d.PreparedAt.UTC(), d.ApprovedAt.UTC(), d.CellErasedAt.UTC(), d.CompletedAt.UTC(), nullableBytes(d.ExportSHA256),
+		d.CellTombstoneSHA256, d.OperatorEvidenceSHA256, d.BackupExpiresAt.UTC(),
+		d.GlobalCheckpoint.PreviousSequence, d.GlobalCheckpoint.PreviousRoot, d.GlobalCheckpoint.Sequence, d.GlobalCheckpoint.Root))
 	if err != nil {
 		return accounterasure.GlobalTombstone{}, classifyErasureExecutionError(err)
 	}
@@ -163,7 +188,7 @@ func (r *AccountErasureCellRepository) Attest(ctx context.Context, target accoun
 
 const cellTombstoneColumns = `
 	request_id::text,account_fingerprint,placement_generation,policy_version,request_version,environment,erased_at,
-	row_counts,export_sha256,operator_evidence_sha256,backup_expires_at`
+	row_counts,export_sha256,operator_evidence_sha256,backup_expires_at,ledger_sequence,ledger_root`
 
 func (r *AccountErasureCellRepository) Erase(ctx context.Context, command accounterasure.CellEraseCommand) (accounterasure.CellTombstone, error) {
 	if command.CellID != r.cellID {
@@ -188,6 +213,23 @@ func (r *AccountErasureCellRepository) AttestErasure(ctx context.Context, cellID
 	result, err := scanCellTombstone(r.pool.QueryRow(ctx, query, requestID, fingerprint))
 	if err != nil {
 		return accounterasure.CellTombstone{}, classifyCellErasureError(err)
+	}
+	return result, nil
+}
+
+func (r *AccountErasureCellRepository) ReplayCellRestore(ctx context.Context, command accounterasure.CellRestoreReplay) (accounterasure.CellTombstone, error) {
+	d := command.Directive
+	if d.CellID != r.cellID {
+		return accounterasure.CellTombstone{}, accounterasure.ErrCellMismatch
+	}
+	query := `SELECT ` + cellTombstoneColumns + ` FROM public.spyglass_replay_account_cell_erasure($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
+	result, err := scanCellTombstone(r.pool.QueryRow(ctx, query,
+		d.RequestID, d.AccountID, command.RestoredPlacementGeneration, d.TombstonePlacementGeneration,
+		d.AccountFingerprint, d.PolicyVersion, d.CellRequestVersion, d.Environment, d.CellErasedAt.UTC(),
+		nullableBytes(d.ExportSHA256), d.OperatorEvidenceSHA256, d.BackupExpiresAt.UTC(),
+		d.CellCheckpoint.PreviousSequence, d.CellCheckpoint.PreviousRoot, d.CellCheckpoint.Sequence, d.CellCheckpoint.Root))
+	if err != nil {
+		return accounterasure.CellTombstone{}, classifyErasureExecutionError(err)
 	}
 	return result, nil
 }
@@ -219,7 +261,7 @@ func scanCellTombstone(row erasureRow) (accounterasure.CellTombstone, error) {
 	var rawCounts []byte
 	err := row.Scan(&result.RequestID, &result.AccountFingerprint, &result.PlacementGeneration, &result.PolicyVersion,
 		&result.RequestVersion, &result.Environment, &result.ErasedAt, &rawCounts, &result.ExportSHA256,
-		&result.OperatorEvidenceSHA256, &result.BackupExpiresAt)
+		&result.OperatorEvidenceSHA256, &result.BackupExpiresAt, &result.LedgerSequence, &result.LedgerRoot)
 	if err != nil {
 		return accounterasure.CellTombstone{}, fmt.Errorf("scan cell Account erasure tombstone: %w", err)
 	}
@@ -235,7 +277,7 @@ func scanGlobalTombstone(row erasureRow) (accounterasure.GlobalTombstone, error)
 	err := row.Scan(&result.RequestID, &result.AccountFingerprint, &result.PolicyVersion, &result.FinalRequestVersion,
 		&result.Environment, &result.PreparedAt, &result.ApprovedAt, &result.CellErasedAt, &result.CompletedAt,
 		&rawCellCounts, &rawGlobalCounts, &result.ExportSHA256, &result.CellTombstoneSHA256,
-		&result.OperatorEvidenceSHA256, &result.BackupExpiresAt)
+		&result.OperatorEvidenceSHA256, &result.BackupExpiresAt, &result.LedgerSequence, &result.LedgerRoot)
 	if err != nil {
 		return accounterasure.GlobalTombstone{}, fmt.Errorf("scan global Account erasure tombstone: %w", err)
 	}
@@ -343,3 +385,5 @@ var _ accounterasure.Store = (*AccountErasureRepository)(nil)
 var _ accounterasure.CellStore = (*AccountErasureCellRepository)(nil)
 var _ accounterasure.CellExecutor = (*AccountErasureCellRepository)(nil)
 var _ accounterasure.ExecutionStore = (*AccountErasureRepository)(nil)
+var _ accounterasure.RestoreGlobalStore = (*AccountErasureRepository)(nil)
+var _ accounterasure.RestoreCellStore = (*AccountErasureCellRepository)(nil)

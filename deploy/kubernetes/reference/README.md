@@ -116,7 +116,11 @@ separate execute-only global and target-cell credentials, operator evidence,
 and exact environment confirmation. The preparation Job also repeats the
 Account UUID, policy/export evidence, and backup-expiry deadline. Leased
 `execute` uses distinct execute-only global and cell roles; no standing
-workload receives those authorities. See
+workload receives those authorities. Restored environments use a distinct
+`restore-replay` Job with replay-only global/cell roles, an externally archived
+signed directive file, a separate verification key, and exact Account/cell/
+environment confirmation. It is never added to a Deployment and never selects
+a fallback cell. See
 [account-erasure.md](../../../docs/production/account-erasure.md).
 
 Route rotation canaries are intentionally absent as a standing Deployment.

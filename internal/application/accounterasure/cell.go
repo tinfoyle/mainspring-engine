@@ -34,6 +34,8 @@ type CellTombstone struct {
 	ExportSHA256           []byte
 	OperatorEvidenceSHA256 []byte
 	BackupExpiresAt        time.Time
+	LedgerSequence         uint64
+	LedgerRoot             []byte
 }
 
 type CellExecutor interface {

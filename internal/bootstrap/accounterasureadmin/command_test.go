@@ -1,8 +1,11 @@
 package accounterasureadmin
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -63,5 +66,63 @@ func TestValidateConfigRequiresSplitExecutionAuthorityAndExactTarget(t *testing.
 	shortKey.EvidenceKey = make([]byte, 31)
 	if err := validateConfig(shortKey, logger); err == nil {
 		t.Fatal("execution with a short evidence key was accepted")
+	}
+}
+
+func TestValidateConfigRequiresRestoreReplayAuthorityAndExactTarget(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	config := Config{
+		GlobalDatabaseURL: "postgres://global", CellDatabaseURL: "postgres://cell", CellID: "cell-a",
+		Action: "restore-replay", Actor: "restore-operator@example.com", Reason: "replay archived erasure directive",
+		Environment: "production", ConfirmEnvironment: "production",
+		AccountID: "11111111-1111-4111-8111-111111111111", ConfirmAccountID: "11111111-1111-4111-8111-111111111111",
+		RequestID: "22222222-2222-4222-8222-222222222222", RestoreSigningKey: make([]byte, 32),
+		RestoreDirectiveFile: "reviewed-directive.json",
+	}
+	if err := validateConfig(config, logger); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*Config){
+		"missing cell database": func(value *Config) { value.CellDatabaseURL = "" },
+		"wrong Account":         func(value *Config) { value.ConfirmAccountID = "33333333-3333-4333-8333-333333333333" },
+		"short signing key":     func(value *Config) { value.RestoreSigningKey = make([]byte, 31) },
+		"missing directive":     func(value *Config) { value.RestoreDirectiveFile = "" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := config
+			mutate(&invalid)
+			if err := validateConfig(invalid, logger); err == nil {
+				t.Fatal("invalid restore replay configuration was accepted")
+			}
+		})
+	}
+}
+
+func TestReadRestoreDirectiveRejectsUnknownAndTrailingJSON(t *testing.T) {
+	directory := t.TempDir()
+	for name, contents := range map[string][]byte{
+		"unknown":  []byte(`{"directive":{},"signature":"","unexpected":true}`),
+		"trailing": []byte(`{"directive":{},"signature":""} {}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(directory, name+".json")
+			if err := os.WriteFile(path, contents, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := readRestoreDirective(path); err == nil {
+				t.Fatal("malformed restore directive file was accepted")
+			}
+		})
+	}
+	validPath := filepath.Join(directory, "valid.json")
+	raw, err := json.Marshal(accounterasure.SignedRestoreDirective{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(validPath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readRestoreDirective(validPath); err != nil {
+		t.Fatalf("strict JSON envelope was rejected: %v", err)
 	}
 }

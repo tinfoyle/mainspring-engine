@@ -58,6 +58,8 @@ type GlobalTombstone struct {
 	ExportSHA256, CellTombstoneSHA256    []byte
 	OperatorEvidenceSHA256               []byte
 	BackupExpiresAt                      time.Time
+	LedgerSequence                       uint64
+	LedgerRoot                           []byte
 }
 
 type ExecutionStore interface {

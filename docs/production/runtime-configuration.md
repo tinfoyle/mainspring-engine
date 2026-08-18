@@ -19,7 +19,7 @@
 | `entitlement-worker` | Bounded existing-Account Catalog rollout seeding, leased free-plan recomputation, immutable changed-access snapshots, and drift repair | Catalog publication decisions, paid-grant mutation, Stripe or SMTP operations, customer business work |
 | `work-reconciler` | Lease identifier-only terminal Work release jobs, idempotently release global capacity, and checkpoint the matching Account-scoped Work row | Serving traffic, Work content reads, capacity reservation, package mutation, Stripe or SMTP operations |
 | `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
-| `account-erasure-admin` | One audited prepare, inspect, independent approval, pre-execution cancellation, or leased cross-store execution of a retained closed Account | Serving traffic, automatic approval, arbitrary SQL, cross-cell fallback, external-store deletion |
+| `account-erasure-admin` | One audited prepare, inspect, independent approval, pre-execution cancellation, leased cross-store execution, or signed restore replay of a retained closed Account | Serving traffic, automatic approval, arbitrary SQL, cross-cell fallback, external-store deletion |
 | `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
 | `migrate` | One embedded, immutable migration target against one database | Serving traffic, background work, automatic target selection |
@@ -226,9 +226,11 @@ The operator credential receives only `USAGE` on the `public` and `spyglass` sch
 
 ## Account erasure preparation values
 
-`account-erasure-admin prepare|inspect|approve|cancel|execute` is a short-lived controlled job implementing the reviewed state machine in [account-erasure.md](account-erasure.md). Every action requires `SPYGLASS_GLOBAL_DATABASE_URL`, `SPYGLASS_OPERATOR_ID`, `SPYGLASS_OPERATOR_REASON`, `SPYGLASS_ENVIRONMENT`, and an exact `SPYGLASS_CONFIRM_ENVIRONMENT`. `inspect`, `approve`, `cancel`, and `execute` require `SPYGLASS_ACCOUNT_ERASURE_REQUEST_ID`; approval, cancellation, and execution also require `SPYGLASS_ACCOUNT_ERASURE_VERSION`.
+`account-erasure-admin prepare|inspect|approve|cancel|execute|restore-replay` is a short-lived controlled job implementing the reviewed state machine in [account-erasure.md](account-erasure.md). Every action requires `SPYGLASS_GLOBAL_DATABASE_URL`, `SPYGLASS_OPERATOR_ID`, `SPYGLASS_OPERATOR_REASON`, `SPYGLASS_ENVIRONMENT`, and an exact `SPYGLASS_CONFIRM_ENVIRONMENT`. Every action except preparation requires `SPYGLASS_ACCOUNT_ERASURE_REQUEST_ID`; approval, cancellation, and live execution also require `SPYGLASS_ACCOUNT_ERASURE_VERSION`.
 
 `execute` additionally requires `SPYGLASS_CELL_DATABASE_URL`, the exact snapshotted `SPYGLASS_CELL_ID`, `SPYGLASS_ACCOUNT_ID` plus matching `SPYGLASS_CONFIRM_ACCOUNT_ID`, and `SPYGLASS_ACCOUNT_ERASURE_EVIDENCE_KEY` as standard Base64 for exactly 32 random bytes. `SPYGLASS_ACCOUNT_ERASURE_LEASE` defaults to five minutes and must be between 30 seconds and one hour. The global and cell credentials are distinct execute-only roles. A retry before lease expiry fails closed; after expiry it may reclaim only the same durable stage and evidence. A retry after global commit returns the existing content-free tombstone without consuming a new event ID or decrementing capacity again.
+
+`restore-replay` requires `SPYGLASS_CELL_DATABASE_URL`, exact `SPYGLASS_CELL_ID`, `SPYGLASS_ACCOUNT_ID` plus exact `SPYGLASS_CONFIRM_ACCOUNT_ID`, `SPYGLASS_ACCOUNT_ERASURE_RESTORE_DIRECTIVE_FILE`, and `SPYGLASS_ACCOUNT_ERASURE_RESTORE_SIGNING_KEY` as standard Base64 for exactly 32 bytes. The file must be a regular strict-JSON file no larger than 64 KiB and its signed request, Account, cell, and environment must match the explicit command configuration. Restore credentials are separate replay-only global/cell roles and the signing key is distinct from `SPYGLASS_ACCOUNT_ERASURE_EVIDENCE_KEY`. Completion logs contain the request ID and reconstructed checkpoint, never the raw Account or directive.
 
 ## Erasure restore checkpoint values
 
@@ -238,7 +240,7 @@ The configured checkpoint may be historical: the immutable database ledger retai
 
 Preparation additionally requires `SPYGLASS_CELL_DATABASE_URL`, `SPYGLASS_CELL_ID`, `SPYGLASS_ACCOUNT_ID`, exact `SPYGLASS_CONFIRM_ACCOUNT_ID`, `SPYGLASS_ACCOUNT_ERASURE_POLICY_VERSION`, RFC3339 `SPYGLASS_ACCOUNT_ERASURE_BACKUP_EXPIRES_AT`, and `SPYGLASS_ACCOUNT_ERASURE_EXPORT_DISPOSITION`. An `artifact` export requires its opaque reference, 64-character hexadecimal SHA-256, and RFC3339 expiry; `not_applicable` requires a policy-approved export reason. Approval reconnects to the snapshotted cell through the configured cell ID and repeats readiness attestation before changing state.
 
-The global and cell credentials receive only `USAGE` on their schemas and `EXECUTE` on the relevant security-definer functions. They receive no direct Account, closure, billing, usage, Work, request, or audit-table privileges. This command contains no execute, delete, tombstone, or immutable-audit bypass path.
+Normal operator credentials receive only `USAGE` on their schemas and `EXECUTE` on the relevant security-definer functions. They receive no direct Account, closure, billing, usage, Work, request, or audit-table privileges. Restore replay uses separate function-owner and operator roles; only the replay functions own the narrowly scoped table mutation and immutable-event bypass authority. No serving workload or ordinary erasure operator receives those grants.
 
 ## Local invocation shape
 

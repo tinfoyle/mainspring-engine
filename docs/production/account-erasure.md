@@ -1,6 +1,6 @@
 # Account Export and Erasure Workflow
 
-Status: production contract; logical closure, four-eyes preparation, leased cross-store execution, and content-free global/cell tombstones are executable; external-system reconciliation and restore replay remain release gates
+Status: production contract; logical closure, four-eyes preparation, leased cross-store execution, content-free global/cell tombstones, checkpoint quarantine, and signed database restore replay are executable; external-system reconciliation, directive publication, deployment grants/runbooks, and production review remain release gates
 
 Account closure and Account erasure are deliberately different operations. Closure is customer-facing, recoverable during cooling-off, and eventually disables normal access. Erasure destroys live customer data after retention and therefore requires reviewed operator authority, export evidence, cross-store reconciliation, and a durable content-free tombstone.
 
@@ -24,17 +24,17 @@ No HTTP request, account-api replica, or lifecycle-worker attempt may directly e
 
 ## Authority and process boundaries
 
-The workflow uses short-lived, human-authorized jobs rather than a standing high-privilege worker. The binary exposes reviewed preparation, inspection, approval, pre-execution cancellation, and leased execution. A separate restore-oriented `verify` action remains intentionally unavailable:
+The workflow uses short-lived, human-authorized jobs rather than a standing high-privilege worker. The binary exposes reviewed preparation, inspection, approval, pre-execution cancellation, leased execution, and signed restore replay:
 
 ```text
 spyglass account-erasure-admin prepare
 spyglass account-erasure-admin inspect
 spyglass account-erasure-admin approve
 spyglass account-erasure-admin execute
-spyglass account-erasure-admin verify
+spyglass account-erasure-admin restore-replay
 ```
 
-`prepare`, `inspect`, `approve`, and global finalization use a narrow global credential. Cell execution uses a credential for exactly the snapshotted cell. `execute` receives both database URLs, but they remain distinct pools and execute-only database roles. It also receives a 32-byte evidence key used for domain-separated HMAC Account fingerprints and operator-evidence digests; the key and raw Account identifier are absent from completed tombstones and completion logs. The command receives no browser session, serving credential, Stripe secret, SMTP secret, route-signing key, or arbitrary SQL surface.
+`prepare`, `inspect`, `approve`, and global finalization use a narrow global credential. Cell execution uses a credential for exactly the snapshotted cell. `execute` receives both database URLs, but they remain distinct pools and execute-only database roles. It also receives a 32-byte evidence key used for domain-separated HMAC Account fingerprints and operator-evidence digests; the key and raw Account identifier are absent from completed tombstones and completion logs. `restore-replay` uses separate global and cell replay-only roles, an archived signed directive, and a distinct 32-byte directive-verification key. It never receives the live evidence key. The command receives no browser session, serving credential, Stripe secret, SMTP secret, route-signing key, or arbitrary SQL surface.
 
 Every action requires:
 
@@ -43,12 +43,12 @@ Every action requires:
 - `SPYGLASS_ENVIRONMENT`
 - matching `SPYGLASS_CONFIRM_ENVIRONMENT`
 
-Destructive actions additionally require:
+Customer-erasure and restore-replay actions additionally require:
 
 - `SPYGLASS_ACCOUNT_ID`
 - matching `SPYGLASS_CONFIRM_ACCOUNT_ID`
 - `SPYGLASS_ACCOUNT_ERASURE_REQUEST_ID`
-- the expected workflow version
+- the expected workflow version for live `execute`; restore replay instead requires the exact signed directive file
 
 Production access control authenticates the human, authorizes the action, injects the short-lived database credential, and records the change/incident reference outside Spyglass. Environment variables only carry the resulting evidence into the command.
 
@@ -170,7 +170,9 @@ No automatic cross-cell fallback is allowed. A missing namespace is success only
 
 Every serving process receives an externally pinned historical sequence/root. Global processes check the global ledger; cell processes check their cell ledger; Work reconciliation checks both. Startup fails if the checkpoint is absent. Ingress checks it before every non-liveness request through a positive-only five-second cache, and workers terminate within the bounded monitor interval if it disappears. Errors are never cached. A healthy PostgreSQL ping cannot override this gate. Operator and migration commands remain available so a quarantined restored environment can be repaired.
 
-The external ledger publisher must durably archive the ordered restore directives and advance deployment configuration after each completed erasure. The replay command that consumes those signed directives is the next delivery slice; until it exists, this gate proves detection and quarantine but not recovery of an old backup.
+`spyglass account-erasure-admin restore-replay` consumes one strict JSON envelope containing a versioned directive and HMAC-SHA-256 signature. The signature covers the exact request, Account, cell, original placement generation, content-free erasure evidence, timestamps, and previous/expected cell and global checkpoint pairs. Verification happens before database access. Replay then resolves only the restored Account's current placement, requires the configured cell to match, re-erases that cell, and finally re-erases global data. Each security-definer function locks its ledger, requires the exact previous checkpoint, and verifies that the newly derived root equals the directive. Reordered, omitted, forged, cross-environment, cross-Account, cross-cell, and already-divergent streams fail closed. A completed replay is attested exactly and is idempotent.
+
+The external ledger publisher remains a separate production trust boundary. It must durably archive directives in ledger order, protect the signing key outside workload credentials, publish each cell/global checkpoint only after durable archival, and advance deployment pins after completion. The executable command intentionally accepts one reviewed local file and does not fetch a directive or select another cell automatically. Production remains disabled until that publisher/archive and the restricted Job/runbook are deployed and drilled.
 
 ## Observability and privacy
 
@@ -193,7 +195,9 @@ Disposable global/cell PostgreSQL tests must prove:
 - repeated execution returns the same completed tombstone and never underflows capacity;
 - immutable event tables reject ordinary mutation and permit only the erasure function's exact target;
 - tombstones contain no raw Account, User, Work, Stripe, email, name, reason, or export-reference value;
-- restored-backup startup replays completed tombstones before readiness.
+- a forged or out-of-order restore directive mutates nothing;
+- an original database and a pre-closure restored database converge to identical signed cell/global checkpoints;
+- replay removes only the exact Account, preserves another Account, passes pinned readiness, and is idempotent.
 
 The schema-coverage test inventories Account foreign keys, composite Account keys, RLS tables, object namespaces, and attributed outbox/provider rows. A new Feature Package cannot ship Account-owned storage without updating this contract and its deletion proof.
 
@@ -203,7 +207,7 @@ The schema-coverage test inventories Account foreign keys, composite Account key
 2. Prepare/inspect/cancel/approve services, repeated cell readiness, four-eyes enforcement, and eligibility tests are executable with no deletion authority.
 3. The cell security-definer erasure/attestation boundary, forced-RLS exact targeting, content-free tombstone, concurrent idempotency, and multi-Account isolation tests are executable. Its function remains revoked from `PUBLIC` and no command currently invokes it.
 4. Idempotent leased cross-database execute orchestration, repeated cell attestation, shared billing-ingestion fencing, and atomic global finalization are executable through split database roles.
-5. Integrate connector, object, index, analytics, Stripe-retention, export-expiry, and backup-replay attestations as those stores become executable.
-6. Content-free checkpoint ledgers and runtime quarantine are executable. Add the signed directive replay command, restricted Kubernetes Job templates/runbook, alert rules, restore drill, and production security review before enabling an erasure credential.
+5. Integrate connector, object, index, analytics, Stripe-retention, and export-expiry attestations as those stores become executable.
+6. Content-free checkpoint ledgers, runtime quarantine, and signed ordered database replay are executable. Add the external directive publisher/archive, restricted Kubernetes Job templates/runbook, alert rules, restore drill, and production security review before enabling an erasure credential.
 
 Database completion is reportable only after the global tombstone commits; a cell tombstone alone is explicitly not completion. Product-level physical-erasure claims remain gated on step 5 for every external store enabled by that environment and on the restore-replay readiness gate in step 6.

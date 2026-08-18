@@ -4,9 +4,12 @@ package accounterasureadmin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,6 +32,8 @@ type Config struct {
 	Export                             accounterasure.ExportEvidence
 	BackupExpiresAt                    time.Time
 	EvidenceKey                        []byte
+	RestoreSigningKey                  []byte
+	RestoreDirectiveFile               string
 	LeaseDuration                      time.Duration
 	MaxGlobalConns, MaxCellConns       int32
 }
@@ -62,7 +67,7 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 	var cellPool *pgxpool.Pool
 	var cellStore accounterasure.CellStore = unusedCell{}
 	var cellExecutor accounterasure.CellExecutor
-	if config.Action == "prepare" || config.Action == "approve" || config.Action == "execute" {
+	if config.Action == "prepare" || config.Action == "approve" || config.Action == "execute" || config.Action == "restore-replay" {
 		cellConfig, err := pgxpool.ParseConfig(config.CellDatabaseURL)
 		if err != nil {
 			return err
@@ -83,6 +88,29 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 		cellExecutor = cellRepository
 	}
 	globalRepository := postgres.NewAccountErasureRepository(globalPool)
+	if config.Action == "restore-replay" {
+		signed, err := readRestoreDirective(config.RestoreDirectiveFile)
+		if err != nil {
+			return err
+		}
+		if signed.Directive.RequestID != config.RequestID || signed.Directive.AccountID != config.AccountID || signed.Directive.CellID != config.CellID {
+			return accounterasure.ErrInvalidRestoreDirective
+		}
+		restoreCellStore, ok := cellExecutor.(accounterasure.RestoreCellStore)
+		if !ok {
+			return errors.New("Account erasure restore cell authority is unavailable")
+		}
+		service, err := accounterasure.NewRestoreService(globalRepository, restoreCellStore, config.RestoreSigningKey)
+		if err != nil {
+			return err
+		}
+		result, err := service.Replay(ctx, signed, config.CellID, config.Environment)
+		if err != nil {
+			return err
+		}
+		logger.Info("Spyglass Account erasure restore replay complete", "request_id", result.RequestID, "global_ledger_sequence", result.LedgerSequence, "global_ledger_root", fmt.Sprintf("%x", result.LedgerRoot), "environment", result.Environment)
+		return nil
+	}
 	if config.Action == "execute" {
 		service, err := accounterasure.NewExecutionService(globalRepository, cellExecutor, ids.RandomGenerator{}, registration.SystemClock{}, config.EvidenceKey)
 		if err != nil {
@@ -157,8 +185,37 @@ func validateConfig(config Config, logger *slog.Logger) error {
 			config.LeaseDuration < 30*time.Second || config.LeaseDuration > time.Hour {
 			return accounterasure.ErrInvalidChange
 		}
+	case "restore-replay":
+		if config.CellDatabaseURL == "" || config.CellID == "" || ids.Validate(config.RequestID) != nil ||
+			ids.Validate(string(config.AccountID)) != nil || config.ConfirmAccountID != config.AccountID ||
+			len(config.RestoreSigningKey) != 32 || config.RestoreDirectiveFile == "" {
+			return accounterasure.ErrInvalidRestoreDirective
+		}
 	default:
 		return fmt.Errorf("unsupported Account erasure operator action %q", config.Action)
 	}
 	return nil
+}
+
+func readRestoreDirective(path string) (accounterasure.SignedRestoreDirective, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return accounterasure.SignedRestoreDirective{}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > 64<<10 {
+		return accounterasure.SignedRestoreDirective{}, accounterasure.ErrInvalidRestoreDirective
+	}
+	decoder := json.NewDecoder(io.LimitReader(file, (64<<10)+1))
+	decoder.DisallowUnknownFields()
+	var result accounterasure.SignedRestoreDirective
+	if err := decoder.Decode(&result); err != nil {
+		return accounterasure.SignedRestoreDirective{}, accounterasure.ErrInvalidRestoreDirective
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return accounterasure.SignedRestoreDirective{}, accounterasure.ErrInvalidRestoreDirective
+	}
+	return result, nil
 }
