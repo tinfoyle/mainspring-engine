@@ -623,7 +623,7 @@ func runDevelopment(ctx context.Context, logger *slog.Logger) error {
 	if os.Getenv("SPYGLASS_ENV") != "development" {
 		return errors.New("development mode requires SPYGLASS_ENV=development")
 	}
-	return serveHTTP(ctx, httpAddress(":8080"), development.Handler(logger), logger)
+	return serveHTTP(ctx, "development", httpAddress(":8080"), development.Handler(logger), logger)
 }
 
 func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
@@ -643,7 +643,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer server.Close()
-	return serveHTTP(ctx, httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
+	return serveHTTP(ctx, "account-api", httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 }
 
 func runAppRouter(ctx context.Context, logger *slog.Logger) error {
@@ -712,7 +712,7 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer server.Close()
-	return serveHTTP(ctx, httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
+	return serveHTTP(ctx, "app-router", httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 }
 
 func runAppAPI(ctx context.Context, logger *slog.Logger) error {
@@ -771,13 +771,13 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer server.Close()
 	if developmentMode {
-		return serveHTTP(ctx, httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
+		return serveHTTP(ctx, "app-api", httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 	}
 	secured, err := workloadidentity.RequireClientIdentity(server.Handler, csvEnv("SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"), logger)
 	if err != nil {
 		return err
 	}
-	return serveHTTPS(ctx, httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, secured), serverTLS, logger)
+	return serveHTTPS(ctx, "app-api", httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, secured), serverTLS, logger)
 }
 
 func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
@@ -830,13 +830,13 @@ func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer server.Close()
 	if developmentMode {
-		return serveHTTP(ctx, httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
+		return serveHTTP(ctx, "admission-api", httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 	}
 	secured, err := workloadidentity.RequireClientIdentity(server.Handler, csvEnv("SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"), logger)
 	if err != nil {
 		return err
 	}
-	return serveHTTPS(ctx, httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, secured), serverTLS, logger)
+	return serveHTTPS(ctx, "admission-api", httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, secured), serverTLS, logger)
 }
 
 func runBillingWorker(ctx context.Context, logger *slog.Logger) error {
@@ -1242,7 +1242,7 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer server.Close()
-	return serveHTTPSWithWriteTimeout(ctx, httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), serverTLS, modelGatewayWriteTimeout, logger)
+	return serveHTTPSWithWriteTimeout(ctx, "runner-broker", httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), serverTLS, modelGatewayWriteTimeout, logger)
 }
 
 func runModelGateway(ctx context.Context, logger *slog.Logger) error {
@@ -1262,7 +1262,7 @@ func runModelGateway(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	if developmentMode {
-		return serveHTTPWithWriteTimeout(ctx, httpAddress(":8080"), server.Handler, modelGatewayWriteTimeout, logger)
+		return serveHTTPWithWriteTimeout(ctx, "model-gateway", httpAddress(":8080"), server.Handler, modelGatewayWriteTimeout, logger)
 	}
 	serverTLS, err := workloadidentity.NewServerConfig(workloadTLSFilesEnv())
 	if err != nil {
@@ -1272,7 +1272,7 @@ func runModelGateway(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	return serveHTTPSWithWriteTimeout(ctx, httpAddress(":8443"), secured, serverTLS, modelGatewayWriteTimeout, logger)
+	return serveHTTPSWithWriteTimeout(ctx, "model-gateway", httpAddress(":8443"), secured, serverTLS, modelGatewayWriteTimeout, logger)
 }
 
 func runAgentProjectionWorker(ctx context.Context, logger *slog.Logger) error {
@@ -1695,15 +1695,19 @@ func formatOptionalTimePointer(value *time.Time) string {
 	return formatOptionalTime(*value)
 }
 
-func serveHTTP(ctx context.Context, address string, handler http.Handler, logger *slog.Logger) error {
-	return serveHTTPWithWriteTimeout(ctx, address, handler, 30*time.Second, logger)
+func serveHTTP(ctx context.Context, service, address string, handler http.Handler, logger *slog.Logger) error {
+	return serveHTTPWithWriteTimeout(ctx, service, address, handler, 30*time.Second, logger)
 }
 
-func serveHTTPWithWriteTimeout(ctx context.Context, address string, handler http.Handler, writeTimeout time.Duration, logger *slog.Logger) error {
+func serveHTTPWithWriteTimeout(ctx context.Context, service, address string, handler http.Handler, writeTimeout time.Duration, logger *slog.Logger) error {
 	if writeTimeout <= 0 {
 		return errors.New("HTTP write timeout must be positive")
 	}
-	server := newHTTPServer(address, handler)
+	metrics, err := observability.NewHTTPMetrics(service)
+	if err != nil {
+		return err
+	}
+	server := newHTTPServer(address, metrics.Handler(handler))
 	server.WriteTimeout = writeTimeout
 	errorsChannel := make(chan error, 1)
 	go func() {
@@ -1724,18 +1728,22 @@ func serveHTTPWithWriteTimeout(ctx context.Context, address string, handler http
 	return server.Shutdown(shutdown)
 }
 
-func serveHTTPS(ctx context.Context, address string, handler http.Handler, config *tls.Config, logger *slog.Logger) error {
-	return serveHTTPSWithWriteTimeout(ctx, address, handler, config, 30*time.Second, logger)
+func serveHTTPS(ctx context.Context, service, address string, handler http.Handler, config *tls.Config, logger *slog.Logger) error {
+	return serveHTTPSWithWriteTimeout(ctx, service, address, handler, config, 30*time.Second, logger)
 }
 
-func serveHTTPSWithWriteTimeout(ctx context.Context, address string, handler http.Handler, config *tls.Config, writeTimeout time.Duration, logger *slog.Logger) error {
+func serveHTTPSWithWriteTimeout(ctx context.Context, service, address string, handler http.Handler, config *tls.Config, writeTimeout time.Duration, logger *slog.Logger) error {
 	if config == nil {
 		return errors.New("workload TLS server configuration is required")
 	}
 	if writeTimeout <= 0 {
 		return errors.New("HTTPS write timeout must be positive")
 	}
-	server := newHTTPServer(address, handler)
+	metrics, err := observability.NewHTTPMetrics(service)
+	if err != nil {
+		return err
+	}
+	server := newHTTPServer(address, metrics.Handler(handler))
 	server.WriteTimeout = writeTimeout
 	server.TLSConfig = config
 	errorsChannel := make(chan error, 1)

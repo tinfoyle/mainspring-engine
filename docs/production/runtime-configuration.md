@@ -144,6 +144,8 @@ Every long-running worker serves process liveness at `GET /health/live`, bounded
 
 The Agent dispatch, Agent projection, and runner controller endpoints additionally publish the exact gauges `spyglass_agent_dispatch_ready`, `spyglass_agent_projection_ready`, and `spyglass_runner_ready`. Environment monitoring scrapes the health port and the custom/external metrics adapter projects those series into the HPA API. These are current global/cell backlog snapshots repeated by each replica, so adapters must preserve the reference HPA `AverageValue` semantics and alert when a series disappears. Billing, notification, entitlement, Account lifecycle, Work reconciliation, and route-receipt workers expose aggregate processing/failure or queue-state fields through `spyglass_worker_status{worker,field}` without customer-derived labels.
 
+Every HTTP service also exposes `GET /metrics` on its service port. The endpoint reports `spyglass_http_in_flight`, `spyglass_http_requests_total`, and `spyglass_http_request_duration_seconds` with only static service names, a bounded method set, registered `ServeMux` route patterns, and response status classes. Unmatched routes collapse to `unmatched`, non-standard methods collapse to `OTHER`, and raw paths, Account IDs, request bodies, query strings, and headers are never labels. Monitoring must scrape this endpoint over the same trusted network boundary as the service; it is operational telemetry, not a public product endpoint.
+
 ## Billing worker values
 
 | Environment variable | Requirement |

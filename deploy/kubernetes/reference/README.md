@@ -35,6 +35,10 @@ Before an environment overlay may use these resources it must add:
   endpoint, plus request latency, oldest queue age, and
   schedule-to-start signals. Missing external metrics must alert; environments
   may not silently treat CPU as sufficient proof that backlogs are healthy.
+- Pod/service monitors scraping each HTTP service's `/metrics` endpoint for
+  bounded-cardinality request counts, in-flight work, and duration summaries.
+  The application exports registered route templates rather than raw customer
+  paths; environment dashboards and relabeling must preserve that constraint.
 - Tested NetworkPolicy egress destinations and cluster admission policy. The
   base permits only DNS and the explicit in-namespace runner→broker,
   broker→model-gateway, broker→tool-router, router→cell, and cell→admission
