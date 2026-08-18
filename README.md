@@ -46,6 +46,7 @@ The focused design documents are:
 - [Stripe commercial access operations](docs/production/stripe-operations.md)
 - [Catalog publication operations](docs/production/catalog-operations.md)
 - [Package and usage admission](docs/production/usage-admission.md)
+- [Work module production design](docs/production/work-module.md)
 - [Production runtime configuration](docs/production/runtime-configuration.md)
 - [Pooled Kubernetes and cell topology](docs/production/kubernetes-topology.md)
 - [Detailed delivery backlog](docs/production/delivery-plan.md)
@@ -56,6 +57,6 @@ Current executable production surfaces:
 
 - [`website/`](website/) contains the public Infinite Ocean site and Spyglass product/package/pricing experience.
 - [`cmd/spyglass`](cmd/spyglass/) provides development, persistent Account API, billing/notification/entitlement workers, migration, and audited Catalog operator modes.
-- [`internal/modules`](internal/modules/) contains Identity, Accounts, Sessions, Access, Catalog, Entitlements, Billing, and Placement boundaries.
+- [`internal/modules`](internal/modules/) contains Identity, Accounts, Sessions, Access, Catalog, Entitlements, Billing, Placement, and the first production Work boundary.
 - [`migrations/`](migrations/) contains the initial global and cell PostgreSQL schemas.
 - [`deploy/kubernetes/reference/`](deploy/kubernetes/reference/) captures the review-only pooled workload topology; it is deliberately fail-closed until release and environment overlays supply real artifacts and managed configuration.

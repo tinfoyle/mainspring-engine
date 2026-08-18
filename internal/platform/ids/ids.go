@@ -16,6 +16,7 @@ type SessionID string
 type InvitationID string
 type GrantID string
 type CellID string
+type WorkItemID string
 
 type Generator interface {
 	New() string

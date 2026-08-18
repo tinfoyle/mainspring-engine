@@ -302,6 +302,8 @@ Acceptance:
 
 ### P3.1 Work domain
 
+Implementation checkpoint: typed construction, lifecycle/role matrix, assignment and provenance values, maximum depth, optimistic versioning, and active-item admission are implemented. See [work-module.md](work-module.md). Persona ownership and provenance attachment commands remain.
+
 - Replace raw kind/status/priority/source/responsibility strings with validated value types.
 - Specify transition matrix and role permissions.
 - Specify parent/child rules, including maximum depth and cycle prevention.
@@ -315,6 +317,8 @@ Acceptance:
 - Invalid objects cannot be constructed through public commands.
 
 ### P3.2 Work persistence and queries
+
+Implementation checkpoint: pooled-cell schema, forced RLS, Account-local numbering, composite parent constraints, optimistic create/update, direct children, stable cursor queue, summaries, mutation events, and non-owner isolation/concurrency tests are implemented. Capacity-release reconciliation, representative query plans, and transport contracts remain.
 
 - Repository commands for create, update status, assign, attach provenance, and link conversations.
 - Cursor-based queue query with stable ordering.

@@ -29,11 +29,14 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
+	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/authn"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -655,7 +658,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 13 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 14 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
@@ -683,7 +686,7 @@ func testAccountIsolation(t *testing.T, ctx context.Context, owner *pgxpool.Pool
 		t.Fatalf("create serving role: %v", err)
 	}
 	defer func() { _, _ = owner.Exec(context.Background(), `DROP ROLE IF EXISTS `+role) }()
-	if _, err := owner.Exec(ctx, `GRANT USAGE ON SCHEMA spyglass TO `+role+`; GRANT SELECT,INSERT ON ALL TABLES IN SCHEMA spyglass TO `+role); err != nil {
+	if _, err := owner.Exec(ctx, `GRANT USAGE ON SCHEMA spyglass TO `+role+`; GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA spyglass TO `+role); err != nil {
 		t.Fatalf("grant serving role: %v", err)
 	}
 
@@ -739,6 +742,70 @@ func testAccountIsolation(t *testing.T, ctx context.Context, owner *pgxpool.Pool
 	}
 	if visible != 0 {
 		t.Fatalf("transaction-local account context leaked; visible rows=%d", visible)
+	}
+
+	testWorkIsolationAndConcurrency(t, ctx, cellPool, accountA, accountB)
+}
+
+func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, cellPool *database.CellPool, accountA, accountB ids.AccountID) {
+	t.Helper()
+	repository, err := postgresadapter.NewWorkRepository(cellPool, ids.RandomGenerator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	actor := workdomain.Actor{Kind: workdomain.ActorUser, ID: "40000000-0000-4000-8000-000000000004"}
+	itemID := ids.WorkItemID("50000000-0000-4000-8000-000000000005")
+	draft, err := workdomain.NewDraft(workdomain.Draft{
+		ID: itemID, AccountID: accountA, Kind: workdomain.KindTicket, Title: "Reconcile month-end close",
+		Priority: workdomain.PriorityUrgent, Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared},
+		Provenance: workdomain.Provenance{Source: workdomain.SourceManual, CreatedBy: actor}, CapacityReservationID: string(itemID),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := repository.Create(ctx, draft, workapp.Mutation{Kind: workapp.MutationCreated, Actor: actor, Reason: "integration contract", CorrelationID: "work-isolation-contract", At: now})
+	if err != nil {
+		t.Fatalf("create account A work item: %v", err)
+	}
+	if created.Number != 1 || created.Version != 1 || created.State != workdomain.StateOpen {
+		t.Fatalf("created work item = %+v", created)
+	}
+
+	if _, err := repository.Get(ctx, accountB, itemID); !errors.Is(err, workapp.ErrNotFound) {
+		t.Fatalf("account B guessed account A work ID: %v", err)
+	}
+	page, err := repository.List(ctx, accountA, workapp.ListQuery{Limit: 10})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("list account A work = %+v, %v", page, err)
+	}
+	other, err := repository.List(ctx, accountB, workapp.ListQuery{Limit: 10})
+	if err != nil || len(other.Items) != 0 {
+		t.Fatalf("list account B work = %+v, %v", other, err)
+	}
+	summary, err := repository.Summary(ctx, accountA)
+	if err != nil || summary.Active != 1 || summary.Urgent != 1 {
+		t.Fatalf("account A summary = %+v, %v", summary, err)
+	}
+
+	started, err := created.Transition(workdomain.TransitionCommand{To: workdomain.StateInProgress, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: created.Version, At: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, err = repository.Update(ctx, started, created.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "start the close", CorrelationID: "work-transition-contract", At: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatalf("start work item: %v", err)
+	}
+	stale, err := created.Assign(workdomain.AssignmentCommand{Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityUser, UserID: ids.UserID(actor.ID)}, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: created.Version, At: now.Add(2 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.Update(ctx, stale, created.Version, workapp.Mutation{Kind: workapp.MutationAssigned, Actor: actor, Reason: "stale writer", CorrelationID: "work-concurrency-contract", At: now.Add(2 * time.Minute)}); !errors.Is(err, workapp.ErrConflict) {
+		t.Fatalf("stale work update error = %v", err)
+	}
+	loaded, err := repository.Get(ctx, accountA, itemID)
+	if err != nil || loaded.Version != started.Version || loaded.State != workdomain.StateInProgress {
+		t.Fatalf("load winning work state = %+v, %v", loaded, err)
 	}
 }
 
