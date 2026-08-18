@@ -24,6 +24,8 @@ spec:
           ports: [{name: http, containerPort: 8080}]
           env:
             - {name: SPYGLASS_HTTP_ADDRESS, value: ":8080"}
+            - {name: SPYGLASS_DIRECTORY_CACHE_TTL, value: "30s"}
+            - {name: SPYGLASS_DIRECTORY_CACHE_CAPACITY, value: "10000"}
           envFrom:
             - configMapRef: {name: spyglass-global-runtime}
             - secretRef: {name: spyglass-app-router-secrets}

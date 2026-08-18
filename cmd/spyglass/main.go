@@ -255,10 +255,6 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	routes, err := cellRoutesEnv("SPYGLASS_CELL_ROUTES")
-	if err != nil {
-		return err
-	}
 	appOrigin, err := requiredEnv("SPYGLASS_APP_ORIGIN")
 	if err != nil {
 		return err
@@ -271,9 +267,18 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	directoryTTL, err := durationEnv("SPYGLASS_DIRECTORY_CACHE_TTL", 30*time.Second)
+	if err != nil {
+		return err
+	}
+	directoryCapacityValue, err := int32Env("SPYGLASS_DIRECTORY_CACHE_CAPACITY", 10000)
+	if err != nil {
+		return err
+	}
+	directoryCapacity := int(directoryCapacityValue)
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := approuter.New(startup, approuter.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, RouteIssuer: issuer, RouteSigningKeyID: keyID, RouteSigningKey: key, RouteLifetime: lifetime, CellRoutes: routes, SessionCookieName: os.Getenv("SPYGLASS_SESSION_COOKIE_NAME"), SecureCookies: true, TrustedOrigins: []string{appOrigin}}, logger, registration.SystemClock{})
+	server, err := approuter.New(startup, approuter.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, RouteIssuer: issuer, RouteSigningKeyID: keyID, RouteSigningKey: key, RouteLifetime: lifetime, DirectoryCacheTTL: directoryTTL, DirectoryCapacity: directoryCapacity, SessionCookieName: os.Getenv("SPYGLASS_SESSION_COOKIE_NAME"), SecureCookies: true, TrustedOrigins: []string{appOrigin}, AllowHTTPCells: os.Getenv("SPYGLASS_ENV") == "development"}, logger, registration.SystemClock{})
 	if err != nil {
 		return err
 	}
@@ -729,18 +734,6 @@ func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 	return value, nil
 }
 func httpAddress(fallback string) string { return envOr("SPYGLASS_HTTP_ADDRESS", fallback) }
-
-func cellRoutesEnv(name string) (map[ids.CellID]string, error) {
-	values, err := keyValueEnv(name)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[ids.CellID]string, len(values))
-	for key, value := range values {
-		result[ids.CellID(key)] = value
-	}
-	return result, nil
-}
 
 func routeVerifyKeysEnv(name string) (map[string][]byte, error) {
 	values, err := keyValueEnv(name)

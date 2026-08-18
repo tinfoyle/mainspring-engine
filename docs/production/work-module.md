@@ -139,7 +139,7 @@ Enabled Accounts now receive a prototype-informed New Work dialog and lifecycle 
 
 ## Remaining delivery order
 
-1. Replace the static route map with the bounded directory cache and internal TLS/workload identity described in [routing-boundary.md](routing-boundary.md); the admission API must remain private.
+1. Add internal TLS/workload identity to the directory-routed cell boundary described in [routing-boundary.md](routing-boundary.md); the admission API must remain private.
 2. Add assignment editing, inline reason capture, preserved create drafts across navigation, and accessible command announcements.
 3. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
 4. Add representative query-plan fixtures, pagination property tests, concurrent completion/assignment stress, and two-cell cross-Account API attack fixtures.

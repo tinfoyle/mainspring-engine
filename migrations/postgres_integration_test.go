@@ -258,6 +258,10 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if provisioned.Account.Type != "free" || len(provisioned.Snapshot.Packages) != 1 || string(provisioned.Snapshot.Packages[0].Code) != "knowledge" {
 		t.Fatalf("unexpected free account projection: type=%s packages=%v", provisioned.Account.Type, provisioned.Snapshot.Packages)
 	}
+	directoryEntry, err := postgresadapter.NewAccountDirectoryRepository(pool).Lookup(ctx, provisioned.Account.ID)
+	if err != nil || directoryEntry.CellID != provisioned.Account.CellID || directoryEntry.PlacementGeneration != provisioned.Account.PlacementGeneration || directoryEntry.RouteOrigin != "http://app-api.spyglass-reference.svc.cluster.local" {
+		t.Fatalf("unexpected Account directory route: entry=%+v err=%v", directoryEntry, err)
+	}
 	legacyGrantID := ids.RandomGenerator{}.New()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO entitlement_grants
@@ -671,7 +675,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 		}
 	}
 
-	var ledgerCount, catalogCount, cellCount int
+	var ledgerCount, catalogCount, cellCount, routedCellCount int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass_schema_migrations`).Scan(&ledgerCount); err != nil {
 		t.Fatal(err)
 	}
@@ -681,8 +685,11 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 19 || catalogCount != 1 || cellCount != 1 {
-		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
+		t.Fatal(err)
+	}
+	if ledgerCount != 21 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 
 	testAccountIsolation(t, ctx, owner, databaseURL)

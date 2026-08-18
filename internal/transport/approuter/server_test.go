@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -46,7 +48,8 @@ func TestAuthenticatedRequestTraversesSignedCellBoundary(t *testing.T) {
 	}))
 	defer cellServer.Close()
 	authorizer := &captureAuthorizer{result: access.AccountContext{AccountID: ids.AccountID(routerAccount), CellID: cellID, PlacementGeneration: 7, EntitlementVersion: 4, Role: accounts.RoleOwner}}
-	router, err := New(fakeSessions{authenticated: sessions.Authenticated{Session: sessions.Session{UserID: ids.UserID(routerUser)}, RotatedToken: "rotated"}}, authorizer, signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "spyglass_test_session", TrustedOrigins: []string{"http://app.test"}, CellRoutes: map[ids.CellID]string{cellID: cellServer.URL}, AllowHTTPCells: true}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	directory := directoryFor(t, cellID, 7, cellServer.URL)
+	router, err := New(fakeSessions{authenticated: sessions.Authenticated{Session: sessions.Session{UserID: ids.UserID(routerUser)}, RotatedToken: "rotated"}}, authorizer, directory, signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "spyglass_test_session", TrustedOrigins: []string{"http://app.test"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +67,9 @@ func TestAuthenticatedRequestTraversesSignedCellBoundary(t *testing.T) {
 	if authorizer.requirement.Package != "" || authorizer.requirement.Mutation {
 		t.Fatalf("requirement = %+v", authorizer.requirement)
 	}
+	if directory.accountID != routerAccount || directory.cellID != cellID || directory.generation != 7 {
+		t.Fatalf("directory resolution account=%s cell=%s generation=%d", directory.accountID, directory.cellID, directory.generation)
+	}
 	if response.Header().Get("X-Request-ID") != routerRequest {
 		t.Fatalf("request ID = %q", response.Header().Get("X-Request-ID"))
 	}
@@ -77,7 +83,7 @@ func TestMutationRequiresTrustedOriginBeforeAuthorization(t *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
 	signer, _ := routecontext.NewSigner("router", "current", key, 20*time.Second, clock)
 	authorizer := &captureAuthorizer{}
-	router, err := New(fakeSessions{}, authorizer, signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "test", TrustedOrigins: []string{"https://app.example"}, CellRoutes: map[ids.CellID]string{"cell": "http://cell.test"}, AllowHTTPCells: true}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router, err := New(fakeSessions{}, authorizer, &fakeDirectory{}, signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "test", TrustedOrigins: []string{"https://app.example"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +101,7 @@ func TestRouterRejectsUnpublishedWorkCommandsBeforeAuthentication(t *testing.T) 
 	key := []byte("0123456789abcdef0123456789abcdef")
 	signer, _ := routecontext.NewSigner("router", "current", key, 20*time.Second, clock)
 	authorizer := &captureAuthorizer{}
-	router, _ := New(fakeSessions{}, authorizer, signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "test", TrustedOrigins: []string{"https://app.example"}, CellRoutes: map[ids.CellID]string{"cell": "http://cell.test"}, AllowHTTPCells: true}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router, _ := New(fakeSessions{}, authorizer, &fakeDirectory{}, signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "test", TrustedOrigins: []string{"https://app.example"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	for _, target := range []struct{ method, path string }{
 		{http.MethodDelete, "/api/v1/accounts/" + routerAccount + "/work-items/" + routerRequest},
 		{http.MethodPost, "/api/v1/accounts/" + routerAccount + "/work-items/" + routerRequest + "/children"},
@@ -135,7 +141,7 @@ func TestWorkMutationCarriesOnlyAuthorizedPackageAccess(t *testing.T) {
 	defer cellServer.Close()
 	packageAccess := entitlements.PackageAccess{Code: catalog.PackageWork, Version: 1, Mode: catalog.ModeEnabled, Limits: map[catalog.LimitCode]int64{"active_items": 100}, LimitPolicies: map[catalog.LimitCode]entitlements.LimitPolicy{"active_items": {Kind: catalog.LimitKindCapacity, Combine: catalog.LimitMaximum}}}
 	authorizer := &captureAuthorizer{result: access.AccountContext{AccountID: ids.AccountID(routerAccount), CellID: cellID, PlacementGeneration: 7, EntitlementVersion: 4, Role: accounts.RoleMember, PackageAccess: &packageAccess}}
-	router, err := New(fakeSessions{authenticated: sessions.Authenticated{Session: sessions.Session{UserID: ids.UserID(routerUser)}}}, authorizer, signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "test", TrustedOrigins: []string{"https://app.example"}, CellRoutes: map[ids.CellID]string{cellID: cellServer.URL}, AllowHTTPCells: true}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	router, err := New(fakeSessions{authenticated: sessions.Authenticated{Session: sessions.Session{UserID: ids.UserID(routerUser)}}}, authorizer, directoryFor(t, cellID, 7, cellServer.URL), signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "test", TrustedOrigins: []string{"https://app.example"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,6 +207,30 @@ type captureAuthorizer struct {
 	err         error
 	calls       int
 	requirement access.Requirement
+}
+
+type fakeDirectory struct {
+	route      accountdirectory.Route
+	err        error
+	calls      int
+	accountID  ids.AccountID
+	cellID     ids.CellID
+	generation uint64
+}
+
+func (f *fakeDirectory) Resolve(_ context.Context, accountID ids.AccountID, cellID ids.CellID, generation uint64) (accountdirectory.Route, error) {
+	f.calls++
+	f.accountID, f.cellID, f.generation = accountID, cellID, generation
+	return f.route, f.err
+}
+
+func directoryFor(t *testing.T, cellID ids.CellID, generation uint64, origin string) *fakeDirectory {
+	t.Helper()
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &fakeDirectory{route: accountdirectory.Route{CellID: cellID, PlacementGeneration: generation, Origin: *parsed}}
 }
 
 func (f *captureAuthorizer) Authorize(_ context.Context, _ access.Actor, _ ids.AccountID, requirement access.Requirement) (access.AccountContext, error) {

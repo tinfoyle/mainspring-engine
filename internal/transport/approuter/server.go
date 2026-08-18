@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
@@ -40,12 +41,14 @@ type TokenSigner interface {
 	Issue(string, routecontext.Authority, routecontext.Binding) (string, error)
 }
 
+type AccountDirectory interface {
+	Resolve(context.Context, ids.AccountID, ids.CellID, uint64) (accountdirectory.Route, error)
+}
+
 type Config struct {
 	SessionCookieName string
 	SecureCookies     bool
 	TrustedOrigins    []string
-	CellRoutes        map[ids.CellID]string
-	AllowHTTPCells    bool
 	MaxRequestBody    int64
 	MaxResponseBody   int64
 	Transport         http.RoundTripper
@@ -55,17 +58,17 @@ type Server struct {
 	sessions   SessionAuthenticator
 	authorizer Authorizer
 	signer     TokenSigner
+	directory  AccountDirectory
 	ids        ids.Generator
 	logger     *slog.Logger
 	config     Config
-	routes     map[ids.CellID]*url.URL
 	origins    map[string]struct{}
 	client     *http.Client
 }
 
-func New(sessionService SessionAuthenticator, authorizer Authorizer, signer TokenSigner, generator ids.Generator, config Config, logger *slog.Logger) (*Server, error) {
-	if sessionService == nil || authorizer == nil || signer == nil || generator == nil || logger == nil || len(config.CellRoutes) == 0 || len(config.TrustedOrigins) == 0 {
-		return nil, errors.New("app router dependencies, routes, and trusted origins are required")
+func New(sessionService SessionAuthenticator, authorizer Authorizer, directory AccountDirectory, signer TokenSigner, generator ids.Generator, config Config, logger *slog.Logger) (*Server, error) {
+	if sessionService == nil || authorizer == nil || directory == nil || signer == nil || generator == nil || logger == nil || len(config.TrustedOrigins) == 0 {
+		return nil, errors.New("app router dependencies and trusted origins are required")
 	}
 	if config.SessionCookieName == "" {
 		config.SessionCookieName = "__Host-spyglass_session"
@@ -78,15 +81,6 @@ func New(sessionService SessionAuthenticator, authorizer Authorizer, signer Toke
 	}
 	if config.MaxRequestBody <= 0 || config.MaxRequestBody > 16<<20 || config.MaxResponseBody <= 0 || config.MaxResponseBody > 32<<20 {
 		return nil, errors.New("app router body limits are invalid")
-	}
-	routes := make(map[ids.CellID]*url.URL, len(config.CellRoutes))
-	for cellID, raw := range config.CellRoutes {
-		parsed, err := url.Parse(raw)
-		if !routecontext.ValidCellID(cellID) || err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") || (parsed.Scheme != "https" && !(config.AllowHTTPCells && parsed.Scheme == "http")) {
-			return nil, errors.New("cell routes must be absolute allowed origins without paths")
-		}
-		parsed.Path = ""
-		routes[cellID] = parsed
 	}
 	origins := make(map[string]struct{}, len(config.TrustedOrigins))
 	for _, raw := range config.TrustedOrigins {
@@ -101,7 +95,7 @@ func New(sessionService SessionAuthenticator, authorizer Authorizer, signer Toke
 		transport = http.DefaultTransport
 	}
 	client := &http.Client{Transport: transport, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("cell redirects are not allowed") }}
-	return &Server{sessions: sessionService, authorizer: authorizer, signer: signer, ids: generator, logger: logger, config: config, routes: routes, origins: origins, client: client}, nil
+	return &Server{sessions: sessionService, authorizer: authorizer, directory: directory, signer: signer, ids: generator, logger: logger, config: config, origins: origins, client: client}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -144,9 +138,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthorizationError(w, err)
 		return
 	}
-	cellRoute, exists := s.routes[accountContext.CellID]
-	if !exists {
-		writeProblem(w, http.StatusServiceUnavailable, "cell_unavailable", "the assigned Spyglass cell is unavailable")
+	cellRoute, err := s.directory.Resolve(r.Context(), accountID, accountContext.CellID, accountContext.PlacementGeneration)
+	if err != nil {
+		s.logger.Error("resolve Account route", "cell_id", accountContext.CellID, "placement_generation", accountContext.PlacementGeneration, "error", err)
+		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the assigned Spyglass cell route could not be verified")
 		return
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.config.MaxRequestBody))
@@ -176,7 +171,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the Account route could not be established")
 		return
 	}
-	outboundURL := *cellRoute
+	outboundURL := cellRoute.Origin
 	outboundURL.Path, outboundURL.RawPath, outboundURL.RawQuery = r.URL.Path, r.URL.RawPath, r.URL.RawQuery
 	outbound, err := http.NewRequestWithContext(r.Context(), r.Method, outboundURL.String(), bytes.NewReader(body))
 	if err != nil {

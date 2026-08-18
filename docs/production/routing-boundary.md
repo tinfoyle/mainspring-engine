@@ -1,6 +1,6 @@
 # Global-to-cell routing boundary
 
-Status: executable signed route-context, global app-router, cell app-api Work reads/commands, private usage-admission broker, shared replay receipts, placement-generation rejection, and Kubernetes reference topology implemented. Directory caching and internal TLS/workload identity remain.
+Status: executable signed route-context, global app-router, bounded Account Directory cache, cell app-api Work reads/commands, private usage-admission broker, shared replay receipts, placement-generation rejection, and Kubernetes reference topology implemented. Internal TLS/workload identity remains.
 
 ## Why this boundary exists
 
@@ -39,7 +39,11 @@ Expired receipts are removed inside Account scope. The serving database role nee
 
 ## Executable processes
 
-`spyglass app-router` owns global session authentication, Account authorization, least-authority token issuance, fixed cell routing, header stripping, bounded proxy bodies, response bounds, no-redirect behavior, and exact-origin checks for mutations. Current allowlisted resources are the Account context probe and the reserved Work path family.
+`spyglass app-router` owns global session authentication, Account authorization, least-authority token issuance, Account Directory routing, header stripping, bounded proxy bodies, response bounds, no-redirect behavior, and exact-origin checks for mutations. Current allowlisted resources are the Account context probe and the reserved Work path family.
+
+The directory source joins the Account assignment to the operational cell registry. Each cached route contains the cell ID, placement generation, directory state, cell state, region, and an operator-managed internal origin. Entries are loaded on demand, coalesced per Account, retained for 30 seconds by default, and evicted least-recently-used at a default 10,000-entry bound. A cache hit is valid only when its cell and generation exactly match the independently authorized Account context. A mismatch bypasses the cached value and refreshes once from the source; a continuing mismatch fails closed.
+
+Only `active`, `draining`, and `frozen` Account assignments on `active` or `draining` cells are routable. Moving or disabled assignments, disabled cells, missing origins, unsafe origins, and expired entries whose refresh fails never produce a cell request. Production origins must be HTTPS origins with no credentials, path, query, or fragment. Plain HTTP is available only when the process is explicitly in development mode. `/health/status` exposes capacity, entry/expiry counts, oldest age, hits, misses, refresh failures, and evictions without revealing Account IDs, cell IDs, or origins.
 
 `spyglass app-api` owns one cell database pool, route verification keyring, shared replay receipts, placement checks, and cell API transport. It has no global database credential. Executable routes are:
 
@@ -76,7 +80,9 @@ Keys are standard Base64 encodings of exactly 32 random bytes. They belong in a 
 | --- | --- |
 | Missing/invalid global session | Router returns `authentication_required`; no token or cell request |
 | Membership/package/role denial | Stable authorization problem; no cell request |
-| Unknown configured cell | `cell_unavailable`; no dynamic URL fallback |
+| Missing/unroutable directory entry | `routing_unavailable`; no dynamic URL fallback |
+| Directory disagrees with authorized cell/generation | One source refresh, then `routing_unavailable`; no cell request |
+| Directory source unavailable | An exact unexpired hit may be used; an expired, missing, or mismatched entry fails closed |
 | Cell timeout/redirect/oversized response | Bounded gateway failure |
 | Token expired/altered/wrong audience | Cell returns `invalid_route_context` |
 | Duplicate request UUID | Cell returns `route_replay` |
@@ -91,14 +97,13 @@ The router never guesses another cell, follows redirects, or falls back to query
 
 ## Remaining production work
 
-1. Replace static `SPYGLASS_CELL_ROUTES` lookup with a bounded, observable directory cache whose entries include cell endpoint, health, and generation policy; global DB outage may use only unexpired cache entries.
-2. Add internal TLS/workload identity between router and cell in addition to application signatures, with certificate rotation and network-policy enforcement.
-3. Add workload identity at admission-api as well as router-to-cell, including certificate/key rotation and explicit denial telemetry.
-4. Add route receipt retention/partitioning and metrics for replay, stale generation, verification failure, latency, cell saturation, and cache age.
-5. Add two-cell integration tests, stale-cache refresh, key-rotation canaries, router failover, cell/admission failover, bounded global outage, and load/fairness evidence.
+1. Add internal TLS/workload identity between router and cell in addition to application signatures, with certificate rotation and network-policy enforcement.
+2. Add workload identity at admission-api as well as router-to-cell, including certificate/key rotation and explicit denial telemetry.
+3. Add route receipt retention/partitioning and metrics for replay, stale generation, verification failure, latency, cell saturation, and cache age.
+4. Add two-cell PostgreSQL integration tests, key-rotation canaries, router failover, cell/admission failover, and load/fairness evidence. Unit coverage already proves stale-cache refresh, bounded eviction, coalesced misses, and refusal to use expired entries during source failure.
 
 ## Evidence and limits
 
-Unit tests cover body and semantic-header binding, expiry, signature alteration, unknown keys, key rotation, malformed authority/operation IDs, origin rejection, credential stripping, exact allowlisted paths, successful router-to-cell traversal, replay, altered Account paths, Work package translation, read-only package behavior, strict query/command parsing, safe Work views, assignment spoofing, and cross-Account Work paths. The PostgreSQL 17 contract proves replay uniqueness, stale placement rejection, draining-write rejection, draining-read acceptance, RLS, routed broker-backed Work creation/compensation through split roles, Work query isolation, and migration replay through non-owner roles.
+Unit tests cover directory cache hits, mismatch refresh, expiry under source failure, unsafe/unhealthy routes, bounded LRU eviction, concurrent miss coalescing, body and semantic-header binding, signature alteration, key rotation, origin rejection, credential stripping, exact allowlisted paths, successful router-to-cell traversal, replay, altered Account paths, Work package translation, read-only package behavior, strict query/command parsing, safe Work views, assignment spoofing, and cross-Account Work paths. The PostgreSQL 17 contract proves replay uniqueness, stale placement rejection, draining-write rejection, draining-read acceptance, RLS, routed broker-backed Work creation/compensation through split roles, Work query isolation, and migration replay through non-owner roles.
 
 The manifests remain review-only. They have no literal secrets or real endpoints and the default-deny policy still requires environment overlays for ingress, global/cell database egress, TLS identity, monitoring, and image digests. An edge overlay must route the more-specific `/api/v1/accounts/{accountID}/work-items...` family to `app-router` while private HTML and global control routes remain on `account-api`.

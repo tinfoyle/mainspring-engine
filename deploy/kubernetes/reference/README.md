@@ -50,7 +50,9 @@ Before an environment overlay may use these resources it must add:
 - The app-router secret supplies one active route-signing key and the cell API
   secret supplies the active plus retained verification keys during rotation.
   The router receives only the global database credential; the cell API
-  receives only its cell database credential.
+  receives only its cell database credential. Operators populate each cell's
+  exact internal HTTPS `route_origin` in the global registry before Account
+  placement; route endpoints are no longer copied into every router pod.
 - The account API secret supplies `SPYGLASS_NETWORK_ACTOR_KEY`; the environment
   ConfigMap supplies only the exact ingress/load-balancer CIDRs through
   `SPYGLASS_TRUSTED_PROXY_CIDRS`. Leaving the CIDR list empty safely ignores

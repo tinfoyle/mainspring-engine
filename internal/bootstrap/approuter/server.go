@@ -2,6 +2,7 @@ package approuter
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
@@ -25,7 +27,8 @@ type Config struct {
 	RouteSigningKeyID string
 	RouteSigningKey   []byte
 	RouteLifetime     time.Duration
-	CellRoutes        map[ids.CellID]string
+	DirectoryCacheTTL time.Duration
+	DirectoryCapacity int
 	SessionCookieName string
 	SecureCookies     bool
 	TrustedOrigins    []string
@@ -38,7 +41,7 @@ type Server struct {
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger, clock routecontext.Clock) (*Server, error) {
-	if config.DatabaseURL == "" || config.RouteIssuer == "" || config.RouteSigningKeyID == "" || len(config.RouteSigningKey) < routecontext.MinimumKeyBytes || len(config.CellRoutes) == 0 || logger == nil || clock == nil {
+	if config.DatabaseURL == "" || config.RouteIssuer == "" || config.RouteSigningKeyID == "" || len(config.RouteSigningKey) < routecontext.MinimumKeyBytes || logger == nil || clock == nil {
 		return nil, errors.New("app router configuration is required")
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
@@ -74,17 +77,22 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := routertransport.New(sessionService, authorizer, signer, ids.RandomGenerator{}, routertransport.Config{SessionCookieName: config.SessionCookieName, SecureCookies: config.SecureCookies, TrustedOrigins: config.TrustedOrigins, CellRoutes: config.CellRoutes, AllowHTTPCells: config.AllowHTTPCells}, logger)
+	directory, err := accountdirectory.NewCache(postgres.NewAccountDirectoryRepository(pool), clock, accountdirectory.Config{TTL: config.DirectoryCacheTTL, Capacity: config.DirectoryCapacity, AllowHTTP: config.AllowHTTPCells})
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: withHealth(pool, transport.Handler()), pool: pool}, nil
+	transport, err := routertransport.New(sessionService, authorizer, directory, signer, ids.RandomGenerator{}, routertransport.Config{SessionCookieName: config.SessionCookieName, SecureCookies: config.SecureCookies, TrustedOrigins: config.TrustedOrigins}, logger)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return &Server{Handler: withHealth(pool, directory, transport.Handler()), pool: pool}, nil
 }
 
 func (s *Server) Close() { s.pool.Close() }
 
-func withHealth(pool *pgxpool.Pool, next http.Handler) http.Handler {
+func withHealth(pool *pgxpool.Pool, directory *accountdirectory.Cache, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/health/live" {
 			w.Header().Set("Content-Type", "application/json")
@@ -101,6 +109,13 @@ func withHealth(pool *pgxpool.Pool, next http.Handler) http.Handler {
 				return
 			}
 			_, _ = w.Write([]byte(`{"status":"ready"}`))
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/health/status" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			stats := directory.Stats()
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "account_directory_cache": stats})
 			return
 		}
 		next.ServeHTTP(w, r)
