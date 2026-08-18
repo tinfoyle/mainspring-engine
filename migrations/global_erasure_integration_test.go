@@ -17,6 +17,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/restoregate"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -48,6 +49,14 @@ func TestPostgresGlobalErasureIsCrossStoreExactAndIdempotent(t *testing.T) {
 		if _, err := migrations.Apply(ctx, owner, target); err != nil {
 			t.Fatalf("apply %s migrations: %v", target, err)
 		}
+	}
+	initialGlobalGate, _ := restoregate.New(owner, restoregate.Global, restoregate.InitialCheckpoint())
+	initialCellGate, _ := restoregate.New(owner, restoregate.Cell, restoregate.InitialCheckpoint())
+	if err := initialGlobalGate.Ready(ctx); err != nil {
+		t.Fatalf("initial global restore checkpoint: %v", err)
+	}
+	if err := initialCellGate.Ready(ctx); err != nil {
+		t.Fatalf("initial cell restore checkpoint: %v", err)
 	}
 	var now time.Time
 	if err := owner.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&now); err != nil {
@@ -200,6 +209,36 @@ func TestPostgresGlobalErasureIsCrossStoreExactAndIdempotent(t *testing.T) {
 	if tombstone.RequestID != approved.ID || tombstone.FinalRequestVersion != 6 || tombstone.GlobalRowCounts["accounts"] != 1 || tombstone.GlobalRowCounts["cell_capacity"] != 1 || tombstone.CellRowCounts["work_items"] != 2 {
 		t.Fatalf("unexpected global tombstone: %+v", tombstone)
 	}
+	for _, ledger := range []struct {
+		target restoregate.Target
+		table  string
+	}{{restoregate.Global, "public.account_erasure_restore_ledger"}, {restoregate.Cell, "spyglass.account_erasure_restore_ledger"}} {
+		var sequence uint64
+		var root []byte
+		if err := owner.QueryRow(ctx, `SELECT sequence,root FROM `+ledger.table+` ORDER BY sequence DESC LIMIT 1`).Scan(&sequence, &root); err != nil {
+			t.Fatal(err)
+		}
+		checkpoint, err := restoregate.NewCheckpoint(sequence, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gate, _ := restoregate.New(owner, ledger.target, checkpoint)
+		if err := gate.Ready(ctx); err != nil {
+			t.Fatalf("current %s restore checkpoint: %v", ledger.target, err)
+		}
+		missingCheckpoint, _ := restoregate.NewCheckpoint(sequence+1, bytes.Repeat([]byte{0x7f}, 32))
+		missingGate, _ := restoregate.New(owner, ledger.target, missingCheckpoint)
+		if err := missingGate.Ready(ctx); !errors.Is(err, restoregate.ErrReplayRequired) {
+			t.Fatalf("missing %s restore replay checkpoint=%v", ledger.target, err)
+		}
+		historicalGate := initialGlobalGate
+		if ledger.target == restoregate.Cell {
+			historicalGate = initialCellGate
+		}
+		if err := historicalGate.Ready(ctx); err != nil {
+			t.Fatalf("historical %s checkpoint disappeared after newer erasure: %v", ledger.target, err)
+		}
+	}
 	assertGlobalAccountRows(t, ctx, owner, accountA, false)
 	assertGlobalAccountRows(t, ctx, owner, accountB, true)
 	assertCellAccountRows(t, ctx, owner, accountA, 0)
@@ -239,6 +278,18 @@ func TestPostgresGlobalErasureIsCrossStoreExactAndIdempotent(t *testing.T) {
 		if strings.Contains(serialized, forbidden) {
 			t.Fatalf("global tombstone leaked %q: %s", forbidden, serialized)
 		}
+	}
+	var ledgerSerialization string
+	if err := owner.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(e) ORDER BY sequence)::text FROM account_erasure_restore_ledger e`).Scan(&ledgerSerialization); err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{string(accountA), string(userA), "erasure-a@example.com", "erasure-a-account", "cus_a", "sub_a"} {
+		if strings.Contains(ledgerSerialization, forbidden) {
+			t.Fatalf("restore ledger leaked %q: %s", forbidden, ledgerSerialization)
+		}
+	}
+	if _, err := owner.Exec(ctx, `DELETE FROM account_erasure_restore_ledger WHERE sequence=1`); err == nil || !strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("global restore ledger mutation=%v", err)
 	}
 	if _, err := owner.Exec(ctx, `DELETE FROM account_lifecycle_events WHERE account_id=$1`, accountB); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("ordinary lifecycle audit deletion=%v", err)

@@ -40,6 +40,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/restoregate"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/workloadidentity"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
@@ -384,6 +385,11 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	restoreGate, err := openRequiredRestoreGate(ctx, config.databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKey: config.passkeyEncryptionKey, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
@@ -391,7 +397,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer server.Close()
-	return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+	return serveHTTP(ctx, httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 }
 
 func runAppRouter(ctx context.Context, logger *slog.Logger) error {
@@ -400,6 +406,11 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
 	issuer, err := requiredEnv("SPYGLASS_ROUTE_ISSUER")
 	if err != nil {
 		return err
@@ -447,7 +458,7 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer server.Close()
-	return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+	return serveHTTP(ctx, httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 }
 
 func runAppAPI(ctx context.Context, logger *slog.Logger) error {
@@ -456,6 +467,11 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Cell, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
 	cellID, err := requiredEnv("SPYGLASS_CELL_ID")
 	if err != nil {
 		return err
@@ -501,13 +517,13 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer server.Close()
 	if developmentMode {
-		return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+		return serveHTTP(ctx, httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 	}
 	secured, err := workloadidentity.RequireClientIdentity(server.Handler, csvEnv("SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"), logger)
 	if err != nil {
 		return err
 	}
-	return serveHTTPS(ctx, httpAddress(":8443"), secured, serverTLS, logger)
+	return serveHTTPS(ctx, httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, secured), serverTLS, logger)
 }
 
 func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
@@ -516,6 +532,11 @@ func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
 	issuer, err := requiredEnv("SPYGLASS_ROUTE_ISSUER")
 	if err != nil {
 		return err
@@ -555,13 +576,13 @@ func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer server.Close()
 	if developmentMode {
-		return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+		return serveHTTP(ctx, httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 	}
 	secured, err := workloadidentity.RequireClientIdentity(server.Handler, csvEnv("SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"), logger)
 	if err != nil {
 		return err
 	}
-	return serveHTTPS(ctx, httpAddress(":8443"), secured, serverTLS, logger)
+	return serveHTTPS(ctx, httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, secured), serverTLS, logger)
 }
 
 func runBillingWorker(ctx context.Context, logger *slog.Logger) error {
@@ -569,6 +590,11 @@ func runBillingWorker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
 	secretKey, err := requiredEnv("SPYGLASS_STRIPE_SECRET_KEY")
 	if err != nil {
 		return err
@@ -592,7 +618,7 @@ func runBillingWorker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer worker.Close()
-	return serveWorker(ctx, "billing", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+	return serveWorker(ctx, "billing", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
 func runNotificationWorker(ctx context.Context, logger *slog.Logger) error {
@@ -600,6 +626,11 @@ func runNotificationWorker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
 	key, err := base64KeyEnv("SPYGLASS_NOTIFICATION_ENCRYPTION_KEY")
 	if err != nil {
 		return err
@@ -635,7 +666,7 @@ func runNotificationWorker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer worker.Close()
-	return serveWorker(ctx, "notification", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+	return serveWorker(ctx, "notification", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
 func runEntitlementWorker(ctx context.Context, logger *slog.Logger) error {
@@ -643,6 +674,11 @@ func runEntitlementWorker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 5)
 	if err != nil {
 		return err
@@ -662,7 +698,7 @@ func runEntitlementWorker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer worker.Close()
-	return serveWorker(ctx, "entitlement", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+	return serveWorker(ctx, "entitlement", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
 func runAccountLifecycleWorker(ctx context.Context, logger *slog.Logger) error {
@@ -670,6 +706,11 @@ func runAccountLifecycleWorker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 5)
 	if err != nil {
 		return err
@@ -697,7 +738,7 @@ func runAccountLifecycleWorker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer worker.Close()
-	return serveWorker(ctx, "account-lifecycle", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+	return serveWorker(ctx, "account-lifecycle", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
 func runWorkReconciler(ctx context.Context, logger *slog.Logger) error {
@@ -709,6 +750,16 @@ func runWorkReconciler(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	cellRestoreGate, err := openRequiredRestoreGate(ctx, cellDatabaseURL, restoregate.Cell, "SPYGLASS_CELL_")
+	if err != nil {
+		return err
+	}
+	defer cellRestoreGate.Close()
+	globalRestoreGate, err := openRequiredRestoreGate(ctx, globalDatabaseURL, restoregate.Global, "SPYGLASS_GLOBAL_")
+	if err != nil {
+		return err
+	}
+	defer globalRestoreGate.Close()
 	cellMaxConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 4)
 	if err != nil {
 		return err
@@ -748,7 +799,7 @@ func runWorkReconciler(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer worker.Close()
-	return serveWorker(ctx, "work-reconciler", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+	return serveWorker(ctx, "work-reconciler", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{cellRestoreGate, globalRestoreGate}}, logger)
 }
 
 func runRouteReceiptWorker(ctx context.Context, logger *slog.Logger) error {
@@ -756,6 +807,11 @@ func runRouteReceiptWorker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Cell, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 5)
 	if err != nil {
 		return err
@@ -786,7 +842,7 @@ func runRouteReceiptWorker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer worker.Close()
-	return serveWorker(ctx, "route-receipt", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+	return serveWorker(ctx, "route-receipt", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
 func runRouteCanary(ctx context.Context, logger *slog.Logger) error {
@@ -1033,11 +1089,20 @@ func workerHealth(worker readiness) http.Handler {
 	mux.HandleFunc("GET /health/status", func(w http.ResponseWriter, r *http.Request) {
 		reporter, ok := worker.(statusReporter)
 		if !ok {
+			if gated, gatedOK := worker.(*restoreGatedWorker); gatedOK {
+				reporter, ok = gated.worker.(statusReporter)
+			}
+		}
+		if !ok {
 			http.NotFound(w, r)
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
+		if err := worker.Ready(ctx); err != nil {
+			http.Error(w, `{"status":"unavailable"}`, http.StatusServiceUnavailable)
+			return
+		}
 		status, err := reporter.Status(ctx)
 		if err != nil {
 			http.Error(w, `{"status":"unavailable"}`, http.StatusServiceUnavailable)

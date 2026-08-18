@@ -36,6 +36,7 @@ Before an environment overlay may use these resources it must add:
   a pod/node-loss exercise proving the next request reaches another ready
   replica without session affinity or customer-visible state loss.
 - `spyglass-global-runtime`, `spyglass-cell-reference-runtime`,
+  `spyglass-work-reconciler-restore-checkpoints`,
   `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
   `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,
   `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`,
@@ -45,6 +46,17 @@ Before an environment overlay may use these resources it must add:
   Secrets prevent each worker from receiving webhook, Stripe, or SMTP
   credentials it does not use. The entitlement worker receives only a
   constrained global-database credential.
+- The global and per-cell runtime ConfigMaps pin
+  `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` and
+  `SPYGLASS_ERASURE_CHECKPOINT_ROOT`. Sequence `0` uses 64 hexadecimal zeroes.
+  After an erasure, release automation publishes the newest externally
+  archived sequence/root without removing earlier database ledger entries. The
+  Work reconciler checkpoint ConfigMap carries both
+  `SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_*` and
+  `SPYGLASS_CELL_ERASURE_CHECKPOINT_*`. Serving roles receive `SELECT` on only
+  their restore-ledger table. A missing checkpoint prevents startup and makes
+  non-liveness endpoints unavailable; workers terminate if the checkpoint
+  later disappears.
 - The route-receipt worker secret supplies one narrow cell credential. It can
   lease the identifier-only cleanup queue and use `SELECT/UPDATE/DELETE` on the
   forced-RLS receipt table after setting transaction-local Account scope. It
@@ -99,11 +111,12 @@ must not inherit the reconciler's global credential or any serving secret. See
 
 Account erasure administration is intentionally absent as a standing
 Deployment. Environments run `spyglass account-erasure-admin
-prepare|inspect|approve|cancel` as short-lived, human-authorized Jobs with
+prepare|inspect|approve|cancel|execute` as short-lived, human-authorized Jobs with
 separate execute-only global and target-cell credentials, operator evidence,
 and exact environment confirmation. The preparation Job also repeats the
-Account UUID, policy/export evidence, and backup-expiry deadline; its command
-surface has no physical deletion authority. See
+Account UUID, policy/export evidence, and backup-expiry deadline. Leased
+`execute` uses distinct execute-only global and cell roles; no standing
+workload receives those authorities. See
 [account-erasure.md](../../../docs/production/account-erasure.md).
 
 Route rotation canaries are intentionally absent as a standing Deployment.

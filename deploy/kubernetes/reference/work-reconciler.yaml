@@ -35,6 +35,7 @@ spec:
             - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "4"}
             - {name: SPYGLASS_GLOBAL_MAX_DATABASE_CONNS, value: "4"}
           envFrom:
+            - configMapRef: {name: spyglass-work-reconciler-restore-checkpoints}
             - secretRef: {name: spyglass-work-reconciler-secrets}
           resources:
             requests: {cpu: 100m, memory: 128Mi}

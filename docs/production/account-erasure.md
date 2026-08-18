@@ -20,6 +20,7 @@ No HTTP request, account-api replica, or lifecycle-worker attempt may directly e
 10. User identity, passkeys, sessions, security events, and Memberships in other Accounts are not erased. Identity deletion is a separate User-scoped workflow.
 11. The final tombstones retain no raw Account UUID, name, slug, email, Stripe identifier, Work identifier, free-text reason, or export location. They retain a keyed Account fingerprint, request ID, policy version, environment, stage timestamps, row-class counts, export digest, and backup-expiry deadline.
 12. Backups are not rewritten in place. The tombstone tracks the latest backup-expiry deadline; restore procedures must replay completed erasures before a restored environment can serve traffic.
+13. Every committed cell and global tombstone advances a content-free deterministic hash chain. Deployments pin an externally archived sequence/root checkpoint; retaining every historical checkpoint permits a newer live database while rejecting a restored database that predates the pinned erasure evidence.
 
 ## Authority and process boundaries
 
@@ -163,6 +164,14 @@ Each executor produces a signed or locally verifiable attestation digest. The gl
 
 No automatic cross-cell fallback is allowed. A missing namespace is success only when a matching tombstone exists; otherwise it is an investigation state.
 
+## Restore readiness checkpoint
+
+`public.account_erasure_restore_ledger` and each cell's `spyglass.account_erasure_restore_ledger` retain sequence zero plus one immutable entry per tombstone. The chain hashes only stable, content-free policy evidence: request ID, keyed Account fingerprint, policy/request versions, environment, evidence digests, placement generation where applicable, and backup deadline. It excludes Account UUID, User ID, names, email, Stripe identifiers, reasons, export locations, timestamps of execution, and row counts. This makes the same ordered directive stream reproduce the same checkpoint after restore even when deletion counts differ from the original run.
+
+Every serving process receives an externally pinned historical sequence/root. Global processes check the global ledger; cell processes check their cell ledger; Work reconciliation checks both. Startup fails if the checkpoint is absent. Ingress checks it before every non-liveness request through a positive-only five-second cache, and workers terminate within the bounded monitor interval if it disappears. Errors are never cached. A healthy PostgreSQL ping cannot override this gate. Operator and migration commands remain available so a quarantined restored environment can be repaired.
+
+The external ledger publisher must durably archive the ordered restore directives and advance deployment configuration after each completed erasure. The replay command that consumes those signed directives is the next delivery slice; until it exists, this gate proves detection and quarantine but not recovery of an old backup.
+
 ## Observability and privacy
 
 Metrics use bounded stage/result labels and no Account identifier. Logs may include request ID, policy version, environment, stage, aggregate row counts, and machine error code. Raw Account UUID and export reference are emitted only by explicit restricted `inspect` output and never by standing health endpoints.
@@ -195,6 +204,6 @@ The schema-coverage test inventories Account foreign keys, composite Account key
 3. The cell security-definer erasure/attestation boundary, forced-RLS exact targeting, content-free tombstone, concurrent idempotency, and multi-Account isolation tests are executable. Its function remains revoked from `PUBLIC` and no command currently invokes it.
 4. Idempotent leased cross-database execute orchestration, repeated cell attestation, shared billing-ingestion fencing, and atomic global finalization are executable through split database roles.
 5. Integrate connector, object, index, analytics, Stripe-retention, export-expiry, and backup-replay attestations as those stores become executable.
-6. Add restricted Kubernetes Job templates/runbook, alert rules, restore drill, and production security review before enabling an erasure credential.
+6. Content-free checkpoint ledgers and runtime quarantine are executable. Add the signed directive replay command, restricted Kubernetes Job templates/runbook, alert rules, restore drill, and production security review before enabling an erasure credential.
 
 Database completion is reportable only after the global tombstone commits; a cell tombstone alone is explicitly not completion. Product-level physical-erasure claims remain gated on step 5 for every external store enabled by that environment and on the restore-replay readiness gate in step 6.
