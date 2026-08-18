@@ -10,8 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/modelgatewayhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/toolrouterhttp"
+	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneraction"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
@@ -34,6 +36,8 @@ type Config struct {
 	ToolSigningKey                                                   []byte
 	ToolLifetime                                                     time.Duration
 	ToolTransport                                                    http.RoundTripper
+	ModelGatewayOrigin                                               string
+	ModelTransport                                                   http.RoundTripper
 }
 
 type Server struct {
@@ -42,7 +46,7 @@ type Server struct {
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, error) {
-	if config.CellDatabaseURL == "" || config.BrokerAudience == "" || config.Namespace == "" || config.RunnerServiceAccount == "" || config.ToolRouterOrigin == "" || config.ToolIssuer == "" || config.ToolSigningKeyID == "" || logger == nil {
+	if config.CellDatabaseURL == "" || config.BrokerAudience == "" || config.Namespace == "" || config.RunnerServiceAccount == "" || config.ToolRouterOrigin == "" || config.ModelGatewayOrigin == "" || config.ToolIssuer == "" || config.ToolSigningKeyID == "" || logger == nil {
 		return nil, errors.New("runner broker configuration is required")
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.CellDatabaseURL)
@@ -107,6 +111,11 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	modelHandler, err := modelgatewayhttp.New(modelgatewayhttp.Config{Origin: config.ModelGatewayOrigin, HTTPClient: modelClientFor(config.ModelTransport)})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	auditor, err := postgres.NewRunnerCapabilityAuditor(pool, ids.RandomGenerator{})
 	if err != nil {
 		pool.Close()
@@ -122,7 +131,10 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	capabilities, err := runnercapability.New(exchange, actions, auditor, registration.SystemClock{}, []runnercapability.Definition{{Capability: toolrouter.WorkSummaryCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler}})
+	capabilities, err := runnercapability.New(exchange, actions, auditor, registration.SystemClock{}, []runnercapability.Definition{
+		{Capability: toolrouter.WorkSummaryCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
+		{Capability: modelgateway.ModelTurnCapability, Effect: runnercapability.EffectReadOnly, Timeout: modelgateway.MaximumProviderTimeout, Handler: modelHandler},
+	})
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -148,6 +160,13 @@ func clientFor(transport http.RoundTripper) *http.Client {
 		return nil
 	}
 	return &http.Client{Transport: transport, Timeout: 15 * time.Second}
+}
+
+func modelClientFor(transport http.RoundTripper) *http.Client {
+	if transport == nil {
+		return nil
+	}
+	return &http.Client{Transport: transport, Timeout: modelgateway.MaximumProviderTimeout}
 }
 
 func (s *Server) Close() { s.pool.Close() }

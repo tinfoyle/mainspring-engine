@@ -2,7 +2,7 @@
 
 - Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, one-shot `route-canary`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, `model-gateway`, one-shot `runner-invocation`/`route-canary`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -18,6 +18,7 @@
 | `notification-worker` | Leased encrypted identity and Account-ownership notification delivery, bounded per-recipient retries, terminal dead-letter state | Browser/API traffic, identity/Account mutation, billing credentials, customer business work |
 | `entitlement-worker` | Bounded existing-Account Catalog rollout seeding, leased free-plan recomputation, immutable changed-access snapshots, and drift repair | Catalog publication decisions, paid-grant mutation, Stripe or SMTP operations, customer business work |
 | `work-reconciler` | Lease identifier-only terminal Work release jobs, idempotently release global capacity, and checkpoint the matching Account-scoped Work row | Serving traffic, Work content reads, capacity reservation, package mutation, Stripe or SMTP operations |
+| `model-gateway` | Translate one bounded provider-neutral model step, enforce strict sequential-tool/output controls, and normalize provider result/usage | Account database, browser/session identity, Kubernetes API, runner identity, business tools |
 | `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
 | `account-erasure-admin` | One audited prepare, inspect, independent approval, pre-execution cancellation, leased cross-store execution, or signed restore replay of a retained closed Account | Serving traffic, automatic approval, arbitrary SQL, cross-cell fallback, external-store deletion |
 | `passkey-admin` | One audited key-version inspection or bounded credential/ceremony envelope re-encryption batch | Serving traffic, User/contact reads, password/session authority, automatic key retirement |
@@ -266,6 +267,7 @@ The controller uses its in-cluster projected service-account token and CA only t
 | `SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION` | Required positive version present in the keyring; all new envelopes use it |
 | `SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES` | Optional positive result-request limit through 2 MiB; defaults to 2 MiB while the application envelope remains capped at 1 MiB |
 | `SPYGLASS_TOOL_ROUTER_ORIGIN` | Required private app-router origin; HTTPS outside development |
+| `SPYGLASS_MODEL_GATEWAY_ORIGIN` | Required private model-gateway origin; HTTPS outside development |
 | `SPYGLASS_TOOL_CONTEXT_ISSUER` | Required exact issuer matching the app-router verifier |
 | `SPYGLASS_TOOL_CONTEXT_SIGNING_KEY_ID` | Required active tool-proof key identifier |
 | `SPYGLASS_TOOL_CONTEXT_SIGNING_KEY` | Standard Base64 encoding of at least 32 random secret bytes; never reuse route or envelope keys |
@@ -274,9 +276,22 @@ The controller uses its in-cluster projected service-account token and CA only t
 | `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
 | `SPYGLASS_HTTP_ADDRESS` | Optional broker HTTPS address; defaults to `:8443` |
 
-The broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. Its database role has execute-only exchange, capability-audit, and action begin/complete authority with no direct table grants. A separate future Attention projection role receives only authorization-record/cancel execute authority; it cannot begin or settle an action. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
+The broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. Its database role has execute-only exchange, capability-audit, and action begin/complete authority with no direct table grants. A separate future Attention projection role receives only authorization-record/cancel execute authority; it cannot begin or settle an action. The broker reaches model-gateway with its rotating workload certificate; it has no provider key. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
 
-Do not deploy the runner fleet until real kind-specific executors and provider-specific consequential adapters are wired into the generic harness/gateway and protected by a tested NetworkPolicy. The read-only `work.summary.read` handler and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, and Pod-bound content-free audit are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+Do not deploy the runner fleet until the compiled Agents turn executor, durable result projection, and provider-specific consequential adapters are wired into the generic harness/gateway and protected by a tested NetworkPolicy. The read-only `work.summary.read` and `agents.model.turn` handlers and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, and Pod-bound content-free audit are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+
+## Model gateway values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_OPENAI_API_KEY` | Required provider credential, mounted only into model-gateway |
+| `SPYGLASS_OPENAI_ORIGIN` | Optional exact provider API origin; defaults to `https://api.openai.com` |
+| `SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES` | Optional positive bound through 256 KiB; defaults to 256 KiB |
+| `SPYGLASS_WORKLOAD_CERT_FILE` / `SPYGLASS_WORKLOAD_KEY_FILE` / `SPYGLASS_WORKLOAD_CA_FILE` | Required rotating TLS 1.3 server material outside development |
+| `SPYGLASS_WORKLOAD_CLIENT_IDENTITIES` | Comma-separated exact broker SPIFFE URI identities accepted on the private invocation path |
+| `SPYGLASS_HTTP_ADDRESS` | Optional listen address; defaults to `:8443` outside development and `:8080` in development |
+
+Model-gateway is stateless, accepts only workload-authenticated internal requests outside explicit development, and has no PostgreSQL configuration. Its OpenAI adapter disables provider-side response storage and parallel tool calls, sends strict JSON schemas for both tool arguments and final output, refuses redirects, ignores ambient proxy configuration, bounds responses, and never returns provider error bodies or its credential. No live provider call is part of repository verification; contract tests use local HTTP fixtures.
 
 ## Work release operator values
 

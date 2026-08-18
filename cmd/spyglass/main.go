@@ -43,6 +43,7 @@ import (
 	catalogcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/catalogadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
+	modelgatewaybootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/modelgatewayapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	passkeycommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/passkeyadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/routereceiptworker"
@@ -56,6 +57,8 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/workloadidentity"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
+
+const modelGatewayWriteTimeout = 5*time.Minute + 10*time.Second
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -95,6 +98,8 @@ func main() {
 		err = runRunnerController(ctx, logger)
 	case "runner-broker":
 		err = runRunnerBroker(ctx, logger)
+	case "model-gateway":
+		err = runModelGateway(ctx, logger)
 	case "runner-invocation":
 		err = runRunnerInvocation(ctx)
 	case "route-receipt-worker":
@@ -112,7 +117,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -1163,6 +1168,10 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	modelGatewayOrigin, err := requiredEnv("SPYGLASS_MODEL_GATEWAY_ORIGIN")
+	if err != nil {
+		return err
+	}
 	toolIssuer, err := requiredEnv("SPYGLASS_TOOL_CONTEXT_ISSUER")
 	if err != nil {
 		return err
@@ -1192,13 +1201,19 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	var toolTransport http.RoundTripper
+	var modelTransport http.RoundTripper
 	if !developmentMode {
 		toolTransport, err = workloadidentity.NewClientTransport(workloadTLSFilesEnv())
 		if err != nil {
 			return err
 		}
+		modelTransport, err = workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+		if err != nil {
+			return err
+		}
 	} else {
 		toolTransport = http.DefaultTransport
+		modelTransport = http.DefaultTransport
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -1207,13 +1222,44 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 		RunnerServiceAccount: runnerServiceAccount, EncryptionKeys: keys, ActiveKeyVersion: activeVersion,
 		MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, ToolRouterOrigin: toolRouterOrigin,
 		ToolIssuer: toolIssuer, ToolSigningKeyID: toolSigningKeyID, ToolSigningKey: toolSigningKey,
-		ToolLifetime: toolLifetime, ToolTransport: toolTransport,
+		ToolLifetime: toolLifetime, ToolTransport: toolTransport, ModelGatewayOrigin: modelGatewayOrigin,
+		ModelTransport: modelTransport,
 	}, logger)
 	if err != nil {
 		return err
 	}
 	defer server.Close()
-	return serveHTTPS(ctx, httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), serverTLS, logger)
+	return serveHTTPSWithWriteTimeout(ctx, httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), serverTLS, modelGatewayWriteTimeout, logger)
+}
+
+func runModelGateway(ctx context.Context, logger *slog.Logger) error {
+	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
+	apiKey, err := requiredEnv("SPYGLASS_OPENAI_API_KEY")
+	if err != nil {
+		return err
+	}
+	maxBody, err := int64Env("SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES", 256<<10)
+	if err != nil || maxBody > 256<<10 {
+		return errors.New("SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES must be between 1 and 262144")
+	}
+	server, err := modelgatewaybootstrap.New(modelgatewaybootstrap.Config{
+		OpenAIAPIKey: apiKey, OpenAIOrigin: os.Getenv("SPYGLASS_OPENAI_ORIGIN"), MaxRequestBody: maxBody,
+	}, logger)
+	if err != nil {
+		return err
+	}
+	if developmentMode {
+		return serveHTTPWithWriteTimeout(ctx, httpAddress(":8080"), server.Handler, modelGatewayWriteTimeout, logger)
+	}
+	serverTLS, err := workloadidentity.NewServerConfig(workloadTLSFilesEnv())
+	if err != nil {
+		return err
+	}
+	secured, err := workloadidentity.RequireClientIdentity(server.Handler, csvEnv("SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"), logger)
+	if err != nil {
+		return err
+	}
+	return serveHTTPSWithWriteTimeout(ctx, httpAddress(":8443"), secured, serverTLS, modelGatewayWriteTimeout, logger)
 }
 
 func runRouteReceiptWorker(ctx context.Context, logger *slog.Logger) error {
@@ -1551,7 +1597,15 @@ func formatOptionalTimePointer(value *time.Time) string {
 }
 
 func serveHTTP(ctx context.Context, address string, handler http.Handler, logger *slog.Logger) error {
+	return serveHTTPWithWriteTimeout(ctx, address, handler, 30*time.Second, logger)
+}
+
+func serveHTTPWithWriteTimeout(ctx context.Context, address string, handler http.Handler, writeTimeout time.Duration, logger *slog.Logger) error {
+	if writeTimeout <= 0 {
+		return errors.New("HTTP write timeout must be positive")
+	}
 	server := newHTTPServer(address, handler)
+	server.WriteTimeout = writeTimeout
 	errorsChannel := make(chan error, 1)
 	go func() {
 		logger.Info("Spyglass HTTP listening", "address", address)
@@ -1572,10 +1626,18 @@ func serveHTTP(ctx context.Context, address string, handler http.Handler, logger
 }
 
 func serveHTTPS(ctx context.Context, address string, handler http.Handler, config *tls.Config, logger *slog.Logger) error {
+	return serveHTTPSWithWriteTimeout(ctx, address, handler, config, 30*time.Second, logger)
+}
+
+func serveHTTPSWithWriteTimeout(ctx context.Context, address string, handler http.Handler, config *tls.Config, writeTimeout time.Duration, logger *slog.Logger) error {
 	if config == nil {
 		return errors.New("workload TLS server configuration is required")
 	}
+	if writeTimeout <= 0 {
+		return errors.New("HTTPS write timeout must be positive")
+	}
 	server := newHTTPServer(address, handler)
+	server.WriteTimeout = writeTimeout
 	server.TLSConfig = config
 	errorsChannel := make(chan error, 1)
 	go func() {

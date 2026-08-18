@@ -38,8 +38,10 @@ flowchart TB
     Workers --> Execution["Execution engine"]
     Execution --> RunnerController["Private runner controller"]
     RunnerController --> Runner["Ephemeral constrained runner job"]
-    Runner --> Provider["Model provider"]
     Execution --> Broker["Capability broker"]
+    Runner --> Broker
+    Broker --> ModelGateway["Shared provider-neutral model gateway"]
+    ModelGateway --> Provider["Model provider"]
     Broker --> Knowledge["Knowledge and retrieval"]
     Broker --> Connectors["Scoped external connectors"]
 ```
@@ -64,7 +66,8 @@ One signed application artifact supports distinct process modes so supply-chain 
 | `work-reconciler` | Release global capacity for terminal cell Work and prune expired completed technical jobs | Narrow cell outbox/Account checkpoint and global usage-release credentials; no serving traffic |
 | `work-release-admin` | Audited inspection or exact-target requeue of terminal release failures | Execute-only cell operator functions; no table grants, Work content, or global capacity authority |
 | `runner-controller` | Create, cancel, and reconcile ephemeral provider runner jobs | Narrow Kubernetes workload authority; private network; no business database |
-| `runner` | Execute one bounded provider invocation | Disposable workspace, provider credential, short-lived tool token |
+| `runner` | Execute one bounded provider invocation and brokered tool loop | Disposable workspace and invocation-bound broker identity; no provider credential or direct provider egress |
+| `model-gateway` | Translate one normalized model step to a configured provider | Provider credential and outbound provider HTTPS; no Account database, Kubernetes, browser, or runner credential |
 | `migrate` | Apply verified global or cell schema migrations | Migration credential only; never used by serving processes |
 | `placement` | Assign or move Accounts between existing cells | Account Directory and migration workflow authority; no Kubernetes creation on signup |
 
@@ -375,7 +378,7 @@ Schedules create dated conversations and runs through the same Workspace and Exe
 
 ## 12. Provider and runner boundary
 
-The provider contract includes:
+The provider-neutral contract includes:
 
 - Invocation identity and deadline.
 - Persona identity and system policy.
@@ -386,7 +389,11 @@ The provider contract includes:
 - Cancellation.
 - Structured usage and classified failure.
 
-The runner receives no database credential, Docker socket, account integration secret, Kubernetes API authority, or long-lived capability. It runs as non-root with a read-only root filesystem, dropped capabilities, bounded tmpfs, CPU/memory/PID/time limits, an allowlisted egress policy, and a disposable work directory.
+The runner owns the bounded turn/tool loop but reaches both model steps and business tools only through separately named broker capabilities. The broker injects invocation and operation identity into model requests, so runner payload cannot select another invocation. `parallel_tool_calls=false` makes each provider step yield at most one auditable tool request. Tool arguments and the final result use independent strict JSON schemas. Provider continuation items are opaque to Spyglass orchestration and are returned only to the same provider adapter on the next step.
+
+The shared model gateway is stateless and horizontally scalable. Its adapter sends `store=false`, holds the provider key, classifies provider failures, enforces bounded request/response bodies, and returns normalized output, tool call, continuation, and usage fields. It has no Account database or customer authorization authority; Account, package, cancellation, and capability policy remain broker concerns.
+
+The runner receives no database credential, Docker socket, account integration secret, provider credential, Kubernetes API authority, or long-lived capability. It runs as non-root with a read-only root filesystem, dropped capabilities, bounded tmpfs, CPU/memory/PID/time limits, broker-only egress, and a disposable work directory.
 
 The runner controller is private privileged infrastructure. Every container has an invocation label and lease so startup and periodic reconciliation can remove orphans safely.
 
