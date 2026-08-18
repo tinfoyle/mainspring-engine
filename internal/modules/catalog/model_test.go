@@ -22,6 +22,13 @@ func TestGovernedCatalogRequiresExplicitDefinitionsForDefaults(t *testing.T) {
 	}
 }
 
+func TestEffectiveLimitDefinitionsUsesStableEmptyArray(t *testing.T) {
+	definitions := (PublishedCatalog{}).EffectiveLimitDefinitions()
+	if definitions == nil || len(definitions) != 0 {
+		t.Fatalf("effective definitions = %#v, want non-nil empty slice", definitions)
+	}
+}
+
 func TestCatalogRejectsInvalidLimitDefinition(t *testing.T) {
 	value := Default(time.Now())
 	value.Limits[0].ReservationTTLSeconds = int64((31 * 24 * time.Hour) / time.Second)

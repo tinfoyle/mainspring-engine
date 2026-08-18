@@ -43,7 +43,7 @@ This verdict separates executable software from environment evidence. The reposi
 
 1. Finish the user-facing Agents conversation/orchestration, schedules, attachments, and customer retry/manual-resolution paths. Dispatch/projection dead-letter inspection and exact-target operator requeue are executable; they still require staging role and runbook rehearsal.
 2. Complete Knowledge before claiming source-attributed business memory; complete Finance and Marketing before advertising those packages as usable rather than preview/locked surfaces.
-3. Replace the remaining global Account API shared OpenAPI success responses with operation-specific status/request/response schemas and add browser E2E fixtures. Every cell-owned Account-context, Work, and Agents operation is exact and generated; route, owner, authentication, reference, Go/TypeScript generation, and Go transport drift checks are executable.
+3. Replace the remaining identity-security, Membership, lifecycle, and Billing shared OpenAPI success responses with operation-specific status/request/response schemas and add browser E2E fixtures. The public Catalog-to-free-Account entry journey and every cell-owned Account-context, Work, and Agents operation are exact and generated; route, owner, authentication, reference, Go/TypeScript generation, and Go transport drift checks are executable.
 4. Complete downgrade read-only/export/retention/restoration behavior for every package and transport, including background work and agent capabilities.
 5. Implement and rehearse Account movement between cells, including copy/change capture, reconciliation, placement switch, rollback window, and source retirement.
 

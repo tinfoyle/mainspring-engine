@@ -33,7 +33,9 @@ import (
 
 func Handler(logger *slog.Logger) http.Handler {
 	clock := registration.SystemClock{}
-	publishedCatalog := catalog.Default(clock.Now())
+	// Seed offers just before process start so a small wall-clock correction
+	// cannot make the development Catalog appear future-effective.
+	publishedCatalog := catalog.Default(clock.Now().Add(-time.Second))
 	store := memory.NewStore(publishedCatalog, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 1000}})
 	networkGuard, err := abuse.NewGuard(store)
 	if err != nil {

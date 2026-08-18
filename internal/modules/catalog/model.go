@@ -113,7 +113,7 @@ func Default(now time.Time) PublishedCatalog {
 // executable during rollback. Legacy default limits receive conservative
 // capacity/replace semantics; every newly governed draft must be explicit.
 func (c PublishedCatalog) EffectiveLimitDefinitions() []LimitDefinition {
-	definitions := append([]LimitDefinition(nil), c.Limits...)
+	definitions := append([]LimitDefinition{}, c.Limits...)
 	known := make(map[string]struct{}, len(definitions))
 	for _, definition := range definitions {
 		known[limitIdentity(definition.PackageCode, definition.Code)] = struct{}{}

@@ -94,6 +94,42 @@ func TestCellPackageOperationsRemainTyped(t *testing.T) {
 	}
 }
 
+func TestPublicAccountEntryOperationsRemainTyped(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes, err := loadContract(filepath.Join(root, contractPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"publicCatalog":        false,
+		"beginRegistration":    false,
+		"completeRegistration": false,
+		"login":                false,
+		"listAccounts":         false,
+		"selectAccount":        false,
+	}
+	for _, route := range routes {
+		if _, exists := want[route.OperationID]; !exists {
+			continue
+		}
+		if route.Service != "account-api" {
+			t.Errorf("%s is owned by %q, want account-api", route.OperationID, route.Service)
+		}
+		if route.Contract != "typed" {
+			t.Errorf("%s regressed to %q contract", route.OperationID, route.Contract)
+		}
+		want[route.OperationID] = true
+	}
+	for operationID, found := range want {
+		if !found {
+			t.Errorf("typed public Account-entry operation %q is missing", operationID)
+		}
+	}
+}
+
 func TestCommittedContractMatchesTransportsAndGeneratedFiles(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
