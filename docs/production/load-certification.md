@@ -147,7 +147,7 @@ Use the same exact artifact for all release-candidate profiles:
 5. **Database/dependency degradation:** use the environment runbook to exercise managed failover and sustained admission-service degradation. This command supplies only the safe read traffic; the failure controller and recovery evidence are separate.
 6. **Soak:** orchestrate successive immutable windows for at least 24 hours, with distinct output names and a manifest of report hashes. The command intentionally caps one window at 15 minutes so interruption and evidence loss are bounded.
 
-Write and asynchronous runner fairness require separate content-free harnesses. Do not weaken this command into a mutation tool; write certification must own idempotency keys, canonical payloads, cleanup, ambiguous outcomes, and durable-state assertions explicitly.
+Work write/idempotency evidence uses the separate bounded harness in [Synthetic Work write and idempotency certification](write-certification.md). Asynchronous runner fairness still requires a separate content-free harness. Do not weaken this command into a mutation tool; every write profile must own idempotency keys, canonical payloads, cleanup, ambiguous outcomes, and durable-state assertions explicitly.
 
 ## Reading the report
 
@@ -205,4 +205,4 @@ After the last profile, revoke synthetic sessions, remove temporary runner secre
 
 ## Current limit
 
-The executable command provides the safe read driver and content-free client evidence. Spyglass is not load-certified until it has been run against an applied multi-replica staging cluster and the coincident metrics above have been archived. Pending companion evidence includes authenticated write/idempotency load, asynchronous runner fairness, managed database and admission degradation, sustained autoscaling, and the 24-hour soak.
+The executable command provides the safe read driver and content-free client evidence. Spyglass is not load-certified until it and the separate authenticated Work write/idempotency driver have been run against an applied multi-replica staging cluster and the coincident metrics above have been archived. Pending companion evidence includes asynchronous runner fairness, managed database and admission degradation, sustained autoscaling, and the 24-hour soak.

@@ -211,6 +211,7 @@ func TestCellTransportRetryStaysInCellAndPreservesMutationIdempotency(t *testing
 	type attempt struct {
 		host, path, body, operationID, requestID string
 	}
+	operationID := "50000000-0000-4000-8000-000000000005"
 	var attempts []attempt
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		body, _ := io.ReadAll(request.Body)
@@ -223,7 +224,11 @@ func TestCellTransportRetryStaysInCellAndPreservesMutationIdempotency(t *testing
 		if len(attempts) == 1 {
 			return nil, errors.New("connection reset after dispatch")
 		}
-		return &http.Response{StatusCode: http.StatusCreated, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"accepted":true}`))}, nil
+		return &http.Response{StatusCode: http.StatusCreated, Header: http.Header{
+			"Content-Type": []string{"application/json"},
+			"Etag":         []string{`W/"1"`},
+			"Location":     []string{"/api/v1/accounts/" + routerAccount + "/work-items/" + operationID},
+		}, Body: io.NopCloser(strings.NewReader(`{"accepted":true}`))}, nil
 	})
 	authorizer := &captureAuthorizer{result: access.AccountContext{AccountID: ids.AccountID(routerAccount), CellID: cellID, PlacementGeneration: 7, EntitlementVersion: 4, Role: accounts.RoleOwner}}
 	generator := &sequenceGenerator{values: []string{routerRequest, routerRetry}}
@@ -231,7 +236,6 @@ func TestCellTransportRetryStaysInCellAndPreservesMutationIdempotency(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	operationID := "50000000-0000-4000-8000-000000000005"
 	request := httptest.NewRequest(http.MethodPost, "https://app.example/api/v1/accounts/"+routerAccount+"/work-items?view=compact", strings.NewReader(`{"title":"Close books"}`))
 	request.AddCookie(&http.Cookie{Name: "test", Value: "session"})
 	request.Header.Set("Origin", "https://app.example")
@@ -239,8 +243,8 @@ func TestCellTransportRetryStaysInCellAndPreservesMutationIdempotency(t *testing
 	request.Header.Set("Idempotency-Key", operationID)
 	response := httptest.NewRecorder()
 	router.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusCreated || response.Header().Get("X-Request-ID") != routerRetry {
-		t.Fatalf("response=%d request_id=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
+	if response.Code != http.StatusCreated || response.Header().Get("X-Request-ID") != routerRetry || response.Header().Get("ETag") != `W/"1"` || response.Header().Get("Location") != "/api/v1/accounts/"+routerAccount+"/work-items/"+operationID {
+		t.Fatalf("response=%d request_id=%q etag=%q location=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Header().Get("ETag"), response.Header().Get("Location"), response.Body.String())
 	}
 	if len(attempts) != 2 {
 		t.Fatalf("attempts=%d", len(attempts))

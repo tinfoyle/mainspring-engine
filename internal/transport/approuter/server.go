@@ -221,7 +221,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadGateway, "invalid_cell_response", "the cell response exceeded the router limit")
 		return
 	}
-	copyResponseHeader(w.Header(), response.Header, "Content-Type", "ETag", "Cache-Control")
+	copyResponseHeader(w.Header(), response.Header, "Content-Type", "ETag", "Location", "Cache-Control")
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(response.StatusCode)
 	_, _ = w.Write(responseBody)

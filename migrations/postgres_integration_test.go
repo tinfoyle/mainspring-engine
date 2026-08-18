@@ -1011,12 +1011,26 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := repository.Create(ctx, draft, workapp.Mutation{Kind: workapp.MutationCreated, Actor: actor, Reason: "integration contract", CorrelationID: "work-isolation-contract", At: now})
+	creation := workapp.Mutation{Kind: workapp.MutationCreated, Actor: actor, Reason: "integration contract", CorrelationID: "work-isolation-contract", At: now}
+	created, err := repository.Create(ctx, draft, creation)
 	if err != nil {
 		t.Fatalf("create account A work item: %v", err)
 	}
 	if created.Number != 1 || created.Version != 1 || created.State != workdomain.StateOpen {
 		t.Fatalf("created work item = %+v", created)
+	}
+	replayed, err := repository.Create(ctx, draft, creation)
+	if err != nil || replayed.ID != created.ID || replayed.Number != created.Number || replayed.Version != created.Version || !replayed.CreatedAt.Equal(created.CreatedAt) || !replayed.UpdatedAt.Equal(created.UpdatedAt) {
+		t.Fatalf("exact Work replay = %+v, %v", replayed, err)
+	}
+	var itemRows, eventRows int64
+	var nextNumber uint64
+	if err := rawPool.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM spyglass.work_items WHERE account_id=$1 AND id=$2),
+			(SELECT count(*) FROM spyglass.work_item_events WHERE account_id=$1 AND work_item_id=$2),
+			(SELECT next_number FROM spyglass.work_item_number_counters WHERE account_id=$1)`, accountA, itemID).Scan(&itemRows, &eventRows, &nextNumber); err != nil || itemRows != 1 || eventRows != 1 || nextNumber != 2 {
+		t.Fatalf("durable Work replay invariant: items=%d events=%d next_number=%d err=%v", itemRows, eventRows, nextNumber, err)
 	}
 
 	if _, err := repository.Get(ctx, accountB, itemID); !errors.Is(err, workapp.ErrNotFound) {

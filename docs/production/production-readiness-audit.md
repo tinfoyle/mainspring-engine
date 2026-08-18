@@ -61,7 +61,7 @@ This verdict separates executable software from environment evidence. The reposi
 
 - Instrument every request/queue/run with safe request, operation, Account, cell, and workload correlation; never attach customer content or credentials.
 - Deliver custom metrics used by the HPA contracts and define downstream database/provider ceilings.
-- Run the reviewed [many-small-Account and one-hot-Account certification](load-certification.md), plus queue-backlog, pod-loss, node-loss, database-failover, and provider-degradation tests.
+- Run the reviewed [many-small-Account and one-hot-Account read certification](load-certification.md) and [deterministic Work write/replay certification](write-certification.md), plus queue-backlog, pod-loss, node-loss, database-failover, and provider-degradation tests.
 - Exit only when SLO dashboards, alerts, capacity limits, and recovery runbooks agree with observed behavior.
 
 ### Gate 3 — product and contract completion
