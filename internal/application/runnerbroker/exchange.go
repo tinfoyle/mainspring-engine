@@ -134,6 +134,19 @@ type Service struct {
 	clock      Clock
 }
 
+type Producer struct {
+	repository Repository
+	cipher     *Cipher
+	clock      Clock
+}
+
+func NewProducer(repository Repository, envelopeCipher *Cipher, clock Clock) (*Producer, error) {
+	if repository == nil || envelopeCipher == nil || clock == nil {
+		return nil, ErrInvalidExchange
+	}
+	return &Producer{repository: repository, cipher: envelopeCipher, clock: clock}, nil
+}
+
 func NewService(repository Repository, verifier IdentityVerifier, envelopeCipher *Cipher, clock Clock) (*Service, error) {
 	if repository == nil || verifier == nil || envelopeCipher == nil || clock == nil {
 		return nil, ErrInvalidExchange
@@ -142,7 +155,11 @@ func NewService(repository Repository, verifier IdentityVerifier, envelopeCipher
 }
 
 func (s *Service) Provision(ctx context.Context, command ProvisionCommand) (bool, error) {
-	now := s.clock.Now().UTC()
+	return (&Producer{repository: s.repository, cipher: s.cipher, clock: s.clock}).Provision(ctx, command)
+}
+
+func (p *Producer) Provision(ctx context.Context, command ProvisionCommand) (bool, error) {
+	now := p.clock.Now().UTC()
 	invocation := command.Invocation
 	if ids.Validate(invocation.ID) != nil || ids.Validate(string(invocation.AccountID)) != nil || !validProfile.MatchString(invocation.Profile) || invocation.QueuedAt.IsZero() {
 		return false, ErrInvalidExchange
@@ -151,12 +168,23 @@ func (s *Service) Provision(ctx context.Context, command ProvisionCommand) (bool
 	if err != nil {
 		return false, err
 	}
-	ciphertext, nonce, version, err := s.cipher.seal(raw, requestAAD(invocation.ID, invocation.AccountID, invocation.Profile))
+	ciphertext, nonce, version, err := p.cipher.seal(raw, requestAAD(invocation.ID, invocation.AccountID, invocation.Profile))
 	if err != nil {
 		return false, err
 	}
 	stored := StoredRequest{InvocationID: invocation.ID, AccountID: invocation.AccountID, Profile: invocation.Profile, Ciphertext: ciphertext, Nonce: nonce, KeyVersion: version, Digest: sha256.Sum256(raw), CreatedAt: invocation.QueuedAt.UTC(), ExpiresAt: request.ExpiresAt.UTC()}
-	return s.repository.Provision(ctx, invocation, stored)
+	return p.repository.Provision(ctx, invocation, stored)
+}
+
+// PrepareRequest returns the exact canonical request and plaintext digest that
+// Provision will bind into the encrypted exchange. Dispatch workers use the
+// digest to settle their lease against that same durable exchange.
+func PrepareRequest(request Request, createdAt, now time.Time) (Request, [sha256.Size]byte, error) {
+	canonical, raw, err := canonicalRequest(request, createdAt.UTC(), now.UTC())
+	if err != nil {
+		return Request{}, [sha256.Size]byte{}, err
+	}
+	return canonical, sha256.Sum256(raw), nil
 }
 
 func (s *Service) Fetch(ctx context.Context, token, invocationID string) (Request, error) {

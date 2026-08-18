@@ -2,7 +2,7 @@
 
 - Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, `model-gateway`, one-shot `runner-invocation`/`route-canary`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -19,6 +19,8 @@
 | `entitlement-worker` | Bounded existing-Account Catalog rollout seeding, leased free-plan recomputation, immutable changed-access snapshots, and drift repair | Catalog publication decisions, paid-grant mutation, Stripe or SMTP operations, customer business work |
 | `work-reconciler` | Lease identifier-only terminal Work release jobs, idempotently release global capacity, and checkpoint the matching Account-scoped Work row | Serving traffic, Work content reads, capacity reservation, package mutation, Stripe or SMTP operations |
 | `model-gateway` | Translate one bounded provider-neutral model step, enforce strict sequential-tool/output controls, and normalize provider result/usage | Account database, browser/session identity, Kubernetes API, runner identity, business tools |
+| `agent-dispatch-worker` | Lease identifier-only Agent invocations, read their immutable Account-RLS plans, and provision exact encrypted runner requests | Browser/session authority, global database, provider credentials, Agent configuration mutation, plaintext queue storage |
+| `agent-projection-worker` | Lease terminal Agent results, decrypt Pod-bound envelopes, validate results, and atomically project Account-visible outcomes | Browser/session authority, provider credentials, unencrypted result persistence, arbitrary Agent mutation |
 | `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
 | `account-erasure-admin` | One audited prepare, inspect, independent approval, pre-execution cancellation, leased cross-store execution, or signed restore replay of a retained closed Account | Serving traffic, automatic approval, arbitrary SQL, cross-cell fallback, external-store deletion |
 | `passkey-admin` | One audited key-version inspection or bounded credential/ceremony envelope re-encryption batch | Serving traffic, User/contact reads, password/session authority, automatic key retirement |
@@ -278,7 +280,35 @@ The controller uses its in-cluster projected service-account token and CA only t
 
 The broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. Its database role has execute-only exchange, capability-audit, and action begin/complete authority with no direct table grants. A separate future Attention projection role receives only authorization-record/cancel execute authority; it cannot begin or settle an action. The broker reaches model-gateway with its rotating workload certificate; it has no provider key. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
 
-Do not deploy the runner fleet until the Agents serving producer and provider-specific consequential adapters are wired into the compiled executor/gateway and protected by a tested NetworkPolicy. The bounded `agent.turn.execute` and `work.summary.snapshot` executors, read-only `work.summary.read` and `agents.model.turn` handlers, lease-fenced result projection worker, and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, Pod-bound content-free audit, and projection retention fencing are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+Do not deploy the runner fleet until the Agents serving/dispatch workloads and any provider-specific consequential adapters are protected by a tested environment NetworkPolicy. Routed Agent serving, encrypted dispatch, the bounded `agent.turn.execute` and `work.summary.snapshot` executors, read-only `work.summary.read` and `agents.model.turn` handlers, lease-fenced result projection worker, and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, Pod-bound content-free audit, and projection retention fencing are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+
+## Agent dispatch worker values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_CELL_DATABASE_URL` | Required constrained cell dispatch credential |
+| `SPYGLASS_CELL_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `5` |
+| `SPYGLASS_RUNNER_ENCRYPTION_KEYS` | Same versioned runtime keyring mounted into the broker; never stored in PostgreSQL |
+| `SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION` | Positive active key version present in the keyring |
+| `SPYGLASS_AGENT_DISPATCH_POLL_INTERVAL` | Optional duration from `100ms` through `1m`; defaults to `1s` |
+| `SPYGLASS_AGENT_DISPATCH_LEASE` | Optional whole-second lease from `1s` through `30m`; defaults to `30s` |
+| `SPYGLASS_AGENT_DISPATCH_MAX_ATTEMPTS` | Optional integer from 1 through 100; defaults to `12` |
+| `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
+| `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
+
+The dispatcher role receives `USAGE` on `public,spyglass`; `SELECT` on `agent_invocation_execution_plans`, `agent_invocations`, `agent_persona_versions`, `agent_user_messages`, and `agent_messages` (all forced through the transaction-local Account RLS context); and `EXECUTE` only on the four dispatch functions plus `spyglass_provision_runner_invocation`. It receives no direct dispatch-queue, runner-queue, or runner-exchange table privileges and no Agent mutation authority.
+
+```sql
+GRANT USAGE ON SCHEMA public,spyglass TO spyglass_agent_dispatcher;
+GRANT SELECT ON spyglass.agent_invocation_execution_plans,spyglass.agent_invocations,
+  spyglass.agent_persona_versions,spyglass.agent_user_messages,spyglass.agent_messages
+  TO spyglass_agent_dispatcher;
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_dispatch(uuid,timestamptz,integer) TO spyglass_agent_dispatcher;
+GRANT EXECUTE ON FUNCTION public.spyglass_complete_agent_dispatch(uuid,uuid,uuid,bytea,timestamptz) TO spyglass_agent_dispatcher;
+GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_dispatch(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer) TO spyglass_agent_dispatcher;
+GRANT EXECUTE ON FUNCTION public.spyglass_agent_dispatch_stats(timestamptz) TO spyglass_agent_dispatcher;
+GRANT EXECUTE ON FUNCTION public.spyglass_provision_runner_invocation(uuid,uuid,text,timestamptz,bytea,bytea,integer,bytea,timestamptz) TO spyglass_agent_dispatcher;
+```
 
 ## Agent result projection worker values
 

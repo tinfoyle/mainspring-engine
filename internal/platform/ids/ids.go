@@ -2,6 +2,7 @@ package ids
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -39,6 +40,25 @@ func (RandomGenerator) New() string {
 	}
 	value[6] = (value[6] & 0x0f) | 0x40
 	value[8] = (value[8] & 0x3f) | 0x80
+	return encode(value)
+}
+
+// Derive produces a stable UUIDv8 operation identity from an existing UUID
+// and a bounded domain label. It is useful for crash-safe child operations:
+// retrying the same parent request cannot accidentally mint new side effects.
+func Derive(namespace, label string) (string, error) {
+	if Validate(namespace) != nil || label == "" || len(label) > 200 || strings.TrimSpace(label) != label || strings.ContainsRune(label, '\x00') {
+		return "", errors.New("invalid identifier derivation")
+	}
+	digest := sha256.Sum256([]byte("spyglass/id/v1/" + namespace + "/" + label))
+	var value [16]byte
+	copy(value[:], digest[:16])
+	value[6] = (value[6] & 0x0f) | 0x80
+	value[8] = (value[8] & 0x3f) | 0x80
+	return encode(value), nil
+}
+
+func encode(value [16]byte) string {
 	encoded := make([]byte, 36)
 	hex.Encode(encoded[0:8], value[0:4])
 	encoded[8] = '-'

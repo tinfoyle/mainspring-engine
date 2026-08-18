@@ -32,6 +32,7 @@ type Server struct {
 	maxBody  int64
 	work     WorkQueries
 	commands WorkCommands
+	agents   AgentService
 	counters routeCounters
 }
 
@@ -59,6 +60,10 @@ func WithWorkCommands(commands WorkCommands) Option {
 	return func(server *Server) { server.commands = commands }
 }
 
+func WithAgents(service AgentService) Option {
+	return func(server *Server) { server.agents = service }
+}
+
 func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
 	if acceptor == nil || logger == nil || maxBody <= 0 || maxBody > 16<<20 {
 		return nil, errors.New("cell API dependencies and bounded body size are required")
@@ -80,6 +85,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items/{itemID}/children", s.workChildren)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/work-items/{itemID}/transitions", s.workTransition)
 	mux.HandleFunc("PATCH /api/v1/accounts/{accountID}/work-items/{itemID}/assignment", s.workAssign)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-boardrooms", s.agentBoardrooms)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-boardrooms", s.agentBoardroomCreate)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/personas", s.agentPersonas)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/personas", s.agentPersonaPublish)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/runs", s.agentRunStart)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-runs/{runID}", s.agentRun)
 	return s.recover(s.securityHeaders(mux))
 }
 

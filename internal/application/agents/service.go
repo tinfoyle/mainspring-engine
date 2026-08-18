@@ -1,0 +1,270 @@
+// Package agents provides the transport-neutral command and query boundary for
+// Boardrooms, immutable Persona versions, Conversations, and Agent Runs.
+package agents
+
+import (
+	"context"
+	"errors"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
+	agentdomain "github.com/tinfoyle/spyglass-engine/internal/modules/agents"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+)
+
+const (
+	PackageCode        catalog.PackageCode = "agents"
+	ConcurrentRuns     catalog.LimitCode   = "concurrent_runs"
+	MaximumPageSize                        = 100
+	DefaultRunLifetime                     = 24 * time.Hour
+)
+
+var (
+	ErrInvalidCommand = errors.New("agent command is invalid")
+	ErrNotFound       = errors.New("agent resource was not found")
+	ErrConflict       = errors.New("agent resource conflicts with durable state")
+	ErrConstraint     = errors.New("agent resource constraint failed")
+	ErrCorrupt        = errors.New("agent persistence is corrupt")
+)
+
+type ConcurrentRunLimitError struct{ Current, Maximum int64 }
+
+func (e *ConcurrentRunLimitError) Error() string { return "agent concurrent run limit reached" }
+
+type Authorizer interface {
+	Authorize(context.Context, access.Actor, ids.AccountID, access.Requirement) (access.AccountContext, error)
+}
+
+type Clock interface{ Now() time.Time }
+
+type PersonaSummary struct {
+	ID            ids.PersonaID
+	BoardroomID   ids.BoardroomID
+	State         string
+	LatestVersion uint64
+	Published     agentdomain.PersonaVersion
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type Conversation struct {
+	ID          ids.ConversationID
+	AccountID   ids.AccountID
+	BoardroomID ids.BoardroomID
+	Subject     string
+	State       string
+	CreatedBy   ids.UserID
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type Run struct {
+	Plan          agentdomain.RunPlan
+	State         string
+	Subject       string
+	Prompt        string
+	UserMessageID ids.MessageID
+	InvocationIDs []ids.AgentInvocationID
+}
+
+type Repository interface {
+	CreateBoardroom(context.Context, agentdomain.Boardroom) (agentdomain.Boardroom, bool, error)
+	ListBoardrooms(context.Context, ids.AccountID, int) ([]agentdomain.Boardroom, error)
+	GetBoardroom(context.Context, ids.AccountID, ids.BoardroomID) (agentdomain.Boardroom, error)
+	PublishPersona(context.Context, ids.BoardroomID, agentdomain.PersonaVersion, uint64) (PersonaSummary, bool, error)
+	ListPersonas(context.Context, ids.AccountID, ids.BoardroomID, int) ([]PersonaSummary, error)
+	StartRun(context.Context, StartRunDraft) (Run, bool, error)
+	GetRun(context.Context, ids.AccountID, ids.RunID) (Run, error)
+}
+
+type Service struct {
+	authorizer Authorizer
+	repository Repository
+	clock      Clock
+}
+
+func New(authorizer Authorizer, repository Repository, clock Clock) (*Service, error) {
+	if authorizer == nil || repository == nil || clock == nil {
+		return nil, errors.New("agent service dependencies are required")
+	}
+	return &Service{authorizer: authorizer, repository: repository, clock: clock}, nil
+}
+
+type CreateBoardroomCommand struct {
+	Actor     access.Actor
+	AccountID ids.AccountID
+	RequestID string
+	Name      string
+	Purpose   string
+}
+
+func (s *Service) CreateBoardroom(ctx context.Context, command CreateBoardroomCommand) (agentdomain.Boardroom, bool, error) {
+	if ids.Validate(command.RequestID) != nil || !command.Actor.Valid() || ids.Validate(string(command.AccountID)) != nil {
+		return agentdomain.Boardroom{}, false, ErrInvalidCommand
+	}
+	if _, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Roles: configureRoles(), Package: PackageCode, Mutation: true}); err != nil {
+		return agentdomain.Boardroom{}, false, err
+	}
+	boardroom, err := agentdomain.NewBoardroom(ids.BoardroomID(command.RequestID), command.AccountID, command.Name, command.Purpose, s.clock.Now().UTC())
+	if err != nil {
+		return agentdomain.Boardroom{}, false, ErrInvalidCommand
+	}
+	return s.repository.CreateBoardroom(ctx, boardroom)
+}
+
+type PublishPersonaCommand struct {
+	Actor                 access.Actor
+	AccountID             ids.AccountID
+	BoardroomID           ids.BoardroomID
+	PersonaID             ids.PersonaID
+	VersionID             ids.PersonaVersionID
+	ExpectedLatestVersion uint64
+	Name                  string
+	Role                  string
+	Description           string
+	SystemInstructions    string
+	Policy                agentdomain.PersonaPolicy
+}
+
+func (s *Service) PublishPersona(ctx context.Context, command PublishPersonaCommand) (PersonaSummary, bool, error) {
+	if !command.Actor.Valid() || command.Actor.UserID == "" || ids.Validate(string(command.AccountID)) != nil || ids.Validate(string(command.BoardroomID)) != nil || ids.Validate(string(command.PersonaID)) != nil || ids.Validate(string(command.VersionID)) != nil {
+		return PersonaSummary{}, false, ErrInvalidCommand
+	}
+	if _, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Roles: configureRoles(), Package: PackageCode, Mutation: true}); err != nil {
+		return PersonaSummary{}, false, err
+	}
+	for _, tool := range command.Policy.Tools {
+		if tool.Capability != "work.summary.read" {
+			return PersonaSummary{}, false, ErrInvalidCommand
+		}
+	}
+	command.Policy.OutputSchema = agentdomain.ResultSchema()
+	version, err := agentdomain.NewPersonaVersion(agentdomain.PersonaVersionDraft{
+		ID: command.VersionID, PersonaID: command.PersonaID, AccountID: command.AccountID,
+		Version: command.ExpectedLatestVersion + 1, Name: command.Name, Role: command.Role,
+		Description: command.Description, SystemInstructions: command.SystemInstructions,
+		Policy: command.Policy, CreatedBy: command.Actor.UserID, CreatedAt: s.clock.Now().UTC(),
+	})
+	if err != nil {
+		return PersonaSummary{}, false, ErrInvalidCommand
+	}
+	return s.repository.PublishPersona(ctx, command.BoardroomID, version, command.ExpectedLatestVersion)
+}
+
+type StartRunDraft struct {
+	Actor                access.Actor
+	AccountID            ids.AccountID
+	BoardroomID          ids.BoardroomID
+	RunID                ids.RunID
+	ConversationID       ids.ConversationID
+	CreateConversation   bool
+	UserMessageID        ids.MessageID
+	Subject              string
+	Prompt               string
+	PersonaIDs           []ids.PersonaID
+	EntitlementVersion   uint64
+	MaximumConcurrentRun int64
+	CreatedAt            time.Time
+	RequestExpiresAt     time.Time
+}
+
+type StartRunCommand struct {
+	Actor          access.Actor
+	AccountID      ids.AccountID
+	RequestID      string
+	BoardroomID    ids.BoardroomID
+	ConversationID ids.ConversationID
+	Subject        string
+	Prompt         string
+	PersonaIDs     []ids.PersonaID
+}
+
+func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, bool, error) {
+	if !command.Actor.Valid() || command.Actor.UserID == "" || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.AccountID)) != nil || ids.Validate(string(command.BoardroomID)) != nil ||
+		(command.ConversationID != "" && ids.Validate(string(command.ConversationID)) != nil) || len(command.PersonaIDs) == 0 || len(command.PersonaIDs) > agentdomain.MaximumPersonasPerRun || len(strings.TrimSpace(command.Prompt)) == 0 || len(strings.TrimSpace(command.Prompt)) > 65536 {
+		return Run{}, false, ErrInvalidCommand
+	}
+	personas := append([]ids.PersonaID(nil), command.PersonaIDs...)
+	for index, personaID := range personas {
+		if ids.Validate(string(personaID)) != nil || slices.Contains(personas[:index], personaID) {
+			return Run{}, false, ErrInvalidCommand
+		}
+	}
+	accountContext, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Roles: runRoles(), Package: PackageCode, Mutation: true})
+	if err != nil {
+		return Run{}, false, err
+	}
+	maximum, exists := accountContext.PackageAccess.Limits[ConcurrentRuns]
+	if !exists || maximum < 1 {
+		return Run{}, false, &access.DeniedError{Code: access.DenialLimitNotDefined, Package: PackageCode, Limit: ConcurrentRuns}
+	}
+	conversationID := command.ConversationID
+	createConversation := conversationID == ""
+	if createConversation {
+		derived, err := ids.Derive(command.RequestID, "conversation")
+		if err != nil {
+			return Run{}, false, ErrInvalidCommand
+		}
+		conversationID = ids.ConversationID(derived)
+	}
+	messageID, err := ids.Derive(command.RequestID, "user-message")
+	if err != nil {
+		return Run{}, false, ErrInvalidCommand
+	}
+	now := s.clock.Now().UTC()
+	draft := StartRunDraft{
+		Actor: command.Actor, AccountID: command.AccountID, BoardroomID: command.BoardroomID,
+		RunID: ids.RunID(command.RequestID), ConversationID: conversationID, CreateConversation: createConversation,
+		UserMessageID: ids.MessageID(messageID), Subject: strings.TrimSpace(command.Subject), Prompt: strings.TrimSpace(command.Prompt),
+		PersonaIDs: personas, EntitlementVersion: accountContext.EntitlementVersion, MaximumConcurrentRun: maximum,
+		CreatedAt: now, RequestExpiresAt: now.Add(DefaultRunLifetime),
+	}
+	run, created, err := s.repository.StartRun(ctx, draft)
+	var limit *ConcurrentRunLimitError
+	if errors.As(err, &limit) {
+		return Run{}, false, &access.DeniedError{Code: access.DenialLimitExceeded, Package: PackageCode, Limit: ConcurrentRuns, Current: limit.Current, Maximum: limit.Maximum}
+	}
+	return run, created, err
+}
+
+func (s *Service) ListBoardrooms(ctx context.Context, actor access.Actor, accountID ids.AccountID, limit int) ([]agentdomain.Boardroom, error) {
+	if limit < 1 || limit > MaximumPageSize {
+		return nil, ErrInvalidCommand
+	}
+	if _, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: PackageCode}); err != nil {
+		return nil, err
+	}
+	return s.repository.ListBoardrooms(ctx, accountID, limit)
+}
+
+func (s *Service) ListPersonas(ctx context.Context, actor access.Actor, accountID ids.AccountID, boardroomID ids.BoardroomID, limit int) ([]PersonaSummary, error) {
+	if limit < 1 || limit > MaximumPageSize || ids.Validate(string(boardroomID)) != nil {
+		return nil, ErrInvalidCommand
+	}
+	if _, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: PackageCode}); err != nil {
+		return nil, err
+	}
+	return s.repository.ListPersonas(ctx, accountID, boardroomID, limit)
+}
+
+func (s *Service) GetRun(ctx context.Context, actor access.Actor, accountID ids.AccountID, runID ids.RunID) (Run, error) {
+	if ids.Validate(string(runID)) != nil {
+		return Run{}, ErrInvalidCommand
+	}
+	if _, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: PackageCode}); err != nil {
+		return Run{}, err
+	}
+	return s.repository.GetRun(ctx, accountID, runID)
+}
+
+func configureRoles() []accounts.MembershipRole {
+	return []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator}
+}
+
+func runRoles() []accounts.MembershipRole {
+	return []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator, accounts.RoleMember}
+}
