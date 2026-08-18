@@ -154,8 +154,11 @@ func TestTwoCellPostgresRoutingIsolationAndMoveFailureContracts(t *testing.T) {
 	if unavailable.Code != http.StatusBadGateway || !strings.Contains(unavailable.Body.String(), `"code":"cell_unavailable"`) {
 		t.Fatalf("assigned-cell failure status=%d body=%s", unavailable.Code, unavailable.Body.String())
 	}
-	if transport.Hits("cell-a.test") != cellAHits || transport.Hits("cell-b.test") != cellBHits+1 {
+	if transport.Hits("cell-a.test") != cellAHits || transport.Hits("cell-b.test") != cellBHits+2 {
 		t.Fatalf("router guessed a fallback cell: before A=%d B=%d after A=%d B=%d", cellAHits, cellBHits, transport.Hits("cell-a.test"), transport.Hits("cell-b.test"))
+	}
+	if stats := router.TransportStats(); stats.RetryAttempts != 1 || stats.RetryRecovered != 0 || stats.RequestsFailed != 1 {
+		t.Fatalf("assigned-cell failure stats=%+v", stats)
 	}
 	transport.SetFailed("cell-b.test", false)
 	assertRoutedCell(t, routeAccountContext(router.Handler(), issued.Token, accountAID), accountAID, cellBID, 2)

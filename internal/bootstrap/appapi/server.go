@@ -105,12 +105,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: withHealth(pool, transport, transport.Handler()), pool: pool}, nil
+	return &Server{Handler: withHealth(pool, transport, capacity, transport.Handler()), pool: pool}, nil
 }
 
 func (s *Server) Close() { s.pool.Close() }
 
-func withHealth(pool *pgxpool.Pool, routes *cellapi.Server, next http.Handler) http.Handler {
+func withHealth(pool *pgxpool.Pool, routes *cellapi.Server, admission *admissionhttp.Client, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/health/live" {
 			w.Header().Set("Content-Type", "application/json")
@@ -132,7 +132,7 @@ func withHealth(pool *pgxpool.Pool, routes *cellapi.Server, next http.Handler) h
 		if r.Method == http.MethodGet && r.URL.Path == "/health/status" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
-			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "route_context": routes.Stats()})
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "route_context": routes.Stats(), "admission_transport": admission.TransportStats()})
 			return
 		}
 		next.ServeHTTP(w, r)

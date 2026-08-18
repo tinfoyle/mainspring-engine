@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
@@ -64,6 +65,19 @@ type Server struct {
 	config     Config
 	origins    map[string]struct{}
 	client     *http.Client
+	transport  transportCounters
+}
+
+type TransportStats struct {
+	RetryAttempts  uint64 `json:"retry_attempts"`
+	RetryRecovered uint64 `json:"retry_recovered"`
+	RequestsFailed uint64 `json:"requests_failed"`
+}
+
+type transportCounters struct {
+	retryAttempts  atomic.Uint64
+	retryRecovered atomic.Uint64
+	requestsFailed atomic.Uint64
 }
 
 func New(sessionService SessionAuthenticator, authorizer Authorizer, directory AccountDirectory, signer TokenSigner, generator ids.Generator, config Config, logger *slog.Logger) (*Server, error) {
@@ -102,6 +116,14 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/accounts/{accountID}/{resource...}", s.route)
 	return s.recover(s.securityHeaders(mux))
+}
+
+func (s *Server) TransportStats() TransportStats {
+	return TransportStats{
+		RetryAttempts:  s.transport.retryAttempts.Load(),
+		RetryRecovered: s.transport.retryRecovered.Load(),
+		RequestsFailed: s.transport.requestsFailed.Load(),
+	}
 }
 
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +176,6 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", "request target is invalid")
 		return
 	}
-	requestID := s.ids.New()
 	operationID := ""
 	if requirement.Mutation {
 		values := r.Header.Values("Idempotency-Key")
@@ -164,26 +185,34 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		}
 		operationID = strings.TrimSpace(values[0])
 	}
-	authority := routecontext.Authority{RequestID: requestID, OperationID: operationID, AccountID: accountContext.AccountID, ActorKind: "user", ActorID: string(authenticated.Session.UserID), Role: string(accountContext.Role), CellID: accountContext.CellID, PlacementGeneration: accountContext.PlacementGeneration, EntitlementVersion: accountContext.EntitlementVersion, PackageAccess: packageClaim(accountContext.PackageAccess)}
-	token, err := s.signer.Issue(routecontext.Audience(accountContext.CellID), authority, binding)
+	authority := routecontext.Authority{OperationID: operationID, AccountID: accountContext.AccountID, ActorKind: "user", ActorID: string(authenticated.Session.UserID), Role: string(accountContext.Role), CellID: accountContext.CellID, PlacementGeneration: accountContext.PlacementGeneration, EntitlementVersion: accountContext.EntitlementVersion, PackageAccess: packageClaim(accountContext.PackageAccess)}
+	requestID := s.ids.New()
+	outbound, err := s.newCellRequest(r, cellRoute.Origin, body, authority, binding, requestID)
 	if err != nil {
-		s.logger.Error("issue cell route context", "request_id", requestID, "error", err)
+		s.logger.Error("build cell route request", "request_id", requestID, "cell_id", accountContext.CellID)
 		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the Account route could not be established")
 		return
 	}
-	outboundURL := cellRoute.Origin
-	outboundURL.Path, outboundURL.RawPath, outboundURL.RawQuery = r.URL.Path, r.URL.RawPath, r.URL.RawQuery
-	outbound, err := http.NewRequestWithContext(r.Context(), r.Method, outboundURL.String(), bytes.NewReader(body))
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "invalid_request", "the request could not be routed")
-		return
-	}
-	copyRequestHeader(outbound.Header, r.Header, "Accept", "Content-Type", "If-Match", "Idempotency-Key")
-	outbound.Header.Set(cellapi.RouteContextHeader, token)
-	outbound.Header.Set("X-Request-ID", requestID)
 	response, err := s.client.Do(outbound)
+	if err != nil && response == nil && r.Context().Err() == nil {
+		s.transport.retryAttempts.Add(1)
+		requestID = s.ids.New()
+		outbound, buildErr := s.newCellRequest(r, cellRoute.Origin, body, authority, binding, requestID)
+		if buildErr != nil {
+			s.logger.Error("build cell retry request", "request_id", requestID, "cell_id", accountContext.CellID)
+			writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the Account route could not be established")
+			return
+		}
+		response, err = s.client.Do(outbound)
+		if err == nil {
+			s.transport.retryRecovered.Add(1)
+		}
+	}
 	if err != nil {
-		s.logger.Error("cell request failed", "request_id", requestID, "cell_id", accountContext.CellID, "error", err)
+		closeResponse(response)
+		s.transport.requestsFailed.Add(1)
+		s.logger.Error("cell request failed", "request_id", requestID, "cell_id", accountContext.CellID)
+		w.Header().Set("X-Request-ID", requestID)
 		writeProblem(w, http.StatusBadGateway, "cell_unavailable", "the assigned Spyglass cell did not respond")
 		return
 	}
@@ -197,6 +226,29 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(response.StatusCode)
 	_, _ = w.Write(responseBody)
+}
+
+func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body []byte, authority routecontext.Authority, binding routecontext.Binding, requestID string) (*http.Request, error) {
+	authority.RequestID = requestID
+	token, err := s.signer.Issue(routecontext.Audience(authority.CellID), authority, binding)
+	if err != nil {
+		return nil, err
+	}
+	origin.Path, origin.RawPath, origin.RawQuery = inbound.URL.Path, inbound.URL.RawPath, inbound.URL.RawQuery
+	outbound, err := http.NewRequestWithContext(inbound.Context(), inbound.Method, origin.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	copyRequestHeader(outbound.Header, inbound.Header, "Accept", "Content-Type", "If-Match", "Idempotency-Key")
+	outbound.Header.Set(cellapi.RouteContextHeader, token)
+	outbound.Header.Set("X-Request-ID", requestID)
+	return outbound, nil
+}
+
+func closeResponse(response *http.Response) {
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
 }
 
 func routeRequirement(method, resource string) (access.Requirement, bool) {

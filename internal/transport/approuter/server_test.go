@@ -2,6 +2,7 @@ package approuter
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -27,6 +28,7 @@ const (
 	routerAccount = "10000000-0000-4000-8000-000000000001"
 	routerUser    = "20000000-0000-4000-8000-000000000002"
 	routerRequest = "30000000-0000-4000-8000-000000000003"
+	routerRetry   = "40000000-0000-4000-8000-000000000004"
 )
 
 func TestAuthenticatedRequestTraversesSignedCellBoundary(t *testing.T) {
@@ -163,6 +165,86 @@ func TestWorkMutationCarriesOnlyAuthorizedPackageAccess(t *testing.T) {
 	}
 }
 
+func TestCellTransportRetryStaysInCellAndPreservesMutationIdempotency(t *testing.T) {
+	clock := fixedClock{time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)}
+	key := []byte("0123456789abcdef0123456789abcdef")
+	cellID := ids.CellID("cell-us-east-01")
+	signer, _ := routecontext.NewSigner("router", "current", key, 20*time.Second, clock)
+	verifier, _ := routecontext.NewVerifier("router", routecontext.Audience(cellID), map[string][]byte{"current": key}, routecontext.MaximumLifetime, 0, clock)
+	type attempt struct {
+		host, path, body, operationID, requestID string
+	}
+	var attempts []attempt
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(request.Body)
+		binding, bindErr := routecontext.BindRequest(request, body)
+		claims, verifyErr := verifier.Verify(request.Header.Get(cellapi.RouteContextHeader), binding)
+		if bindErr != nil || verifyErr != nil {
+			t.Fatalf("verify routed attempt: binding=%v proof=%v", bindErr, verifyErr)
+		}
+		attempts = append(attempts, attempt{host: request.URL.Host, path: request.URL.RequestURI(), body: string(body), operationID: claims.Authority.OperationID, requestID: claims.Authority.RequestID})
+		if len(attempts) == 1 {
+			return nil, errors.New("connection reset after dispatch")
+		}
+		return &http.Response{StatusCode: http.StatusCreated, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"accepted":true}`))}, nil
+	})
+	authorizer := &captureAuthorizer{result: access.AccountContext{AccountID: ids.AccountID(routerAccount), CellID: cellID, PlacementGeneration: 7, EntitlementVersion: 4, Role: accounts.RoleOwner}}
+	generator := &sequenceGenerator{values: []string{routerRequest, routerRetry}}
+	router, err := New(fakeSessions{authenticated: sessions.Authenticated{Session: sessions.Session{UserID: ids.UserID(routerUser)}}}, authorizer, directoryFor(t, cellID, 7, "https://cell-a.test"), signer, generator, Config{SessionCookieName: "test", TrustedOrigins: []string{"https://app.example"}, Transport: transport}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationID := "50000000-0000-4000-8000-000000000005"
+	request := httptest.NewRequest(http.MethodPost, "https://app.example/api/v1/accounts/"+routerAccount+"/work-items?view=compact", strings.NewReader(`{"title":"Close books"}`))
+	request.AddCookie(&http.Cookie{Name: "test", Value: "session"})
+	request.Header.Set("Origin", "https://app.example")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", operationID)
+	response := httptest.NewRecorder()
+	router.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || response.Header().Get("X-Request-ID") != routerRetry {
+		t.Fatalf("response=%d request_id=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
+	}
+	if len(attempts) != 2 {
+		t.Fatalf("attempts=%d", len(attempts))
+	}
+	for _, value := range attempts {
+		if value.host != "cell-a.test" || value.path != "/api/v1/accounts/"+routerAccount+"/work-items?view=compact" || value.body != `{"title":"Close books"}` || value.operationID != operationID {
+			t.Fatalf("routed attempt=%+v", value)
+		}
+	}
+	if attempts[0].requestID != routerRequest || attempts[1].requestID != routerRetry || attempts[0].requestID == attempts[1].requestID {
+		t.Fatalf("route request IDs=%q,%q", attempts[0].requestID, attempts[1].requestID)
+	}
+	if stats := router.TransportStats(); stats.RetryAttempts != 1 || stats.RetryRecovered != 1 || stats.RequestsFailed != 0 {
+		t.Fatalf("transport stats=%+v", stats)
+	}
+}
+
+func TestCellTransportDoesNotRetryHTTPResponse(t *testing.T) {
+	clock := fixedClock{time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)}
+	key := []byte("0123456789abcdef0123456789abcdef")
+	cellID := ids.CellID("cell-us-east-01")
+	signer, _ := routecontext.NewSigner("router", "current", key, 20*time.Second, clock)
+	calls := 0
+	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{"Content-Type": []string{"application/problem+json"}}, Body: io.NopCloser(strings.NewReader(`{"code":"cell_busy"}`))}, nil
+	})
+	authorizer := &captureAuthorizer{result: access.AccountContext{AccountID: ids.AccountID(routerAccount), CellID: cellID, PlacementGeneration: 1, EntitlementVersion: 1, Role: accounts.RoleOwner}}
+	router, err := New(fakeSessions{authenticated: sessions.Authenticated{Session: sessions.Session{UserID: ids.UserID(routerUser)}}}, authorizer, directoryFor(t, cellID, 1, "https://cell-a.test"), signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "test", TrustedOrigins: []string{"https://app.example"}, Transport: transport}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "https://app.example/api/v1/accounts/"+routerAccount+"/context", nil)
+	request.AddCookie(&http.Cookie{Name: "test", Value: "session"})
+	response := httptest.NewRecorder()
+	router.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || calls != 1 || router.TransportStats() != (TransportStats{}) {
+		t.Fatalf("response=%d calls=%d stats=%+v body=%s", response.Code, calls, router.TransportStats(), response.Body.String())
+	}
+}
+
 func TestCellRejectsReplayAndAlteredAccountPath(t *testing.T) {
 	clock := fixedClock{time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)}
 	key := []byte("0123456789abcdef0123456789abcdef")
@@ -242,6 +324,24 @@ func (f *captureAuthorizer) Authorize(_ context.Context, _ access.Actor, _ ids.A
 type fixedGenerator struct{ value string }
 
 func (f fixedGenerator) New() string { return f.value }
+
+type sequenceGenerator struct {
+	mu     sync.Mutex
+	values []string
+	next   int
+}
+
+func (g *sequenceGenerator) New() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	value := g.values[g.next]
+	g.next++
+	return value
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
 type fixedClock struct{ now time.Time }
 

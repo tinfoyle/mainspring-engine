@@ -88,12 +88,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: withHealth(pool, directory, transport.Handler()), pool: pool}, nil
+	return &Server{Handler: withHealth(pool, directory, transport, transport.Handler()), pool: pool}, nil
 }
 
 func (s *Server) Close() { s.pool.Close() }
 
-func withHealth(pool *pgxpool.Pool, directory *accountdirectory.Cache, next http.Handler) http.Handler {
+func withHealth(pool *pgxpool.Pool, directory *accountdirectory.Cache, transport *routertransport.Server, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/health/live" {
 			w.Header().Set("Content-Type", "application/json")
@@ -115,8 +115,7 @@ func withHealth(pool *pgxpool.Pool, directory *accountdirectory.Cache, next http
 		if r.Method == http.MethodGet && r.URL.Path == "/health/status" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Cache-Control", "no-store")
-			stats := directory.Stats()
-			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "account_directory_cache": stats})
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "account_directory_cache": directory.Stats(), "cell_transport": transport.TransportStats()})
 			return
 		}
 		next.ServeHTTP(w, r)

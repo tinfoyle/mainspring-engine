@@ -2,6 +2,7 @@ package admissionhttp
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -56,7 +57,9 @@ func TestClientUsesSignedRouteProofForNarrowWorkCapacity(t *testing.T) {
 }
 
 func TestClientMapsAdmissionDenialsAndRequiresMatchingOperation(t *testing.T) {
+	calls := 0
 	client, _ := New("https://admission.test", false, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		calls++
 		return &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{"Content-Type": []string{"application/problem+json"}}, Body: io.NopCloser(strings.NewReader(`{"type":"https://infiniteocean.net/problems/limit_exceeded","title":"Forbidden","status":403,"code":"limit_exceeded","detail":"capacity reached","current":2,"maximum":2}`))}, nil
 	}))
 	claims := routecontext.Claims{Authority: routecontext.Authority{AccountID: ids.AccountID(admissionAccount), OperationID: admissionOperation, CellID: "cell-us-east-01"}}
@@ -64,12 +67,35 @@ func TestClientMapsAdmissionDenialsAndRequiresMatchingOperation(t *testing.T) {
 	ctx := routecontext.WithClaims(context.Background(), claims)
 	ctx = routecontext.WithProof(ctx, routecontext.Proof{Token: "proof", Binding: binding})
 	_, err := client.Reserve(ctx, usageadmission.ReserveCommand{AccountID: ids.AccountID(admissionAccount), PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 1, RequestID: admissionOperation})
-	if !access.IsDenied(err, access.DenialLimitExceeded) {
+	if !access.IsDenied(err, access.DenialLimitExceeded) || calls != 1 {
 		t.Fatalf("mapped error=%v", err)
 	}
 	_, err = client.Release(ctx, usageadmission.ReleaseCommand{AccountID: ids.AccountID(admissionAccount), RequestID: "50000000-0000-4000-8000-000000000005"})
 	if err != usageadmission.ErrInvalidRequest {
 		t.Fatalf("mismatched operation error=%v", err)
+	}
+}
+
+func TestClientRetriesIdempotentAdmissionTransportFailureOnce(t *testing.T) {
+	var payloads []string
+	client, _ := New("https://admission.test", false, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(request.Body)
+		payloads = append(payloads, string(body))
+		if len(payloads) == 1 {
+			return nil, errors.New("connection reset after dispatch")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"request_id":"` + admissionOperation + `","state":"active","current":4,"maximum":100,"newly_created":false}`))}, nil
+	}))
+	claims := routecontext.Claims{Authority: routecontext.Authority{AccountID: ids.AccountID(admissionAccount), OperationID: admissionOperation, CellID: "cell-us-east-01"}}
+	binding, _ := routecontext.Bind(http.MethodPost, "/api/v1/accounts/"+admissionAccount+"/work-items", nil)
+	ctx := routecontext.WithClaims(context.Background(), claims)
+	ctx = routecontext.WithProof(ctx, routecontext.Proof{Token: "proof", Binding: binding})
+	reservation, err := client.Reserve(ctx, usageadmission.ReserveCommand{AccountID: ids.AccountID(admissionAccount), PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 1, RequestID: admissionOperation})
+	if err != nil || reservation.State != usageadmission.ReservationActive || len(payloads) != 2 || payloads[0] != payloads[1] {
+		t.Fatalf("reservation=%+v payloads=%v err=%v", reservation, payloads, err)
+	}
+	if stats := client.TransportStats(); stats.RetryAttempts != 1 || stats.RetryRecovered != 1 || stats.RequestsFailed != 0 {
+		t.Fatalf("transport stats=%+v", stats)
 	}
 }
 

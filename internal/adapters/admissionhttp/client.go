@@ -7,11 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
@@ -26,6 +26,19 @@ const maxResponseBody = int64(64 << 10)
 type Client struct {
 	origin *url.URL
 	client *http.Client
+	stats  transportCounters
+}
+
+type TransportStats struct {
+	RetryAttempts  uint64 `json:"retry_attempts"`
+	RetryRecovered uint64 `json:"retry_recovered"`
+	RequestsFailed uint64 `json:"requests_failed"`
+}
+
+type transportCounters struct {
+	retryAttempts  atomic.Uint64
+	retryRecovered atomic.Uint64
+	requestsFailed atomic.Uint64
 }
 
 func New(rawOrigin string, allowHTTP bool, transport http.RoundTripper) (*Client, error) {
@@ -38,6 +51,14 @@ func New(rawOrigin string, allowHTTP bool, transport http.RoundTripper) (*Client
 		transport = http.DefaultTransport
 	}
 	return &Client{origin: origin, client: &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("admission redirects are not allowed") }}}, nil
+}
+
+func (c *Client) TransportStats() TransportStats {
+	return TransportStats{
+		RetryAttempts:  c.stats.retryAttempts.Load(),
+		RetryRecovered: c.stats.retryRecovered.Load(),
+		RequestsFailed: c.stats.requestsFailed.Load(),
+	}
 }
 
 func (c *Client) Reserve(ctx context.Context, command usageadmission.ReserveCommand) (usageadmission.Reservation, error) {
@@ -85,15 +106,26 @@ func (c *Client) do(ctx context.Context, operation string, accountID ids.Account
 	}
 	target := *c.origin
 	target.Path = "/internal/v1/work/capacity/" + operation
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(payload))
+	request, err := newRequest(ctx, target.String(), payload)
 	if err != nil {
 		return usageadmission.Reservation{}, err
 	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json")
 	response, err := c.client.Do(request)
+	if err != nil && response == nil && ctx.Err() == nil {
+		c.stats.retryAttempts.Add(1)
+		request, requestErr := newRequest(ctx, target.String(), payload)
+		if requestErr != nil {
+			return usageadmission.Reservation{}, requestErr
+		}
+		response, err = c.client.Do(request)
+		if err == nil {
+			c.stats.retryRecovered.Add(1)
+		}
+	}
 	if err != nil {
-		return usageadmission.Reservation{}, fmt.Errorf("call Work capacity admission: %w", err)
+		closeResponse(response)
+		c.stats.requestsFailed.Add(1)
+		return usageadmission.Reservation{}, errors.New("Work capacity admission is unavailable")
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBody+1))
@@ -110,6 +142,22 @@ func (c *Client) do(ctx context.Context, operation string, accountID ids.Account
 		return usageadmission.Reservation{}, errors.New("Work capacity admission returned an invalid receipt")
 	}
 	return usageadmission.Reservation{AccountID: accountID, RequestID: value.RequestID, PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 1, State: value.State, Current: value.Current, Maximum: value.Maximum, ExpiresAt: value.ExpiresAt, NewlyCreated: value.NewlyCreated}, nil
+}
+
+func newRequest(ctx context.Context, target string, payload []byte) (*http.Request, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	return request, nil
+}
+
+func closeResponse(response *http.Response) {
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
 }
 
 func admissionError(body []byte) error {

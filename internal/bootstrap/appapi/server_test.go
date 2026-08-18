@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/admissionhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/cellapi"
 )
@@ -24,8 +25,9 @@ func TestHealthStatusExposesOnlyAggregateRouteCounters(t *testing.T) {
 
 	request = httptest.NewRequest(http.MethodGet, "/health/status", nil)
 	response = httptest.NewRecorder()
-	withHealth(nil, routes, http.NotFoundHandler()).ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"missing_context":1`) || strings.Contains(response.Body.String(), "20000000-0000-4000-8000-000000000002") {
+	admission, _ := admissionhttp.New("https://admission.test", false, nil)
+	withHealth(nil, routes, admission, http.NotFoundHandler()).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"missing_context":1`) || !strings.Contains(response.Body.String(), `"admission_transport":{"retry_attempts":0`) || strings.Contains(response.Body.String(), "20000000-0000-4000-8000-000000000002") {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 }
