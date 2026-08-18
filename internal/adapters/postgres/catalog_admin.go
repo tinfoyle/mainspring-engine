@@ -177,7 +177,8 @@ func (r *CatalogAdminRepository) Publish(ctx context.Context, version uint64, ef
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var state catalogadmin.State
-	if err := tx.QueryRow(ctx, `SELECT state FROM catalog_publications WHERE version=$1 FOR UPDATE`, version).Scan(&state); err != nil {
+	var raw []byte
+	if err := tx.QueryRow(ctx, `SELECT state,content FROM catalog_publications WHERE version=$1 FOR UPDATE`, version).Scan(&state, &raw); err != nil {
 		return catalogadmin.Publication{}, transitionError(err)
 	}
 	action := "published"
@@ -185,6 +186,13 @@ func (r *CatalogAdminRepository) Publish(ctx context.Context, version uint64, ef
 		action = "republished"
 	} else if state != catalogadmin.StateApproved {
 		return catalogadmin.Publication{}, catalogadmin.ErrInvalidTransition
+	}
+	complete, err := offerMappingsComplete(ctx, tx, version, raw)
+	if err != nil {
+		return catalogadmin.Publication{}, err
+	}
+	if !complete {
+		return catalogadmin.Publication{}, catalogadmin.ErrOfferMapping
 	}
 	row := tx.QueryRow(ctx, `
 		UPDATE catalog_publications SET state='published',published_at=$2,published_by=$3,retired_at=NULL,retired_by=NULL
@@ -194,6 +202,9 @@ func (r *CatalogAdminRepository) Publish(ctx context.Context, version uint64, ef
 		return catalogadmin.Publication{}, err
 	}
 	if err := catalogAudit(ctx, tx, change, version, action, map[string]any{"effective_at": effectiveAt}); err != nil {
+		return catalogadmin.Publication{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO entitlement_catalog_rollouts (id,target_catalog_version,source,state,effective_at,created_at) VALUES ($1,$2,'catalog_publication','pending',$3,$4) ON CONFLICT DO NOTHING`, change.EventID, version, effectiveAt, change.At); err != nil {
 		return catalogadmin.Publication{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

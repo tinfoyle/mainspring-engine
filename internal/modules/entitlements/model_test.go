@@ -36,3 +36,17 @@ func TestEvaluateUsesHighestPriorityAndReadOnlySemantics(t *testing.T) {
 		t.Fatal("missing package should be denied")
 	}
 }
+
+func TestFreePlanGrantsUseCatalogPackageVersionsAndLimits(t *testing.T) {
+	now := time.Now().UTC()
+	plan := catalog.Plan{Code: "free", Packages: map[catalog.PackageCode]catalog.PackageMode{catalog.PackageKnowledge: catalog.ModeEnabled}}
+	packages := []catalog.FeaturePackage{{Code: catalog.PackageKnowledge, Version: 4, DefaultLimits: map[string]int64{"documents": 75}}}
+	grants, err := FreePlanGrants(ids.AccountID("account-a"), plan, packages, ids.RandomGenerator{}, now)
+	if err != nil || len(grants) != 1 || grants[0].PackageVersion != 4 || grants[0].Limits["documents"] != 75 {
+		t.Fatalf("free grants = %+v, %v", grants, err)
+	}
+	packages[0].DefaultLimits["documents"] = 1
+	if grants[0].Limits["documents"] != 75 {
+		t.Fatal("free grant limits alias mutable Catalog input")
+	}
+}

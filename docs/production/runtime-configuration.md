@@ -1,8 +1,8 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, billing, notification, migration, and Catalog operator processes
+- Status: executable Phase 2 account, billing, notification, entitlement-rollout, migration, and Catalog operator processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `billing-worker`, `notification-worker`, one-shot `catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `billing-worker`, `notification-worker`, `entitlement-worker`, one-shot `catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -11,6 +11,7 @@
 | `account-api` | Signup, login/recovery, session security/reauthentication, Account selection, invitations, encrypted notification enqueueing, local billing reads, Checkout/Portal creation, signed Stripe webhook acceptance, private browser shell | SMTP delivery, billing event projection, reconciliation polling, Account business workloads |
 | `billing-worker` | Leased Stripe inbox processing, current Subscription retrieval, transactional grant/snapshot projection, reconciliation queue | Browser/API traffic, raw webhook acceptance, customer business work |
 | `notification-worker` | Leased encrypted identity-notification delivery, bounded retries, terminal dead-letter state | Browser/API traffic, identity mutation, billing credentials, customer business work |
+| `entitlement-worker` | Bounded existing-Account Catalog rollout seeding, leased free-plan recomputation, immutable changed-access snapshots, and drift repair | Catalog publication decisions, paid-grant mutation, Stripe or SMTP operations, customer business work |
 | `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
 | `migrate` | One embedded, immutable migration target against one database | Serving traffic, background work, automatic target selection |
@@ -78,12 +79,25 @@ Delivery requires TLS 1.2 or newer. Workers claim one row with `FOR UPDATE SKIP 
 
 Key rotation must retain the currently configured key until every row encrypted with its version has reached a terminal state or been re-encrypted. This slice records key versions but loads one active version; introducing a multi-version keyring is required before rotating a live environment key.
 
+## Entitlement worker values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_ENTITLEMENT_POLL_INTERVAL` | Optional positive Go duration; defaults to `1s` |
+| `SPYGLASS_ENTITLEMENT_SEED_BATCH` | Optional number of Accounts added per seeding transaction; defaults to `100` and must be between 1 and 1000 |
+| `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
+
+Publishing a Catalog creates a durable rollout in the same transaction as the publication and operator audit event. Entitlement workers cursor through affected Accounts in bounded batches, claim Account work with `FOR UPDATE SKIP LOCKED` and a two-minute recovery lease, and replace only grants whose source is `free_plan`. Subscription, trial, promotion, grandfathered, and support-override grants remain intact.
+
+Each Account records the Catalog version last reconciled. A recomputation advances the Account entitlement version and appends an immutable snapshot only when effective package access or limits changed; otherwise only the reconciliation marker advances. Periodic drift detection creates a repair rollout for late Accounts and work missed after a crash. Invalid Catalog content fails terminally, while transient failures retry with bounded exponential backoff and dead-letter on the twelfth attempt. A failed rollout suppresses automatic repair for that Catalog version until an operator publishes a corrected version, preventing an unrecoverable row from creating an infinite retry cycle.
+
 ## Local invocation shape
 
 ```text
 spyglass account-api
 spyglass billing-worker
 spyglass notification-worker
+spyglass entitlement-worker
 spyglass catalog-admin <action>
 SPYGLASS_MIGRATION_TARGET=global spyglass migrate
 ```
@@ -98,14 +112,14 @@ Run this mode with a dedicated operator database credential in a short-lived con
 
 The production binary embeds the reviewed SQL files, so a deployment does not depend on a mutable filesystem mount. `spyglass migrate` requires `SPYGLASS_DATABASE_URL` and an exact `SPYGLASS_MIGRATION_TARGET` of `global`, `cell`, or `development`. Unknown and empty targets fail closed.
 
-Run `global` against the global control-plane database before deploying an account API, billing worker, or notification worker that depends on the new schema. Run `cell` independently against each cell database before routing Accounts to workloads using that schema. `development` is seed data for disposable development databases only and must never run in production.
+Run `global` against the global control-plane database before deploying an account API, billing worker, notification worker, or entitlement worker that depends on the new schema. Run `cell` independently against each cell database before routing Accounts to workloads using that schema. `development` is seed data for disposable development databases only and must never run in production.
 
 The runner takes a target-specific PostgreSQL advisory lock, checks the SHA-256 checksum of every previously applied file, and executes each new migration in its own transaction. Applied files are immutable: edit an unapplied prototype migration only while it has never reached a durable environment; otherwise add a new forward migration. The `spyglass_schema_migrations` ledger records target, version, filename, checksum, application time, and execution duration.
 
 Migration credentials are an independent deployment secret. They may own or alter schema; serving credentials must not. In particular, a cell serving role must not own cell tables and must not have `SUPERUSER` or `BYPASSRLS`, or PostgreSQL row-level security would not provide the intended Account boundary.
 
-CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, the published catalog, registration provisioning, Checkout reservation concurrency, transaction-local Account context, and attempted cross-Account reads and writes through a non-owner serving role.
+CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, registration provisioning, Checkout reservation concurrency, transaction-local Account context, and attempted cross-Account reads and writes through a non-owner serving role.
 
-The Kubernetes reference uses these exact arguments and expects environment overlays to supply `spyglass-global-runtime` plus workload-specific `spyglass-account-api-secrets`, `spyglass-billing-worker-secrets`, and `spyglass-notification-worker-secrets`. Those objects are intentionally absent from the repository. Workload-specific secrets keep SMTP credentials out of the account API and billing worker, and keep Stripe credentials out of the notification worker. No literal production credential belongs in source control or a rendered manifest.
+The Kubernetes reference uses these exact arguments and expects environment overlays to supply `spyglass-global-runtime` plus workload-specific `spyglass-account-api-secrets`, `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`, and `spyglass-entitlement-worker-secrets`. Those objects are intentionally absent from the repository. The entitlement worker secret needs only its constrained global-database credential. Workload-specific secrets keep SMTP credentials out of the account API and billing and entitlement workers, and keep Stripe credentials out of the notification and entitlement workers. No literal production credential belongs in source control or a rendered manifest.
 
 The `development` process still requires `SPYGLASS_ENV=development`; omitting both a mode and that explicit marker fails closed.

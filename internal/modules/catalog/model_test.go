@@ -43,3 +43,11 @@ func TestCatalogRejectsEmptyCommercialSurface(t *testing.T) {
 		t.Fatal("expected empty catalog rejection")
 	}
 }
+
+func TestCatalogRequiresFreePlan(t *testing.T) {
+	value := Default(time.Now())
+	value.Plans = value.Plans[1:]
+	if err := value.Validate(); err == nil {
+		t.Fatal("expected missing free plan rejection")
+	}
+}

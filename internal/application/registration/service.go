@@ -161,7 +161,10 @@ func (s *Service) Complete(ctx context.Context, command CompleteCommand) (Provis
 		if !ok {
 			return Provisioned{}, errors.New("published catalog has no free plan")
 		}
-		grants := entitlements.FreePlanGrants(account.ID, plan, s.ids, now)
+		grants, err := entitlements.FreePlanGrants(account.ID, plan, publication.Packages, s.ids, now)
+		if err != nil {
+			return Provisioned{}, err
+		}
 		snapshot, err := entitlements.Evaluate(account.ID, account.EntitlementVersion, publication.Version, grants, now)
 		if err != nil {
 			return Provisioned{}, err

@@ -20,6 +20,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingworker"
 	catalogcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/catalogadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
@@ -44,12 +45,14 @@ func main() {
 		err = runBillingWorker(ctx, logger)
 	case "notification-worker":
 		err = runNotificationWorker(ctx, logger)
+	case "entitlement-worker":
+		err = runEntitlementWorker(ctx, logger)
 	case "catalog-admin":
 		err = runCatalogAdmin(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | billing-worker | notification-worker | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | billing-worker | notification-worker | entitlement-worker | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -231,6 +234,33 @@ func runNotificationWorker(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "notification", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+}
+
+func runEntitlementWorker(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 5)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_ENTITLEMENT_POLL_INTERVAL", time.Second)
+	if err != nil {
+		return err
+	}
+	batch, err := int32Env("SPYGLASS_ENTITLEMENT_SEED_BATCH", 100)
+	if err != nil || batch > 1000 {
+		return errors.New("SPYGLASS_ENTITLEMENT_SEED_BATCH must be between 1 and 1000")
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := entitlementworker.New(startup, entitlementworker.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, SeedBatch: int(batch)}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "entitlement", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
 }
 
 type runnableWorker interface {

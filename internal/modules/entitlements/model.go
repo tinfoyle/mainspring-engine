@@ -51,12 +51,24 @@ type Snapshot struct {
 	Packages       []PackageAccess `json:"packages"`
 }
 
-func FreePlanGrants(accountID ids.AccountID, plan catalog.Plan, idGenerator ids.Generator, now time.Time) []Grant {
+func FreePlanGrants(accountID ids.AccountID, plan catalog.Plan, packages []catalog.FeaturePackage, idGenerator ids.Generator, now time.Time) ([]Grant, error) {
+	definitions := make(map[catalog.PackageCode]catalog.FeaturePackage, len(packages))
+	for _, definition := range packages {
+		definitions[definition.Code] = definition
+	}
 	grants := make([]Grant, 0, len(plan.Packages))
 	for code, mode := range plan.Packages {
-		grants = append(grants, Grant{ID: ids.GrantID(idGenerator.New()), AccountID: accountID, PackageCode: code, PackageVersion: 1, Mode: mode, Source: SourceFreePlan, SourceReference: plan.Code, StartsAt: now.UTC(), Priority: 10, Reason: "initial free plan"})
+		definition, ok := definitions[code]
+		if !ok {
+			return nil, errors.New("free plan references an unknown package")
+		}
+		limits := make(map[string]int64, len(definition.DefaultLimits))
+		for name, value := range definition.DefaultLimits {
+			limits[name] = value
+		}
+		grants = append(grants, Grant{ID: ids.GrantID(idGenerator.New()), AccountID: accountID, PackageCode: code, PackageVersion: definition.Version, Mode: mode, Source: SourceFreePlan, SourceReference: plan.Code, Limits: limits, StartsAt: now.UTC(), Priority: 10, Reason: "current free plan"})
 	}
-	return grants
+	return grants, nil
 }
 
 func Evaluate(accountID ids.AccountID, version uint64, catalogVersion uint64, grants []Grant, now time.Time) (Snapshot, error) {

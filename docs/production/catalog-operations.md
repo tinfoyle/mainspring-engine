@@ -14,6 +14,7 @@ draft -> in_review -> approved -> published -> retired
 - Paid offers require at least one active private Stripe Price mapping before review can begin. Test and live mappings are distinct.
 - The draft creator cannot approve their own version. Every action requires an operator identity and a meaningful reason and writes `catalog_operator_events` in the same transaction.
 - Publication can be immediate or scheduled with an RFC3339 effective time. Account API replicas poll for the latest effective publication and atomically replace their local immutable snapshot.
+- Publication also creates a durable existing-Account entitlement rollout in the same transaction. The rollout becomes eligible at the publication's effective time.
 - Retiring a publication is refused unless another effective publication is available. A retired, previously approved version can be republished as a rollback, including a lower version number.
 - Catalog JSON and published provider-price mappings are protected by database triggers from mutation or deletion outside the workflow.
 
@@ -79,4 +80,8 @@ $env:SPYGLASS_OPERATOR_REASON = 'incident IO-456: retire faulty catalog after ro
 spyglass catalog-admin retire
 ```
 
-Confirm the public Catalog API reports the intended `version` and `published_at` on every environment before closing the change or incident. Catalog publication changes future authorization inputs; it does not rewrite existing entitlement snapshots by itself. A separate audited recomputation/reconciliation workflow is required when a publication must change existing Accounts.
+Confirm the public Catalog API reports the intended `version` and `published_at` on every environment. Then confirm the matching row in `entitlement_catalog_rollouts` reaches `completed`, its `completed_count` equals `seeded_count`, and its `failed_count` is zero before closing the change or incident.
+
+The entitlement worker replaces only the current free-plan grants. It deliberately preserves independently sourced subscription, trial, promotion, grandfathered, and support-override grants. It writes a new immutable entitlement snapshot only when effective package access or limits change. An Account whose effective access is unchanged still advances `last_catalog_reconciled_version`, proving that the publication was evaluated without manufacturing a duplicate snapshot.
+
+A failed rollout is not repaired with ad hoc grant updates. One dead-letter Account does not stop the worker from finishing other seeded Accounts, but terminal failure suppresses automatic repair for that Catalog version so the system cannot churn indefinitely. Diagnose `last_error_code` and dead-letter queue rows, correct the underlying problem, and publish a corrected Catalog version through the governed workflow. Scheduled publications, restarts, worker crashes, and Accounts arriving after a successful initial cursor pass are covered by the durable drift-repair mechanism.

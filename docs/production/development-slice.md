@@ -31,11 +31,14 @@ This repository now contains the first executable production slice for Infinite 
 - An executable `notification-worker` process with encrypted durable identity-message envelopes, leased claims, crash recovery, bounded retries, terminal dead-letter state, and implicit-TLS SMTP delivery.
 - Immutable Catalog draft, private Stripe mapping, independent review, effective publication, retirement, rollback, and same-transaction operator audit workflows exposed through a fail-closed one-shot command.
 - Bounded account-api Catalog refresh that propagates effective publications and lower-version rollbacks across replicas without restarts while preserving one snapshot per operation.
+- Durable existing-Account entitlement rollouts created atomically with Catalog publication, with bounded cursor seeding, leased claims, retries, dead letters, and late-Account drift repair.
+- Free-plan reconciliation that uses the published package versions and default limits, preserves every independently sourced grant, and appends immutable snapshots only when effective access changes.
+- An executable independently scalable `entitlement-worker` process with database-only authority, strict configuration bounds, graceful shutdown, and dependency-aware readiness.
 - Embedded global, cell, and development PostgreSQL migrations with advisory locking, immutable checksums, an application ledger, and a one-shot production runner.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, and default-deny networking.
 - GitHub verification for Go format/test/race/vet, disposable PostgreSQL contracts, vulnerability scanning, and public-site build/lint/production dependency audit.
 
-The development command is intentionally memory-backed and refuses to start unless `SPYGLASS_ENV=development`. Persistent `account-api`, `billing-worker`, `notification-worker`, and one-shot `catalog-admin` modes now exist and fail closed until their workload-specific PostgreSQL, Stripe, origin, encryption, operator, or TLS mail configuration is supplied by the environment.
+The development command is intentionally memory-backed and refuses to start unless `SPYGLASS_ENV=development`. Persistent `account-api`, `billing-worker`, `notification-worker`, `entitlement-worker`, and one-shot `catalog-admin` modes now exist and fail closed until their workload-specific PostgreSQL, Stripe, origin, encryption, operator, or TLS mail configuration is supplied by the environment.
 
 ## Run locally
 
@@ -106,7 +109,7 @@ npm run dev
 ## Next production slices
 
 1. Add passkeys/MFA, multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
-2. Add Catalog limit-definition administration, existing-Account snapshot recomputation, and enforcement adapters for every HTTP/MCP/job/tool entry point.
+2. Add Catalog limit-definition administration and enforcement adapters for every HTTP/MCP/job/tool entry point, including metering and stable limit-denial responses.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
 5. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.
@@ -117,6 +120,6 @@ npm run dev
 - Rendered browser journey coverage proves signup â†’ verification/password â†’ login â†’ Account shell, and API journey coverage proves invitation â†’ existing identity â†’ Membership â†’ Account list.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
-- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification delivery, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, rollback/fallback, registration, Checkout reservation concurrency, and transaction-local RLS isolation through a non-owner serving role. Kubernetes resources remain review-only and have not been applied to a cluster.
+- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification delivery, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, forward and lower-version entitlement rollout, unchanged-access drift repair, independent-grant preservation, registration, Checkout reservation concurrency, and transaction-local RLS isolation through a non-owner serving role. Kubernetes resources remain review-only and have not been applied to a cluster.
 - Stripe request translation, event ingestion, deduplication, out-of-order convergence, and queue behavior are tested with local fixtures; no Stripe account mutation has been performed.
 - The private Account shell renders local billing status and paid offers and can enter Checkout/Portal in the persistent composition; no app-owned credentials or Account data were moved into the public Sites deployment.

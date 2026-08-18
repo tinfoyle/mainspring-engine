@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -22,12 +23,14 @@ import (
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/catalogadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/application/entitlementrollout"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/authn"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
@@ -65,7 +68,19 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	draft, err := adminService.CreateDraft(ctx, catalog.Default(adminNow), "catalog-author@example.com", "prepare reviewed package and offer publication")
+	nextCatalog := catalog.Default(adminNow)
+	for index := range nextCatalog.Packages {
+		if nextCatalog.Packages[index].Code == catalog.PackageKnowledge {
+			nextCatalog.Packages[index].Version = 2
+			nextCatalog.Packages[index].DefaultLimits["documents"] = 50
+		}
+	}
+	for index := range nextCatalog.Plans {
+		if nextCatalog.Plans[index].Code == "free" {
+			nextCatalog.Plans[index].Packages[catalog.PackageWork] = catalog.ModeEnabled
+		}
+	}
+	draft, err := adminService.CreateDraft(ctx, nextCatalog, "catalog-author@example.com", "prepare reviewed package and offer publication")
 	if err != nil || draft.Version != 3 || draft.State != catalogadmin.StateDraft {
 		t.Fatalf("create catalog draft = %+v, %v", draft, err)
 	}
@@ -220,6 +235,143 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 	if provisioned.Account.Type != "free" || len(provisioned.Snapshot.Packages) != 1 || string(provisioned.Snapshot.Packages[0].Code) != "knowledge" {
 		t.Fatalf("unexpected free account projection: type=%s packages=%v", provisioned.Account.Type, provisioned.Snapshot.Packages)
+	}
+	legacyGrantID := ids.RandomGenerator{}.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO entitlement_grants
+		(id,account_id,package_code,package_version,mode,source,source_reference,limits,starts_at,priority,reason,created_at)
+		VALUES ($1,$2,'marketing',1,'enabled','subscription','sub_legacy_contract','{}'::jsonb,$3,50,'legacy purchased package',$3)`, legacyGrantID, provisioned.Account.ID, adminNow); err != nil {
+		t.Fatalf("seed independent subscription grant: %v", err)
+	}
+	rolloutRepository := postgresadapter.NewEntitlementRolloutRepository(pool)
+	rolloutProcessor, err := entitlementrollout.NewProcessor(rolloutRepository, ids.RandomGenerator{}, fixedClock{now: time.Now().UTC()}, 2*time.Minute, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processEntitlementTarget(t, ctx, pool, rolloutProcessor, provisioned.Account.ID, draft.Version)
+	var entitlementVersion, reconciledCatalog uint64
+	if err := pool.QueryRow(ctx, `SELECT entitlement_version,last_catalog_reconciled_version FROM accounts WHERE id=$1`, provisioned.Account.ID).Scan(&entitlementVersion, &reconciledCatalog); err != nil {
+		t.Fatal(err)
+	}
+	if entitlementVersion != 2 || reconciledCatalog != draft.Version {
+		t.Fatalf("catalog rollout account versions: entitlement=%d catalog=%d", entitlementVersion, reconciledCatalog)
+	}
+	var freeKnowledgeVersion uint64
+	var freeKnowledgeRaw []byte
+	if err := pool.QueryRow(ctx, `SELECT package_version,limits FROM entitlement_grants WHERE account_id=$1 AND source='free_plan' AND package_code='knowledge'`, provisioned.Account.ID).Scan(&freeKnowledgeVersion, &freeKnowledgeRaw); err != nil {
+		t.Fatal(err)
+	}
+	var freeKnowledgeLimits map[string]int64
+	if err := json.Unmarshal(freeKnowledgeRaw, &freeKnowledgeLimits); err != nil || freeKnowledgeVersion != 2 || freeKnowledgeLimits["documents"] != 50 {
+		t.Fatalf("rolled out free Knowledge grant: version=%d limits=%s err=%v", freeKnowledgeVersion, freeKnowledgeRaw, err)
+	}
+	var legacyGrantCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM entitlement_grants WHERE id=$1 AND source='subscription'`, legacyGrantID).Scan(&legacyGrantCount); err != nil || legacyGrantCount != 1 {
+		t.Fatalf("independent subscription grant count=%d err=%v", legacyGrantCount, err)
+	}
+	var effectivePackagesRaw []byte
+	if err := pool.QueryRow(ctx, `SELECT effective_packages FROM entitlement_snapshots WHERE account_id=$1 ORDER BY version DESC LIMIT 1`, provisioned.Account.ID).Scan(&effectivePackagesRaw); err != nil {
+		t.Fatal(err)
+	}
+	var effectivePackages []entitlements.PackageAccess
+	if err := json.Unmarshal(effectivePackagesRaw, &effectivePackages); err != nil {
+		t.Fatal(err)
+	}
+	present := map[catalog.PackageCode]bool{}
+	for _, item := range effectivePackages {
+		present[item.Code] = true
+	}
+	for _, code := range []catalog.PackageCode{catalog.PackageKnowledge, catalog.PackageWork, catalog.PackageMarketing} {
+		if !present[code] {
+			t.Fatalf("rolled out snapshot missing %s: %+v", code, effectivePackages)
+		}
+	}
+	if _, err := pool.Exec(ctx, `UPDATE accounts SET last_catalog_reconciled_version=2 WHERE id=$1`, provisioned.Account.ID); err != nil {
+		t.Fatal(err)
+	}
+	processEntitlementTarget(t, ctx, pool, rolloutProcessor, provisioned.Account.ID, draft.Version)
+	var unchangedVersion uint64
+	if err := pool.QueryRow(ctx, `SELECT entitlement_version FROM accounts WHERE id=$1`, provisioned.Account.ID).Scan(&unchangedVersion); err != nil || unchangedVersion != entitlementVersion {
+		t.Fatalf("unchanged rollout advanced snapshot: version=%d err=%v", unchangedVersion, err)
+	}
+	laterCatalog := catalog.Default(adminNow)
+	laterDraft, err := adminService.CreateDraft(ctx, laterCatalog, "catalog-author@example.com", "prepare a second reviewed entitlement configuration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v1", "price_catalog_later_team"}, {"operating-monthly-v1", "price_catalog_later_operating"}} {
+		if err := adminService.MapStripePrice(ctx, laterDraft.Version, mapping.offer, "test", mapping.price, "catalog-author@example.com", "attach second-version Stripe test mapping"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := adminService.RequestReview(ctx, laterDraft.Version, "catalog-author@example.com", "request review of second entitlement configuration"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminService.Approve(ctx, laterDraft.Version, "catalog-reviewer@example.com", "approve second entitlement configuration"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminService.Publish(ctx, laterDraft.Version, adminNow, "catalog-publisher@example.com", "publish second entitlement configuration"); err != nil {
+		t.Fatal(err)
+	}
+	processEntitlementTarget(t, ctx, pool, rolloutProcessor, provisioned.Account.ID, laterDraft.Version)
+	if _, err := adminService.Retire(ctx, draft.Version, "catalog-publisher@example.com", "retire prior version before rollback verification"); err != nil {
+		t.Fatal(err)
+	}
+	rollbackNow := time.Now().UTC().Add(-time.Millisecond)
+	rollbackService, _ := catalogadmin.NewService(postgresadapter.NewCatalogAdminRepository(pool), ids.RandomGenerator{}, fixedClock{now: rollbackNow})
+	if _, err := rollbackService.Publish(ctx, draft.Version, rollbackNow, "catalog-publisher@example.com", "republish reviewed lower version for rollback"); err != nil {
+		t.Fatal(err)
+	}
+	rollbackProcessor, _ := entitlementrollout.NewProcessor(rolloutRepository, ids.RandomGenerator{}, fixedClock{now: rollbackNow}, 2*time.Minute, 2)
+	processEntitlementTarget(t, ctx, pool, rollbackProcessor, provisioned.Account.ID, draft.Version)
+	var rollbackEntitlementVersion, rollbackCatalogVersion uint64
+	if err := pool.QueryRow(ctx, `SELECT entitlement_version,last_catalog_reconciled_version FROM accounts WHERE id=$1`, provisioned.Account.ID).Scan(&rollbackEntitlementVersion, &rollbackCatalogVersion); err != nil {
+		t.Fatal(err)
+	}
+	if rollbackEntitlementVersion != 4 || rollbackCatalogVersion != draft.Version {
+		t.Fatalf("rollback account versions: entitlement=%d catalog=%d", rollbackEntitlementVersion, rollbackCatalogVersion)
+	}
+	var restoredWork, preservedSubscription int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM entitlement_grants WHERE account_id=$1 AND source='free_plan' AND package_code='work'`, provisioned.Account.ID).Scan(&restoredWork); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM entitlement_grants WHERE id=$1 AND source='subscription'`, legacyGrantID).Scan(&preservedSubscription); err != nil {
+		t.Fatal(err)
+	}
+	if restoredWork != 1 || preservedSubscription != 1 {
+		t.Fatalf("rollback grants: restored_work=%d preserved_subscription=%d", restoredWork, preservedSubscription)
+	}
+	rollbackCurrent, err := postgresadapter.NewCatalogRepository(pool).Published(ctx)
+	if err != nil || rollbackCurrent.Version != draft.Version {
+		t.Fatalf("rollback current Catalog = %d, %v", rollbackCurrent.Version, err)
+	}
+	leaseRolloutID := ids.RandomGenerator{}.New()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO entitlement_catalog_rollouts (id,target_catalog_version,source,state,effective_at,seeded_count,created_at,seeded_at)
+		VALUES ($1,$2,'drift_repair','processing',$3,1,$3,$3)`, leaseRolloutID, draft.Version, rollbackNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO entitlement_recompute_queue (rollout_id,account_id,processing_state,created_at) VALUES ($1,$2,'pending',$3)`, leaseRolloutID, provisioned.Account.ID, rollbackNow); err != nil {
+		t.Fatal(err)
+	}
+	firstClaim, claimed, err := rolloutRepository.Claim(ctx, rollbackNow, time.Second)
+	if err != nil || !claimed || firstClaim.AttemptCount != 1 {
+		t.Fatalf("first entitlement claim = %+v claimed=%v err=%v", firstClaim, claimed, err)
+	}
+	secondClaim, claimed, err := rolloutRepository.Claim(ctx, rollbackNow.Add(2*time.Second), time.Minute)
+	if err != nil || !claimed || secondClaim.AttemptCount != 2 {
+		t.Fatalf("reclaimed entitlement = %+v claimed=%v err=%v", secondClaim, claimed, err)
+	}
+	if err := rolloutRepository.MarkFailed(ctx, firstClaim, rollbackNow.Add(2*time.Second), rollbackNow.Add(time.Minute), "stale_attempt", false); err == nil {
+		t.Fatal("stale entitlement claimant was allowed to acknowledge newer work")
+	}
+	if err := rolloutRepository.MarkFailed(ctx, secondClaim, rollbackNow.Add(2*time.Second), rollbackNow.Add(time.Minute), "terminal_test", true); err != nil {
+		t.Fatalf("current entitlement claimant could not acknowledge work: %v", err)
+	}
+	var terminalRolloutState string
+	var terminalFailureCount int
+	if err := pool.QueryRow(ctx, `SELECT state,failed_count FROM entitlement_catalog_rollouts WHERE id=$1`, leaseRolloutID).Scan(&terminalRolloutState, &terminalFailureCount); err != nil || terminalRolloutState != "failed" || terminalFailureCount != 1 {
+		t.Fatalf("terminal entitlement rollout: state=%s failures=%d err=%v", terminalRolloutState, terminalFailureCount, err)
 	}
 	if _, err := service.Begin(ctx, registration.BeginCommand{Email: " OWNER@example.com ", DisplayName: "Owner Again", AccountName: "Other Labs", Region: "us-east"}); !errors.Is(err, registration.ErrEmailExists) {
 		t.Fatalf("duplicate registration error = %v, want ErrEmailExists", err)
@@ -397,7 +549,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 11 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 12 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
@@ -580,6 +732,27 @@ func (sender *captureNotifications) SendInvitation(_ context.Context, message in
 func (sender *captureNotifications) SendRecovery(_ context.Context, message recovery.Message) error {
 	sender.recovery = message
 	return nil
+}
+
+type entitlementProcessor interface {
+	ProcessOne(context.Context) (bool, error)
+}
+
+func processEntitlementTarget(t *testing.T, ctx context.Context, pool *pgxpool.Pool, processor entitlementProcessor, accountID ids.AccountID, target uint64) {
+	t.Helper()
+	for attempt := 0; attempt < 30; attempt++ {
+		var current uint64
+		if err := pool.QueryRow(ctx, `SELECT last_catalog_reconciled_version FROM accounts WHERE id=$1`, accountID).Scan(&current); err != nil {
+			t.Fatal(err)
+		}
+		if current == target {
+			return
+		}
+		if _, err := processor.ProcessOne(ctx); err != nil {
+			t.Fatalf("process entitlement rollout: %v", err)
+		}
+	}
+	t.Fatalf("account %s did not reconcile to Catalog %d", accountID, target)
 }
 
 type fixedClock struct{ now time.Time }

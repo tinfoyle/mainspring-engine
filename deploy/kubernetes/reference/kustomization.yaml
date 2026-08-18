@@ -7,4 +7,5 @@ resources:
   - app-api.yaml
   - billing-worker.yaml
   - notification-worker.yaml
+  - entitlement-worker.yaml
   - policy.yaml

@@ -146,6 +146,10 @@ func (c PublishedCatalog) Validate() error {
 		}
 		plans[plan.Code] = plan
 	}
+	free, exists := plans["free"]
+	if !exists || len(free.Packages) == 0 {
+		return errors.New("catalog requires a non-empty free plan")
+	}
 	offers := make(map[string]struct{}, len(c.Offers))
 	for _, offer := range c.Offers {
 		if offer.Code == "" || offer.PlanCode == "" || offer.PlanVersion == 0 {
