@@ -10,9 +10,117 @@ export interface AccountContext {
   readonly "role": "owner" | "administrator" | "billing_admin" | "member" | "viewer";
 }
 
+export interface AgentBoardroom {
+  readonly "created_at": string;
+  readonly "id": string;
+  readonly "name": string;
+  readonly "purpose": string;
+  readonly "state": AgentBoardroomState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export type AgentBoardroomState = "active" | "archived";
+
+export interface AgentBoardrooms {
+  readonly "items": ReadonlyArray<AgentBoardroom>;
+}
+
+export interface AgentPersona {
+  readonly "boardroom_id": string;
+  readonly "content_digest": string;
+  readonly "created_at": string;
+  readonly "description": string;
+  readonly "id": string;
+  readonly "latest_version": number;
+  readonly "name": string;
+  readonly "persona_version_id": string;
+  readonly "policy": AgentPersonaPolicy;
+  readonly "role": string;
+  readonly "state": AgentPersonaState;
+  readonly "system_instructions": string;
+  readonly "updated_at": string;
+}
+
+export interface AgentPersonaPolicy {
+  readonly "action_policy": "none" | "propose";
+  readonly "citation_policy": "none" | "required" | "best_effort";
+  readonly "maximum_cost_micros": number;
+  readonly "maximum_input_tokens": number;
+  readonly "maximum_output_tokens": number;
+  readonly "maximum_tool_steps": number;
+  readonly "model": string;
+  readonly "output_schema": Readonly<Record<string, unknown>>;
+  readonly "provider": string;
+  readonly "reasoning_effort"?: string;
+  readonly "tools": ReadonlyArray<AgentToolGrant>;
+}
+
+export interface AgentPersonaPolicyInput {
+  readonly "action_policy": "none" | "propose";
+  readonly "citation_policy": "none" | "required" | "best_effort";
+  readonly "maximum_cost_micros": number;
+  readonly "maximum_input_tokens": number;
+  readonly "maximum_output_tokens": number;
+  readonly "maximum_tool_steps": number;
+  readonly "model": string;
+  readonly "provider": string;
+  readonly "reasoning_effort"?: string;
+  readonly "tools": ReadonlyArray<AgentToolGrantInput>;
+}
+
+export type AgentPersonaState = "active" | "inactive" | "archived";
+
+export interface AgentPersonas {
+  readonly "items": ReadonlyArray<AgentPersona>;
+}
+
+export interface AgentRun {
+  readonly "boardroom_id": string;
+  readonly "conversation_id": string;
+  readonly "created_at": string;
+  readonly "entitlement_version": number;
+  readonly "id": string;
+  readonly "invocation_ids": ReadonlyArray<string>;
+  readonly "plan_digest": string;
+  readonly "policy_version": number;
+  readonly "prompt": string;
+  readonly "state": AgentRunState;
+  readonly "subject": string;
+  readonly "turns": ReadonlyArray<AgentRunTurn>;
+  readonly "user_message_id": string;
+}
+
+export type AgentRunState = "planned" | "running" | "succeeded" | "partially_failed" | "failed" | "canceled";
+
+export interface AgentRunTurn {
+  readonly "persona_id": string;
+  readonly "persona_version_id": string;
+  readonly "turn": number;
+}
+
+export interface AgentToolGrant {
+  readonly "capability": "work.summary.read";
+  readonly "description": string;
+  readonly "input_schema": Readonly<Record<string, unknown>>;
+  readonly "name": string;
+}
+
+export interface AgentToolGrantInput {
+  readonly "capability": "work.summary.read";
+  readonly "description": string;
+  readonly "input_schema": Readonly<Record<string, unknown>>;
+  readonly "name": string;
+}
+
 export interface AssignWorkRequest {
   readonly "assignment": WorkAssignmentInput;
   readonly "reason"?: string;
+}
+
+export interface CreateAgentBoardroomRequest {
+  readonly "name": string;
+  readonly "purpose": string;
 }
 
 export interface CreateWorkRequest {
@@ -46,6 +154,23 @@ export interface Problem {
   readonly "status": number;
   readonly "title": string;
   readonly "type": string;
+}
+
+export interface PublishAgentPersonaRequest {
+  readonly "description": string;
+  readonly "expected_latest_version": number;
+  readonly "name": string;
+  readonly "persona_id": string;
+  readonly "policy": AgentPersonaPolicyInput;
+  readonly "role": string;
+  readonly "system_instructions": string;
+}
+
+export interface StartAgentRunRequest {
+  readonly "conversation_id"?: string;
+  readonly "persona_ids": ReadonlyArray<string>;
+  readonly "prompt": string;
+  readonly "subject"?: string;
 }
 
 export interface TransitionWorkRequest {
@@ -126,11 +251,27 @@ export interface WorkSummary {
 
 export interface ApiSchemas {
   readonly AccountContext: AccountContext;
+  readonly AgentBoardroom: AgentBoardroom;
+  readonly AgentBoardroomState: AgentBoardroomState;
+  readonly AgentBoardrooms: AgentBoardrooms;
+  readonly AgentPersona: AgentPersona;
+  readonly AgentPersonaPolicy: AgentPersonaPolicy;
+  readonly AgentPersonaPolicyInput: AgentPersonaPolicyInput;
+  readonly AgentPersonaState: AgentPersonaState;
+  readonly AgentPersonas: AgentPersonas;
+  readonly AgentRun: AgentRun;
+  readonly AgentRunState: AgentRunState;
+  readonly AgentRunTurn: AgentRunTurn;
+  readonly AgentToolGrant: AgentToolGrant;
+  readonly AgentToolGrantInput: AgentToolGrantInput;
   readonly AssignWorkRequest: AssignWorkRequest;
+  readonly CreateAgentBoardroomRequest: CreateAgentBoardroomRequest;
   readonly CreateWorkRequest: CreateWorkRequest;
   readonly LimitPolicy: LimitPolicy;
   readonly PackageAccess: PackageAccess;
   readonly Problem: Problem;
+  readonly PublishAgentPersonaRequest: PublishAgentPersonaRequest;
+  readonly StartAgentRunRequest: StartAgentRunRequest;
   readonly TransitionWorkRequest: TransitionWorkRequest;
   readonly WorkActor: WorkActor;
   readonly WorkAssignment: WorkAssignment;

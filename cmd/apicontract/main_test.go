@@ -46,7 +46,7 @@ func TestValidateReferencesRejectsMissingOrExternalTargets(t *testing.T) {
 func TestRenderTypeScriptSchemasPreservesRequiredOptionalEnumsAndNulls(t *testing.T) {
 	schemas := map[string]json.RawMessage{
 		"State": json.RawMessage(`{"type":"string","enum":["open","done"]}`),
-		"Item":  json.RawMessage(`{"type":"object","required":["state","context"],"properties":{"state":{"$ref":"#/components/schemas/State"},"note":{"type":"string"},"context":{"anyOf":[{"type":"object","additionalProperties":{"type":"integer"}},{"type":"null"}]}}}`),
+		"Item":  json.RawMessage(`{"type":"object","required":["state","context","metadata"],"properties":{"state":{"$ref":"#/components/schemas/State"},"note":{"type":"string"},"context":{"anyOf":[{"type":"object","additionalProperties":{"type":"integer"}},{"type":"null"}]},"metadata":{"type":"object"}}}`),
 	}
 	generated := string(renderTypeScriptSchemas(schemas))
 	for _, expected := range []string{
@@ -54,6 +54,7 @@ func TestRenderTypeScriptSchemasPreservesRequiredOptionalEnumsAndNulls(t *testin
 		`readonly "state": State;`,
 		`readonly "note"?: string;`,
 		`readonly "context": Readonly<Record<string, number>> | null;`,
+		`readonly "metadata": Readonly<Record<string, unknown>>;`,
 		`readonly Item: Item;`,
 	} {
 		if !strings.Contains(generated, expected) {
@@ -62,7 +63,7 @@ func TestRenderTypeScriptSchemasPreservesRequiredOptionalEnumsAndNulls(t *testin
 	}
 }
 
-func TestWorkAndAccountContextOperationsRemainTyped(t *testing.T) {
+func TestCellPackageOperationsRemainTyped(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatal(err)
@@ -71,18 +72,25 @@ func TestWorkAndAccountContextOperationsRemainTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := 0
+	accountWork, agents := 0, 0
 	for _, route := range routes {
-		if route.Service != "cell-api" || (route.Path != "/api/v1/accounts/{accountID}/context" && !strings.Contains(route.Path, "/work-items")) {
+		if route.Service != "cell-api" {
 			continue
 		}
-		found++
+		switch {
+		case route.Path == "/api/v1/accounts/{accountID}/context" || strings.Contains(route.Path, "/work-items"):
+			accountWork++
+		case strings.Contains(route.Path, "/agent-"):
+			agents++
+		default:
+			continue
+		}
 		if route.Contract != "typed" {
 			t.Errorf("%s %s regressed to %q contract", route.Method, route.Path, route.Contract)
 		}
 	}
-	if found != 8 {
-		t.Fatalf("typed Account context/Work operation count=%d, want 8", found)
+	if accountWork != 8 || agents != 6 {
+		t.Fatalf("typed operation counts Account/Work=%d Agents=%d, want 8 and 6", accountWork, agents)
 	}
 }
 

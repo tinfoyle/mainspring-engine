@@ -28,21 +28,39 @@ type AgentService interface {
 }
 
 type createBoardroomRequest struct {
-	Name    string `json:"name"`
-	Purpose string `json:"purpose"`
+	Name    string  `json:"name"`
+	Purpose *string `json:"purpose"`
 }
 type publishPersonaRequest struct {
-	PersonaID             ids.PersonaID             `json:"persona_id"`
-	ExpectedLatestVersion uint64                    `json:"expected_latest_version"`
-	Name                  string                    `json:"name"`
-	Role                  string                    `json:"role"`
-	Description           string                    `json:"description"`
-	SystemInstructions    string                    `json:"system_instructions"`
-	Policy                agentdomain.PersonaPolicy `json:"policy"`
+	PersonaID             ids.PersonaID        `json:"persona_id"`
+	ExpectedLatestVersion *uint64              `json:"expected_latest_version"`
+	Name                  string               `json:"name"`
+	Role                  string               `json:"role"`
+	Description           *string              `json:"description"`
+	SystemInstructions    string               `json:"system_instructions"`
+	Policy                personaPolicyRequest `json:"policy"`
+}
+type personaPolicyRequest struct {
+	Provider            string              `json:"provider"`
+	Model               string              `json:"model"`
+	ReasoningEffort     string              `json:"reasoning_effort,omitempty"`
+	MaximumInputTokens  int64               `json:"maximum_input_tokens"`
+	MaximumOutputTokens int64               `json:"maximum_output_tokens"`
+	MaximumCostMicros   int64               `json:"maximum_cost_micros"`
+	MaximumToolSteps    int                 `json:"maximum_tool_steps"`
+	CitationPolicy      string              `json:"citation_policy"`
+	ActionPolicy        string              `json:"action_policy"`
+	Tools               *[]toolGrantRequest `json:"tools"`
+}
+type toolGrantRequest struct {
+	Name        string          `json:"name"`
+	Capability  string          `json:"capability"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
 }
 type startAgentRunRequest struct {
 	ConversationID ids.ConversationID `json:"conversation_id,omitempty"`
-	Subject        string             `json:"subject,omitempty"`
+	Subject        *string            `json:"subject"`
 	Prompt         string             `json:"prompt"`
 	PersonaIDs     []ids.PersonaID    `json:"persona_ids"`
 }
@@ -77,7 +95,11 @@ func (s *Server) agentBoardroomCreate(w http.ResponseWriter, r *http.Request) {
 	if len(r.URL.Query()) != 0 || !decodeAgentJSON(w, r, &request) {
 		return
 	}
-	item, created, err := s.agents.CreateBoardroom(routecontext.WithClaims(r.Context(), claims), agentapp.CreateBoardroomCommand{Actor: actor, AccountID: accountID, RequestID: operationID, Name: request.Name, Purpose: request.Purpose})
+	if request.Purpose == nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_command", "purpose is required")
+		return
+	}
+	item, created, err := s.agents.CreateBoardroom(routecontext.WithClaims(r.Context(), claims), agentapp.CreateBoardroomCommand{Actor: actor, AccountID: accountID, RequestID: operationID, Name: request.Name, Purpose: *request.Purpose})
 	if err != nil {
 		s.writeAgentError(w, "create_boardroom", err)
 		return
@@ -126,10 +148,14 @@ func (s *Server) agentPersonaPublish(w http.ResponseWriter, r *http.Request) {
 	if !decodeAgentJSON(w, r, &request) {
 		return
 	}
+	if request.ExpectedLatestVersion == nil || request.Description == nil || request.Policy.Tools == nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_command", "expected_latest_version, description, and policy tools are required")
+		return
+	}
 	item, created, err := s.agents.PublishPersona(routecontext.WithClaims(r.Context(), claims), agentapp.PublishPersonaCommand{
 		Actor: actor, AccountID: accountID, BoardroomID: boardroomID, PersonaID: request.PersonaID,
-		VersionID: ids.PersonaVersionID(operationID), ExpectedLatestVersion: request.ExpectedLatestVersion,
-		Name: request.Name, Role: request.Role, Description: request.Description, SystemInstructions: request.SystemInstructions, Policy: request.Policy,
+		VersionID: ids.PersonaVersionID(operationID), ExpectedLatestVersion: *request.ExpectedLatestVersion,
+		Name: request.Name, Role: request.Role, Description: *request.Description, SystemInstructions: request.SystemInstructions, Policy: request.Policy.domainPolicy(),
 	})
 	if err != nil {
 		s.writeAgentError(w, "publish_persona", err)
@@ -140,6 +166,19 @@ func (s *Server) agentPersonaPublish(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, agentPersonaView(item))
+}
+
+func (request personaPolicyRequest) domainPolicy() agentdomain.PersonaPolicy {
+	tools := make([]agentdomain.ToolGrant, len(*request.Tools))
+	for index, tool := range *request.Tools {
+		tools[index] = agentdomain.ToolGrant{Name: tool.Name, Capability: tool.Capability, Description: tool.Description, InputSchema: tool.InputSchema}
+	}
+	return agentdomain.PersonaPolicy{
+		Provider: request.Provider, Model: request.Model, ReasoningEffort: request.ReasoningEffort,
+		MaximumInputTokens: request.MaximumInputTokens, MaximumOutputTokens: request.MaximumOutputTokens,
+		MaximumCostMicros: request.MaximumCostMicros, MaximumToolSteps: request.MaximumToolSteps,
+		CitationPolicy: request.CitationPolicy, ActionPolicy: request.ActionPolicy, Tools: tools,
+	}
 }
 
 func (s *Server) agentRunStart(w http.ResponseWriter, r *http.Request) {
@@ -156,9 +195,17 @@ func (s *Server) agentRunStart(w http.ResponseWriter, r *http.Request) {
 	if !decodeAgentJSON(w, r, &request) {
 		return
 	}
+	if (request.ConversationID == "" && request.Subject == nil) || (request.ConversationID != "" && request.Subject != nil) {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_command", "subject is required only when creating a conversation")
+		return
+	}
+	subject := ""
+	if request.Subject != nil {
+		subject = *request.Subject
+	}
 	run, created, err := s.agents.StartRun(routecontext.WithClaims(r.Context(), claims), agentapp.StartRunCommand{Actor: actor,
 		AccountID: accountID, RequestID: operationID, BoardroomID: boardroomID, ConversationID: request.ConversationID,
-		Subject: request.Subject, Prompt: request.Prompt, PersonaIDs: request.PersonaIDs})
+		Subject: subject, Prompt: request.Prompt, PersonaIDs: request.PersonaIDs})
 	if err != nil {
 		s.writeAgentError(w, "start_run", err)
 		return

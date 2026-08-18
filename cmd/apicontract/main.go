@@ -484,10 +484,10 @@ func typeScriptSchemaType(raw json.RawMessage) string {
 			output.WriteString("}")
 			return output.String()
 		}
-		if len(schema.AdditionalProperties) > 0 && string(schema.AdditionalProperties) != "false" {
-			if string(schema.AdditionalProperties) == "true" {
-				return "Readonly<Record<string, unknown>>"
-			}
+		if len(schema.AdditionalProperties) == 0 || string(schema.AdditionalProperties) == "true" {
+			return "Readonly<Record<string, unknown>>"
+		}
+		if string(schema.AdditionalProperties) != "false" {
 			return "Readonly<Record<string, " + typeScriptSchemaType(schema.AdditionalProperties) + ">>"
 		}
 		return "Readonly<Record<string, never>>"

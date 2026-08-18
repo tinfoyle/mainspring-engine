@@ -133,7 +133,7 @@ func RestorePersonaVersion(version PersonaVersion) (PersonaVersion, error) {
 }
 
 func canonicalPersonaDraft(draft PersonaVersionDraft) (PersonaVersionDraft, error) {
-	draft.Policy.Tools = append([]ToolGrant(nil), draft.Policy.Tools...)
+	draft.Policy.Tools = append(make([]ToolGrant, 0, len(draft.Policy.Tools)), draft.Policy.Tools...)
 	draft.Name, draft.Role, draft.Description, draft.SystemInstructions = strings.TrimSpace(draft.Name), strings.TrimSpace(draft.Role), strings.TrimSpace(draft.Description), strings.TrimSpace(draft.SystemInstructions)
 	draft.Policy.Provider, draft.Policy.Model, draft.Policy.ReasoningEffort = strings.TrimSpace(draft.Policy.Provider), strings.TrimSpace(draft.Policy.Model), strings.TrimSpace(draft.Policy.ReasoningEffort)
 	draft.Policy.CitationPolicy, draft.Policy.ActionPolicy = strings.TrimSpace(draft.Policy.CitationPolicy), strings.TrimSpace(draft.Policy.ActionPolicy)
