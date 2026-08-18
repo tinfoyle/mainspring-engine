@@ -438,6 +438,7 @@ Deliverables:
 - Production identity integration or hardened first-party authentication decision implemented.
 - Key management and secret rotation.
 - Backup automation, restore verification, account export, retention, and deletion workflows for global and cell data.
+- The reviewed cross-store contract for that work is defined in [Account export and erasure](account-erasure.md); logical closure is executable, while physical erasure remains disabled until its schema coverage and attestation gates pass.
 - SLO dashboards, alerts, audit search, operational consoles, and incident runbooks.
 - Container signing, SBOM, dependency scanning, provenance, least-privilege runtime profiles, and admission policy.
 - Load, soak, failure-injection, workflow-replay, migration-fleet, and disaster-recovery exercises.
