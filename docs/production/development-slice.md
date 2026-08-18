@@ -17,13 +17,14 @@ This repository now contains the first executable production slice for Infinite 
 - Opaque rotating session tokens with absolute/idle expiry, user-owned active-session inventory, individual/device-wide revocation, a bounded user-visible security timeline, and password reauthentication for sensitive operations.
 - System-wide WebAuthn passkeys with discoverable user-verified login, recent-auth enrollment/removal, passkey reauthentication, encrypted durable credentials/ceremonies, single-use three-minute challenges, atomic authenticator-counter fencing, and identity security events shared across account-api replicas.
 - Typed durable session assurance that independently records initial and most-recent password/passkey proof, exposes safe active-session classifications, and prevents password confirmation from satisfying a user-verified cryptographic step-up policy.
-- Shared application-layer strong-auth policy requiring recent User-bound passkey assurance for invitation, Checkout, and Customer Portal mutations before persistence or Stripe calls; successful first passkey enrollment establishes that assurance after password bootstrap/recovery.
+- Shared application-layer strong-auth policy requiring recent User-bound passkey assurance for Membership, ownership, invitation, Checkout, and Customer Portal mutations before persistence or provider calls; successful first passkey enrollment establishes that assurance after password bootstrap/recovery.
 - Enumeration-resistant credential-recovery response bodies with identifier throttling, hashed single-use 30-minute links, atomic Argon2id credential replacement, User security-version advancement, and all-session revocation.
 - Keyed, privacy-preserving network-actor derivation with explicit trusted-proxy CIDRs and PostgreSQL-backed login/recovery budgets shared across account-api replicas.
 - Argon2id local credentials created atomically with verified identity and Account provisioning, plus generic login failures and durable identifier-hash lockouts.
 - A shared authorization policy that keeps authentication, Account Membership, role, Account state, and Feature Package access separate.
 - Explicit Account listing and selection; the selected browser Account is never treated as authorization without rechecking Membership and placement.
 - Invitation creation and acceptance for existing system-wide identities. Acceptance creates a Membership, not a duplicate User or per-customer runtime.
+- Account Membership governance with owner/administrator roster visibility, owner-only non-owner role changes, bounded removal authority, optimistic versions, atomic ownership transfer, transactional actor/target rechecks, and immutable reasoned audit events.
 - A responsive private application shell for signup, verification, login, Account switching, invitation acceptance, package visibility, and the operational overview.
 - Raw-body Stripe signature verification, durable event deduplication, leased asynchronous processing, crash recovery, and bounded retry scheduling.
 - Server-created Stripe Customer, hosted Checkout, and Customer Portal sessions using authorized Account roles, UUID idempotency keys, exact return origins, and private Offer-to-Price mappings.
@@ -93,6 +94,10 @@ POST /api/v1/session/reauthenticate
 GET  /api/v1/session/accounts
 POST /api/v1/session/account
 POST /api/v1/accounts/{accountID}/invitations
+GET  /api/v1/accounts/{accountID}/memberships
+PATCH /api/v1/accounts/{accountID}/memberships/{membershipID}
+DELETE /api/v1/accounts/{accountID}/memberships/{membershipID}
+POST /api/v1/accounts/{accountID}/ownership-transfers
 POST /api/v1/accounts/{accountID}/checkout-sessions
 POST /api/v1/accounts/{accountID}/billing-portal-sessions
 GET  /api/v1/accounts/{accountID}/billing
@@ -116,6 +121,9 @@ POST     /app/security/sessions/revoke
 POST     /app/security/sessions/revoke-all
 POST     /app/account
 POST     /app/invitations
+POST     /app/memberships/role
+POST     /app/memberships/remove
+POST     /app/ownership-transfer
 POST     /app/billing/checkout
 POST     /app/billing/portal
 GET|POST /invitations/accept
@@ -135,7 +143,7 @@ npm run dev
 
 ## Next production slices
 
-1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up, then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
+1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up; add self-service Account leave, suspension/reactivation, ownership-transfer notification, and Account lifecycle workflows; then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Add fair asynchronous admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests; bounded directory routing and internal workload identity are now executable.

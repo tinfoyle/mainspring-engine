@@ -286,6 +286,104 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if memberAccountsResponse.StatusCode != http.StatusOK || !bytes.Contains(memberAccountsBody, []byte(provisioned.Account.ID)) {
 		t.Fatalf("invited account missing: %d %s", memberAccountsResponse.StatusCode, memberAccountsBody)
 	}
+	membershipURL := server.URL + "/api/v1/accounts/" + provisioned.Account.ID + "/memberships"
+	membershipList := requestJSONCookie(t, http.MethodGet, membershipURL, "", cookies[0])
+	var roster struct {
+		Memberships []struct {
+			MembershipID string `json:"membership_id"`
+			Email        string `json:"email"`
+			Role         string `json:"role"`
+			Version      uint64 `json:"version"`
+		} `json:"memberships"`
+	}
+	if err := json.Unmarshal(membershipList.Body, &roster); err != nil || membershipList.StatusCode != http.StatusOK || len(roster.Memberships) != 2 {
+		t.Fatalf("initial Membership roster: %d %+v err=%v body=%s", membershipList.StatusCode, roster, err, membershipList.Body)
+	}
+	ownerMembershipID, memberMembershipID := "", ""
+	var ownerVersion, memberVersion uint64
+	for _, item := range roster.Memberships {
+		switch item.Email {
+		case "avery@example.com":
+			ownerMembershipID, ownerVersion = item.MembershipID, item.Version
+		case "member@example.com":
+			memberMembershipID, memberVersion = item.MembershipID, item.Version
+		}
+	}
+	if ownerMembershipID == "" || memberMembershipID == "" || ownerVersion != 1 || memberVersion != 1 {
+		t.Fatalf("Membership identities/versions: %+v", roster.Memberships)
+	}
+	var memberChoices struct {
+		Accounts []struct {
+			AccountID string `json:"account_id"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(memberAccountsBody, &memberChoices); err != nil {
+		t.Fatal(err)
+	}
+	sandboxAccountID := ""
+	for _, choice := range memberChoices.Accounts {
+		if choice.AccountID != provisioned.Account.ID {
+			sandboxAccountID = choice.AccountID
+		}
+	}
+	if sandboxAccountID == "" {
+		t.Fatalf("member sandbox Account missing: %s", memberAccountsBody)
+	}
+	sandboxRoster := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/accounts/"+sandboxAccountID+"/memberships", "", memberCookies[0])
+	var sandboxMembers struct {
+		Memberships []struct {
+			MembershipID string `json:"membership_id"`
+		} `json:"memberships"`
+	}
+	if err := json.Unmarshal(sandboxRoster.Body, &sandboxMembers); err != nil || sandboxRoster.StatusCode != http.StatusOK || len(sandboxMembers.Memberships) != 1 {
+		t.Fatalf("sandbox Membership roster: %d %s err=%v", sandboxRoster.StatusCode, sandboxRoster.Body, err)
+	}
+	crossAccountChange := requestJSONCookie(t, http.MethodPatch, membershipURL+"/"+sandboxMembers.Memberships[0].MembershipID, `{"role":"viewer","expected_version":1,"reason":"Cross Account attack"}`, cookies[0])
+	if crossAccountChange.StatusCode != http.StatusNotFound || !bytes.Contains(crossAccountChange.Body, []byte(`"code":"membership_not_found"`)) {
+		t.Fatalf("cross-Account Membership mutation: %d %s", crossAccountChange.StatusCode, crossAccountChange.Body)
+	}
+	roleChangeURL := membershipURL + "/" + memberMembershipID
+	roleChange := requestJSONCookie(t, http.MethodPatch, roleChangeURL, `{"role":"viewer","expected_version":1,"reason":"Limit access during transition"}`, cookies[0])
+	if roleChange.StatusCode != http.StatusOK || !bytes.Contains(roleChange.Body, []byte(`"role":"viewer"`)) || !bytes.Contains(roleChange.Body, []byte(`"version":2`)) {
+		t.Fatalf("Membership role change: %d %s", roleChange.StatusCode, roleChange.Body)
+	}
+	staleRoleChange := requestJSONCookie(t, http.MethodPatch, roleChangeURL, `{"role":"member","expected_version":1,"reason":"Stale browser update"}`, cookies[0])
+	if staleRoleChange.StatusCode != http.StatusConflict || !bytes.Contains(staleRoleChange.Body, []byte(`"code":"membership_version_conflict"`)) {
+		t.Fatalf("stale Membership role change: %d %s", staleRoleChange.StatusCode, staleRoleChange.Body)
+	}
+	memberPasskeyRegistration := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, memberCookies[0])
+	var memberPasskeyCeremony struct {
+		CeremonyID string `json:"ceremony_id"`
+		PublicKey  struct {
+			PublicKey struct {
+				Challenge string `json:"challenge"`
+			} `json:"publicKey"`
+		} `json:"public_key"`
+	}
+	if err := json.Unmarshal(memberPasskeyRegistration.Body, &memberPasskeyCeremony); err != nil || memberPasskeyRegistration.StatusCode != http.StatusCreated {
+		t.Fatalf("new-owner passkey ceremony: %d %+v err=%v", memberPasskeyRegistration.StatusCode, memberPasskeyCeremony, err)
+	}
+	memberCredential := registrationCredential(t, memberPasskeyCeremony.PublicKey.PublicKey.Challenge)
+	memberPasskeyCompletion := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations/"+memberPasskeyCeremony.CeremonyID+"/complete", `{"name":"New owner passkey","credential":`+memberCredential+`}`, memberCookies[0])
+	if memberPasskeyCompletion.StatusCode != http.StatusCreated {
+		t.Fatalf("new-owner passkey enrollment: %d %s", memberPasskeyCompletion.StatusCode, memberPasskeyCompletion.Body)
+	}
+	transfer := postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/ownership-transfers", fmt.Sprintf(`{"target_membership_id":%q,"expected_actor_version":%d,"expected_target_version":2,"reason":"Planned leadership transition"}`, memberMembershipID, ownerVersion), cookies[0])
+	if transfer.StatusCode != http.StatusOK || !bytes.Contains(transfer.Body, []byte(`"role":"owner"`)) || !bytes.Contains(transfer.Body, []byte(`"role":"administrator"`)) {
+		t.Fatalf("ownership transfer: %d %s", transfer.StatusCode, transfer.Body)
+	}
+	removeOwnerAttempt := requestJSONCookie(t, http.MethodDelete, membershipURL+"/"+memberMembershipID, `{"expected_version":3,"reason":"Cannot remove current owner"}`, cookies[0])
+	if removeOwnerAttempt.StatusCode != http.StatusConflict || !bytes.Contains(removeOwnerAttempt.Body, []byte(`"code":"ownership_required"`)) {
+		t.Fatalf("previous owner continuity guard: %d %s", removeOwnerAttempt.StatusCode, removeOwnerAttempt.Body)
+	}
+	removePreviousOwner := requestJSONCookie(t, http.MethodDelete, membershipURL+"/"+ownerMembershipID, `{"expected_version":2,"reason":"Previous owner access concluded"}`, memberCookies[0])
+	if removePreviousOwner.StatusCode != http.StatusNoContent {
+		t.Fatalf("remove previous owner: %d %s", removePreviousOwner.StatusCode, removePreviousOwner.Body)
+	}
+	removedOwnerList := requestJSONCookie(t, http.MethodGet, membershipURL, "", cookies[0])
+	if removedOwnerList.StatusCode != http.StatusForbidden || !bytes.Contains(removedOwnerList.Body, []byte(`"code":"membership_denied"`)) {
+		t.Fatalf("removed Membership retained Account access: %d %s", removedOwnerList.StatusCode, removedOwnerList.Body)
+	}
 	unknownRecovery := postJSON(t, server.URL+"/api/v1/recovery-challenges", `{"email":"missing@example.com"}`)
 	if unknownRecovery.StatusCode != http.StatusAccepted || bytes.Contains(unknownRecovery.Body, []byte("development_recovery_token")) {
 		t.Fatalf("unknown recovery response: %d %s", unknownRecovery.StatusCode, unknownRecovery.Body)
@@ -338,9 +436,15 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 }
 
 func postJSONCookie(t *testing.T, url, body string, cookie *http.Cookie) response {
+	return requestJSONCookie(t, http.MethodPost, url, body, cookie)
+}
+
+func requestJSONCookie(t *testing.T, method, url, body string, cookie *http.Cookie) response {
 	t.Helper()
-	request, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
+	request, _ := http.NewRequest(method, url, strings.NewReader(body))
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	request.AddCookie(cookie)
 	client := http.Client{Timeout: 3 * time.Second}
 	result, err := client.Do(request)
@@ -422,7 +526,8 @@ func registrationCredential(t *testing.T, challenge string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	credentialID := []byte("http-journey-passkey")
+	credentialHash := sha256.Sum256([]byte(challenge))
+	credentialID := append([]byte(nil), credentialHash[:20]...)
 	clientData := []byte(fmt.Sprintf(`{"type":"webauthn.create","challenge":%q,"origin":"http://localhost:8080"}`, challenge))
 	rpHash := sha256.Sum256([]byte("localhost"))
 	authenticatorData := append([]byte(nil), rpHash[:]...)

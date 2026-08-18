@@ -398,7 +398,10 @@ Route organization mirrors features, not page technology:
 /api/v1/identity/*
 /api/v1/users/me
 /api/v1/accounts
-/api/v1/accounts/{account_id}/memberships
+GET    /api/v1/accounts/{account_id}/memberships
+PATCH  /api/v1/accounts/{account_id}/memberships/{membership_id}
+DELETE /api/v1/accounts/{account_id}/memberships/{membership_id}
+POST   /api/v1/accounts/{account_id}/ownership-transfers
 /api/v1/accounts/{account_id}/entitlements
 /api/v1/catalog/public
 /api/v1/accounts/{account_id}/checkout-sessions

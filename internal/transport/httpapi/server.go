@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
@@ -37,6 +38,7 @@ type Server struct {
 	sessions              *sessions.Service
 	cookie                SessionCookie
 	accounts              *accountaccess.Service
+	members               *accountmembers.Service
 	invitations           *invitations.Service
 	invitationTokens      InvitationTokenSource
 	exposeInvitationToken bool
@@ -94,6 +96,10 @@ func WithAuthentication(service *authentication.Service, sessionService *session
 
 func WithAccountAccess(service *accountaccess.Service) Option {
 	return func(server *Server) { server.accounts = service }
+}
+
+func WithAccountMembers(service *accountmembers.Service) Option {
+	return func(server *Server) { server.members = service }
 }
 
 func WithInvitations(service *invitations.Service, tokens InvitationTokenSource, exposeDevelopmentToken bool) Option {
@@ -158,6 +164,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/session/accounts", s.listAccounts)
 	mux.HandleFunc("POST /api/v1/session/account", s.selectAccount)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/invitations", s.createInvitation)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/memberships", s.listMemberships)
+	mux.HandleFunc("PATCH /api/v1/accounts/{accountID}/memberships/{membershipID}", s.changeMembershipRole)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/memberships/{membershipID}", s.removeMembership)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/ownership-transfers", s.transferOwnership)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/checkout-sessions", s.createCheckoutSession)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/billing-portal-sessions", s.createBillingPortalSession)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/billing", s.billingStatus)
@@ -307,6 +317,10 @@ func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
 	authenticated, ok := s.authenticateSession(w, r)
 	if !ok {
 		return
@@ -340,6 +354,138 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusCreated, response)
+}
+
+func (s *Server) listMemberships(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.membershipRequest(w, r, false)
+	if !ok {
+		return
+	}
+	members, err := s.members.List(r.Context(), authenticated.Session.UserID, accountID)
+	if err != nil {
+		s.writeMembershipError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"memberships": members})
+}
+
+func (s *Server) changeMembershipRole(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.membershipRequest(w, r, true)
+	if !ok {
+		return
+	}
+	memberID := r.PathValue("membershipID")
+	if ids.Validate(memberID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_membership_id", "Membership ID is invalid")
+		return
+	}
+	var input struct {
+		Role            accounts.MembershipRole `json:"role"`
+		ExpectedVersion uint64                  `json:"expected_version"`
+		Reason          string                  `json:"reason"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	member, err := s.members.ChangeRole(r.Context(), accountmembers.ChangeRoleCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, TargetMembershipID: ids.MembershipID(memberID), ExpectedVersion: input.ExpectedVersion, Role: input.Role, Reason: input.Reason})
+	if err != nil {
+		s.writeMembershipError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"membership": member})
+}
+
+func (s *Server) removeMembership(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.membershipRequest(w, r, true)
+	if !ok {
+		return
+	}
+	memberID := r.PathValue("membershipID")
+	if ids.Validate(memberID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_membership_id", "Membership ID is invalid")
+		return
+	}
+	var input struct {
+		ExpectedVersion uint64 `json:"expected_version"`
+		Reason          string `json:"reason"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if err := s.members.Remove(r.Context(), accountmembers.RemoveCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, TargetMembershipID: ids.MembershipID(memberID), ExpectedVersion: input.ExpectedVersion, Reason: input.Reason}); err != nil {
+		s.writeMembershipError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) transferOwnership(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.membershipRequest(w, r, true)
+	if !ok {
+		return
+	}
+	var input struct {
+		TargetMembershipID    ids.MembershipID `json:"target_membership_id"`
+		ExpectedActorVersion  uint64           `json:"expected_actor_version"`
+		ExpectedTargetVersion uint64           `json:"expected_target_version"`
+		Reason                string           `json:"reason"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if ids.Validate(string(input.TargetMembershipID)) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_membership_id", "Target Membership ID is invalid")
+		return
+	}
+	result, err := s.members.TransferOwnership(r.Context(), accountmembers.TransferOwnershipCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, TargetMembershipID: input.TargetMembershipID, ExpectedActorVersion: input.ExpectedActorVersion, ExpectedTargetVersion: input.ExpectedTargetVersion, Reason: input.Reason})
+	if err != nil {
+		s.writeMembershipError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) membershipRequest(w http.ResponseWriter, r *http.Request, mutation bool) (sessions.Authenticated, ids.AccountID, bool) {
+	if s.members == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "membership_management_unconfigured", "Membership management is not configured")
+		return sessions.Authenticated{}, "", false
+	}
+	if mutation && !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return sessions.Authenticated{}, "", false
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return sessions.Authenticated{}, "", false
+	}
+	accountID := r.PathValue("accountID")
+	if ids.Validate(accountID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_account_id", "Account ID is invalid")
+		return sessions.Authenticated{}, "", false
+	}
+	return authenticated, ids.AccountID(accountID), true
+}
+
+func (s *Server) writeMembershipError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, strongauth.ErrRequired):
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
+	case errors.Is(err, accountmembers.ErrMembershipNotFound):
+		writeProblem(w, http.StatusNotFound, "membership_not_found", "the Membership was not found")
+	case errors.Is(err, accountmembers.ErrVersionConflict):
+		writeProblem(w, http.StatusConflict, "membership_version_conflict", "the Membership changed; reload before trying again")
+	case errors.Is(err, accountmembers.ErrOwnershipRequired):
+		writeProblem(w, http.StatusConflict, "ownership_required", "transfer ownership before changing or removing the owner")
+	case errors.Is(err, accountmembers.ErrRoleInvalid), errors.Is(err, accountmembers.ErrReasonRequired):
+		writeProblem(w, http.StatusBadRequest, "invalid_membership_change", err.Error())
+	case errors.Is(err, accountmembers.ErrTargetDenied), access.IsDenied(err, access.DenialRole), access.IsDenied(err, access.DenialMembership), access.IsDenied(err, access.DenialAccountUnavailable):
+		writeProblem(w, http.StatusForbidden, "membership_denied", "Membership management was denied")
+	default:
+		writeProblem(w, http.StatusServiceUnavailable, "membership_change_failed", "Membership management could not be completed")
+	}
 }
 
 func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {

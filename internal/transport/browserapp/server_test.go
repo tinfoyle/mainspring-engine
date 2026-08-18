@@ -52,7 +52,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 		t.Fatalf("verify: %d %s", verified.status, verified.body)
 	}
 	signedIn := postForm(t, client, server.URL+"/login", url.Values{"email": {"avery@example.com"}, "password": {"correct horse battery staple"}})
-	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Northstar Studio")) || !bytes.Contains(signedIn.body, []byte("YOUR OPERATING PARTNER")) || !bytes.Contains(signedIn.body, []byte("FEATURE PACKAGES")) || !bytes.Contains(signedIn.body, []byte("BILLING & ACCESS")) || !bytes.Contains(signedIn.body, []byte("Team")) {
+	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Northstar Studio")) || !bytes.Contains(signedIn.body, []byte("YOUR OPERATING PARTNER")) || !bytes.Contains(signedIn.body, []byte("FEATURE PACKAGES")) || !bytes.Contains(signedIn.body, []byte("BILLING & ACCESS")) || !bytes.Contains(signedIn.body, []byte("Team")) || !bytes.Contains(signedIn.body, []byte("People with access")) || !bytes.Contains(signedIn.body, []byte("avery@example.com")) || !bytes.Contains(signedIn.body, []byte("Ownership is transferred atomically")) {
 		t.Fatalf("app shell: %d %s", signedIn.status, signedIn.body)
 	}
 	workPage, err := client.Get(server.URL + "/app/work")
@@ -88,7 +88,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 		t.Fatalf("security center: %d %s", security.StatusCode, securityBody)
 	}
 	confirmed := postForm(t, client, server.URL+"/app/security/reauthenticate", url.Values{"password": {"correct horse battery staple"}})
-	if confirmed.status != http.StatusOK || !bytes.Contains(confirmed.body, []byte("Password confirmed for identity settings")) || !bytes.Contains(confirmed.body, []byte("Use a passkey to unlock invitations and billing")) {
+	if confirmed.status != http.StatusOK || !bytes.Contains(confirmed.body, []byte("Password confirmed for identity settings")) || !bytes.Contains(confirmed.body, []byte("Use a passkey to unlock Membership, invitation, and billing changes")) {
 		t.Fatalf("password confirmation: %d %s", confirmed.status, confirmed.body)
 	}
 	accountMatch := regexp.MustCompile(`name="account_id" value="([0-9a-f-]+)"`).FindSubmatch(signedIn.body)
@@ -96,7 +96,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 		t.Fatalf("Account ID missing from app shell: %s", signedIn.body)
 	}
 	passwordOnlyInvite := postForm(t, client, server.URL+"/app/invitations", url.Values{"account_id": {string(accountMatch[1])}, "email": {"member@example.com"}, "role": {"member"}})
-	if passwordOnlyInvite.status != http.StatusOK || !bytes.Contains(passwordOnlyInvite.body, []byte("Confirm with a passkey before inviting people or changing billing")) {
+	if passwordOnlyInvite.status != http.StatusOK || !bytes.Contains(passwordOnlyInvite.body, []byte("Confirm with a passkey before managing Memberships, inviting people, or changing billing")) {
 		t.Fatalf("browser strong step-up: %d %s", passwordOnlyInvite.status, passwordOnlyInvite.body)
 	}
 	recoveryStarted := postForm(t, client, server.URL+"/forgot-password", url.Values{"email": {"avery@example.com"}})

@@ -178,7 +178,7 @@ Production authentication requires an ADR. Minimum requirements:
 Audit events cover:
 
 - Authentication, session, invitation, and recovery changes.
-- Membership, role, ownership, and administrative access.
+- Membership, role, ownership, and administrative access, including immutable actor/target/before/after/reason evidence for every Membership mutation.
 - Account creation/state/cell assignment, Catalog publication, billing transitions, webhook projection/reconciliation, grants, overrides, snapshots, and package denials.
 - Agent/persona configuration and immutable version creation.
 - Capability issuance, tool allow/deny/error, and scope.

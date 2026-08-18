@@ -218,6 +218,8 @@ Acceptance:
 - A User can create, join, leave, and switch Accounts without session duplication or cache/data leakage.
 - Every Account operation passes actor, role, state, object, and cross-account authorization matrices.
 
+Implementation checkpoint: invitation/join, Account switching, owner/administrator roster visibility, owner role changes, bounded administrator removal, and atomic ownership transfer are executable across application, memory, PostgreSQL, JSON, and browser boundaries. Privileged mutations require recent user-verified passkey proof, optimistic target versions, transactional actor-role rechecks, bounded audit reasons, and immutable events. Self-service leave, suspension/reactivation, ownership-transfer notifications, and Account lifecycle workflows remain.
+
 ### P2.4 Catalog and Feature Packages
 
 - Implement immutable/versioned FeaturePackage, PackageFeature, Plan, Offer, OfferPrice, LimitDefinition, and CatalogPublication records.

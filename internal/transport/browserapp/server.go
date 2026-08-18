@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
@@ -51,6 +53,7 @@ type Server struct {
 	authentication     *authentication.Service
 	sessions           *sessions.Service
 	accounts           *accountaccess.Service
+	members            *accountmembers.Service
 	invitations        *invitations.Service
 	catalog            func() catalog.PublishedCatalog
 	verificationTokens VerificationTokenSource
@@ -68,6 +71,10 @@ type Option func(*Server)
 
 func WithCommercialAccess(service *commercialaccess.Service) Option {
 	return func(server *Server) { server.commercial = service }
+}
+
+func WithAccountMembers(service *accountmembers.Service) Option {
+	return func(server *Server) { server.members = service }
 }
 
 func WithRecovery(service *recovery.Service, tokens RecoveryTokenSource) Option {
@@ -138,6 +145,9 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /app/security/sessions/revoke-all", s.revokeAllSessions)
 	mux.HandleFunc("POST /app/account", s.selectAccount)
 	mux.HandleFunc("POST /app/invitations", s.createInvitation)
+	mux.HandleFunc("POST /app/memberships/role", s.changeMembershipRole)
+	mux.HandleFunc("POST /app/memberships/remove", s.removeMembership)
+	mux.HandleFunc("POST /app/ownership-transfer", s.transferOwnership)
 	mux.HandleFunc("POST /app/billing/checkout", s.startCheckout)
 	mux.HandleFunc("POST /app/billing/portal", s.openBillingPortal)
 	mux.HandleFunc("GET /invitations/accept", s.acceptInvitationPage)
@@ -245,6 +255,9 @@ type pageData struct {
 	Catalog                                                                                 catalog.PublishedCatalog
 	PackageModes                                                                            map[catalog.PackageCode]catalog.PackageMode
 	CanInvite                                                                               bool
+	CanManageMembers, CanTransferOwnership                                                  bool
+	Members                                                                                 []memberView
+	ActorMembershipVersion                                                                  uint64
 	BillingConfigured, CanManageBilling, CanStartCheckout, HasBillingCustomer               bool
 	BillingState, BillingPeriod, BillingSynced                                              string
 	BillingPlans                                                                            []billingPlan
@@ -267,6 +280,11 @@ type securityEventView struct {
 	Label      string
 	Detail     string
 	OccurredAt time.Time
+}
+
+type memberView struct {
+	accountmembers.Member
+	CanChangeRole, CanRemove, CanTransfer, IsSelf bool
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, data pageData) {
@@ -376,6 +394,25 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 	data.DevelopmentToken = r.URL.Query().Get("development_token")
 	data.BillingConfigured = s.commercial != nil
 	if data.Selected != nil {
+		if s.members != nil && (data.Selected.Role == accounts.RoleOwner || data.Selected.Role == accounts.RoleAdministrator) {
+			members, err := s.members.List(r.Context(), authenticated.Session.UserID, data.Selected.AccountID)
+			if err != nil {
+				s.logger.Error("load Account Memberships", "account_id", data.Selected.AccountID, "error", err)
+			} else {
+				data.CanManageMembers = true
+				data.CanTransferOwnership = data.Selected.Role == accounts.RoleOwner
+				for _, member := range members {
+					view := memberView{Member: member, IsSelf: member.UserID == authenticated.Session.UserID}
+					view.CanChangeRole = data.Selected.Role == accounts.RoleOwner && member.Role != accounts.RoleOwner
+					view.CanRemove = member.Role != accounts.RoleOwner && (data.Selected.Role == accounts.RoleOwner || member.Role != accounts.RoleAdministrator)
+					view.CanTransfer = data.Selected.Role == accounts.RoleOwner && member.Role != accounts.RoleOwner
+					data.Members = append(data.Members, view)
+					if view.IsSelf {
+						data.ActorMembershipVersion = member.Version
+					}
+				}
+			}
+		}
 		var status commercialaccess.Status
 		if s.commercial != nil {
 			var err error
@@ -496,6 +533,86 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
+func (s *Server) changeMembershipRole(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, membershipID, version, ok := s.membershipForm(w, r)
+	if !ok {
+		return
+	}
+	_, err := s.members.ChangeRole(r.Context(), accountmembers.ChangeRoleCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, TargetMembershipID: membershipID, ExpectedVersion: version, Role: accounts.MembershipRole(r.FormValue("role")), Reason: r.FormValue("reason")})
+	if err != nil {
+		s.redirectMembershipError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/app?status=member_role_changed#settings", http.StatusSeeOther)
+}
+
+func (s *Server) removeMembership(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, membershipID, version, ok := s.membershipForm(w, r)
+	if !ok {
+		return
+	}
+	err := s.members.Remove(r.Context(), accountmembers.RemoveCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, TargetMembershipID: membershipID, ExpectedVersion: version, Reason: r.FormValue("reason")})
+	if err != nil {
+		s.redirectMembershipError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/app?status=member_removed#settings", http.StatusSeeOther)
+}
+
+func (s *Server) transferOwnership(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.members == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Ownership transfer request was not accepted.", http.StatusForbidden)
+		return
+	}
+	accountID, targetID := r.FormValue("account_id"), r.FormValue("membership_id")
+	actorVersion, actorErr := strconv.ParseUint(r.FormValue("actor_version"), 10, 64)
+	targetVersion, targetErr := strconv.ParseUint(r.FormValue("version"), 10, 64)
+	if ids.Validate(accountID) != nil || ids.Validate(targetID) != nil || actorErr != nil || targetErr != nil || actorVersion == 0 || targetVersion == 0 || r.FormValue("confirmation") != "TRANSFER" {
+		http.Error(w, "Ownership transfer request was invalid.", http.StatusBadRequest)
+		return
+	}
+	_, err := s.members.TransferOwnership(r.Context(), accountmembers.TransferOwnershipCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: ids.AccountID(accountID), TargetMembershipID: ids.MembershipID(targetID), ExpectedActorVersion: actorVersion, ExpectedTargetVersion: targetVersion, Reason: r.FormValue("reason")})
+	if err != nil {
+		s.redirectMembershipError(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/app?status=ownership_transferred#settings", http.StatusSeeOther)
+}
+
+func (s *Server) membershipForm(w http.ResponseWriter, r *http.Request) (sessions.Authenticated, ids.AccountID, ids.MembershipID, uint64, bool) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return sessions.Authenticated{}, "", "", 0, false
+	}
+	if s.members == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Membership request was not accepted.", http.StatusForbidden)
+		return sessions.Authenticated{}, "", "", 0, false
+	}
+	accountID, membershipID := r.FormValue("account_id"), r.FormValue("membership_id")
+	version, err := strconv.ParseUint(r.FormValue("version"), 10, 64)
+	if ids.Validate(accountID) != nil || ids.Validate(membershipID) != nil || err != nil || version == 0 {
+		http.Error(w, "Membership request was invalid.", http.StatusBadRequest)
+		return sessions.Authenticated{}, "", "", 0, false
+	}
+	return authenticated, ids.AccountID(accountID), ids.MembershipID(membershipID), version, true
+}
+
+func (s *Server) redirectMembershipError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, strongauth.ErrRequired) {
+		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+		return
+	}
+	if errors.Is(err, accountmembers.ErrVersionConflict) {
+		http.Redirect(w, r, "/app?status=membership_conflict#settings", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/app?status=membership_failed#settings", http.StatusSeeOther)
+}
+
 func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	authenticated, ok := s.requireSession(w, r)
 	if !ok {
@@ -522,7 +639,7 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	notice := ""
 	switch r.URL.Query().Get("status") {
 	case "confirmed":
-		notice = "Password confirmed for identity settings. Use a passkey to unlock invitations and billing."
+		notice = "Password confirmed for identity settings. Use a passkey to unlock Membership, invitation, and billing changes."
 	case "passkey_confirmed":
 		notice = "Passkey confirmed. Privileged Account actions are unlocked for 10 minutes."
 	case "passkey_added":
@@ -532,7 +649,7 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	case "reauth_required":
 		notice = "Confirm your password before continuing with a sensitive action."
 	case "strong_reauth_required":
-		notice = "Confirm with a passkey before inviting people or changing billing. If this is your first passkey, confirm your password and add one below."
+		notice = "Confirm with a passkey before managing Memberships, inviting people, or changing billing. If this is your first passkey, confirm your password and add one below."
 	}
 	data := pageData{Title: "Identity security", Notice: notice, ActiveSessions: active, SecurityEvents: securityEventViews(events), Passkeys: credentials, PasskeysConfigured: s.passkeys != nil}
 	if data.PasskeysConfigured {
@@ -786,6 +903,16 @@ func appNotice(status string) string {
 		return "Billing could not be opened. Your current access is unchanged."
 	case "billing_unavailable":
 		return "Billing is not configured in this environment."
+	case "member_role_changed":
+		return "Membership role updated and recorded in the Account audit history."
+	case "member_removed":
+		return "Membership removed. The identity no longer has access to this Account."
+	case "ownership_transferred":
+		return "Ownership transferred atomically. Your Membership is now Administrator."
+	case "membership_conflict":
+		return "The Membership changed while you were working. Review the current roster and try again."
+	case "membership_failed":
+		return "The Membership change was denied or could not be completed."
 	}
 	return ""
 }
