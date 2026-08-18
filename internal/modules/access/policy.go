@@ -73,6 +73,17 @@ type StateSource interface {
 	AccessState(context.Context, ids.UserID, ids.AccountID) (State, error)
 }
 
+// WorkloadState deliberately excludes Membership. A verified workload acts for
+// one already-admitted Account operation; it must never inherit a human role.
+type WorkloadState struct {
+	Account      accounts.Account
+	Entitlements entitlements.Snapshot
+}
+
+type WorkloadStateSource interface {
+	WorkloadAccessState(context.Context, ids.AccountID) (WorkloadState, error)
+}
+
 type OwnerSecurityPolicy interface {
 	Ready(context.Context, ids.UserID) (bool, error)
 }
@@ -87,6 +98,8 @@ type Authorizer struct {
 	source        StateSource
 	ownerSecurity OwnerSecurityPolicy
 }
+
+type WorkloadAuthorizer struct{ source WorkloadStateSource }
 
 type Option func(*Authorizer)
 
@@ -103,6 +116,13 @@ func NewAuthorizer(source StateSource, options ...Option) (*Authorizer, error) {
 		option(authorizer)
 	}
 	return authorizer, nil
+}
+
+func NewWorkloadAuthorizer(source WorkloadStateSource) (*WorkloadAuthorizer, error) {
+	if source == nil {
+		return nil, errors.New("workload access state source is required")
+	}
+	return &WorkloadAuthorizer{source: source}, nil
 }
 
 func (a *Authorizer) Authorize(ctx context.Context, actor Actor, accountID ids.AccountID, requirement Requirement) (AccountContext, error) {
@@ -146,6 +166,37 @@ func (a *Authorizer) Authorize(ctx context.Context, actor Actor, accountID ids.A
 		packageAccess = &effective
 	}
 	return AccountContext{AccountID: accountID, AccountName: state.Account.DisplayName, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, Role: state.Membership.Role, PackageAccess: packageAccess}, nil
+}
+
+// Authorize accepts only a named workload and returns no Membership role. The
+// caller remains responsible for authenticating and binding that workload to
+// the exact Account operation before invoking this policy.
+func (a *WorkloadAuthorizer) Authorize(ctx context.Context, actor Actor, accountID ids.AccountID, requirement Requirement) (AccountContext, error) {
+	if !actor.Valid() || actor.WorkloadID == "" || len(requirement.Roles) != 0 {
+		return AccountContext{}, &DeniedError{Code: DenialUnauthenticated}
+	}
+	state, err := a.source.WorkloadAccessState(ctx, accountID)
+	if err != nil {
+		return AccountContext{}, err
+	}
+	if state.Account.ID != accountID || state.Entitlements.AccountID != accountID || state.Account.EntitlementVersion != state.Entitlements.Version {
+		return AccountContext{}, &DeniedError{Code: DenialCorruptContext}
+	}
+	if state.Account.State != accounts.AccountActive {
+		return AccountContext{}, &DeniedError{Code: DenialAccountUnavailable}
+	}
+	var packageAccess *entitlements.PackageAccess
+	if requirement.Package != "" {
+		effective, exists := state.Entitlements.Package(requirement.Package)
+		if !exists || effective.Mode == catalog.ModeSuspended {
+			return AccountContext{}, &DeniedError{Code: DenialPackageNotEntitled, Package: requirement.Package}
+		}
+		if requirement.Mutation && effective.Mode != catalog.ModeEnabled {
+			return AccountContext{}, &DeniedError{Code: DenialPackageReadOnly, Package: requirement.Package}
+		}
+		packageAccess = &effective
+	}
+	return AccountContext{AccountID: accountID, AccountName: state.Account.DisplayName, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, PackageAccess: packageAccess}, nil
 }
 
 func containsRole(roles []accounts.MembershipRole, role accounts.MembershipRole) bool {

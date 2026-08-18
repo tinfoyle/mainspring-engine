@@ -16,6 +16,12 @@ func (s fixedSource) AccessState(context.Context, ids.UserID, ids.AccountID) (St
 	return s.state, nil
 }
 
+type fixedWorkloadSource struct{ state WorkloadState }
+
+func (s fixedWorkloadSource) WorkloadAccessState(context.Context, ids.AccountID) (WorkloadState, error) {
+	return s.state, nil
+}
+
 type fixedOwnerSecurity struct {
 	ready bool
 	err   error
@@ -74,6 +80,51 @@ func TestMembershipAuthorizerDoesNotAcceptWorkloadIdentity(t *testing.T) {
 	_, err := authorizer.Authorize(context.Background(), Actor{WorkloadID: "schedule-worker"}, ids.AccountID("account-a"), Requirement{})
 	if !IsDenied(err, DenialUnauthenticated) {
 		t.Fatalf("membership authorizer accepted workload identity: %v", err)
+	}
+}
+
+func TestWorkloadAuthorizerUsesCurrentAccountAndPackageWithoutHumanRole(t *testing.T) {
+	accountID := ids.AccountID("account-a")
+	state := WorkloadState{
+		Account:      accounts.Account{ID: accountID, DisplayName: "Ocean Ops", State: accounts.AccountActive, CellID: ids.CellID("cell-a"), PlacementGeneration: 3, EntitlementVersion: 7},
+		Entitlements: entitlements.Snapshot{AccountID: accountID, Version: 7, Packages: []entitlements.PackageAccess{{Code: catalog.PackageWork, Version: 1, Mode: catalog.ModeReadOnly}}},
+	}
+	authorizer, err := NewWorkloadAuthorizer(fixedWorkloadSource{state: state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := Actor{WorkloadID: "runner-invocation:30000000-0000-4000-8000-000000000003"}
+	resolved, err := authorizer.Authorize(context.Background(), actor, accountID, Requirement{Package: catalog.PackageWork})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Role != "" || resolved.PackageAccess == nil || resolved.PackageAccess.Mode != catalog.ModeReadOnly || resolved.EntitlementVersion != 7 {
+		t.Fatalf("unexpected workload context: %#v", resolved)
+	}
+	if _, err := authorizer.Authorize(context.Background(), actor, accountID, Requirement{Package: catalog.PackageWork, Mutation: true}); !IsDenied(err, DenialPackageReadOnly) {
+		t.Fatalf("expected read-only denial, got %v", err)
+	}
+	if _, err := authorizer.Authorize(context.Background(), Actor{UserID: "user-a"}, accountID, Requirement{}); !IsDenied(err, DenialUnauthenticated) {
+		t.Fatalf("human actor crossed workload boundary: %v", err)
+	}
+	if _, err := authorizer.Authorize(context.Background(), actor, accountID, Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}}); !IsDenied(err, DenialUnauthenticated) {
+		t.Fatalf("workload received human role authority: %v", err)
+	}
+}
+
+func TestWorkloadAuthorizerRejectsStaleOrCrossAccountProjection(t *testing.T) {
+	accountID := ids.AccountID("account-a")
+	actor := Actor{WorkloadID: "runner-invocation:test"}
+	for name, state := range map[string]WorkloadState{
+		"cross_account": {Account: accounts.Account{ID: "account-b", State: accounts.AccountActive, EntitlementVersion: 1}, Entitlements: entitlements.Snapshot{AccountID: "account-b", Version: 1}},
+		"stale":         {Account: accounts.Account{ID: accountID, State: accounts.AccountActive, EntitlementVersion: 2}, Entitlements: entitlements.Snapshot{AccountID: accountID, Version: 1}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			authorizer, _ := NewWorkloadAuthorizer(fixedWorkloadSource{state: state})
+			if _, err := authorizer.Authorize(context.Background(), actor, accountID, Requirement{}); !IsDenied(err, DenialCorruptContext) {
+				t.Fatalf("expected corrupt projection denial, got %v", err)
+			}
+		})
 	}
 }
 

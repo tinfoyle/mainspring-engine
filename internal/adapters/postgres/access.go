@@ -51,4 +51,36 @@ func (r *AccessRepository) AccessState(ctx context.Context, userID ids.UserID, a
 	return state, nil
 }
 
+func (r *AccessRepository) WorkloadAccessState(ctx context.Context, accountID ids.AccountID) (access.WorkloadState, error) {
+	var state access.WorkloadState
+	var effectivePackages []byte
+	err := r.pool.QueryRow(ctx, `
+		SELECT a.id,a.slug,a.display_name,a.account_type,a.state,a.cell_id,
+		       a.placement_generation,a.entitlement_version,a.version,a.created_by_user_id,a.created_at,
+		       s.account_id,s.version,s.catalog_version,s.evaluated_at,s.effective_packages
+		FROM accounts a
+		JOIN LATERAL (
+			SELECT account_id,version,catalog_version,evaluated_at,effective_packages
+			FROM entitlement_snapshots WHERE account_id=a.id
+			ORDER BY version DESC LIMIT 1
+		) s ON true
+		WHERE a.id=$1`, accountID).Scan(
+		&state.Account.ID, &state.Account.Slug, &state.Account.DisplayName, &state.Account.Type,
+		&state.Account.State, &state.Account.CellID, &state.Account.PlacementGeneration,
+		&state.Account.EntitlementVersion, &state.Account.Version, &state.Account.CreatedByUserID, &state.Account.CreatedAt,
+		&state.Entitlements.AccountID, &state.Entitlements.Version,
+		&state.Entitlements.CatalogVersion, &state.Entitlements.EvaluatedAt, &effectivePackages)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return access.WorkloadState{}, &access.DeniedError{Code: access.DenialAccountUnavailable}
+	}
+	if err != nil {
+		return access.WorkloadState{}, err
+	}
+	if err := json.Unmarshal(effectivePackages, &state.Entitlements.Packages); err != nil {
+		return access.WorkloadState{}, err
+	}
+	return state, nil
+}
+
 var _ access.StateSource = (*AccessRepository)(nil)
+var _ access.WorkloadStateSource = (*AccessRepository)(nil)
