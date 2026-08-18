@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ProductPreview } from "./_components/product-preview";
-import { SiteFooter, SiteHeader } from "./_components/site-shell";
+import { MarketingPage } from "./_components/site-shell";
 import { packages } from "./data";
 
 const outcomes = [
@@ -12,9 +12,7 @@ const outcomes = [
 
 export default function Home() {
   return (
-    <main>
-      <SiteHeader />
-
+    <MarketingPage>
       <section className="hero shell">
         <div className="hero-copy">
           <p className="eyebrow"><span /> Infinite Ocean: Spyglass</p>
@@ -98,7 +96,7 @@ export default function Home() {
             <div><dt>Load-aware</dt><dd>Capacity grows by workload and demand, with fairness controls for every Account.</dd></div>
           </dl>
         </div>
-        <div className="cell-visual" aria-label="Accounts share resilient Spyglass cells while retaining isolated data boundaries">
+        <div className="cell-visual" role="img" aria-label="Accounts share resilient Spyglass cells while retaining isolated data boundaries">
           <div className="ocean-label">Infinite Ocean platform</div>
           <div className="cell-node cell-a"><span>Cell 01</span><b>38 accounts</b><i /></div>
           <div className="cell-node cell-b"><span>Cell 02</span><b>42 accounts</b><i /></div>
@@ -117,7 +115,6 @@ export default function Home() {
         </div>
       </section>
 
-      <SiteFooter />
-    </main>
+    </MarketingPage>
   );
 }

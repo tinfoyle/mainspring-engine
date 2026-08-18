@@ -27,6 +27,10 @@ a { color: inherit; }
 button, input, select, textarea { font: inherit; }
 .shell { width: min(1180px, calc(100% - 44px)); margin-inline: auto; }
 
+.skip-link { position: fixed; z-index: 100; top: 10px; left: 10px; padding: 11px 15px; border-radius: 9px; background: var(--ink); color: white; font-size: .8rem; font-weight: 750; text-decoration: none; transform: translateY(calc(-100% - 20px)); transition: transform .12s ease; }
+.skip-link:focus { transform: translateY(0); }
+:where(a, button, summary, input, select, textarea, main):focus-visible { outline: 3px solid #0b66c3; outline-offset: 3px; }
+
 .site-header { position: sticky; top: 0; z-index: 30; border-bottom: 1px solid rgba(216, 225, 218, .86); background: rgba(247, 248, 244, .88); backdrop-filter: blur(18px); }
 .nav-shell { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 30px; }
 .brand { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
@@ -49,7 +53,7 @@ button, input, select, textarea { font: inherit; }
 .mobile-nav summary { width: 40px; height: 40px; display: grid; place-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 10px; background: white; list-style: none; cursor: pointer; }
 .mobile-nav summary::-webkit-details-marker { display: none; }
 .mobile-nav summary span { width: 18px; height: 2px; background: var(--ink); }
-.mobile-nav > div { position: absolute; right: 0; top: 48px; width: 220px; display: grid; gap: 3px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: white; box-shadow: var(--shadow); }
+.mobile-nav > nav { position: absolute; right: 0; top: 48px; width: 220px; display: grid; gap: 3px; padding: 10px; border: 1px solid var(--line); border-radius: 14px; background: white; box-shadow: var(--shadow); }
 .mobile-nav a { padding: 10px 11px; border-radius: 8px; text-decoration: none; font-size: .85rem; font-weight: 700; }
 .mobile-nav a:last-child { background: var(--green); color: white; }
 
@@ -121,7 +125,7 @@ button, input, select, textarea { font: inherit; }
 .mia-panel header > span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--green); color: white; font-size: .58rem; font-weight: 800; }
 .mia-panel header > i { width: 6px; height: 6px; border-radius: 50%; background: var(--green-bright); }
 .mia-panel p { margin: 14px 0; color: #52635a; font-size: .5rem; line-height: 1.55; }
-.mia-panel button { width: 100%; display: flex; justify-content: space-between; border: 0; border-radius: 7px; background: var(--green); padding: 7px 8px; color: white; font-size: .47rem; font-weight: 700; }
+.mia-panel .preview-action { width: 100%; display: flex; justify-content: space-between; border: 0; border-radius: 7px; background: var(--green); padding: 7px 8px; color: white; font-size: .47rem; font-weight: 700; }
 .mia-panel footer { display: flex; align-items: center; gap: 5px; margin-top: 12px; color: #829087; font-size: .4rem; }
 .mia-panel footer i { width: 5px; height: 5px; border-radius: 50%; background: #85b99e; }
 .preview-glow { position: absolute; inset: auto -20% -56% 36%; height: 240px; border-radius: 50%; background: rgba(53,151,99,.18); filter: blur(70px); pointer-events: none; }
@@ -235,7 +239,7 @@ button, input, select, textarea { font: inherit; }
 .signup-form { display: grid; gap: 16px; }
 .signup-form label { display: grid; gap: 7px; color: #44564d; font-size: .7rem; font-weight: 750; }
 .signup-form input { width: 100%; border: 1px solid #ccd8d0; border-radius: 11px; background: #fbfcfa; padding: 13px 14px; color: var(--ink); outline: 0; }
-.signup-form input:focus { border-color: #72aa8a; box-shadow: 0 0 0 3px rgba(42,168,121,.11); }
+.signup-form input:focus-visible { border-color: #287851; box-shadow: 0 0 0 3px rgba(42,168,121,.16); }
 .signup-form .button { width: 100%; margin-top: 4px; cursor: pointer; }
 .signup-card .legal { margin: 16px 0 0; color: #87938c; text-align: center; font-size: .62rem; line-height: 1.5; }
 .signup-card .integration-note { margin-top: 18px; padding: 13px; border-radius: 10px; background: #f2f5f2; color: #6e7b74; font-size: .65rem; line-height: 1.55; }

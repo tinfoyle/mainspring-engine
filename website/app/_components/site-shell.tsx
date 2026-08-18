@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { spyglassURL } from "../links";
 
 export function Brand() {
@@ -6,7 +7,7 @@ export function Brand() {
 }
 
 export function SiteHeader() {
-  return <header className="site-header"><div className="shell nav-shell"><Brand /><nav aria-label="Primary navigation"><Link href="/product">Product</Link><Link href="/packages">Packages</Link><Link href="/pricing">Pricing</Link><Link href="/about">Infinite Ocean</Link></nav><div className="nav-actions"><Link className="login-link" href={spyglassURL("/")}>Log in</Link><Link className="button small primary" href="/signup">Start free</Link></div><details className="mobile-nav"><summary aria-label="Open navigation"><span /><span /></summary><div><Link href="/product">Product</Link><Link href="/packages">Packages</Link><Link href="/pricing">Pricing</Link><Link href="/about">Infinite Ocean</Link><Link href="/signup">Start free</Link></div></details></div></header>;
+  return <header className="site-header"><div className="shell nav-shell"><Brand /><nav aria-label="Primary navigation"><Link href="/product">Product</Link><Link href="/packages">Packages</Link><Link href="/pricing">Pricing</Link><Link href="/about">Infinite Ocean</Link></nav><div className="nav-actions"><Link className="login-link" href={spyglassURL("/")}>Log in</Link><Link className="button small primary" href="/signup">Start free</Link></div><details className="mobile-nav"><summary aria-label="Open navigation menu"><span /><span /></summary><nav aria-label="Mobile navigation"><Link href="/product">Product</Link><Link href="/packages">Packages</Link><Link href="/pricing">Pricing</Link><Link href="/about">Infinite Ocean</Link><Link href="/signup">Start free</Link></nav></details></div></header>;
 }
 
 export function SiteFooter() {
@@ -15,4 +16,8 @@ export function SiteFooter() {
 
 export function PageIntro({ eyebrow, title, body }: { eyebrow: string; title: string; body: string }) {
   return <section className="page-intro shell"><p className="eyebrow"><span /> {eyebrow}</p><h1>{title}</h1><p>{body}</p></section>;
+}
+
+export function MarketingPage({ children }: { children: ReactNode }) {
+  return <><a className="skip-link" href="#main-content">Skip to main content</a><SiteHeader /><main id="main-content" tabIndex={-1}>{children}</main><SiteFooter /></>;
 }
