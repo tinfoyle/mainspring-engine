@@ -8,7 +8,7 @@
 
 | Mode | Owns | Does not own |
 |---|---|---|
-| `account-api` | Signup, login, session security/reauthentication, Account selection, invitations, local billing reads, Checkout/Portal creation, signed Stripe webhook acceptance, private browser shell | Billing event projection, reconciliation polling, Account business workloads |
+| `account-api` | Signup, login/recovery, session security/reauthentication, Account selection, invitations, local billing reads, Checkout/Portal creation, signed Stripe webhook acceptance, private browser shell | Billing event projection, reconciliation polling, Account business workloads |
 | `billing-worker` | Leased Stripe inbox processing, current Subscription retrieval, transactional grant/snapshot projection, reconciliation queue | Browser/API traffic, raw webhook acceptance, customer business work |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
 | `migrate` | One embedded, immutable migration target against one database | Serving traffic, background work, automatic target selection |
@@ -41,7 +41,9 @@ Database connection limits are per replica. Environment overlays must ensure the
 | `SPYGLASS_SMTP_FROM_NAME` | Optional display name; defaults to `Infinite Ocean` |
 | `SPYGLASS_SMTP_USERNAME`, `SPYGLASS_SMTP_PASSWORD` | Optional as a pair for authenticated relays |
 
-Notification delivery requires TLS 1.2 or newer. Registration and invitation tokens are placed in message bodies only; this adapter does not log them. A send failure removes the unconsumed challenge/invitation rather than leaving a credential the user never received.
+Notification delivery requires TLS 1.2 or newer. Registration, invitation, and credential-recovery tokens are placed in message bodies only; this adapter does not log them. A send failure removes the unconsumed challenge/invitation rather than leaving a credential the user never received.
+
+Credential-recovery initiation always returns the same accepted response regardless of whether the email is registered, malformed, throttled, or encounters a delivery error. Challenges store only a SHA-256 token hash, expire after 30 minutes, and are single use. Completion changes the Argon2id credential, advances the User security version, revokes every session, consumes all pending recovery challenges, and appends a `credential_recovered` security event in one PostgreSQL transaction. Identifier throttling is durable; network-actor throttling and asynchronous notification delivery remain required before public launch.
 
 ## Billing worker values
 

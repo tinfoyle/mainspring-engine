@@ -15,6 +15,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
@@ -45,6 +46,7 @@ type Server struct {
 type NotificationSender interface {
 	registration.VerificationSender
 	invitations.Sender
+	recovery.Sender
 }
 
 // New constructs the persistent account-api mode. Verification delivery is an
@@ -98,6 +100,11 @@ func New(ctx context.Context, config Config, sender NotificationSender, logger *
 		pool.Close()
 		return nil, err
 	}
+	recoveryService, err := recovery.NewService(postgres.NewRecoveryRepository(pool), sender, authenticationRepository, passwords, ids.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	authorizer, err := access.NewAuthorizer(postgres.NewAccessRepository(pool))
 	if err != nil {
 		pool.Close()
@@ -144,8 +151,9 @@ func New(ctx context.Context, config Config, sender NotificationSender, logger *
 		httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Secure: true, Origin: config.AppOrigin}),
 		httpapi.WithAccountAccess(accountAccess),
 		httpapi.WithInvitations(invitationService, nil, false),
+		httpapi.WithRecovery(recoveryService, nil, false),
 	).Handler()
-	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, func() catalog.PublishedCatalog { return publishedCatalog }, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService))
+	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, func() catalog.PublishedCatalog { return publishedCatalog }, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithRecovery(recoveryService, nil))
 	if err != nil {
 		pool.Close()
 		return nil, err

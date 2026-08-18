@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 )
 
@@ -75,6 +76,14 @@ func (s *Sender) SendInvitation(ctx context.Context, message invitations.Message
 	subject := "Join " + message.AccountName + " in Spyglass"
 	plain := fmt.Sprintf("You have been invited to join %s in Infinite Ocean: Spyglass as %s.\r\n\r\nAccept the invitation:\r\n%s\r\n\r\nThis link expires at %s.\r\n", message.AccountName, message.Role, link, message.ExpiresAt.UTC().Format(time.RFC1123))
 	htmlBody := fmt.Sprintf("<p>You have been invited to join <strong>%s</strong> in Infinite Ocean: Spyglass as %s.</p><p><a href=\"%s\">Accept invitation</a></p><p>This link expires at %s.</p>", html.EscapeString(message.AccountName), html.EscapeString(string(message.Role)), html.EscapeString(link), html.EscapeString(message.ExpiresAt.UTC().Format(time.RFC1123)))
+	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func (s *Sender) SendRecovery(ctx context.Context, message recovery.Message) error {
+	link := s.origin + "/reset-password?token=" + url.QueryEscape(message.Token)
+	subject := "Reset your Infinite Ocean identity password"
+	plain := fmt.Sprintf("Hello %s,\r\n\r\nA password reset was requested for your Infinite Ocean identity. Set a new password here:\r\n%s\r\n\r\nThis single-use link expires at %s. If you did not request it, no change has been made.\r\n", message.DisplayName, link, message.ExpiresAt.UTC().Format(time.RFC1123))
+	htmlBody := fmt.Sprintf("<p>Hello %s,</p><p>A password reset was requested for your Infinite Ocean identity.</p><p><a href=\"%s\">Set a new password</a></p><p>This single-use link expires at %s. If you did not request it, no change has been made.</p>", html.EscapeString(message.DisplayName), html.EscapeString(link), html.EscapeString(message.ExpiresAt.UTC().Format(time.RFC1123)))
 	return s.send(ctx, message.Email, subject, plain, htmlBody)
 }
 
@@ -152,3 +161,4 @@ func messageBody(from, to mail.Address, subject, plain, htmlBody string) (string
 
 var _ registration.VerificationSender = (*Sender)(nil)
 var _ invitations.Sender = (*Sender)(nil)
+var _ recovery.Sender = (*Sender)(nil)

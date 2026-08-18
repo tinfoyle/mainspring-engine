@@ -79,6 +79,27 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	if confirmed.status != http.StatusOK || !bytes.Contains(confirmed.body, []byte("Sensitive actions are unlocked for 10 minutes")) {
 		t.Fatalf("password confirmation: %d %s", confirmed.status, confirmed.body)
 	}
+	recoveryStarted := postForm(t, client, server.URL+"/forgot-password", url.Values{"email": {"avery@example.com"}})
+	if recoveryStarted.status != http.StatusAccepted || !bytes.Contains(recoveryStarted.body, []byte("If that email belongs to an Infinite Ocean identity")) {
+		t.Fatalf("browser recovery start: %d %s", recoveryStarted.status, recoveryStarted.body)
+	}
+	recoveryMatch := regexp.MustCompile(`/reset-password\?token=([^"&]+)`).FindSubmatch(recoveryStarted.body)
+	if len(recoveryMatch) != 2 {
+		t.Fatalf("development recovery link missing: %s", recoveryStarted.body)
+	}
+	recoveryToken, _ := url.QueryUnescape(string(recoveryMatch[1]))
+	recovered := postForm(t, client, server.URL+"/reset-password", url.Values{"token": {recoveryToken}, "password": {"replacement password material"}})
+	if recovered.status != http.StatusOK || !bytes.Contains(recovered.body, []byte("Password updated. Sign in again on every device.")) {
+		t.Fatalf("browser recovery completion: %d %s", recovered.status, recovered.body)
+	}
+	oldPassword := postForm(t, client, server.URL+"/login", url.Values{"email": {"avery@example.com"}, "password": {"correct horse battery staple"}})
+	if oldPassword.status != http.StatusUnauthorized {
+		t.Fatalf("old browser password status: %d", oldPassword.status)
+	}
+	newPassword := postForm(t, client, server.URL+"/login", url.Values{"email": {"avery@example.com"}, "password": {"replacement password material"}})
+	if newPassword.status != http.StatusOK || !bytes.Contains(newPassword.body, []byte("Northstar Studio")) {
+		t.Fatalf("new browser password login: %d %s", newPassword.status, newPassword.body)
+	}
 }
 
 type formResponse struct {

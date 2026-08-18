@@ -11,6 +11,7 @@ type UserID string
 type AccountID string
 type MembershipID string
 type RegistrationID string
+type RecoveryID string
 type SessionID string
 type InvitationID string
 type GrantID string

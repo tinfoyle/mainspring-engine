@@ -198,6 +198,45 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if memberAccountsResponse.StatusCode != http.StatusOK || !bytes.Contains(memberAccountsBody, []byte(provisioned.Account.ID)) {
 		t.Fatalf("invited account missing: %d %s", memberAccountsResponse.StatusCode, memberAccountsBody)
 	}
+	unknownRecovery := postJSON(t, server.URL+"/api/v1/recovery-challenges", `{"email":"missing@example.com"}`)
+	if unknownRecovery.StatusCode != http.StatusAccepted || bytes.Contains(unknownRecovery.Body, []byte("development_recovery_token")) {
+		t.Fatalf("unknown recovery response: %d %s", unknownRecovery.StatusCode, unknownRecovery.Body)
+	}
+	beginRecovery := postJSON(t, server.URL+"/api/v1/recovery-challenges", `{"email":"avery@example.com"}`)
+	if beginRecovery.StatusCode != http.StatusAccepted {
+		t.Fatalf("begin recovery: %d %s", beginRecovery.StatusCode, beginRecovery.Body)
+	}
+	var recoveryResponse map[string]any
+	if err := json.Unmarshal(beginRecovery.Body, &recoveryResponse); err != nil {
+		t.Fatal(err)
+	}
+	recoveryToken, _ := recoveryResponse["development_recovery_token"].(string)
+	if recoveryToken == "" {
+		t.Fatal("development recovery token missing")
+	}
+	completeRecovery := postJSON(t, server.URL+"/api/v1/recovery-challenges/complete", `{"token":"`+recoveryToken+`","password":"replacement password material"}`)
+	if completeRecovery.StatusCode != http.StatusNoContent {
+		t.Fatalf("complete recovery: %d %s", completeRecovery.StatusCode, completeRecovery.Body)
+	}
+	staleSessionRequest, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/sessions", nil)
+	staleSessionRequest.AddCookie(cookies[0])
+	staleSessionResponse, err := http.DefaultClient.Do(staleSessionRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleSessionResponse.Body.Close()
+	if staleSessionResponse.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("pre-recovery session status: %d", staleSessionResponse.StatusCode)
+	}
+	oldCredential := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"avery@example.com","password":"correct horse battery staple"}`)
+	if oldCredential.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old password login status: %d", oldCredential.StatusCode)
+	}
+	newCredential := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"avery@example.com","password":"replacement password material"}`)
+	if newCredential.StatusCode != http.StatusCreated {
+		t.Fatalf("new password login: %d %s", newCredential.StatusCode, newCredential.Body)
+	}
+	cookies = (&http.Response{Header: newCredential.Header}).Cookies()
 	request, _ := http.NewRequest(http.MethodDelete, server.URL+"/api/v1/session", nil)
 	request.AddCookie(cookies[0])
 	logout, err := http.DefaultClient.Do(request)

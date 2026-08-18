@@ -3,6 +3,7 @@ package migrations_test
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -18,9 +19,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/authn"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
@@ -97,6 +100,48 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 	if securityEvents != 2 {
 		t.Fatalf("security event count = %d, want session creation and reauthentication", securityEvents)
+	}
+
+	recoverySender := &captureRecovery{}
+	authenticationRepository := postgresadapter.NewAuthenticationRepository(pool)
+	recoveryService, err := recovery.NewService(postgresadapter.NewRecoveryRepository(pool), recoverySender, authenticationRepository, authn.Passwords{}, ids.RandomGenerator{}, fixedClock{now: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownRecovery, err := recoveryService.Begin(ctx, recovery.BeginCommand{Email: "missing@example.com"})
+	if err != nil || unknownRecovery.Delivered {
+		t.Fatalf("unknown persistent recovery = %+v, %v", unknownRecovery, err)
+	}
+	startedRecovery, err := recoveryService.Begin(ctx, recovery.BeginCommand{Email: " OWNER@example.com "})
+	if err != nil || !startedRecovery.Delivered || recoverySender.message.Token == "" {
+		t.Fatalf("begin persistent recovery = %+v, message=%+v, %v", startedRecovery, recoverySender.message, err)
+	}
+	loginLimitKey := sha256.Sum256([]byte("owner@example.com"))
+	if err := authenticationRepository.Failure(ctx, loginLimitKey, now, 1, 15*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoveryService.Complete(ctx, recovery.CompleteCommand{Token: recoverySender.message.Token, Password: "replacement password material"}); err != nil {
+		t.Fatalf("complete persistent recovery: %v", err)
+	}
+	if blocked, err := authenticationRepository.Blocked(ctx, loginLimitKey, now.Add(time.Minute)); err != nil || blocked {
+		t.Fatalf("login limiter after recovery = blocked:%v err:%v", blocked, err)
+	}
+	if _, err := sessionService.Authenticate(ctx, issued.Token); !errors.Is(err, sessions.ErrInvalidSession) {
+		t.Fatalf("pre-recovery session result = %v, want invalid session", err)
+	}
+	localIdentity, err := authenticationRepository.LocalIdentityForUser(ctx, provisioned.User.ID)
+	passwords := authn.Passwords{}
+	if err != nil || !passwords.Verify(localIdentity.PasswordHash, "replacement password material") || passwords.Verify(localIdentity.PasswordHash, "correct horse battery staple") {
+		t.Fatalf("recovered credential was not replaced: %v", err)
+	}
+	if err := recoveryService.Complete(ctx, recovery.CompleteCommand{Token: recoverySender.message.Token, Password: "another replacement password"}); !errors.Is(err, recovery.ErrInvalidChallenge) {
+		t.Fatalf("reused recovery token result = %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_security_events WHERE user_id=$1`, provisioned.User.ID).Scan(&securityEvents); err != nil {
+		t.Fatal(err)
+	}
+	if securityEvents != 3 {
+		t.Fatalf("security event count after recovery = %d, want three", securityEvents)
 	}
 
 	commercial := postgresadapter.NewCommercialAccessRepository(pool)
@@ -192,7 +237,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 7 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 8 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
@@ -347,6 +392,13 @@ type captureVerification struct {
 }
 
 func (sender *captureVerification) SendVerification(_ context.Context, message registration.VerificationMessage) error {
+	sender.message = message
+	return nil
+}
+
+type captureRecovery struct{ message recovery.Message }
+
+func (sender *captureRecovery) SendRecovery(_ context.Context, message recovery.Message) error {
 	sender.message = message
 	return nil
 }

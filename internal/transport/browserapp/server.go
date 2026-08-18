@@ -14,6 +14,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -29,6 +30,9 @@ type VerificationTokenSource interface {
 }
 type InvitationTokenSource interface {
 	Latest() (invitations.Message, bool)
+}
+type RecoveryTokenSource interface {
+	Latest() (recovery.Message, bool)
 }
 
 type Config struct {
@@ -52,12 +56,21 @@ type Server struct {
 	logger             *slog.Logger
 	templates          *template.Template
 	commercial         *commercialaccess.Service
+	recovery           *recovery.Service
+	recoveryTokens     RecoveryTokenSource
 }
 
 type Option func(*Server)
 
 func WithCommercialAccess(service *commercialaccess.Service) Option {
 	return func(server *Server) { server.commercial = service }
+}
+
+func WithRecovery(service *recovery.Service, tokens RecoveryTokenSource) Option {
+	return func(server *Server) {
+		server.recovery = service
+		server.recoveryTokens = tokens
+	}
 }
 
 func New(registrations *registration.Service, authenticationService *authentication.Service, sessionService *sessions.Service, accountService *accountaccess.Service, invitationService *invitations.Service, catalogSource func() catalog.PublishedCatalog, verificationTokens VerificationTokenSource, invitationTokens InvitationTokenSource, config Config, logger *slog.Logger, options ...Option) (*Server, error) {
@@ -99,6 +112,10 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /assets/spyglass.css", s.styles)
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
+	mux.HandleFunc("GET /forgot-password", s.forgotPasswordPage)
+	mux.HandleFunc("POST /forgot-password", s.forgotPassword)
+	mux.HandleFunc("GET /reset-password", s.resetPasswordPage)
+	mux.HandleFunc("POST /reset-password", s.resetPassword)
 	mux.HandleFunc("GET /signup", s.signupPage)
 	mux.HandleFunc("POST /signup", s.signup)
 	mux.HandleFunc("GET /verify", s.verifyPage)
@@ -117,6 +134,60 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /logout", s.logout)
 	mux.Handle("/", fallback)
 	return s.securityHeaders(s.recover(mux))
+}
+
+func (s *Server) forgotPasswordPage(w http.ResponseWriter, _ *http.Request) {
+	s.render(w, http.StatusOK, "forgot", pageData{Title: "Recover your identity"})
+}
+
+func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
+	if s.recovery == nil {
+		s.render(w, http.StatusServiceUnavailable, "forgot", pageData{Title: "Recover your identity", Error: "Credential recovery is temporarily unavailable."})
+		return
+	}
+	if !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		s.render(w, http.StatusForbidden, "forgot", pageData{Title: "Recover your identity", Error: "This recovery request could not be verified."})
+		return
+	}
+	result, err := s.recovery.Begin(r.Context(), recovery.BeginCommand{Email: r.FormValue("email")})
+	if err != nil {
+		s.logger.Error("begin credential recovery", "error", err)
+	}
+	data := pageData{Title: "Check your email", Notice: "If that email belongs to an Infinite Ocean identity, a recovery link is on its way.", Email: r.FormValue("email")}
+	if s.config.ExposeDevelopmentTokens && result.Delivered && s.recoveryTokens != nil {
+		if message, ok := s.recoveryTokens.Latest(); ok && message.RecoveryID == result.RecoveryID {
+			data.DevelopmentToken = message.Token
+		}
+	}
+	s.render(w, http.StatusAccepted, "forgot", data)
+}
+
+func (s *Server) resetPasswordPage(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		s.render(w, http.StatusBadRequest, "reset", pageData{Title: "Set a new password", Error: "The recovery link is incomplete."})
+		return
+	}
+	s.render(w, http.StatusOK, "reset", pageData{Title: "Set a new password", Token: token})
+}
+
+func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
+	if s.recovery == nil {
+		s.render(w, http.StatusServiceUnavailable, "reset", pageData{Title: "Set a new password", Error: "Credential recovery is temporarily unavailable."})
+		return
+	}
+	if !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		s.render(w, http.StatusForbidden, "reset", pageData{Title: "Set a new password", Error: "This password reset request could not be verified."})
+		return
+	}
+	token := r.FormValue("token")
+	err := s.recovery.Complete(r.Context(), recovery.CompleteCommand{Token: token, Password: r.FormValue("password")})
+	if err != nil {
+		s.render(w, http.StatusBadRequest, "reset", pageData{Title: "Set a new password", Token: token, Error: "The recovery link is invalid or expired, or the password does not meet the 12-character minimum."})
+		return
+	}
+	s.clearCookies(w)
+	http.Redirect(w, r, "/login?status=password_reset", http.StatusSeeOther)
 }
 
 func (s *Server) styles(w http.ResponseWriter, _ *http.Request) {
@@ -545,6 +616,8 @@ func loginNotice(status string) string {
 		return "Identity verified. Sign in to open Spyglass."
 	case "signed_out":
 		return "You have been signed out."
+	case "password_reset":
+		return "Password updated. Sign in again on every device."
 	}
 	return ""
 }

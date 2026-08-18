@@ -13,6 +13,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
@@ -38,6 +39,9 @@ type Server struct {
 	exposeInvitationToken bool
 	commercialAccess      *commercialaccess.Service
 	commercialOrigin      string
+	recovery              *recovery.Service
+	recoveryTokens        RecoveryTokenSource
+	exposeRecoveryToken   bool
 }
 
 type SessionCookie struct {
@@ -56,6 +60,10 @@ type VerificationTokenSource interface {
 
 type InvitationTokenSource interface {
 	Latest() (invitations.Message, bool)
+}
+
+type RecoveryTokenSource interface {
+	Latest() (recovery.Message, bool)
 }
 
 type Option func(*Server)
@@ -99,6 +107,14 @@ func WithCommercialAccess(service *commercialaccess.Service, applicationOrigin s
 	}
 }
 
+func WithRecovery(service *recovery.Service, tokens RecoveryTokenSource, exposeDevelopmentToken bool) Option {
+	return func(server *Server) {
+		server.recovery = service
+		server.recoveryTokens = tokens
+		server.exposeRecoveryToken = exposeDevelopmentToken
+	}
+}
+
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
 	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
 	for _, option := range options {
@@ -114,6 +130,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/catalog/public", s.publicCatalog)
 	mux.HandleFunc("POST /api/v1/registrations", s.beginRegistration)
 	mux.HandleFunc("POST /api/v1/registrations/verify", s.completeRegistration)
+	mux.HandleFunc("POST /api/v1/recovery-challenges", s.beginRecovery)
+	mux.HandleFunc("POST /api/v1/recovery-challenges/complete", s.completeRecovery)
 	mux.HandleFunc("POST /api/v1/sessions", s.login)
 	mux.HandleFunc("GET /api/v1/sessions", s.listSessions)
 	mux.HandleFunc("DELETE /api/v1/sessions", s.logoutAll)
@@ -129,6 +147,55 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
+}
+
+func (s *Server) beginRecovery(w http.ResponseWriter, r *http.Request) {
+	if s.recovery == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "recovery_unconfigured", "credential recovery is not configured")
+		return
+	}
+	var input struct {
+		Email string `json:"email"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := s.recovery.Begin(r.Context(), recovery.BeginCommand{Email: input.Email})
+	if err != nil {
+		s.logger.Error("begin credential recovery", "error", err)
+	}
+	response := map[string]any{"status": "accepted"}
+	if s.exposeRecoveryToken && result.Delivered && s.recoveryTokens != nil {
+		if message, ok := s.recoveryTokens.Latest(); ok && message.RecoveryID == result.RecoveryID {
+			response["development_recovery_token"] = message.Token
+		}
+	}
+	writeJSON(w, http.StatusAccepted, response)
+}
+
+func (s *Server) completeRecovery(w http.ResponseWriter, r *http.Request) {
+	if s.recovery == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "recovery_unconfigured", "credential recovery is not configured")
+		return
+	}
+	var input struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	err := s.recovery.Complete(r.Context(), recovery.CompleteCommand{Token: input.Token, Password: input.Password})
+	switch {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, recovery.ErrInvalidChallenge), errors.Is(err, recovery.ErrInvalidPassword):
+		writeProblem(w, http.StatusBadRequest, "recovery_invalid", "the recovery link is invalid or expired, or the password does not meet policy")
+	default:
+		writeProblem(w, http.StatusServiceUnavailable, "recovery_failed", "credential recovery could not be completed")
+	}
 }
 
 func (s *Server) billingStatus(w http.ResponseWriter, r *http.Request) {
