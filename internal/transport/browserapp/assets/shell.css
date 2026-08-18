@@ -120,6 +120,8 @@
 .passkey-enroll input { min-height: 39px; }
 .recovery-code-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-top: 18px; }
 .recovery-code-list code { border: 1px solid var(--line); border-radius: 8px; background: #f7faf8; padding: 9px 10px; color: var(--ink); font-size: .64rem; letter-spacing: .04em; text-align: center; user-select: all; }
+.factor-loss-policy { background: linear-gradient(145deg,#12343d,#174d57); color: #fff; }.factor-loss-policy h2 { color: #fff; }.factor-loss-policy ol { display: grid; gap: 9px; margin: 17px 0; padding: 0; list-style: none; }.factor-loss-policy li { display: flex; gap: 10px; border: 1px solid #ffffff1f; border-radius: 10px; padding: 10px; background: #ffffff0a; }.factor-loss-policy li b { color: #e8c87b; }.factor-loss-policy li span { display: grid; gap: 3px; }.factor-loss-policy li small { color: #c9dcda; line-height: 1.45; }.security-card .factor-loss-warning { border-left: 3px solid #e8c87b; padding-left: 12px; color: #e9f1ef !important; }
+.lost-passkey { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }.lost-passkey summary { color: var(--green-dark); cursor: pointer; font-size: .68rem; font-weight: 780; }.lost-passkey p { color: var(--muted); font-size: .66rem; line-height: 1.55; }.lost-passkey form { display: grid; gap: 10px; }
 .session-list { display: grid; gap: 1px; margin-top: 15px; border-top: 1px solid var(--line); }
 .session-list article { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; padding: 16px 2px; border-bottom: 1px solid var(--line); }
 .session-list article > div { display: grid; gap: 4px; min-width: 0; }

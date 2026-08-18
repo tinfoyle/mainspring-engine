@@ -89,6 +89,7 @@ Production authentication requires an ADR. Minimum requirements:
 - Reauthentication for ownership transfer, credential changes, and high-risk approvals.
 - Brute-force, credential-stuffing, enumeration, and recovery abuse controls.
 - One-time invitation and recovery tokens stored as hashes with expiry and consumption audit.
+- Recovery UX must remain reachable when a physical passkey is lost but its credential record remains registered. Support cannot recreate recovery codes, impersonate a factor, or override owner readiness; any future exception requires a separately reviewed delayed, multi-party workflow.
 - Platform administration isolated from Account roles and normal customer sessions.
 
 ### 2.3 Authorization

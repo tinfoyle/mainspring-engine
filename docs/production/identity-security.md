@@ -82,6 +82,10 @@ The application owns the repository interface. Neither transport imports Postgre
 4. The replacement WebAuthn ceremony remains bound to the same User and session. Its successful user-verified completion promotes the session to cryptographic assurance.
 5. A code or grant cannot select an Account, change Membership, start billing, or invoke platform operations. Password recovery revokes its underlying session, and therefore the grant, through the session foreign key.
 
+The browser always exposes the replacement-code form when a code set exists, even while lost authenticators remain registered in PostgreSQL. Physical loss does not delete credential records, so conditioning this recovery path on an empty server-side passkey list would strand exactly the Users who need it.
+
+The customer-visible boundary is deliberately explicit: Infinite Ocean support cannot read or recreate one-way-hashed codes, impersonate a passkey, issue an owner-ready override, or inherit Account authority. If the User has neither an available authenticator nor a saved unused code, self-service owner recovery is impossible and owner authorization remains locked. A future support-assisted exception, if product and security approve one, must be a separately modeled delayed and multi-party governed workflow; it must never be a database edit or transport bypass.
+
 ### Passkey reauthentication
 
 1. An authenticated session requests an assertion restricted to its User's registered credentials.
@@ -161,12 +165,13 @@ Automated evidence covers:
 - mandatory owner gating before Account selection and operations, safe enrollment flags in Account choices, global factor-enrollment escape paths, and PostgreSQL-derived empty/code-only/ready posture states;
 - platform-administrator Ed25519 authorization bound to phishing-resistant assurance, exact action/environment/reason/scope, ten-minute lifetime, and explicit incident/two-approver break-glass evidence before database composition;
 - HTTP response contracts containing no Account identity and browser presentation on login and identity security pages.
+- customer-visible factor-loss steps and the no-support-bypass boundary, including a template contract proving code replacement remains reachable while unavailable passkeys are still registered.
 
 ## 8. Remaining identity work
 
 Passkeys are now a production authentication and strong-reauthentication option, but the broader Phase 2 identity program is not complete:
 
-1. Complete customer-visible factor-loss review, support escalation policy, and copy/accessibility review around the executable mandatory owner enrollment. Platform-administrator signed authorization and dual-approved break glass are executable; the external workforce identity plane remains the enrollment and approval authority. Self-service recovery codes deliberately cannot authorize Account or operator actions.
+1. Complete product/security/legal review of the executable customer-visible factor-loss copy and decide whether a delayed, multi-party support-assisted exception will ever exist. The current policy is fail-closed with no support bypass. Platform-administrator signed authorization and dual-approved break glass are executable; the external workforce identity plane remains the enrollment and approval authority. Self-service recovery codes deliberately cannot authorize Account or operator actions.
 2. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
 3. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
 4. Add verified contact-method change, passkey rename, compromised-credential response, and customer-visible notification delivery.
