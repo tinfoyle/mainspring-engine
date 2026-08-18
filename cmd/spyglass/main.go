@@ -19,6 +19,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
+	workreleaseapp "github.com/tinfoyle/spyglass-engine/internal/application/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
@@ -29,6 +30,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
+	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
@@ -63,12 +65,14 @@ func main() {
 		err = runEntitlementWorker(ctx, logger)
 	case "work-reconciler":
 		err = runWorkReconciler(ctx, logger)
+	case "work-release-admin":
+		err = runWorkReleaseAdmin(ctx, logger)
 	case "catalog-admin":
 		err = runCatalogAdmin(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | work-reconciler | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | work-reconciler | work-release-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -135,6 +139,62 @@ func runCatalogAdmin(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	return catalogcommand.Run(startup, config, logger)
+}
+
+func runWorkReleaseAdmin(ctx context.Context, logger *slog.Logger) error {
+	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "requeue") {
+		return errors.New("usage: spyglass work-release-admin inspect|requeue")
+	}
+	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	actor, err := requiredEnv("SPYGLASS_OPERATOR_ID")
+	if err != nil {
+		return err
+	}
+	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
+	if err != nil {
+		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	confirmation, err := requiredEnv("SPYGLASS_CONFIRM_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	config := workreleasecommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Actor: actor, Reason: reason, Environment: environment, ConfirmEnvironment: confirmation, InspectLimit: workreleaseapp.DefaultInspectLimit, MaxDatabaseConns: maxConns}
+	if config.Action == "inspect" {
+		limit, err := int64Env("SPYGLASS_WORK_RELEASE_INSPECT_LIMIT", workreleaseapp.DefaultInspectLimit)
+		if err != nil {
+			return err
+		}
+		config.InspectLimit = int(limit)
+	}
+	if config.Action == "requeue" {
+		accountID, err := requiredEnv("SPYGLASS_WORK_ACCOUNT_ID")
+		if err != nil {
+			return err
+		}
+		itemID, err := requiredEnv("SPYGLASS_WORK_ITEM_ID")
+		if err != nil {
+			return err
+		}
+		reservationID, err := requiredEnv("SPYGLASS_WORK_RESERVATION_ID")
+		if err != nil {
+			return err
+		}
+		config.Target = workreleaseapp.Target{AccountID: ids.AccountID(accountID), WorkItemID: ids.WorkItemID(itemID), ReservationID: reservationID}
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return workreleasecommand.Run(startup, config, logger)
 }
 
 func runMigrate(ctx context.Context, logger *slog.Logger) error {

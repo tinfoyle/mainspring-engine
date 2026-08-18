@@ -1,8 +1,8 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, global router, cell API, private admission API, billing, notification, entitlement-rollout, Work reconciliation, migration, and Catalog operator processes
+- Status: executable Phase 2 account, global router, cell API, private admission API, billing, notification, entitlement-rollout, Work reconciliation, migration, Catalog operator, and Work release operator processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, one-shot `catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, one-shot `work-release-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -16,6 +16,7 @@
 | `notification-worker` | Leased encrypted identity-notification delivery, bounded retries, terminal dead-letter state | Browser/API traffic, identity mutation, billing credentials, customer business work |
 | `entitlement-worker` | Bounded existing-Account Catalog rollout seeding, leased free-plan recomputation, immutable changed-access snapshots, and drift repair | Catalog publication decisions, paid-grant mutation, Stripe or SMTP operations, customer business work |
 | `work-reconciler` | Lease identifier-only terminal Work release jobs, idempotently release global capacity, and checkpoint the matching Account-scoped Work row | Serving traffic, Work content reads, capacity reservation, package mutation, Stripe or SMTP operations |
+| `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
 | `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
 | `migrate` | One embedded, immutable migration target against one database | Serving traffic, background work, automatic target selection |
@@ -143,7 +144,13 @@ Each Account records the Catalog version last reconciled. A recomputation advanc
 
 The cell migration creates an identifier-only technical outbox without Account RLS so a worker can lease across the cell without `SUPERUSER` or `BYPASSRLS`. Database grants—not a shared application credential—must restrict the cell role to `SELECT/UPDATE` on that outbox, `SELECT` on Account namespaces, and `SELECT/UPDATE` on Work rows that remain protected by forced RLS. The global role needs `SELECT` on Accounts and `SELECT/UPDATE` on usage counters/reservations. It must not read Users, sessions, Billing, Entitlements, or cell business tables.
 
-Terminal Work updates enqueue in the same cell transaction. A unique lease token prevents a stale replica from acknowledging reclaimed work. Release is idempotent under the original reservation UUID, so a crash between global release and cell checkpoint is safe. The twelfth transient failure or an immediately corrupt/missing reservation enters `dead_letter`; `GET /health/status` returns content-free counts and oldest pending age. Audited inspection/requeue remains required before production promotion.
+Terminal Work updates enqueue in the same cell transaction. A unique lease token prevents a stale replica from acknowledging reclaimed work. Release is idempotent under the original reservation UUID, so a crash between global release and cell checkpoint is safe. The twelfth transient failure or an immediately corrupt/missing reservation enters `dead_letter`; `GET /health/status` returns content-free counts and oldest pending age. Audited recovery uses the separate one-shot command documented in [work-release-operations.md](work-release-operations.md).
+
+## Work release operator values
+
+`work-release-admin inspect|requeue` is a short-lived controlled job, never a standing Deployment. Both actions require `SPYGLASS_CELL_DATABASE_URL`, `SPYGLASS_OPERATOR_ID`, `SPYGLASS_OPERATOR_REASON`, `SPYGLASS_ENVIRONMENT`, and an exact matching `SPYGLASS_CONFIRM_ENVIRONMENT`. Inspection accepts optional `SPYGLASS_WORK_RELEASE_INSPECT_LIMIT` from 1 through 100. Requeue requires `SPYGLASS_WORK_ACCOUNT_ID`, `SPYGLASS_WORK_ITEM_ID`, and `SPYGLASS_WORK_RESERVATION_ID` from an inspected record.
+
+The operator credential receives only `USAGE` on the `public` and `spyglass` schemas plus `EXECUTE` on the two audited security-definer functions. It receives no direct queue, audit-table, Account namespace, or Work-table grants. See [work-release-operations.md](work-release-operations.md) for grants, diagnosis rules, invocation examples, and verification.
 
 ## Local invocation shape
 
@@ -156,6 +163,7 @@ spyglass billing-worker
 spyglass notification-worker
 spyglass entitlement-worker
 spyglass work-reconciler
+spyglass work-release-admin <action>
 spyglass catalog-admin <action>
 SPYGLASS_MIGRATION_TARGET=global spyglass migrate
 ```
@@ -176,7 +184,7 @@ The runner takes a target-specific PostgreSQL advisory lock, checks the SHA-256 
 
 Migration credentials are an independent deployment secret. They may own or alter schema; serving credentials must not. In particular, a cell serving role must not own cell tables and must not have `SUPERUSER` or `BYPASSRLS`, or PostgreSQL row-level security would not provide the intended Account boundary.
 
-CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, concurrency-safe package capacity admission and Work release recovery, broker-backed Work creation and definitive-failure compensation through split roles, registration provisioning, Checkout reservation concurrency, transaction-local Account context, split reconciler credentials, stale lease rejection, and attempted cross-Account reads and writes through non-owner roles.
+CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, concurrency-safe package capacity admission and Work release recovery, broker-backed Work creation and definitive-failure compensation through split roles, execute-only audited dead-letter operations, registration provisioning, Checkout reservation concurrency, transaction-local Account context, split reconciler credentials, stale lease rejection, and attempted cross-Account reads and writes through non-owner roles.
 
 The Kubernetes reference uses these exact arguments and expects environment overlays to supply `spyglass-global-runtime`, `spyglass-cell-reference-runtime`, plus workload-specific `spyglass-account-api-secrets`, `spyglass-app-router-secrets`, `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`, `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`, `spyglass-entitlement-worker-secrets`, and `spyglass-work-reconciler-secrets`. Those objects are intentionally absent from the repository. The router receives a constrained global credential and signing key; app-api receives only a cell credential and verification keyring. Admission-api receives only its narrow global usage credential and verification keyring. The entitlement worker secret needs only its constrained global-database credential. The Work reconciler secret contains distinct cell/global release credentials and no serving, Stripe, or SMTP secret. No literal production credential belongs in source control or a rendered manifest.
 

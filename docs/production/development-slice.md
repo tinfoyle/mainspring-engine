@@ -45,11 +45,12 @@ This repository now contains the first executable production slice for Infinite 
 - An independently scalable `work-reconciler` with atomic cell outbox enqueue, unique crash-recovery leases, idempotent global release, Account-RLS checkpointing, bounded retry/dead-letter behavior, split least-privilege database credentials, and content-free backlog status.
 - An executable private `admission-api` plus HTTP client adapter that re-verifies signed Work operation proofs, reauthorizes current global access, fences entitlement versions through a no-PUBLIC-execute lock function, and keeps global SQL credentials out of app-api.
 - Routed Work create, transition, and assignment contracts with body/semantic-header binding, UUID idempotency, ETag preconditions, safe interactive assignment bounds, exact-retry handling for ambiguous commits, and prototype-informed creation/lifecycle browser controls.
+- A one-shot `work-release-admin` command with exact environment confirmation, bounded content-free dead-letter inspection, exact-target requeue, immutable same-transaction audit, and an execute-only security-definer database boundary that cannot read customer Work or directly mutate the queue.
 - Embedded global, cell, and development PostgreSQL migrations with advisory locking, immutable checksums, an application ledger, and a one-shot production runner.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, and default-deny networking.
 - GitHub verification for Go format/test/race/vet, disposable PostgreSQL contracts, vulnerability scanning, and public-site build/lint/production dependency audit.
 
-The development command is intentionally memory-backed and refuses to start unless `SPYGLASS_ENV=development`. Persistent `account-api`, `app-router`, `app-api`, `admission-api`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, and one-shot `catalog-admin` modes now exist and fail closed until their workload-specific PostgreSQL, route proof, Stripe, origin, encryption, operator, or TLS mail configuration is supplied by the environment.
+The development command is intentionally memory-backed and refuses to start unless `SPYGLASS_ENV=development`. Persistent `account-api`, `app-router`, `app-api`, `admission-api`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, and one-shot `catalog-admin`/`work-release-admin` modes now exist and fail closed until their workload-specific PostgreSQL, route proof, Stripe, origin, encryption, operator, environment-confirmation, or TLS mail configuration is supplied by the environment.
 
 ## Run locally
 

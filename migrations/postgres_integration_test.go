@@ -37,6 +37,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
+	"github.com/tinfoyle/spyglass-engine/internal/application/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
@@ -680,7 +681,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 17 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 18 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
@@ -1122,6 +1123,74 @@ func testWorkReleaseReconciliation(t *testing.T, ctx context.Context, pool *pgxp
 	var queueState string
 	if err := pool.QueryRow(ctx, `SELECT processing_state FROM spyglass.work_capacity_release_queue WHERE account_id=$1 AND work_item_id=$2 AND reservation_id=$3`, accountID, item.ID, reservationID).Scan(&queueState); err != nil || queueState != "completed" {
 		t.Fatalf("Work release queue state=%q err=%v", queueState, err)
+	}
+
+	operatorNow := now.Add(4 * time.Minute)
+	if _, err := pool.Exec(ctx, `UPDATE spyglass.work_capacity_release_queue SET
+		processing_state='dead_letter',attempt_count=12,next_attempt_at=NULL,lease_id=NULL,lease_expires_at=NULL,
+		last_attempt_at=$4,last_error_code='global_release_unavailable',completed_at=NULL
+		WHERE account_id=$1 AND work_item_id=$2 AND reservation_id=$3`, accountID, item.ID, reservationID, operatorNow); err != nil {
+		t.Fatalf("seed Work release dead letter: %v", err)
+	}
+	operatorRole := "spyglass_work_operator_" + randomSuffix(t)
+	if _, err := pool.Exec(ctx, `CREATE ROLE `+operatorRole+` NOLOGIN;
+		GRANT USAGE ON SCHEMA public,spyglass TO `+operatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_inspect_work_capacity_release_dead_letters(uuid,text,text,text,integer) TO `+operatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_requeue_work_capacity_release_dead_letter(uuid,uuid,uuid,uuid,text,text,text) TO `+operatorRole); err != nil {
+		t.Fatalf("create Work release operator role: %v", err)
+	}
+	operatorPool := openPool(t, ctx, databaseURL, func(ctx context.Context, connection *pgx.Conn) error {
+		_, err := connection.Exec(ctx, `SET ROLE `+operatorRole)
+		return err
+	})
+	defer func() {
+		operatorPool.Close()
+		_, _ = pool.Exec(context.Background(), `DROP OWNED BY `+operatorRole+`; DROP ROLE IF EXISTS `+operatorRole)
+	}()
+	if err := operatorPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_capacity_release_queue`).Scan(&crossScopeCount); err == nil {
+		t.Fatal("Work release operator directly read the technical queue")
+	}
+	if err := operatorPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_items`).Scan(&crossScopeCount); err == nil {
+		t.Fatal("Work release operator read customer Work")
+	}
+	if _, err := operatorPool.Exec(ctx, `UPDATE spyglass.work_capacity_release_queue SET processing_state='pending'`); err == nil {
+		t.Fatal("Work release operator directly mutated the technical queue")
+	}
+	operatorRepository := postgresadapter.NewWorkReleaseAdminRepository(operatorPool)
+	operatorService, _ := workreleaseadmin.NewService(operatorRepository, fixedIDGenerator{"75000000-0000-4000-8000-000000000005"})
+	inspection, err := operatorService.Inspect(ctx, 10, "release-operator@example.com", "verify global database recovery", "integration")
+	if err != nil || inspection.AuditBatchID != "75000000-0000-4000-8000-000000000005" || len(inspection.DeadLetters) != 1 || inspection.DeadLetters[0].AttemptCount != 12 || inspection.DeadLetters[0].LastErrorCode != "global_release_unavailable" {
+		t.Fatalf("inspect Work release dead letters=%+v err=%v", inspection, err)
+	}
+	target := inspection.DeadLetters[0].Target
+	operatorService, _ = workreleaseadmin.NewService(operatorRepository, fixedIDGenerator{"76000000-0000-4000-8000-000000000006"})
+	requeueResult, err := operatorService.Requeue(ctx, target, "release-operator@example.com", "global database service is healthy", "integration")
+	if err != nil || requeueResult.AuditBatchID != "76000000-0000-4000-8000-000000000006" || requeueResult.DeadLetter.AttemptCount != 12 || requeueResult.DeadLetter.NextAttemptAt == nil {
+		t.Fatalf("requeue Work release=%+v err=%v", requeueResult, err)
+	}
+	var attempts int
+	var nextAttempt *time.Time
+	var lastError *string
+	if err := pool.QueryRow(ctx, `SELECT processing_state,attempt_count,next_attempt_at,last_error_code FROM spyglass.work_capacity_release_queue WHERE account_id=$1 AND work_item_id=$2 AND reservation_id=$3`, accountID, item.ID, reservationID).Scan(&queueState, &attempts, &nextAttempt, &lastError); err != nil || queueState != "pending" || attempts != 0 || nextAttempt == nil || lastError != nil {
+		t.Fatalf("requeued state=%q attempts=%d next=%v last_error=%v err=%v", queueState, attempts, nextAttempt, lastError, err)
+	}
+	var inspectedEvents, requeuedEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE action='inspected'),count(*) FILTER (WHERE action='requeued') FROM spyglass.work_capacity_release_operator_events WHERE account_id=$1 AND work_item_id=$2 AND reservation_id=$3`, accountID, item.ID, reservationID).Scan(&inspectedEvents, &requeuedEvents); err != nil || inspectedEvents != 1 || requeuedEvents != 1 {
+		t.Fatalf("Work release operator audit inspect=%d requeue=%d err=%v", inspectedEvents, requeuedEvents, err)
+	}
+	if _, err := operatorService.Requeue(ctx, target, "release-operator@example.com", "retry duplicate operator command", "integration"); !errors.Is(err, workreleaseadmin.ErrStateConflict) {
+		t.Fatalf("duplicate Work release requeue=%v", err)
+	}
+	emptyService, _ := workreleaseadmin.NewService(operatorRepository, fixedIDGenerator{"77000000-0000-4000-8000-000000000007"})
+	if empty, err := emptyService.Inspect(ctx, 10, "release-operator@example.com", "verify dead letter queue drained", "integration"); err != nil || len(empty.DeadLetters) != 0 {
+		t.Fatalf("empty Work release inspection=%+v err=%v", empty, err)
+	}
+	var emptyAudit int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_capacity_release_operator_events WHERE batch_id=$1 AND action='inspected' AND account_id IS NULL`, "77000000-0000-4000-8000-000000000007").Scan(&emptyAudit); err != nil || emptyAudit != 1 {
+		t.Fatalf("empty Work release inspection audit=%d err=%v", emptyAudit, err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM spyglass.work_capacity_release_operator_events WHERE batch_id=$1`, "76000000-0000-4000-8000-000000000006"); err == nil || !strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("Work release operator audit deletion=%v", err)
 	}
 }
 

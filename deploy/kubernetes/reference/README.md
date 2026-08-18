@@ -64,6 +64,13 @@ run `spyglass catalog-admin <action>` as a short-lived, human-authorized Job wit
 its own restricted database credential, operator identity, reason, and reviewed
 input. It must not inherit any serving, webhook, Stripe secret, or SMTP secret.
 
+Work release administration is also intentionally absent as a standing
+Deployment. Environments run `spyglass work-release-admin inspect|requeue` as a
+short-lived, human-authorized Job with the target cell's execute-only operator
+credential, operator identity/reason, and exact environment confirmation. It
+must not inherit the reconciler's global credential or any serving secret. See
+[work-release-operations.md](../../../docs/production/work-release-operations.md).
+
 The entitlement worker is a shared control-plane workload, not one pod or
 container per customer. Replicas coordinate bounded rollout seeding and Account
 claims through PostgreSQL leases. Scale it against oldest queue age and backlog,
