@@ -14,10 +14,17 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
-type AccountMemberRepository struct{ pool *pgxpool.Pool }
+type AccountMemberRepository struct {
+	pool                   *pgxpool.Pool
+	ownershipNotifications accountmembers.OwnershipNotificationPreparer
+}
 
 func NewAccountMemberRepository(pool *pgxpool.Pool) *AccountMemberRepository {
 	return &AccountMemberRepository{pool: pool}
+}
+
+func NewAccountMemberRepositoryWithOwnershipNotifications(pool *pgxpool.Pool, preparer accountmembers.OwnershipNotificationPreparer) *AccountMemberRepository {
+	return &AccountMemberRepository{pool: pool, ownershipNotifications: preparer}
 }
 
 func (r *AccountMemberRepository) List(ctx context.Context, accountID ids.AccountID) ([]accountmembers.Member, error) {
@@ -226,6 +233,25 @@ func (r *AccountMemberRepository) TransferOwnership(ctx context.Context, mutatio
 	if actor.Version != mutation.ExpectedActorVersion || target.Version != mutation.ExpectedTargetVersion {
 		return accountmembers.TransferResult{}, accountmembers.ErrVersionConflict
 	}
+	notices := make([]accountmembers.PreparedNotification, 0, 2)
+	if r.ownershipNotifications != nil {
+		if mutation.PreviousOwnerNoticeID == "" || mutation.NewOwnerNoticeID == "" {
+			return accountmembers.TransferResult{}, errors.New("ownership notification IDs are required")
+		}
+		var accountName string
+		if err := tx.QueryRow(ctx, `SELECT display_name FROM accounts WHERE id=$1`, mutation.AccountID).Scan(&accountName); err != nil {
+			return accountmembers.TransferResult{}, err
+		}
+		previousNotice, err := r.ownershipNotifications.PrepareOwnershipTransfer(mutation.PreviousOwnerNoticeID, accountmembers.OwnershipTransferNotice{Email: actor.Email, DisplayName: actor.DisplayName, AccountName: accountName, CounterpartDisplayName: target.DisplayName, RecipientRole: accountmembers.OwnershipNoticePreviousOwner, OccurredAt: mutation.At})
+		if err != nil {
+			return accountmembers.TransferResult{}, err
+		}
+		newNotice, err := r.ownershipNotifications.PrepareOwnershipTransfer(mutation.NewOwnerNoticeID, accountmembers.OwnershipTransferNotice{Email: target.Email, DisplayName: target.DisplayName, AccountName: accountName, CounterpartDisplayName: actor.DisplayName, RecipientRole: accountmembers.OwnershipNoticeNewOwner, OccurredAt: mutation.At})
+		if err != nil {
+			return accountmembers.TransferResult{}, err
+		}
+		notices = append(notices, previousNotice, newNotice)
+	}
 	previousTargetRole := target.Role
 	command, err := tx.Exec(ctx, `UPDATE memberships SET role=CASE WHEN id=$2 THEN 'owner' ELSE 'administrator' END,version=version+1 WHERE account_id=$1 AND id IN ($2,$3)`, mutation.AccountID, target.MembershipID, actor.MembershipID)
 	if err != nil {
@@ -237,12 +263,28 @@ func (r *AccountMemberRepository) TransferOwnership(ctx context.Context, mutatio
 	if err := insertMembershipEvent(ctx, tx, mutation.EventID, mutation.AccountID, mutation.ActorUserID, "ownership_transferred", target.MembershipID, actor.MembershipID, previousTargetRole, accounts.RoleOwner, "", "", mutation.Reason, mutation.At); err != nil {
 		return accountmembers.TransferResult{}, classifyMembershipMutation(err)
 	}
+	for _, notice := range notices {
+		if err := insertOwnershipNotification(ctx, tx, notice); err != nil {
+			return accountmembers.TransferResult{}, classifyMembershipMutation(err)
+		}
+	}
 	actor.Role, actor.Version = accounts.RoleAdministrator, actor.Version+1
 	target.Role, target.Version = accounts.RoleOwner, target.Version+1
 	if err := tx.Commit(ctx); err != nil {
 		return accountmembers.TransferResult{}, classifyMembershipMutation(err)
 	}
 	return accountmembers.TransferResult{PreviousOwner: actor, NewOwner: target}, nil
+}
+
+func insertOwnershipNotification(ctx context.Context, tx pgx.Tx, notice accountmembers.PreparedNotification) error {
+	if notice.ID == "" || len(notice.Ciphertext) == 0 || len(notice.Nonce) == 0 || notice.KeyVersion <= 0 || notice.CreatedAt.IsZero() {
+		return errors.New("prepared ownership notification is invalid")
+	}
+	_, err := tx.Exec(ctx, `
+		INSERT INTO identity_notification_outbox
+		(id,kind,ciphertext,nonce,key_version,processing_state,attempt_count,created_at)
+		VALUES ($1,'ownership_transfer',$2,$3,$4,'queued',0,$5)`, notice.ID, notice.Ciphertext, notice.Nonce, notice.KeyVersion, notice.CreatedAt.UTC())
+	return err
 }
 
 func lockCurrentMember(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, actorUserID ids.UserID) (accountmembers.Member, error) {

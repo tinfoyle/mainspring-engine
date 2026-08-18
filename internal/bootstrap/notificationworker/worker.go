@@ -77,7 +77,7 @@ func (w *Worker) Run(ctx context.Context) error {
 			return nil
 		}
 		if err != nil {
-			w.logger.Error("identity notification delivery failed", "error", err)
+			w.logger.Error("notification delivery failed", "error", err)
 		}
 		if worked {
 			continue

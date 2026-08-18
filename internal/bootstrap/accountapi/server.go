@@ -164,7 +164,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	memberService, err := accountmembers.NewService(postgres.NewAccountMemberRepository(pool), authorizer, ids.RandomGenerator{}, clock)
+	memberService, err := accountmembers.NewService(postgres.NewAccountMemberRepositoryWithOwnershipNotifications(pool, sender), authorizer, ids.RandomGenerator{}, clock)
 	if err != nil {
 		pool.Close()
 		return nil, err

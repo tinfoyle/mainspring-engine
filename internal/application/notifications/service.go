@@ -1,5 +1,5 @@
-// Package notifications provides encrypted, durable identity-notification
-// enqueueing and leased asynchronous delivery.
+// Package notifications provides encrypted, durable identity and Account
+// governance notification enqueueing and leased asynchronous delivery.
 package notifications
 
 import (
@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -26,6 +27,7 @@ const (
 	KindInvitation   Kind = "invitation"
 	KindRecovery     Kind = "recovery"
 	KindDiscard      Kind = "discard"
+	KindOwnership    Kind = "ownership_transfer"
 )
 
 var ErrDeliveryFailed = errors.New("notification delivery failed")
@@ -92,8 +94,8 @@ func (c *Cipher) Open(entry Entry) ([]byte, error) {
 func additionalData(id string, kind Kind) []byte { return []byte(id + "/" + string(kind)) }
 
 type payload struct {
-	Email, DisplayName, Token, AccountName, Role string
-	ExpiresAt                                    time.Time
+	Email, DisplayName, Token, AccountName, Role, CounterpartDisplayName, RecipientRole string
+	ExpiresAt, OccurredAt                                                               time.Time
 }
 
 type QueuedSender struct {
@@ -125,6 +127,18 @@ func (s *QueuedSender) SendRecovery(ctx context.Context, message recovery.Messag
 	return s.enqueue(ctx, KindRecovery, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, ExpiresAt: message.ExpiresAt})
 }
 
+func (s *QueuedSender) PrepareOwnershipTransfer(id string, message accountmembers.OwnershipTransferNotice) (accountmembers.PreparedNotification, error) {
+	raw, err := json.Marshal(payload{Email: message.Email, DisplayName: message.DisplayName, AccountName: message.AccountName, CounterpartDisplayName: message.CounterpartDisplayName, RecipientRole: string(message.RecipientRole), OccurredAt: message.OccurredAt.UTC()})
+	if err != nil {
+		return accountmembers.PreparedNotification{}, err
+	}
+	ciphertext, nonce, keyVersion, err := s.cipher.Seal(id, KindOwnership, raw)
+	if err != nil {
+		return accountmembers.PreparedNotification{}, err
+	}
+	return accountmembers.PreparedNotification{ID: id, Ciphertext: ciphertext, Nonce: nonce, KeyVersion: keyVersion, CreatedAt: s.clock.Now().UTC()}, nil
+}
+
 func (s *QueuedSender) enqueue(ctx context.Context, kind Kind, value payload) error {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -142,6 +156,7 @@ type Delivery interface {
 	registration.VerificationSender
 	invitations.Sender
 	recovery.Sender
+	accountmembers.OwnershipTransferSender
 }
 
 type Processor struct {
@@ -173,10 +188,13 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "payload_invalid", true)
 	}
+	if entry.Kind == KindOwnership && !validOwnershipPayload(value) {
+		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "payload_invalid", true)
+	}
 	if entry.Kind == KindDiscard {
 		return true, p.queue.MarkDelivered(ctx, entry.ID, now)
 	}
-	if !value.ExpiresAt.After(now) {
+	if entry.Kind != KindOwnership && !value.ExpiresAt.After(now) {
 		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "expired", true)
 	}
 	err = p.deliver(ctx, entry.Kind, value)
@@ -201,9 +219,17 @@ func (p *Processor) deliver(ctx context.Context, kind Kind, value payload) error
 		return p.delivery.SendInvitation(ctx, invitations.Message{Email: value.Email, Token: value.Token, AccountName: value.AccountName, Role: accounts.MembershipRole(value.Role), ExpiresAt: value.ExpiresAt})
 	case KindRecovery:
 		return p.delivery.SendRecovery(ctx, recovery.Message{Email: value.Email, DisplayName: value.DisplayName, Token: value.Token, ExpiresAt: value.ExpiresAt})
+	case KindOwnership:
+		role := accountmembers.OwnershipNoticeRole(value.RecipientRole)
+		return p.delivery.SendOwnershipTransfer(ctx, accountmembers.OwnershipTransferNotice{Email: value.Email, DisplayName: value.DisplayName, AccountName: value.AccountName, CounterpartDisplayName: value.CounterpartDisplayName, RecipientRole: role, OccurredAt: value.OccurredAt})
 	default:
 		return fmt.Errorf("unsupported notification kind %q", kind)
 	}
+}
+
+func validOwnershipPayload(value payload) bool {
+	role := accountmembers.OwnershipNoticeRole(value.RecipientRole)
+	return value.Email != "" && value.DisplayName != "" && value.AccountName != "" && value.CounterpartDisplayName != "" && !value.OccurredAt.IsZero() && (role == accountmembers.OwnershipNoticePreviousOwner || role == accountmembers.OwnershipNoticeNewOwner)
 }
 
 func retryDelay(attempt int) time.Duration {
@@ -223,3 +249,4 @@ func retryDelay(attempt int) time.Duration {
 var _ registration.VerificationSender = (*QueuedSender)(nil)
 var _ invitations.Sender = (*QueuedSender)(nil)
 var _ recovery.Sender = (*QueuedSender)(nil)
+var _ accountmembers.OwnershipNotificationPreparer = (*QueuedSender)(nil)

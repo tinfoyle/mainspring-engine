@@ -32,7 +32,7 @@ This repository now contains the first executable production slice for Infinite 
 - Current-object Subscription projection: webhook events are invalidation signals, paid grants are replaced transactionally, snapshots only advance when effective access changes, and `past_due` becomes read-only.
 - Leased reconciliation and verified-event replay boundaries for billing workers and future operator tooling.
 - Executable `account-api` and `billing-worker` process modes with strict environment validation, independent connection caps, graceful shutdown, and dependency-aware readiness.
-- An executable `notification-worker` process with encrypted durable identity-message envelopes, leased claims, crash recovery, bounded retries, terminal dead-letter state, and implicit-TLS SMTP delivery.
+- An executable `notification-worker` process with encrypted durable identity and Account-ownership envelopes, leased claims, independent per-recipient delivery, crash recovery, bounded retries, terminal dead-letter state, and implicit-TLS SMTP delivery. Ownership transfer atomically inserts previous/new-owner notices with the role swap and immutable event, so SMTP availability cannot split authority from notification intent.
 - Immutable Catalog draft, private Stripe mapping, independent review, effective publication, retirement, rollback, and same-transaction operator audit workflows exposed through a fail-closed one-shot command.
 - Bounded account-api Catalog refresh that propagates effective publications and lower-version rollbacks across replicas without restarts while preserving one snapshot per operation.
 - Durable existing-Account entitlement rollouts created atomically with Catalog publication, with bounded cursor seeding, leased claims, retries, dead letters, and late-Account drift repair.
@@ -149,7 +149,7 @@ npm run dev
 
 ## Next production slices
 
-1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up; add ownership-transfer notification and Account closure/deletion workflows; then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
+1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up; add Account closure/deletion workflows; then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Add fair asynchronous admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests; bounded directory routing and internal workload identity are now executable.

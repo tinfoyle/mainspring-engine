@@ -5,6 +5,9 @@ import (
 	"net/mail"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 )
 
 func TestNewRequiresExactHTTPSOriginAndCompleteCredentials(t *testing.T) {
@@ -20,6 +23,20 @@ func TestNewRequiresExactHTTPSOriginAndCompleteCredentials(t *testing.T) {
 	base.Username = "user"
 	if _, err := New(base); err == nil {
 		t.Fatal("expected incomplete auth rejection")
+	}
+}
+
+func TestOwnershipTransferContentIsRoleSpecificAndEscaped(t *testing.T) {
+	now := time.Date(2026, 8, 18, 19, 0, 0, 0, time.UTC)
+	for _, role := range []accountmembers.OwnershipNoticeRole{accountmembers.OwnershipNoticePreviousOwner, accountmembers.OwnershipNoticeNewOwner} {
+		message := accountmembers.OwnershipTransferNotice{Email: "owner@example.com", DisplayName: "Avery <Owner>", AccountName: "Northstar & Co", CounterpartDisplayName: "Morgan <Lee>", RecipientRole: role, OccurredAt: now}
+		subject, plain, htmlBody, err := ownershipTransferContent("https://app.infiniteocean.net", message)
+		if err != nil || !strings.Contains(subject, "Northstar & Co") || !strings.Contains(plain, "https://app.infiniteocean.net/app#settings") || !strings.Contains(htmlBody, "Northstar &amp; Co") || strings.Contains(htmlBody, "Morgan <Lee>") {
+			t.Fatalf("role=%s subject=%q plain=%q html=%q err=%v", role, subject, plain, htmlBody, err)
+		}
+	}
+	if _, _, _, err := ownershipTransferContent("https://app.infiniteocean.net", accountmembers.OwnershipTransferNotice{}); err == nil {
+		t.Fatal("invalid ownership recipient role accepted")
 	}
 }
 

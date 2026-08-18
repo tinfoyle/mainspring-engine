@@ -1,6 +1,6 @@
-// Package smtp delivers transactional Spyglass identity messages over an
-// implicit-TLS SMTP connection. Tokens are placed only in message bodies and
-// are never returned by production transports or written to logs here.
+// Package smtp delivers transactional Spyglass identity and Account-governance
+// messages over an implicit-TLS SMTP connection. Tokens are placed only in
+// message bodies and are never returned by production transports or logs here.
 package smtp
 
 import (
@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -88,6 +89,33 @@ func (s *Sender) SendRecovery(ctx context.Context, message recovery.Message) err
 	plain := fmt.Sprintf("Hello %s,\r\n\r\nA password reset was requested for your Infinite Ocean identity. Set a new password here:\r\n%s\r\n\r\nThis single-use link expires at %s. If you did not request it, no change has been made.\r\n", message.DisplayName, link, message.ExpiresAt.UTC().Format(time.RFC1123))
 	htmlBody := fmt.Sprintf("<p>Hello %s,</p><p>A password reset was requested for your Infinite Ocean identity.</p><p><a href=\"%s\">Set a new password</a></p><p>This single-use link expires at %s. If you did not request it, no change has been made.</p>", html.EscapeString(message.DisplayName), html.EscapeString(link), html.EscapeString(message.ExpiresAt.UTC().Format(time.RFC1123)))
 	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func (s *Sender) SendOwnershipTransfer(ctx context.Context, message accountmembers.OwnershipTransferNotice) error {
+	subject, plain, htmlBody, err := ownershipTransferContent(s.origin, message)
+	if err != nil {
+		return err
+	}
+	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func ownershipTransferContent(origin string, message accountmembers.OwnershipTransferNotice) (string, string, string, error) {
+	link := origin + "/app#settings"
+	when := message.OccurredAt.UTC().Format(time.RFC1123)
+	var subject, plain, htmlBody string
+	switch message.RecipientRole {
+	case accountmembers.OwnershipNoticePreviousOwner:
+		subject = "Ownership of " + message.AccountName + " was transferred"
+		plain = fmt.Sprintf("Hello %s,\r\n\r\nOwnership of %s in Infinite Ocean: Spyglass was transferred to %s at %s. Your Membership is now Administrator.\r\n\r\nReview Account access:\r\n%s\r\n", message.DisplayName, message.AccountName, message.CounterpartDisplayName, when, link)
+		htmlBody = fmt.Sprintf("<p>Hello %s,</p><p>Ownership of <strong>%s</strong> in Infinite Ocean: Spyglass was transferred to %s at %s. Your Membership is now Administrator.</p><p><a href=\"%s\">Review Account access</a></p>", html.EscapeString(message.DisplayName), html.EscapeString(message.AccountName), html.EscapeString(message.CounterpartDisplayName), html.EscapeString(when), html.EscapeString(link))
+	case accountmembers.OwnershipNoticeNewOwner:
+		subject = "You now own " + message.AccountName
+		plain = fmt.Sprintf("Hello %s,\r\n\r\n%s transferred ownership of %s to you in Infinite Ocean: Spyglass at %s. The previous owner is now an Administrator.\r\n\r\nReview Account access:\r\n%s\r\n", message.DisplayName, message.CounterpartDisplayName, message.AccountName, when, link)
+		htmlBody = fmt.Sprintf("<p>Hello %s,</p><p>%s transferred ownership of <strong>%s</strong> to you in Infinite Ocean: Spyglass at %s. The previous owner is now an Administrator.</p><p><a href=\"%s\">Review Account access</a></p>", html.EscapeString(message.DisplayName), html.EscapeString(message.CounterpartDisplayName), html.EscapeString(message.AccountName), html.EscapeString(when), html.EscapeString(link))
+	default:
+		return "", "", "", errors.New("ownership notification recipient role is invalid")
+	}
+	return subject, plain, htmlBody, nil
 }
 
 func (s *Sender) send(ctx context.Context, to, subject, plain, htmlBody string) error {
@@ -165,3 +193,4 @@ func messageBody(from, to mail.Address, subject, plain, htmlBody string) (string
 var _ registration.VerificationSender = (*Sender)(nil)
 var _ invitations.Sender = (*Sender)(nil)
 var _ recovery.Sender = (*Sender)(nil)
+var _ accountmembers.OwnershipTransferSender = (*Sender)(nil)

@@ -59,7 +59,8 @@ func TestPostgresMembershipGovernancePreservesOwnershipAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repository := postgresadapter.NewAccountMemberRepository(pool)
+	noticePreparer := &ownershipNoticePreparer{}
+	repository := postgresadapter.NewAccountMemberRepositoryWithOwnershipNotifications(pool, noticePreparer)
 	members, err := repository.List(ctx, accountID)
 	if err != nil || len(members) != 3 || members[0].Role != accounts.RoleOwner || members[0].Email != "owner@example.com" {
 		t.Fatalf("initial roster=%+v err=%v", members, err)
@@ -94,17 +95,37 @@ func TestPostgresMembershipGovernancePreservesOwnershipAndAudit(t *testing.T) {
 	if err != nil || reactivated.State != accounts.MembershipActive || reactivated.Role != accounts.RoleAdministrator || reactivated.Version != 4 {
 		t.Fatalf("reactivate=%+v err=%v", reactivated, err)
 	}
+	noticePreparer.fail = true
+	if _, err := repository.TransferOwnership(ctx, accountmembers.TransferMutation{EventID: "a7400000-0000-4000-8000-000000000020", PreviousOwnerNoticeID: "a7500000-0000-4000-8000-000000000021", NewOwnerNoticeID: "a7600000-0000-4000-8000-000000000022", ActorUserID: ownerUserID, AccountID: accountID, TargetMembershipID: targetMembershipID, ExpectedActorVersion: 1, ExpectedTargetVersion: 4, Reason: "Notification preparation must be atomic", At: now.Add(4 * time.Minute)}); err == nil {
+		t.Fatal("ownership transfer committed despite notification preparation failure")
+	}
+	noticePreparer.fail = false
+	noticePreparer.notices = nil
+	var actorRole, targetRole accounts.MembershipRole
+	var actorVersion, targetVersion uint64
+	if err := pool.QueryRow(ctx, `SELECT role,version FROM memberships WHERE id=$1`, ownerMembershipID).Scan(&actorRole, &actorVersion); err != nil || actorRole != accounts.RoleOwner || actorVersion != 1 {
+		t.Fatalf("actor changed after failed notification: role=%s version=%d err=%v", actorRole, actorVersion, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT role,version FROM memberships WHERE id=$1`, targetMembershipID).Scan(&targetRole, &targetVersion); err != nil || targetRole != accounts.RoleAdministrator || targetVersion != 4 {
+		t.Fatalf("target changed after failed notification: role=%s version=%d err=%v", targetRole, targetVersion, err)
+	}
 
-	transferred, err := repository.TransferOwnership(ctx, accountmembers.TransferMutation{EventID: "a8000000-0000-4000-8000-000000000008", ActorUserID: ownerUserID, AccountID: accountID, TargetMembershipID: targetMembershipID, ExpectedActorVersion: 1, ExpectedTargetVersion: 4, Reason: "Approved leadership transition", At: now.Add(4 * time.Minute)})
+	transferred, err := repository.TransferOwnership(ctx, accountmembers.TransferMutation{EventID: "a8000000-0000-4000-8000-000000000008", PreviousOwnerNoticeID: "a8100000-0000-4000-8000-000000000023", NewOwnerNoticeID: "a8200000-0000-4000-8000-000000000024", ActorUserID: ownerUserID, AccountID: accountID, TargetMembershipID: targetMembershipID, ExpectedActorVersion: 1, ExpectedTargetVersion: 4, Reason: "Approved leadership transition", At: now.Add(4 * time.Minute)})
 	if err != nil || transferred.PreviousOwner.Role != accounts.RoleAdministrator || transferred.PreviousOwner.Version != 2 || transferred.NewOwner.Role != accounts.RoleOwner || transferred.NewOwner.Version != 5 {
 		t.Fatalf("transfer=%+v err=%v", transferred, err)
 	}
-	var ownerCount, eventCount int
+	var ownerCount, eventCount, ownershipNoticeCount int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM memberships WHERE account_id=$1 AND role='owner' AND state='active'`, accountID).Scan(&ownerCount); err != nil || ownerCount != 1 {
 		t.Fatalf("active owner count=%d err=%v", ownerCount, err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM account_membership_events WHERE account_id=$1`, accountID).Scan(&eventCount); err != nil || eventCount != 4 {
 		t.Fatalf("audit event count=%d err=%v", eventCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM identity_notification_outbox WHERE kind='ownership_transfer'`).Scan(&ownershipNoticeCount); err != nil || ownershipNoticeCount != 2 || len(noticePreparer.notices) != 2 {
+		t.Fatalf("ownership notices persisted=%d prepared=%d err=%v", ownershipNoticeCount, len(noticePreparer.notices), err)
+	}
+	if noticePreparer.notices[0].RecipientRole != accountmembers.OwnershipNoticePreviousOwner || noticePreparer.notices[0].Email != "owner@example.com" || noticePreparer.notices[1].RecipientRole != accountmembers.OwnershipNoticeNewOwner || noticePreparer.notices[1].Email != "successor@example.com" {
+		t.Fatalf("ownership notice recipients=%+v", noticePreparer.notices)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE account_membership_events SET reason='tampered' WHERE account_id=$1`, accountID); err == nil {
 		t.Fatal("immutable Membership audit accepted an update")
@@ -146,4 +167,17 @@ func TestPostgresMembershipGovernancePreservesOwnershipAndAudit(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM account_membership_events WHERE account_id=$1`, accountID).Scan(&eventCount); err != nil || eventCount != 6 {
 		t.Fatalf("final audit event count=%d err=%v", eventCount, err)
 	}
+}
+
+type ownershipNoticePreparer struct {
+	notices []accountmembers.OwnershipTransferNotice
+	fail    bool
+}
+
+func (p *ownershipNoticePreparer) PrepareOwnershipTransfer(id string, notice accountmembers.OwnershipTransferNotice) (accountmembers.PreparedNotification, error) {
+	p.notices = append(p.notices, notice)
+	if p.fail {
+		return accountmembers.PreparedNotification{}, errors.New("notification encryption unavailable")
+	}
+	return accountmembers.PreparedNotification{ID: id, Ciphertext: []byte("encrypted:" + string(notice.RecipientRole)), Nonce: []byte{1, 2, 3}, KeyVersion: 1, CreatedAt: notice.OccurredAt}, nil
 }

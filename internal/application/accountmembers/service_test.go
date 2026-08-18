@@ -113,7 +113,7 @@ func TestOwnerMutationsCarryStrongActorBoundEvidenceAndAuditInputs(t *testing.T)
 		t.Fatal(err)
 	}
 	transferred, err := service.TransferOwnership(context.Background(), TransferOwnershipCommand{ActorUserID: memberTestUser, Session: session, AccountID: memberTestAccount, TargetMembershipID: memberTestTarget, ExpectedActorVersion: 1, ExpectedTargetVersion: 3, Reason: "Leadership transition"})
-	if err != nil || transferred.NewOwner.Role != accounts.RoleOwner || repository.changeCalls != 1 || repository.removeCalls != 1 || repository.transferCalls != 1 {
+	if err != nil || transferred.NewOwner.Role != accounts.RoleOwner || repository.changeCalls != 1 || repository.removeCalls != 1 || repository.transferCalls != 1 || repository.transfer.PreviousOwnerNoticeID == "" || repository.transfer.NewOwnerNoticeID == "" {
 		t.Fatalf("transfer=%+v repository=%+v err=%v", transferred, repository, err)
 	}
 }

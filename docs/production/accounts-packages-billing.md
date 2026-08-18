@@ -136,6 +136,7 @@ Rules:
 - Email is a login/contact attribute, never the durable identity key.
 - One user may own or join multiple accounts.
 - One account has exactly one active owner. Ownership transfer requires recent user-verified passkey proof, explicit current versions for both Memberships, a bounded reason, and one atomic role swap that promotes the successor while demoting the previous owner to Administrator.
+- The same ownership transaction appends its immutable event and inserts separate encrypted notices for the previous and new owner. Delivery is asynchronous and independently retryable, so SMTP failure cannot roll authority back after commit or prevent the other recipient from being notified.
 - Owners may change any non-owner Membership among Administrator, Billing Admin, Member, and Viewer. Directly assigning the Owner role is forbidden; ownership moves only through the transfer use case.
 - Owners may remove any non-owner Membership. Administrators may remove Billing Admin, Member, and Viewer Memberships, but cannot remove an Owner or another Administrator.
 - Owners may suspend/reactivate any non-owner Membership. Administrators may suspend/reactivate Billing Admin, Member, and Viewer Memberships, but cannot manage an Owner or peer Administrator. Suspension preserves the assigned role and manager visibility while immediately failing active-Membership authorization.

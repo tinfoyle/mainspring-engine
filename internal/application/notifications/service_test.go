@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
@@ -48,7 +49,9 @@ type delivery struct {
 	verification registration.VerificationMessage
 	invitation   invitations.Message
 	recovery     recovery.Message
+	ownership    accountmembers.OwnershipTransferNotice
 	err          error
+	ownershipErr map[string]error
 }
 
 func (d *delivery) SendVerification(_ context.Context, message registration.VerificationMessage) error {
@@ -61,6 +64,13 @@ func (d *delivery) SendInvitation(_ context.Context, message invitations.Message
 }
 func (d *delivery) SendRecovery(_ context.Context, message recovery.Message) error {
 	d.recovery = message
+	return d.err
+}
+func (d *delivery) SendOwnershipTransfer(_ context.Context, message accountmembers.OwnershipTransferNotice) error {
+	d.ownership = message
+	if d.ownershipErr != nil && d.ownershipErr[message.Email] != nil {
+		return d.ownershipErr[message.Email]
+	}
 	return d.err
 }
 
@@ -115,6 +125,53 @@ func TestDiscardEnvelopeEqualizesRecoveryWithoutDelivery(t *testing.T) {
 	worked, err := processor.ProcessOne(context.Background())
 	if err != nil || !worked || delivery.recovery.Token != "" || queue.delivered == "" {
 		t.Fatalf("discard result: worked=%v delivery=%+v err=%v", worked, delivery.recovery, err)
+	}
+}
+
+func TestOwnershipTransferPreparationEncryptsAndDeliversOneRecipient(t *testing.T) {
+	envelopeCipher, _ := notifications.NewCipher(bytes.Repeat([]byte{0x26}, 32), 1)
+	queue := &fakeQueue{}
+	now := time.Date(2026, 8, 18, 19, 0, 0, 0, time.UTC)
+	sender, _ := notifications.NewQueuedSender(queue, envelopeCipher, generator{"26000000-0000-4000-8000-000000000002"}, clock{now})
+	message := accountmembers.OwnershipTransferNotice{Email: "successor@example.com", DisplayName: "Successor", AccountName: "Northstar", CounterpartDisplayName: "Original Owner", RecipientRole: accountmembers.OwnershipNoticeNewOwner, OccurredAt: now}
+	prepared, err := sender.PrepareOwnershipTransfer("27000000-0000-4000-8000-000000000002", message)
+	if err != nil || prepared.ID == "" || bytes.Contains(prepared.Ciphertext, []byte(message.Email)) || bytes.Contains(prepared.Ciphertext, []byte(message.AccountName)) {
+		t.Fatalf("prepared ownership envelope=%+v err=%v", prepared, err)
+	}
+	queue.entries = append(queue.entries, notifications.Entry{ID: prepared.ID, Kind: notifications.KindOwnership, Ciphertext: prepared.Ciphertext, Nonce: prepared.Nonce, KeyVersion: prepared.KeyVersion, CreatedAt: prepared.CreatedAt})
+	delivery := &delivery{}
+	processor, _ := notifications.NewProcessor(queue, envelopeCipher, delivery, clock{now}, time.Minute)
+	worked, err := processor.ProcessOne(context.Background())
+	if err != nil || !worked || delivery.ownership != message || queue.delivered != prepared.ID {
+		t.Fatalf("ownership delivery=%+v worked=%v delivered=%q err=%v", delivery.ownership, worked, queue.delivered, err)
+	}
+}
+
+func TestOwnershipRecipientsRetryIndependently(t *testing.T) {
+	envelopeCipher, _ := notifications.NewCipher(bytes.Repeat([]byte{0x27}, 32), 1)
+	queue := &fakeQueue{}
+	now := time.Date(2026, 8, 18, 19, 0, 0, 0, time.UTC)
+	sender, _ := notifications.NewQueuedSender(queue, envelopeCipher, generator{"unused"}, clock{now})
+	for index, email := range []string{"previous@example.com", "new@example.com"} {
+		role := accountmembers.OwnershipNoticePreviousOwner
+		if index == 1 {
+			role = accountmembers.OwnershipNoticeNewOwner
+		}
+		prepared, err := sender.PrepareOwnershipTransfer([]string{"28000000-0000-4000-8000-000000000001", "28000000-0000-4000-8000-000000000002"}[index], accountmembers.OwnershipTransferNotice{Email: email, DisplayName: "Recipient", AccountName: "Northstar", CounterpartDisplayName: "Counterpart", RecipientRole: role, OccurredAt: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		queue.entries = append(queue.entries, notifications.Entry{ID: prepared.ID, Kind: notifications.KindOwnership, Ciphertext: prepared.Ciphertext, Nonce: prepared.Nonce, KeyVersion: prepared.KeyVersion, CreatedAt: prepared.CreatedAt})
+	}
+	delivery := &delivery{ownershipErr: map[string]error{"previous@example.com": errors.New("mailbox unavailable")}}
+	processor, _ := notifications.NewProcessor(queue, envelopeCipher, delivery, clock{now}, time.Minute)
+	worked, err := processor.ProcessOne(context.Background())
+	if !worked || !errors.Is(err, notifications.ErrDeliveryFailed) || queue.failed == "" || queue.terminal {
+		t.Fatalf("first recipient worked=%v failed=%q terminal=%v err=%v", worked, queue.failed, queue.terminal, err)
+	}
+	worked, err = processor.ProcessOne(context.Background())
+	if err != nil || !worked || delivery.ownership.Email != "new@example.com" || queue.delivered == "" {
+		t.Fatalf("second recipient worked=%v notice=%+v delivered=%q err=%v", worked, delivery.ownership, queue.delivered, err)
 	}
 }
 

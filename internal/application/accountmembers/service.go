@@ -59,13 +59,42 @@ type RemoveMutation struct {
 }
 
 type TransferMutation struct {
-	EventID, Reason       string
-	ActorUserID           ids.UserID
-	AccountID             ids.AccountID
-	TargetMembershipID    ids.MembershipID
-	ExpectedActorVersion  uint64
-	ExpectedTargetVersion uint64
-	At                    time.Time
+	EventID, PreviousOwnerNoticeID, NewOwnerNoticeID, Reason string
+	ActorUserID                                              ids.UserID
+	AccountID                                                ids.AccountID
+	TargetMembershipID                                       ids.MembershipID
+	ExpectedActorVersion                                     uint64
+	ExpectedTargetVersion                                    uint64
+	At                                                       time.Time
+}
+
+type OwnershipNoticeRole string
+
+const (
+	OwnershipNoticePreviousOwner OwnershipNoticeRole = "previous_owner"
+	OwnershipNoticeNewOwner      OwnershipNoticeRole = "new_owner"
+)
+
+type OwnershipTransferNotice struct {
+	Email, DisplayName, AccountName, CounterpartDisplayName string
+	RecipientRole                                           OwnershipNoticeRole
+	OccurredAt                                              time.Time
+}
+
+type PreparedNotification struct {
+	ID         string
+	Ciphertext []byte
+	Nonce      []byte
+	KeyVersion int
+	CreatedAt  time.Time
+}
+
+type OwnershipNotificationPreparer interface {
+	PrepareOwnershipTransfer(string, OwnershipTransferNotice) (PreparedNotification, error)
+}
+
+type OwnershipTransferSender interface {
+	SendOwnershipTransfer(context.Context, OwnershipTransferNotice) error
 }
 
 type StateAction string
@@ -275,7 +304,7 @@ func (s *Service) TransferOwnership(ctx context.Context, command TransferOwnersh
 	if err != nil {
 		return TransferResult{}, err
 	}
-	return s.repository.TransferOwnership(ctx, TransferMutation{EventID: s.ids.New(), Reason: reason, ActorUserID: command.ActorUserID, AccountID: command.AccountID, TargetMembershipID: command.TargetMembershipID, ExpectedActorVersion: command.ExpectedActorVersion, ExpectedTargetVersion: command.ExpectedTargetVersion, At: s.clock.Now().UTC()})
+	return s.repository.TransferOwnership(ctx, TransferMutation{EventID: s.ids.New(), PreviousOwnerNoticeID: s.ids.New(), NewOwnerNoticeID: s.ids.New(), Reason: reason, ActorUserID: command.ActorUserID, AccountID: command.AccountID, TargetMembershipID: command.TargetMembershipID, ExpectedActorVersion: command.ExpectedActorVersion, ExpectedTargetVersion: command.ExpectedTargetVersion, At: s.clock.Now().UTC()})
 }
 
 func assignableRole(role accounts.MembershipRole) bool {
