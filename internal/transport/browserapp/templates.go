@@ -41,7 +41,7 @@ const pageTemplates = `
       <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
       <button type="submit">Switch Account</button>
     </form>
-    <nav><p>OPERATE</p><a class="active" href="/app"><i>⌂</i>Overview</a><a href="#work"><i>✓</i>Work</a><a href="#agents"><i>◌</i>Agents</a><a href="#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="#finance"><i>≋</i>Finance</a><a href="#marketing"><i>↗</i>Marketing</a><a href="#settings"><i>⚙</i>Account</a></nav>
+    <nav><p>OPERATE</p><a class="active" href="/app"><i>⌂</i>Overview</a><a href="#work"><i>✓</i>Work</a><a href="#agents"><i>◌</i>Agents</a><a href="#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="#finance"><i>≋</i>Finance</a><a href="#marketing"><i>↗</i>Marketing</a><a href="#billing"><i>$</i>Billing</a><a href="#settings"><i>⚙</i>Account</a></nav>
     <form method="post" action="/logout"><button class="logout">Sign out</button></form>
   </aside>
   <main class="workspace">
@@ -52,7 +52,7 @@ const pageTemplates = `
       {{if .Selected}}
       <section class="hero-panel"><div><p class="eyebrow">ACCOUNT OVERVIEW</p><h1>Your Account is ready.<br><em>The operating surface comes next.</em></h1><p>Identity, Membership, placement, package access, and the local entitlement snapshot are active for this Account.</p></div><div class="horizon" aria-hidden="true"><i></i><b></b></div></section>
       <section class="metrics">
-        <article><small>ACCOUNT TYPE</small><strong>{{.Selected.AccountType}}</strong><span class="green">No billing required</span></article>
+        <article><small>ACCOUNT TYPE</small><strong>{{.Selected.AccountType}}</strong><span class="green">{{.BillingState}}</span></article>
         <article><small>PACKAGE ACCESS</small><strong>{{len .PackageModes}}</strong><span>Effective packages</span></article>
         <article><small>YOUR ROLE</small><strong>{{.Selected.Role}}</strong><span>Active Membership</span></article>
         <article><small>ACCESS VERSION</small><strong>{{.Selected.Entitlements.Version}}</strong><span>Local snapshot</span></article>
@@ -62,6 +62,12 @@ const pageTemplates = `
         <aside class="mia"><header><b>M</b><div><small>YOUR OPERATING PARTNER</small><strong>Mia</strong></div><i></i></header><p>No items are waiting for your attention. Mia will work only through enabled packages and explicitly granted capabilities.</p><button type="button" disabled>Nothing waiting</button><footer><i></i>Bound to this Account’s permissions</footer></aside>
       </div>
       <section class="packages"><header><div><p class="eyebrow">FEATURE PACKAGES</p><h2>Your operating surface</h2></div><span>{{.Selected.AccountType}} Account</span></header><div>{{range .Catalog.Packages}}<article id="{{.Code}}"><b>·</b><div><strong>{{.Name}}</strong><small>{{.Description}}</small></div><em>{{with index $.PackageModes .Code}}{{.}}{{else}}locked{{end}}</em></article>{{end}}</div></section>
+      <section class="billing panel" id="billing">
+        <header><div><p class="eyebrow">BILLING & ACCESS</p><h2>Choose the operating surface that earns its place</h2></div><span>{{.BillingSynced}}</span></header>
+        <div class="billing-summary"><div><small>LOCAL BILLING STATE</small><strong>{{.BillingState}}</strong><span>{{.BillingPeriod}}</span></div>{{if and .CanManageBilling .HasBillingCustomer}}<form method="post" action="/app/billing/portal"><input type="hidden" name="account_id" value="{{.Selected.AccountID}}"><button type="submit">Manage billing ↗</button></form>{{end}}</div>
+        <div class="plan-grid">{{range .BillingPlans}}<article class="plan-card {{if .Current}}current{{end}}"><div><small>{{if .Current}}CURRENT PLAN{{else}}{{.PackageCount}} PACKAGES{{end}}</small><h3>{{.Name}}</h3><p>{{.Description}}</p></div><div class="plan-price"><strong>{{.Price}}</strong><span>/ {{.Interval}}</span></div>{{if .Current}}<button type="button" disabled>Current access</button>{{else if not $.BillingConfigured}}<span class="plan-note">Paid billing is disabled in this development environment.</span>{{else if $.CanStartCheckout}}<form method="post" action="/app/billing/checkout"><input type="hidden" name="account_id" value="{{$.Selected.AccountID}}"><input type="hidden" name="offer_code" value="{{.OfferCode}}"><button type="submit">Choose {{.Name}} →</button></form>{{else if $.CanManageBilling}}{{if $.HasBillingCustomer}}<span class="plan-note">Use the billing portal to change plans.</span>{{else}}<span class="plan-note">Checkout is not available yet.</span>{{end}}{{else}}<span class="plan-note">An Account billing administrator can manage this plan.</span>{{end}}</article>{{end}}</div>
+        {{if not .BillingConfigured}}<p class="billing-footnote">Paid billing is intentionally unavailable in this development-only memory environment. The persistent Spyglass service enables these controls.</p>{{else}}<p class="billing-footnote">Checkout returns here in a processing state. Package access changes only after a signed Stripe event is projected into the local entitlement snapshot.</p>{{end}}
+      </section>
       {{if .CanInvite}}<section class="team panel" id="settings"><header><div><p class="eyebrow">ACCOUNT</p><h2>Invite a teammate</h2></div><span>Your role: {{.Selected.Role}}</span></header><form method="post" action="/app/invitations"><input type="hidden" name="account_id" value="{{.Selected.AccountID}}"><label>Email<input type="email" name="email" required placeholder="teammate@company.com"></label><label>Role<select name="role"><option value="member">Member</option><option value="viewer">Viewer</option><option value="administrator">Administrator</option><option value="billing_admin">Billing admin</option></select></label><button type="submit">Send invitation</button></form></section>{{end}}
       {{else}}<section class="empty"><h1>No Spyglass Accounts yet.</h1><p>Create an Account or accept an invitation to begin.</p><a href="/signup">Create Account</a></section>{{end}}
     </div>

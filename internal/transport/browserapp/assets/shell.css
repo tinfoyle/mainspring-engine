@@ -38,3 +38,52 @@
   cursor: default;
   opacity: .68;
 }
+
+.billing { overflow: hidden; }
+.billing-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  background: linear-gradient(110deg, #edf6f0, #fbfcfa 62%);
+  border-bottom: 1px solid var(--line);
+}
+.billing-summary > div { display: grid; gap: 3px; }
+.billing-summary small,.plan-card small { color: var(--green); font-size: .52rem; font-weight: 850; letter-spacing: .12em; }
+.billing-summary strong { font: 700 1.35rem var(--display); text-transform: capitalize; }
+.billing-summary span { color: var(--muted); font-size: .6rem; }
+.billing-summary input,.plan-card input { display: none; }
+.billing-summary button,.plan-card button {
+  min-height: 39px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--green);
+  padding: 0 14px;
+  color: #fff;
+  cursor: pointer;
+  font-size: .61rem;
+  font-weight: 790;
+}
+.plan-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; padding: 18px; }
+.plan-card {
+  min-height: 218px;
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  gap: 13px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: #fff;
+  padding: 18px;
+}
+.plan-card.current { border-color: #78ad91; background: linear-gradient(145deg,#f7fbf8,#eaf5ee); }
+.plan-card h3 { margin: 5px 0 7px; font: 700 1.45rem var(--display); }
+.plan-card p { margin: 0; color: var(--muted); font-size: .64rem; line-height: 1.55; }
+.plan-price { display: flex; align-items: baseline; gap: 5px; }
+.plan-price strong { font: 700 1.75rem var(--display); }
+.plan-price span,.plan-note { color: var(--muted); font-size: .58rem; }
+.plan-card button { width: 100%; }
+.plan-card button:disabled { border: 1px solid #bad5c5; background: #edf6f0; color: var(--green); cursor: default; }
+.billing-footnote { margin: 0; border-top: 1px solid var(--line); padding: 13px 19px; color: var(--muted); font-size: .57rem; line-height: 1.5; }
+
+@media(max-width:600px){.billing-summary{align-items:flex-start;flex-direction:column}.plan-grid{grid-template-columns:1fr}.billing-summary form,.billing-summary button{width:100%}}

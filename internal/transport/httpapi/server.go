@@ -120,9 +120,23 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/invitations", s.createInvitation)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/checkout-sessions", s.createCheckoutSession)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/billing-portal-sessions", s.createBillingPortalSession)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/billing", s.billingStatus)
 	mux.HandleFunc("POST /api/v1/invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
+}
+
+func (s *Server) billingStatus(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.commercialRequest(w, r)
+	if !ok {
+		return
+	}
+	status, err := s.commercialAccess.Status(r.Context(), authenticated.Session.UserID, accountID)
+	if err != nil {
+		s.writeCommercialError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +201,10 @@ func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, "offer_unavailable", "the selected offer is unavailable")
 	case errors.Is(err, commercialaccess.ErrCustomerRequired):
 		writeProblem(w, http.StatusConflict, "billing_customer_required", "this Account has not started billing")
+	case errors.Is(err, commercialaccess.ErrSubscriptionExists):
+		writeProblem(w, http.StatusConflict, "subscription_exists", "manage the existing subscription in the billing portal")
+	case errors.Is(err, commercialaccess.ErrCheckoutInProgress):
+		writeProblem(w, http.StatusConflict, "checkout_in_progress", "a checkout session is already in progress")
 	case errors.Is(err, commercialaccess.ErrBillingUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "billing_unavailable", "billing is temporarily unavailable")
 	case access.IsDenied(err, access.DenialRole), access.IsDenied(err, access.DenialMembership), access.IsDenied(err, access.DenialAccountUnavailable):

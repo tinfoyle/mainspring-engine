@@ -15,6 +15,12 @@ spec:
         - name: billing-worker
           image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
           args: [billing-worker]
+          ports: [{name: health, containerPort: 8081}]
+          env:
+            - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+          envFrom:
+            - configMapRef: {name: spyglass-global-runtime}
+            - secretRef: {name: spyglass-billing-worker-secrets}
           resources:
             requests: {cpu: 100m, memory: 128Mi}
             limits: {cpu: "1", memory: 512Mi}
@@ -24,3 +30,5 @@ spec:
             runAsNonRoot: true
             capabilities: {drop: [ALL]}
             seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}

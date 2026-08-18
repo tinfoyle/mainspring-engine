@@ -126,6 +126,11 @@ func (r *BillingProjectionRepository) ApplyProjection(ctx context.Context, proje
 	if _, err := tx.Exec(ctx, `DELETE FROM entitlement_grants WHERE account_id=$1 AND source='subscription' AND source_reference=$2`, projection.Mapping.AccountID, projection.Subscription.ID); err != nil {
 		return err
 	}
+	if projection.Subscription.State == "active" || projection.Subscription.State == "trialing" || projection.Subscription.State == "past_due" || projection.Subscription.State == "incomplete" {
+		if _, err := tx.Exec(ctx, `UPDATE billing_checkout_attempts SET state='expired',updated_at=$2 WHERE account_id=$1 AND provider='stripe' AND mode=$3 AND state='active'`, projection.Mapping.AccountID, projection.SyncedAt.UTC(), projection.Subscription.Mode); err != nil {
+			return err
+		}
+	}
 	for _, grant := range projection.Grants {
 		limits, marshalErr := json.Marshal(grant.Limits)
 		if marshalErr != nil {

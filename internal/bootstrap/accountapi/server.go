@@ -38,10 +38,8 @@ type Config struct {
 }
 
 type Server struct {
-	Handler           http.Handler
-	BillingProcessor  *billing.Processor
-	BillingReconciler *billing.Reconciler
-	pool              *pgxpool.Pool
+	Handler http.Handler
+	pool    *pgxpool.Pool
 }
 
 type NotificationSender interface {
@@ -140,21 +138,6 @@ func New(ctx context.Context, config Config, sender NotificationSender, logger *
 		pool.Close()
 		return nil, err
 	}
-	projector, err := billing.NewProjector(stripeProvider, postgres.NewBillingProjectionRepository(pool), ids.RandomGenerator{}, clock)
-	if err != nil {
-		pool.Close()
-		return nil, err
-	}
-	processor, err := billing.NewProcessor(postgres.NewBillingInbox(pool), projector, clock, 2*time.Minute)
-	if err != nil {
-		pool.Close()
-		return nil, err
-	}
-	reconciler, err := billing.NewReconciler(postgres.NewBillingProjectionRepository(pool), projector, clock, 2*time.Minute)
-	if err != nil {
-		pool.Close()
-		return nil, err
-	}
 	apiHandler := httpapi.NewServer(registrations, func() catalog.PublishedCatalog { return publishedCatalog }, nil, false, logger,
 		httpapi.WithBillingWebhook(webhook),
 		httpapi.WithCommercialAccess(commercialService, config.AppOrigin),
@@ -162,12 +145,30 @@ func New(ctx context.Context, config Config, sender NotificationSender, logger *
 		httpapi.WithAccountAccess(accountAccess),
 		httpapi.WithInvitations(invitationService, nil, false),
 	).Handler()
-	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, func() catalog.PublishedCatalog { return publishedCatalog }, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger)
+	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, func() catalog.PublishedCatalog { return publishedCatalog }, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService))
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: browser.Handler(apiHandler), BillingProcessor: processor, BillingReconciler: reconciler, pool: pool}, nil
+	return &Server{Handler: withReadiness(pool, browser.Handler(apiHandler)), pool: pool}, nil
 }
 
 func (s *Server) Close() { s.pool.Close() }
+
+func withReadiness(pool *pgxpool.Pool, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/health/ready" {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			w.Header().Set("Content-Type", "application/json")
+			if err := pool.Ping(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"unavailable"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"status":"ready"}`))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

@@ -22,13 +22,16 @@ This repository now contains the first executable production slice for Infinite 
 - A responsive private application shell for signup, verification, login, Account switching, invitation acceptance, package visibility, and the operational overview.
 - Raw-body Stripe signature verification, durable event deduplication, leased asynchronous processing, crash recovery, and bounded retry scheduling.
 - Server-created Stripe Customer, hosted Checkout, and Customer Portal sessions using authorized Account roles, UUID idempotency keys, exact return origins, and private Offer-to-Price mappings.
+- Durable Account-scoped Checkout reservations prevent parallel subscription attempts and make hosted-session retries resumable.
 - Current-object Subscription projection: webhook events are invalidation signals, paid grants are replaced transactionally, snapshots only advance when effective access changes, and `past_due` becomes read-only.
 - Leased reconciliation and verified-event replay boundaries for billing workers and future operator tooling.
+- Executable `account-api` and `billing-worker` process modes with strict environment validation, independent connection caps, graceful shutdown, and dependency-aware readiness.
+- Implicit-TLS SMTP delivery for registration verification and Account invitations; production tokens are delivered rather than logged or returned.
 - Global and cell PostgreSQL migration drafts, including Account-scoped row-level security.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, and default-deny networking.
 - GitHub verification for Go format/test/vet and public-site build/lint/production dependency audit.
 
-The running development command is intentionally memory-backed and refuses to start unless `SPYGLASS_ENV=development`. A persistent account-api composition now exists under `internal/bootstrap/accountapi`, but it deliberately has no executable fallback until real email delivery and environment secret wiring are supplied.
+The development command is intentionally memory-backed and refuses to start unless `SPYGLASS_ENV=development`. Persistent `account-api` and `billing-worker` modes now exist, but fail closed until PostgreSQL, Stripe, origin, and TLS mail configuration are supplied by the environment.
 
 ## Run locally
 
@@ -52,6 +55,7 @@ POST /api/v1/session/account
 POST /api/v1/accounts/{accountID}/invitations
 POST /api/v1/accounts/{accountID}/checkout-sessions
 POST /api/v1/accounts/{accountID}/billing-portal-sessions
+GET  /api/v1/accounts/{accountID}/billing
 POST /api/v1/invitations/accept
 POST /webhooks/stripe                 # only when a development webhook secret is configured
 ```
@@ -65,6 +69,8 @@ GET|POST /login
 GET      /app
 POST     /app/account
 POST     /app/invitations
+POST     /app/billing/checkout
+POST     /app/billing/portal
 GET|POST /invitations/accept
 POST     /logout
 ```
@@ -85,7 +91,7 @@ npm run dev
 1. Execute the PostgreSQL migrations and repository contracts against disposable real PostgreSQL in CI; no PostgreSQL runtime is available in the current workstation environment.
 2. Add passkeys/MFA, credential recovery, security-event history, reauthentication for sensitive operations, session-management UI, and distributed rate limiting by both identifier and network actor.
 3. Add Catalog draft/review/publication administration and enforcement adapters for every HTTP/MCP/job/tool entry point.
-4. Execute Stripe test-mode contract tests, add audited operator commands over the reconciliation/replay boundaries, and implement billing status/history UI.
+4. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 5. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
 6. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.
 
@@ -97,3 +103,4 @@ npm run dev
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
 - PostgreSQL SQL and Kubernetes resources are reviewable but have not been integration-tested or applied from this workstation because neither PostgreSQL nor a Kubernetes/Docker runtime is installed.
 - Stripe request translation, event ingestion, deduplication, out-of-order convergence, and queue behavior are tested with local fixtures; no Stripe account mutation has been performed.
+- The private Account shell renders local billing status and paid offers and can enter Checkout/Portal in the persistent composition; no app-owned credentials or Account data were moved into the public Sites deployment.

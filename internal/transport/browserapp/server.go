@@ -12,6 +12,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
+	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
@@ -50,9 +51,16 @@ type Server struct {
 	config             Config
 	logger             *slog.Logger
 	templates          *template.Template
+	commercial         *commercialaccess.Service
 }
 
-func New(registrations *registration.Service, authenticationService *authentication.Service, sessionService *sessions.Service, accountService *accountaccess.Service, invitationService *invitations.Service, catalogSource func() catalog.PublishedCatalog, verificationTokens VerificationTokenSource, invitationTokens InvitationTokenSource, config Config, logger *slog.Logger) (*Server, error) {
+type Option func(*Server)
+
+func WithCommercialAccess(service *commercialaccess.Service) Option {
+	return func(server *Server) { server.commercial = service }
+}
+
+func New(registrations *registration.Service, authenticationService *authentication.Service, sessionService *sessions.Service, accountService *accountaccess.Service, invitationService *invitations.Service, catalogSource func() catalog.PublishedCatalog, verificationTokens VerificationTokenSource, invitationTokens InvitationTokenSource, config Config, logger *slog.Logger, options ...Option) (*Server, error) {
 	if registrations == nil || authenticationService == nil || sessionService == nil || accountService == nil || invitationService == nil || catalogSource == nil || logger == nil {
 		return nil, errors.New("browser application dependencies are required")
 	}
@@ -78,7 +86,11 @@ func New(registrations *registration.Service, authenticationService *authenticat
 	if err != nil {
 		return nil, err
 	}
-	return &Server{registrations: registrations, authentication: authenticationService, sessions: sessionService, accounts: accountService, invitations: invitationService, catalog: catalogSource, verificationTokens: verificationTokens, invitationTokens: invitationTokens, config: config, logger: logger, templates: parsed}, nil
+	server := &Server{registrations: registrations, authentication: authenticationService, sessions: sessionService, accounts: accountService, invitations: invitationService, catalog: catalogSource, verificationTokens: verificationTokens, invitationTokens: invitationTokens, config: config, logger: logger, templates: parsed}
+	for _, option := range options {
+		option(server)
+	}
+	return server, nil
 }
 
 func (s *Server) Handler(fallback http.Handler) http.Handler {
@@ -94,6 +106,8 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /app", s.app)
 	mux.HandleFunc("POST /app/account", s.selectAccount)
 	mux.HandleFunc("POST /app/invitations", s.createInvitation)
+	mux.HandleFunc("POST /app/billing/checkout", s.startCheckout)
+	mux.HandleFunc("POST /app/billing/portal", s.openBillingPortal)
 	mux.HandleFunc("GET /invitations/accept", s.acceptInvitationPage)
 	mux.HandleFunc("POST /invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /logout", s.logout)
@@ -122,6 +136,15 @@ type pageData struct {
 	Catalog                                                                                 catalog.PublishedCatalog
 	PackageModes                                                                            map[catalog.PackageCode]catalog.PackageMode
 	CanInvite                                                                               bool
+	BillingConfigured, CanManageBilling, CanStartCheckout, HasBillingCustomer               bool
+	BillingState, BillingPeriod, BillingSynced                                              string
+	BillingPlans                                                                            []billingPlan
+}
+
+type billingPlan struct {
+	OfferCode, Name, Description, Price, Interval string
+	PackageCount                                  int
+	Current                                       bool
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, data pageData) {
@@ -235,8 +258,21 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	canInvite := selected != nil && (selected.Role == accounts.RoleOwner || selected.Role == accounts.RoleAdministrator)
-	s.render(w, http.StatusOK, "app", pageData{Title: "Spyglass", Choices: choices, Selected: selected, Catalog: s.catalog(), PackageModes: modes, CanInvite: canInvite, Notice: appNotice(r.URL.Query().Get("status")), DevelopmentToken: r.URL.Query().Get("development_token")})
+	data := pageData{Title: "Spyglass", Choices: choices, Selected: selected, Catalog: s.catalog(), PackageModes: modes, CanInvite: canInvite, Notice: appNotice(r.URL.Query().Get("status")), DevelopmentToken: r.URL.Query().Get("development_token"), BillingConfigured: s.commercial != nil}
+	if selected != nil {
+		var status commercialaccess.Status
+		if s.commercial != nil {
+			status, err = s.commercial.Status(r.Context(), authenticated.Session.UserID, selected.AccountID)
+			if err != nil {
+				s.logger.Error("load billing status", "account_id", selected.AccountID, "error", err)
+			}
+			data.CanManageBilling, data.CanStartCheckout, data.HasBillingCustomer = status.CanManage, status.CanStartCheckout, status.HasCustomer
+		}
+		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, selected.AccountType, status, time.Now().UTC())
+	}
+	s.render(w, http.StatusOK, "app", data)
 }
+
 func (s *Server) selectAccount(w http.ResponseWriter, r *http.Request) {
 	authenticated, ok := s.requireSession(w, r)
 	if !ok {
@@ -433,6 +469,14 @@ func appNotice(status string) string {
 		return "Account joined. Your workspace has been updated."
 	case "invite_failed":
 		return "The invitation could not be created."
+	case "billing":
+		return "Checkout returned. Spyglass is waiting for verified billing state."
+	case "billing_cancelled":
+		return "Checkout was cancelled. Your current access is unchanged."
+	case "billing_failed":
+		return "Billing could not be opened. Your current access is unchanged."
+	case "billing_unavailable":
+		return "Billing is not configured in this environment."
 	}
 	return ""
 }

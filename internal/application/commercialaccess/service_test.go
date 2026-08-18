@@ -31,8 +31,29 @@ func (s stateSource) AccessState(context.Context, ids.UserID, ids.AccountID) (ac
 }
 
 type serviceRepository struct {
-	profile AccountProfile
-	price   string
+	profile       AccountProfile
+	price         string
+	status        Status
+	reservation   CheckoutReservation
+	blockCheckout bool
+}
+
+func (r *serviceRepository) BeginCheckout(context.Context, ids.AccountID, string, string, string, time.Time) (CheckoutReservation, error) {
+	if r.reservation.Resume != nil || r.blockCheckout {
+		return r.reservation, nil
+	}
+	return CheckoutReservation{Proceed: true}, nil
+}
+func (r *serviceRepository) CompleteCheckout(context.Context, ids.AccountID, string, billing.HostedSession, time.Time) error {
+	return nil
+}
+
+func (r *serviceRepository) BillingStatus(context.Context, ids.AccountID, string, string) (Status, error) {
+	value := r.status
+	if r.profile.CustomerID != "" {
+		value.HasCustomer = true
+	}
+	return value, nil
 }
 
 func (r *serviceRepository) AccountProfile(context.Context, ids.AccountID) (AccountProfile, error) {
@@ -88,7 +109,7 @@ func TestCheckoutResolvesLocalOfferAndCreatesCustomer(t *testing.T) {
 	if session.ID != "cs_test" || provider.customerCalls != 1 || provider.checkoutCalls != 1 {
 		t.Fatalf("unexpected calls/session: %+v provider=%+v", session, provider)
 	}
-	if provider.checkout.StripePriceID != "price_private" || provider.checkout.OfferCode != "team-monthly-v1" || provider.checkout.SuccessURL != "https://app.infiniteocean.net/app/account?billing=processing" {
+	if provider.checkout.StripePriceID != "price_private" || provider.checkout.OfferCode != "team-monthly-v1" || provider.checkout.SuccessURL != "https://app.infiniteocean.net/app?status=billing#billing" {
 		t.Fatalf("unsafe checkout projection: %+v", provider.checkout)
 	}
 }
@@ -113,6 +134,52 @@ func TestCheckoutRejectsRoleUnknownOfferAndBadIdempotency(t *testing.T) {
 	}
 	if provider.checkoutCalls != 0 {
 		t.Fatal("Stripe must not be called for denied requests")
+	}
+}
+
+func TestStatusIsLocalAndSeparatesVisibilityFromManagement(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}}
+	provider := &serviceProvider{}
+	viewer, _ := access.NewAuthorizer(stateSource{role: accounts.RoleViewer})
+	service, _ := New(provider, repository, viewer, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test")
+	status, err := service.Status(context.Background(), testUserID, testAccountID)
+	if err != nil || !status.HasCustomer || status.CanManage {
+		t.Fatalf("unexpected viewer status: %+v err=%v", status, err)
+	}
+	if provider.customerCalls+provider.checkoutCalls+provider.portalCalls != 0 {
+		t.Fatal("status must not call Stripe")
+	}
+}
+
+func TestCheckoutRefusesSecondManagedSubscription(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_private", status: Status{Subscriptions: []Subscription{{State: "active", OfferCode: "team-monthly-v1"}}}}
+	provider := &serviceProvider{}
+	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
+	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test")
+	_, err := service.Checkout(context.Background(), CheckoutCommand{ActorUserID: testUserID, AccountID: testAccountID, OfferCode: "team-monthly-v1", RequestID: testRequestID})
+	if !errors.Is(err, ErrSubscriptionExists) {
+		t.Fatalf("expected portal-only change, got %v", err)
+	}
+	if provider.checkoutCalls != 0 {
+		t.Fatal("second subscription must not reach Stripe Checkout")
+	}
+}
+
+func TestCheckoutResumesDurableHostedSession(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	hosted := billing.HostedSession{ID: "cs_existing", URL: "https://checkout.stripe.com/existing", ExpiresAt: now.Add(time.Hour)}
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_private", reservation: CheckoutReservation{Resume: &hosted}}
+	provider := &serviceProvider{}
+	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
+	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test")
+	result, err := service.Checkout(context.Background(), CheckoutCommand{ActorUserID: testUserID, AccountID: testAccountID, OfferCode: "team-monthly-v1", RequestID: testRequestID})
+	if err != nil || result.ID != "cs_existing" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if provider.customerCalls+provider.checkoutCalls != 0 {
+		t.Fatal("durable checkout retry must not create new provider objects")
 	}
 }
 

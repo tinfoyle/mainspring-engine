@@ -1,0 +1,122 @@
+package billingworker
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	stripeadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
+	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+)
+
+type Config struct {
+	DatabaseURL, StripeSecretKey, StripeAPIVersion, StripeMode string
+	MaxDatabaseConns                                           int32
+	PollInterval                                               time.Duration
+}
+
+type Worker struct {
+	pool       *pgxpool.Pool
+	processor  eventProcessor
+	reconciler reconciliationProcessor
+	poll       time.Duration
+	logger     *slog.Logger
+}
+
+type eventProcessor interface {
+	ProcessOne(context.Context) (bool, error)
+}
+type reconciliationProcessor interface {
+	ProcessOne(context.Context) (bool, error)
+}
+
+func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
+	if config.DatabaseURL == "" || logger == nil {
+		return nil, errors.New("billing worker database URL and logger are required")
+	}
+	if config.StripeMode != "test" && config.StripeMode != "live" {
+		return nil, errors.New("Stripe mode must be test or live")
+	}
+	if config.PollInterval <= 0 {
+		config.PollInterval = time.Second
+	}
+	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if config.MaxDatabaseConns > 0 {
+		poolConfig.MaxConns = config.MaxDatabaseConns
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, err
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	provider, err := stripeadapter.New(config.StripeSecretKey, config.StripeAPIVersion, nil)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if provider.Mode() != config.StripeMode {
+		pool.Close()
+		return nil, errors.New("Stripe secret key mode does not match configured mode")
+	}
+	clock := registration.SystemClock{}
+	repository := postgres.NewBillingProjectionRepository(pool)
+	projector, err := billing.NewProjector(provider, repository, ids.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	processor, err := billing.NewProcessor(postgres.NewBillingInbox(pool), projector, clock, 2*time.Minute)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	reconciler, err := billing.NewReconciler(repository, projector, clock, 2*time.Minute)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return &Worker{pool: pool, processor: processor, reconciler: reconciler, poll: config.PollInterval, logger: logger}, nil
+}
+
+func (w *Worker) Run(ctx context.Context) error {
+	for {
+		worked, eventErr := w.processor.ProcessOne(ctx)
+		reconciled, reconcileErr := w.reconciler.ProcessOne(ctx)
+		if ctx.Err() != nil {
+			return nil
+		}
+		if eventErr != nil {
+			w.logger.Error("billing event processing failed", "error", eventErr)
+		}
+		if reconcileErr != nil {
+			w.logger.Error("billing reconciliation failed", "error", reconcileErr)
+		}
+		if worked || reconciled {
+			continue
+		}
+		timer := time.NewTimer(w.poll)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil
+		case <-timer.C:
+		}
+	}
+}
+
+func (w *Worker) Ready(ctx context.Context) error { return w.pool.Ping(ctx) }
+func (w *Worker) Close()                          { w.pool.Close() }
