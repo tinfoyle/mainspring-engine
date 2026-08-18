@@ -315,7 +315,10 @@ func newFixture(t *testing.T) fixture {
 		Handle:      handle,
 		Credentials: []passkeys.CredentialRecord{{UserID: userID, Name: "Test key", Credential: webauthn.Credential{ID: credentialID, PublicKey: publicKey, Authenticator: webauthn.Authenticator{SignCount: 7}}}},
 	}, ceremonies: map[string]passkeys.Ceremony{}}
-	clock := &testClock{now: time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)}
+	// go-webauthn validates SessionData.Expires against the process wall clock.
+	// Keep the injected application clock deterministic but safely ahead of the
+	// wall clock so this fixture does not become date-dependent.
+	clock := &testClock{now: time.Date(2099, 8, 18, 12, 0, 0, 0, time.UTC)}
 	sessionService, err := sessions.NewService(memory.NewSessionStore(), &sequence{}, clock, time.Hour, 30*time.Minute, 10*time.Minute)
 	if err != nil {
 		t.Fatal(err)
