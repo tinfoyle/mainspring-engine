@@ -31,6 +31,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
+	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
@@ -56,7 +57,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	defer cleanup()
 	pool := openPool(t, ctx, databaseURL, nil)
 	defer pool.Close()
-	for _, target := range []migrations.Target{migrations.Global, migrations.Development} {
+	for _, target := range []migrations.Target{migrations.Global, migrations.Development, migrations.Cell} {
 		if _, err := migrations.Apply(ctx, pool, target); err != nil {
 			t.Fatalf("apply %s migrations: %v", target, err)
 		}
@@ -428,6 +429,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if !errors.Is(err, usageadmission.ErrEntitlementChanged) {
 		t.Fatalf("stale entitlement usage admission = %v", err)
 	}
+	testWorkReleaseReconciliation(t, ctx, pool, databaseURL, provisioned.Account.ID, rollbackEntitlementVersion, usageNow.Add(3*time.Second))
 	legacyTeam, ok := published.Plan("team")
 	if !ok {
 		t.Fatal("seeded legacy Catalog has no Team plan")
@@ -660,7 +662,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 15 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 16 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
@@ -746,7 +748,7 @@ func testAccountIsolation(t *testing.T, ctx context.Context, owner *pgxpool.Pool
 		t.Fatalf("transaction-local account context leaked; visible rows=%d", visible)
 	}
 
-	testWorkIsolationAndConcurrency(t, ctx, cellPool, accountA, accountB)
+	testWorkIsolationAndConcurrency(t, ctx, serving, cellPool, accountA, accountB)
 	testRouteContextReceipts(t, ctx, cellPool, accountA)
 }
 
@@ -799,7 +801,7 @@ func testRouteContextReceipts(t *testing.T, ctx context.Context, cellPool *datab
 	}
 }
 
-func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, cellPool *database.CellPool, accountA, accountB ids.AccountID) {
+func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool *pgxpool.Pool, cellPool *database.CellPool, accountA, accountB ids.AccountID) {
 	t.Helper()
 	repository, err := postgresadapter.NewWorkRepository(cellPool, ids.RandomGenerator{})
 	if err != nil {
@@ -858,6 +860,156 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, cellPool
 	loaded, err := repository.Get(ctx, accountA, itemID)
 	if err != nil || loaded.Version != started.Version || loaded.State != workdomain.StateInProgress {
 		t.Fatalf("load winning work state = %+v, %v", loaded, err)
+	}
+
+	done, err := started.Transition(workdomain.TransitionCommand{To: workdomain.StateDone, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: started.Version, At: now.Add(3 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err = repository.Update(ctx, done, started.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "finish before reconciliation", CorrelationID: "work-release-queue-contract", At: now.Add(3 * time.Minute)})
+	if err != nil {
+		t.Fatalf("complete work item: %v", err)
+	}
+	firstQueue, err := postgresadapter.NewWorkReleaseQueueRepository(rawPool, cellPool, fixedIDGenerator{"60000000-0000-4000-8000-000000000006"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, found, err := firstQueue.Claim(ctx, now.Add(4*time.Minute), time.Minute)
+	if err != nil || !found || first.Attempt != 1 {
+		t.Fatalf("first Work release claim = %+v found=%v err=%v", first, found, err)
+	}
+	if _, found, err := firstQueue.Claim(ctx, now.Add(4*time.Minute), time.Minute); err != nil || found {
+		t.Fatalf("active lease was concurrently claimable: found=%v err=%v", found, err)
+	}
+	secondQueue, _ := postgresadapter.NewWorkReleaseQueueRepository(rawPool, cellPool, fixedIDGenerator{"70000000-0000-4000-8000-000000000007"})
+	second, found, err := secondQueue.Claim(ctx, now.Add(6*time.Minute), time.Minute)
+	if err != nil || !found || second.Attempt != 2 || second.LeaseID == first.LeaseID {
+		t.Fatalf("reclaimed Work release = %+v found=%v err=%v", second, found, err)
+	}
+
+	reopened, err := done.Transition(workdomain.TransitionCommand{To: workdomain.StateOpen, Role: accounts.RoleOwner, Actor: actor, Reason: "new evidence requires reopening", ExpectedVersion: done.Version, At: now.Add(7 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newReservation := "80000000-0000-4000-8000-000000000008"
+	reopened, err = reopened.WithReopenedCapacity(newReservation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.Update(ctx, reopened, done.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "new evidence requires reopening", CorrelationID: "work-reopen-contract", At: now.Add(7 * time.Minute)}); err != nil {
+		t.Fatalf("reopen work item: %v", err)
+	}
+	if err := firstQueue.Complete(ctx, first, now.Add(8*time.Minute)); !errors.Is(err, workreconciliation.ErrLeaseLost) {
+		t.Fatalf("stale release lease completion = %v", err)
+	}
+	if err := secondQueue.Complete(ctx, second, now.Add(8*time.Minute)); err != nil {
+		t.Fatalf("complete reclaimed Work release: %v", err)
+	}
+	loaded, err = repository.Get(ctx, accountA, itemID)
+	if err != nil || loaded.State != workdomain.StateOpen || loaded.CapacityReservationID != newReservation || loaded.CapacityReleasedAt != nil {
+		t.Fatalf("old release corrupted reopened Work capacity: item=%+v err=%v", loaded, err)
+	}
+	recanceled, err := loaded.Transition(workdomain.TransitionCommand{To: workdomain.StateCanceled, Role: accounts.RoleOwner, Actor: actor, Reason: "close reopened work", ExpectedVersion: loaded.Version, At: now.Add(9 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.Update(ctx, recanceled, loaded.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "close reopened work", CorrelationID: "work-recancel-contract", At: now.Add(9 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repository.MarkCapacityReleased(ctx, accountA, itemID, newReservation, now.Add(10*time.Minute)); err != nil {
+		t.Fatalf("synchronous release checkpoint: %v", err)
+	}
+	loaded, err = repository.Get(ctx, accountA, itemID)
+	if err != nil || loaded.CapacityReleasedAt == nil {
+		t.Fatalf("synchronous capacity checkpoint=%+v err=%v", loaded, err)
+	}
+	stats, err := secondQueue.Stats(ctx, now.Add(8*time.Minute))
+	if err != nil || stats.Pending != 0 || stats.Processing != 0 || stats.DeadLetter != 0 {
+		t.Fatalf("release queue stats=%+v err=%v", stats, err)
+	}
+}
+
+func testWorkReleaseReconciliation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, databaseURL string, accountID ids.AccountID, entitlementVersion uint64, now time.Time) {
+	t.Helper()
+	reservationID := "72000000-0000-4000-8000-000000000001"
+	usage := postgresadapter.NewUsageAdmissionRepository(pool)
+	if _, err := usage.Reserve(ctx, usageadmission.PersistCommand{ID: ids.RandomGenerator{}.New(), AccountID: accountID, RequestID: reservationID, PackageCode: catalog.PackageWork, LimitCode: workapp.ActiveItems, Amount: 1, Maximum: 100, ExpectedEntitlementVersion: entitlementVersion, Now: now}); err != nil {
+		t.Fatalf("reserve Work reconciliation capacity: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.account_namespaces (account_id,placement_generation,state,created_at) VALUES ($1,1,'active',$2)`, accountID, now); err != nil {
+		t.Fatalf("seed reconciled Account namespace: %v", err)
+	}
+	cell, _ := database.NewCellPool(pool)
+	workRepository, _ := postgresadapter.NewWorkRepository(cell, ids.RandomGenerator{})
+	actor := workdomain.Actor{Kind: workdomain.ActorUser, ID: "73000000-0000-4000-8000-000000000003"}
+	draft, err := workdomain.NewDraft(workdomain.Draft{ID: ids.WorkItemID(reservationID), AccountID: accountID, Kind: workdomain.KindTodo, Title: "Verify capacity reconciliation", Priority: workdomain.PriorityNormal, Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared}, Provenance: workdomain.Provenance{Source: workdomain.SourceManual, CreatedBy: actor}, CapacityReservationID: reservationID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := workRepository.Create(ctx, draft, workapp.Mutation{Kind: workapp.MutationCreated, Actor: actor, CorrelationID: "release-reconciliation", At: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	canceled, err := item.Transition(workdomain.TransitionCommand{To: workdomain.StateCanceled, Role: accounts.RoleOwner, Actor: actor, Reason: "no longer required", ExpectedVersion: item.Version, At: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workRepository.Update(ctx, canceled, item.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "no longer required", CorrelationID: "release-reconciliation", At: now.Add(time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	cellRole := "spyglass_work_cell_" + randomSuffix(t)
+	globalRole := "spyglass_work_global_" + randomSuffix(t)
+	if _, err := pool.Exec(ctx, `CREATE ROLE `+cellRole+` NOLOGIN; CREATE ROLE `+globalRole+` NOLOGIN;
+		GRANT USAGE ON SCHEMA spyglass TO `+cellRole+`;
+		GRANT SELECT,UPDATE ON spyglass.work_capacity_release_queue,spyglass.work_items TO `+cellRole+`;
+		GRANT SELECT ON spyglass.account_namespaces TO `+cellRole+`;
+		GRANT SELECT ON accounts TO `+globalRole+`;
+		GRANT SELECT,UPDATE ON entitlement_usage_counters,entitlement_usage_reservations TO `+globalRole); err != nil {
+		t.Fatalf("create Work reconciler roles: %v", err)
+	}
+	cellWorkerPool := openPool(t, ctx, databaseURL, func(ctx context.Context, connection *pgx.Conn) error {
+		_, err := connection.Exec(ctx, `SET ROLE `+cellRole)
+		return err
+	})
+	globalWorkerPool := openPool(t, ctx, databaseURL, func(ctx context.Context, connection *pgx.Conn) error {
+		_, err := connection.Exec(ctx, `SET ROLE `+globalRole)
+		return err
+	})
+	defer func() {
+		cellWorkerPool.Close()
+		globalWorkerPool.Close()
+		_, _ = pool.Exec(context.Background(), `DROP OWNED BY `+cellRole+`; DROP OWNED BY `+globalRole+`; DROP ROLE IF EXISTS `+cellRole+`; DROP ROLE IF EXISTS `+globalRole)
+	}()
+	var crossScopeCount int
+	if err := cellWorkerPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_items`).Scan(&crossScopeCount); err != nil || crossScopeCount != 0 {
+		t.Fatalf("cell reconciler bypassed Account RLS: count=%d err=%v", crossScopeCount, err)
+	}
+	if err := cellWorkerPool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&crossScopeCount); err == nil {
+		t.Fatal("cell reconciler read global Users")
+	}
+	if err := globalWorkerPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_capacity_release_queue`).Scan(&crossScopeCount); err == nil {
+		t.Fatal("global release credential read cell reconciliation outbox")
+	}
+	workerCell, _ := database.NewCellPool(cellWorkerPool)
+	queue, _ := postgresadapter.NewWorkReleaseQueueRepository(cellWorkerPool, workerCell, fixedIDGenerator{"74000000-0000-4000-8000-000000000004"})
+	processor, err := workreconciliation.NewProcessor(queue, postgresadapter.NewUsageReleaseRepository(globalWorkerPool), fixedClock{now: now.Add(2 * time.Minute)}, time.Minute, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := processor.ProcessOne(ctx); err != nil || !worked {
+		t.Fatalf("process Work release: worked=%v err=%v", worked, err)
+	}
+	reservation, err := postgresadapter.NewUsageReleaseRepository(pool).Release(ctx, accountID, reservationID, now.Add(3*time.Minute))
+	if err != nil || reservation.State != usageadmission.ReservationReleased {
+		t.Fatalf("idempotent reconciled capacity=%+v err=%v", reservation, err)
+	}
+	loaded, err := workRepository.Get(ctx, accountID, item.ID)
+	if err != nil || loaded.CapacityReleasedAt == nil {
+		t.Fatalf("reconciled Work checkpoint=%+v err=%v", loaded, err)
+	}
+	var queueState string
+	if err := pool.QueryRow(ctx, `SELECT processing_state FROM spyglass.work_capacity_release_queue WHERE account_id=$1 AND work_item_id=$2 AND reservation_id=$3`, accountID, item.ID, reservationID).Scan(&queueState); err != nil || queueState != "completed" {
+		t.Fatalf("Work release queue state=%q err=%v", queueState, err)
 	}
 }
 
@@ -983,6 +1135,10 @@ func processEntitlementTarget(t *testing.T, ctx context.Context, pool *pgxpool.P
 type fixedClock struct{ now time.Time }
 
 func (clock fixedClock) Now() time.Time { return clock.now }
+
+type fixedIDGenerator struct{ value string }
+
+func (generator fixedIDGenerator) New() string { return generator.value }
 
 type staticPasswordHasher struct{}
 

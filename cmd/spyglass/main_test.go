@@ -15,6 +15,12 @@ type readinessStub struct{ err error }
 
 func (r readinessStub) Ready(context.Context) error { return r.err }
 
+type statusStub struct{ readinessStub }
+
+func (statusStub) Status(context.Context) (any, error) {
+	return map[string]any{"pending": 2, "dead_letter": 1}, nil
+}
+
 func TestWorkerHealthReflectsDependencyReadiness(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	response := httptest.NewRecorder()
@@ -26,6 +32,20 @@ func TestWorkerHealthReflectsDependencyReadiness(t *testing.T) {
 	workerHealth(readinessStub{err: errors.New("database unavailable")}).ServeHTTP(response, request)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("unready status=%d", response.Code)
+	}
+}
+
+func TestWorkerHealthExposesOptionalOperationalStatus(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/health/status", nil)
+	response := httptest.NewRecorder()
+	workerHealth(statusStub{}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"pending":2`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"dead_letter":1`)) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = httptest.NewRecorder()
+	workerHealth(readinessStub{}).ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unsupported status=%d", response.Code)
 	}
 }
 

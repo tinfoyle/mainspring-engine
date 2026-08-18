@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: work-reconciler, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: work-reconciler}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: work-reconciler, app.kubernetes.io/part-of: spyglass, spyglass.io/cell: reference}
+    spec:
+      serviceAccountName: work-reconciler
+      terminationGracePeriodSeconds: 60
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {app.kubernetes.io/name: work-reconciler}
+      containers:
+        - name: work-reconciler
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [work-reconciler]
+          ports: [{name: health, containerPort: 8081}]
+          env:
+            - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+            - {name: SPYGLASS_WORK_RECONCILE_POLL_INTERVAL, value: "1s"}
+            - {name: SPYGLASS_WORK_RECONCILE_LEASE, value: "2m"}
+            - {name: SPYGLASS_WORK_RECONCILE_MAX_ATTEMPTS, value: "12"}
+            - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "4"}
+            - {name: SPYGLASS_GLOBAL_MAX_DATABASE_CONNS, value: "4"}
+          envFrom:
+            - secretRef: {name: spyglass-work-reconciler-secrets}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: work-reconciler, namespace: spyglass-reference}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: work-reconciler}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: work-reconciler, namespace: spyglass-reference}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: work-reconciler}
+  minReplicas: 2
+  maxReplicas: 6
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 65}

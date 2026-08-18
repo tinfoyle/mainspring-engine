@@ -1,6 +1,6 @@
 # Work module production design
 
-Status: domain, command/query application boundaries, cell schema, PostgreSQL adapter, signed read transport, and first queue/detail browser surface implemented. Durable capacity-release reconciliation and mutation transport remain.
+Status: domain, command/query application boundaries, cell schema, PostgreSQL adapter, signed read transport, first queue/detail browser surface, and durable capacity-release reconciler implemented. Mutation admission/transport remain.
 
 ## Purpose
 
@@ -83,9 +83,11 @@ This is intentionally not represented as a distributed transaction:
 3. Create the cell Work item and mutation event.
 4. If cell creation fails, release the reservation using the same idempotency key.
 
-Done or canceled work releases its active capacity. The cell row records `capacity_released_at` only after the global release succeeds. If global release or the checkpoint write fails after the visible transition, the service returns `ErrCapacityReleasePending`; the terminal row remains discoverable through the partial index for an idempotent reconciler. Reopen obtains a new reservation before the optimistic cell update and compensates it if another writer wins.
+Done or canceled work releases its active capacity. The cell row records `capacity_released_at` only after the global release succeeds. If global release or the checkpoint write fails after the visible transition, the service returns `ErrCapacityReleasePending`. Reopen obtains a new reservation before the optimistic cell update and compensates it if another writer wins.
 
-Before mutation transport rollout, add the leased capacity-release reconciler and an operator-visible age/error metric. This closes the crash window without claiming distributed atomicity.
+The terminal Work update and an identifier-only `work_capacity_release_queue` row commit in the same cell transaction through a database trigger. Shared `work-reconciler` replicas claim jobs with unique leases and `FOR UPDATE SKIP LOCKED`, release the global reservation idempotently, then enter Account RLS scope to checkpoint the matching Work row. A crash after global release is safe because the next lease repeats the same release key. A stale worker cannot complete a reclaimed lease. If an item reopens before its old release completes, the old job completes without marking the new reservation released.
+
+The reconciler has separate cell and global pools. Its cell credential can lease only the technical outbox and update Account-scoped Work checkpoints; its global credential can only read Account existence and release usage reservation/counter rows. App-api receives neither global credential nor cross-database release code. `/health/status` exposes pending, processing, dead-letter, and oldest-pending-age values without customer content.
 
 ## Persistence and query contract
 
@@ -94,6 +96,7 @@ The cell migration adds:
 - `work_item_number_counters`: one locked counter row per Account.
 - `work_items`: the aggregate with composite keys, checks, forced RLS, queue/child/state/assignment indexes, and pending-release index.
 - `work_item_events`: append-only created, transitioned, and assigned facts with actor, versions, correlation, reason, and redacted payload.
+- `work_capacity_release_queue`: identifier-only leased technical outbox, retry/dead-letter state, and completion checkpoint; it contains no title, description, assignment, provenance, or other customer content.
 
 Queue pagination orders by `(updated_at DESC, id DESC)` and carries both values in the cursor. Filters are bounded to known states/kinds plus a 200-character search term. Direct children use `(account_id, parent_id, created_at, id)` rather than loading an arbitrary queue page and filtering in memory. The summary returns active, in-progress, waiting, urgent-active, and done counts from one Account-predicated query.
 
@@ -120,12 +123,12 @@ The first Work screen carries forward the prototype's strongest visual ideas ins
 - A sticky detail surface with description, direct children, provenance, responsibility, due time, and aggregate version-backed detail reads.
 - Package-disabled and package-read-only states derived from the same server decision as the API, never navigation alone.
 
-Creation and inline mutation controls are intentionally absent until the capacity-release reconciler and command transport close the cross-database crash windows. At that point the UI will send idempotency keys on create and `If-Match`/expected version on mutation. A version conflict will reload the item, preserve the operator's draft where safe, and explain the winning change.
+Creation and inline mutation controls remain absent until command admission can reserve global capacity without giving app-api a broad global credential. At that point the UI will send idempotency keys on create and `If-Match`/expected version on mutation. A version conflict will reload the item, preserve the operator's draft where safe, and explain the winning change.
 
 ## Remaining delivery order
 
-1. Add a leased cell scan/reconciliation command for terminal rows whose global capacity release is not checkpointed, with age/error metrics and operator recovery.
-2. Design command admission so app-api can coordinate global capacity without receiving a broad global database credential; then publish create, assign, and transition HTTP contracts.
+1. Design command admission so app-api can coordinate global capacity without receiving a broad global database credential; then publish create, assign, and transition HTTP contracts.
+2. Add audited operator inspection/requeue for Work release dead letters and retention for completed technical jobs.
 3. Add inline transition and creation surfaces with idempotency keys, ETags/expected versions, preserved drafts, and explicit conflict recovery.
 4. Replace the static route map with the bounded directory cache and internal TLS identity described in [routing-boundary.md](routing-boundary.md).
 5. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
@@ -137,4 +140,4 @@ Creation and inline mutation controls are intentionally absent until the capacit
 
 Table-driven domain tests cover every state/role pair and reject invalid construction, stale versions, and missing reasons. Application tests cover role denial, capacity admission, failed-create compensation, and terminal release. The disposable PostgreSQL 17 contract applies every migration twice, runs through a non-owner role, proves guessed cross-Account Work IDs are invisible, exercises Account-local summary/list queries, and proves a stale writer loses after a competing transition.
 
-Signed Account-scoped list, summary, detail, and direct-child routes now run through app-router and cell app-api. The browser shell renders locked package state without a data request and loads entitled queues only through those routes. Transport tests cover malformed filters and cursors, safe DTO fields, cross-Account paths, package authority, ETags, and response naming. There is not yet a release reconciler, Work mutation HTTP surface, Persona foreign key, representative-scale query-plan result, or applied Kubernetes environment.
+Signed Account-scoped list, summary, detail, and direct-child routes now run through app-router and cell app-api. The browser shell renders locked package state without a data request and loads entitled queues only through those routes. Transport tests cover malformed filters and cursors, safe DTO fields, cross-Account paths, package authority, ETags, and response naming. Reconciliation tests prove atomic terminal enqueue, idempotent global release, lease exclusion/reclaim, stale-lease rejection, synchronous checkpoint completion, least-privilege role separation, and reopen-before-old-release safety. There is not yet a Work mutation HTTP surface, audited dead-letter requeue command, Persona foreign key, representative-scale query-plan result, or applied Kubernetes environment.

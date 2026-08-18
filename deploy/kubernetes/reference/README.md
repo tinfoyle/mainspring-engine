@@ -4,7 +4,8 @@ These manifests encode Phase 2 workload and security defaults for review. They
 are intentionally not a deployable environment yet: release automation must
 replace `registry.invalid/...:release-placeholder`, inject managed secret
 references and provide environment-specific network/database destinations before promotion. The
-account-api, app-router, cell app-api, billing-worker, notification-worker, and entitlement-worker arguments are executable today.
+account-api, app-router, cell app-api, billing-worker, notification-worker,
+entitlement-worker, and Work reconciler arguments are executable today.
 
 The reference proves the intended unit of scaling: shared workload classes in
 a cell. Nothing here creates a Deployment, Service, namespace, database, or
@@ -28,11 +29,17 @@ Before an environment overlay may use these resources it must add:
   `spyglass-app-api-secrets`,
   `spyglass-billing-worker-secrets`, and
   `spyglass-notification-worker-secrets`, and
-  `spyglass-entitlement-worker-secrets` objects from environment configuration
+  `spyglass-entitlement-worker-secrets`, and
+  `spyglass-work-reconciler-secrets` objects from environment configuration
   and secret controllers; they are not committed here. Workload-specific
   Secrets prevent each worker from receiving webhook, Stripe, or SMTP
   credentials it does not use. The entitlement worker receives only a
   constrained global-database credential.
+- The Work reconciler secret supplies distinct `SPYGLASS_CELL_DATABASE_URL` and
+  `SPYGLASS_GLOBAL_DATABASE_URL` credentials. The cell credential can lease the
+  identifier-only release outbox and enter Account-scoped Work transactions;
+  the global credential can only read Account existence and release usage
+  reservations/counters. Neither credential is suitable for app-api.
 - The app-router secret supplies one active route-signing key and the cell API
   secret supplies the active plus retained verification keys during rotation.
   The router receives only the global database credential; the cell API

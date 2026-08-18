@@ -9,4 +9,5 @@ resources:
   - billing-worker.yaml
   - notification-worker.yaml
   - entitlement-worker.yaml
+  - work-reconciler.yaml
   - policy.yaml

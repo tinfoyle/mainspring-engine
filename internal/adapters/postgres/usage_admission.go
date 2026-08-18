@@ -116,13 +116,29 @@ func expireUsageReservations(ctx context.Context, tx pgx.Tx, command usageadmiss
 }
 
 func (r *UsageAdmissionRepository) Release(ctx context.Context, accountID ids.AccountID, requestID string, now time.Time) (usageadmission.Reservation, error) {
-	tx, err := r.pool.Begin(ctx)
+	return releaseUsageReservation(ctx, r.pool, accountID, requestID, now)
+}
+
+// UsageReleaseRepository is the worker-facing, release-only view of the
+// global capacity store. Database grants remain the authority boundary.
+type UsageReleaseRepository struct{ pool *pgxpool.Pool }
+
+func NewUsageReleaseRepository(pool *pgxpool.Pool) *UsageReleaseRepository {
+	return &UsageReleaseRepository{pool: pool}
+}
+
+func (r *UsageReleaseRepository) Release(ctx context.Context, accountID ids.AccountID, requestID string, now time.Time) (usageadmission.Reservation, error) {
+	return releaseUsageReservation(ctx, r.pool, accountID, requestID, now)
+}
+
+func releaseUsageReservation(ctx context.Context, pool *pgxpool.Pool, accountID ids.AccountID, requestID string, now time.Time) (usageadmission.Reservation, error) {
+	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return usageadmission.Reservation{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var accountExists int
-	if err := tx.QueryRow(ctx, `SELECT 1 FROM accounts WHERE id=$1 FOR UPDATE`, accountID).Scan(&accountExists); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT 1 FROM accounts WHERE id=$1`, accountID).Scan(&accountExists); err != nil {
 		return usageadmission.Reservation{}, err
 	}
 	initial, found, err := usageReservation(ctx, tx, accountID, requestID, false)

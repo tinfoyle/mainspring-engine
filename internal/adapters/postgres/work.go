@@ -142,7 +142,7 @@ func (r *WorkRepository) MarkCapacityReleased(ctx context.Context, accountID ids
 			return err
 		}
 		if result.RowsAffected() == 1 {
-			return nil
+			return completeQueuedCapacityRelease(ctx, tx, accountID, itemID, reservationID, at)
 		}
 		var currentReservation string
 		var released *time.Time
@@ -152,11 +152,19 @@ func (r *WorkRepository) MarkCapacityReleased(ctx context.Context, accountID ids
 			return err
 		}
 		if currentReservation == reservationID && released != nil {
-			return nil
+			return completeQueuedCapacityRelease(ctx, tx, accountID, itemID, reservationID, at)
 		}
 		return workapp.ErrConflict
 	})
 	return classifyWorkError(err)
+}
+
+func completeQueuedCapacityRelease(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, itemID ids.WorkItemID, reservationID string, at time.Time) error {
+	_, err := tx.Exec(ctx, `UPDATE spyglass.work_capacity_release_queue SET
+		processing_state='completed',completed_at=COALESCE(completed_at,$4),next_attempt_at=NULL,
+		lease_id=NULL,lease_expires_at=NULL,last_error_code=NULL
+		WHERE account_id=$1 AND work_item_id=$2 AND reservation_id=$3 AND processing_state<>'completed'`, accountID, itemID, reservationID, at.UTC())
+	return err
 }
 
 func (r *WorkRepository) List(ctx context.Context, accountID ids.AccountID, query workapp.ListQuery) (workapp.Page, error) {

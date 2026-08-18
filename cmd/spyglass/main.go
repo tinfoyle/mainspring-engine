@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/approuter"
@@ -25,6 +27,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
@@ -55,12 +58,14 @@ func main() {
 		err = runNotificationWorker(ctx, logger)
 	case "entitlement-worker":
 		err = runEntitlementWorker(ctx, logger)
+	case "work-reconciler":
+		err = runWorkReconciler(ctx, logger)
 	case "catalog-admin":
 		err = runCatalogAdmin(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | billing-worker | notification-worker | entitlement-worker | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | billing-worker | notification-worker | entitlement-worker | work-reconciler | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -349,6 +354,45 @@ func runEntitlementWorker(ctx context.Context, logger *slog.Logger) error {
 	return serveWorker(ctx, "entitlement", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
 }
 
+func runWorkReconciler(ctx context.Context, logger *slog.Logger) error {
+	cellDatabaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	globalDatabaseURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	cellMaxConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 4)
+	if err != nil {
+		return err
+	}
+	globalMaxConns, err := int32Env("SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", 4)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_WORK_RECONCILE_POLL_INTERVAL", time.Second)
+	if err != nil {
+		return err
+	}
+	lease, err := durationEnv("SPYGLASS_WORK_RECONCILE_LEASE", workreconciliation.DefaultLease)
+	if err != nil || lease < time.Second || lease > 30*time.Minute {
+		return errors.New("SPYGLASS_WORK_RECONCILE_LEASE must be between 1s and 30m")
+	}
+	maxAttempts, err := int32Env("SPYGLASS_WORK_RECONCILE_MAX_ATTEMPTS", workreconciliation.DefaultMaxAttempts)
+	if err != nil || maxAttempts > 100 {
+		return errors.New("SPYGLASS_WORK_RECONCILE_MAX_ATTEMPTS must be between 1 and 100")
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := workreconciler.New(startup, workreconciler.Config{CellDatabaseURL: cellDatabaseURL, GlobalDatabaseURL: globalDatabaseURL, CellMaxDatabaseConns: cellMaxConns, GlobalMaxDatabaseConns: globalMaxConns, PollInterval: poll, Lease: lease, MaxAttempts: int(maxAttempts)}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "work-reconciler", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+}
+
 type runnableWorker interface {
 	Run(context.Context) error
 	Ready(context.Context) error
@@ -470,6 +514,10 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 
 type readiness interface{ Ready(context.Context) error }
 
+type statusReporter interface {
+	Status(context.Context) (any, error)
+}
+
 func workerHealth(worker readiness) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
@@ -485,6 +533,22 @@ func workerHealth(worker readiness) http.Handler {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
+	})
+	mux.HandleFunc("GET /health/status", func(w http.ResponseWriter, r *http.Request) {
+		reporter, ok := worker.(statusReporter)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		status, err := reporter.Status(ctx)
+		if err != nil {
+			http.Error(w, `{"status":"unavailable"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(status)
 	})
 	return mux
 }
