@@ -10,7 +10,7 @@ This verdict separates executable software from environment evidence. The reposi
 
 | Area | Current evidence | Readiness |
 |---|---|---|
-| Public website | Infinite Ocean/Spyglass routes, responsive build, rendered-route tests, same-origin public Catalog proxy, illustrative fallback, GET-only private signup handoff | Staging candidate |
+| Public website | Infinite Ocean/Spyglass routes, responsive build, rendered-route tests, strict edge browser policy, same-origin public Catalog proxy, illustrative fallback, GET-only private signup handoff, exact-artifact deployed-origin certification command | Staging candidate |
 | Identity and Accounts | Free registration, verification, password/passkey login, recovery, sessions, multi-Account Memberships, owner security policy, invitations, role/lifecycle operations | Staging candidate |
 | Catalog and packages | Immutable publications, governed plans/offers/packages/limits, four-eyes administration, local entitlement snapshots, effective-offer validation | Staging candidate |
 | Stripe boundary | Server-created Checkout/Portal, allowlisted local offers, signed raw webhooks, durable inbox, asynchronous projection/reconciliation, operator replay/refresh | Connected provider exercise required |

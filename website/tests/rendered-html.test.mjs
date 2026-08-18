@@ -6,12 +6,19 @@ async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${path}`);
   const { default: worker } = await import(workerUrl.href);
-  return worker.fetch(new Request(`http://localhost${path}`, { headers: { accept: "text/html" } }), { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
+  return worker.fetch(new Request(`https://infiniteocean.net${path}`, { headers: { accept: "text/html" } }), { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
 }
 
 test("renders the Infinite Ocean Spyglass home page", async () => {
   const response = await render();
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(response.headers.get("x-frame-options"), "DENY");
+  assert.equal(response.headers.get("cross-origin-opener-policy"), "same-origin");
+  assert.equal(response.headers.get("cross-origin-resource-policy"), "same-origin");
+  assert.match(response.headers.get("permissions-policy"), /camera=\(\)/);
+  assert.match(response.headers.get("content-security-policy"), /default-src 'self'.*frame-ancestors 'none'.*script-src 'self'/);
   const html = await response.text();
   assert.match(html, /<title>Infinite Ocean: Spyglass<\/title>/i);
   assert.match(html, /See the whole business/);
@@ -55,6 +62,9 @@ test("proxies only the anonymous published Catalog from the configured account o
     assert.equal(response.status, 200);
     assert.equal(requested, "https://app.infiniteocean.net/api/v1/catalog/public");
     assert.match(response.headers.get("cache-control"), /stale-while-revalidate/);
+    assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    assert.equal(response.headers.get("content-security-policy"), null);
     assert.deepEqual(await response.json(), publicCatalogFixture);
   } finally {
     globalThis.fetch = originalFetch;
