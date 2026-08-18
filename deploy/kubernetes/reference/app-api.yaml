@@ -15,35 +15,41 @@ spec:
         - name: app-api
           image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
           args: [app-api]
-          ports: [{name: http, containerPort: 8080}]
+          ports: [{name: https, containerPort: 8080}]
           env:
             - {name: SPYGLASS_HTTP_ADDRESS, value: ":8080"}
             - {name: SPYGLASS_CELL_ID, value: "reference"}
-            # Review topology only. A production overlay must replace this with
-            # internal TLS/workload identity and remove the HTTP opt-in.
-            - {name: SPYGLASS_WORK_ADMISSION_ORIGIN, value: "http://admission-api.spyglass-reference.svc.cluster.local"}
-            - {name: SPYGLASS_ALLOW_HTTP_ADMISSION, value: "true"}
+            - {name: SPYGLASS_WORK_ADMISSION_ORIGIN, value: "https://admission-api.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_WORKLOAD_CERT_FILE, value: "/var/run/secrets/spyglass/workload/tls.crt"}
+            - {name: SPYGLASS_WORKLOAD_KEY_FILE, value: "/var/run/secrets/spyglass/workload/tls.key"}
+            - {name: SPYGLASS_WORKLOAD_CA_FILE, value: "/var/run/secrets/spyglass/workload/ca.crt"}
+            - {name: SPYGLASS_WORKLOAD_CLIENT_IDENTITIES, value: "spiffe://infiniteocean.net/spyglass/workloads/app-router"}
           envFrom:
             - configMapRef: {name: spyglass-cell-reference-runtime}
             - secretRef: {name: spyglass-app-api-secrets}
           resources:
             requests: {cpu: 200m, memory: 256Mi}
             limits: {cpu: "2", memory: 1Gi}
+          volumeMounts:
+            - {name: workload-tls, mountPath: /var/run/secrets/spyglass/workload, readOnly: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             capabilities: {drop: [ALL]}
             seccompProfile: {type: RuntimeDefault}
-          readinessProbe: {httpGet: {path: /health/ready, port: http}, periodSeconds: 5}
-          livenessProbe: {httpGet: {path: /health/live, port: http}, periodSeconds: 15}
+          readinessProbe: {httpGet: {path: /health/ready, port: https, scheme: HTTPS}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: https, scheme: HTTPS}, periodSeconds: 15}
+      volumes:
+        - name: workload-tls
+          secret: {secretName: spyglass-app-api-cell-reference-workload-tls}
 ---
 apiVersion: v1
 kind: Service
 metadata: {name: app-api-cell-reference, namespace: spyglass-reference}
 spec:
   selector: {app.kubernetes.io/name: app-api, spyglass.io/cell: reference}
-  ports: [{name: http, port: 80, targetPort: http}]
+  ports: [{name: https, port: 443, targetPort: https}]
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

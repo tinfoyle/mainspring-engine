@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -32,6 +33,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/workloadidentity"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -239,6 +241,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runAppRouter(ctx context.Context, logger *slog.Logger) error {
+	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
 	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
 	if err != nil {
 		return err
@@ -276,9 +279,16 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	directoryCapacity := int(directoryCapacityValue)
+	var cellTransport http.RoundTripper
+	if !developmentMode {
+		cellTransport, err = workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+		if err != nil {
+			return err
+		}
+	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := approuter.New(startup, approuter.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, RouteIssuer: issuer, RouteSigningKeyID: keyID, RouteSigningKey: key, RouteLifetime: lifetime, DirectoryCacheTTL: directoryTTL, DirectoryCapacity: directoryCapacity, SessionCookieName: os.Getenv("SPYGLASS_SESSION_COOKIE_NAME"), SecureCookies: true, TrustedOrigins: []string{appOrigin}, AllowHTTPCells: os.Getenv("SPYGLASS_ENV") == "development"}, logger, registration.SystemClock{})
+	server, err := approuter.New(startup, approuter.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, RouteIssuer: issuer, RouteSigningKeyID: keyID, RouteSigningKey: key, RouteLifetime: lifetime, DirectoryCacheTTL: directoryTTL, DirectoryCapacity: directoryCapacity, CellTransport: cellTransport, SessionCookieName: os.Getenv("SPYGLASS_SESSION_COOKIE_NAME"), SecureCookies: true, TrustedOrigins: []string{appOrigin}, AllowHTTPCells: developmentMode}, logger, registration.SystemClock{})
 	if err != nil {
 		return err
 	}
@@ -287,6 +297,7 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runAppAPI(ctx context.Context, logger *slog.Logger) error {
+	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
 	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
 	if err != nil {
 		return err
@@ -315,17 +326,38 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil || maxBody > 16<<20 {
 		return errors.New("SPYGLASS_MAX_REQUEST_BODY_BYTES must be between 1 and 16777216")
 	}
+	var admissionTransport http.RoundTripper
+	var serverTLS *tls.Config
+	if !developmentMode {
+		files := workloadTLSFilesEnv()
+		admissionTransport, err = workloadidentity.NewClientTransport(files)
+		if err != nil {
+			return err
+		}
+		serverTLS, err = workloadidentity.NewServerConfig(files)
+		if err != nil {
+			return err
+		}
+	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := appapi.New(startup, appapi.Config{DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, AdmissionOrigin: admissionOrigin, AllowHTTPAdmission: os.Getenv("SPYGLASS_ALLOW_HTTP_ADMISSION") == "true"}, logger, registration.SystemClock{})
+	server, err := appapi.New(startup, appapi.Config{DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, AdmissionOrigin: admissionOrigin, AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode}, logger, registration.SystemClock{})
 	if err != nil {
 		return err
 	}
 	defer server.Close()
-	return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+	if developmentMode {
+		return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+	}
+	secured, err := workloadidentity.RequireClientIdentity(server.Handler, csvEnv("SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"), logger)
+	if err != nil {
+		return err
+	}
+	return serveHTTPS(ctx, httpAddress(":8443"), secured, serverTLS, logger)
 }
 
 func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
+	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
 	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
 	if err != nil {
 		return err
@@ -354,6 +386,13 @@ func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil || maxBody > 1<<20 {
 		return errors.New("SPYGLASS_ADMISSION_MAX_REQUEST_BODY_BYTES must be between 1 and 1048576")
 	}
+	var serverTLS *tls.Config
+	if !developmentMode {
+		serverTLS, err = workloadidentity.NewServerConfig(workloadTLSFilesEnv())
+		if err != nil {
+			return err
+		}
+	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := admissionapi.New(startup, admissionapi.Config{DatabaseURL: databaseURL, RouteIssuer: issuer, RouteVerifyKeys: keys, CellIDs: cells, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody}, logger, registration.SystemClock{})
@@ -361,7 +400,14 @@ func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer server.Close()
-	return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+	if developmentMode {
+		return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+	}
+	secured, err := workloadidentity.RequireClientIdentity(server.Handler, csvEnv("SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"), logger)
+	if err != nil {
+		return err
+	}
+	return serveHTTPS(ctx, httpAddress(":8443"), secured, serverTLS, logger)
 }
 
 func runBillingWorker(ctx context.Context, logger *slog.Logger) error {
@@ -631,6 +677,31 @@ func serveHTTP(ctx context.Context, address string, handler http.Handler, logger
 	return server.Shutdown(shutdown)
 }
 
+func serveHTTPS(ctx context.Context, address string, handler http.Handler, config *tls.Config, logger *slog.Logger) error {
+	if config == nil {
+		return errors.New("workload TLS server configuration is required")
+	}
+	server := newHTTPServer(address, handler)
+	server.TLSConfig = config
+	errorsChannel := make(chan error, 1)
+	go func() {
+		logger.Info("Spyglass HTTPS listening", "address", address)
+		err := server.ListenAndServeTLS("", "")
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		errorsChannel <- err
+	}()
+	select {
+	case <-ctx.Done():
+	case err := <-errorsChannel:
+		return err
+	}
+	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return server.Shutdown(shutdown)
+}
+
 func newHTTPServer(address string, handler http.Handler) *http.Server {
 	return &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 }
@@ -734,6 +805,10 @@ func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 	return value, nil
 }
 func httpAddress(fallback string) string { return envOr("SPYGLASS_HTTP_ADDRESS", fallback) }
+
+func workloadTLSFilesEnv() workloadidentity.Files {
+	return workloadidentity.Files{Certificate: os.Getenv("SPYGLASS_WORKLOAD_CERT_FILE"), PrivateKey: os.Getenv("SPYGLASS_WORKLOAD_KEY_FILE"), TrustBundle: os.Getenv("SPYGLASS_WORKLOAD_CA_FILE")}
+}
 
 func routeVerifyKeysEnv(name string) (map[string][]byte, error) {
 	values, err := keyValueEnv(name)

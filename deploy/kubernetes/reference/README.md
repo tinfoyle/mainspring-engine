@@ -14,7 +14,7 @@ credential per Spyglass Account.
 Before an environment overlay may use these resources it must add:
 
 - A pinned image digest produced by the verified release workflow.
-- External Secrets or workload identity; never literal Secret values.
+- External Secrets or certificate controller integration; never literal Secret values.
 - Cell-specific database, object-store, Temporal, and queue references.
 - Ingress/WAF, certificate, DNS, and trusted route-signing configuration. The
   edge must send the more-specific
@@ -43,16 +43,22 @@ Before an environment overlay may use these resources it must add:
   verification keyring. It can read the Account access projection, execute the
   entitlement-version lock function, and mutate only usage counters and
   reservations. App-api reaches it with a signed routed-operation proof and
-  retains only its cell credential. This review-only base opts into plain HTTP
-  behind the ingress/egress NetworkPolicies because it contains no certificate
-  material. Production overlays must add internal TLS/workload identity, set an
-  `https://` origin, and remove `SPYGLASS_ALLOW_HTTP_ADMISSION`.
+  retains only its cell credential. TLS 1.3 and an exact per-cell app-api SPIFFE
+  identity protect the broker before route-proof verification.
 - The app-router secret supplies one active route-signing key and the cell API
   secret supplies the active plus retained verification keys during rotation.
   The router receives only the global database credential; the cell API
   receives only its cell database credential. Operators populate each cell's
   exact internal HTTPS `route_origin` in the global registry before Account
   placement; route endpoints are no longer copied into every router pod.
+- A certificate controller or secret synchronizer supplies
+  `spyglass-app-router-workload-tls`, the cell-specific
+  `spyglass-app-api-cell-reference-workload-tls`, and
+  `spyglass-admission-api-workload-tls`, each with `tls.crt`, `tls.key`, and
+  `ca.crt`. Server certificates contain the exact Service DNS SAN; client
+  certificates contain the configured SPIFFE URI and appropriate extended key
+  usage. Files rotate in place and are reloaded on new connections. No private
+  key or certificate payload is committed in this reference.
 - The account API secret supplies `SPYGLASS_NETWORK_ACTOR_KEY`; the environment
   ConfigMap supplies only the exact ingress/load-balancer CIDRs through
   `SPYGLASS_TRUSTED_PROXY_CIDRS`. Leaving the CIDR list empty safely ignores

@@ -26,12 +26,17 @@ spec:
             - {name: SPYGLASS_HTTP_ADDRESS, value: ":8080"}
             - {name: SPYGLASS_DIRECTORY_CACHE_TTL, value: "30s"}
             - {name: SPYGLASS_DIRECTORY_CACHE_CAPACITY, value: "10000"}
+            - {name: SPYGLASS_WORKLOAD_CERT_FILE, value: "/var/run/secrets/spyglass/workload/tls.crt"}
+            - {name: SPYGLASS_WORKLOAD_KEY_FILE, value: "/var/run/secrets/spyglass/workload/tls.key"}
+            - {name: SPYGLASS_WORKLOAD_CA_FILE, value: "/var/run/secrets/spyglass/workload/ca.crt"}
           envFrom:
             - configMapRef: {name: spyglass-global-runtime}
             - secretRef: {name: spyglass-app-router-secrets}
           resources:
             requests: {cpu: 100m, memory: 128Mi}
             limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: workload-tls, mountPath: /var/run/secrets/spyglass/workload, readOnly: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -40,6 +45,9 @@ spec:
             seccompProfile: {type: RuntimeDefault}
           readinessProbe: {httpGet: {path: /health/ready, port: http}, periodSeconds: 5}
           livenessProbe: {httpGet: {path: /health/live, port: http}, periodSeconds: 15}
+      volumes:
+        - name: workload-tls
+          secret: {secretName: spyglass-app-router-workload-tls}
 ---
 apiVersion: v1
 kind: Service

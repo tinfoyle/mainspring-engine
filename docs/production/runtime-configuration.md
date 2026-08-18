@@ -9,7 +9,7 @@
 | Mode | Owns | Does not own |
 |---|---|---|
 | `account-api` | Signup, login/recovery, session security/reauthentication, Account selection, invitations, encrypted notification enqueueing, local billing reads, Checkout/Portal creation, signed Stripe webhook acceptance, private browser shell | SMTP delivery, billing event projection, reconciliation polling, Account business workloads |
-| `app-router` | Authenticate the global session, recheck Account authority, select an allowlisted cell, issue request-bound route context, and proxy bounded Account API traffic | Cell database access, business-record queries, dynamic arbitrary destinations |
+| `app-router` | Authenticate the global session, recheck Account authority, resolve an eligible directory cell, issue request-bound route context, and proxy bounded workload-authenticated Account API traffic | Cell database access, business-record queries, arbitrary destinations |
 | `app-api` | Verify and consume route context, reject replay/stale placement, and execute Account-owned use cases through one shared cell pool | Global database, session cookies, Account/Billing mutation, arbitrary cell routing |
 | `admission-api` | Re-verify routed Work operation proofs, reauthorize current global access, and reserve/compensate governed capacity | Cell database, Work content, browser sessions, terminal Work release, Stripe or SMTP operations |
 | `billing-worker` | Leased Stripe inbox processing, current Subscription retrieval, transactional grant/snapshot projection, reconciliation queue | Browser/API traffic, raw webhook acceptance, customer business work |
@@ -73,9 +73,12 @@ Each account-api replica holds one immutable Catalog snapshot. It polls for the 
 | `SPYGLASS_SESSION_COOKIE_NAME` | App router | Optional; defaults to `__Host-spyglass_session` |
 | `SPYGLASS_MAX_REQUEST_BODY_BYTES` | App API | Optional positive limit up to 16 MiB; defaults to 1 MiB |
 | `SPYGLASS_WORK_ADMISSION_ORIGIN` | App API | Exact private admission-api origin; HTTPS is the fail-closed default |
-| `SPYGLASS_ALLOW_HTTP_ADMISSION` | App API | Exact `true` opt-in for local/review topology only; forbidden in production |
+| `SPYGLASS_WORKLOAD_CERT_FILE` | App router, app API, admission API | PEM workload certificate path; app-api certificates need server and client usage |
+| `SPYGLASS_WORKLOAD_KEY_FILE` | App router, app API, admission API | PEM private-key path readable only by the workload |
+| `SPYGLASS_WORKLOAD_CA_FILE` | App router, app API, admission API | PEM trust-bundle path for the environment workload CA rotation set |
+| `SPYGLASS_WORKLOAD_CLIENT_IDENTITIES` | App API, admission API | Comma-separated exact SPIFFE URI identities permitted on private endpoints |
 
-Cell route origins are operational data in the global `cells` registry, not process configuration. Before assigning Accounts, an operator must set each cell's exact internal HTTPS origin; origins may not contain credentials, paths, queries, fragments, or control characters. The router joins this registry to `account_directory`, caches only eligible assignments, and requires an exact cell/generation match with authorization. `SPYGLASS_ENV=development` is the only plain-HTTP escape hatch.
+Cell route origins are operational data in the global `cells` registry, not process configuration. Before assigning Accounts, an operator must set each cell's exact internal HTTPS origin whose DNS name appears in that cell server certificate; origins may not contain credentials, paths, queries, fragments, or control characters. The router joins this registry to `account_directory`, caches only eligible assignments, and requires an exact cell/generation match with authorization. `SPYGLASS_ENV=development` is the only plain-HTTP and non-workload-TLS escape hatch.
 
 The signing and verification keys follow the add-verifier, switch-signer, wait-for-expiry, remove-old-key sequence in [routing-boundary.md](routing-boundary.md). The app-router database credential is global and needs read-only access to `account_directory` and the routing columns of `cells`; it cannot read cell schemas. The app-api credential is cell-local and cannot read global Users, Memberships, Entitlements, Billing, or sessions. Every routed mutation requires a UUID `Idempotency-Key`; transition and assignment require `If-Match`. Those semantic headers are included in the signed request binding.
 
@@ -92,7 +95,9 @@ The signing and verification keys follow the add-verifier, switch-signer, wait-f
 
 Admission-api is private and accepts neither browser cookies nor bearer identity. Its database role needs `SELECT` on Accounts, Memberships, and entitlement snapshots; `SELECT/INSERT/UPDATE` on usage counters and reservations; and `EXECUTE` on `spyglass_lock_account_entitlement_version(uuid)`. It must not receive Account `UPDATE`, User/session/Billing access, or any cell credential. The lock function has no PUBLIC execute grant and provides only the entitlement-version row lock needed for fencing.
 
-App-api presents the original short-lived route proof. Admission-api re-verifies its signature, cell audience, Work mutation path, operation ID, enabled package claim, and exact request binding before current global authorization. The reference NetworkPolicy permits only app-api pods to connect. App-api rejects a plain-HTTP broker origin unless `SPYGLASS_ALLOW_HTTP_ADMISSION=true`; that explicit escape hatch is present only in the review topology. Production overlays must remove it and supply HTTPS, workload identity, and environment-specific egress policy.
+App-api presents the original short-lived route proof. Admission-api re-verifies its signature, cell audience, Work mutation path, operation ID, enabled package claim, and exact request binding before current global authorization. The reference NetworkPolicy permits only app-api pods to connect. Production app-api accepts only an HTTPS broker origin and presents its workload certificate; admission-api additionally requires that certificate's exact configured SPIFFE URI. Plain HTTP is available only to an explicitly selected `SPYGLASS_ENV=development` process.
+
+Internal servers require TLS 1.3. They reload the certificate, key, and CA bundle on each new handshake; clients reload those files for each new pooled connection. `/health/*` remains HTTPS but does not require a client certificate so Kubernetes probes work. Every business path requires a verified allowed workload identity. Trust rotation adds the new CA to the bundle before issuing new leaves, waits for new connections and rollout evidence, then removes the old CA; emergency revocation also terminates existing pods/connections.
 
 ## Billing worker values
 

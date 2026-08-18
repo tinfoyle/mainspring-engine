@@ -1,6 +1,6 @@
 # Global-to-cell routing boundary
 
-Status: executable signed route-context, global app-router, bounded Account Directory cache, cell app-api Work reads/commands, private usage-admission broker, shared replay receipts, placement-generation rejection, and Kubernetes reference topology implemented. Internal TLS/workload identity remains.
+Status: executable signed route-context, global app-router, bounded Account Directory cache, TLS 1.3 workload identity, cell app-api Work reads/commands, private usage-admission broker, shared replay receipts, placement-generation rejection, and Kubernetes reference topology implemented.
 
 ## Why this boundary exists
 
@@ -60,7 +60,15 @@ PATCH /api/v1/accounts/{accountID}/work-items/{itemID}/assignment
 
 The context probe proves the base global-session-to-cell-RLS path. Work routes add an exact Work package claim, translate verified claims back into the shared application authorization contract, and return explicit customer-safe DTOs. Mutations require the signed operation ID, and transition/assignment require the signed weak ETag. The global router and Account API do not query Work records.
 
-`spyglass admission-api` is a private global process for narrow usage admission. A cell presents the same short-lived route proof; the broker re-verifies its cell audience, Work mutation path, operation ID, and enabled package claim, then rechecks current global access. It can read only the access projection and mutate usage counters/reservations. It never receives cell SQL authority or Work content. Replays are safe because reservation and compensation keys are idempotent and finalized keys cannot be resurrected. Network policy permits only app-api pods to reach this surface; internal TLS/workload identity remains a promotion gate.
+`spyglass admission-api` is a private global process for narrow usage admission. A cell presents the same short-lived route proof; the broker re-verifies its cell audience, Work mutation path, operation ID, and enabled package claim, then rechecks current global access. It can read only the access projection and mutate usage counters/reservations. It never receives cell SQL authority or Work content. Replays are safe because reservation and compensation keys are idempotent and finalized keys cannot be resurrected. Network policy and workload identity permit only app-api workloads to reach this surface.
+
+## Workload transport identity
+
+Production router-to-cell and cell-to-admission connections use TLS 1.3 with certificates issued by the environment workload CA. Clients verify the server chain and the exact DNS name from the configured HTTPS origin. Private server endpoints accept a request only when the verified client leaf certificate contains one exact configured SPIFFE URI identity. Transport identity never replaces the signed route proof: a valid router workload without Account authority, or a valid cell workload without the original operation proof, still cannot perform a business operation.
+
+Certificate, private-key, and trust-bundle files are loaded at startup and reloaded for each new TLS connection or server handshake. Projected secret rotation therefore does not require a process restart. Existing authenticated pooled connections drain under the HTTP idle timeout; urgent revocation still requires connection termination or a workload rollout in addition to replacing trust material.
+
+Kubernetes HTTPS health probes cannot present client certificates. `/health/*` is consequently certificate-optional but remains encrypted; every other app-api and admission-api path requires an allowed verified workload identity before the application handler runs. A certificate from the workload CA with a missing or unexpected URI is denied with content-free telemetry. NetworkPolicy remains a second, independent control.
 
 ## Key rotation
 
@@ -83,6 +91,8 @@ Keys are standard Base64 encodings of exactly 32 random bytes. They belong in a 
 | Missing/unroutable directory entry | `routing_unavailable`; no dynamic URL fallback |
 | Directory disagrees with authorized cell/generation | One source refresh, then `routing_unavailable`; no cell request |
 | Directory source unavailable | An exact unexpired hit may be used; an expired, missing, or mismatched entry fails closed |
+| Missing/untrusted client certificate or unexpected SPIFFE URI | Private server returns `workload_identity_denied`; application handler is not invoked |
+| Server certificate DNS/CA mismatch or TLS below 1.3 | Client aborts the internal request; no plaintext fallback |
 | Cell timeout/redirect/oversized response | Bounded gateway failure |
 | Token expired/altered/wrong audience | Cell returns `invalid_route_context` |
 | Duplicate request UUID | Cell returns `route_replay` |
@@ -97,13 +107,11 @@ The router never guesses another cell, follows redirects, or falls back to query
 
 ## Remaining production work
 
-1. Add internal TLS/workload identity between router and cell in addition to application signatures, with certificate rotation and network-policy enforcement.
-2. Add workload identity at admission-api as well as router-to-cell, including certificate/key rotation and explicit denial telemetry.
-3. Add route receipt retention/partitioning and metrics for replay, stale generation, verification failure, latency, cell saturation, and cache age.
-4. Add two-cell PostgreSQL integration tests, key-rotation canaries, router failover, cell/admission failover, and load/fairness evidence. Unit coverage already proves stale-cache refresh, bounded eviction, coalesced misses, and refusal to use expired entries during source failure.
+1. Add route receipt retention/partitioning and metrics for replay, stale generation, verification failure, latency, cell saturation, and cache age.
+2. Add two-cell PostgreSQL integration tests, route-signing and workload-certificate rotation canaries, router failover, cell/admission failover, and load/fairness evidence. Unit coverage already proves stale-cache refresh, bounded eviction, coalesced misses, refusal to use expired entries during source failure, exact workload identity, certificate-free health probes, and credential reload on new connections.
 
 ## Evidence and limits
 
-Unit tests cover directory cache hits, mismatch refresh, expiry under source failure, unsafe/unhealthy routes, bounded LRU eviction, concurrent miss coalescing, body and semantic-header binding, signature alteration, key rotation, origin rejection, credential stripping, exact allowlisted paths, successful router-to-cell traversal, replay, altered Account paths, Work package translation, read-only package behavior, strict query/command parsing, safe Work views, assignment spoofing, and cross-Account Work paths. The PostgreSQL 17 contract proves replay uniqueness, stale placement rejection, draining-write rejection, draining-read acceptance, RLS, routed broker-backed Work creation/compensation through split roles, Work query isolation, and migration replay through non-owner roles.
+Unit tests cover mutual TLS chain/DNS verification, exact SPIFFE client identity, denial of another CA-valid workload, encrypted certificate-free health probes, credential reload, directory cache behavior, request binding, signature alteration, key rotation, origin rejection, credential stripping, exact allowlisted paths, successful router-to-cell traversal, replay, altered Account paths, Work package translation, read-only package behavior, strict query/command parsing, safe Work views, assignment spoofing, and cross-Account Work paths. The PostgreSQL 17 contract proves replay uniqueness, stale placement rejection, draining-write rejection, draining-read acceptance, RLS, routed broker-backed Work creation/compensation through split roles, Work query isolation, and migration replay through non-owner roles.
 
-The manifests remain review-only. They have no literal secrets or real endpoints and the default-deny policy still requires environment overlays for ingress, global/cell database egress, TLS identity, monitoring, and image digests. An edge overlay must route the more-specific `/api/v1/accounts/{accountID}/work-items...` family to `app-router` while private HTML and global control routes remain on `account-api`.
+The manifests remain review-only. They have no literal secrets or real endpoints and the default-deny policy still requires environment overlays for ingress, global/cell database egress, workload-certificate issuance, monitoring, and image digests. An edge overlay must route the more-specific `/api/v1/accounts/{accountID}/work-items...` family to `app-router` while private HTML and global control routes remain on `account-api`.

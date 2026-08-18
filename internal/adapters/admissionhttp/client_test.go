@@ -73,6 +73,16 @@ func TestClientMapsAdmissionDenialsAndRequiresMatchingOperation(t *testing.T) {
 	}
 }
 
+func TestClientRejectsNonOriginAdmissionTargets(t *testing.T) {
+	for _, target := range []string{"http://admission.test", "https://user@admission.test", "https://admission.test/path", "https://admission.test?", "https://admission.test?query=value", "https://admission.test#fragment"} {
+		t.Run(target, func(t *testing.T) {
+			if _, err := New(target, false, nil); err == nil {
+				t.Fatal("expected unsafe admission target to fail closed")
+			}
+		})
+	}
+}
+
 type admissionUsage struct {
 	reserve usageadmission.ReserveCommand
 	result  usageadmission.Reservation

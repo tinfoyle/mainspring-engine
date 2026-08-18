@@ -30,7 +30,7 @@ type Client struct {
 
 func New(rawOrigin string, allowHTTP bool, transport http.RoundTripper) (*Client, error) {
 	origin, err := url.Parse(strings.TrimSpace(rawOrigin))
-	if err != nil || origin.Host == "" || origin.User != nil || origin.RawQuery != "" || origin.Fragment != "" || (origin.Path != "" && origin.Path != "/") || (origin.Scheme != "https" && !(allowHTTP && origin.Scheme == "http")) {
+	if err != nil || origin.Host == "" || origin.User != nil || origin.RawQuery != "" || origin.ForceQuery || origin.Fragment != "" || (origin.Path != "" && origin.Path != "/") || (origin.Scheme != "https" && !(allowHTTP && origin.Scheme == "http")) {
 		return nil, errors.New("admission origin must be an allowed absolute origin without a path")
 	}
 	origin.Path = ""

@@ -27,6 +27,7 @@ type Config struct {
 	MaxDatabaseConns   int32
 	MaxRequestBody     int64
 	AdmissionOrigin    string
+	AdmissionTransport http.RoundTripper
 	AllowHTTPAdmission bool
 }
 
@@ -88,7 +89,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	capacity, err := admissionhttp.New(config.AdmissionOrigin, config.AllowHTTPAdmission, nil)
+	capacity, err := admissionhttp.New(config.AdmissionOrigin, config.AllowHTTPAdmission, config.AdmissionTransport)
 	if err != nil {
 		pool.Close()
 		return nil, err

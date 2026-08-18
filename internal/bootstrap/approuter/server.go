@@ -29,6 +29,7 @@ type Config struct {
 	RouteLifetime     time.Duration
 	DirectoryCacheTTL time.Duration
 	DirectoryCapacity int
+	CellTransport     http.RoundTripper
 	SessionCookieName string
 	SecureCookies     bool
 	TrustedOrigins    []string
@@ -82,7 +83,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := routertransport.New(sessionService, authorizer, directory, signer, ids.RandomGenerator{}, routertransport.Config{SessionCookieName: config.SessionCookieName, SecureCookies: config.SecureCookies, TrustedOrigins: config.TrustedOrigins}, logger)
+	transport, err := routertransport.New(sessionService, authorizer, directory, signer, ids.RandomGenerator{}, routertransport.Config{SessionCookieName: config.SessionCookieName, SecureCookies: config.SecureCookies, TrustedOrigins: config.TrustedOrigins, Transport: config.CellTransport}, logger)
 	if err != nil {
 		pool.Close()
 		return nil, err
