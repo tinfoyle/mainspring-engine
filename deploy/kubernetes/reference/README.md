@@ -163,6 +163,14 @@ credential, operator identity/reason, and exact environment confirmation. It
 must not inherit the reconciler's global credential or any serving secret. See
 [work-release-operations.md](../../../docs/production/work-release-operations.md).
 
+Agent queue administration is likewise absent as a standing Deployment.
+Environments run `spyglass agent-queue-admin inspect|requeue` as a short-lived,
+human-authorized Job with one target cell's execute-only operator credential,
+an exact `dispatch` or `projection` queue, and exact environment confirmation.
+It must not inherit envelope keys, provider credentials, worker credentials, or
+serving secrets. See
+[agent-queue-operations.md](../../../docs/production/agent-queue-operations.md).
+
 Account erasure administration is intentionally absent as a standing
 Deployment. Environments run `spyglass account-erasure-admin
 prepare|inspect|approve|cancel|execute` as short-lived, human-authorized Jobs with

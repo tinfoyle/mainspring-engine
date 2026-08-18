@@ -66,6 +66,7 @@ One signed application artifact supports distinct process modes so supply-chain 
 | `work-reconciler` | Release global capacity for terminal cell Work and prune expired completed technical jobs | Narrow cell outbox/Account checkpoint and global usage-release credentials; no serving traffic |
 | `agent-dispatch-worker` | Compile immutable Account Agent plans into encrypted runner requests | Identifier-only dispatch functions, forced-RLS read-only plan access, and execute-only exchange provisioning |
 | `agent-projection-worker` | Validate and project encrypted terminal Agent results | Execute-only projection functions and runtime envelope keys; no direct Agent or exchange table access |
+| `agent-queue-admin` | Audited bounded inspection or exact-target requeue of Agent dispatch/projection dead letters | Execute-only cell operator functions; no queue, prompt, result, exchange, or provider access |
 | `work-release-admin` | Audited inspection or exact-target requeue of terminal release failures | Execute-only cell operator functions; no table grants, Work content, or global capacity authority |
 | `runner-controller` | Create, cancel, and reconcile ephemeral provider runner jobs | Narrow Kubernetes workload authority; private network; no business database |
 | `runner` | Execute one bounded provider invocation and brokered tool loop | Disposable workspace and invocation-bound broker identity; no provider credential or direct provider egress |

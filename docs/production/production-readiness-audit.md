@@ -41,7 +41,7 @@ This verdict separates executable software from environment evidence. The reposi
 
 ### P1 — required for the advertised product scope
 
-1. Finish the user-facing Agents conversation/orchestration, schedules, attachments, retry/manual-resolution, and dead-letter operator paths.
+1. Finish the user-facing Agents conversation/orchestration, schedules, attachments, and customer retry/manual-resolution paths. Dispatch/projection dead-letter inspection and exact-target operator requeue are executable; they still require staging role and runbook rehearsal.
 2. Complete Knowledge before claiming source-attributed business memory; complete Finance and Marketing before advertising those packages as usable rather than preview/locked surfaces.
 3. Publish the OpenAPI source of truth and generated Go/TypeScript contracts. Add drift checks and browser E2E coverage against those contracts.
 4. Complete downgrade read-only/export/retention/restoration behavior for every package and transport, including background work and agent capabilities.

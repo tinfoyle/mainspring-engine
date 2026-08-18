@@ -147,7 +147,7 @@ func TestPostgresRestoreReplayRebuildsPinnedErasureCheckpoints(t *testing.T) {
 			spyglass.agent_boardrooms,spyglass.agent_personas,spyglass.agent_persona_versions,spyglass.agent_conversations,
 			spyglass.agent_runs,spyglass.agent_run_plan_turns,spyglass.agent_invocations,spyglass.agent_messages,
 			spyglass.agent_result_projection_queue,spyglass.agent_user_messages,spyglass.agent_invocation_execution_plans,
-			spyglass.agent_dispatch_queue TO `+cellFunctionRole+`;
+			spyglass.agent_dispatch_queue,spyglass.agent_queue_operator_events TO `+cellFunctionRole+`;
 		GRANT SELECT ON spyglass.account_erasure_restore_ledger TO `+cellFunctionRole+`;
 		ALTER TABLE spyglass.account_erasure_tombstones OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_replay_account_cell_erasure_without_runner_control(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) OWNER TO `+cellFunctionRole+`;
@@ -157,6 +157,7 @@ func TestPostgresRestoreReplayRebuildsPinnedErasureCheckpoints(t *testing.T) {
 		ALTER FUNCTION public.spyglass_replay_account_cell_erasure_without_agents(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_replay_account_cell_erasure_without_agent_projection(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_replay_account_cell_erasure_without_agent_dispatch(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) OWNER TO `+cellFunctionRole+`;
+		ALTER FUNCTION public.spyglass_replay_account_cell_erasure_without_agent_queue_admin(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_replay_account_cell_erasure(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) OWNER TO `+cellFunctionRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_replay_account_cell_erasure(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) TO `+cellOperatorRole); err != nil {
 		t.Fatalf("create restore replay roles: %v", err)

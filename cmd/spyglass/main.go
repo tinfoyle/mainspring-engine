@@ -26,6 +26,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
+	agentqueueapp "github.com/tinfoyle/spyglass-engine/internal/application/agentqueueadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
@@ -41,6 +42,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentdispatchworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentprojectionworker"
+	agentqueuecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentqueueadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/approuter"
 	billingcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingadmin"
@@ -112,6 +114,8 @@ func main() {
 		err = runAgentProjectionWorker(ctx, logger)
 	case "agent-dispatch-worker":
 		err = runAgentDispatchWorker(ctx, logger)
+	case "agent-queue-admin":
+		err = runAgentQueueAdmin(ctx, logger)
 	case "route-receipt-worker":
 		err = runRouteReceiptWorker(ctx, logger)
 	case "route-canary":
@@ -127,7 +131,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -421,6 +425,67 @@ func runWorkReleaseAdmin(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	return workreleasecommand.Run(startup, config, logger)
+}
+
+func runAgentQueueAdmin(ctx context.Context, logger *slog.Logger) error {
+	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "requeue") {
+		return errors.New("usage: spyglass agent-queue-admin inspect|requeue")
+	}
+	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	actor, err := requiredEnv("SPYGLASS_OPERATOR_ID")
+	if err != nil {
+		return err
+	}
+	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
+	if err != nil {
+		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	confirmation, err := requiredEnv("SPYGLASS_CONFIRM_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	queue, err := requiredEnv("SPYGLASS_AGENT_QUEUE")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	config := agentqueuecommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Queue: queue, Actor: actor, Reason: reason, Environment: environment, ConfirmEnvironment: confirmation, InspectLimit: agentqueueapp.DefaultInspectLimit, MaxDatabaseConns: maxConns}
+	if config.Action == "inspect" {
+		limit, err := int64Env("SPYGLASS_AGENT_QUEUE_INSPECT_LIMIT", agentqueueapp.DefaultInspectLimit)
+		if err != nil {
+			return err
+		}
+		config.InspectLimit = int(limit)
+	} else {
+		accountID, err := requiredEnv("SPYGLASS_AGENT_ACCOUNT_ID")
+		if err != nil {
+			return err
+		}
+		invocationID, err := requiredEnv("SPYGLASS_AGENT_INVOCATION_ID")
+		if err != nil {
+			return err
+		}
+		config.Target = agentqueueapp.Target{Queue: queue, AccountID: ids.AccountID(accountID), InvocationID: invocationID}
+	}
+	config.Reason, err = requireOperatorAuthorization(logger, "agent-queue-admin", config.Action, config.Actor, config.Reason, config.Environment, operatorScope(map[string]string{
+		"queue": config.Queue, "inspect_limit": strconv.Itoa(config.InspectLimit), "account_id": string(config.Target.AccountID), "invocation_id": config.Target.InvocationID,
+	}))
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return agentqueuecommand.Run(startup, config, logger)
 }
 
 func runAccountErasureAdmin(ctx context.Context, logger *slog.Logger) error {

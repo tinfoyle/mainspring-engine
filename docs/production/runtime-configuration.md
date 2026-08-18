@@ -2,7 +2,7 @@
 
 - Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -21,6 +21,7 @@
 | `model-gateway` | Translate one bounded provider-neutral model step, enforce strict sequential-tool/output controls, and normalize provider result/usage | Account database, browser/session identity, Kubernetes API, runner identity, business tools |
 | `agent-dispatch-worker` | Lease identifier-only Agent invocations, read their immutable Account-RLS plans, and provision exact encrypted runner requests | Browser/session authority, global database, provider credentials, Agent configuration mutation, plaintext queue storage |
 | `agent-projection-worker` | Lease terminal Agent results, decrypt Pod-bound envelopes, validate results, and atomically project Account-visible outcomes | Browser/session authority, provider credentials, unencrypted result persistence, arbitrary Agent mutation |
+| `agent-queue-admin` | One audited bounded inspection or exact-target requeue of one cell's Agent dispatch/projection dead letters | Serving traffic, direct queue/content/exchange access, provider credentials, cross-cell discovery |
 | `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
 | `account-erasure-admin` | One audited prepare, inspect, independent approval, pre-execution cancellation, leased cross-store execution, or signed restore replay of a retained closed Account | Serving traffic, automatic approval, arbitrary SQL, cross-cell fallback, external-store deletion |
 | `passkey-admin` | One audited key-version inspection or bounded credential/ceremony envelope re-encryption batch | Serving traffic, User/contact reads, password/session authority, automatic key retirement |
@@ -343,6 +344,10 @@ GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_result_projection(uuid,uuid
 GRANT EXECUTE ON FUNCTION public.spyglass_agent_result_projection_stats(timestamptz) TO spyglass_agent_projector;
 ```
 
+## Agent queue operator values
+
+`agent-queue-admin inspect|requeue` is a one-shot cell recovery command documented in [Agent Queue Operations](agent-queue-operations.md). It requires an exact `SPYGLASS_AGENT_QUEUE` of `dispatch` or `projection`, the target cell's execute-only `SPYGLASS_CELL_DATABASE_URL`, environment confirmation, and signed operator authorization. Inspection accepts only the bounded `SPYGLASS_AGENT_QUEUE_INSPECT_LIMIT`; requeue additionally requires exact `SPYGLASS_AGENT_ACCOUNT_ID` and `SPYGLASS_AGENT_INVOCATION_ID` values. The database functions expose identifiers, attempt counts, timestamps, and bounded error codes only. They never return prompts, message bodies, model results, ciphertext, keys, or provider credentials.
+
 ## Model gateway values
 
 | Environment variable | Requirement |
@@ -394,6 +399,7 @@ spyglass runner-broker
 spyglass model-gateway
 spyglass agent-dispatch-worker
 spyglass agent-projection-worker
+spyglass agent-queue-admin <action>
 spyglass runner-invocation --broker-url=https://runner-broker.example --invocation-id=<uuid> --identity-token-file=/var/run/secrets/spyglass.io/runner-identity/token --broker-ca-file=/var/run/secrets/spyglass.io/broker-ca/ca.crt
 spyglass billing-worker
 spyglass notification-worker
@@ -422,7 +428,7 @@ The runner takes a target-specific PostgreSQL advisory lock, checks the SHA-256 
 
 Migration credentials are an independent deployment secret. They may own or alter schema; serving credentials must not. In particular, a cell serving role must not own cell tables and must not have `SUPERUSER` or `BYPASSRLS`, or PostgreSQL row-level security would not provide the intended Account boundary.
 
-CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, concurrency-safe package capacity admission and Work release recovery, broker-backed Work creation and definitive-failure compensation through split roles, bounded forced-RLS route-receipt cleanup with concurrent-insert schedule fencing, execute-only audited dead-letter operations, retained-Account erasure eligibility, fresh cell readiness, four-eyes approval, non-destructive cancellation, exact cell deletion under forced RLS, leased cross-store handoff, repeated cell attestation, atomic global deletion, content-free global/cell tombstones, one-time capacity decrement, post-erasure billing-retry suppression, idempotent completion, and other-Account/User preservation, registration provisioning, Checkout reservation concurrency, transaction-local Account context, split worker credentials, fair runner admission, queued/launching/launched runner cancellation, stale lease rejection, and attempted cross-Account reads and writes through non-owner roles.
+CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, concurrency-safe package capacity admission and Work release recovery, broker-backed Work creation and definitive-failure compensation through split roles, bounded forced-RLS route-receipt cleanup with concurrent-insert schedule fencing, execute-only audited Work and Agent dead-letter operations, retained-Account erasure eligibility, fresh cell readiness, four-eyes approval, non-destructive cancellation, exact cell deletion under forced RLS, leased cross-store handoff, repeated cell attestation, atomic global deletion, content-free global/cell tombstones, one-time capacity decrement, post-erasure billing-retry suppression, idempotent completion, and other-Account/User preservation, registration provisioning, Checkout reservation concurrency, transaction-local Account context, split worker credentials, fair runner admission, queued/launching/launched runner cancellation, stale lease rejection, and attempted cross-Account reads and writes through non-owner roles.
 
 The Kubernetes reference uses these exact arguments and expects environment overlays to supply `spyglass-global-runtime`, `spyglass-cell-reference-runtime`, plus workload-specific `spyglass-account-api-secrets`, `spyglass-app-router-secrets`, `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`, `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`, `spyglass-entitlement-worker-secrets`, and `spyglass-work-reconciler-secrets`. Those objects are intentionally absent from the repository. The router receives a constrained global credential and signing key; app-api receives only a cell credential and verification keyring. Admission-api receives only its narrow global usage credential and verification keyring. The route-receipt worker receives only its constrained cell cleanup credential. The entitlement worker secret needs only its constrained global-database credential. The Work reconciler secret contains distinct cell/global release credentials and no serving, Stripe, or SMTP secret. No literal production credential belongs in source control or a rendered manifest.
 
