@@ -1,6 +1,6 @@
 # Runner Broker Identity and Exchange Boundary
 
-- Status: Pod-bound encrypted HTTPS broker and rotating-token runner client executable; execution harness, capability gateway, and deployment evidence pending
+- Status: Pod-bound encrypted exchange plus generic execution/capability boundaries executable; concrete executors, action ledger, deployment wiring, and applied evidence pending
 - Product: Infinite Ocean: Spyglass
 - Parent: [Fair Runner Control Plane](runner-control.md)
 
@@ -65,7 +65,15 @@ Requests and results use AES-256-GCM with an integer key version. Associated dat
 
 Producer and broker roles receive execute-only functions and no direct queue or exchange-table access. `spyglass runner-broker` exposes only `POST /internal/v1/runner/invocations/{id}/request` and idempotent `PUT /internal/v1/runner/invocations/{id}/result` over TLS 1.3. It rejects redirects, queries, unbounded or noncanonical JSON, malformed/duplicate bearer credentials, and backend-detail disclosure. Responses are non-cacheable. The runner-side client rereads the projected token file for every operation, refuses redirects, disables ambient proxies by default, and maps only content-free problem codes.
 
-The next slice must add the execution harness and cancellation-aware capability gateway, append content-free lifecycle audit facts, define terminal exchange retention, and enforce current entitlement/capability policy at provisioning.
+## Execution and capability boundary
+
+The generic runner harness fetches one admitted request, selects only a compiled kind-specific executor, supplies that executor a broker-backed capability client, canonicalizes one bounded object result, and submits exactly one terminal envelope. Unsupported kinds, executor machine failures, and invalid output submit `execution_failed`; private executor errors never cross the boundary.
+
+Every capability call carries a UUID operation ID, a canonical object input capped at 256 KiB, and one capability code from the admitted request. The gateway repeats online TokenReview, exact Pod/Job identity verification, durable launch/cancellation state checking, envelope decryption, and capability membership checking for every call. It then applies a fixed registered handler timeout and caps canonical object output at 256 KiB. Provider credentials remain in the handler service and never reach the runner.
+
+Read-only and consequential definitions are distinct. A consequential definition cannot be constructed without an action authorizer responsible for approval state, durable action-ledger identity, payload-digest binding, provider idempotency, and unknown-outcome recovery. Mandatory pre/post audit writes are content-free and accepted only when the exchange is already bound to the same Pod UID. The pre-execution audit is also the final durable state gate: it takes a share lock on the exact queue row and accepts only `launch_uncertain` or `launched`, serializing admission with cancellation. Audit failure before execution prevents the handler from running. Post-execution facts remain writable after cancellation so an already-admitted outcome is not lost; post-audit failure returns unavailable, and retry safety depends on the same durable operation ID/provider contract.
+
+The capability HTTP transport and rotating-token client method are executable but intentionally not mounted by `runner-broker` yet: no concrete production handler or consequential action authorizer exists. The next slice must implement those dependencies, mount the route, add the `runner-invocation` process with real executors, define terminal exchange/audit retention, and enforce current entitlement/capability policy at provisioning.
 
 Cancellation revocation must also be enforced by every provider/tool gateway. Pod deletion or broker denial cannot erase plaintext already in runner memory, so a canceled or partitioned runner must have no direct provider, connector, customer-service, or unrestricted internet path on which it can continue side effects.
 
@@ -80,4 +88,6 @@ Cancellation revocation must also be enforced by every provider/tool gateway. Po
 - Pod deletion causes the next TokenReview/broker operation to fail.
 - A token copied from runner A cannot fetch or submit invocation B.
 - Ciphertext or associated-data tampering fails closed, and old key versions remain readable during rotation.
+- Every capability retry repeats Pod identity, durable state, expiry, and grant checks; cancellation prevents handler entry even if the Pod remains alive.
+- Consequential handlers cannot run without digest-bound action authorization and mandatory content-free audit.
 - Broker cancellation and node-partition tests prove all external capabilities are revoked independently of process termination.

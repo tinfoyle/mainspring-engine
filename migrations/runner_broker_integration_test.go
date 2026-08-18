@@ -13,6 +13,7 @@ import (
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercontrol"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
@@ -60,6 +61,7 @@ func TestRunnerBrokerExchangeIsEncryptedPodBoundAndLeastPrivilege(t *testing.T) 
 		GRANT EXECUTE ON FUNCTION public.spyglass_provision_runner_invocation(uuid,uuid,text,timestamptz,bytea,bytea,integer,bytea,timestamptz) TO `+producerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_claim_runner_exchange(uuid,uuid,text,text,timestamptz) TO `+brokerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_submit_runner_result(uuid,uuid,text,text,text,bytea,bytea,integer,bytea,timestamptz) TO `+brokerRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_record_runner_capability_event(uuid,uuid,uuid,uuid,uuid,text,text,text,text,timestamptz) TO `+brokerRole+`;
 		GRANT USAGE ON SCHEMA spyglass TO `+controllerRole+`;
 		GRANT SELECT,UPDATE ON spyglass.runner_invocation_queue TO `+controllerRole); err != nil {
 		t.Fatal(err)
@@ -93,6 +95,9 @@ func TestRunnerBrokerExchangeIsEncryptedPodBoundAndLeastPrivilege(t *testing.T) 
 		}
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.runner_invocation_exchanges`).Scan(&forbidden); err == nil {
 			t.Fatalf("%s directly read encrypted exchanges", role)
+		}
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.runner_capability_events`).Scan(&forbidden); err == nil {
+			t.Fatalf("%s directly read capability audit", role)
 		}
 	}
 
@@ -146,6 +151,21 @@ func TestRunnerBrokerExchangeIsEncryptedPodBoundAndLeastPrivilege(t *testing.T) 
 			t.Fatalf("fetch attempt %d request=%+v err=%v", attempt, request, err)
 		}
 	}
+	auditor, _ := postgresadapter.NewRunnerCapabilityAuditor(broker, ids.RandomGenerator{})
+	audit := runnercapability.AuditRecord{AccountID: accountA, InvocationID: invocation.ID, PodUID: identity.PodUID,
+		OperationID: "91000000-0000-4000-8000-000000000001", Capability: "work:read", Effect: "read_only", Decision: "authorized", OccurredAt: now.Add(time.Second)}
+	if err := auditor.RecordCapability(ctx, audit); err != nil {
+		t.Fatalf("record capability audit: %v", err)
+	}
+	wrongPodAudit := audit
+	wrongPodAudit.PodUID = "92000000-0000-4000-8000-000000000002"
+	if err := auditor.RecordCapability(ctx, wrongPodAudit); !errors.Is(err, runnercapability.ErrAuditUnavailable) {
+		t.Fatalf("wrong-Pod capability audit=%v", err)
+	}
+	var auditCount int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.runner_capability_events WHERE account_id=$1 AND invocation_id=$2`, accountA, invocation.ID).Scan(&auditCount); err != nil || auditCount != 1 {
+		t.Fatalf("capability audit count=%d err=%v", auditCount, err)
+	}
 	otherPod := identity
 	otherPod.PodUID = "82000000-0000-4000-8000-000000000002"
 	otherPodService, _ := runnerbroker.NewService(brokerRepository, brokerIdentityVerifier{otherPod}, cipher, fixedClock{now: now.Add(2 * time.Second)})
@@ -166,6 +186,19 @@ func TestRunnerBrokerExchangeIsEncryptedPodBoundAndLeastPrivilege(t *testing.T) 
 	lateService, _ := runnerbroker.NewService(brokerRepository, brokerIdentityVerifier{identity}, cipher, fixedClock{now: now.Add(2 * time.Hour)})
 	if _, err := lateService.Submit(ctx, "reviewed-pod-token", invocation.ID, runnerbroker.Result{SchemaVersion: 1, Outcome: "completed", Output: json.RawMessage(`{}`)}); !errors.Is(err, runnerbroker.ErrExchangeExpired) {
 		t.Fatalf("expired result submission=%v", err)
+	}
+	if _, err := controller.Exec(ctx, `UPDATE spyglass.runner_invocation_queue SET processing_state='canceling',cancel_requested_at=$2,next_inspection_at=$2 WHERE invocation_id=$1`, invocation.ID, now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	canceledAudit := audit
+	canceledAudit.OperationID = "93000000-0000-4000-8000-000000000003"
+	if err := auditor.RecordCapability(ctx, canceledAudit); !errors.Is(err, runnercapability.ErrAuditUnavailable) {
+		t.Fatalf("post-cancellation authorization audit=%v", err)
+	}
+	canceledAudit.Decision = "failed"
+	canceledAudit.ErrorCode = "canceled_after_admission"
+	if err := auditor.RecordCapability(ctx, canceledAudit); err != nil {
+		t.Fatalf("post-cancellation outcome audit=%v", err)
 	}
 
 	assertDeniedState := func(id, state string, expires time.Time, expected error) {

@@ -123,7 +123,7 @@ Runner control is part of cell Account erasure policy from its first migration:
 
 - readiness and execution reject queued, launching, launch-uncertain, launched, canceling, retryable-failed, or dead-letter invocations;
 - completed, execution-failed, and canceled records may be erased;
-- encrypted exchange, invocation, and scheduling rows are removed before the Account namespace;
+- content-free capability audit, encrypted exchange, invocation, and scheduling rows are removed before the Account namespace;
 - content-free row counts are merged into the immutable tombstone before its restore-ledger root is computed;
 - restore replay removes restored runner-control rows before recreating the same checkpoint.
 

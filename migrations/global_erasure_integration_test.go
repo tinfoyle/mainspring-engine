@@ -124,10 +124,11 @@ func TestPostgresGlobalErasureIsCrossStoreExactAndIdempotent(t *testing.T) {
 		GRANT SELECT,DELETE,UPDATE ON spyglass.account_namespaces,spyglass.account_audit_events,spyglass.work_item_number_counters,
 			spyglass.work_items,spyglass.work_item_events,spyglass.route_context_receipts,spyglass.work_capacity_release_queue,
 			spyglass.route_context_receipt_cleanup_queue,spyglass.work_capacity_release_operator_events,
-			spyglass.runner_account_scheduling,spyglass.runner_invocation_queue,spyglass.runner_invocation_exchanges TO `+cellFunctionRole+`;
+			spyglass.runner_account_scheduling,spyglass.runner_invocation_queue,spyglass.runner_invocation_exchanges,spyglass.runner_capability_events TO `+cellFunctionRole+`;
 		ALTER TABLE spyglass.account_erasure_tombstones OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_control(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_exchange(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
+		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_capability_audit(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_attest_account_cell_erasure(uuid,bytea) OWNER TO `+cellFunctionRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_erase_account_cell(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) TO `+cellOperatorRole+`;

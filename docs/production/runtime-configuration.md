@@ -265,7 +265,7 @@ The controller uses its in-cluster projected service-account token and CA only t
 
 The broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. Its database role has execute-only exchange authority. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
 
-Do not deploy the runner fleet until the executable broker/client boundary is consumed by the execution harness and protected by a tested NetworkPolicy/cancellation-aware capability-gateway path. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation and database exchange revocation are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+Do not deploy the runner fleet until real kind-specific executors, concrete capability handlers, and the durable consequential-action authorizer are wired into the generic harness/gateway and protected by a tested NetworkPolicy. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, and Pod-bound content-free audit are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
 
 ## Work release operator values
 

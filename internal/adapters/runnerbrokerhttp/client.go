@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -108,6 +109,31 @@ func (c *Client) Submit(ctx context.Context, result runnerbroker.Result) (bool, 
 	return accepted.NewlyCreated, nil
 }
 
+func (c *Client) Invoke(ctx context.Context, call runnercapability.Call) (runnercapability.Result, error) {
+	body, err := json.Marshal(call)
+	if err != nil || len(body) > runnercapability.MaximumInputBytes+64<<10 {
+		return runnercapability.Result{}, runnercapability.ErrInvalidCall
+	}
+	request, err := c.newRequest(ctx, http.MethodPost, "capabilities:invoke", body)
+	if err != nil {
+		return runnercapability.Result{}, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.http.Do(request)
+	if err != nil {
+		return runnercapability.Result{}, fmt.Errorf("invoke runner capability: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return runnercapability.Result{}, decodeError(response)
+	}
+	var result runnercapability.Result
+	if err := decodeJSON(response, &result); err != nil || result.SchemaVersion != runnercapability.SchemaVersion {
+		return runnercapability.Result{}, errors.New("runner capability gateway returned an invalid result")
+	}
+	return result, nil
+}
+
 func (c *Client) newRequest(ctx context.Context, method, suffix string, body []byte) (*http.Request, error) {
 	token, err := readToken(c.tokenFile)
 	if err != nil {
@@ -169,6 +195,18 @@ func decodeError(response *http.Response) error {
 		return runnerbroker.ErrExchangeExpired
 	case "runner_exchange_conflict":
 		return runnerbroker.ErrExchangeConflict
+	case "capability_call_invalid", "capability_call_too_large", "capability_json_required":
+		return runnercapability.ErrInvalidCall
+	case "capability_denied":
+		return runnerbroker.ErrCapabilityDenied
+	case "capability_unavailable":
+		return runnercapability.ErrUnavailable
+	case "capability_action_denied":
+		return runnercapability.ErrActionDenied
+	case "capability_execution_failed":
+		return runnercapability.ErrExecutionFailed
+	case "capability_audit_unavailable":
+		return runnercapability.ErrAuditUnavailable
 	default:
 		return fmt.Errorf("runner broker request failed with HTTP %d", response.StatusCode)
 	}

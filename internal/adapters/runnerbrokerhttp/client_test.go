@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
 )
 
 func TestClientRereadsProjectedTokenForEveryOperation(t *testing.T) {
@@ -35,6 +36,8 @@ func TestClientRereadsProjectedTokenForEveryOperation(t *testing.T) {
 		case "/internal/v1/runner/invocations/" + invocationID + "/result":
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"status":"accepted","newly_created":true}`))
+		case "/internal/v1/runner/invocations/" + invocationID + "/capabilities:invoke":
+			_, _ = w.Write([]byte(`{"schema_version":1,"output":{"items":[]}}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -54,9 +57,15 @@ func TestClientRereadsProjectedTokenForEveryOperation(t *testing.T) {
 	if err != nil || !created {
 		t.Fatalf("submit created=%v err=%v", created, err)
 	}
+	if err := os.WriteFile(tokenFile, []byte("token-three"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Invoke(context.Background(), runnercapability.Call{SchemaVersion: 1, OperationID: "41000000-0000-4000-8000-000000000001", Capability: "work:read", Input: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
 	mutex.Lock()
 	defer mutex.Unlock()
-	if len(seen) != 2 || seen[0] != "Bearer token-one" || seen[1] != "Bearer token-two" {
+	if len(seen) != 3 || seen[0] != "Bearer token-one" || seen[1] != "Bearer token-two" || seen[2] != "Bearer token-three" {
 		t.Fatalf("presented tokens=%v", seen)
 	}
 }

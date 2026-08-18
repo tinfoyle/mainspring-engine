@@ -31,6 +31,7 @@ var (
 	ErrExchangeNotReady = errors.New("runner exchange is not ready")
 	ErrExchangeCanceled = errors.New("runner exchange was canceled")
 	ErrExchangeExpired  = errors.New("runner exchange expired")
+	ErrCapabilityDenied = errors.New("runner capability was denied")
 	validKind           = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
 	validCapability     = regexp.MustCompile(`^[a-z][a-z0-9.:/-]{0,127}$`)
 	validErrorCode      = regexp.MustCompile(`^[a-z][a-z0-9_]{0,99}$`)
@@ -55,6 +56,14 @@ type Result struct {
 type ProvisionCommand struct {
 	Invocation runnercontrol.Invocation
 	Request    Request
+}
+
+type CapabilityGrant struct {
+	Identity   Identity
+	AccountID  ids.AccountID
+	Kind       string
+	Capability string
+	ExpiresAt  time.Time
 }
 
 type StoredRequest struct {
@@ -151,34 +160,56 @@ func (s *Service) Provision(ctx context.Context, command ProvisionCommand) (bool
 }
 
 func (s *Service) Fetch(ctx context.Context, token, invocationID string) (Request, error) {
+	_, request, _, err := s.fetchVerified(ctx, token, invocationID)
+	return request, err
+}
+
+func (s *Service) AuthorizeCapability(ctx context.Context, token, invocationID, capability string) (CapabilityGrant, error) {
+	if !validCapability.MatchString(capability) {
+		return CapabilityGrant{}, ErrCapabilityDenied
+	}
+	identity, request, accountID, err := s.fetchVerified(ctx, token, invocationID)
+	if err != nil {
+		return CapabilityGrant{}, err
+	}
+	index, found := slices.BinarySearch(request.Capabilities, capability)
+	if !found || index >= len(request.Capabilities) {
+		return CapabilityGrant{}, ErrCapabilityDenied
+	}
+	return CapabilityGrant{Identity: identity, AccountID: accountID, Kind: request.Kind, Capability: capability, ExpiresAt: request.ExpiresAt}, nil
+}
+
+func (s *Service) fetchVerified(ctx context.Context, token, invocationID string) (Identity, Request, ids.AccountID, error) {
 	identity, err := s.verifier.Verify(ctx, token, invocationID)
 	if err != nil {
-		return Request{}, err
+		return Identity{}, Request{}, "", err
 	}
 	stored, err := s.repository.Claim(ctx, identity, s.clock.Now().UTC())
 	if err != nil {
-		return Request{}, err
+		return Identity{}, Request{}, "", err
 	}
 	if stored.InvocationID != identity.InvocationID || stored.Profile != identity.Profile || ids.Validate(string(stored.AccountID)) != nil {
-		return Request{}, ErrIdentityDenied
+		return Identity{}, Request{}, "", ErrIdentityDenied
 	}
 	raw, err := s.cipher.open(stored.Ciphertext, stored.Nonce, stored.KeyVersion, requestAAD(stored.InvocationID, stored.AccountID, stored.Profile))
 	if err != nil || sha256.Sum256(raw) != stored.Digest {
-		return Request{}, ErrExchangeConflict
+		return Identity{}, Request{}, "", ErrExchangeConflict
 	}
 	var request Request
 	if err := json.Unmarshal(raw, &request); err != nil {
-		return Request{}, ErrExchangeConflict
+		return Identity{}, Request{}, "", ErrExchangeConflict
 	}
 	canonical, _, err := canonicalRequest(request, stored.CreatedAt, time.Time{})
 	if err != nil || !canonical.ExpiresAt.Equal(stored.ExpiresAt) {
-		return Request{}, ErrExchangeConflict
+		return Identity{}, Request{}, "", ErrExchangeConflict
 	}
 	if !canonical.ExpiresAt.After(s.clock.Now().UTC()) {
-		return Request{}, ErrExchangeExpired
+		return Identity{}, Request{}, "", ErrExchangeExpired
 	}
-	return canonical, nil
+	return identity, canonical, stored.AccountID, nil
 }
+
+func ValidCapability(value string) bool { return validCapability.MatchString(value) }
 
 func (s *Service) Submit(ctx context.Context, token, invocationID string, result Result) (bool, error) {
 	identity, err := s.verifier.Verify(ctx, token, invocationID)

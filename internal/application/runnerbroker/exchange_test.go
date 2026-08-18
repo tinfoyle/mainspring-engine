@@ -111,6 +111,13 @@ func TestExchangeFetchBindsVerifiedIdentityAndSupportsKeyRotation(t *testing.T) 
 	if err != nil || fetched.Kind != request.Kind || verifier.calls != 1 || repository.claimCalls != 1 {
 		t.Fatalf("fetch=%+v verifier=%d claims=%d err=%v", fetched, verifier.calls, repository.claimCalls, err)
 	}
+	grant, err := service.AuthorizeCapability(context.Background(), "bound-token", verifier.identity.InvocationID, "work:read")
+	if err != nil || grant.AccountID != accountID || grant.Identity.PodUID != verifier.identity.PodUID || grant.Capability != "work:read" {
+		t.Fatalf("capability grant=%+v err=%v", grant, err)
+	}
+	if _, err := service.AuthorizeCapability(context.Background(), "bound-token", verifier.identity.InvocationID, "email:send"); !errors.Is(err, ErrCapabilityDenied) {
+		t.Fatalf("ungranted capability=%v", err)
+	}
 	repository.claimed.Ciphertext[0] ^= 0xff
 	if _, err := service.Fetch(context.Background(), "bound-token", verifier.identity.InvocationID); !errors.Is(err, ErrExchangeConflict) {
 		t.Fatalf("tampered request=%v", err)
