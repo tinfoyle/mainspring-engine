@@ -373,6 +373,14 @@ func (q *RunnerControlQueue) Complete(ctx context.Context, invocationID, jobName
 	return nil
 }
 
+func (q *RunnerControlQueue) PruneTerminalPayloads(ctx context.Context, cutoff, prunedAt time.Time, limit int) (int64, error) {
+	var count int64
+	if err := q.pool.QueryRow(ctx, `SELECT public.spyglass_prune_runner_terminal_payloads($1,$2,$3)`, cutoff.UTC(), prunedAt.UTC(), limit).Scan(&count); err != nil {
+		return 0, fmt.Errorf("prune terminal runner payloads: %w", err)
+	}
+	return count, nil
+}
+
 func (q *RunnerControlQueue) ClaimReconciliationCandidates(ctx context.Context, now time.Time, interval time.Duration, limit int) ([]runnercontrol.Invocation, error) {
 	rows, err := q.pool.Query(ctx, `
 		WITH candidates AS (

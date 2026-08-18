@@ -16,12 +16,12 @@ import (
 )
 
 type Config struct {
-	CellDatabaseURL     string
-	MaxDatabaseConns    int32
-	PollInterval, Lease time.Duration
-	MaxAttempts         int
-	InspectionBatch     int
-	Kubernetes          kubernetes.Config
+	CellDatabaseURL                          string
+	MaxDatabaseConns                         int32
+	PollInterval, Lease, CleanupInterval     time.Duration
+	PayloadRetention                         time.Duration
+	MaxAttempts, InspectionBatch, PruneBatch int
+	Kubernetes                               kubernetes.Config
 }
 
 type Status struct {
@@ -38,15 +38,16 @@ type Status struct {
 type processor interface {
 	ProcessOne(context.Context) (bool, error)
 	ReconcileJobs(context.Context, int) (int, error)
+	PruneTerminalPayloads(context.Context, time.Duration, int) (int64, error)
 	Stats(context.Context) (runnercontrol.Stats, error)
 }
 
 type Worker struct {
-	pool            *pgxpool.Pool
-	processor       processor
-	poll            time.Duration
-	inspectionBatch int
-	logger          *slog.Logger
+	pool                                    *pgxpool.Pool
+	processor                               processor
+	poll, cleanupInterval, payloadRetention time.Duration
+	inspectionBatch, pruneBatch             int
+	logger                                  *slog.Logger
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
@@ -65,7 +66,16 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 	if config.InspectionBatch == 0 {
 		config.InspectionBatch = 100
 	}
-	if config.PollInterval < 100*time.Millisecond || config.PollInterval > time.Minute || config.Lease < time.Second || config.Lease > 30*time.Minute || config.MaxAttempts < 1 || config.MaxAttempts > 100 || config.InspectionBatch < 1 || config.InspectionBatch > 1000 {
+	if config.CleanupInterval == 0 {
+		config.CleanupInterval = time.Hour
+	}
+	if config.PayloadRetention == 0 {
+		config.PayloadRetention = runnercontrol.DefaultPayloadRetention
+	}
+	if config.PruneBatch == 0 {
+		config.PruneBatch = runnercontrol.DefaultPruneBatch
+	}
+	if config.PollInterval < 100*time.Millisecond || config.PollInterval > time.Minute || config.Lease < time.Second || config.Lease > 30*time.Minute || config.MaxAttempts < 1 || config.MaxAttempts > 100 || config.InspectionBatch < 1 || config.InspectionBatch > 1000 || config.CleanupInterval < time.Minute || config.CleanupInterval > 24*time.Hour || config.PayloadRetention < time.Hour || config.PayloadRetention > 30*24*time.Hour || config.PruneBatch < 1 || config.PruneBatch > runnercontrol.MaximumPruneBatch {
 		return nil, errors.New("runner controller scheduling configuration is out of bounds")
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.CellDatabaseURL)
@@ -98,11 +108,20 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	return &Worker{pool: pool, processor: service, poll: config.PollInterval, inspectionBatch: config.InspectionBatch, logger: logger}, nil
+	return &Worker{pool: pool, processor: service, poll: config.PollInterval, cleanupInterval: config.CleanupInterval, payloadRetention: config.PayloadRetention, inspectionBatch: config.InspectionBatch, pruneBatch: config.PruneBatch, logger: logger}, nil
 }
 
 func (w *Worker) Run(ctx context.Context) error {
+	cleanup := time.NewTicker(w.cleanupInterval)
+	defer cleanup.Stop()
 	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-cleanup.C:
+			w.pruneTerminalPayloads(ctx)
+		default:
+		}
 		worked, err := w.cycle(ctx)
 		if ctx.Err() != nil {
 			return nil
@@ -120,8 +139,27 @@ func (w *Worker) Run(ctx context.Context) error {
 				<-timer.C
 			}
 			return nil
+		case <-cleanup.C:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			w.pruneTerminalPayloads(ctx)
 		case <-timer.C:
 		}
+	}
+}
+
+func (w *Worker) pruneTerminalPayloads(ctx context.Context) {
+	count, err := w.processor.PruneTerminalPayloads(ctx, w.payloadRetention, w.pruneBatch)
+	if err != nil {
+		w.logger.Error("Prune terminal runner payloads", "error", err)
+		return
+	}
+	if count > 0 {
+		w.logger.Info("Pruned terminal runner payloads", "count", count, "retention_seconds", int64(w.payloadRetention/time.Second))
 	}
 }
 

@@ -61,7 +61,7 @@ func TestRunnerJobIsHardenedAndTerminalStateIsObserved(t *testing.T) {
 		t.Fatalf("Linux capabilities not dropped: %#v", security)
 	}
 	args := container["args"].([]any)
-	if len(args) != 4 || args[0] != "runner-invocation" || args[2] != "--invocation-id="+invocation.ID || args[3] != "--identity-token-file="+runnerIdentityTokenFile {
+	if len(args) != 5 || args[0] != "runner-invocation" || args[2] != "--invocation-id="+invocation.ID || args[3] != "--identity-token-file="+runnerIdentityTokenFile || args[4] != "--broker-ca-file="+runnerBrokerCAFile {
 		t.Fatalf("runner arguments=%#v", args)
 	}
 	identityVolume := template["volumes"].([]any)[2].(map[string]any)["projected"].(map[string]any)
@@ -72,6 +72,15 @@ func TestRunnerJobIsHardenedAndTerminalStateIsObserved(t *testing.T) {
 	identityMount := container["volumeMounts"].([]any)[2].(map[string]any)
 	if identityMount["mountPath"] != runnerIdentityDirectory || !identityMount["readOnly"].(bool) {
 		t.Fatalf("runner identity mount=%#v", identityMount)
+	}
+	caVolume := template["volumes"].([]any)[3].(map[string]any)["configMap"].(map[string]any)
+	caItem := caVolume["items"].([]any)[0].(map[string]any)
+	if caVolume["name"] != "runner-broker-ca" || caVolume["defaultMode"].(float64) != 0o444 || caItem["key"] != "ca.crt" || caItem["path"] != "ca.crt" {
+		t.Fatalf("runner broker CA volume=%#v", caVolume)
+	}
+	caMount := container["volumeMounts"].([]any)[3].(map[string]any)
+	if caMount["mountPath"] != runnerBrokerCADirectory || !caMount["readOnly"].(bool) {
+		t.Fatalf("runner broker CA mount=%#v", caMount)
 	}
 
 	invocation.JobName = name
@@ -255,6 +264,11 @@ func TestRunnerJobConfigurationRejectsUnboundedInputs(t *testing.T) {
 	if _, err := NewRunnerJobs(config); err == nil {
 		t.Fatal("tag-only runner image accepted")
 	}
+	config = testConfig(nil)
+	config.RunnerBrokerCAConfigMap = ""
+	if _, err := NewRunnerJobs(config); err == nil {
+		t.Fatal("missing runner broker CA ConfigMap accepted")
+	}
 }
 
 func newTestLauncher(t *testing.T, server *httptest.Server) *RunnerJobs {
@@ -271,7 +285,7 @@ func newTestLauncher(t *testing.T, server *httptest.Server) *RunnerJobs {
 func testConfig(client *http.Client) Config {
 	return Config{
 		Endpoint: "https://kubernetes.invalid", Namespace: "spyglass-reference", BearerToken: "controller-token", HTTPClient: client,
-		RunnerImage: "registry.invalid/infinite-ocean/spyglass-runner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", RunnerServiceAccount: "runner", RunnerRuntimeClass: "gvisor", BrokerURL: "https://runner-broker.spyglass-reference.svc.cluster.local",
+		RunnerImage: "registry.invalid/infinite-ocean/spyglass-runner@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", RunnerServiceAccount: "runner", RunnerRuntimeClass: "gvisor", BrokerURL: "https://runner-broker.spyglass-reference.svc.cluster.local", RunnerBrokerCAConfigMap: "runner-broker-ca",
 		ActiveDeadlineSeconds: 900, TTLSecondsAfterFinished: 3600,
 		Profiles: map[string]ResourceProfile{"agent-small": {CPURequest: "250m", CPULimit: "1", MemoryRequest: "256Mi", MemoryLimit: "1Gi", EphemeralStorageLimit: "1Gi"}},
 	}

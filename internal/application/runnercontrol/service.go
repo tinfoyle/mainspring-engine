@@ -14,9 +14,12 @@ import (
 )
 
 const (
-	DefaultLease       = 2 * time.Minute
-	DefaultMaxAttempts = 8
-	InspectionInterval = 10 * time.Second
+	DefaultLease            = 2 * time.Minute
+	DefaultMaxAttempts      = 8
+	InspectionInterval      = 10 * time.Second
+	DefaultPayloadRetention = 24 * time.Hour
+	DefaultPruneBatch       = 500
+	MaximumPruneBatch       = 1000
 )
 
 var (
@@ -65,6 +68,7 @@ type Queue interface {
 	ConfirmLaunch(context.Context, Invocation, time.Time) error
 	ResolveLaunchAbsent(context.Context, Invocation, time.Time, time.Time, string, bool) error
 	Complete(context.Context, string, string, string, time.Time) error
+	PruneTerminalPayloads(context.Context, time.Time, time.Time, int) (int64, error)
 	Stats(context.Context, time.Time) (Stats, error)
 }
 
@@ -240,6 +244,17 @@ func (s *Service) Complete(ctx context.Context, invocationID, jobName, outcome s
 		return ErrInvalidInvocation
 	}
 	return s.queue.Complete(ctx, invocationID, jobName, outcome, s.clock.Now().UTC())
+}
+
+// PruneTerminalPayloads destroys encrypted request/result envelopes after a
+// bounded recovery window. Identifier-only lifecycle, hashes, action state,
+// and capability audit remain available under their separate retention rules.
+func (s *Service) PruneTerminalPayloads(ctx context.Context, retention time.Duration, limit int) (int64, error) {
+	if retention < time.Hour || retention > 30*24*time.Hour || limit < 1 || limit > MaximumPruneBatch {
+		return 0, ErrInvalidInvocation
+	}
+	now := s.clock.Now().UTC()
+	return s.queue.PruneTerminalPayloads(ctx, now.Add(-retention), now, limit)
 }
 
 func retryDelay(attempt int) time.Duration {

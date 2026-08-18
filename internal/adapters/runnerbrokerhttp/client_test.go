@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -67,6 +68,34 @@ func TestClientRereadsProjectedTokenForEveryOperation(t *testing.T) {
 	defer mutex.Unlock()
 	if len(seen) != 3 || seen[0] != "Bearer token-one" || seen[1] != "Bearer token-two" || seen[2] != "Bearer token-three" {
 		t.Fatalf("presented tokens=%v", seen)
+	}
+}
+
+func TestClientTrustsOnlyConfiguredPrivateBrokerCA(t *testing.T) {
+	invocationID := "11000000-0000-4000-8000-000000000001"
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("valid-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(runnerbroker.Request{SchemaVersion: 1, Kind: "work.summary.snapshot", Input: json.RawMessage(`{}`), ExpiresAt: time.Now().Add(time.Hour)})
+	}))
+	defer server.Close()
+	caFile := filepath.Join(t.TempDir(), "ca.crt")
+	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	if err := os.WriteFile(caFile, certificate, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(Config{BrokerURL: server.URL, InvocationID: invocationID, IdentityTokenFile: tokenFile, RootCAFile: caFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Fetch(context.Background()); err != nil {
+		t.Fatalf("private broker CA was not trusted: %v", err)
+	}
+	if _, err := New(Config{BrokerURL: server.URL, InvocationID: invocationID, IdentityTokenFile: tokenFile, RootCAFile: tokenFile}); err == nil {
+		t.Fatal("non-certificate broker trust file was accepted")
 	}
 }
 

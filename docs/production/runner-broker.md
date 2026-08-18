@@ -18,6 +18,8 @@ The Job sets `automountServiceAccountToken: false` and explicitly projects one t
 
 Its intended audience is the broker rather than the Kubernetes API server. Deployment must prove the broker URL is not configured as an API-server audience; the runner's empty RBAC remains an independent defense. The runner must reread the projected file for each broker operation so kubelet rotation is effective.
 
+The Job also mounts one read-only, namespace-local immutable ConfigMap key `ca.crt` at a fixed broker-CA path. The ConfigMap name is part of the launch-contract digest, and `runner-invocation` refuses to start without the explicit CA file. This trust bundle authenticates the private broker endpoint; it grants no workload identity and contains no client key. Rotation uses a new overlapping immutable ConfigMap name and therefore a new Job contract.
+
 ## Online verification chain
 
 For every payload or result operation, the broker verifier:
@@ -67,7 +69,7 @@ Producer and broker roles receive execute-only functions and no direct queue or 
 
 ## Execution and capability boundary
 
-The generic runner harness fetches one admitted request, selects only a compiled kind-specific executor, supplies that executor a broker-backed capability client, canonicalizes one bounded object result, and submits exactly one terminal envelope. Unsupported kinds, executor machine failures, and invalid output submit `execution_failed`; private executor errors never cross the boundary.
+The `runner-invocation` process fetches one admitted request, selects only a compiled kind-specific executor, supplies that executor a broker-backed capability client, canonicalizes one bounded object result, and submits exactly one terminal envelope. Unsupported kinds, executor machine failures, and invalid output submit `execution_failed`; private executor errors never cross the boundary. The first concrete kind, `work.summary.snapshot`, accepts only a UUID operation ID and requires the exact `work.summary.read` grant. It cannot accept an Account selector or call another capability.
 
 Every capability call carries a UUID operation ID, a canonical object input capped at 256 KiB, and one capability code from the admitted request. The gateway repeats online TokenReview, exact Pod/Job identity verification, durable launch/cancellation state checking, envelope decryption, and capability membership checking for every call. It then applies a fixed registered handler timeout and caps canonical object output at 256 KiB. Provider credentials remain in the handler service and never reach the runner.
 
@@ -77,7 +79,7 @@ Mandatory pre/post capability audit writes are content-free and accepted only wh
 
 The capability transport is mounted with the first concrete read-only handler, `work.summary.read`. The handler never reads a cell database. It signs a distinct, short-lived `SPYGLASS-TOOL` context bound to Account, invocation, Pod, operation, capability, HTTP target, semantic headers, and exact `{}` input. The app router consumes that proof once in the global `tool_context_receipts` ledger, reloads current Account state and the latest entitlement snapshot through the workload-only authorizer, resolves current placement, and emits a fresh workload route context for the fixed cell Work-summary query. Tool proofs use a separate issuer/keyring and cannot authenticate browser, route-context, or Kubernetes boundaries.
 
-Only `work.summary.read` is registered. The durable action authorizer is constructed by the broker, but no consequential definition is mounted until a real provider adapter supports stable idempotency and side-effect-free reconciliation. Explicit failed-action retry, manual resolution/redacted views, the full Attention approval aggregate, kind-specific `runner-invocation` executors, terminal retention, and capability policy at provisioning remain.
+Only `work.summary.read` is registered. The durable action authorizer is constructed by the broker, but no consequential definition is mounted until a real provider adapter supports stable idempotency and side-effect-free reconciliation. Terminal queue completion remains identifier-only; a bounded SKIP-LOCKED retention function destroys encrypted request/result envelopes after the configured recovery window without deleting hashes, action state, or capability audit. Explicit failed-action retry, manual resolution/redacted views, the full Attention approval aggregate, Agents/model-provider executors, longer-lived action/audit retention policy, and capability policy at provisioning remain.
 
 Cancellation revocation must also be enforced by every provider/tool gateway. Pod deletion or broker denial cannot erase plaintext already in runner memory, so a canceled or partitioned runner must have no direct provider, connector, customer-service, or unrestricted internet path on which it can continue side effects.
 
@@ -87,6 +89,7 @@ Cancellation revocation must also be enforced by every provider/tool gateway. Po
 - Malformed and oversized tokens are denied before a Kubernetes request.
 - Kubernetes errors disclose neither presented token nor customer identifiers.
 - Runner Job render contains no default token and exactly one broker-audience projection.
+- Runner Job render mounts the exact broker CA ConfigMap read-only, and the runner refuses a missing or invalid trust bundle.
 - The projected broker token is rejected when presented directly to the Kubernetes API, and the runner ServiceAccount has no authorized API action even under audience misconfiguration.
 - Applied RBAC proves the broker can review tokens and get exact Pod/Job objects but cannot list or mutate workloads.
 - Pod deletion causes the next TokenReview/broker operation to fail.

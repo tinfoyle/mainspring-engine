@@ -27,6 +27,8 @@ const (
 	serviceAccountDirectory = "/var/run/secrets/kubernetes.io/serviceaccount"
 	runnerIdentityDirectory = "/var/run/secrets/spyglass.io/runner-identity"
 	runnerIdentityTokenFile = runnerIdentityDirectory + "/token"
+	runnerBrokerCADirectory = "/var/run/secrets/spyglass.io/broker-ca"
+	runnerBrokerCAFile      = runnerBrokerCADirectory + "/ca.crt"
 	runnerTokenLifetime     = int64(600)
 	maximumResponseBytes    = 64 << 10
 )
@@ -44,6 +46,7 @@ type ResourceProfile struct {
 type Config struct {
 	Endpoint, Namespace, BearerToken               string
 	RunnerImage, RunnerServiceAccount, BrokerURL   string
+	RunnerBrokerCAConfigMap                        string
 	RunnerRuntimeClass                             string
 	HTTPClient                                     *http.Client
 	Profiles                                       map[string]ResourceProfile
@@ -51,10 +54,10 @@ type Config struct {
 }
 
 type RunnerJobs struct {
-	endpoint, namespace, token, image, serviceAccount, runtimeClass, brokerURL string
-	http                                                                       *http.Client
-	profiles                                                                   map[string]ResourceProfile
-	activeDeadline, ttl                                                        int64
+	endpoint, namespace, token, image, serviceAccount, runtimeClass, brokerURL, brokerCAConfigMap string
+	http                                                                                          *http.Client
+	profiles                                                                                      map[string]ResourceProfile
+	activeDeadline, ttl                                                                           int64
 }
 
 func NewRunnerJobs(config Config) (*RunnerJobs, error) {
@@ -63,7 +66,7 @@ func NewRunnerJobs(config Config) (*RunnerJobs, error) {
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && !(parsed.Scheme == "http" && config.HTTPClient != nil)) {
 		return nil, errors.New("Kubernetes API endpoint is invalid")
 	}
-	if !dnsLabel.MatchString(config.Namespace) || !dnsLabel.MatchString(config.RunnerServiceAccount) || !dnsLabel.MatchString(config.RunnerRuntimeClass) || strings.TrimSpace(config.BearerToken) == "" {
+	if !dnsLabel.MatchString(config.Namespace) || !dnsLabel.MatchString(config.RunnerServiceAccount) || !dnsLabel.MatchString(config.RunnerRuntimeClass) || !dnsLabel.MatchString(config.RunnerBrokerCAConfigMap) || strings.TrimSpace(config.BearerToken) == "" {
 		return nil, errors.New("Kubernetes namespace, runner service account, runtime class, and bearer token are required")
 	}
 	if len(config.RunnerImage) > 500 || !digestImage.MatchString(config.RunnerImage) {
@@ -90,7 +93,7 @@ func NewRunnerJobs(config Config) (*RunnerJobs, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
-	return &RunnerJobs{endpoint: endpoint, namespace: config.Namespace, token: strings.TrimSpace(config.BearerToken), image: config.RunnerImage, serviceAccount: config.RunnerServiceAccount, runtimeClass: config.RunnerRuntimeClass, brokerURL: config.BrokerURL, http: client, profiles: profiles, activeDeadline: config.ActiveDeadlineSeconds, ttl: config.TTLSecondsAfterFinished}, nil
+	return &RunnerJobs{endpoint: endpoint, namespace: config.Namespace, token: strings.TrimSpace(config.BearerToken), image: config.RunnerImage, serviceAccount: config.RunnerServiceAccount, runtimeClass: config.RunnerRuntimeClass, brokerURL: config.BrokerURL, brokerCAConfigMap: config.RunnerBrokerCAConfigMap, http: client, profiles: profiles, activeDeadline: config.ActiveDeadlineSeconds, ttl: config.TTLSecondsAfterFinished}, nil
 }
 
 // NewInClusterRunnerJobs uses the projected service-account token and CA. The
@@ -285,10 +288,10 @@ func uncertainLaunch(name string, cause error) (string, error) {
 
 func (k *RunnerJobs) job(invocation runnercontrol.Invocation, name string, profile ResourceProfile) (map[string]any, string, error) {
 	contractInput := struct {
-		Invocation, Profile, Image, ServiceAccount, RuntimeClass, Broker string
-		Resources                                                        ResourceProfile
-		Deadline, TTL, TokenLifetime                                     int64
-	}{invocation.ID, invocation.Profile, k.image, k.serviceAccount, k.runtimeClass, k.brokerURL, profile, k.activeDeadline, k.ttl, runnerTokenLifetime}
+		Invocation, Profile, Image, ServiceAccount, RuntimeClass, Broker, BrokerCAConfigMap string
+		Resources                                                                           ResourceProfile
+		Deadline, TTL, TokenLifetime                                                        int64
+	}{invocation.ID, invocation.Profile, k.image, k.serviceAccount, k.runtimeClass, k.brokerURL, k.brokerCAConfigMap, profile, k.activeDeadline, k.ttl, runnerTokenLifetime}
 	rawContract, err := json.Marshal(contractInput)
 	if err != nil {
 		return nil, "", err
@@ -309,15 +312,16 @@ func (k *RunnerJobs) job(invocation runnercontrol.Invocation, name string, profi
 					"securityContext": map[string]any{"runAsNonRoot": true, "runAsUser": int64(65532), "runAsGroup": int64(65532), "fsGroup": int64(65532), "seccompProfile": map[string]any{"type": "RuntimeDefault"}},
 					"containers": []any{map[string]any{
 						"name": "runner", "image": k.image, "imagePullPolicy": "IfNotPresent", "workingDir": "/work",
-						"args":            []string{"runner-invocation", "--broker-url=" + k.brokerURL, "--invocation-id=" + invocation.ID, "--identity-token-file=" + runnerIdentityTokenFile},
+						"args":            []string{"runner-invocation", "--broker-url=" + k.brokerURL, "--invocation-id=" + invocation.ID, "--identity-token-file=" + runnerIdentityTokenFile, "--broker-ca-file=" + runnerBrokerCAFile},
 						"resources":       map[string]any{"requests": map[string]string{"cpu": profile.CPURequest, "memory": profile.MemoryRequest}, "limits": map[string]string{"cpu": profile.CPULimit, "memory": profile.MemoryLimit, "ephemeral-storage": profile.EphemeralStorageLimit}},
 						"securityContext": containerSecurity,
-						"volumeMounts":    []any{map[string]any{"name": "work", "mountPath": "/work"}, map[string]any{"name": "tmp", "mountPath": "/tmp"}, map[string]any{"name": "broker-identity", "mountPath": runnerIdentityDirectory, "readOnly": true}},
+						"volumeMounts":    []any{map[string]any{"name": "work", "mountPath": "/work"}, map[string]any{"name": "tmp", "mountPath": "/tmp"}, map[string]any{"name": "broker-identity", "mountPath": runnerIdentityDirectory, "readOnly": true}, map[string]any{"name": "broker-ca", "mountPath": runnerBrokerCADirectory, "readOnly": true}},
 					}},
 					"volumes": []any{
 						map[string]any{"name": "work", "emptyDir": map[string]any{"sizeLimit": profile.EphemeralStorageLimit}},
 						map[string]any{"name": "tmp", "emptyDir": map[string]any{"medium": "Memory", "sizeLimit": "64Mi"}},
 						map[string]any{"name": "broker-identity", "projected": map[string]any{"defaultMode": int32(0o400), "sources": []any{map[string]any{"serviceAccountToken": map[string]any{"audience": k.brokerURL, "expirationSeconds": runnerTokenLifetime, "path": "token"}}}}},
+						map[string]any{"name": "broker-ca", "configMap": map[string]any{"name": k.brokerCAConfigMap, "defaultMode": int32(0o444), "items": []any{map[string]any{"key": "ca.crt", "path": "ca.crt"}}}},
 					},
 				},
 			},

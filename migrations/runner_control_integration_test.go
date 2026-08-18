@@ -48,6 +48,8 @@ func TestRunnerControlFairnessRecoveryAndLeastPrivilege(t *testing.T) {
 		GRANT EXECUTE ON FUNCTION public.spyglass_configure_runner_account(uuid,integer,integer,timestamptz) TO `+producerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_enqueue_runner_invocation(uuid,uuid,text,timestamptz) TO `+producerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_cancel_runner_invocation(uuid,uuid,timestamptz) TO `+producerRole+`;
+		GRANT USAGE ON SCHEMA public TO `+controllerRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_prune_runner_terminal_payloads(timestamptz,timestamptz,integer) TO `+controllerRole+`;
 		GRANT USAGE ON SCHEMA spyglass TO `+controllerRole+`;
 		GRANT SELECT,UPDATE ON spyglass.runner_account_scheduling TO `+controllerRole+`;
 		GRANT SELECT,UPDATE ON spyglass.runner_invocation_queue TO `+controllerRole); err != nil {
@@ -73,6 +75,9 @@ func TestRunnerControlFairnessRecoveryAndLeastPrivilege(t *testing.T) {
 	}
 	if err := controller.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_items`).Scan(&forbiddenCount); err == nil {
 		t.Fatal("runner controller read customer Work")
+	}
+	if err := controller.QueryRow(ctx, `SELECT count(*) FROM spyglass.runner_invocation_exchanges`).Scan(&forbiddenCount); err == nil {
+		t.Fatal("runner controller directly read encrypted exchanges")
 	}
 	if _, err := controller.Exec(ctx, `INSERT INTO spyglass.runner_invocation_queue(invocation_id,account_id,profile,processing_state,next_attempt_at,queued_at) VALUES ('34000000-0000-4000-8000-000000000004',$1,'agent-small','queued',$2,$2)`, accountA, now); err == nil {
 		t.Fatal("runner controller manufactured an invocation")
@@ -154,6 +159,72 @@ func TestRunnerControlFairnessRecoveryAndLeastPrivilege(t *testing.T) {
 	}
 	if state, err := producerQueue.RequestCancellation(ctx, accountA, first.ID, now.Add(2*time.Second)); err != nil || state != "completed" {
 		t.Fatalf("completion-wins cancellation state=%q err=%v", state, err)
+	}
+	retentionTx, err := owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := retentionTx.Exec(ctx, `SELECT set_config('app.account_id',$1::text,true)`, accountA); err != nil {
+		t.Fatal(err)
+	}
+	requestDigest := make([]byte, 32)
+	resultDigest := make([]byte, 32)
+	requestDigest[0], resultDigest[0] = 1, 2
+	if _, err := retentionTx.Exec(ctx, `INSERT INTO spyglass.runner_invocation_exchanges
+		(account_id,invocation_id,request_ciphertext,request_nonce,request_key_version,request_digest,request_expires_at,
+		 bound_pod_uid,bound_at,last_fetched_at,fetch_count,result_outcome,result_ciphertext,result_nonce,result_key_version,result_digest,result_submitted_at,created_at)
+		VALUES ($1,$2,decode(repeat('aa',17),'hex'),decode(repeat('bb',12),'hex'),7,$3,$4,
+		'35000000-0000-4000-8000-000000000005',$5,$5,1,'completed',decode(repeat('cc',17),'hex'),decode(repeat('dd',12),'hex'),7,$6,$5,$5)`,
+		accountA, first.ID, requestDigest, now.Add(time.Hour), now, resultDigest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := retentionTx.Exec(ctx, `INSERT INTO spyglass.runner_invocation_exchanges
+		(account_id,invocation_id,request_ciphertext,request_nonce,request_key_version,request_digest,request_expires_at,created_at)
+		VALUES ($1,$2,decode(repeat('aa',17),'hex'),decode(repeat('bb',12),'hex'),7,$3,$4,$5)`,
+		accountA, invocationA2.ID, requestDigest, now.Add(time.Hour), now); err != nil {
+		t.Fatal(err)
+	}
+	if err := retentionTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pruned, err := controllerQueue.PruneTerminalPayloads(ctx, now.Add(2*time.Second), now.Add(3*time.Second), 100)
+	if err != nil || pruned != 1 {
+		t.Fatalf("terminal payload prune count=%d err=%v", pruned, err)
+	}
+	if pruned, err := controllerQueue.PruneTerminalPayloads(ctx, now.Add(2*time.Second), now.Add(4*time.Second), 100); err != nil || pruned != 0 {
+		t.Fatalf("idempotent terminal payload prune count=%d err=%v", pruned, err)
+	}
+	verificationTx, err := owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer verificationTx.Rollback(context.Background())
+	if _, err := verificationTx.Exec(ctx, `SELECT set_config('app.account_id',$1::text,true)`, accountA); err != nil {
+		t.Fatal(err)
+	}
+	var requestBytes, resultBytes int
+	var storedRequestDigest, storedResultDigest []byte
+	var payloadPurgedAt time.Time
+	if err := verificationTx.QueryRow(ctx, `SELECT octet_length(request_ciphertext),octet_length(result_ciphertext),request_digest,result_digest,terminal_payload_purged_at
+		FROM spyglass.runner_invocation_exchanges WHERE account_id=$1 AND invocation_id=$2`, accountA, first.ID).Scan(&requestBytes, &resultBytes, &storedRequestDigest, &storedResultDigest, &payloadPurgedAt); err != nil {
+		t.Fatal(err)
+	}
+	if requestBytes != 17 || resultBytes != 17 || storedRequestDigest[0] != 1 || storedResultDigest[0] != 2 || !payloadPurgedAt.Equal(now.Add(3*time.Second)) {
+		t.Fatalf("retained terminal metadata request=%d result=%d request_digest=%x result_digest=%x purged=%v", requestBytes, resultBytes, storedRequestDigest, storedResultDigest, payloadPurgedAt)
+	}
+	var requestSentinel, resultSentinel bool
+	if err := verificationTx.QueryRow(ctx, `SELECT request_ciphertext=decode(repeat('00',17),'hex'),result_ciphertext=decode(repeat('00',17),'hex')
+		FROM spyglass.runner_invocation_exchanges WHERE account_id=$1 AND invocation_id=$2`, accountA, first.ID).Scan(&requestSentinel, &resultSentinel); err != nil || !requestSentinel || !resultSentinel {
+		t.Fatalf("terminal envelopes were not destroyed request=%v result=%v err=%v", requestSentinel, resultSentinel, err)
+	}
+	var liveUntouched bool
+	var livePurgedAt *time.Time
+	if err := verificationTx.QueryRow(ctx, `SELECT request_ciphertext=decode(repeat('aa',17),'hex'),terminal_payload_purged_at
+		FROM spyglass.runner_invocation_exchanges WHERE account_id=$1 AND invocation_id=$2`, accountA, invocationA2.ID).Scan(&liveUntouched, &livePurgedAt); err != nil || !liveUntouched || livePurgedAt != nil {
+		t.Fatalf("nonterminal envelope changed untouched=%v purged=%v err=%v", liveUntouched, livePurgedAt, err)
+	}
+	if err := verificationTx.Commit(ctx); err != nil {
+		t.Fatal(err)
 	}
 	third, found, err := controllerQueue.ClaimFair(ctx, now.Add(2*time.Second), lease)
 	if err != nil || !found || third.ID != invocationA2.ID || third.AttemptCount != 1 {

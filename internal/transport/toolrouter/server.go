@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
@@ -28,7 +29,7 @@ const (
 	ContextHeader          = "X-Spyglass-Tool-Context"
 	DefaultMaxRequestBody  = int64(256 << 10)
 	DefaultMaxResponseBody = int64(256 << 10)
-	WorkSummaryCapability  = "work.summary.read"
+	WorkSummaryCapability  = runnercapability.WorkSummaryCapability
 )
 
 type Acceptor interface {

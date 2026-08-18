@@ -1,6 +1,6 @@
 # Fair Runner Control Plane
 
-- Status: Kubernetes lifecycle and encrypted invocation exchange executable; broker HTTP transport, runner client, manifests, and applied evidence pending
+- Status: Kubernetes lifecycle, compiled Work executor, encrypted exchange, and terminal payload destruction executable; manifests and applied evidence pending
 - Product: Infinite Ocean: Spyglass
 - Parent: [Pooled Kubernetes and Cell Architecture](kubernetes-topology.md)
 
@@ -10,7 +10,7 @@ Spyglass runs bounded asynchronous invocations in a shared cell fleet. It does n
 
 The scheduling policy is independent of Kubernetes. PostgreSQL owns durable admission, Account fairness, concurrency, launch leases, retries, and terminal state. A launcher adapter owns idempotent interaction with the cluster. This keeps business policy testable without a cluster and permits another execution substrate without rewriting admission semantics.
 
-The `spyglass runner-controller` process now performs durable fair claims, idempotent Kubernetes Job creation, due-time terminal inspection, exact foreground cancellation, and exact capacity release. It intentionally has no reference Deployment yet: the production invocation broker, runner workload identity, environment-specific Kubernetes API egress, and verified runner image are not complete, so promoting a manifest would create an attractive but incomplete execution surface.
+The `spyglass runner-controller` process performs durable fair claims, idempotent Kubernetes Job creation, due-time terminal inspection, exact foreground cancellation, exact capacity release, and bounded terminal-envelope destruction. It intentionally has no reference Deployment yet: environment-specific Kubernetes API egress, narrow RBAC, NetworkPolicy, sandbox RuntimeClass, and a verified digest-pinned runner image must be supplied and proven together before promotion.
 
 ## Control record and payload boundary
 
@@ -103,6 +103,12 @@ Completion binds both invocation UUID and Job name. A repeated identical complet
 
 The Kubernetes reconciler treats a missing launched Job as an error and keeps Account capacity allocated. A missing canceling Job is terminal evidence only after the controller issued the exact idempotent delete. Successful and failed Job conditions become `completed` and `execution_failed` for launched or launch-uncertain rows; a committed cancellation request wins and proceeds to absence. Inspection verifies the immutable invocation, profile, and launch-contract digest before trusting a Job condition.
 
+## Terminal payload retention
+
+Terminal queue state, request/result SHA-256 digests, action state, and content-free capability audit remain available under separate operational and compliance policies. The encrypted customer-bearing request and result envelopes do not remain indefinitely. Every controller replica periodically calls one execute-only security-definer function that locks at most the configured terminal batch with `FOR UPDATE SKIP LOCKED`, enters the exact Account RLS scope, and overwrites both envelopes and nonces with fixed sentinels after the recovery cutoff. A durable purge timestamp makes cleanup idempotent and prevents repeated scans.
+
+Cleanup never touches queued, launching, launch-uncertain, launched, canceling, retryable-failed, or dead-letter work. It does not delete the queue row or cascade into the approval-bound action ledger. A later Account-erasure request still removes every retained row and includes it in the content-free erasure counts.
+
 ## Database authority
 
 The queue is a technical cross-Account control plane and is intentionally not protected by Account RLS. Its dedicated controller role receives only:
@@ -111,6 +117,8 @@ The queue is a technical cross-Account control plane and is intentionally not pr
 GRANT USAGE ON SCHEMA spyglass TO spyglass_runner_controller;
 GRANT SELECT, UPDATE ON spyglass.runner_account_scheduling TO spyglass_runner_controller;
 GRANT SELECT, UPDATE ON spyglass.runner_invocation_queue TO spyglass_runner_controller;
+GRANT USAGE ON SCHEMA public TO spyglass_runner_controller;
+GRANT EXECUTE ON FUNCTION public.spyglass_prune_runner_terminal_payloads(timestamptz,timestamptz,integer) TO spyglass_runner_controller;
 ```
 
 It receives no `INSERT` authority and therefore cannot manufacture runnable work. It also receives no access to Account namespaces, Work, Agents, prompts, files, entitlements, Users, sessions, Billing, or provider credentials. The integration contract runs claim/lifecycle operations through this non-owner role and proves direct reads of Account namespaces and Work, and direct queue insertion, fail.
@@ -134,12 +142,12 @@ The original erasure functions remain under internal names because applied migra
 The executable adapter enforces these rules:
 
 - Job name is derived only from invocation UUID.
-- Digest-pinned image, command, profile-to-resources mapping, sandbox RuntimeClass, service account, deadline, and retention are operator configuration, never invocation input.
+- Digest-pinned image, command, profile-to-resources mapping, sandbox RuntimeClass, service account, broker CA ConfigMap, deadline, and retention are operator configuration, never invocation input.
 - An HTTP `409 AlreadyExists` is success only after the existing Job's immutable invocation identity matches.
 - Network errors, server `5xx` responses, mismatched create responses, and unresolved conflicts preserve the deterministic name as an uncertain launch; they never release capacity as ordinary launch failures.
 - Cancellation first verifies Job name, invocation/profile labels, and launch-contract digest, then sends [foreground deletion](https://kubernetes.io/docs/concepts/architecture/garbage-collection/#foreground-cascading-deletion) with exact [UID and resource-version preconditions](https://kubernetes.io/docs/reference/kubernetes-api/definitions/delete-options-v1-meta/). Only a later `404 Not Found` for a canceling invocation releases capacity; this is evidence that the Job and known blocking dependent Pod API objects are gone.
 - Pods run as UID/GID 65532 with a read-only root filesystem, RuntimeDefault seccomp, no privilege escalation, all Linux capabilities dropped, bounded CPU/memory/ephemeral-storage/time, an operator-selected sandbox RuntimeClass, and no host namespaces or volumes. The RuntimeClass/admission policy must supply the tested PID and stronger sandbox boundary.
-- Runner service accounts have `automountServiceAccountToken: false` and no RBAC. One read-only projected token is mounted explicitly for the broker audience; deployment must prove that audience is not accepted for direct Kubernetes API requests.
+- Runner service accounts have `automountServiceAccountToken: false` and no RBAC. One read-only projected token is mounted explicitly for the broker audience; deployment must prove that audience is not accepted for direct Kubernetes API requests. A separate read-only ConfigMap mount supplies only the broker CA certificate, and its name is covered by the launch-contract digest.
 - The implemented API client needs only `create`, `get`, and `delete` on Jobs in its cell namespace; it must never gain list/watch, Secret reads, pod exec, or wildcard RBAC.
 - NetworkPolicy denies all by default and allows only DNS, the invocation broker, approved model/tool egress gateways, and telemetry as required by the fixed profile.
 - The controller observes Job conditions and records one terminal outcome; a missing or ambiguous launched Job remains reconcilable rather than silently releasing capacity, while a missing canceling Job is accepted only after the exact delete path.
@@ -165,6 +173,7 @@ Event-driven scaling should use ready count and oldest-ready age. Controller rep
 - Controller crash before and after Kubernetes acceptance converges to one Job.
 - Ambiguous create responses retain capacity until exact Job observation or exact absence.
 - Launch retry/dead-letter and every execution-terminal path release capacity exactly once.
+- Terminal-envelope cleanup is bounded, horizontally safe, idempotent, Account-RLS aware, and preserves hashes/action/audit evidence.
 - Queued, launching, launch-uncertain, launched, repeated, cross-Account, and stale-controller cancellation races converge without deleting a mismatched Job or releasing capacity early.
 - Account erasure blocks unfinished runs and removes all terminal control records.
 - Applied-cluster tests prove RBAC, NetworkPolicy, pod hardening, cancellation, node loss, API timeout, controller rollout, queue-driven scale-up, and cleanup.

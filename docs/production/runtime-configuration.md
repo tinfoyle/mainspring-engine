@@ -237,17 +237,21 @@ Every reconciler replica periodically deletes at most the configured batch of co
 | `SPYGLASS_RUNNER_CONTROL_LEASE` | Optional launch lease from `1s` through `30m`; defaults to `2m` |
 | `SPYGLASS_RUNNER_CONTROL_MAX_ATTEMPTS` | Optional integer from 1 through 100; defaults to `8` |
 | `SPYGLASS_RUNNER_INSPECTION_BATCH` | Optional terminal-inspection claim batch from 1 through 1000; defaults to `100` |
+| `SPYGLASS_RUNNER_PAYLOAD_CLEANUP_INTERVAL` | Optional encrypted terminal-payload cleanup interval from `1m` through `24h`; defaults to `1h` |
+| `SPYGLASS_RUNNER_PAYLOAD_RETENTION` | Optional encrypted request/result recovery window from `1h` through `720h`; defaults to `24h` |
+| `SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH` | Optional SKIP-LOCKED cleanup batch from 1 through 1000; defaults to `500` |
 | `SPYGLASS_RUNNER_NAMESPACE` | Required exact Kubernetes namespace DNS label |
 | `SPYGLASS_RUNNER_IMAGE` | Required immutable image reference ending in `@sha256:` plus exactly 64 lowercase hexadecimal characters |
 | `SPYGLASS_RUNNER_SERVICE_ACCOUNT` | Required runner-pod service account; it has no RBAC, automatic API token mounting is disabled, and only a Pod-bound broker-audience token is projected explicitly |
 | `SPYGLASS_RUNNER_RUNTIME_CLASS` | Required sandbox RuntimeClass DNS label; the environment must test its isolation and PID behavior |
 | `SPYGLASS_RUNNER_BROKER_URL` | Required HTTPS broker origin/path with no embedded credentials, query, or fragment |
+| `SPYGLASS_RUNNER_BROKER_CA_CONFIG_MAP` | Required namespace-local immutable ConfigMap name containing only the broker trust bundle at key `ca.crt`; its name is included in the Job contract |
 | `SPYGLASS_RUNNER_ACTIVE_DEADLINE` | Optional whole-second Job deadline from `30s` through `24h`; defaults to `15m` |
 | `SPYGLASS_RUNNER_JOB_RETENTION` | Optional whole-second completed-Job TTL from `1m` through `168h`; defaults to `1h` |
 | `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
 | `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
 
-The controller uses its in-cluster projected service-account token and CA only to create, get, and exactly delete Jobs. Its database role cannot insert work or request cancellation; the separate producer role has no table grants and executes only bounded configure, atomic encrypted-provision, and cancel functions. Ambiguous create results retain their Account slot under `launch_uncertain` until the exact Job or its exact absence is observed. Runner Jobs receive no database credential and set `automountServiceAccountToken: false`; they explicitly project only a short-lived token for the exact configured broker URL. The three compiled resource profiles (`agent-small`, `agent-medium`, and `agent-large`) are deployment policy rather than invocation input.
+The controller uses its in-cluster projected service-account token and CA only to create, get, and exactly delete Jobs. Its database role cannot insert work or request cancellation; the separate producer role has no table grants and executes only bounded configure, atomic encrypted-provision, and cancel functions. The controller additionally receives execute-only terminal-payload cleanup authority. Cleanup locks a bounded identifier-only terminal batch, enters each Account's RLS scope internally, and overwrites encrypted request/result envelopes with fixed sentinels after the recovery window while preserving hashes, action state, and capability audit. Ambiguous create results retain their Account slot under `launch_uncertain` until the exact Job or its exact absence is observed. Runner Jobs receive no database credential and set `automountServiceAccountToken: false`; they explicitly project only a short-lived token for the exact configured broker URL. The three compiled resource profiles (`agent-small`, `agent-medium`, and `agent-large`) are deployment policy rather than invocation input.
 
 ## Runner broker values
 
@@ -308,6 +312,7 @@ spyglass admission-api
 spyglass route-canary
 spyglass route-receipt-worker
 spyglass runner-controller
+spyglass runner-invocation --broker-url=https://runner-broker.example --invocation-id=<uuid> --identity-token-file=/var/run/secrets/spyglass.io/runner-identity/token --broker-ca-file=/var/run/secrets/spyglass.io/broker-ca/ca.crt
 spyglass billing-worker
 spyglass notification-worker
 spyglass entitlement-worker

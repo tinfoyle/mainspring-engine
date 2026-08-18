@@ -3,7 +3,10 @@ package runnercontroller
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercontrol"
 )
@@ -26,11 +29,23 @@ func TestCyclePreservesBothReconcileAndLaunchFailures(t *testing.T) {
 	}
 }
 
+func TestTerminalPayloadCleanupUsesConfiguredBounds(t *testing.T) {
+	processor := &processorStub{pruned: 4}
+	worker := &Worker{processor: processor, payloadRetention: 48 * time.Hour, pruneBatch: 75, logger: slog.New(slog.NewTextHandler(os.Stderr, nil))}
+	worker.pruneTerminalPayloads(context.Background())
+	if processor.retention != 48*time.Hour || processor.pruneBatch != 75 {
+		t.Fatalf("retention=%v batch=%d", processor.retention, processor.pruneBatch)
+	}
+}
+
 type processorStub struct {
 	completed               int
 	launched                bool
 	reconcileErr, launchErr error
 	batch, launchCalls      int
+	pruned                  int64
+	retention               time.Duration
+	pruneBatch              int
 }
 
 func (p *processorStub) ProcessOne(context.Context) (bool, error) {
@@ -40,6 +55,10 @@ func (p *processorStub) ProcessOne(context.Context) (bool, error) {
 func (p *processorStub) ReconcileJobs(_ context.Context, batch int) (int, error) {
 	p.batch = batch
 	return p.completed, p.reconcileErr
+}
+func (p *processorStub) PruneTerminalPayloads(_ context.Context, retention time.Duration, batch int) (int64, error) {
+	p.retention, p.pruneBatch = retention, batch
+	return p.pruned, nil
 }
 func (*processorStub) Stats(context.Context) (runnercontrol.Stats, error) {
 	return runnercontrol.Stats{}, nil

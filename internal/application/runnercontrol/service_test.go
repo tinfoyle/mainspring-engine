@@ -19,6 +19,8 @@ type queueStub struct {
 	cancellationState                                      string
 	canceledAccount                                        string
 	canceledInvocation                                     string
+	pruneCutoff, prunedAt                                  time.Time
+	pruneLimit                                             int
 }
 
 func (q *queueStub) Configure(_ context.Context, p AccountPolicy, _ time.Time) error {
@@ -64,6 +66,10 @@ func (q *queueStub) ResolveLaunchAbsent(_ context.Context, _ Invocation, _, _ ti
 func (q *queueStub) Stats(context.Context, time.Time) (Stats, error) {
 	return Stats{Ready: 1}, nil
 }
+func (q *queueStub) PruneTerminalPayloads(_ context.Context, cutoff, prunedAt time.Time, limit int) (int64, error) {
+	q.pruneCutoff, q.prunedAt, q.pruneLimit = cutoff, prunedAt, limit
+	return 3, nil
+}
 
 type launcherStub struct {
 	err, cancelErr error
@@ -95,6 +101,22 @@ func TestCancellationIsAccountBoundAndValidated(t *testing.T) {
 	}
 	if _, err := service.RequestCancellation(context.Background(), "bad", invocationID); !errors.Is(err, ErrInvalidInvocation) {
 		t.Fatalf("invalid cancellation err=%v", err)
+	}
+}
+
+func TestTerminalPayloadRetentionIsBounded(t *testing.T) {
+	now := time.Date(2026, 8, 18, 21, 0, 0, 0, time.UTC)
+	queue := &queueStub{}
+	service, _ := NewService(queue, launcherStub{}, clockStub{now}, time.Minute, 3)
+	count, err := service.PruneTerminalPayloads(context.Background(), 24*time.Hour, 25)
+	if err != nil || count != 3 || !queue.pruneCutoff.Equal(now.Add(-24*time.Hour)) || !queue.prunedAt.Equal(now) || queue.pruneLimit != 25 {
+		t.Fatalf("count=%d cutoff=%v pruned=%v limit=%d err=%v", count, queue.pruneCutoff, queue.prunedAt, queue.pruneLimit, err)
+	}
+	if _, err := service.PruneTerminalPayloads(context.Background(), time.Minute, 25); !errors.Is(err, ErrInvalidInvocation) {
+		t.Fatalf("short retention=%v", err)
+	}
+	if _, err := service.PruneTerminalPayloads(context.Background(), 24*time.Hour, MaximumPruneBatch+1); !errors.Is(err, ErrInvalidInvocation) {
+		t.Fatalf("large batch=%v", err)
 	}
 }
 

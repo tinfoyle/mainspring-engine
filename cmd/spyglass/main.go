@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -20,12 +21,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/runnerbrokerhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercontrol"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnerexecution"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnerwork"
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
 	workreleaseapp "github.com/tinfoyle/spyglass-engine/internal/application/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
@@ -91,6 +95,8 @@ func main() {
 		err = runRunnerController(ctx, logger)
 	case "runner-broker":
 		err = runRunnerBroker(ctx, logger)
+	case "runner-invocation":
+		err = runRunnerInvocation(ctx)
 	case "route-receipt-worker":
 		err = runRouteReceiptWorker(ctx, logger)
 	case "route-canary":
@@ -106,12 +112,34 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
 		os.Exit(1)
 	}
+}
+
+func runRunnerInvocation(ctx context.Context) error {
+	flags := flag.NewFlagSet("runner-invocation", flag.ContinueOnError)
+	var usage strings.Builder
+	flags.SetOutput(&usage)
+	brokerURL := flags.String("broker-url", "", "runner broker URL")
+	invocationID := flags.String("invocation-id", "", "runner invocation UUID")
+	identityTokenFile := flags.String("identity-token-file", "", "projected identity token file")
+	brokerCAFile := flags.String("broker-ca-file", "", "broker root CA file")
+	if err := flags.Parse(os.Args[2:]); err != nil || flags.NArg() != 0 || strings.TrimSpace(*brokerCAFile) == "" {
+		return errors.New("runner invocation arguments are invalid")
+	}
+	client, err := runnerbrokerhttp.New(runnerbrokerhttp.Config{BrokerURL: *brokerURL, InvocationID: *invocationID, IdentityTokenFile: *identityTokenFile, RootCAFile: *brokerCAFile})
+	if err != nil {
+		return err
+	}
+	service, err := runnerexecution.New(client, client, []runnerexecution.Definition{{Kind: runnerwork.SummarySnapshotKind, Executor: runnerwork.SummarySnapshotExecutor{}}})
+	if err != nil {
+		return err
+	}
+	return service.Run(ctx)
 }
 
 func runBillingAdmin(ctx context.Context, logger *slog.Logger) error {
@@ -1040,6 +1068,18 @@ func runRunnerController(ctx context.Context, logger *slog.Logger) error {
 	if err != nil || inspectionBatch > 1000 {
 		return errors.New("SPYGLASS_RUNNER_INSPECTION_BATCH must be between 1 and 1000")
 	}
+	cleanupInterval, err := durationEnv("SPYGLASS_RUNNER_PAYLOAD_CLEANUP_INTERVAL", time.Hour)
+	if err != nil || cleanupInterval < time.Minute || cleanupInterval > 24*time.Hour {
+		return errors.New("SPYGLASS_RUNNER_PAYLOAD_CLEANUP_INTERVAL must be between 1m and 24h")
+	}
+	payloadRetention, err := durationEnv("SPYGLASS_RUNNER_PAYLOAD_RETENTION", runnercontrol.DefaultPayloadRetention)
+	if err != nil || payloadRetention < time.Hour || payloadRetention > 30*24*time.Hour {
+		return errors.New("SPYGLASS_RUNNER_PAYLOAD_RETENTION must be between 1h and 720h")
+	}
+	pruneBatch, err := int32Env("SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH", runnercontrol.DefaultPruneBatch)
+	if err != nil || pruneBatch > runnercontrol.MaximumPruneBatch {
+		return errors.New("SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH must be between 1 and 1000")
+	}
 	namespace, err := requiredEnv("SPYGLASS_RUNNER_NAMESPACE")
 	if err != nil {
 		return err
@@ -1060,6 +1100,10 @@ func runRunnerController(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	brokerCAConfigMap, err := requiredEnv("SPYGLASS_RUNNER_BROKER_CA_CONFIG_MAP")
+	if err != nil {
+		return err
+	}
 	deadline, err := durationEnv("SPYGLASS_RUNNER_ACTIVE_DEADLINE", 15*time.Minute)
 	if err != nil || deadline < 30*time.Second || deadline > 24*time.Hour || deadline%time.Second != 0 {
 		return errors.New("SPYGLASS_RUNNER_ACTIVE_DEADLINE must be whole seconds between 30s and 24h")
@@ -1077,8 +1121,9 @@ func runRunnerController(ctx context.Context, logger *slog.Logger) error {
 	defer cancel()
 	worker, err := runnercontroller.New(startup, runnercontroller.Config{
 		CellDatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease,
-		MaxAttempts: int(maxAttempts), InspectionBatch: int(inspectionBatch),
-		Kubernetes: kubernetes.Config{Namespace: namespace, RunnerImage: image, RunnerServiceAccount: serviceAccount, RunnerRuntimeClass: runtimeClass, BrokerURL: brokerURL, Profiles: profiles, ActiveDeadlineSeconds: int64(deadline / time.Second), TTLSecondsAfterFinished: int64(retention / time.Second)},
+		MaxAttempts: int(maxAttempts), InspectionBatch: int(inspectionBatch), CleanupInterval: cleanupInterval,
+		PayloadRetention: payloadRetention, PruneBatch: int(pruneBatch),
+		Kubernetes: kubernetes.Config{Namespace: namespace, RunnerImage: image, RunnerServiceAccount: serviceAccount, RunnerRuntimeClass: runtimeClass, BrokerURL: brokerURL, RunnerBrokerCAConfigMap: brokerCAConfigMap, Profiles: profiles, ActiveDeadlineSeconds: int64(deadline / time.Second), TTLSecondsAfterFinished: int64(retention / time.Second)},
 	}, logger)
 	if err != nil {
 		return err

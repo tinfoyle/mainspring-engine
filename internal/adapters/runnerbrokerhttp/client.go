@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,12 +23,13 @@ import (
 
 const (
 	maximumTokenBytes    = 16 << 10
+	maximumTrustBytes    = 256 << 10
 	maximumResponseBytes = runnerbroker.MaximumEnvelopeBytes + 64<<10
 )
 
 type Config struct {
-	BrokerURL, InvocationID, IdentityTokenFile string
-	HTTPClient                                 *http.Client
+	BrokerURL, InvocationID, IdentityTokenFile, RootCAFile string
+	HTTPClient                                             *http.Client
 }
 
 type Client struct {
@@ -46,11 +48,18 @@ func New(config Config) (*Client, error) {
 	}
 	client := config.HTTPClient
 	if client == nil {
+		roots, err := loadRoots(config.RootCAFile)
+		if err != nil {
+			return nil, err
+		}
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = nil
-		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13}
+		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots}
 		client = &http.Client{Transport: transport, Timeout: 15 * time.Second}
 	} else {
+		if strings.TrimSpace(config.RootCAFile) != "" {
+			return nil, errors.New("runner broker root CA cannot override a supplied HTTP client")
+		}
 		copyClient := *client
 		client = &copyClient
 		if client.Timeout == 0 || client.Timeout > 30*time.Second {
@@ -59,6 +68,22 @@ func New(config Config) (*Client, error) {
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("runner broker redirects are denied") }
 	return &Client{baseURL: base, invocationID: config.InvocationID, tokenFile: config.IdentityTokenFile, http: client}, nil
+}
+
+func loadRoots(filename string) (*x509.CertPool, error) {
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(filename)
+	if err != nil || len(raw) == 0 || len(raw) > maximumTrustBytes {
+		return nil, errors.New("runner broker root CA is invalid")
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(raw) {
+		return nil, errors.New("runner broker root CA is invalid")
+	}
+	return roots, nil
 }
 
 func (c *Client) Fetch(ctx context.Context) (runnerbroker.Request, error) {

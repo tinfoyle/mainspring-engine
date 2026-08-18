@@ -17,10 +17,11 @@ import (
 )
 
 const (
-	SchemaVersion      = 1
-	MaximumInputBytes  = 256 << 10
-	MaximumOutputBytes = 256 << 10
-	MaximumDefinitions = 64
+	SchemaVersion         = 1
+	MaximumInputBytes     = 256 << 10
+	MaximumOutputBytes    = 256 << 10
+	MaximumDefinitions    = 64
+	WorkSummaryCapability = "work.summary.read"
 )
 
 var (
