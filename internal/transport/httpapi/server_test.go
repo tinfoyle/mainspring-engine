@@ -16,7 +16,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,6 +26,13 @@ import (
 	"github.com/go-webauthn/webauthn/protocol/webauthncose"
 
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
+	"github.com/tinfoyle/spyglass-engine/internal/testsupport/openapifixture"
+)
+
+var (
+	responseContractOnce sync.Once
+	responseContract     *openapifixture.Contract
+	responseContractErr  error
 )
 
 func TestPublicCatalogDoesNotLeakStripeReferences(t *testing.T) {
@@ -35,6 +44,7 @@ func TestPublicCatalogDoesNotLeakStripeReferences(t *testing.T) {
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(response.Body)
+	validateOpenAPIResponse(t, http.MethodGet, server.URL+"/api/v1/catalog/public", response.StatusCode, response.Header, body)
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status %d: %s", response.StatusCode, body)
 	}
@@ -114,6 +124,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	passkeyListBody, _ := io.ReadAll(passkeyListResponse.Body)
 	passkeyListResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodGet, passkeyListRequest.URL.String(), passkeyListResponse.StatusCode, passkeyListResponse.Header, passkeyListBody)
 	if passkeyListResponse.StatusCode != http.StatusOK || !bytes.Contains(passkeyListBody, []byte(`"passkeys":[]`)) || bytes.Contains(passkeyListBody, []byte(provisioned.Account.ID)) {
 		t.Fatalf("identity-only passkey list: %d %s", passkeyListResponse.StatusCode, passkeyListBody)
 	}
@@ -153,10 +164,12 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 			AuthenticationAssurance string `json:"authentication_assurance"`
 		} `json:"sessions"`
 	}
-	if err := json.NewDecoder(sessionsResponse.Body).Decode(&inventory); err != nil {
+	sessionsBody, _ := io.ReadAll(sessionsResponse.Body)
+	if err := json.Unmarshal(sessionsBody, &inventory); err != nil {
 		t.Fatal(err)
 	}
 	sessionsResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodGet, sessionsRequest.URL.String(), sessionsResponse.StatusCode, sessionsResponse.Header, sessionsBody)
 	if sessionsResponse.StatusCode != http.StatusOK || len(inventory.Sessions) != 2 {
 		t.Fatalf("session inventory: %d %+v", sessionsResponse.StatusCode, inventory.Sessions)
 	}
@@ -178,7 +191,9 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	revokeBody, _ := io.ReadAll(revokeResponse.Body)
 	revokeResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodDelete, revokeRequest.URL.String(), revokeResponse.StatusCode, revokeResponse.Header, revokeBody)
 	if revokeResponse.StatusCode != http.StatusNoContent {
 		t.Fatalf("revoke other session status: %d", revokeResponse.StatusCode)
 	}
@@ -198,6 +213,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	securityEventsBody, _ := io.ReadAll(securityEventsResponse.Body)
 	securityEventsResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodGet, securityEventsRequest.URL.String(), securityEventsResponse.StatusCode, securityEventsResponse.Header, securityEventsBody)
 	if securityEventsResponse.StatusCode != http.StatusOK || !bytes.Contains(securityEventsBody, []byte(`"type":"session_created"`)) || !bytes.Contains(securityEventsBody, []byte(`"type":"session_reauthenticated"`)) {
 		t.Fatalf("security events response: %d %s", securityEventsResponse.StatusCode, securityEventsBody)
 	}
@@ -209,6 +225,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	accountsBody, _ := io.ReadAll(accountsResponse.Body)
 	accountsResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodGet, accountsRequest.URL.String(), accountsResponse.StatusCode, accountsResponse.Header, accountsBody)
 	if accountsResponse.StatusCode != http.StatusOK || !bytes.Contains(accountsBody, []byte(provisioned.Account.ID)) || !bytes.Contains(accountsBody, []byte(`"owner_enrollment_required":true`)) {
 		t.Fatalf("accounts response: %d %s", accountsResponse.StatusCode, accountsBody)
 	}
@@ -221,6 +238,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	selectBody, _ := io.ReadAll(selectResponse.Body)
 	selectResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodPost, selectRequest.URL.String(), selectResponse.StatusCode, selectResponse.Header, selectBody)
 	if selectResponse.StatusCode != http.StatusForbidden || !bytes.Contains(selectBody, []byte(`"code":"owner_security_enrollment_required"`)) {
 		t.Fatalf("unenrolled owner select response: %d %s", selectResponse.StatusCode, selectBody)
 	}
@@ -271,6 +289,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	selectBody, _ = io.ReadAll(selectResponse.Body)
 	selectResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodPost, selectRequest.URL.String(), selectResponse.StatusCode, selectResponse.Header, selectBody)
 	if selectResponse.StatusCode != http.StatusOK || !bytes.Contains(selectBody, []byte(`"placement_generation":1`)) {
 		t.Fatalf("ready owner select response: %d %s", selectResponse.StatusCode, selectBody)
 	}
@@ -317,6 +336,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	memberAccountsBody, _ := io.ReadAll(memberAccountsResponse.Body)
 	memberAccountsResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodGet, memberAccountsRequest.URL.String(), memberAccountsResponse.StatusCode, memberAccountsResponse.Header, memberAccountsBody)
 	if memberAccountsResponse.StatusCode != http.StatusOK || !bytes.Contains(memberAccountsBody, []byte(provisioned.Account.ID)) {
 		t.Fatalf("invited account missing: %d %s", memberAccountsResponse.StatusCode, memberAccountsBody)
 	}
@@ -525,7 +545,9 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	staleSessionBody, _ := io.ReadAll(staleSessionResponse.Body)
 	staleSessionResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodGet, staleSessionRequest.URL.String(), staleSessionResponse.StatusCode, staleSessionResponse.Header, staleSessionBody)
 	if staleSessionResponse.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("pre-recovery session status: %d", staleSessionResponse.StatusCode)
 	}
@@ -545,6 +567,8 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer logout.Body.Close()
+	logoutBody, _ := io.ReadAll(logout.Body)
+	validateOpenAPIResponse(t, http.MethodDelete, request.URL.String(), logout.StatusCode, logout.Header, logoutBody)
 	if logout.StatusCode != http.StatusNoContent {
 		t.Fatalf("logout status: %d", logout.StatusCode)
 	}
@@ -568,6 +592,7 @@ func requestJSONCookie(t *testing.T, method, url, body string, cookie *http.Cook
 	}
 	defer result.Body.Close()
 	payload, _ := io.ReadAll(result.Body)
+	validateOpenAPIResponse(t, method, url, result.StatusCode, result.Header, payload)
 	return response{StatusCode: result.StatusCode, Header: result.Header.Clone(), Body: payload}
 }
 
@@ -609,8 +634,9 @@ func postJSON(t *testing.T, url, body string) response {
 		t.Fatal(err)
 	}
 	defer result.Body.Close()
-	bytes, _ := io.ReadAll(result.Body)
-	return response{StatusCode: result.StatusCode, Header: result.Header.Clone(), Body: bytes}
+	payload, _ := io.ReadAll(result.Body)
+	validateOpenAPIResponse(t, http.MethodPost, url, result.StatusCode, result.Header, payload)
+	return response{StatusCode: result.StatusCode, Header: result.Header.Clone(), Body: payload}
 }
 
 func postWebhook(t *testing.T, url string, body []byte, signature string) response {
@@ -625,7 +651,21 @@ func postWebhook(t *testing.T, url string, body []byte, signature string) respon
 	}
 	defer result.Body.Close()
 	responseBody, _ := io.ReadAll(result.Body)
+	validateOpenAPIResponse(t, http.MethodPost, url, result.StatusCode, result.Header, responseBody)
 	return response{StatusCode: result.StatusCode, Header: result.Header.Clone(), Body: responseBody}
+}
+
+func validateOpenAPIResponse(t *testing.T, method, target string, status int, headers http.Header, body []byte) {
+	t.Helper()
+	responseContractOnce.Do(func() {
+		responseContract, responseContractErr = openapifixture.Load(filepath.Join("..", "..", "..", "api", "spyglass.openapi.json"))
+	})
+	if responseContractErr != nil {
+		t.Fatalf("load OpenAPI response contract: %v", responseContractErr)
+	}
+	if err := responseContract.ValidateResponse(method, target, status, headers, body); err != nil {
+		t.Fatalf("response violates OpenAPI contract: %v\nbody: %s", err, body)
+	}
 }
 
 func registrationCredential(t *testing.T, challenge string) string {

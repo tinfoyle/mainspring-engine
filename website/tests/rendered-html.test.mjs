@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { publicCatalogFixture } from "./fixtures/public-catalog.mjs";
 
 async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -47,13 +48,14 @@ test("proxies only the anonymous published Catalog from the configured account o
   let requested = "";
   globalThis.fetch = async (input) => {
     requested = String(input);
-    return new Response(JSON.stringify({ version: 2, offers: [] }), { headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify(publicCatalogFixture), { headers: { "content-type": "application/json" } });
   };
   try {
     const response = await worker.fetch(new Request("https://infiniteocean.net/api/catalog"), { SPYGLASS_ACCOUNT_API_ORIGIN: "https://app.infiniteocean.net", ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
     assert.equal(response.status, 200);
     assert.equal(requested, "https://app.infiniteocean.net/api/v1/catalog/public");
     assert.match(response.headers.get("cache-control"), /stale-while-revalidate/);
+    assert.deepEqual(await response.json(), publicCatalogFixture);
   } finally {
     globalThis.fetch = originalFetch;
   }
