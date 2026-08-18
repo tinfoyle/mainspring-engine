@@ -6,11 +6,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -102,7 +104,7 @@ func TestCheckoutResolvesLocalOfferAndCreatesCustomer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := service.Checkout(context.Background(), CheckoutCommand{ActorUserID: testUserID, AccountID: testAccountID, OfferCode: "team-monthly-v1", RequestID: testRequestID})
+	session, err := service.Checkout(context.Background(), checkoutCommand(now))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,15 +123,19 @@ func TestCheckoutRejectsRoleUnknownOfferAndBadIdempotency(t *testing.T) {
 	provider := &serviceProvider{}
 	viewer, _ := access.NewAuthorizer(stateSource{role: accounts.RoleViewer})
 	service, _ := New(provider, repository, viewer, func() catalog.PublishedCatalog { return publication }, serviceClock{now}, "https://app.infiniteocean.net", "test")
-	if _, err := service.Checkout(context.Background(), CheckoutCommand{ActorUserID: testUserID, AccountID: testAccountID, OfferCode: "team-monthly-v1", RequestID: testRequestID}); !access.IsDenied(err, access.DenialRole) {
+	if _, err := service.Checkout(context.Background(), checkoutCommand(now)); !access.IsDenied(err, access.DenialRole) {
 		t.Fatalf("expected role denial, got %v", err)
 	}
 	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
 	service, _ = New(provider, repository, owner, func() catalog.PublishedCatalog { return publication }, serviceClock{now}, "https://app.infiniteocean.net", "test")
-	if _, err := service.Checkout(context.Background(), CheckoutCommand{ActorUserID: testUserID, AccountID: testAccountID, OfferCode: "forged", RequestID: testRequestID}); !errors.Is(err, ErrOfferUnavailable) {
+	forged := checkoutCommand(now)
+	forged.OfferCode = "forged"
+	if _, err := service.Checkout(context.Background(), forged); !errors.Is(err, ErrOfferUnavailable) {
 		t.Fatalf("expected offer denial, got %v", err)
 	}
-	if _, err := service.Checkout(context.Background(), CheckoutCommand{ActorUserID: testUserID, AccountID: testAccountID, OfferCode: "team-monthly-v1", RequestID: "reused-string"}); !errors.Is(err, ErrInvalidRequestID) {
+	badRequestID := checkoutCommand(now)
+	badRequestID.RequestID = "reused-string"
+	if _, err := service.Checkout(context.Background(), badRequestID); !errors.Is(err, ErrInvalidRequestID) {
 		t.Fatalf("expected request ID denial, got %v", err)
 	}
 	if provider.checkoutCalls != 0 {
@@ -158,7 +164,7 @@ func TestCheckoutRefusesSecondManagedSubscription(t *testing.T) {
 	provider := &serviceProvider{}
 	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
 	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test")
-	_, err := service.Checkout(context.Background(), CheckoutCommand{ActorUserID: testUserID, AccountID: testAccountID, OfferCode: "team-monthly-v1", RequestID: testRequestID})
+	_, err := service.Checkout(context.Background(), checkoutCommand(now))
 	if !errors.Is(err, ErrSubscriptionExists) {
 		t.Fatalf("expected portal-only change, got %v", err)
 	}
@@ -174,7 +180,7 @@ func TestCheckoutResumesDurableHostedSession(t *testing.T) {
 	provider := &serviceProvider{}
 	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
 	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test")
-	result, err := service.Checkout(context.Background(), CheckoutCommand{ActorUserID: testUserID, AccountID: testAccountID, OfferCode: "team-monthly-v1", RequestID: testRequestID})
+	result, err := service.Checkout(context.Background(), checkoutCommand(now))
 	if err != nil || result.ID != "cs_existing" {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -183,9 +189,53 @@ func TestCheckoutResumesDurableHostedSession(t *testing.T) {
 	}
 }
 
+func TestBillingMutationsRejectPasswordStaleAndCrossUserEvidence(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_private"}
+	provider := &serviceProvider{}
+	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
+	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test")
+
+	cases := map[string]sessions.Session{
+		"password":           {UserID: testUserID, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPassword},
+		"stale passkey":      {UserID: testUserID, ReauthenticatedAt: now.Add(-strongauth.MaximumAge - time.Second), ReauthenticationMethod: sessions.AuthenticationMethodPasskey},
+		"cross-user passkey": {UserID: ids.UserID("44444444-4444-4444-8444-444444444444"), ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey},
+	}
+	for name, evidence := range cases {
+		t.Run(name, func(t *testing.T) {
+			checkout := checkoutCommand(now)
+			checkout.Session = evidence
+			if _, err := service.Checkout(context.Background(), checkout); !errors.Is(err, strongauth.ErrRequired) {
+				t.Fatalf("checkout error = %v", err)
+			}
+			portal := PortalCommand{ActorUserID: testUserID, Session: evidence, AccountID: testAccountID, RequestID: testRequestID}
+			if _, err := service.Portal(context.Background(), portal); !errors.Is(err, strongauth.ErrRequired) {
+				t.Fatalf("portal error = %v", err)
+			}
+		})
+	}
+	if provider.customerCalls+provider.checkoutCalls+provider.portalCalls != 0 {
+		t.Fatal("rejected authentication evidence reached Stripe")
+	}
+}
+
 func paidCatalog(now time.Time) catalog.PublishedCatalog {
 	definition := catalog.FeaturePackage{Code: catalog.PackageWork, Version: 1, Name: "Work", Features: []string{"work.read"}}
 	plan := catalog.Plan{Code: "team", Version: 1, Name: "Team", Packages: map[catalog.PackageCode]catalog.PackageMode{catalog.PackageWork: catalog.ModeEnabled}}
 	offer := catalog.Offer{Code: "team-monthly-v1", PlanCode: "team", PlanVersion: 1, Currency: "USD", AmountMinor: 4900, BillingInterval: "month", Published: true, EffectiveFrom: now}
 	return catalog.PublishedCatalog{Version: 2, PublishedAt: now, Packages: []catalog.FeaturePackage{definition}, Plans: []catalog.Plan{plan}, Offers: []catalog.Offer{offer}}
+}
+
+func checkoutCommand(now time.Time) CheckoutCommand {
+	return CheckoutCommand{
+		ActorUserID: testUserID,
+		Session: sessions.Session{
+			UserID:                 testUserID,
+			ReauthenticatedAt:      now,
+			ReauthenticationMethod: sessions.AuthenticationMethodPasskey,
+		},
+		AccountID: testAccountID,
+		OfferCode: "team-monthly-v1",
+		RequestID: testRequestID,
+	}
 }

@@ -8,10 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -70,6 +72,7 @@ func New(provider billing.Provider, repository Repository, authorizer *access.Au
 
 type CheckoutCommand struct {
 	ActorUserID ids.UserID
+	Session     sessions.Session
 	AccountID   ids.AccountID
 	OfferCode   string
 	RequestID   string
@@ -113,6 +116,9 @@ func (s *Service) Status(ctx context.Context, userID ids.UserID, accountID ids.A
 
 func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billing.HostedSession, error) {
 	if err := s.authorize(ctx, command.ActorUserID, command.AccountID); err != nil {
+		return billing.HostedSession{}, err
+	}
+	if err := strongauth.Require(command.Session, command.ActorUserID, s.clock.Now()); err != nil {
 		return billing.HostedSession{}, err
 	}
 	if err := ids.Validate(command.RequestID); err != nil {
@@ -186,12 +192,16 @@ func hasManagedSubscription(subscriptions []Subscription) bool {
 
 type PortalCommand struct {
 	ActorUserID ids.UserID
+	Session     sessions.Session
 	AccountID   ids.AccountID
 	RequestID   string
 }
 
 func (s *Service) Portal(ctx context.Context, command PortalCommand) (billing.HostedSession, error) {
 	if err := s.authorize(ctx, command.ActorUserID, command.AccountID); err != nil {
+		return billing.HostedSession{}, err
+	}
+	if err := strongauth.Require(command.Session, command.ActorUserID, s.clock.Now()); err != nil {
 		return billing.HostedSession{}, err
 	}
 	if err := ids.Validate(command.RequestID); err != nil {

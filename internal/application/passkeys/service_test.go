@@ -118,6 +118,35 @@ func TestRegistrationOptionsRequireResidentKeyAndUserVerification(t *testing.T) 
 	}
 }
 
+func TestCompletedRegistrationPromotesRecoveredPasswordSessionToStrongAssurance(t *testing.T) {
+	fixture := newFixture(t)
+	issued, err := fixture.sessions.IssueForClientWithMethod(context.Background(), fixture.userID, 1, "recovered browser", sessions.AuthenticationMethodPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	begun, err := fixture.service.BeginRegistration(context.Background(), issued.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialID := []byte("new-credential-id")
+	response := registrationResponse(t, fixture.repository.user.Credentials[0].Credential.PublicKey, credentialID, fixture.repository.ceremonies[begun.CeremonyID].Data.Challenge)
+	created, err := fixture.service.CompleteRegistration(context.Background(), issued.Session, begun.CeremonyID, "Recovery key", response)
+	if err != nil {
+		t.Fatalf("complete registration: %v", err)
+	}
+	if created.Name != "Recovery key" || created.ID != base64.RawURLEncoding.EncodeToString(credentialID) {
+		t.Fatalf("unexpected credential summary: %+v", created)
+	}
+	authenticated, err := fixture.sessions.Authenticate(context.Background(), issued.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authenticated.Session.AuthenticationMethod != sessions.AuthenticationMethodPassword || authenticated.Session.ReauthenticationMethod != sessions.AuthenticationMethodPasskey ||
+		!fixture.sessions.RecentlyReauthenticatedWithAssurance(authenticated.Session, 10*time.Minute, sessions.AssuranceUserVerifiedCryptographic) {
+		t.Fatalf("registration did not promote recent assurance: %+v", authenticated.Session)
+	}
+}
+
 func tamperedSignature(t *testing.T, response []byte) []byte {
 	t.Helper()
 	var value map[string]any
@@ -169,6 +198,7 @@ func TestCipherAuthenticatesPayloadLabelAndKeyVersion(t *testing.T) {
 
 type fixture struct {
 	service      *passkeys.Service
+	sessions     *sessions.Service
 	repository   *repository
 	clock        *testClock
 	privateKey   *ecdsa.PrivateKey
@@ -207,7 +237,41 @@ func newFixture(t *testing.T) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return fixture{service: service, repository: repository, clock: clock, privateKey: privateKey, credentialID: credentialID, handle: handle, userID: userID}
+	return fixture{service: service, sessions: sessionService, repository: repository, clock: clock, privateKey: privateKey, credentialID: credentialID, handle: handle, userID: userID}
+}
+
+func registrationResponse(t *testing.T, publicKey, credentialID []byte, challenge string) []byte {
+	t.Helper()
+	clientData := []byte(fmt.Sprintf(`{"type":"webauthn.create","challenge":%q,"origin":"https://app.infiniteocean.net"}`, challenge))
+	rpHash := sha256.Sum256([]byte("app.infiniteocean.net"))
+	authenticatorData := make([]byte, 0, 37+16+2+len(credentialID)+len(publicKey))
+	authenticatorData = append(authenticatorData, rpHash[:]...)
+	authenticatorData = append(authenticatorData, 0x45) // user present, user verified, attested credential data
+	authenticatorData = append(authenticatorData, 0, 0, 0, 0)
+	authenticatorData = append(authenticatorData, make([]byte, 16)...)
+	credentialLength := make([]byte, 2)
+	binary.BigEndian.PutUint16(credentialLength, uint16(len(credentialID)))
+	authenticatorData = append(authenticatorData, credentialLength...)
+	authenticatorData = append(authenticatorData, credentialID...)
+	authenticatorData = append(authenticatorData, publicKey...)
+	attestation, err := webauthncbor.Marshal(map[string]any{"fmt": "none", "attStmt": map[string]any{}, "authData": authenticatorData})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedID := base64.RawURLEncoding.EncodeToString(credentialID)
+	response := map[string]any{
+		"id": encodedID, "rawId": encodedID, "type": "public-key",
+		"response": map[string]any{
+			"clientDataJSON":    base64.RawURLEncoding.EncodeToString(clientData),
+			"attestationObject": base64.RawURLEncoding.EncodeToString(attestation),
+			"transports":        []string{"internal"},
+		},
+	}
+	raw, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }
 
 func signedAssertion(t *testing.T, privateKey *ecdsa.PrivateKey, credentialID, userHandle []byte, challenge string, counter uint32) []byte {

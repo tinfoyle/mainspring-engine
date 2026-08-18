@@ -88,8 +88,16 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 		t.Fatalf("security center: %d %s", security.StatusCode, securityBody)
 	}
 	confirmed := postForm(t, client, server.URL+"/app/security/reauthenticate", url.Values{"password": {"correct horse battery staple"}})
-	if confirmed.status != http.StatusOK || !bytes.Contains(confirmed.body, []byte("Sensitive actions are unlocked for 10 minutes")) {
+	if confirmed.status != http.StatusOK || !bytes.Contains(confirmed.body, []byte("Password confirmed for identity settings")) || !bytes.Contains(confirmed.body, []byte("Use a passkey to unlock invitations and billing")) {
 		t.Fatalf("password confirmation: %d %s", confirmed.status, confirmed.body)
+	}
+	accountMatch := regexp.MustCompile(`name="account_id" value="([0-9a-f-]+)"`).FindSubmatch(signedIn.body)
+	if len(accountMatch) != 2 {
+		t.Fatalf("Account ID missing from app shell: %s", signedIn.body)
+	}
+	passwordOnlyInvite := postForm(t, client, server.URL+"/app/invitations", url.Values{"account_id": {string(accountMatch[1])}, "email": {"member@example.com"}, "role": {"member"}})
+	if passwordOnlyInvite.status != http.StatusOK || !bytes.Contains(passwordOnlyInvite.body, []byte("Confirm with a passkey before inviting people or changing billing")) {
+		t.Fatalf("browser strong step-up: %d %s", passwordOnlyInvite.status, passwordOnlyInvite.body)
 	}
 	recoveryStarted := postForm(t, client, server.URL+"/forgot-password", url.Values{"email": {"avery@example.com"}})
 	if recoveryStarted.status != http.StatusAccepted || !bytes.Contains(recoveryStarted.body, []byte("If that email belongs to an Infinite Ocean identity")) {

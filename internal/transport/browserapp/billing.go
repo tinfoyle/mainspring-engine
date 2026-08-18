@@ -1,6 +1,7 @@
 package browserapp
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
@@ -19,8 +21,12 @@ func (s *Server) startCheckout(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	session, err := s.commercial.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID, AccountID: accountID, OfferCode: r.FormValue("offer_code"), RequestID: ids.RandomGenerator{}.New()})
+	session, err := s.commercial.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, OfferCode: r.FormValue("offer_code"), RequestID: ids.RandomGenerator{}.New()})
 	if err != nil {
+		if errors.Is(err, strongauth.ErrRequired) {
+			http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/app?status=billing_failed#billing", http.StatusSeeOther)
 		return
 	}
@@ -32,8 +38,12 @@ func (s *Server) openBillingPortal(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	session, err := s.commercial.Portal(r.Context(), commercialaccess.PortalCommand{ActorUserID: authenticated.Session.UserID, AccountID: accountID, RequestID: ids.RandomGenerator{}.New()})
+	session, err := s.commercial.Portal(r.Context(), commercialaccess.PortalCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, RequestID: ids.RandomGenerator{}.New()})
 	if err != nil {
+		if errors.Is(err, strongauth.ErrRequired) {
+			http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/app?status=billing_failed#billing", http.StatusSeeOther)
 		return
 	}
@@ -43,10 +53,6 @@ func (s *Server) openBillingPortal(w http.ResponseWriter, r *http.Request) {
 func (s *Server) billingForm(w http.ResponseWriter, r *http.Request) (sessions.Authenticated, ids.AccountID, bool) {
 	authenticated, ok := s.requireSession(w, r)
 	if !ok {
-		return sessions.Authenticated{}, "", false
-	}
-	if !s.sessions.RecentlyReauthenticated(authenticated.Session, 10*time.Minute) {
-		http.Redirect(w, r, "/app/security?status=reauth_required", http.StatusSeeOther)
 		return sessions.Authenticated{}, "", false
 	}
 	if s.commercial == nil {

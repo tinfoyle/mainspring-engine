@@ -8,9 +8,11 @@ import (
 	"errors"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/identity"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -58,6 +60,7 @@ func NewService(repository Repository, sender Sender, authorizer *access.Authori
 
 type CreateCommand struct {
 	ActorUserID ids.UserID
+	Session     sessions.Session
 	AccountID   ids.AccountID
 	Email       string
 	Role        accounts.MembershipRole
@@ -70,6 +73,9 @@ type Created struct {
 func (s *Service) Create(ctx context.Context, command CreateCommand) (Created, error) {
 	accountContext, err := s.authorizer.Authorize(ctx, access.Actor{UserID: command.ActorUserID}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator}})
 	if err != nil {
+		return Created{}, err
+	}
+	if err := strongauth.Require(command.Session, command.ActorUserID, s.clock.Now()); err != nil {
 		return Created{}, err
 	}
 	email, err := identity.NormalizeEmail(command.Email)

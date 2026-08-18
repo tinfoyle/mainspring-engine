@@ -90,14 +90,14 @@
     const begun = await request("/api/v1/passkey-registrations", { method: "POST" });
     const credential = await navigator.credentials.create({ publicKey: creationOptions(begun) });
     await request(`/api/v1/passkey-registrations/${encodeURIComponent(begun.ceremony_id)}/complete`, body({ name, credential: credentialJSON(credential) }));
-    window.location.assign("/app/security");
+    window.location.assign("/app/security?status=passkey_added");
   }));
 
   document.querySelector("#passkey-reauthenticate")?.addEventListener("click", () => run(async () => {
     const begun = await request("/api/v1/passkey-reauthentications", { method: "POST" });
     const credential = await navigator.credentials.get({ publicKey: requestOptions(begun) });
     await request(`/api/v1/passkey-reauthentications/${encodeURIComponent(begun.ceremony_id)}/complete`, body({ credential: credentialJSON(credential) }));
-    window.location.assign("/app/security?status=confirmed");
+    window.location.assign("/app/security?status=passkey_confirmed");
   }));
 
   document.querySelectorAll(".passkey-remove").forEach(button => button.addEventListener("click", () => run(async () => {

@@ -218,6 +218,12 @@ func (s *Service) CompleteRegistration(ctx context.Context, session sessions.Ses
 	if err := s.repository.CreateCredential(ctx, session.UserID, name, *credential, now, MaximumPasskeys); err != nil {
 		return CredentialSummary{}, err
 	}
+	// A successful registration has just proven user presence and verification.
+	// Promote this session so the first passkey can immediately unlock a
+	// privileged operation after password-based account recovery or bootstrap.
+	if err := s.sessions.MarkReauthenticatedWithMethod(ctx, session.UserID, session.ID, sessions.AuthenticationMethodPasskey); err != nil {
+		return CredentialSummary{}, err
+	}
 	return summarize(CredentialRecord{UserID: session.UserID, Name: name, Credential: *credential, CreatedAt: now}), nil
 }
 

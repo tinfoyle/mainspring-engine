@@ -17,6 +17,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
@@ -464,10 +465,6 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.sessions.RecentlyReauthenticated(authenticated.Session, 10*time.Minute) {
-		http.Redirect(w, r, "/app/security?status=reauth_required", http.StatusSeeOther)
-		return
-	}
 	if !s.validOrigin(r, false) {
 		http.Error(w, "Request origin was not accepted.", http.StatusForbidden)
 		return
@@ -481,8 +478,12 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid Account.", http.StatusBadRequest)
 		return
 	}
-	created, err := s.invitations.Create(r.Context(), invitations.CreateCommand{ActorUserID: authenticated.Session.UserID, AccountID: ids.AccountID(accountID), Email: r.FormValue("email"), Role: accounts.MembershipRole(r.FormValue("role"))})
+	created, err := s.invitations.Create(r.Context(), invitations.CreateCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: ids.AccountID(accountID), Email: r.FormValue("email"), Role: accounts.MembershipRole(r.FormValue("role"))})
 	if err != nil {
+		if errors.Is(err, strongauth.ErrRequired) {
+			http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+			return
+		}
 		http.Redirect(w, r, "/app?status=invite_failed", http.StatusSeeOther)
 		return
 	}
@@ -521,11 +522,17 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	notice := ""
 	switch r.URL.Query().Get("status") {
 	case "confirmed":
-		notice = "Password confirmed. Sensitive actions are unlocked for 10 minutes."
+		notice = "Password confirmed for identity settings. Use a passkey to unlock invitations and billing."
+	case "passkey_confirmed":
+		notice = "Passkey confirmed. Privileged Account actions are unlocked for 10 minutes."
+	case "passkey_added":
+		notice = "Passkey added and confirmed. Privileged Account actions are unlocked for 10 minutes."
 	case "revoked":
 		notice = "The selected session has been signed out."
 	case "reauth_required":
 		notice = "Confirm your password before continuing with a sensitive action."
+	case "strong_reauth_required":
+		notice = "Confirm with a passkey before inviting people or changing billing. If this is your first passkey, confirm your password and add one below."
 	}
 	data := pageData{Title: "Identity security", Notice: notice, ActiveSessions: active, SecurityEvents: securityEventViews(events), Passkeys: credentials, PasskeysConfigured: s.passkeys != nil}
 	if data.PasskeysConfigured {

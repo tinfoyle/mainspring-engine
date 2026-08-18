@@ -2,8 +2,13 @@ package httpapi_test
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,6 +19,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
+	"github.com/go-webauthn/webauthn/protocol/webauthncose"
 
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
 )
@@ -212,6 +220,42 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if len(selectedCookies) != 1 || selectedCookies[0].Name != "spyglass_development_account" || !selectedCookies[0].HttpOnly {
 		t.Fatalf("unexpected account cookie: %#v", selectedCookies)
 	}
+	invite := postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/invitations", `{"email":"member@example.com","role":"member"}`, cookies[0])
+	if invite.StatusCode != http.StatusForbidden || !bytes.Contains(invite.Body, []byte(`"code":"strong_reauthentication_required"`)) {
+		t.Fatalf("password-only invitation step-up: %d %s", invite.StatusCode, invite.Body)
+	}
+	strongRegistration := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, cookies[0])
+	if strongRegistration.StatusCode != http.StatusCreated {
+		t.Fatalf("strong passkey registration options: %d %s", strongRegistration.StatusCode, strongRegistration.Body)
+	}
+	var strongCeremony struct {
+		CeremonyID string `json:"ceremony_id"`
+		PublicKey  struct {
+			PublicKey struct {
+				Challenge string `json:"challenge"`
+			} `json:"publicKey"`
+		} `json:"public_key"`
+	}
+	if err := json.Unmarshal(strongRegistration.Body, &strongCeremony); err != nil || strongCeremony.CeremonyID == "" || strongCeremony.PublicKey.PublicKey.Challenge == "" {
+		t.Fatalf("decode strong passkey ceremony: %+v err=%v", strongCeremony, err)
+	}
+	credential := registrationCredential(t, strongCeremony.PublicKey.PublicKey.Challenge)
+	strongCompletion := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations/"+strongCeremony.CeremonyID+"/complete", `{"name":"Test passkey","credential":`+credential+`}`, cookies[0])
+	if strongCompletion.StatusCode != http.StatusCreated {
+		t.Fatalf("strong passkey enrollment: %d %s", strongCompletion.StatusCode, strongCompletion.Body)
+	}
+	invite = postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/invitations", `{"email":"member@example.com","role":"member"}`, cookies[0])
+	if invite.StatusCode != http.StatusCreated {
+		t.Fatalf("passkey-confirmed invite: %d %s", invite.StatusCode, invite.Body)
+	}
+	var invited map[string]any
+	if err := json.Unmarshal(invite.Body, &invited); err != nil {
+		t.Fatal(err)
+	}
+	invitationToken, _ := invited["development_invitation_token"].(string)
+	if invitationToken == "" {
+		t.Fatal("development invitation token missing")
+	}
 	memberBegin := postJSON(t, server.URL+"/api/v1/registrations", `{"email":"member@example.com","display_name":"Morgan Lee","account_name":"Member Sandbox","region":"us-east"}`)
 	var memberPending map[string]any
 	if err := json.Unmarshal(memberBegin.Body, &memberPending); err != nil {
@@ -226,18 +270,6 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	memberCookies := (&http.Response{Header: memberLogin.Header}).Cookies()
 	if len(memberCookies) != 1 {
 		t.Fatalf("member login: %d %s", memberLogin.StatusCode, memberLogin.Body)
-	}
-	invite := postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/invitations", `{"email":"member@example.com","role":"member"}`, cookies[0])
-	if invite.StatusCode != http.StatusCreated {
-		t.Fatalf("invite: %d %s", invite.StatusCode, invite.Body)
-	}
-	var invited map[string]any
-	if err := json.Unmarshal(invite.Body, &invited); err != nil {
-		t.Fatal(err)
-	}
-	invitationToken, _ := invited["development_invitation_token"].(string)
-	if invitationToken == "" {
-		t.Fatal("development invitation token missing")
 	}
 	acceptedInvitation := postJSONCookie(t, server.URL+"/api/v1/invitations/accept", `{"token":"`+invitationToken+`"}`, memberCookies[0])
 	if acceptedInvitation.StatusCode != http.StatusCreated {
@@ -375,6 +407,50 @@ func postWebhook(t *testing.T, url string, body []byte, signature string) respon
 	defer result.Body.Close()
 	responseBody, _ := io.ReadAll(result.Body)
 	return response{StatusCode: result.StatusCode, Header: result.Header.Clone(), Body: responseBody}
+}
+
+func registrationCredential(t *testing.T, challenge string) string {
+	t.Helper()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := webauthncbor.Marshal(webauthncose.EC2PublicKeyData{
+		PublicKeyData: webauthncose.PublicKeyData{KeyType: int64(webauthncose.EllipticKey), Algorithm: int64(webauthncose.AlgES256)},
+		Curve:         int64(webauthncose.P256), XCoord: privateKey.X.FillBytes(make([]byte, 32)), YCoord: privateKey.Y.FillBytes(make([]byte, 32)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialID := []byte("http-journey-passkey")
+	clientData := []byte(fmt.Sprintf(`{"type":"webauthn.create","challenge":%q,"origin":"http://localhost:8080"}`, challenge))
+	rpHash := sha256.Sum256([]byte("localhost"))
+	authenticatorData := append([]byte(nil), rpHash[:]...)
+	authenticatorData = append(authenticatorData, 0x45, 0, 0, 0, 0)
+	authenticatorData = append(authenticatorData, make([]byte, 16)...)
+	credentialLength := make([]byte, 2)
+	binary.BigEndian.PutUint16(credentialLength, uint16(len(credentialID)))
+	authenticatorData = append(authenticatorData, credentialLength...)
+	authenticatorData = append(authenticatorData, credentialID...)
+	authenticatorData = append(authenticatorData, publicKey...)
+	attestation, err := webauthncbor.Marshal(map[string]any{"fmt": "none", "attStmt": map[string]any{}, "authData": authenticatorData})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedID := base64.RawURLEncoding.EncodeToString(credentialID)
+	value := map[string]any{
+		"id": encodedID, "rawId": encodedID, "type": "public-key",
+		"response": map[string]any{
+			"clientDataJSON":    base64.RawURLEncoding.EncodeToString(clientData),
+			"attestationObject": base64.RawURLEncoding.EncodeToString(attestation),
+			"transports":        []string{"internal"},
+		},
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
 }
 
 func stripeSignature(secret string, timestamp int64, payload []byte) string {

@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
@@ -216,7 +217,7 @@ func (s *Server) completeRecovery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) billingStatus(w http.ResponseWriter, r *http.Request) {
-	authenticated, accountID, ok := s.commercialRequest(w, r, false)
+	authenticated, accountID, ok := s.commercialRequest(w, r)
 	if !ok {
 		return
 	}
@@ -229,7 +230,7 @@ func (s *Server) billingStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
-	authenticated, accountID, ok := s.commercialRequest(w, r, true)
+	authenticated, accountID, ok := s.commercialRequest(w, r)
 	if !ok {
 		return
 	}
@@ -240,7 +241,7 @@ func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	session, err := s.commercialAccess.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID, AccountID: accountID, OfferCode: input.OfferCode, RequestID: r.Header.Get("Idempotency-Key")})
+	session, err := s.commercialAccess.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, OfferCode: input.OfferCode, RequestID: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		s.writeCommercialError(w, err)
 		return
@@ -249,11 +250,11 @@ func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createBillingPortalSession(w http.ResponseWriter, r *http.Request) {
-	authenticated, accountID, ok := s.commercialRequest(w, r, true)
+	authenticated, accountID, ok := s.commercialRequest(w, r)
 	if !ok {
 		return
 	}
-	session, err := s.commercialAccess.Portal(r.Context(), commercialaccess.PortalCommand{ActorUserID: authenticated.Session.UserID, AccountID: accountID, RequestID: r.Header.Get("Idempotency-Key")})
+	session, err := s.commercialAccess.Portal(r.Context(), commercialaccess.PortalCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, RequestID: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		s.writeCommercialError(w, err)
 		return
@@ -261,17 +262,13 @@ func (s *Server) createBillingPortalSession(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusCreated, map[string]any{"session_id": session.ID, "url": session.URL, "expires_at": session.ExpiresAt})
 }
 
-func (s *Server) commercialRequest(w http.ResponseWriter, r *http.Request, requireRecentAuthentication bool) (sessions.Authenticated, ids.AccountID, bool) {
+func (s *Server) commercialRequest(w http.ResponseWriter, r *http.Request) (sessions.Authenticated, ids.AccountID, bool) {
 	if origin := r.Header.Get("Origin"); origin != "" && origin != s.commercialOrigin {
 		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
 		return sessions.Authenticated{}, "", false
 	}
 	authenticated, ok := s.authenticateSession(w, r)
 	if !ok {
-		return sessions.Authenticated{}, "", false
-	}
-	if requireRecentAuthentication && !s.sessions.RecentlyReauthenticated(authenticated.Session, 10*time.Minute) {
-		writeProblem(w, http.StatusForbidden, "reauthentication_required", "confirm your password before this sensitive operation")
 		return sessions.Authenticated{}, "", false
 	}
 	if s.commercialAccess == nil {
@@ -288,6 +285,8 @@ func (s *Server) commercialRequest(w http.ResponseWriter, r *http.Request, requi
 
 func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, strongauth.ErrRequired):
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
 	case errors.Is(err, commercialaccess.ErrInvalidRequestID):
 		writeProblem(w, http.StatusBadRequest, "invalid_idempotency_key", "a UUID Idempotency-Key header is required")
 	case errors.Is(err, commercialaccess.ErrOfferUnavailable):
@@ -312,10 +311,6 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.sessions.RecentlyReauthenticated(authenticated.Session, 10*time.Minute) {
-		writeProblem(w, http.StatusForbidden, "reauthentication_required", "confirm your password before this sensitive operation")
-		return
-	}
 	if s.invitations == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "invitations_unconfigured", "invitations are not configured")
 		return
@@ -333,7 +328,7 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	created, err := s.invitations.Create(r.Context(), invitations.CreateCommand{ActorUserID: authenticated.Session.UserID, AccountID: ids.AccountID(rawAccountID), Email: input.Email, Role: input.Role})
+	created, err := s.invitations.Create(r.Context(), invitations.CreateCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: ids.AccountID(rawAccountID), Email: input.Email, Role: input.Role})
 	if err != nil {
 		s.writeInvitationError(w, err)
 		return
@@ -373,6 +368,8 @@ func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) writeInvitationError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, strongauth.ErrRequired):
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
 	case errors.Is(err, invitations.ErrMembershipExists):
 		writeProblem(w, http.StatusConflict, "membership_exists", "the identity is already a member")
 	case errors.Is(err, invitations.ErrInvitationExpired):

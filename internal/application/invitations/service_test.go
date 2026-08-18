@@ -2,13 +2,16 @@ package invitations_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -24,6 +27,22 @@ func (g *generator) New() string {
 		return "00000000-0000-4000-8000-000000000011"
 	}
 	return "00000000-0000-4000-8000-000000000012"
+}
+
+func TestInvitationRejectsPasswordOnlyEvidenceBeforePersistence(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	accountID := ids.AccountID("00000000-0000-4000-8000-000000000001")
+	ownerID := ids.UserID("00000000-0000-4000-8000-000000000002")
+	repository := &repository{state: access.State{Account: accounts.Account{ID: accountID, State: accounts.AccountActive}, Membership: accounts.Membership{AccountID: accountID, UserID: ownerID, Role: accounts.RoleOwner, State: accounts.MembershipActive}, Entitlements: entitlements.Snapshot{AccountID: accountID}}}
+	authorizer, _ := access.NewAuthorizer(repository)
+	service, _ := invitations.NewService(repository, &sender{}, authorizer, &generator{}, clock{now})
+	command := invitations.CreateCommand{ActorUserID: ownerID, Session: sessions.Session{UserID: ownerID, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPassword}, AccountID: accountID, Email: "member@example.com", Role: accounts.RoleMember}
+	if _, err := service.Create(context.Background(), command); !errors.Is(err, strongauth.ErrRequired) {
+		t.Fatalf("error = %v, want strong authentication required", err)
+	}
+	if repository.invitation.ID != "" {
+		t.Fatal("password-only invitation was persisted")
+	}
 }
 
 type sender struct{ message invitations.Message }
@@ -68,7 +87,7 @@ func TestInvitationAddsMembershipToExistingSystemIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := service.Create(context.Background(), invitations.CreateCommand{ActorUserID: ownerID, AccountID: accountID, Email: "member@example.com", Role: accounts.RoleMember})
+	created, err := service.Create(context.Background(), invitations.CreateCommand{ActorUserID: ownerID, Session: sessions.Session{UserID: ownerID, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey}, AccountID: accountID, Email: "member@example.com", Role: accounts.RoleMember})
 	if err != nil {
 		t.Fatal(err)
 	}

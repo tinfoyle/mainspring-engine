@@ -17,6 +17,7 @@ This repository now contains the first executable production slice for Infinite 
 - Opaque rotating session tokens with absolute/idle expiry, user-owned active-session inventory, individual/device-wide revocation, a bounded user-visible security timeline, and password reauthentication for sensitive operations.
 - System-wide WebAuthn passkeys with discoverable user-verified login, recent-auth enrollment/removal, passkey reauthentication, encrypted durable credentials/ceremonies, single-use three-minute challenges, atomic authenticator-counter fencing, and identity security events shared across account-api replicas.
 - Typed durable session assurance that independently records initial and most-recent password/passkey proof, exposes safe active-session classifications, and prevents password confirmation from satisfying a user-verified cryptographic step-up policy.
+- Shared application-layer strong-auth policy requiring recent User-bound passkey assurance for invitation, Checkout, and Customer Portal mutations before persistence or Stripe calls; successful first passkey enrollment establishes that assurance after password bootstrap/recovery.
 - Enumeration-resistant credential-recovery response bodies with identifier throttling, hashed single-use 30-minute links, atomic Argon2id credential replacement, User security-version advancement, and all-session revocation.
 - Keyed, privacy-preserving network-actor derivation with explicit trusted-proxy CIDRs and PostgreSQL-backed login/recovery budgets shared across account-api replicas.
 - Argon2id local credentials created atomically with verified identity and Account provisioning, plus generic login failures and durable identifier-hash lockouts.
@@ -134,7 +135,7 @@ npm run dev
 
 ## Next production slices
 
-1. Add mandatory MFA/recovery policy for owners and platform administrators, multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
+1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up, then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Add fair asynchronous admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests; bounded directory routing and internal workload identity are now executable.

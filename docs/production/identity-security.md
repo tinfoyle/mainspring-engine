@@ -27,12 +27,14 @@ Required invariants:
 - Authenticator clone warnings are rejected and recorded as security events.
 - At most ten passkeys may be registered for one User.
 - Durable sessions record both the initial authentication method and the latest reauthentication method. Password maps to `single_factor`; a user-verified passkey maps to `user_verified_cryptographic`. Neither value contains or grants Account authority.
+- Invitation creation, Stripe Checkout creation, and Stripe Customer Portal creation require an active authorized role plus user-verified cryptographic proof no older than ten minutes. Password proof cannot satisfy that privileged-operation policy.
 
 ## 2. Code ownership
 
 | Boundary | Owner | Responsibility |
 |---|---|---|
 | Use cases and ports | `internal/application/passkeys` | WebAuthn policy, ceremony lifetime, replay order, counter fencing, session issuance, safe summaries |
+| Privileged assurance policy | `internal/application/strongauth` | One typed, transport-independent rule for actor binding, assurance class, and ten-minute freshness |
 | Durable adapter | `internal/adapters/postgres/passkeys.go` | Encrypted records, scoped atomic ceremony consumption, credential counter CAS, security events |
 | Development adapter | `internal/adapters/memory/passkeys.go` | Same application port for local journeys and transport tests |
 | HTTP adapter | `internal/transport/httpapi` | Bounded JSON, exact-origin checks, session cookies, public problem responses |
@@ -61,19 +63,22 @@ The application owns the repository interface. Neither transport imports Postgre
 3. The server requires a resident credential, user verification, and no attestation conveyance preference.
 4. Completion consumes a ceremony bound to the same User and session.
 5. A verified credential is encrypted and inserted with a human-readable local name and security event.
+6. Successful user-verified enrollment promotes the current session's recent assurance to `user_verified_cryptographic`. This makes first enrollment usable after password recovery without treating the password itself as strong proof.
 
 ### Passkey reauthentication
 
 1. An authenticated session requests an assertion restricted to its User's registered credentials.
 2. Completion consumes a ceremony bound to that exact User and session.
 3. Successful cryptographic validation and counter update mark the existing session recently reauthenticated.
-4. The timestamp unlocks credential and commercial mutations for ten minutes; it grants no new Account role.
+4. The timestamp unlocks privileged Account mutations for ten minutes; it grants no new Account role.
 
 ### Session assurance
 
 The session keeps `authentication_method` separate from `reauthentication_method`. Initial sign-in sets both. A later step-up updates only the reauthentication method and timestamp. For example, a passkey-created session later confirmed with a password remains a passkey-created session, but it no longer satisfies a policy requiring recent user-verified cryptographic proof. Unknown method values are rejected by the application and database constraints.
 
-Active-session API responses expose the two methods and their derived assurance classifications. This gives future owner/admin MFA and high-risk operation policy a typed input without reinterpreting security events, browser state, Account role, or elapsed time alone.
+Active-session API responses expose the two methods and their derived assurance classifications. `strongauth.Require` consumes the session, expected actor, trusted clock, and fixed ten-minute window. Invitation and commercial services call it after Account-role authorization and before persistence or provider calls, so alternate transports cannot bypass the rule. A password confirmation performed after a passkey assertion deliberately replaces the recent assurance and requires another passkey assertion for these operations.
+
+The current privileged set is invitation creation, Checkout creation, and Customer Portal creation. Invitation acceptance, Account selection, billing reads, password recovery, and first passkey enrollment are not made impossible by this rule. Recovery replaces the password and revokes all sessions; the User signs in with the new password, enrolls a user-verified passkey, and that enrollment establishes the required recent assurance.
 
 ## 4. HTTP surface
 
@@ -115,6 +120,8 @@ Automated evidence covers:
 - a generated P-256 assertion accepted only with the correct challenge, exact origin, RP ID, signature, presence, and verification flags;
 - session issuance only after an atomic credential-counter update;
 - durable separation of initial and recent password/passkey assurance, including rejection of a password step-up for a cryptographic-assurance requirement;
+- application-layer rejection of password, stale passkey, future-dated, and cross-User evidence before invitation persistence or Stripe calls;
+- a generated P-256 registration that promotes a password-created session only after server-validated user verification, followed by a successful HTTP invitation journey;
 - rejection of tampered signatures, expired ceremonies, and ceremony replay;
 - resident-key/user-verification registration options and User/session ceremony binding;
 - ciphertext randomness, label binding, key-version binding, and tamper rejection;
@@ -125,7 +132,7 @@ Automated evidence covers:
 
 Passkeys are now a production authentication and strong-reauthentication option, but the broader Phase 2 identity program is not complete:
 
-1. Define and implement MFA enrollment/recovery policy for Account owners and isolated platform administrators, including recovery codes and step-up rules built on the typed session assurance.
+1. Extend the now-executable privileged-operation step-up into a complete owner/platform-administrator enrollment and recovery policy, including recovery codes, ownership-transfer rules, factor-loss review, and break-glass governance.
 2. Add a multi-version credential-encryption keyring, re-encryption operator, and key-loss/rollback runbook.
 3. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
 4. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.

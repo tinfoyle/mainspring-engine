@@ -82,7 +82,7 @@ Review trust boundaries for browser-to-public-site, browser-to-identity/account 
 Production authentication requires an ADR. Minimum requirements:
 
 - Modern password hashing if passwords remain supported.
-- MFA support for owners and platform administrators.
+- User-verified passkey step-up for invitation and billing mutations; complete mandatory owner/platform-administrator enrollment, recovery-code, and factor-loss policy before release.
 - Short-lived authenticated sessions with rotating opaque tokens.
 - Secure, HttpOnly, SameSite cookies and CSRF protection for cookie mutations.
 - Session inventory and remote revocation.
@@ -116,7 +116,7 @@ Production authentication requires an ADR. Minimum requirements:
 - Checkout success redirects are advisory and never grant access.
 - Stripe signatures are verified against the untouched raw body with mode-specific secrets and replay-age policy.
 - Webhook events are persisted and deduplicated before asynchronous projection; duplicate and out-of-order delivery must converge.
-- Customer Portal sessions are created only after Account role checks and reauthentication where policy requires; return destinations are allowlisted.
+- Checkout and Customer Portal sessions are created only after Account role checks and recent user-verified passkey proof; password confirmation is insufficient and return destinations are allowlisted.
 - Runtime authorization reads a local immutable EntitlementSnapshot, not Stripe, browser claims, cached navigation, or plan names.
 - Free, paid, trial, promotion, grandfathered, suspension, safety, and support-override grants have reviewed precedence and complete audit trails.
 - Payment instrument details remain in Stripe; logs, traces, analytics, support exports, and audit events exclude sensitive payment data.
