@@ -37,7 +37,7 @@ func (p *processorStub) ProcessOne(context.Context) (bool, error) {
 	p.launchCalls++
 	return p.launched, p.launchErr
 }
-func (p *processorStub) ReconcileLaunched(_ context.Context, batch int) (int, error) {
+func (p *processorStub) ReconcileJobs(_ context.Context, batch int) (int, error) {
 	p.batch = batch
 	return p.completed, p.reconcileErr
 }

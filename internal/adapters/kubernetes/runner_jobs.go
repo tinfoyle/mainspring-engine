@@ -130,37 +130,93 @@ func (k *RunnerJobs) Ensure(ctx context.Context, invocation runnercontrol.Invoca
 	}
 	response, err := k.request(ctx, http.MethodPost, k.jobsPath(), body)
 	if err != nil {
-		return "", err
+		return uncertainLaunch(name, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusCreated {
 		metadata, err := decodeJobMetadata(response.Body)
 		if err != nil || metadata.Name != name || metadata.Labels["spyglass.io/invocation-id"] != invocation.ID || metadata.Annotations["spyglass.io/launch-contract-sha256"] != contract {
-			return "", errors.New("Kubernetes created a runner Job with mismatched identity")
+			return uncertainLaunch(name, errors.New("Kubernetes created a runner Job with mismatched identity"))
 		}
 		return name, nil
 	}
 	if response.StatusCode != http.StatusConflict {
-		return "", responseError("create runner Job", response)
+		responseErr := responseError("create runner Job", response)
+		if response.StatusCode >= http.StatusInternalServerError {
+			return uncertainLaunch(name, responseErr)
+		}
+		return "", responseErr
 	}
 	response.Body.Close()
 	response, err = k.request(ctx, http.MethodGet, k.jobPath(name), nil)
 	if err != nil {
-		return "", err
+		return uncertainLaunch(name, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", responseError("inspect conflicting runner Job", response)
+		return uncertainLaunch(name, responseError("inspect conflicting runner Job", response))
 	}
 	metadata, err := decodeJobMetadata(response.Body)
 	if err != nil || metadata.Name != name || metadata.Labels["spyglass.io/invocation-id"] != invocation.ID || metadata.Labels["spyglass.io/profile"] != invocation.Profile || metadata.Annotations["spyglass.io/launch-contract-sha256"] != contract {
-		return "", errors.New("existing Kubernetes runner Job conflicts with the invocation contract")
+		return uncertainLaunch(name, errors.New("existing Kubernetes runner Job conflicts with the invocation contract"))
 	}
 	return name, nil
 }
 
+// Cancel deletes only the exact Job contract owned by the invocation. UID and
+// resource-version preconditions close the gap between verification and delete,
+// while foreground propagation makes a later 404 evidence that known blocking
+// dependent Pod API objects were removed before Account capacity is released.
+func (k *RunnerJobs) Cancel(ctx context.Context, invocation runnercontrol.Invocation) error {
+	if invocation.State != "canceling" || invocation.JobName == "" || invocation.JobName != jobName(invocation.ID) {
+		return errors.New("canceling runner Job identity is invalid")
+	}
+	profile, exists := k.profiles[invocation.Profile]
+	if !exists {
+		return fmt.Errorf("runner profile %q is not deployed", invocation.Profile)
+	}
+	_, contract, err := k.job(invocation, invocation.JobName, profile)
+	if err != nil {
+		return err
+	}
+	response, err := k.request(ctx, http.MethodGet, k.jobPath(invocation.JobName), nil)
+	if err != nil {
+		return err
+	}
+	if response.StatusCode == http.StatusNotFound {
+		response.Body.Close()
+		return nil
+	}
+	if response.StatusCode != http.StatusOK {
+		defer response.Body.Close()
+		return responseError("verify canceling runner Job", response)
+	}
+	metadata, decodeErr := decodeJobMetadata(response.Body)
+	response.Body.Close()
+	if decodeErr != nil || !matchesJobContract(metadata, invocation, contract) || metadata.UID == "" || metadata.ResourceVersion == "" {
+		return errors.New("canceling Kubernetes runner Job does not match the launch contract")
+	}
+	deleteOptions := map[string]any{
+		"apiVersion": "v1", "kind": "DeleteOptions", "gracePeriodSeconds": int64(0), "propagationPolicy": "Foreground",
+		"preconditions": map[string]string{"uid": metadata.UID, "resourceVersion": metadata.ResourceVersion},
+	}
+	body, err := json.Marshal(deleteOptions)
+	if err != nil {
+		return err
+	}
+	response, err = k.request(ctx, http.MethodDelete, k.jobPath(invocation.JobName), body)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusOK || response.StatusCode == http.StatusAccepted || response.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	return responseError("delete canceling runner Job", response)
+}
+
 func (k *RunnerJobs) Inspect(ctx context.Context, invocation runnercontrol.Invocation) (runnercontrol.TerminalStatus, error) {
-	if invocation.JobName == "" || invocation.JobName != jobName(invocation.ID) {
+	if (invocation.State != "launch_uncertain" && invocation.State != "launched" && invocation.State != "canceling") || invocation.JobName == "" || invocation.JobName != jobName(invocation.ID) {
 		return runnercontrol.TerminalStatus{}, errors.New("runner Job identity is invalid")
 	}
 	profile, exists := k.profiles[invocation.Profile]
@@ -177,7 +233,13 @@ func (k *RunnerJobs) Inspect(ctx context.Context, invocation runnercontrol.Invoc
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
-		return runnercontrol.TerminalStatus{}, nil
+		if invocation.State == "canceling" {
+			return runnercontrol.TerminalStatus{Terminal: true, Outcome: "canceled"}, nil
+		}
+		if invocation.State == "launch_uncertain" {
+			return runnercontrol.TerminalStatus{}, nil
+		}
+		return runnercontrol.TerminalStatus{}, errors.New("launched Kubernetes runner Job was not found")
 	}
 	if response.StatusCode != http.StatusOK {
 		return runnercontrol.TerminalStatus{}, responseError("inspect runner Job", response)
@@ -193,8 +255,11 @@ func (k *RunnerJobs) Inspect(ctx context.Context, invocation runnercontrol.Invoc
 	if err := decodeBounded(response.Body, &job); err != nil {
 		return runnercontrol.TerminalStatus{}, fmt.Errorf("decode runner Job status: %w", err)
 	}
-	if job.Metadata.Labels["spyglass.io/invocation-id"] != invocation.ID || job.Metadata.Labels["spyglass.io/profile"] != invocation.Profile || job.Metadata.Annotations["spyglass.io/launch-contract-sha256"] != contract {
+	if !matchesJobContract(job.Metadata, invocation, contract) {
 		return runnercontrol.TerminalStatus{}, errors.New("runner Job status identity does not match the launch contract")
+	}
+	if invocation.State == "canceling" {
+		return runnercontrol.TerminalStatus{Observed: true}, nil
 	}
 	for _, condition := range job.Status.Conditions {
 		if condition.Status != "True" {
@@ -202,12 +267,16 @@ func (k *RunnerJobs) Inspect(ctx context.Context, invocation runnercontrol.Invoc
 		}
 		switch condition.Type {
 		case "Complete":
-			return runnercontrol.TerminalStatus{Terminal: true, Outcome: "completed"}, nil
+			return runnercontrol.TerminalStatus{Observed: true, Terminal: true, Outcome: "completed"}, nil
 		case "Failed":
-			return runnercontrol.TerminalStatus{Terminal: true, Outcome: "execution_failed"}, nil
+			return runnercontrol.TerminalStatus{Observed: true, Terminal: true, Outcome: "execution_failed"}, nil
 		}
 	}
-	return runnercontrol.TerminalStatus{}, nil
+	return runnercontrol.TerminalStatus{Observed: true}, nil
+}
+
+func uncertainLaunch(name string, cause error) (string, error) {
+	return name, fmt.Errorf("%w: %w", runnercontrol.ErrLaunchUncertain, cause)
 }
 
 func (k *RunnerJobs) job(invocation runnercontrol.Invocation, name string, profile ResourceProfile) (map[string]any, string, error) {
@@ -250,9 +319,18 @@ func (k *RunnerJobs) job(invocation runnercontrol.Invocation, name string, profi
 }
 
 type jobMetadata struct {
-	Name        string            `json:"name"`
-	Labels      map[string]string `json:"labels"`
-	Annotations map[string]string `json:"annotations"`
+	Name            string            `json:"name"`
+	UID             string            `json:"uid"`
+	ResourceVersion string            `json:"resourceVersion"`
+	Labels          map[string]string `json:"labels"`
+	Annotations     map[string]string `json:"annotations"`
+}
+
+func matchesJobContract(metadata jobMetadata, invocation runnercontrol.Invocation, contract string) bool {
+	return metadata.Name == invocation.JobName &&
+		metadata.Labels["spyglass.io/invocation-id"] == invocation.ID &&
+		metadata.Labels["spyglass.io/profile"] == invocation.Profile &&
+		metadata.Annotations["spyglass.io/launch-contract-sha256"] == contract
 }
 
 func decodeJobMetadata(reader io.Reader) (jobMetadata, error) {

@@ -27,7 +27,9 @@ type Config struct {
 type Status struct {
 	Ready                 uint64 `json:"ready"`
 	Launching             uint64 `json:"launching"`
+	LaunchUncertain       uint64 `json:"launch_uncertain"`
 	Launched              uint64 `json:"launched"`
+	Canceling             uint64 `json:"canceling"`
 	RetryableFailed       uint64 `json:"retryable_failed"`
 	DeadLetter            uint64 `json:"dead_letter"`
 	OldestReadyAgeSeconds int64  `json:"oldest_ready_age_seconds"`
@@ -35,7 +37,7 @@ type Status struct {
 
 type processor interface {
 	ProcessOne(context.Context) (bool, error)
-	ReconcileLaunched(context.Context, int) (int, error)
+	ReconcileJobs(context.Context, int) (int, error)
 	Stats(context.Context) (runnercontrol.Stats, error)
 }
 
@@ -124,9 +126,9 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) cycle(ctx context.Context) (bool, error) {
-	completed, reconcileErr := w.processor.ReconcileLaunched(ctx, w.inspectionBatch)
+	reconciled, reconcileErr := w.processor.ReconcileJobs(ctx, w.inspectionBatch)
 	launched, launchErr := w.processor.ProcessOne(ctx)
-	return completed > 0 || launched, errors.Join(reconcileErr, launchErr)
+	return reconciled > 0 || launched, errors.Join(reconcileErr, launchErr)
 }
 
 func (w *Worker) logFailure(ctx context.Context, processErr error) {
@@ -135,7 +137,7 @@ func (w *Worker) logFailure(ctx context.Context, processErr error) {
 		w.logger.Error("Runner control cycle failed", "error", processErr, "stats_error", statsErr)
 		return
 	}
-	w.logger.Error("Runner control cycle failed", "error", processErr, "ready", stats.Ready, "launching", stats.Launching, "launched", stats.Launched, "retryable_failed", stats.Failed, "dead_letter", stats.DeadLetter, "oldest_ready_age_seconds", int64(stats.OldestReadyAge/time.Second))
+	w.logger.Error("Runner control cycle failed", "error", processErr, "ready", stats.Ready, "launching", stats.Launching, "launch_uncertain", stats.LaunchUncertain, "launched", stats.Launched, "canceling", stats.Canceling, "retryable_failed", stats.Failed, "dead_letter", stats.DeadLetter, "oldest_ready_age_seconds", int64(stats.OldestReadyAge/time.Second))
 }
 
 func (w *Worker) Ready(ctx context.Context) error { return w.pool.Ping(ctx) }
@@ -145,7 +147,7 @@ func (w *Worker) Status(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Status{Ready: stats.Ready, Launching: stats.Launching, Launched: stats.Launched, RetryableFailed: stats.Failed, DeadLetter: stats.DeadLetter, OldestReadyAgeSeconds: int64(stats.OldestReadyAge / time.Second)}, nil
+	return Status{Ready: stats.Ready, Launching: stats.Launching, LaunchUncertain: stats.LaunchUncertain, Launched: stats.Launched, Canceling: stats.Canceling, RetryableFailed: stats.Failed, DeadLetter: stats.DeadLetter, OldestReadyAgeSeconds: int64(stats.OldestReadyAge / time.Second)}, nil
 }
 
 func (w *Worker) Close() { w.pool.Close() }

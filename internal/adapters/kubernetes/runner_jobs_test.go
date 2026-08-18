@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -65,9 +66,95 @@ func TestRunnerJobIsHardenedAndTerminalStateIsObserved(t *testing.T) {
 	}
 
 	invocation.JobName = name
+	invocation.State = "launched"
 	status, err := launcher.Inspect(context.Background(), invocation)
 	if err != nil || !status.Terminal || status.Outcome != "completed" {
 		t.Fatalf("terminal status=%+v err=%v", status, err)
+	}
+}
+
+func TestRunnerCancellationUsesExactForegroundDeleteAndWaitsForAbsence(t *testing.T) {
+	invocation := runnercontrol.Invocation{ID: "30000000-0000-4000-8000-000000000003", Profile: "agent-small"}
+	var metadata map[string]any
+	deleted := false
+	postDeleteGets := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.Method {
+		case http.MethodPost:
+			var job map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&job); err != nil {
+				t.Fatal(err)
+			}
+			metadata = job["metadata"].(map[string]any)
+			metadata["uid"] = "job-uid-3"
+			metadata["resourceVersion"] = "42"
+			writer.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(writer).Encode(map[string]any{"metadata": metadata})
+		case http.MethodGet:
+			if deleted {
+				if postDeleteGets > 0 {
+					writer.WriteHeader(http.StatusNotFound)
+					return
+				}
+				postDeleteGets++
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{"metadata": metadata})
+		case http.MethodDelete:
+			var options struct {
+				GracePeriodSeconds int64             `json:"gracePeriodSeconds"`
+				PropagationPolicy  string            `json:"propagationPolicy"`
+				Preconditions      map[string]string `json:"preconditions"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&options); err != nil {
+				t.Fatal(err)
+			}
+			if options.GracePeriodSeconds != 0 || options.PropagationPolicy != "Foreground" || options.Preconditions["uid"] != "job-uid-3" || options.Preconditions["resourceVersion"] != "42" {
+				t.Errorf("delete options=%+v", options)
+			}
+			deleted = true
+			writer.WriteHeader(http.StatusAccepted)
+		default:
+			writer.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer server.Close()
+	launcher := newTestLauncher(t, server)
+	name, err := launcher.Ensure(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invocation.JobName, invocation.State = name, "canceling"
+	if err := launcher.Cancel(context.Background(), invocation); err != nil {
+		t.Fatalf("cancel runner Job: %v", err)
+	}
+	status, err := launcher.Inspect(context.Background(), invocation)
+	if err != nil || status.Terminal {
+		t.Fatalf("foreground deletion released early: status=%+v err=%v", status, err)
+	}
+	status, err = launcher.Inspect(context.Background(), invocation)
+	if err != nil || !status.Terminal || status.Outcome != "canceled" {
+		t.Fatalf("cancellation status=%+v err=%v", status, err)
+	}
+}
+
+func TestRunnerCancellationRefusesMismatchedJob(t *testing.T) {
+	invocation := runnercontrol.Invocation{ID: "40000000-0000-4000-8000-000000000004", Profile: "agent-small", State: "canceling"}
+	invocation.JobName = jobName(invocation.ID)
+	deleteCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodDelete {
+			deleteCalls++
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"metadata": map[string]any{
+			"name": invocation.JobName, "uid": "foreign", "resourceVersion": "1",
+			"labels":      map[string]string{"spyglass.io/invocation-id": invocation.ID, "spyglass.io/profile": "different-profile"},
+			"annotations": map[string]string{"spyglass.io/launch-contract-sha256": "foreign-contract"},
+		}})
+	}))
+	defer server.Close()
+	launcher := newTestLauncher(t, server)
+	if err := launcher.Cancel(context.Background(), invocation); err == nil || deleteCalls != 0 {
+		t.Fatalf("mismatched cancellation err=%v delete_calls=%d", err, deleteCalls)
 	}
 }
 
@@ -102,8 +189,44 @@ func TestRunnerJobConflictRequiresExactLaunchContract(t *testing.T) {
 		t.Fatalf("idempotent conflict name=%q err=%v", name, err)
 	}
 	mismatch = true
-	if _, err := launcher.Ensure(context.Background(), invocation); err == nil {
-		t.Fatal("mismatched existing Job accepted")
+	if _, err := launcher.Ensure(context.Background(), invocation); !errors.Is(err, runnercontrol.ErrLaunchUncertain) {
+		t.Fatalf("mismatched existing Job result=%v", err)
+	}
+}
+
+func TestRunnerJobServerFailureRetainsUncertainLaunchIdentity(t *testing.T) {
+	invocation := runnercontrol.Invocation{ID: "50000000-0000-4000-8000-000000000005", Profile: "agent-small"}
+	responseStatus := http.StatusServiceUnavailable
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(responseStatus)
+	}))
+	defer server.Close()
+	launcher := newTestLauncher(t, server)
+	name, err := launcher.Ensure(context.Background(), invocation)
+	if name != jobName(invocation.ID) || !errors.Is(err, runnercontrol.ErrLaunchUncertain) {
+		t.Fatalf("uncertain launch name=%q err=%v", name, err)
+	}
+	responseStatus = http.StatusUnprocessableEntity
+	if name, err := launcher.Ensure(context.Background(), invocation); name != "" || err == nil || errors.Is(err, runnercontrol.ErrLaunchUncertain) {
+		t.Fatalf("definitive rejection name=%q err=%v", name, err)
+	}
+}
+
+func TestOnlyUncertainLaunchTreatsMissingJobAsConfirmedAbsence(t *testing.T) {
+	invocation := runnercontrol.Invocation{ID: "60000000-0000-4000-8000-000000000006", Profile: "agent-small", State: "launch_uncertain"}
+	invocation.JobName = jobName(invocation.ID)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	launcher := newTestLauncher(t, server)
+	status, err := launcher.Inspect(context.Background(), invocation)
+	if err != nil || status.Observed || status.Terminal {
+		t.Fatalf("uncertain absence status=%+v err=%v", status, err)
+	}
+	invocation.State = "launched"
+	if _, err := launcher.Inspect(context.Background(), invocation); err == nil {
+		t.Fatal("confirmed launched Job disappearance was treated as safe absence")
 	}
 }
 

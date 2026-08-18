@@ -171,7 +171,7 @@ Horizontal autoscaling alone does not provide multi-account fairness. Every asyn
 
 Work is never silently dropped because a quota is reached. The durable record states queued, delayed, denied, or failed with a stable reason and retry policy.
 
-The executable runner scheduling model is specified in [Fair Runner Control Plane](runner-control.md). Its identifier-only PostgreSQL queue, weighted Account fairness, concurrency fencing, crash-recovery leases, due-time terminal inspection, idempotent digest-bound Kubernetes Job creation, exact completion, least-privilege database role, and Account-erasure integration are implemented and tested. Invocation brokering, runner identity, cancellation, reference RBAC/NetworkPolicy overlays, and applied scaling remain the next boundary.
+The executable runner scheduling model is specified in [Fair Runner Control Plane](runner-control.md). Its identifier-only PostgreSQL queue, weighted Account fairness, concurrency fencing, crash-recovery leases, fail-closed ambiguous-create reconciliation, due-time terminal inspection, idempotent digest-bound Kubernetes Job creation, Account-bound cancellation, preconditioned foreground deletion, exact completion, least-privilege database role, and Account-erasure integration are implemented and tested. Invocation brokering, runner identity, reference RBAC/NetworkPolicy overlays, and applied scaling remain the next boundary.
 
 ## 9. Kubernetes scaling policy
 

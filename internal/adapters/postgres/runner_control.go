@@ -51,6 +51,20 @@ func (q *RunnerControlQueue) Enqueue(ctx context.Context, invocation runnercontr
 	return created, nil
 }
 
+func (q *RunnerControlQueue) RequestCancellation(ctx context.Context, accountID ids.AccountID, invocationID string, now time.Time) (string, error) {
+	var state string
+	err := q.pool.QueryRow(ctx, `SELECT public.spyglass_cancel_runner_invocation($1,$2,$3)`,
+		invocationID, accountID, now.UTC()).Scan(&state)
+	if err != nil {
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) && postgresError.Code == "P0002" {
+			return "", runnercontrol.ErrInvocationNotFound
+		}
+		return "", fmt.Errorf("request runner cancellation: %w", err)
+	}
+	return state, nil
+}
+
 func (q *RunnerControlQueue) ClaimFair(ctx context.Context, now time.Time, lease time.Duration) (runnercontrol.Invocation, bool, error) {
 	tx, err := q.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -185,7 +199,8 @@ func claimFreshRunner(ctx context.Context, tx pgx.Tx, leaseID string, now time.T
 func (q *RunnerControlQueue) MarkLaunched(ctx context.Context, invocation runnercontrol.Invocation, jobName string, now time.Time) error {
 	result, err := q.pool.Exec(ctx, `
 		UPDATE spyglass.runner_invocation_queue SET
-			processing_state='launched',lease_id=NULL,lease_expires_at=NULL,
+			processing_state=CASE WHEN cancel_requested_at IS NULL THEN 'launched' ELSE 'canceling' END,
+			lease_id=NULL,lease_expires_at=NULL,
 			job_name=$3,launched_at=COALESCE(launched_at,$4),next_inspection_at=$4,last_error_code=NULL
 		WHERE invocation_id=$1 AND processing_state='launching' AND lease_id=$2`,
 		invocation.ID, invocation.LeaseID, jobName, now.UTC())
@@ -198,7 +213,23 @@ func (q *RunnerControlQueue) MarkLaunched(ctx context.Context, invocation runner
 	return nil
 }
 
-func (q *RunnerControlQueue) FailLaunch(ctx context.Context, invocation runnercontrol.Invocation, next time.Time, code string, dead bool) error {
+func (q *RunnerControlQueue) MarkLaunchUncertain(ctx context.Context, invocation runnercontrol.Invocation, jobName string, now time.Time, code string) error {
+	result, err := q.pool.Exec(ctx, `
+		UPDATE spyglass.runner_invocation_queue SET
+			processing_state=CASE WHEN cancel_requested_at IS NULL THEN 'launch_uncertain' ELSE 'canceling' END,
+			lease_id=NULL,lease_expires_at=NULL,job_name=$3,next_inspection_at=$4,last_error_code=$5
+		WHERE invocation_id=$1 AND processing_state='launching' AND lease_id=$2`,
+		invocation.ID, invocation.LeaseID, jobName, now.UTC(), code)
+	if err != nil {
+		return fmt.Errorf("mark runner launch uncertain: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return runnercontrol.ErrLeaseLost
+	}
+	return nil
+}
+
+func (q *RunnerControlQueue) FailLaunch(ctx context.Context, invocation runnercontrol.Invocation, failedAt, next time.Time, code string, dead bool) error {
 	tx, err := q.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("begin runner launch failure: %w", err)
@@ -213,13 +244,17 @@ func (q *RunnerControlQueue) FailLaunch(ctx context.Context, invocation runnerco
 	var accountID ids.AccountID
 	err = tx.QueryRow(ctx, `
 		UPDATE spyglass.runner_invocation_queue SET
-			processing_state=$3,next_attempt_at=$4,lease_id=NULL,lease_expires_at=NULL,last_error_code=$5
+			processing_state=CASE WHEN cancel_requested_at IS NULL THEN $3::text ELSE 'canceled' END,
+			next_attempt_at=CASE WHEN cancel_requested_at IS NULL THEN $4::timestamptz ELSE NULL END,
+			completed_at=CASE WHEN cancel_requested_at IS NULL THEN NULL ELSE $5::timestamptz END,
+			lease_id=NULL,lease_expires_at=NULL,
+			last_error_code=CASE WHEN cancel_requested_at IS NULL THEN $6::text ELSE NULL END
 		WHERE invocation_id=$1 AND processing_state='launching' AND lease_id=$2
-		RETURNING account_id`, invocation.ID, invocation.LeaseID, state, nextAttempt, code).Scan(&accountID)
+		RETURNING account_id`, invocation.ID, invocation.LeaseID, state, nextAttempt, failedAt.UTC(), code).Scan(&accountID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var current string
 		inspectErr := tx.QueryRow(ctx, `SELECT processing_state FROM spyglass.runner_invocation_queue WHERE invocation_id=$1`, invocation.ID).Scan(&current)
-		if inspectErr == nil && (current == "failed" || current == "dead_letter") {
+		if inspectErr == nil && (current == "failed" || current == "dead_letter" || current == "canceled") {
 			return nil
 		}
 		if inspectErr != nil && !errors.Is(inspectErr, pgx.ErrNoRows) {
@@ -230,11 +265,72 @@ func (q *RunnerControlQueue) FailLaunch(ctx context.Context, invocation runnerco
 	if err != nil {
 		return fmt.Errorf("fail runner launch: %w", err)
 	}
-	if err := decrementRunnerActive(ctx, tx, accountID, next.UTC()); err != nil {
+	if err := decrementRunnerActive(ctx, tx, accountID, failedAt.UTC()); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit runner launch failure: %w", err)
+	}
+	return nil
+}
+
+func (q *RunnerControlQueue) ConfirmLaunch(ctx context.Context, invocation runnercontrol.Invocation, now time.Time) error {
+	result, err := q.pool.Exec(ctx, `
+		UPDATE spyglass.runner_invocation_queue SET
+			processing_state='launched',launched_at=COALESCE(launched_at,$3),last_error_code=NULL
+		WHERE invocation_id=$1 AND processing_state='launch_uncertain' AND job_name=$2`,
+		invocation.ID, invocation.JobName, now.UTC())
+	if err != nil {
+		return fmt.Errorf("confirm uncertain runner launch: %w", err)
+	}
+	if result.RowsAffected() == 1 {
+		return nil
+	}
+	var current, currentJob string
+	if err := q.pool.QueryRow(ctx, `SELECT processing_state,job_name FROM spyglass.runner_invocation_queue WHERE invocation_id=$1`, invocation.ID).Scan(&current, &currentJob); err == nil && current == "launched" && currentJob == invocation.JobName {
+		return nil
+	}
+	return runnercontrol.ErrLeaseLost
+}
+
+func (q *RunnerControlQueue) ResolveLaunchAbsent(ctx context.Context, invocation runnercontrol.Invocation, failedAt, next time.Time, code string, dead bool) error {
+	tx, err := q.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin absent runner launch resolution: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	state := "failed"
+	var nextAttempt any = next.UTC()
+	if dead {
+		state = "dead_letter"
+		nextAttempt = nil
+	}
+	var accountID ids.AccountID
+	err = tx.QueryRow(ctx, `
+		UPDATE spyglass.runner_invocation_queue SET
+			processing_state=$3,next_attempt_at=$4::timestamptz,job_name=NULL,
+			next_inspection_at=NULL,last_error_code=$5
+		WHERE invocation_id=$1 AND processing_state='launch_uncertain' AND job_name=$2
+		RETURNING account_id`, invocation.ID, invocation.JobName, state, nextAttempt, code).Scan(&accountID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var current string
+		inspectErr := tx.QueryRow(ctx, `SELECT processing_state FROM spyglass.runner_invocation_queue WHERE invocation_id=$1`, invocation.ID).Scan(&current)
+		if inspectErr == nil && (current == "failed" || current == "dead_letter") {
+			return nil
+		}
+		if inspectErr != nil && !errors.Is(inspectErr, pgx.ErrNoRows) {
+			return fmt.Errorf("inspect absent runner launch resolution: %w", inspectErr)
+		}
+		return runnercontrol.ErrLeaseLost
+	}
+	if err != nil {
+		return fmt.Errorf("resolve absent runner launch: %w", err)
+	}
+	if err := decrementRunnerActive(ctx, tx, accountID, failedAt.UTC()); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit absent runner launch resolution: %w", err)
 	}
 	return nil
 }
@@ -249,7 +345,10 @@ func (q *RunnerControlQueue) Complete(ctx context.Context, invocationID, jobName
 	err = tx.QueryRow(ctx, `
 		UPDATE spyglass.runner_invocation_queue SET
 			processing_state=$3,completed_at=$4,next_inspection_at=NULL,last_error_code=NULL
-		WHERE invocation_id=$1 AND processing_state='launched' AND job_name=$2
+		WHERE invocation_id=$1 AND job_name=$2 AND (
+			(processing_state IN ('launch_uncertain','launched') AND $3 IN ('completed','execution_failed')) OR
+			(processing_state='canceling' AND $3='canceled')
+		)
 		RETURNING account_id`, invocationID, jobName, outcome, now.UTC()).Scan(&accountID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		var current, currentJob string
@@ -274,36 +373,34 @@ func (q *RunnerControlQueue) Complete(ctx context.Context, invocationID, jobName
 	return nil
 }
 
-func (q *RunnerControlQueue) ClaimLaunched(ctx context.Context, now time.Time, interval time.Duration, limit int) ([]runnercontrol.Invocation, error) {
+func (q *RunnerControlQueue) ClaimReconciliationCandidates(ctx context.Context, now time.Time, interval time.Duration, limit int) ([]runnercontrol.Invocation, error) {
 	rows, err := q.pool.Query(ctx, `
 		WITH candidates AS (
 			SELECT invocation_id
 			FROM spyglass.runner_invocation_queue
-			WHERE processing_state='launched' AND next_inspection_at<=$1
-			ORDER BY next_inspection_at,launched_at,invocation_id
+			WHERE processing_state IN ('launch_uncertain','launched','canceling') AND next_inspection_at<=$1
+			ORDER BY next_inspection_at,COALESCE(launched_at,last_attempt_at),invocation_id
 			FOR UPDATE SKIP LOCKED LIMIT $2
 		)
 		UPDATE spyglass.runner_invocation_queue q SET
 			next_inspection_at=$1+($3::bigint*interval '1 millisecond')
 		FROM candidates c WHERE q.invocation_id=c.invocation_id
-		RETURNING q.invocation_id,q.account_id,q.profile,q.processing_state,q.attempt_count,q.job_name,q.queued_at,q.launched_at`,
+		RETURNING q.invocation_id,q.account_id,q.profile,q.processing_state,q.attempt_count,q.job_name,q.queued_at,q.launched_at,q.cancel_requested_at`,
 		now.UTC(), limit, interval.Milliseconds())
 	if err != nil {
-		return nil, fmt.Errorf("list launched runner invocations: %w", err)
+		return nil, fmt.Errorf("claim runner reconciliation candidates: %w", err)
 	}
 	defer rows.Close()
 	result := make([]runnercontrol.Invocation, 0)
 	for rows.Next() {
 		var invocation runnercontrol.Invocation
-		var launchedAt time.Time
-		if err := rows.Scan(&invocation.ID, &invocation.AccountID, &invocation.Profile, &invocation.State, &invocation.AttemptCount, &invocation.JobName, &invocation.QueuedAt, &launchedAt); err != nil {
-			return nil, fmt.Errorf("scan launched runner invocation: %w", err)
+		if err := rows.Scan(&invocation.ID, &invocation.AccountID, &invocation.Profile, &invocation.State, &invocation.AttemptCount, &invocation.JobName, &invocation.QueuedAt, &invocation.LaunchedAt, &invocation.CancelRequestedAt); err != nil {
+			return nil, fmt.Errorf("scan runner reconciliation candidate: %w", err)
 		}
-		invocation.LaunchedAt = &launchedAt
 		result = append(result, invocation)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate launched runner invocations: %w", err)
+		return nil, fmt.Errorf("iterate runner reconciliation candidates: %w", err)
 	}
 	return result, nil
 }
@@ -327,12 +424,14 @@ func (q *RunnerControlQueue) Stats(ctx context.Context, now time.Time) (runnerco
 	err := q.pool.QueryRow(ctx, `SELECT
 		count(*) FILTER (WHERE processing_state IN ('queued','failed') AND next_attempt_at<=$1),
 		count(*) FILTER (WHERE processing_state='launching'),
+		count(*) FILTER (WHERE processing_state='launch_uncertain'),
 		count(*) FILTER (WHERE processing_state='launched'),
+		count(*) FILTER (WHERE processing_state='canceling'),
 		count(*) FILTER (WHERE processing_state='failed'),
 		count(*) FILTER (WHERE processing_state='dead_letter'),
 		min(queued_at) FILTER (WHERE processing_state IN ('queued','failed') AND next_attempt_at<=$1)
 		FROM spyglass.runner_invocation_queue`, now.UTC()).Scan(
-		&stats.Ready, &stats.Launching, &stats.Launched, &stats.Failed, &stats.DeadLetter, &oldest)
+		&stats.Ready, &stats.Launching, &stats.LaunchUncertain, &stats.Launched, &stats.Canceling, &stats.Failed, &stats.DeadLetter, &oldest)
 	if err != nil {
 		return runnercontrol.Stats{}, fmt.Errorf("read runner control stats: %w", err)
 	}

@@ -22,21 +22,24 @@ const (
 var (
 	ErrInvalidInvocation  = errors.New("runner invocation is invalid")
 	ErrInvocationConflict = errors.New("runner invocation identity conflicts with an existing record")
+	ErrInvocationNotFound = errors.New("runner invocation was not found")
+	ErrLaunchUncertain    = errors.New("runner Job creation outcome is uncertain")
 	ErrLeaseLost          = errors.New("runner invocation lease was lost")
 	validProfile          = regexp.MustCompile(`^[a-z][a-z0-9-]{0,49}$`)
 )
 
 type Invocation struct {
-	ID             string
-	AccountID      ids.AccountID
-	Profile        string
-	State          string
-	AttemptCount   int
-	LeaseID        string
-	LeaseExpiresAt *time.Time
-	JobName        string
-	QueuedAt       time.Time
-	LaunchedAt     *time.Time
+	ID                string
+	AccountID         ids.AccountID
+	Profile           string
+	State             string
+	AttemptCount      int
+	LeaseID           string
+	LeaseExpiresAt    *time.Time
+	JobName           string
+	QueuedAt          time.Time
+	LaunchedAt        *time.Time
+	CancelRequestedAt *time.Time
 }
 
 type AccountPolicy struct {
@@ -46,27 +49,35 @@ type AccountPolicy struct {
 }
 
 type Stats struct {
-	Ready, Launching, Launched, Failed, DeadLetter uint64
-	OldestReadyAge                                 time.Duration
+	Ready, Launching, LaunchUncertain, Launched, Canceling, Failed, DeadLetter uint64
+	OldestReadyAge                                                             time.Duration
 }
 
 type Queue interface {
 	Configure(context.Context, AccountPolicy, time.Time) error
 	Enqueue(context.Context, Invocation) (bool, error)
+	RequestCancellation(context.Context, ids.AccountID, string, time.Time) (string, error)
 	ClaimFair(context.Context, time.Time, time.Duration) (Invocation, bool, error)
 	MarkLaunched(context.Context, Invocation, string, time.Time) error
-	FailLaunch(context.Context, Invocation, time.Time, string, bool) error
-	ClaimLaunched(context.Context, time.Time, time.Duration, int) ([]Invocation, error)
+	MarkLaunchUncertain(context.Context, Invocation, string, time.Time, string) error
+	FailLaunch(context.Context, Invocation, time.Time, time.Time, string, bool) error
+	ClaimReconciliationCandidates(context.Context, time.Time, time.Duration, int) ([]Invocation, error)
+	ConfirmLaunch(context.Context, Invocation, time.Time) error
+	ResolveLaunchAbsent(context.Context, Invocation, time.Time, time.Time, string, bool) error
 	Complete(context.Context, string, string, string, time.Time) error
 	Stats(context.Context, time.Time) (Stats, error)
 }
 
 type Launcher interface {
+	// Ensure returns ErrLaunchUncertain together with the deterministic Job
+	// name whenever the create may have crossed the substrate boundary.
 	Ensure(context.Context, Invocation) (string, error)
+	Cancel(context.Context, Invocation) error
 	Inspect(context.Context, Invocation) (TerminalStatus, error)
 }
 
 type TerminalStatus struct {
+	Observed bool
 	Terminal bool
 	Outcome  string
 }
@@ -103,6 +114,16 @@ func (s *Service) Enqueue(ctx context.Context, invocation Invocation) (bool, err
 	return s.queue.Enqueue(ctx, invocation)
 }
 
+// RequestCancellation durably binds a cancellation request to both the
+// invocation and Account. The returned state tells the caller whether the
+// request completed before launch or requires controller reconciliation.
+func (s *Service) RequestCancellation(ctx context.Context, accountID ids.AccountID, invocationID string) (string, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(invocationID) != nil {
+		return "", ErrInvalidInvocation
+	}
+	return s.queue.RequestCancellation(ctx, accountID, invocationID, s.clock.Now().UTC())
+}
+
 func (s *Service) ProcessOne(ctx context.Context) (bool, error) {
 	now := s.clock.Now().UTC()
 	invocation, found, err := s.queue.ClaimFair(ctx, now, s.lease)
@@ -111,16 +132,27 @@ func (s *Service) ProcessOne(ctx context.Context) (bool, error) {
 	}
 	jobName, launchErr := s.launcher.Ensure(ctx, invocation)
 	if launchErr != nil {
+		if errors.Is(launchErr, ErrLaunchUncertain) {
+			if strings.TrimSpace(jobName) == "" || len(jobName) > 253 {
+				// The lease remains in place because an ambiguous create cannot be
+				// released without a deterministic identity to reconcile.
+				return true, errors.Join(launchErr, ErrInvalidInvocation)
+			}
+			if markErr := s.queue.MarkLaunchUncertain(ctx, invocation, jobName, now, "launcher_ambiguous"); markErr != nil {
+				return true, errors.Join(launchErr, markErr)
+			}
+			return true, launchErr
+		}
 		code := boundedCode(launchErr)
 		dead := invocation.AttemptCount >= s.maxAttempts
 		next := now.Add(retryDelay(invocation.AttemptCount))
-		if markErr := s.queue.FailLaunch(ctx, invocation, next, code, dead); markErr != nil {
+		if markErr := s.queue.FailLaunch(ctx, invocation, now, next, code, dead); markErr != nil {
 			return true, errors.Join(launchErr, markErr)
 		}
 		return true, launchErr
 	}
 	if strings.TrimSpace(jobName) == "" || len(jobName) > 253 {
-		_ = s.queue.FailLaunch(ctx, invocation, now.Add(retryDelay(invocation.AttemptCount)), "launcher_contract_invalid", true)
+		_ = s.queue.FailLaunch(ctx, invocation, now, now.Add(retryDelay(invocation.AttemptCount)), "launcher_contract_invalid", true)
 		return true, ErrInvalidInvocation
 	}
 	return true, s.queue.MarkLaunched(ctx, invocation, jobName, now)
@@ -130,24 +162,55 @@ func (s *Service) Stats(ctx context.Context) (Stats, error) {
 	return s.queue.Stats(ctx, s.clock.Now().UTC())
 }
 
-// ReconcileLaunched observes a bounded set of launched jobs and durably
-// releases Account capacity for terminal outcomes. Multiple controller
-// replicas may inspect the same job because completion is idempotent.
-func (s *Service) ReconcileLaunched(ctx context.Context, limit int) (int, error) {
+// ReconcileJobs observes a bounded set of launched or canceling Jobs and
+// durably releases Account capacity only after a terminal outcome. Multiple
+// controller replicas may inspect the same Job because deletion and completion
+// are both exact and idempotent.
+func (s *Service) ReconcileJobs(ctx context.Context, limit int) (int, error) {
 	if limit < 1 || limit > 1000 {
 		return 0, ErrInvalidInvocation
 	}
-	invocations, err := s.queue.ClaimLaunched(ctx, s.clock.Now().UTC(), InspectionInterval, limit)
+	invocations, err := s.queue.ClaimReconciliationCandidates(ctx, s.clock.Now().UTC(), InspectionInterval, limit)
 	if err != nil {
 		return 0, err
 	}
-	completed := 0
+	reconciled := 0
 	var failures []error
 	for _, invocation := range invocations {
+		if invocation.State == "canceling" {
+			if cancelErr := s.launcher.Cancel(ctx, invocation); cancelErr != nil {
+				failures = append(failures, cancelErr)
+				continue
+			}
+		}
 		status, inspectErr := s.launcher.Inspect(ctx, invocation)
 		if inspectErr != nil {
 			failures = append(failures, inspectErr)
 			continue
+		}
+		if invocation.State == "launch_uncertain" {
+			if status.Terminal && !status.Observed {
+				failures = append(failures, ErrInvalidInvocation)
+				continue
+			}
+			if !status.Observed {
+				now := s.clock.Now().UTC()
+				dead := invocation.AttemptCount >= s.maxAttempts
+				if resolveErr := s.queue.ResolveLaunchAbsent(ctx, invocation, now, now.Add(retryDelay(invocation.AttemptCount)), "launcher_not_observed", dead); resolveErr != nil {
+					failures = append(failures, resolveErr)
+					continue
+				}
+				reconciled++
+				continue
+			}
+			if !status.Terminal {
+				if confirmErr := s.queue.ConfirmLaunch(ctx, invocation, s.clock.Now().UTC()); confirmErr != nil {
+					failures = append(failures, confirmErr)
+					continue
+				}
+				reconciled++
+				continue
+			}
 		}
 		if !status.Terminal {
 			continue
@@ -160,9 +223,9 @@ func (s *Service) ReconcileLaunched(ctx context.Context, limit int) (int, error)
 			failures = append(failures, completeErr)
 			continue
 		}
-		completed++
+		reconciled++
 	}
-	return completed, errors.Join(failures...)
+	return reconciled, errors.Join(failures...)
 }
 
 // Complete records a terminal runner outcome and releases the Account's
