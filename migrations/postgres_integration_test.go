@@ -681,7 +681,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 18 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 19 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
@@ -1074,7 +1074,8 @@ func testWorkReleaseReconciliation(t *testing.T, ctx context.Context, pool *pgxp
 	globalRole := "spyglass_work_global_" + randomSuffix(t)
 	if _, err := pool.Exec(ctx, `CREATE ROLE `+cellRole+` NOLOGIN; CREATE ROLE `+globalRole+` NOLOGIN;
 		GRANT USAGE ON SCHEMA spyglass TO `+cellRole+`;
-		GRANT SELECT,UPDATE ON spyglass.work_capacity_release_queue,spyglass.work_items TO `+cellRole+`;
+		GRANT SELECT,UPDATE,DELETE ON spyglass.work_capacity_release_queue TO `+cellRole+`;
+		GRANT SELECT,UPDATE ON spyglass.work_items TO `+cellRole+`;
 		GRANT SELECT ON spyglass.account_namespaces TO `+cellRole+`;
 		GRANT SELECT ON accounts TO `+globalRole+`;
 		GRANT SELECT,UPDATE ON entitlement_usage_counters,entitlement_usage_reservations TO `+globalRole); err != nil {
@@ -1191,6 +1192,20 @@ func testWorkReleaseReconciliation(t *testing.T, ctx context.Context, pool *pgxp
 	}
 	if _, err := pool.Exec(ctx, `DELETE FROM spyglass.work_capacity_release_operator_events WHERE batch_id=$1`, "76000000-0000-4000-8000-000000000006"); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("Work release operator audit deletion=%v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE spyglass.work_capacity_release_queue SET processing_state='completed',attempt_count=1,next_attempt_at=NULL,lease_id=NULL,lease_expires_at=NULL,last_error_code=NULL,completed_at=$4 WHERE account_id=$1 AND work_item_id=$2 AND reservation_id=$3`, accountID, item.ID, reservationID, operatorNow); err != nil {
+		t.Fatalf("seed completed Work release retention row: %v", err)
+	}
+	pruned, err := queue.PruneCompleted(ctx, operatorNow.Add(time.Minute), 10)
+	if err != nil || pruned != 1 {
+		t.Fatalf("prune completed Work releases=%d err=%v", pruned, err)
+	}
+	var retainedQueueRows, retainedAuditRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_capacity_release_queue WHERE account_id=$1 AND work_item_id=$2 AND reservation_id=$3`, accountID, item.ID, reservationID).Scan(&retainedQueueRows); err != nil || retainedQueueRows != 0 {
+		t.Fatalf("retained completed Work release rows=%d err=%v", retainedQueueRows, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_capacity_release_operator_events WHERE account_id=$1 AND work_item_id=$2 AND reservation_id=$3`, accountID, item.ID, reservationID).Scan(&retainedAuditRows); err != nil || retainedAuditRows != 2 {
+		t.Fatalf("retained Work release operator audit rows=%d err=%v", retainedAuditRows, err)
 	}
 }
 

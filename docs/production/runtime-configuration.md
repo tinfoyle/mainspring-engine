@@ -140,11 +140,16 @@ Each Account records the Catalog version last reconciled. A recomputation advanc
 | `SPYGLASS_WORK_RECONCILE_POLL_INTERVAL` | Optional positive duration; defaults to `1s` |
 | `SPYGLASS_WORK_RECONCILE_LEASE` | Optional duration from `1s` through `30m`; defaults to `2m` |
 | `SPYGLASS_WORK_RECONCILE_MAX_ATTEMPTS` | Optional integer from 1 through 100; defaults to `12` |
+| `SPYGLASS_WORK_RELEASE_CLEANUP_INTERVAL` | Optional completed-job cleanup cadence from `1m` through `24h`; defaults to `1h` |
+| `SPYGLASS_WORK_RELEASE_COMPLETED_RETENTION` | Optional completed technical-job retention from `24h` through `8760h`; defaults to `720h` (30 days) |
+| `SPYGLASS_WORK_RELEASE_PRUNE_BATCH` | Optional SKIP-LOCKED delete batch from 1 through 1000; defaults to `500` |
 | `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
 
-The cell migration creates an identifier-only technical outbox without Account RLS so a worker can lease across the cell without `SUPERUSER` or `BYPASSRLS`. Database grants—not a shared application credential—must restrict the cell role to `SELECT/UPDATE` on that outbox, `SELECT` on Account namespaces, and `SELECT/UPDATE` on Work rows that remain protected by forced RLS. The global role needs `SELECT` on Accounts and `SELECT/UPDATE` on usage counters/reservations. It must not read Users, sessions, Billing, Entitlements, or cell business tables.
+The cell migration creates an identifier-only technical outbox without Account RLS so a worker can lease across the cell without `SUPERUSER` or `BYPASSRLS`. Database grants—not a shared application credential—must restrict the cell role to `SELECT/UPDATE/DELETE` on that outbox, `SELECT` on Account namespaces, and `SELECT/UPDATE` on Work rows that remain protected by forced RLS. `DELETE` is used only by the bounded completed-job retention query. The global role needs `SELECT` on Accounts and `SELECT/UPDATE` on usage counters/reservations. It must not read Users, sessions, Billing, Entitlements, or cell business tables.
 
 Terminal Work updates enqueue in the same cell transaction. A unique lease token prevents a stale replica from acknowledging reclaimed work. Release is idempotent under the original reservation UUID, so a crash between global release and cell checkpoint is safe. The twelfth transient failure or an immediately corrupt/missing reservation enters `dead_letter`; `GET /health/status` returns content-free counts and oldest pending age. Audited recovery uses the separate one-shot command documented in [work-release-operations.md](work-release-operations.md).
+
+Every reconciler replica periodically deletes at most the configured batch of completed rows older than the retention cutoff using `FOR UPDATE SKIP LOCKED`. It never deletes pending, processing, failed, or dead-letter rows. The partial `completed_at` index keeps cleanup independent of live queue scans, and immutable `work_capacity_release_operator_events` remain after queue cleanup because they intentionally have no queue foreign key.
 
 ## Work release operator values
 

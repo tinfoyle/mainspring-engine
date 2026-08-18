@@ -36,7 +36,7 @@ Before an environment overlay may use these resources it must add:
   constrained global-database credential.
 - The Work reconciler secret supplies distinct `SPYGLASS_CELL_DATABASE_URL` and
   `SPYGLASS_GLOBAL_DATABASE_URL` credentials. The cell credential can lease the
-  identifier-only release outbox and enter Account-scoped Work transactions;
+  identifier-only release outbox, prune expired completed jobs, and enter Account-scoped Work transactions;
   the global credential can only read Account existence and release usage
   reservations/counters. Neither credential is suitable for app-api.
 - The admission-api secret supplies a narrow global credential plus the route

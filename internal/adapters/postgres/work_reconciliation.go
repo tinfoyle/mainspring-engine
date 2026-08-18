@@ -137,4 +137,22 @@ func (r *WorkReleaseQueueRepository) Stats(ctx context.Context, now time.Time) (
 	return stats, nil
 }
 
+func (r *WorkReleaseQueueRepository) PruneCompleted(ctx context.Context, before time.Time, limit int) (int64, error) {
+	result, err := r.pool.Exec(ctx, `
+		WITH candidates AS (
+			SELECT account_id,work_item_id,reservation_id
+			FROM spyglass.work_capacity_release_queue
+			WHERE processing_state='completed' AND completed_at<=$1
+			ORDER BY completed_at,account_id,work_item_id,reservation_id
+			FOR UPDATE SKIP LOCKED LIMIT $2
+		)
+		DELETE FROM spyglass.work_capacity_release_queue q
+		USING candidates c
+		WHERE q.account_id=c.account_id AND q.work_item_id=c.work_item_id AND q.reservation_id=c.reservation_id`, before.UTC(), limit)
+	if err != nil {
+		return 0, fmt.Errorf("prune completed Work capacity releases: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
 var _ workreconciliation.Queue = (*WorkReleaseQueueRepository)(nil)

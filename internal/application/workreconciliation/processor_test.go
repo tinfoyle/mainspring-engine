@@ -70,6 +70,22 @@ func TestProcessorRejectsInvalidBoundsAndReportsQueueStats(t *testing.T) {
 	}
 }
 
+func TestProcessorPrunesCompletedJobsWithinBounds(t *testing.T) {
+	now := time.Date(2026, 8, 18, 6, 0, 0, 0, time.UTC)
+	queue := &queueStub{pruned: 7}
+	processor, _ := NewProcessor(queue, &capacityStub{}, clockStub{now}, time.Minute, 12)
+	count, err := processor.PruneCompleted(context.Background(), 30*24*time.Hour, 200)
+	if err != nil || count != 7 || queue.pruneLimit != 200 || !queue.pruneBefore.Equal(now.Add(-30*24*time.Hour)) {
+		t.Fatalf("count=%d before=%v limit=%d err=%v", count, queue.pruneBefore, queue.pruneLimit, err)
+	}
+	if _, err := processor.PruneCompleted(context.Background(), time.Hour, 200); err == nil {
+		t.Fatal("expected short retention rejection")
+	}
+	if _, err := processor.PruneCompleted(context.Background(), 30*24*time.Hour, MaximumPruneBatch+1); err == nil {
+		t.Fatal("expected oversized prune batch rejection")
+	}
+}
+
 func validJob(now time.Time) Job {
 	return Job{AccountID: ids.AccountID(reconcileAccount), WorkItemID: ids.WorkItemID(reconcileItem), ReservationID: reconcileReservation, LeaseID: reconcileLease, Attempt: 1, QueuedAt: now.Add(-time.Minute)}
 }
@@ -81,6 +97,9 @@ type queueStub struct {
 	failureCode            string
 	next                   time.Time
 	stats                  Stats
+	pruned                 int64
+	pruneBefore            time.Time
+	pruneLimit             int
 }
 
 func (q *queueStub) Claim(context.Context, time.Time, time.Duration) (Job, bool, error) {
@@ -95,6 +114,10 @@ func (q *queueStub) Fail(_ context.Context, _ Job, next time.Time, code string, 
 	return nil
 }
 func (q *queueStub) Stats(context.Context, time.Time) (Stats, error) { return q.stats, q.err }
+func (q *queueStub) PruneCompleted(_ context.Context, before time.Time, limit int) (int64, error) {
+	q.pruneBefore, q.pruneLimit = before, limit
+	return q.pruned, q.err
+}
 
 type capacityStub struct {
 	accountID ids.AccountID

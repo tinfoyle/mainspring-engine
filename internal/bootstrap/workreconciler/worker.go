@@ -18,8 +18,9 @@ import (
 type Config struct {
 	CellDatabaseURL, GlobalDatabaseURL           string
 	CellMaxDatabaseConns, GlobalMaxDatabaseConns int32
-	PollInterval, Lease                          time.Duration
-	MaxAttempts                                  int
+	PollInterval, Lease, CleanupInterval         time.Duration
+	CompletedRetention                           time.Duration
+	MaxAttempts, PruneBatch                      int
 }
 
 type Status struct {
@@ -34,9 +35,11 @@ type Worker struct {
 	processor            interface {
 		ProcessOne(context.Context) (bool, error)
 		Stats(context.Context) (workreconciliation.Stats, error)
+		PruneCompleted(context.Context, time.Duration, int) (int64, error)
 	}
-	poll   time.Duration
-	logger *slog.Logger
+	poll, cleanupInterval, completedRetention time.Duration
+	pruneBatch                                int
+	logger                                    *slog.Logger
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
@@ -51,6 +54,18 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 	}
 	if config.MaxAttempts == 0 {
 		config.MaxAttempts = workreconciliation.DefaultMaxAttempts
+	}
+	if config.CleanupInterval == 0 {
+		config.CleanupInterval = time.Hour
+	}
+	if config.CompletedRetention == 0 {
+		config.CompletedRetention = workreconciliation.DefaultRetention
+	}
+	if config.PruneBatch == 0 {
+		config.PruneBatch = workreconciliation.DefaultPruneBatch
+	}
+	if config.CleanupInterval < time.Minute || config.CleanupInterval > 24*time.Hour || config.CompletedRetention < 24*time.Hour || config.CompletedRetention > 365*24*time.Hour || config.PruneBatch < 1 || config.PruneBatch > workreconciliation.MaximumPruneBatch {
+		return nil, errors.New("Work reconciler cleanup configuration is out of bounds")
 	}
 	cellPool, err := openPool(ctx, config.CellDatabaseURL, config.CellMaxDatabaseConns)
 	if err != nil {
@@ -79,7 +94,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		globalPool.Close()
 		return nil, err
 	}
-	return &Worker{cellPool: cellPool, globalPool: globalPool, processor: processor, poll: config.PollInterval, logger: logger}, nil
+	return &Worker{cellPool: cellPool, globalPool: globalPool, processor: processor, poll: config.PollInterval, cleanupInterval: config.CleanupInterval, completedRetention: config.CompletedRetention, pruneBatch: config.PruneBatch, logger: logger}, nil
 }
 
 func openPool(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool.Pool, error) {
@@ -102,7 +117,16 @@ func openPool(ctx context.Context, databaseURL string, maxConns int32) (*pgxpool
 }
 
 func (w *Worker) Run(ctx context.Context) error {
+	cleanup := time.NewTicker(w.cleanupInterval)
+	defer cleanup.Stop()
 	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-cleanup.C:
+			w.pruneCompleted(ctx)
+		default:
+		}
 		worked, err := w.processor.ProcessOne(ctx)
 		if ctx.Err() != nil {
 			return nil
@@ -120,8 +144,27 @@ func (w *Worker) Run(ctx context.Context) error {
 				<-timer.C
 			}
 			return nil
+		case <-cleanup.C:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			w.pruneCompleted(ctx)
 		case <-timer.C:
 		}
+	}
+}
+
+func (w *Worker) pruneCompleted(ctx context.Context) {
+	count, err := w.processor.PruneCompleted(ctx, w.completedRetention, w.pruneBatch)
+	if err != nil {
+		w.logger.Error("Prune completed Work capacity releases", "error", err)
+		return
+	}
+	if count > 0 {
+		w.logger.Info("Pruned completed Work capacity releases", "count", count, "retention_seconds", int64(w.completedRetention/time.Second))
 	}
 }
 

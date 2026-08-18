@@ -59,7 +59,7 @@ One signed application artifact supports distinct process modes so supply-chain 
 | `admission-api` | Private package-capacity admission for routed cell commands | Narrow global access projection and usage counters/reservations; no cell/business data |
 | `worker` | Temporal activities and durable business automation for one cell/workload class | One cell database, capability broker, runner-controller client |
 | `billing-worker` | Verify/project queued Stripe events and reconcile provider state | Billing subset of global database and Stripe adapter; no business data |
-| `work-reconciler` | Release global capacity for terminal cell Work through a leased identifier-only outbox | Narrow cell outbox/Account checkpoint and global usage-release credentials; no serving traffic |
+| `work-reconciler` | Release global capacity for terminal cell Work and prune expired completed technical jobs | Narrow cell outbox/Account checkpoint and global usage-release credentials; no serving traffic |
 | `work-release-admin` | Audited inspection or exact-target requeue of terminal release failures | Execute-only cell operator functions; no table grants, Work content, or global capacity authority |
 | `runner-controller` | Create, cancel, and reconcile ephemeral provider runner jobs | Narrow Kubernetes workload authority; private network; no business database |
 | `runner` | Execute one bounded provider invocation | Disposable workspace, provider credential, short-lived tool token |

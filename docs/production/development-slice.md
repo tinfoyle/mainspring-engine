@@ -42,7 +42,7 @@ This repository now contains the first executable production slice for Infinite 
 - Pooled-cell Work persistence with Account-local numbers, composite relationships, forced RLS, mutation events, cursor queue/direct-child/summary queries, explicit capacity-release checkpoints, and classified adapter errors.
 - Executable global `app-router` and cell `app-api` modes with session-backed Account authorization, allowlisted cell destinations, short-lived method/target/body-bound route signatures, rotating verification keys, credential stripping, bounded proxying, shared replay receipts, and placement-generation enforcement.
 - Signed Account-scoped Work list, summary, detail, and direct-child reads with opaque cursors, ETags, explicit safe DTOs, a route-claim application authorizer, and a prototype-informed package-aware queue/detail shell.
-- An independently scalable `work-reconciler` with atomic cell outbox enqueue, unique crash-recovery leases, idempotent global release, Account-RLS checkpointing, bounded retry/dead-letter behavior, split least-privilege database credentials, and content-free backlog status.
+- An independently scalable `work-reconciler` with atomic cell outbox enqueue, unique crash-recovery leases, idempotent global release, Account-RLS checkpointing, bounded retry/dead-letter behavior, split least-privilege database credentials, content-free backlog status, and SKIP-LOCKED retention batches for completed technical jobs.
 - An executable private `admission-api` plus HTTP client adapter that re-verifies signed Work operation proofs, reauthorizes current global access, fences entitlement versions through a no-PUBLIC-execute lock function, and keeps global SQL credentials out of app-api.
 - Routed Work create, transition, and assignment contracts with body/semantic-header binding, UUID idempotency, ETag preconditions, safe interactive assignment bounds, exact-retry handling for ambiguous commits, and prototype-informed creation/lifecycle browser controls.
 - A one-shot `work-release-admin` command with exact environment confirmation, bounded content-free dead-letter inspection, exact-target requeue, immutable same-transaction audit, and an execute-only security-definer database boundary that cannot read customer Work or directly mutate the queue.
@@ -122,7 +122,7 @@ npm run dev
 ## Next production slices
 
 1. Add passkeys/MFA, multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
-2. Add audited dead-letter inspection/requeue and completed-job retention for the Work release reconciler, then apply the proven private admission boundary to Agents/Knowledge/Finance/Marketing use cases.
+2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Replace static cell routing with the bounded directory cache, then implement fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
 5. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.

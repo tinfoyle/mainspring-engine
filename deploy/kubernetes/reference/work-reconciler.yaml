@@ -29,6 +29,9 @@ spec:
             - {name: SPYGLASS_WORK_RECONCILE_POLL_INTERVAL, value: "1s"}
             - {name: SPYGLASS_WORK_RECONCILE_LEASE, value: "2m"}
             - {name: SPYGLASS_WORK_RECONCILE_MAX_ATTEMPTS, value: "12"}
+            - {name: SPYGLASS_WORK_RELEASE_CLEANUP_INTERVAL, value: "1h"}
+            - {name: SPYGLASS_WORK_RELEASE_COMPLETED_RETENTION, value: "720h"}
+            - {name: SPYGLASS_WORK_RELEASE_PRUNE_BATCH, value: "500"}
             - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "4"}
             - {name: SPYGLASS_GLOBAL_MAX_DATABASE_CONNS, value: "4"}
           envFrom:

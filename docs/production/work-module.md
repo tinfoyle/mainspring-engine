@@ -95,6 +95,8 @@ The reconciler has separate cell and global pools. Its cell credential can lease
 
 `work-release-admin` provides the human recovery boundary described in [work-release-operations.md](work-release-operations.md). Its cell role has no table grants: two no-PUBLIC-execute security-definer functions perform bounded identifier-only inspection or exact dead-letter requeue and append immutable actor/reason/environment audit rows in the same transaction. Requeue resets retry state but never releases global capacity or changes customer Work directly.
 
+Completed technical queue rows are retained for 30 days by default, then deleted in bounded `FOR UPDATE SKIP LOCKED` batches through a partial `completed_at` index. Cleanup never targets live or dead-letter work. Operator events intentionally have no queue foreign key, so technical cleanup cannot erase recovery evidence.
+
 ## Persistence and query contract
 
 The cell migration adds:
@@ -137,16 +139,15 @@ Enabled Accounts now receive a prototype-informed New Work dialog and lifecycle 
 
 ## Remaining delivery order
 
-1. Add retention for completed technical release jobs while preserving immutable operator history.
-2. Replace the static route map with the bounded directory cache and internal TLS/workload identity described in [routing-boundary.md](routing-boundary.md); the admission API must remain private.
-3. Add assignment editing, inline reason capture, preserved create drafts across navigation, and accessible command announcements.
-4. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
-5. Add representative query-plan fixtures, pagination property tests, concurrent completion/assignment stress, and two-cell cross-Account API attack fixtures.
-6. Characterize and migrate prototype Work data Account by Account; verify numbers, hierarchy, state, assignment, provenance, and active-capacity reconciliation before switching traffic.
-7. Add Attention concepts—human input, review, approval, and external action—as separate aggregates that reference Work rather than expanding Work into another catch-all store.
+1. Replace the static route map with the bounded directory cache and internal TLS/workload identity described in [routing-boundary.md](routing-boundary.md); the admission API must remain private.
+2. Add assignment editing, inline reason capture, preserved create drafts across navigation, and accessible command announcements.
+3. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
+4. Add representative query-plan fixtures, pagination property tests, concurrent completion/assignment stress, and two-cell cross-Account API attack fixtures.
+5. Characterize and migrate prototype Work data Account by Account; verify numbers, hierarchy, state, assignment, provenance, and active-capacity reconciliation before switching traffic.
+6. Add Attention concepts—human input, review, approval, and external action—as separate aggregates that reference Work rather than expanding Work into another catch-all store.
 
 ## Current evidence and limits
 
 Table-driven domain tests cover every state/role pair and reject invalid construction, stale versions, and missing reasons. Application tests cover role denial, fresh versus replayed capacity admission, definitive rollback compensation, ambiguous cell outcomes, payload conflicts, and deferred terminal release. The disposable PostgreSQL 17 contract applies every migration twice, runs the global admission broker and cell repository through different non-owner roles, proves neither can read the other's data, creates Work through the HTTP broker, compensates a rejected parent, proves guessed cross-Account Work IDs are invisible, exercises Account-local summary/list queries, and proves a stale writer loses after a competing transition.
 
-Signed Account-scoped reads and commands now run through app-router and cell app-api. The browser shell renders locked/read-only package states and only exposes creation/lifecycle controls for enabled Work. Transport tests cover header/body binding, required operation keys, malformed filters and commands, safe DTO fields, cross-Account paths, package authority, assignment spoofing, ETags, and conflict responses. Reconciliation tests prove atomic terminal enqueue, idempotent global release, lease exclusion/reclaim, stale-lease rejection, synchronous checkpoint completion, least-privilege role separation, reopen-before-old-release safety, and execute-only audited dead-letter inspection/requeue. Persona foreign keys, representative-scale query plans, complete command accessibility, internal mTLS identity, technical-job retention, and an applied Kubernetes environment remain.
+Signed Account-scoped reads and commands now run through app-router and cell app-api. The browser shell renders locked/read-only package states and only exposes creation/lifecycle controls for enabled Work. Transport tests cover header/body binding, required operation keys, malformed filters and commands, safe DTO fields, cross-Account paths, package authority, assignment spoofing, ETags, and conflict responses. Reconciliation tests prove atomic terminal enqueue, idempotent global release, lease exclusion/reclaim, stale-lease rejection, synchronous checkpoint completion, least-privilege role separation, reopen-before-old-release safety, execute-only audited dead-letter inspection/requeue, and completed-job pruning with audit preservation. Persona foreign keys, representative-scale query plans, complete command accessibility, internal mTLS identity, and an applied Kubernetes environment remain.

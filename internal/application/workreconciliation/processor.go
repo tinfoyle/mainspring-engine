@@ -15,6 +15,9 @@ import (
 const (
 	DefaultLease       = 2 * time.Minute
 	DefaultMaxAttempts = 12
+	DefaultRetention   = 30 * 24 * time.Hour
+	DefaultPruneBatch  = 500
+	MaximumPruneBatch  = 1000
 	maximumRetryDelay  = 15 * time.Minute
 )
 
@@ -49,6 +52,7 @@ type Queue interface {
 	Complete(context.Context, Job, time.Time) error
 	Fail(context.Context, Job, time.Time, string, bool) error
 	Stats(context.Context, time.Time) (Stats, error)
+	PruneCompleted(context.Context, time.Time, int) (int64, error)
 }
 
 // Capacity is deliberately release-only. The worker credential should have
@@ -99,6 +103,13 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 
 func (p *Processor) Stats(ctx context.Context) (Stats, error) {
 	return p.queue.Stats(ctx, p.clock.Now().UTC())
+}
+
+func (p *Processor) PruneCompleted(ctx context.Context, retention time.Duration, limit int) (int64, error) {
+	if retention < 24*time.Hour || retention > 365*24*time.Hour || limit < 1 || limit > MaximumPruneBatch {
+		return 0, errors.New("Work release retention bounds are invalid")
+	}
+	return p.queue.PruneCompleted(ctx, p.clock.Now().UTC().Add(-retention), limit)
 }
 
 func releaseFailure(err error) (string, bool) {
