@@ -11,6 +11,20 @@ permissions:
 jobs:
   go:
     runs-on: ubuntu-latest
+    env:
+      SPYGLASS_POSTGRES_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -21,7 +35,7 @@ jobs:
       - run: go test -race ./...
       - run: go vet ./...
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
-      - run: test -z "$(gofmt -l cmd internal)"
+      - run: test -z "$(gofmt -l cmd internal migrations)"
 
   website:
     runs-on: ubuntu-latest

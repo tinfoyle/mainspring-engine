@@ -57,7 +57,7 @@ WITH catalog_payload(content) AS (
         {"code":"operating-monthly-v1","plan_code":"operating","plan_version":1,"currency":"USD","amount_minor":14900,"billing_interval":"month"}
       ]
     }
-    $catalog$)
+    $catalog$))
 INSERT INTO catalog_publications (version,state,published_at,content,content_hash,created_at)
 SELECT 2,'published',statement_timestamp(),content::jsonb,sha256(convert_to(content,'UTF8')),statement_timestamp()
 FROM catalog_payload;

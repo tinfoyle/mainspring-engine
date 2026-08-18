@@ -19,7 +19,7 @@ WITH catalog_payload(content) AS (
         {"code":"free-v1","plan_code":"free","plan_version":1,"currency":"USD","amount_minor":0,"billing_interval":"none"}
       ]
     }
-    $catalog$)
+    $catalog$))
 INSERT INTO catalog_publications (version, state, published_at, content, content_hash, created_at)
 SELECT 1, 'published', statement_timestamp(), content::jsonb, sha256(convert_to(content, 'UTF8')), statement_timestamp()
 FROM catalog_payload

@@ -27,9 +27,9 @@ This repository now contains the first executable production slice for Infinite 
 - Leased reconciliation and verified-event replay boundaries for billing workers and future operator tooling.
 - Executable `account-api` and `billing-worker` process modes with strict environment validation, independent connection caps, graceful shutdown, and dependency-aware readiness.
 - Implicit-TLS SMTP delivery for registration verification and Account invitations; production tokens are delivered rather than logged or returned.
-- Global and cell PostgreSQL migration drafts, including Account-scoped row-level security.
+- Embedded global, cell, and development PostgreSQL migrations with advisory locking, immutable checksums, an application ledger, and a one-shot production runner.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, and default-deny networking.
-- GitHub verification for Go format/test/vet and public-site build/lint/production dependency audit.
+- GitHub verification for Go format/test/race/vet, disposable PostgreSQL contracts, vulnerability scanning, and public-site build/lint/production dependency audit.
 
 The development command is intentionally memory-backed and refuses to start unless `SPYGLASS_ENV=development`. Persistent `account-api` and `billing-worker` modes now exist, but fail closed until PostgreSQL, Stripe, origin, and TLS mail configuration are supplied by the environment.
 
@@ -88,12 +88,11 @@ npm run dev
 
 ## Next production slices
 
-1. Execute the PostgreSQL migrations and repository contracts against disposable real PostgreSQL in CI; no PostgreSQL runtime is available in the current workstation environment.
-2. Add passkeys/MFA, credential recovery, security-event history, reauthentication for sensitive operations, session-management UI, and distributed rate limiting by both identifier and network actor.
-3. Add Catalog draft/review/publication administration and enforcement adapters for every HTTP/MCP/job/tool entry point.
-4. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
-5. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
-6. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.
+1. Add passkeys/MFA, credential recovery, security-event history, reauthentication for sensitive operations, session-management UI, and distributed rate limiting by both identifier and network actor.
+2. Add Catalog draft/review/publication administration and enforcement adapters for every HTTP/MCP/job/tool entry point.
+3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
+4. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
+5. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.
 
 ## Evidence and current limits
 
@@ -101,6 +100,6 @@ npm run dev
 - Rendered browser journey coverage proves signup â†’ verification/password â†’ login â†’ Account shell, and API journey coverage proves invitation â†’ existing identity â†’ Membership â†’ Account list.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
-- PostgreSQL SQL and Kubernetes resources are reviewable but have not been integration-tested or applied from this workstation because neither PostgreSQL nor a Kubernetes/Docker runtime is installed.
+- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, provision a real registration, load the published Catalog, exercise concurrent Checkout reservations, and prove transaction-local RLS isolation through a non-owner serving role. Kubernetes resources remain review-only and have not been applied to a cluster.
 - Stripe request translation, event ingestion, deduplication, out-of-order convergence, and queue behavior are tested with local fixtures; no Stripe account mutation has been performed.
 - The private Account shell renders local billing status and paid offers and can enter Checkout/Portal in the persistent composition; no app-owned credentials or Account data were moved into the public Sites deployment.

@@ -85,7 +85,11 @@ func (r *CommercialAccessRepository) BillingStatus(ctx context.Context, accountI
 }
 
 func (r *CommercialAccessRepository) BeginCheckout(ctx context.Context, accountID ids.AccountID, offerCode, mode, requestID string, now time.Time) (commercialaccess.CheckoutReservation, error) {
-	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	// The account-scoped advisory lock is the serialization boundary. At
+	// READ COMMITTED, a contender that waited for the lock observes the
+	// winner's reservation instead of continuing with a stale transaction
+	// snapshot and colliding with the partial unique index.
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return commercialaccess.CheckoutReservation{}, err
 	}

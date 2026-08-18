@@ -12,11 +12,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/smtp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
+	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
 func main() {
@@ -37,13 +39,34 @@ func main() {
 		err = runAccountAPI(ctx, logger)
 	case "billing-worker":
 		err = runBillingWorker(ctx, logger)
+	case "migrate":
+		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | billing-worker")
+		err = errors.New("usage: spyglass development | account-api | billing-worker | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
 		os.Exit(1)
 	}
+}
+
+func runMigrate(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	target := migrations.Target(os.Getenv("SPYGLASS_MIGRATION_TARGET"))
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		return fmt.Errorf("open migration database: %w", err)
+	}
+	defer pool.Close()
+	result, err := migrations.Apply(ctx, pool, target)
+	if err != nil {
+		return err
+	}
+	logger.Info("Spyglass migrations complete", "target", target, "applied", len(result.Applied))
+	return nil
 }
 
 func runDevelopment(ctx context.Context, logger *slog.Logger) error {
