@@ -61,6 +61,7 @@ This repository now contains the first executable production slice for Infinite 
 - A one-shot `work-release-admin` command with exact environment confirmation, bounded content-free dead-letter inspection, exact-target requeue, immutable same-transaction audit, and an execute-only security-definer database boundary that cannot read customer Work or directly mutate the queue.
 - Embedded global, cell, and development PostgreSQL migrations with advisory locking, immutable checksums, an application ledger, and a one-shot production runner.
 - A stateless provider-neutral model gateway with a private workload-mTLS boundary, broker-injected invocation identity, a first OpenAI Responses adapter, strict sequential tool/output contracts, disabled provider-side storage, normalized usage/failures, and no Account database or runner credential.
+- A typed Agents domain boundary for Account-owned Boardrooms, immutable PersonaVersions, digest-bound ordered RunPlans, frozen entitlement/policy versions, bounded tool/cost/token policy, and validated structured results. Persistence and API composition remain in the next slice.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, default-deny networking, and an explicit zero-unavailable/node-spread app-router rollout.
 - GitHub verification for Go format/test/race/vet, disposable PostgreSQL contracts, vulnerability scanning, Kubernetes reference rendering, and public-site build/lint/production dependency audit.
 

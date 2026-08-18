@@ -18,6 +18,13 @@ type InvitationID string
 type GrantID string
 type CellID string
 type WorkItemID string
+type BoardroomID string
+type PersonaID string
+type PersonaVersionID string
+type ConversationID string
+type RunID string
+type AgentInvocationID string
+type MessageID string
 
 type Generator interface {
 	New() string
