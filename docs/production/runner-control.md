@@ -1,6 +1,6 @@
 # Fair Runner Control Plane
 
-- Status: Kubernetes launch, exact cancellation, and terminal reconciliation executable; invocation broker, manifests, and applied evidence pending
+- Status: Kubernetes lifecycle and encrypted invocation exchange executable; broker HTTP transport, runner client, manifests, and applied evidence pending
 - Product: Infinite Ocean: Spyglass
 - Parent: [Pooled Kubernetes and Cell Architecture](kubernetes-topology.md)
 
@@ -24,7 +24,7 @@ The `spyglass runner-controller` process now performs durable fair claims, idemp
 - deterministic Kubernetes Job name after launch;
 - bounded machine error code and lifecycle timestamps.
 
-It must never contain a prompt, tool input, model output, connector secret, browser credential, provider token, customer file, arbitrary image, arbitrary command, or customer-selected environment variable. Invocation payloads belong behind a separate authenticated broker/object boundary and are resolved by the runner using only its invocation identity.
+It must never contain a prompt, tool input, model output, connector secret, browser credential, provider token, customer file, arbitrary image, arbitrary command, or customer-selected environment variable. Encrypted request/result envelopes live in the separate forced-RLS `runner_invocation_exchanges` table and are resolved through execute-only broker functions using verified invocation identity.
 
 The runner Pod receives no cell/global database credential and no default or Kubernetes-API-audience token. It receives one explicit 600-second projected token whose audience is exactly the HTTPS broker URL. Online TokenReview plus exact Pod UID, controller Job UID, invocation/profile labels, and launch-contract checks bind that shared-ServiceAccount credential to one invocation. The runner ServiceAccount has no RBAC. See [Runner Broker Identity and Exchange Boundary](runner-broker.md).
 
@@ -115,7 +115,7 @@ GRANT SELECT, UPDATE ON spyglass.runner_invocation_queue TO spyglass_runner_cont
 
 It receives no `INSERT` authority and therefore cannot manufacture runnable work. It also receives no access to Account namespaces, Work, Agents, prompts, files, entitlements, Users, sessions, Billing, or provider credentials. The integration contract runs claim/lifecycle operations through this non-owner role and proves direct reads of Account namespaces and Work, and direct queue insertion, fail.
 
-The producer role has no table grants. It can execute only `spyglass_configure_runner_account`, `spyglass_enqueue_runner_invocation`, and `spyglass_cancel_runner_invocation`. Those security-definer functions validate bounded input and Account identity; configure/enqueue set the exact forced-RLS Account context, require an existing Account namespace, and enqueue rejects any namespace not `active`. Enqueue preserves invocation identity idempotency. Cancellation binds both invocation and Account, deliberately returns the same not-found result for an unknown invocation and another Account's invocation, and remains available while an Account is frozen so erasure can drain work. The application must still invoke enqueue or cancellation only after current Membership, package entitlement/capability policy, budget, operation-id, and audit checks. Serving APIs receive neither controller table authority nor a general cross-Account read surface.
+The producer role has no table grants. Production provisioning executes `spyglass_provision_runner_invocation`, which atomically creates the identifier queue record and encrypted request. Configuration and cancellation remain separate execute-only operations; the lower-level enqueue function is retained for the controller contract but is not the production request path. These security-definer functions validate bounded input and Account identity, require an existing active namespace for new work, and preserve invocation identity idempotency. Cancellation binds both invocation and Account and remains available while an Account is frozen so erasure can drain work. The application must still provision or cancel only after current Membership, package entitlement/capability policy, budget, operation-id, and audit checks.
 
 ## Account erasure and restore
 
@@ -123,7 +123,7 @@ Runner control is part of cell Account erasure policy from its first migration:
 
 - readiness and execution reject queued, launching, launch-uncertain, launched, canceling, retryable-failed, or dead-letter invocations;
 - completed, execution-failed, and canceled records may be erased;
-- invocation and scheduling rows are removed before the Account namespace;
+- encrypted exchange, invocation, and scheduling rows are removed before the Account namespace;
 - content-free row counts are merged into the immutable tombstone before its restore-ledger root is computed;
 - restore replay removes restored runner-control rows before recreating the same checkpoint.
 

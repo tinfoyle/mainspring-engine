@@ -1,6 +1,6 @@
 # Runner Broker Identity and Exchange Boundary
 
-- Status: Pod-bound Kubernetes identity projection and verifier executable; encrypted invocation exchange and HTTP broker pending
+- Status: Pod-bound identity and encrypted PostgreSQL exchange executable; HTTP broker, runner client, capability gateway, and deployment evidence pending
 - Product: Infinite Ocean: Spyglass
 - Parent: [Fair Runner Control Plane](runner-control.md)
 
@@ -47,19 +47,23 @@ get    batch/jobs                               (one cell namespace)
 
 It receives no list/watch, Pod mutation, Job mutation, Secret access, exec/attach/port-forward, TokenRequest creation, node access, or customer database authority. The runner ServiceAccount receives no RBAC at all. NetworkPolicy permits runner-to-broker HTTPS and broker-to-Kubernetes API HTTPS; it does not make either identity authoritative by itself.
 
-## Encrypted exchange contract (next implementation slice)
+## Encrypted exchange contract
 
-The identity verifier deliberately returns no payload. The cell broker must add a separate application and persistence boundary with these invariants:
+The identity verifier deliberately returns no payload. The application broker and cell persistence adapter now enforce a separate exchange boundary:
 
-- provision queue identity and an encrypted request envelope atomically;
+- provision queue identity and an encrypted request envelope atomically through one security-definer database function;
 - keep prompts, tool inputs, provider credentials, customer files, and model output out of `runner_invocation_queue`;
+- store envelopes in the forced-RLS, Account-owned `spyglass.runner_invocation_exchanges` table;
 - bind first request retrieval to the verified Pod UID and permit only identical retries by that Pod;
 - allow retrieval/result only while durable state is `launch_uncertain` or `launched`;
 - reject `canceling`, `canceled`, expired, mismatched-profile, mismatched-Job, and mismatched-Pod operations before decryption;
-- expose only a versioned, size-bounded schema and a server-authorized capability allowlist;
+- expose only a versioned schema with 768 KiB input/output, 1 MiB envelope, 24-hour lifetime, and 32 canonical capability-code bounds; the provisioning caller remains responsible for passing only policy-authorized capabilities;
 - accept one encrypted, digest-bound result, with identical idempotent retry and conflicting-result rejection;
-- append content-free lifecycle audit facts while keeping plaintext out of logs and technical control records;
-- include every Account-owned exchange row in erasure, restore replay, retention, and key-rotation policy.
+- include every Account-owned exchange row in erasure and restore replay.
+
+Requests and results use AES-256-GCM with an integer key version. Associated data binds a request to invocation, Account, and profile, and binds a result to invocation and Pod UID. Idempotency compares the SHA-256 digest of canonical plaintext plus immutable expiry or outcome, not randomized ciphertext. A keyring reads retained old versions while new writes use one active version; key material remains outside PostgreSQL.
+
+Producer and broker roles receive execute-only functions and no direct queue or exchange-table access. The application package is transport-neutral. The next slice must expose it through bounded HTTPS endpoints, map errors without identity or content disclosure, append content-free lifecycle audit facts, define terminal exchange retention, enforce current entitlement/capability policy at provisioning, and make the runner reread its rotating projected token for every fetch and submit operation.
 
 Cancellation revocation must also be enforced by every provider/tool gateway. Pod deletion or broker denial cannot erase plaintext already in runner memory, so a canceled or partitioned runner must have no direct provider, connector, customer-service, or unrestricted internet path on which it can continue side effects.
 
@@ -73,4 +77,5 @@ Cancellation revocation must also be enforced by every provider/tool gateway. Po
 - Applied RBAC proves the broker can review tokens and get exact Pod/Job objects but cannot list or mutate workloads.
 - Pod deletion causes the next TokenReview/broker operation to fail.
 - A token copied from runner A cannot fetch or submit invocation B.
+- Ciphertext or associated-data tampering fails closed, and old key versions remain readable during rotation.
 - Broker cancellation and node-partition tests prove all external capabilities are revoked independently of process termination.
