@@ -149,13 +149,16 @@ func (r *PasskeyRepository) ListCredentials(_ context.Context, userID ids.UserID
 	return cloneRecords(r.credentials[userID]), nil
 }
 
-func (r *PasskeyRepository) DeleteCredential(_ context.Context, userID ids.UserID, credentialID []byte, now time.Time) (bool, error) {
+func (r *PasskeyRepository) DeleteCredential(_ context.Context, userID ids.UserID, credentialID []byte, allowLast bool, now time.Time) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	values := r.credentials[userID]
 	for index := range values {
 		if !bytes.Equal(values[index].Credential.ID, credentialID) {
 			continue
+		}
+		if len(values) == 1 && !allowLast {
+			return false, passkeys.ErrRecoveryCodesRequired
 		}
 		r.credentials[userID] = append(values[:index:index], values[index+1:]...)
 		r.recordEvent(userID, sessions.EventPasskeyRemoved, now)

@@ -118,6 +118,8 @@
 .passkey-list .passkey-remove { border: 1px solid #e5c6c1; background: #fff7f5; color: #8b4038; }
 .passkey-enroll { display: grid; grid-template-columns: minmax(220px,1fr) auto; align-items: end; gap: 10px; margin-top: 18px; }
 .passkey-enroll input { min-height: 39px; }
+.recovery-code-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin-top: 18px; }
+.recovery-code-list code { border: 1px solid var(--line); border-radius: 8px; background: #f7faf8; padding: 9px 10px; color: var(--ink); font-size: .64rem; letter-spacing: .04em; text-align: center; user-select: all; }
 .session-list { display: grid; gap: 1px; margin-top: 15px; border-top: 1px solid var(--line); }
 .session-list article { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; padding: 16px 2px; border-bottom: 1px solid var(--line); }
 .session-list article > div { display: grid; gap: 4px; min-width: 0; }
@@ -132,7 +134,7 @@
 .event-list article > div { display: grid; gap: 3px; }
 .event-list strong { font-size: .67rem; }
 .event-list small,.event-list time { color: var(--muted); font-size: .56rem; }
-@media(max-width:760px){.security-grid{grid-template-columns:1fr}.security-layout{width:min(100% - 26px,1160px)}.security-hero{padding-top:50px}.security-card-head{align-items:stretch;flex-direction:column}.security-card-head form,.security-card-head button{width:100%}.passkey-enroll{grid-template-columns:1fr}.passkey-enroll button{width:100%}}
+@media(max-width:760px){.security-grid{grid-template-columns:1fr}.security-layout{width:min(100% - 26px,1160px)}.security-hero{padding-top:50px}.security-card-head{align-items:stretch;flex-direction:column}.security-card-head form,.security-card-head button{width:100%}.passkey-enroll,.recovery-code-list{grid-template-columns:1fr}.passkey-enroll button{width:100%}}
 
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 .work-content { width: min(1440px,100%); }

@@ -19,6 +19,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
@@ -67,6 +68,7 @@ type Server struct {
 	recovery           *recovery.Service
 	recoveryTokens     RecoveryTokenSource
 	passkeys           *passkeys.Service
+	recoveryCodes      *recoverycodes.Service
 }
 
 type Option func(*Server)
@@ -92,6 +94,10 @@ func WithRecovery(service *recovery.Service, tokens RecoveryTokenSource) Option 
 
 func WithPasskeys(service *passkeys.Service) Option {
 	return func(server *Server) { server.passkeys = service }
+}
+
+func WithRecoveryCodes(service *recoverycodes.Service) Option {
+	return func(server *Server) { server.recoveryCodes = service }
 }
 
 func New(registrations *registration.Service, authenticationService *authentication.Service, sessionService *sessions.Service, accountService *accountaccess.Service, invitationService *invitations.Service, catalogSource func() catalog.PublishedCatalog, verificationTokens VerificationTokenSource, invitationTokens InvitationTokenSource, config Config, logger *slog.Logger, options ...Option) (*Server, error) {
@@ -147,6 +153,8 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /app/work", s.workPage)
 	mux.HandleFunc("GET /app/security", s.securityPage)
 	mux.HandleFunc("POST /app/security/reauthenticate", s.reauthenticate)
+	mux.HandleFunc("POST /app/security/recovery-codes", s.rotateRecoveryCodes)
+	mux.HandleFunc("POST /app/security/recovery-codes/consume", s.consumeRecoveryCode)
 	mux.HandleFunc("POST /app/security/sessions/revoke", s.revokeSession)
 	mux.HandleFunc("POST /app/security/sessions/revoke-all", s.revokeAllSessions)
 	mux.HandleFunc("POST /app/account", s.selectAccount)
@@ -279,6 +287,9 @@ type pageData struct {
 	SecurityEvents                                                                          []securityEventView
 	Passkeys                                                                                []passkeys.CredentialSummary
 	PasskeysConfigured                                                                      bool
+	RecoveryCodeStatus                                                                      recoverycodes.Status
+	RecoveryCodes                                                                           []string
+	RecoveryCodesConfigured                                                                 bool
 	WorkMode                                                                                catalog.PackageMode
 	WorkAvailable, WorkReadOnly                                                             bool
 	Script                                                                                  string
@@ -783,44 +794,54 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	active, err := s.sessions.Active(r.Context(), authenticated.Session.UserID, authenticated.Session.ID)
+	data, err := s.securityPageData(r, authenticated)
 	if err != nil {
 		http.Error(w, "Security settings could not be loaded.", http.StatusServiceUnavailable)
 		return
 	}
-	events, err := s.sessions.SecurityEvents(r.Context(), authenticated.Session.UserID, 50)
-	if err != nil {
-		http.Error(w, "Security history could not be loaded.", http.StatusServiceUnavailable)
-		return
-	}
-	credentials := []passkeys.CredentialSummary{}
-	if s.passkeys != nil {
-		credentials, err = s.passkeys.Credentials(r.Context(), authenticated.Session.UserID)
-		if err != nil {
-			http.Error(w, "Passkeys could not be loaded.", http.StatusServiceUnavailable)
-			return
-		}
-	}
-	notice := ""
 	switch r.URL.Query().Get("status") {
 	case "confirmed":
-		notice = "Password confirmed for identity settings. Use a passkey to unlock Membership, invitation, and billing changes."
+		data.Notice = "Password confirmed for identity settings. Use a passkey to unlock Membership, invitation, and billing changes."
 	case "passkey_confirmed":
-		notice = "Passkey confirmed. Privileged Account actions are unlocked for 10 minutes."
+		data.Notice = "Passkey confirmed. Privileged Account actions are unlocked for 10 minutes."
 	case "passkey_added":
-		notice = "Passkey added and confirmed. Privileged Account actions are unlocked for 10 minutes."
+		data.Notice = "Passkey added and confirmed. Privileged Account actions are unlocked for 10 minutes."
+	case "recovery_code_accepted":
+		data.Notice = "Recovery code accepted for this session. Add a replacement passkey within 10 minutes."
 	case "revoked":
-		notice = "The selected session has been signed out."
+		data.Notice = "The selected session has been signed out."
 	case "reauth_required":
-		notice = "Confirm your password before continuing with a sensitive action."
+		data.Notice = "Confirm your password before continuing with a sensitive action."
 	case "strong_reauth_required":
-		notice = "Confirm with a passkey before managing Memberships, inviting people, or changing billing. If this is your first passkey, confirm your password and add one below."
-	}
-	data := pageData{Title: "Identity security", Notice: notice, ActiveSessions: active, SecurityEvents: securityEventViews(events), Passkeys: credentials, PasskeysConfigured: s.passkeys != nil}
-	if data.PasskeysConfigured {
-		data.Script = "/assets/passkeys.js"
+		data.Notice = "Confirm with a passkey before managing Memberships, inviting people, or changing billing. If this is your first passkey, confirm your password and add one below."
 	}
 	s.render(w, http.StatusOK, "security", data)
+}
+
+func (s *Server) securityPageData(r *http.Request, authenticated sessions.Authenticated) (pageData, error) {
+	active, err := s.sessions.Active(r.Context(), authenticated.Session.UserID, authenticated.Session.ID)
+	if err != nil {
+		return pageData{}, err
+	}
+	events, err := s.sessions.SecurityEvents(r.Context(), authenticated.Session.UserID, 50)
+	if err != nil {
+		return pageData{}, err
+	}
+	data := pageData{Title: "Identity security", ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil}
+	if s.passkeys != nil {
+		data.Passkeys, err = s.passkeys.Credentials(r.Context(), authenticated.Session.UserID)
+		if err != nil {
+			return pageData{}, err
+		}
+		data.Script = "/assets/passkeys.js"
+	}
+	if s.recoveryCodes != nil {
+		data.RecoveryCodeStatus, err = s.recoveryCodes.Status(r.Context(), authenticated.Session)
+		if err != nil {
+			return pageData{}, err
+		}
+	}
+	return data, nil
 }
 
 func securityEventViews(events []sessions.SecurityEvent) []securityEventView {
@@ -850,12 +871,78 @@ func securityEventViews(events []sessions.SecurityEvent) []securityEventView {
 		case sessions.EventPasskeyCloneWarning:
 			view.Label = "Passkey counter warning"
 			view.Detail = "Authentication was rejected because credential state was unsafe"
+		case sessions.EventRecoveryCodesRotated:
+			view.Label = "Recovery codes replaced"
+			view.Detail = "Previous unused codes were revoked"
+		case sessions.EventRecoveryCodeConsumed:
+			view.Label = "Recovery code used"
+			view.Detail = "Replacement-passkey enrollment unlocked for this session"
 		default:
 			view.Label = "Security setting changed"
 		}
 		result = append(result, view)
 	}
 	return result
+}
+
+func (s *Server) rotateRecoveryCodes(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.recoveryCodes == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Recovery code request was not accepted.", http.StatusForbidden)
+		return
+	}
+	rotation, err := s.recoveryCodes.Rotate(r.Context(), authenticated.Session)
+	if errors.Is(err, strongauth.ErrRequired) {
+		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Recovery codes could not be replaced.", http.StatusServiceUnavailable)
+		return
+	}
+	data, err := s.securityPageData(r, authenticated)
+	if err != nil {
+		http.Error(w, "Security settings could not be loaded.", http.StatusServiceUnavailable)
+		return
+	}
+	data.Notice = "New recovery codes created. Save them now; Spyglass will not show them again."
+	data.RecoveryCodes = rotation.Codes
+	data.RecoveryCodeStatus = rotation.Status
+	s.render(w, http.StatusCreated, "security", data)
+}
+
+func (s *Server) consumeRecoveryCode(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.recoveryCodes == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Recovery code request was not accepted.", http.StatusForbidden)
+		return
+	}
+	err := s.recoveryCodes.Consume(r.Context(), authenticated.Session, r.FormValue("code"))
+	if errors.Is(err, recoverycodes.ErrPasswordRequired) {
+		http.Redirect(w, r, "/app/security?status=reauth_required", http.StatusSeeOther)
+		return
+	}
+	if errors.Is(err, recoverycodes.ErrInvalidCode) {
+		data, loadErr := s.securityPageData(r, authenticated)
+		if loadErr != nil {
+			http.Error(w, "Security settings could not be loaded.", http.StatusServiceUnavailable)
+			return
+		}
+		data.Error = "That recovery code is invalid or has already been used."
+		s.render(w, http.StatusBadRequest, "security", data)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Recovery code could not be verified.", http.StatusServiceUnavailable)
+		return
+	}
+	http.Redirect(w, r, "/app/security?status=recovery_code_accepted", http.StatusSeeOther)
 }
 
 func (s *Server) reauthenticate(w http.ResponseWriter, r *http.Request) {

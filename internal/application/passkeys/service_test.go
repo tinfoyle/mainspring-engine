@@ -22,6 +22,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/memory"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/identity"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -92,6 +93,7 @@ func TestLoginRejectsAuthenticatorCloneWarning(t *testing.T) {
 func TestRegistrationOptionsRequireResidentKeyAndUserVerification(t *testing.T) {
 	fixture := newFixture(t)
 	fixture.repository.user.Handle = nil
+	fixture.repository.user.Credentials = nil
 	session := sessions.Session{ID: ids.SessionID("00000000-0000-4000-8000-000000000090"), UserID: fixture.userID, ReauthenticatedAt: fixture.clock.now}
 	result, err := fixture.service.BeginRegistration(context.Background(), session)
 	if err != nil {
@@ -120,6 +122,8 @@ func TestRegistrationOptionsRequireResidentKeyAndUserVerification(t *testing.T) 
 
 func TestCompletedRegistrationPromotesRecoveredPasswordSessionToStrongAssurance(t *testing.T) {
 	fixture := newFixture(t)
+	publicKey := append([]byte(nil), fixture.repository.user.Credentials[0].Credential.PublicKey...)
+	fixture.repository.user.Credentials = nil
 	issued, err := fixture.sessions.IssueForClientWithMethod(context.Background(), fixture.userID, 1, "recovered browser", sessions.AuthenticationMethodPassword)
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +133,7 @@ func TestCompletedRegistrationPromotesRecoveredPasswordSessionToStrongAssurance(
 		t.Fatal(err)
 	}
 	credentialID := []byte("new-credential-id")
-	response := registrationResponse(t, fixture.repository.user.Credentials[0].Credential.PublicKey, credentialID, fixture.repository.ceremonies[begun.CeremonyID].Data.Challenge)
+	response := registrationResponse(t, publicKey, credentialID, fixture.repository.ceremonies[begun.CeremonyID].Data.Challenge)
 	created, err := fixture.service.CompleteRegistration(context.Background(), issued.Session, begun.CeremonyID, "Recovery key", response)
 	if err != nil {
 		t.Fatalf("complete registration: %v", err)
@@ -144,6 +148,57 @@ func TestCompletedRegistrationPromotesRecoveredPasswordSessionToStrongAssurance(
 	if authenticated.Session.AuthenticationMethod != sessions.AuthenticationMethodPassword || authenticated.Session.ReauthenticationMethod != sessions.AuthenticationMethodPasskey ||
 		!fixture.sessions.RecentlyReauthenticatedWithAssurance(authenticated.Session, 10*time.Minute, sessions.AssuranceUserVerifiedCryptographic) {
 		t.Fatalf("registration did not promote recent assurance: %+v", authenticated.Session)
+	}
+}
+
+func TestRegistrationAndLastDeletionEnforceRecoveryPolicy(t *testing.T) {
+	fixture := newFixture(t)
+	policy := &recoveryPolicy{status: recoverycodes.Status{Configured: true, Remaining: recoverycodes.CodeCount}}
+	service, err := passkeys.NewService(fixture.repository, fixture.sessions, allowGuard{}, &sequence{}, fixture.clock, passkeys.Config{
+		RelyingPartyID: "app.infiniteocean.net",
+		Origins:        []string{"https://app.infiniteocean.net"},
+		RecoveryPolicy: policy,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	password := sessions.Session{
+		ID:                     "00000000-0000-4000-8000-000000000091",
+		UserID:                 fixture.userID,
+		ReauthenticatedAt:      fixture.clock.now,
+		ReauthenticationMethod: sessions.AuthenticationMethodPassword,
+	}
+	if _, err := service.BeginRegistration(context.Background(), password); !errors.Is(err, passkeys.ErrReauthenticationNeeded) {
+		t.Fatalf("additional passkey with password assurance=%v", err)
+	}
+	passkey := password
+	passkey.ReauthenticationMethod = sessions.AuthenticationMethodPasskey
+	if _, err := service.BeginRegistration(context.Background(), passkey); err != nil {
+		t.Fatalf("additional passkey with passkey assurance=%v", err)
+	}
+
+	credential := fixture.repository.user.Credentials[0]
+	fixture.repository.user.Credentials = nil
+	if _, err := service.BeginRegistration(context.Background(), password); !errors.Is(err, passkeys.ErrRecoveryCodeRequired) {
+		t.Fatalf("lost-passkey replacement without recovery grant=%v", err)
+	}
+	policy.granted = true
+	if _, err := service.BeginRegistration(context.Background(), password); err != nil {
+		t.Fatalf("lost-passkey replacement with recovery grant=%v", err)
+	}
+
+	fixture.repository.user.Credentials = []passkeys.CredentialRecord{credential}
+	policy.status = recoverycodes.Status{}
+	encodedID := base64.RawURLEncoding.EncodeToString(credential.Credential.ID)
+	if err := service.Delete(context.Background(), passkey, encodedID); !errors.Is(err, passkeys.ErrRecoveryCodesRequired) {
+		t.Fatalf("last passkey deletion without recovery codes=%v", err)
+	}
+	policy.status = recoverycodes.Status{Configured: true, Remaining: 1}
+	if err := service.Delete(context.Background(), passkey, encodedID); err != nil {
+		t.Fatalf("last passkey deletion with recovery codes=%v", err)
+	}
+	if len(fixture.repository.user.Credentials) != 0 {
+		t.Fatalf("credentials remaining=%d, want 0", len(fixture.repository.user.Credentials))
 	}
 }
 
@@ -392,8 +447,33 @@ func (r *repository) RecordCloneWarning(context.Context, ids.UserID, []byte, tim
 func (r *repository) ListCredentials(context.Context, ids.UserID) ([]passkeys.CredentialRecord, error) {
 	return r.user.Credentials, nil
 }
-func (r *repository) DeleteCredential(context.Context, ids.UserID, []byte, time.Time) (bool, error) {
+func (r *repository) DeleteCredential(_ context.Context, userID ids.UserID, credentialID []byte, allowLast bool, _ time.Time) (bool, error) {
+	if userID != r.user.Identity.ID {
+		return false, nil
+	}
+	for index := range r.user.Credentials {
+		if bytes.Equal(r.user.Credentials[index].Credential.ID, credentialID) {
+			if len(r.user.Credentials) == 1 && !allowLast {
+				return false, passkeys.ErrRecoveryCodesRequired
+			}
+			r.user.Credentials = append(r.user.Credentials[:index], r.user.Credentials[index+1:]...)
+			return true, nil
+		}
+	}
 	return false, nil
+}
+
+type recoveryPolicy struct {
+	status  recoverycodes.Status
+	granted bool
+}
+
+func (p *recoveryPolicy) Status(context.Context, sessions.Session) (recoverycodes.Status, error) {
+	return p.status, nil
+}
+
+func (p *recoveryPolicy) Granted(context.Context, sessions.Session) (bool, error) {
+	return p.granted, nil
 }
 
 type testClock struct{ now time.Time }

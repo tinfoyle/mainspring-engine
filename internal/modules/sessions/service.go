@@ -88,6 +88,8 @@ const (
 	EventPasskeyAuthenticated   SecurityEventType = "passkey_authenticated"
 	EventPasskeyReauthenticated SecurityEventType = "passkey_reauthenticated"
 	EventPasskeyCloneWarning    SecurityEventType = "passkey_clone_warning"
+	EventRecoveryCodesRotated   SecurityEventType = "recovery_codes_rotated"
+	EventRecoveryCodeConsumed   SecurityEventType = "recovery_code_consumed"
 )
 
 type SecurityEvent struct {

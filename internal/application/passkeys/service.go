@@ -17,6 +17,8 @@ import (
 	webauthnlib "github.com/go-webauthn/webauthn/webauthn"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/identity"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -35,6 +37,8 @@ var (
 	ErrCredentialLimit         = errors.New("passkey credential limit reached")
 	ErrCredentialNotFound      = errors.New("passkey credential not found")
 	ErrCredentialStateConflict = errors.New("passkey credential state changed")
+	ErrRecoveryCodeRequired    = errors.New("a valid recovery code grant is required to replace the lost passkey")
+	ErrRecoveryCodesRequired   = errors.New("recovery codes must be configured before removing the last passkey")
 )
 
 type CeremonyKind string
@@ -55,6 +59,12 @@ const (
 type Config struct {
 	RelyingPartyID string
 	Origins        []string
+	RecoveryPolicy RecoveryPolicy
+}
+
+type RecoveryPolicy interface {
+	Status(context.Context, sessions.Session) (recoverycodes.Status, error)
+	Granted(context.Context, sessions.Session) (bool, error)
 }
 
 type CredentialRecord struct {
@@ -111,7 +121,7 @@ type Repository interface {
 	UpdateCredential(context.Context, ids.UserID, []byte, uint32, webauthnlib.Credential, CredentialEvent, time.Time) (bool, error)
 	RecordCloneWarning(context.Context, ids.UserID, []byte, time.Time) error
 	ListCredentials(context.Context, ids.UserID) ([]CredentialRecord, error)
-	DeleteCredential(context.Context, ids.UserID, []byte, time.Time) (bool, error)
+	DeleteCredential(context.Context, ids.UserID, []byte, bool, time.Time) (bool, error)
 }
 
 type NetworkGuard interface {
@@ -125,6 +135,7 @@ type Service struct {
 	network    NetworkGuard
 	ids        ids.Generator
 	clock      sessions.Clock
+	recovery   RecoveryPolicy
 }
 
 func NewService(repository Repository, sessionService *sessions.Service, network NetworkGuard, generator ids.Generator, clock sessions.Clock, config Config) (*Service, error) {
@@ -154,7 +165,7 @@ func NewService(repository Repository, sessionService *sessions.Service, network
 	if err != nil {
 		return nil, err
 	}
-	return &Service{repository: repository, webauthn: webAuthn, sessions: sessionService, network: network, ids: generator, clock: clock}, nil
+	return &Service{repository: repository, webauthn: webAuthn, sessions: sessionService, network: network, ids: generator, clock: clock, recovery: config.RecoveryPolicy}, nil
 }
 
 type BeginResult struct {
@@ -178,6 +189,9 @@ func (s *Service) BeginRegistration(ctx context.Context, session sessions.Sessio
 	}
 	if len(user.Credentials) >= MaximumPasskeys {
 		return BeginResult{}, ErrCredentialLimit
+	}
+	if err := s.authorizeRegistration(ctx, session, user); err != nil {
+		return BeginResult{}, err
 	}
 	creation, data, err := s.webauthn.BeginRegistration(user,
 		webauthnlib.WithResidentKeyRequirement(protocol.ResidentKeyRequirementRequired),
@@ -206,6 +220,9 @@ func (s *Service) CompleteRegistration(ctx context.Context, session sessions.Ses
 	user, err := s.repository.User(ctx, session.UserID)
 	if err != nil {
 		return CredentialSummary{}, ErrInvalidCredential
+	}
+	if err := s.authorizeRegistration(ctx, session, user); err != nil {
+		return CredentialSummary{}, err
 	}
 	parsed, err := protocol.ParseCredentialCreationResponseBody(bytes.NewReader(response))
 	if err != nil {
@@ -350,19 +367,64 @@ func (s *Service) Credentials(ctx context.Context, userID ids.UserID) ([]Credent
 }
 
 func (s *Service) Delete(ctx context.Context, session sessions.Session, encodedID string) error {
-	if !s.sessions.RecentlyReauthenticated(session, Reauthentication) {
+	if err := strongauth.Require(session, session.UserID, s.clock.Now().UTC()); err != nil {
 		return ErrReauthenticationNeeded
 	}
 	credentialID, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(encodedID))
 	if err != nil || len(credentialID) == 0 {
 		return ErrCredentialNotFound
 	}
-	deleted, err := s.repository.DeleteCredential(ctx, session.UserID, credentialID, s.clock.Now().UTC())
+	credentials, err := s.repository.ListCredentials(ctx, session.UserID)
+	if err != nil {
+		return err
+	}
+	allowLast := false
+	if s.recovery != nil {
+		status, err := s.recovery.Status(ctx, session)
+		if err != nil {
+			return err
+		}
+		allowLast = status.Configured && status.Remaining > 0
+	}
+	if len(credentials) == 1 && !allowLast {
+		return ErrRecoveryCodesRequired
+	}
+	deleted, err := s.repository.DeleteCredential(ctx, session.UserID, credentialID, allowLast, s.clock.Now().UTC())
 	if err != nil {
 		return err
 	}
 	if !deleted {
 		return ErrCredentialNotFound
+	}
+	return nil
+}
+
+func (s *Service) authorizeRegistration(ctx context.Context, session sessions.Session, user User) error {
+	now := s.clock.Now().UTC()
+	if len(user.Credentials) > 0 {
+		if err := strongauth.Require(session, session.UserID, now); err != nil {
+			return ErrReauthenticationNeeded
+		}
+		return nil
+	}
+	if s.recovery != nil {
+		status, err := s.recovery.Status(ctx, session)
+		if err != nil {
+			return err
+		}
+		if status.Configured {
+			granted, err := s.recovery.Granted(ctx, session)
+			if err != nil {
+				return err
+			}
+			if !granted {
+				return ErrRecoveryCodeRequired
+			}
+			return nil
+		}
+	}
+	if !s.sessions.RecentlyReauthenticated(session, Reauthentication) {
+		return ErrReauthenticationNeeded
 	}
 	return nil
 }

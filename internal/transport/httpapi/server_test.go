@@ -244,6 +244,12 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if strongCompletion.StatusCode != http.StatusCreated {
 		t.Fatalf("strong passkey enrollment: %d %s", strongCompletion.StatusCode, strongCompletion.Body)
 	}
+	var enrolledPasskey struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(strongCompletion.Body, &enrolledPasskey); err != nil || enrolledPasskey.ID == "" {
+		t.Fatalf("decode enrolled passkey: %+v err=%v", enrolledPasskey, err)
+	}
 	invite = postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/invitations", `{"email":"member@example.com","role":"member"}`, cookies[0])
 	if invite.StatusCode != http.StatusCreated {
 		t.Fatalf("passkey-confirmed invite: %d %s", invite.StatusCode, invite.Body)
@@ -429,6 +435,37 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	removedOwnerList := requestJSONCookie(t, http.MethodGet, membershipURL, "", cookies[0])
 	if removedOwnerList.StatusCode != http.StatusForbidden || !bytes.Contains(removedOwnerList.Body, []byte(`"code":"membership_denied"`)) {
 		t.Fatalf("removed Membership retained Account access: %d %s", removedOwnerList.StatusCode, removedOwnerList.Body)
+	}
+	recoveryCodes := postJSONCookie(t, server.URL+"/api/v1/recovery-codes", `{}`, cookies[0])
+	var recoveryCodeSet struct {
+		Status struct {
+			Configured bool `json:"configured"`
+			Remaining  int  `json:"remaining"`
+		} `json:"status"`
+		Codes []string `json:"codes"`
+	}
+	if err := json.Unmarshal(recoveryCodes.Body, &recoveryCodeSet); err != nil || recoveryCodes.StatusCode != http.StatusCreated || !recoveryCodeSet.Status.Configured || len(recoveryCodeSet.Codes) != 10 || bytes.Contains(recoveryCodes.Body, []byte(provisioned.Account.ID)) {
+		t.Fatalf("recovery-code rotation: %d %+v err=%v body=%s", recoveryCodes.StatusCode, recoveryCodeSet, err, recoveryCodes.Body)
+	}
+	removedPasskey := requestJSONCookie(t, http.MethodDelete, server.URL+"/api/v1/passkeys/"+enrolledPasskey.ID, "", cookies[0])
+	if removedPasskey.StatusCode != http.StatusNoContent {
+		t.Fatalf("last passkey deletion with recovery codes: %d %s", removedPasskey.StatusCode, removedPasskey.Body)
+	}
+	passwordAgain := postJSONCookie(t, server.URL+"/api/v1/session/reauthenticate", `{"password":"correct horse battery staple"}`, cookies[0])
+	if passwordAgain.StatusCode != http.StatusNoContent {
+		t.Fatalf("lost-passkey password confirmation: %d %s", passwordAgain.StatusCode, passwordAgain.Body)
+	}
+	consumedCode := postJSONCookie(t, server.URL+"/api/v1/recovery-codes/consume", `{"code":"`+recoveryCodeSet.Codes[0]+`"}`, cookies[0])
+	if consumedCode.StatusCode != http.StatusNoContent {
+		t.Fatalf("recovery-code consumption: %d %s", consumedCode.StatusCode, consumedCode.Body)
+	}
+	replayedCode := postJSONCookie(t, server.URL+"/api/v1/recovery-codes/consume", `{"code":"`+recoveryCodeSet.Codes[0]+`"}`, cookies[0])
+	if replayedCode.StatusCode != http.StatusBadRequest || !bytes.Contains(replayedCode.Body, []byte(`"code":"recovery_code_invalid"`)) {
+		t.Fatalf("recovery-code replay: %d %s", replayedCode.StatusCode, replayedCode.Body)
+	}
+	replacementPasskey := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, cookies[0])
+	if replacementPasskey.StatusCode != http.StatusCreated {
+		t.Fatalf("lost-passkey replacement registration: %d %s", replacementPasskey.StatusCode, replacementPasskey.Body)
 	}
 	unknownRecovery := postJSON(t, server.URL+"/api/v1/recovery-challenges", `{"email":"missing@example.com"}`)
 	if unknownRecovery.StatusCode != http.StatusAccepted || bytes.Contains(unknownRecovery.Body, []byte("development_recovery_token")) {

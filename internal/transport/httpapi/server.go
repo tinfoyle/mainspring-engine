@@ -17,6 +17,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -50,6 +51,7 @@ type Server struct {
 	recoveryTokens        RecoveryTokenSource
 	exposeRecoveryToken   bool
 	passkeys              *passkeys.Service
+	recoveryCodes         *recoverycodes.Service
 }
 
 type SessionCookie struct {
@@ -135,6 +137,10 @@ func WithPasskeys(service *passkeys.Service) Option {
 	return func(server *Server) { server.passkeys = service }
 }
 
+func WithRecoveryCodes(service *recoverycodes.Service) Option {
+	return func(server *Server) { server.recoveryCodes = service }
+}
+
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
 	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
 	for _, option := range options {
@@ -161,6 +167,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/passkeys/{credentialID}", s.deletePasskey)
 	mux.HandleFunc("POST /api/v1/passkey-reauthentications", s.beginPasskeyReauthentication)
 	mux.HandleFunc("POST /api/v1/passkey-reauthentications/{ceremonyID}/complete", s.completePasskeyReauthentication)
+	mux.HandleFunc("GET /api/v1/recovery-codes", s.recoveryCodeStatus)
+	mux.HandleFunc("POST /api/v1/recovery-codes", s.rotateRecoveryCodes)
+	mux.HandleFunc("POST /api/v1/recovery-codes/consume", s.consumeRecoveryCode)
 	mux.HandleFunc("GET /api/v1/sessions", s.listSessions)
 	mux.HandleFunc("GET /api/v1/security-events", s.listSecurityEvents)
 	mux.HandleFunc("DELETE /api/v1/sessions", s.logoutAll)
@@ -983,11 +992,83 @@ func (s *Server) writePasskeyMutationError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusConflict, "passkey_limit_reached", "the identity has reached its passkey limit")
 	case errors.Is(err, passkeys.ErrCredentialStateConflict):
 		writeProblem(w, http.StatusConflict, "passkey_state_changed", "the passkey state changed; try again")
+	case errors.Is(err, passkeys.ErrRecoveryCodeRequired):
+		writeProblem(w, http.StatusForbidden, "recovery_code_required", "use an unused recovery code before replacing a lost passkey")
+	case errors.Is(err, passkeys.ErrRecoveryCodesRequired):
+		writeProblem(w, http.StatusConflict, "recovery_codes_required", "configure recovery codes before removing the last passkey")
 	case errors.Is(err, passkeys.ErrInvalidCeremony), errors.Is(err, passkeys.ErrInvalidCredential):
 		writeProblem(w, http.StatusBadRequest, "passkey_invalid", "the passkey ceremony is invalid or expired")
 	default:
 		writeProblem(w, http.StatusServiceUnavailable, "passkey_operation_failed", "the passkey operation could not be completed")
 	}
+}
+
+func (s *Server) recoveryCodeStatus(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.recoveryCodeRequest(w, r, false)
+	if !ok {
+		return
+	}
+	status, err := s.recoveryCodes.Status(r.Context(), authenticated.Session)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "recovery_codes_unavailable", "recovery code status could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) rotateRecoveryCodes(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.recoveryCodeRequest(w, r, true)
+	if !ok {
+		return
+	}
+	result, err := s.recoveryCodes.Rotate(r.Context(), authenticated.Session)
+	if err != nil {
+		if errors.Is(err, strongauth.ErrRequired) {
+			writeProblem(w, http.StatusForbidden, "passkey_reauthentication_required", "confirm with a passkey before replacing recovery codes")
+			return
+		}
+		writeProblem(w, http.StatusServiceUnavailable, "recovery_codes_unavailable", "recovery codes could not be replaced")
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) consumeRecoveryCode(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.recoveryCodeRequest(w, r, true)
+	if !ok {
+		return
+	}
+	var input struct {
+		Code string `json:"code"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "a recovery code is required")
+		return
+	}
+	if err := s.recoveryCodes.Consume(r.Context(), authenticated.Session, input.Code); err != nil {
+		switch {
+		case errors.Is(err, recoverycodes.ErrPasswordRequired):
+			writeProblem(w, http.StatusForbidden, "password_reauthentication_required", "confirm your password before using a recovery code")
+		case errors.Is(err, recoverycodes.ErrInvalidCode):
+			writeProblem(w, http.StatusBadRequest, "recovery_code_invalid", "the recovery code is invalid or already used")
+		default:
+			writeProblem(w, http.StatusServiceUnavailable, "recovery_codes_unavailable", "the recovery code could not be verified")
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) recoveryCodeRequest(w http.ResponseWriter, r *http.Request, mutation bool) (sessions.Authenticated, bool) {
+	if mutation && !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return sessions.Authenticated{}, false
+	}
+	if s.recoveryCodes == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "recovery_codes_unconfigured", "recovery codes are not configured")
+		return sessions.Authenticated{}, false
+	}
+	return s.authenticateSession(w, r)
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {

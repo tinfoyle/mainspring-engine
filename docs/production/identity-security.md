@@ -18,7 +18,9 @@ Passkey endpoints accept no Account ID, passkey records have no Account foreign 
 Required invariants:
 
 - WebAuthn ceremonies are generated server-side, expire after three minutes, are scoped to their ceremony kind, and are consumed once before response validation.
-- Registration and removal require a reauthentication timestamp no older than ten minutes.
+- First-ever registration requires recent password authentication; adding another passkey and removing any passkey require a user-verified passkey timestamp no older than ten minutes.
+- Removing the last passkey is transactionally rejected until at least one unused recovery code exists; concurrent deletions are serialized per User so two final factors cannot both bypass the check. Replacing a lost final passkey requires recent password authentication plus a single-use recovery-code grant bound to that exact User session.
+- Recovery codes are generated as ten independent 128-bit values, returned once, stored only as domain-separated SHA-256 hashes, consumed atomically, and never grant Account or operator authority.
 - Registration and assertion both require user presence and user verification; discoverable credentials are required for email-less sign-in.
 - The relying-party ID and exact allowed origin are deployment configuration, not request values.
 - User handles are random opaque 32-byte values and do not contain email addresses or Account identifiers.
@@ -34,8 +36,10 @@ Required invariants:
 | Boundary | Owner | Responsibility |
 |---|---|---|
 | Use cases and ports | `internal/application/passkeys` | WebAuthn policy, ceremony lifetime, replay order, counter fencing, session issuance, safe summaries |
+| Recovery use cases and ports | `internal/application/recoverycodes` | Passkey-protected set rotation, password-plus-code consumption, session-bound replacement grants |
 | Privileged assurance policy | `internal/application/strongauth` | One typed, transport-independent rule for actor binding, assurance class, and ten-minute freshness |
 | Durable adapter | `internal/adapters/postgres/passkeys.go` | Encrypted records, scoped atomic ceremony consumption, credential counter CAS, security events |
+| Recovery adapter | `internal/adapters/postgres/recovery_codes.go` | Hashed code sets, atomic single-use consumption, grant expiry, rotation invalidation, security events |
 | Development adapter | `internal/adapters/memory/passkeys.go` | Same application port for local journeys and transport tests |
 | HTTP adapter | `internal/transport/httpapi` | Bounded JSON, exact-origin checks, session cookies, public problem responses |
 | Browser adapter | `internal/transport/browserapp` | Prototype-informed login/security presentation and WebAuthn browser serialization |
@@ -58,12 +62,20 @@ The application owns the repository interface. Neither transport imports Postgre
 
 ### Registration
 
-1. An authenticated, recently reauthenticated session begins registration.
+1. First-ever enrollment begins after recent password authentication. A User with an existing passkey must prove that passkey before adding another.
 2. The repository creates or loads the User's stable opaque handle.
 3. The server requires a resident credential, user verification, and no attestation conveyance preference.
 4. Completion consumes a ceremony bound to the same User and session.
 5. A verified credential is encrypted and inserted with a human-readable local name and security event.
 6. Successful user-verified enrollment promotes the current session's recent assurance to `user_verified_cryptographic`. This makes first enrollment usable after password recovery without treating the password itself as strong proof.
+
+### Lost-passkey replacement
+
+1. A User with a verified passkey creates a set of ten recovery codes. Spyglass returns the plaintext once and persists only hashes.
+2. Creating a replacement set invalidates the previous set and every outstanding replacement grant.
+3. If every passkey is lost, the User signs in with the password and submits one saved code. The code is atomically consumed and grants only that current session permission to begin replacement enrollment for ten minutes.
+4. The replacement WebAuthn ceremony remains bound to the same User and session. Its successful user-verified completion promotes the session to cryptographic assurance.
+5. A code or grant cannot select an Account, change Membership, start billing, or invoke platform operations. Password recovery revokes its underlying session, and therefore the grant, through the session foreign key.
 
 ### Passkey reauthentication
 
@@ -91,13 +103,16 @@ POST   /api/v1/passkey-registrations/{ceremonyID}/complete
 DELETE /api/v1/passkeys/{credentialID}
 POST   /api/v1/passkey-reauthentications
 POST   /api/v1/passkey-reauthentications/{ceremonyID}/complete
+GET    /api/v1/recovery-codes
+POST   /api/v1/recovery-codes
+POST   /api/v1/recovery-codes/consume
 ```
 
 Cookie-authenticated mutations require the configured exact application Origin. Passkey payloads have a dedicated 256 KiB ceiling to accommodate attestation objects while remaining bounded. Errors never reveal whether an anonymous credential ID, user handle, or User exists.
 
 ## 5. Persistence and scaling
 
-`passkey_users` is keyed by global User ID and stores the opaque WebAuthn handle. `passkey_credentials` stores the globally unique credential ID, encrypted credential blob, key version, duplicated sign counter for atomic fencing, name, and use timestamps. `passkey_ceremonies` stores encrypted WebAuthn session data and an explicit kind/User/session scope.
+`passkey_users` is keyed by global User ID and stores the opaque WebAuthn handle. `passkey_credentials` stores the globally unique credential ID, encrypted credential blob, key version, duplicated sign counter for atomic fencing, name, and use timestamps. `passkey_ceremonies` stores encrypted WebAuthn session data and an explicit kind/User/session scope. `user_recovery_code_sets` and `user_recovery_codes` store one active version and its one-way hashes; `passkey_recovery_grants` binds a short-lived grant to a live User session.
 
 All state required between begin and complete requests is durable. A request may begin on one account-api replica and complete on another without session affinity. Ceremony consumption is one SQL update guarded by kind, User, session, expiry, and `consumed_at IS NULL`. Creation opportunistically removes a bounded batch of expired ceremonies so ordinary traffic does not create unbounded expired state.
 
@@ -128,13 +143,14 @@ Automated evidence covers:
 - ciphertext randomness, label binding, key-version binding, and tamper rejection;
 - PostgreSQL encrypted credential/ceremony round trips, stale counter rejection, replay rejection, and cross-User list isolation;
 - active-plus-retained keyring reads, active-only writes, bounded PostgreSQL credential/ceremony re-encryption, old-key retirement, and immutable aggregate operator evidence;
+- passkey-only recovery-set rotation, plaintext non-persistence, single-use and concurrent code consumption, replacement-set invalidation, session-bound grants, replay rejection, lost-passkey replacement policy, and concurrent final-factor deletion fencing;
 - HTTP response contracts containing no Account identity and browser presentation on login and identity security pages.
 
 ## 8. Remaining identity work
 
 Passkeys are now a production authentication and strong-reauthentication option, but the broader Phase 2 identity program is not complete:
 
-1. Extend the now-executable privileged-operation step-up into a complete owner/platform-administrator enrollment and recovery policy, including recovery codes, ownership-transfer rules, factor-loss review, and break-glass governance.
+1. Complete mandatory owner/platform-administrator factor enrollment and reviewed factor-loss/break-glass governance. Self-service recovery codes and ownership-transfer strong authentication are executable; recovery codes deliberately cannot authorize Account or operator actions.
 2. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
 3. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
 4. Add verified contact-method change, passkey rename, compromised-credential response, and customer-visible notification delivery.

@@ -220,12 +220,32 @@ func (r *PasskeyRepository) ListCredentials(ctx context.Context, userID ids.User
 	return r.loadCredentials(ctx, userID)
 }
 
-func (r *PasskeyRepository) DeleteCredential(ctx context.Context, userID ids.UserID, credentialID []byte, now time.Time) (bool, error) {
+func (r *PasskeyRepository) DeleteCredential(ctx context.Context, userID ids.UserID, credentialID []byte, allowLast bool, now time.Time) (bool, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	var lockedUser ids.UserID
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&lockedUser); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	var credentialCount int
+	var targetExists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*),COALESCE(bool_or(credential_id=$2),false)
+		FROM passkey_credentials WHERE user_id=$1`, userID, credentialID).Scan(&credentialCount, &targetExists); err != nil {
+		return false, err
+	}
+	if !targetExists {
+		return false, nil
+	}
+	if credentialCount == 1 && !allowLast {
+		return false, passkeys.ErrRecoveryCodesRequired
+	}
 	command, err := tx.Exec(ctx, `DELETE FROM passkey_credentials WHERE user_id=$1 AND credential_id=$2`, userID, credentialID)
 	if err != nil || command.RowsAffected() != 1 {
 		return false, err

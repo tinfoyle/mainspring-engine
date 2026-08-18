@@ -21,6 +21,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
@@ -146,7 +147,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	passkeyService, err := passkeys.NewService(passkeyRepository, sessionService, networkGuard, ids.RandomGenerator{}, clock, passkeys.Config{RelyingPartyID: config.PasskeyRPID, Origins: []string{config.AppOrigin}})
+	recoveryCodeService, err := recoverycodes.NewService(postgres.NewRecoveryCodeRepository(pool), ids.RandomGenerator{}, recoverycodes.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	passkeyService, err := passkeys.NewService(passkeyRepository, sessionService, networkGuard, ids.RandomGenerator{}, clock, passkeys.Config{RelyingPartyID: config.PasskeyRPID, Origins: []string{config.AppOrigin}, RecoveryPolicy: recoveryCodeService})
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -216,8 +222,9 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithInvitations(invitationService, nil, false),
 		httpapi.WithRecovery(recoveryService, nil, false),
 		httpapi.WithPasskeys(passkeyService),
+		httpapi.WithRecoveryCodes(recoveryCodeService),
 	).Handler()
-	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService))
+	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService))
 	if err != nil {
 		pool.Close()
 		return nil, err
