@@ -20,6 +20,7 @@ import (
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
@@ -69,6 +70,33 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 	if _, err := service.Begin(ctx, registration.BeginCommand{Email: " OWNER@example.com ", DisplayName: "Owner Again", AccountName: "Other Labs", Region: "us-east"}); !errors.Is(err, registration.ErrEmailExists) {
 		t.Fatalf("duplicate registration error = %v, want ErrEmailExists", err)
+	}
+
+	sessionRepository := postgresadapter.NewSessionRepository(pool)
+	sessionService, err := sessions.NewService(sessionRepository, ids.RandomGenerator{}, fixedClock{now: now}, 24*time.Hour, time.Hour, 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := sessionService.IssueForClient(ctx, provisioned.User.ID, provisioned.User.SecurityVersion, "PostgreSQL contract browser")
+	if err != nil {
+		t.Fatalf("issue persistent session: %v", err)
+	}
+	active, err := sessionService.Active(ctx, provisioned.User.ID, issued.Session.ID)
+	if err != nil || len(active) != 1 || !active[0].Current || active[0].ClientLabel != "PostgreSQL contract browser" {
+		t.Fatalf("persistent active sessions = %+v, %v", active, err)
+	}
+	if revoked, err := sessionService.RevokeOwned(ctx, ids.UserID("30000000-0000-4000-8000-000000000003"), issued.Session.ID); err != nil || revoked {
+		t.Fatalf("cross-user persistent revoke = %v, %v", revoked, err)
+	}
+	if err := sessionService.MarkReauthenticated(ctx, provisioned.User.ID, issued.Session.ID); err != nil {
+		t.Fatalf("mark persistent session reauthenticated: %v", err)
+	}
+	var securityEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_security_events WHERE user_id=$1`, provisioned.User.ID).Scan(&securityEvents); err != nil {
+		t.Fatal(err)
+	}
+	if securityEvents != 2 {
+		t.Fatalf("security event count = %d, want session creation and reauthentication", securityEvents)
 	}
 
 	commercial := postgresadapter.NewCommercialAccessRepository(pool)
@@ -164,7 +192,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 6 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 7 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 

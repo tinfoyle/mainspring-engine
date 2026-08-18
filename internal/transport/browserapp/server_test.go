@@ -66,6 +66,19 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	if !foundSession {
 		t.Fatalf("session cookie missing: %#v", cookies)
 	}
+	security, err := client.Get(server.URL + "/app/security")
+	if err != nil {
+		t.Fatal(err)
+	}
+	securityBody, _ := io.ReadAll(security.Body)
+	security.Body.Close()
+	if security.StatusCode != http.StatusOK || !bytes.Contains(securityBody, []byte("Where you are signed in")) || !bytes.Contains(securityBody, []byte("Current session")) {
+		t.Fatalf("security center: %d %s", security.StatusCode, securityBody)
+	}
+	confirmed := postForm(t, client, server.URL+"/app/security/reauthenticate", url.Values{"password": {"correct horse battery staple"}})
+	if confirmed.status != http.StatusOK || !bytes.Contains(confirmed.body, []byte("Sensitive actions are unlocked for 10 minutes")) {
+		t.Fatalf("password confirmation: %d %s", confirmed.status, confirmed.body)
+	}
 }
 
 type formResponse struct {

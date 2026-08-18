@@ -45,6 +45,7 @@ type SessionCookie struct {
 	AccountName string
 	Secure      bool
 	Domain      string
+	Origin      string
 }
 
 // VerificationTokenSource is development-only. Production compositions leave
@@ -114,6 +115,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/registrations", s.beginRegistration)
 	mux.HandleFunc("POST /api/v1/registrations/verify", s.completeRegistration)
 	mux.HandleFunc("POST /api/v1/sessions", s.login)
+	mux.HandleFunc("GET /api/v1/sessions", s.listSessions)
+	mux.HandleFunc("DELETE /api/v1/sessions", s.logoutAll)
+	mux.HandleFunc("DELETE /api/v1/sessions/{sessionID}", s.revokeSession)
+	mux.HandleFunc("POST /api/v1/session/reauthenticate", s.reauthenticate)
 	mux.HandleFunc("DELETE /api/v1/session", s.logout)
 	mux.HandleFunc("GET /api/v1/session/accounts", s.listAccounts)
 	mux.HandleFunc("POST /api/v1/session/account", s.selectAccount)
@@ -127,7 +132,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) billingStatus(w http.ResponseWriter, r *http.Request) {
-	authenticated, accountID, ok := s.commercialRequest(w, r)
+	authenticated, accountID, ok := s.commercialRequest(w, r, false)
 	if !ok {
 		return
 	}
@@ -140,7 +145,7 @@ func (s *Server) billingStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
-	authenticated, accountID, ok := s.commercialRequest(w, r)
+	authenticated, accountID, ok := s.commercialRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -160,7 +165,7 @@ func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createBillingPortalSession(w http.ResponseWriter, r *http.Request) {
-	authenticated, accountID, ok := s.commercialRequest(w, r)
+	authenticated, accountID, ok := s.commercialRequest(w, r, true)
 	if !ok {
 		return
 	}
@@ -172,13 +177,17 @@ func (s *Server) createBillingPortalSession(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusCreated, map[string]any{"session_id": session.ID, "url": session.URL, "expires_at": session.ExpiresAt})
 }
 
-func (s *Server) commercialRequest(w http.ResponseWriter, r *http.Request) (sessions.Authenticated, ids.AccountID, bool) {
+func (s *Server) commercialRequest(w http.ResponseWriter, r *http.Request, requireRecentAuthentication bool) (sessions.Authenticated, ids.AccountID, bool) {
 	if origin := r.Header.Get("Origin"); origin != "" && origin != s.commercialOrigin {
 		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
 		return sessions.Authenticated{}, "", false
 	}
 	authenticated, ok := s.authenticateSession(w, r)
 	if !ok {
+		return sessions.Authenticated{}, "", false
+	}
+	if requireRecentAuthentication && !s.sessions.RecentlyReauthenticated(authenticated.Session, 10*time.Minute) {
+		writeProblem(w, http.StatusForbidden, "reauthentication_required", "confirm your password before this sensitive operation")
 		return sessions.Authenticated{}, "", false
 	}
 	if s.commercialAccess == nil {
@@ -217,6 +226,10 @@ func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
 func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	authenticated, ok := s.authenticateSession(w, r)
 	if !ok {
+		return
+	}
+	if !s.sessions.RecentlyReauthenticated(authenticated.Session, 10*time.Minute) {
+		writeProblem(w, http.StatusForbidden, "reauthentication_required", "confirm your password before this sensitive operation")
 		return
 	}
 	if s.invitations == nil {
@@ -370,7 +383,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: input.Email, Password: input.Password})
+	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: input.Email, Password: input.Password, ClientLabel: r.UserAgent()})
 	if err != nil {
 		if errors.Is(err, authentication.ErrInvalidCredentials) {
 			writeProblem(w, http.StatusUnauthorized, "invalid_credentials", "the email or password is incorrect")
@@ -381,6 +394,97 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setSessionCookie(w, issued.Token, issued.Session.ExpiresAt)
 	writeJSON(w, http.StatusCreated, map[string]any{"status": "authenticated", "user_id": issued.Session.UserID, "expires_at": issued.Session.ExpiresAt})
+}
+
+func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	active, err := s.sessions.Active(r.Context(), authenticated.Session.UserID, authenticated.Session.ID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "sessions_unavailable", "active sessions could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": active})
+}
+
+func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	raw := r.PathValue("sessionID")
+	if ids.Validate(raw) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_session_id", "session ID is invalid")
+		return
+	}
+	revoked, err := s.sessions.RevokeOwned(r.Context(), authenticated.Session.UserID, ids.SessionID(raw))
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "session_revoke_failed", "the session could not be revoked")
+		return
+	}
+	if !revoked {
+		writeProblem(w, http.StatusNotFound, "session_not_found", "the session was not found")
+		return
+	}
+	if ids.SessionID(raw) == authenticated.Session.ID {
+		s.clearSessionCookie(w)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) logoutAll(w http.ResponseWriter, r *http.Request) {
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	if err := s.sessions.RevokeAll(r.Context(), authenticated.Session.UserID); err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "session_revoke_failed", "sessions could not be revoked")
+		return
+	}
+	s.clearSessionCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) reauthenticate(w http.ResponseWriter, r *http.Request) {
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Password string `json:"password"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	err := s.authentication.Reauthenticate(r.Context(), authentication.ReauthenticateCommand{UserID: authenticated.Session.UserID, SessionID: authenticated.Session.ID, Password: input.Password})
+	if errors.Is(err, authentication.ErrInvalidCredentials) {
+		writeProblem(w, http.StatusUnauthorized, "invalid_credentials", "the password is incorrect")
+		return
+	}
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "reauthentication_failed", "password confirmation could not be completed")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) validSessionMutationOrigin(r *http.Request) bool {
+	return s.cookie.Origin == "" || r.Header.Get("Origin") == s.cookie.Origin
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {

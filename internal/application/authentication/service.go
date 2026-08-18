@@ -9,6 +9,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/identity"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
@@ -21,6 +22,7 @@ type LocalIdentity struct {
 
 type IdentitySource interface {
 	LocalIdentity(context.Context, string) (LocalIdentity, error)
+	LocalIdentityForUser(context.Context, ids.UserID) (LocalIdentity, error)
 }
 
 type AttemptLimiter interface {
@@ -49,7 +51,7 @@ func NewService(identities IdentitySource, limiter AttemptLimiter, passwords Pas
 	return &Service{identities: identities, limiter: limiter, passwords: passwords, sessions: sessionService, clock: clock, dummyHash: dummyHash}, nil
 }
 
-type LoginCommand struct{ Email, Password string }
+type LoginCommand struct{ Email, Password, ClientLabel string }
 
 func (s *Service) Login(ctx context.Context, command LoginCommand) (sessions.Issued, error) {
 	now := s.clock.Now().UTC()
@@ -86,5 +88,44 @@ func (s *Service) Login(ctx context.Context, command LoginCommand) (sessions.Iss
 	if err := s.limiter.Success(ctx, key); err != nil {
 		return sessions.Issued{}, err
 	}
-	return s.sessions.Issue(ctx, local.User.ID, local.User.SecurityVersion)
+	return s.sessions.IssueForClient(ctx, local.User.ID, local.User.SecurityVersion, command.ClientLabel)
+}
+
+type ReauthenticateCommand struct {
+	UserID    ids.UserID
+	SessionID ids.SessionID
+	Password  string
+}
+
+func (s *Service) Reauthenticate(ctx context.Context, command ReauthenticateCommand) error {
+	if command.UserID == "" || command.SessionID == "" {
+		return ErrInvalidCredentials
+	}
+	now := s.clock.Now().UTC()
+	key := sha256.Sum256([]byte("reauth:" + string(command.UserID)))
+	blocked, err := s.limiter.Blocked(ctx, key, now)
+	if err != nil {
+		return err
+	}
+	local, lookupErr := s.identities.LocalIdentityForUser(ctx, command.UserID)
+	encoded := s.dummyHash
+	if lookupErr == nil {
+		encoded = local.PasswordHash
+	}
+	passwordMatches := s.passwords.Verify(encoded, command.Password)
+	if lookupErr != nil && !errors.Is(lookupErr, ErrIdentityNotFound) {
+		return lookupErr
+	}
+	if blocked || lookupErr != nil || !passwordMatches || local.User.State != identity.UserActive {
+		if !blocked {
+			if err := s.limiter.Failure(ctx, key, now, 5, 15*time.Minute); err != nil {
+				return err
+			}
+		}
+		return ErrInvalidCredentials
+	}
+	if err := s.limiter.Success(ctx, key); err != nil {
+		return err
+	}
+	return s.sessions.MarkReauthenticated(ctx, command.UserID, command.SessionID)
 }

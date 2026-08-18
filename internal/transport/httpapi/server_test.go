@@ -79,6 +79,56 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if len(cookies) != 1 || cookies[0].Name != "spyglass_development_session" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
 		t.Fatalf("unexpected session cookie: %#v", cookies)
 	}
+	secondLogin := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"avery@example.com","password":"correct horse battery staple"}`)
+	if secondLogin.StatusCode != http.StatusCreated {
+		t.Fatalf("second login status %d: %s", secondLogin.StatusCode, secondLogin.Body)
+	}
+	sessionsRequest, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/sessions", nil)
+	sessionsRequest.AddCookie(cookies[0])
+	sessionsResponse, err := http.DefaultClient.Do(sessionsRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inventory struct {
+		Sessions []struct {
+			ID      string `json:"id"`
+			Current bool   `json:"current"`
+		} `json:"sessions"`
+	}
+	if err := json.NewDecoder(sessionsResponse.Body).Decode(&inventory); err != nil {
+		t.Fatal(err)
+	}
+	sessionsResponse.Body.Close()
+	if sessionsResponse.StatusCode != http.StatusOK || len(inventory.Sessions) != 2 {
+		t.Fatalf("session inventory: %d %+v", sessionsResponse.StatusCode, inventory.Sessions)
+	}
+	otherSessionID := ""
+	for _, item := range inventory.Sessions {
+		if !item.Current {
+			otherSessionID = item.ID
+		}
+	}
+	if otherSessionID == "" {
+		t.Fatal("session inventory did not distinguish the current session")
+	}
+	revokeRequest, _ := http.NewRequest(http.MethodDelete, server.URL+"/api/v1/sessions/"+otherSessionID, nil)
+	revokeRequest.AddCookie(cookies[0])
+	revokeResponse, err := http.DefaultClient.Do(revokeRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revokeResponse.Body.Close()
+	if revokeResponse.StatusCode != http.StatusNoContent {
+		t.Fatalf("revoke other session status: %d", revokeResponse.StatusCode)
+	}
+	wrongConfirmation := postJSONCookie(t, server.URL+"/api/v1/session/reauthenticate", `{"password":"wrong password"}`, cookies[0])
+	if wrongConfirmation.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong reauthentication status: %d", wrongConfirmation.StatusCode)
+	}
+	confirmation := postJSONCookie(t, server.URL+"/api/v1/session/reauthenticate", `{"password":"correct horse battery staple"}`, cookies[0])
+	if confirmation.StatusCode != http.StatusNoContent {
+		t.Fatalf("reauthentication status: %d %s", confirmation.StatusCode, confirmation.Body)
+	}
 	accountsRequest, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/session/accounts", nil)
 	accountsRequest.AddCookie(cookies[0])
 	accountsResponse, err := http.DefaultClient.Do(accountsRequest)

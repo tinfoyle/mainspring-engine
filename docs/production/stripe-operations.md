@@ -8,7 +8,7 @@
 
 - The browser submits a local published `offer_code`; it never submits a Stripe Price ID.
 - `offer_provider_prices` is private operational configuration, separated by Catalog version and Stripe test/live mode.
-- Only an active Account owner or billing administrator can create Checkout or Customer Portal sessions.
+- Only an active Account owner or billing administrator with a password confirmation no more than 10 minutes old can create Checkout or Customer Portal sessions.
 - Every Stripe `POST` carries an idempotency key. Checkout and Portal API requests require a UUID `Idempotency-Key` from the caller; customer creation has a deterministic Account-scoped key.
 - A durable Account/mode Checkout reservation serializes attempts. Concurrent requests cannot open parallel subscription Checkouts, and retries resume the already-created hosted session until it expires or projection completes.
 - Success, cancel, and return URLs are constructed from the configured exact HTTPS application origin. They are not request parameters.

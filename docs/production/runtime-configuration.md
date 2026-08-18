@@ -8,7 +8,7 @@
 
 | Mode | Owns | Does not own |
 |---|---|---|
-| `account-api` | Signup, login, Account selection, invitations, local billing reads, Checkout/Portal creation, signed Stripe webhook acceptance, private browser shell | Billing event projection, reconciliation polling, Account business workloads |
+| `account-api` | Signup, login, session security/reauthentication, Account selection, invitations, local billing reads, Checkout/Portal creation, signed Stripe webhook acceptance, private browser shell | Billing event projection, reconciliation polling, Account business workloads |
 | `billing-worker` | Leased Stripe inbox processing, current Subscription retrieval, transactional grant/snapshot projection, reconciliation queue | Browser/API traffic, raw webhook acceptance, customer business work |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
 | `migrate` | One embedded, immutable migration target against one database | Serving traffic, background work, automatic target selection |

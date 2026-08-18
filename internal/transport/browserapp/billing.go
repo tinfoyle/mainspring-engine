@@ -45,6 +45,10 @@ func (s *Server) billingForm(w http.ResponseWriter, r *http.Request) (sessions.A
 	if !ok {
 		return sessions.Authenticated{}, "", false
 	}
+	if !s.sessions.RecentlyReauthenticated(authenticated.Session, 10*time.Minute) {
+		http.Redirect(w, r, "/app/security?status=reauth_required", http.StatusSeeOther)
+		return sessions.Authenticated{}, "", false
+	}
 	if s.commercial == nil {
 		http.Redirect(w, r, "/app?status=billing_unavailable#billing", http.StatusSeeOther)
 		return sessions.Authenticated{}, "", false

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -17,15 +18,17 @@ var (
 )
 
 type Session struct {
-	ID              ids.SessionID
-	UserID          ids.UserID
-	TokenHash       [32]byte
-	SecurityVersion uint64
-	AuthenticatedAt time.Time
-	LastSeenAt      time.Time
-	RotatedAt       time.Time
-	ExpiresAt       time.Time
-	RevokedAt       *time.Time
+	ID                ids.SessionID
+	UserID            ids.UserID
+	TokenHash         [32]byte
+	SecurityVersion   uint64
+	AuthenticatedAt   time.Time
+	ReauthenticatedAt time.Time
+	LastSeenAt        time.Time
+	RotatedAt         time.Time
+	ExpiresAt         time.Time
+	RevokedAt         *time.Time
+	ClientLabel       string
 }
 
 type Repository interface {
@@ -34,6 +37,9 @@ type Repository interface {
 	Rotate(context.Context, ids.SessionID, [32]byte, [32]byte, time.Time) (bool, error)
 	Revoke(context.Context, ids.SessionID, time.Time) error
 	RevokeAll(context.Context, ids.UserID, time.Time) error
+	RevokeOwned(context.Context, ids.UserID, ids.SessionID, time.Time) (bool, error)
+	Active(context.Context, ids.UserID, time.Time, time.Duration) ([]Session, error)
+	MarkReauthenticated(context.Context, ids.UserID, ids.SessionID, time.Time) (bool, error)
 }
 
 type Clock interface{ Now() time.Time }
@@ -63,6 +69,10 @@ type Issued struct {
 }
 
 func (s *Service) Issue(ctx context.Context, userID ids.UserID, securityVersion uint64) (Issued, error) {
+	return s.IssueForClient(ctx, userID, securityVersion, "Unknown browser")
+}
+
+func (s *Service) IssueForClient(ctx context.Context, userID ids.UserID, securityVersion uint64, clientLabel string) (Issued, error) {
 	if userID == "" || securityVersion == 0 {
 		return Issued{}, errors.New("user ID and security version are required")
 	}
@@ -71,11 +81,72 @@ func (s *Service) Issue(ctx context.Context, userID ids.UserID, securityVersion 
 		return Issued{}, err
 	}
 	now := s.clock.Now().UTC()
-	session := Session{ID: ids.SessionID(s.ids.New()), UserID: userID, TokenHash: hash, SecurityVersion: securityVersion, AuthenticatedAt: now, LastSeenAt: now, RotatedAt: now, ExpiresAt: now.Add(s.absoluteTTL)}
+	clientLabel = strings.TrimSpace(clientLabel)
+	if clientLabel == "" {
+		clientLabel = "Unknown browser"
+	}
+	if len(clientLabel) > 160 {
+		clientLabel = clientLabel[:160]
+	}
+	session := Session{ID: ids.SessionID(s.ids.New()), UserID: userID, TokenHash: hash, SecurityVersion: securityVersion, AuthenticatedAt: now, ReauthenticatedAt: now, LastSeenAt: now, RotatedAt: now, ExpiresAt: now.Add(s.absoluteTTL), ClientLabel: clientLabel}
 	if err := s.repository.Create(ctx, session); err != nil {
 		return Issued{}, err
 	}
 	return Issued{Session: session, Token: token}, nil
+}
+
+type ActiveSession struct {
+	ID                ids.SessionID `json:"id"`
+	ClientLabel       string        `json:"client_label"`
+	AuthenticatedAt   time.Time     `json:"authenticated_at"`
+	ReauthenticatedAt time.Time     `json:"reauthenticated_at"`
+	LastSeenAt        time.Time     `json:"last_seen_at"`
+	ExpiresAt         time.Time     `json:"expires_at"`
+	Current           bool          `json:"current"`
+}
+
+func (s *Service) Active(ctx context.Context, userID ids.UserID, currentID ids.SessionID) ([]ActiveSession, error) {
+	if userID == "" || currentID == "" {
+		return nil, errors.New("user ID and current session ID are required")
+	}
+	values, err := s.repository.Active(ctx, userID, s.clock.Now().UTC(), s.idleTTL)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ActiveSession, 0, len(values))
+	for _, value := range values {
+		result = append(result, ActiveSession{ID: value.ID, ClientLabel: value.ClientLabel, AuthenticatedAt: value.AuthenticatedAt, ReauthenticatedAt: value.ReauthenticatedAt, LastSeenAt: value.LastSeenAt, ExpiresAt: value.ExpiresAt, Current: value.ID == currentID})
+	}
+	return result, nil
+}
+
+func (s *Service) RevokeOwned(ctx context.Context, userID ids.UserID, sessionID ids.SessionID) (bool, error) {
+	if userID == "" || sessionID == "" {
+		return false, errors.New("user ID and session ID are required")
+	}
+	return s.repository.RevokeOwned(ctx, userID, sessionID, s.clock.Now().UTC())
+}
+
+func (s *Service) MarkReauthenticated(ctx context.Context, userID ids.UserID, sessionID ids.SessionID) error {
+	if userID == "" || sessionID == "" {
+		return errors.New("user ID and session ID are required")
+	}
+	updated, err := s.repository.MarkReauthenticated(ctx, userID, sessionID, s.clock.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return ErrInvalidSession
+	}
+	return nil
+}
+
+func RecentlyReauthenticated(value Session, now time.Time, maximumAge time.Duration) bool {
+	return maximumAge > 0 && !value.ReauthenticatedAt.IsZero() && !value.ReauthenticatedAt.After(now) && now.Sub(value.ReauthenticatedAt) <= maximumAge
+}
+
+func (s *Service) RecentlyReauthenticated(value Session, maximumAge time.Duration) bool {
+	return RecentlyReauthenticated(value, s.clock.Now().UTC(), maximumAge)
 }
 
 type Authenticated struct {

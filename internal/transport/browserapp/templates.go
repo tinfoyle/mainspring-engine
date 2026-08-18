@@ -32,6 +32,18 @@ const pageTemplates = `
 {{template "head" .}}<main class="auth"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">YOU'RE INVITED</p><h1>Bring another<br><em>Account into view.</em></h1><p>The Membership will be added to your existing Infinite Ocean identity.</p></div></section><section class="auth-panel"><form method="post" action="/invitations/accept"><p class="eyebrow">ACCOUNT MEMBERSHIP</p><h2>Accept invitation</h2>{{template "alert" .}}<input type="hidden" name="token" value="{{.Token}}"><button type="submit">Join this Account <span>→</span></button><p class="form-note"><a href="/app">Return to Spyglass</a></p></form></section></main></body></html>
 {{end}}
 
+{{define "security"}}
+{{template "head" .}}
+<main class="security-layout">
+  <header>{{template "brand" .}}<a href="/app">Return to Spyglass</a></header>
+  <section class="security-hero"><p class="eyebrow">INFINITE OCEAN IDENTITY</p><h1>Security follows<br><em>you, not an Account.</em></h1><p>Review every active Spyglass session, sign out a device, or confirm your password before a sensitive change.</p></section>
+  <div class="security-grid">
+    <section class="security-card"><p class="eyebrow">PASSWORD CONFIRMATION</p><h2>Unlock sensitive actions</h2>{{template "alert" .}}<p>Confirmation lasts 10 minutes on this session. Your password is verified but never stored in the session record.</p><form method="post" action="/app/security/reauthenticate"><label>Current password<input type="password" name="password" autocomplete="current-password" required></label><button type="submit">Confirm password</button></form></section>
+    <section class="security-card"><div class="security-card-head"><div><p class="eyebrow">ACTIVE SESSIONS</p><h2>Where you are signed in</h2></div><form method="post" action="/app/security/sessions/revoke-all"><button class="danger" type="submit">Sign out everywhere</button></form></div><div class="session-list">{{range .ActiveSessions}}<article><div><strong>{{.ClientLabel}}</strong>{{if .Current}}<em>Current session</em>{{end}}<small>Last used {{.LastSeenAt.Format "Jan 2, 2006 at 15:04 UTC"}} · Expires {{.ExpiresAt.Format "Jan 2, 2006"}}</small></div><form method="post" action="/app/security/sessions/revoke"><input type="hidden" name="session_id" value="{{.ID}}"><button type="submit">{{if .Current}}Sign out{{else}}Revoke{{end}}</button></form></article>{{else}}<p>No active sessions.</p>{{end}}</div></section>
+  </div>
+</main></body></html>
+{{end}}
+
 {{define "app"}}
 {{template "head" .}}
 <div class="app-shell">
@@ -41,7 +53,7 @@ const pageTemplates = `
       <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
       <button type="submit">Switch Account</button>
     </form>
-    <nav><p>OPERATE</p><a class="active" href="/app"><i>⌂</i>Overview</a><a href="#work"><i>✓</i>Work</a><a href="#agents"><i>◌</i>Agents</a><a href="#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="#finance"><i>≋</i>Finance</a><a href="#marketing"><i>↗</i>Marketing</a><a href="#billing"><i>$</i>Billing</a><a href="#settings"><i>⚙</i>Account</a></nav>
+    <nav><p>OPERATE</p><a class="active" href="/app"><i>⌂</i>Overview</a><a href="#work"><i>✓</i>Work</a><a href="#agents"><i>◌</i>Agents</a><a href="#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="#finance"><i>≋</i>Finance</a><a href="#marketing"><i>↗</i>Marketing</a><a href="#billing"><i>$</i>Billing</a><a href="#settings"><i>⚙</i>Account</a><a href="/app/security"><i>◇</i>Security</a></nav>
     <form method="post" action="/logout"><button class="logout">Sign out</button></form>
   </aside>
   <main class="workspace">

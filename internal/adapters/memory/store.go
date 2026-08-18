@@ -155,6 +155,20 @@ func (s *Store) LocalIdentity(_ context.Context, email string) (authentication.L
 	return authentication.LocalIdentity{User: s.users[userID], PasswordHash: credential.PasswordHash}, nil
 }
 
+func (s *Store) LocalIdentityForUser(_ context.Context, userID ids.UserID) (authentication.LocalIdentity, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	user, ok := s.users[userID]
+	if !ok {
+		return authentication.LocalIdentity{}, authentication.ErrIdentityNotFound
+	}
+	credential, ok := s.credentials[userID]
+	if !ok {
+		return authentication.LocalIdentity{}, authentication.ErrIdentityNotFound
+	}
+	return authentication.LocalIdentity{User: user, PasswordHash: credential.PasswordHash}, nil
+}
+
 func (s *Store) Blocked(_ context.Context, key [32]byte, now time.Time) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -22,6 +22,9 @@ type identitySource struct {
 func (s identitySource) LocalIdentity(context.Context, string) (authentication.LocalIdentity, error) {
 	return s.value, s.err
 }
+func (s identitySource) LocalIdentityForUser(context.Context, ids.UserID) (authentication.LocalIdentity, error) {
+	return s.value, s.err
+}
 
 type limiter struct {
 	attempts int
@@ -97,5 +100,40 @@ func TestUnknownIdentityStillUsesFailureLimiter(t *testing.T) {
 	_, err = service.Login(context.Background(), authentication.LoginCommand{Email: "missing@example.com", Password: "some password material"})
 	if !errors.Is(err, authentication.ErrInvalidCredentials) || attempts.attempts != 1 {
 		t.Fatalf("unexpected result: attempts=%d err=%v", attempts.attempts, err)
+	}
+}
+
+func TestReauthenticationVerifiesPasswordAndRefreshesCurrentSession(t *testing.T) {
+	passwords := authn.Passwords{}
+	hash, err := passwords.Hash("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dummy, err := passwords.Hash("dummy password material")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	clock := clock{now}
+	sessionService, err := sessions.NewService(memory.NewSessionStore(), &generator{}, clock, 24*time.Hour, time.Hour, 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := identity.User{ID: ids.UserID("user-a"), State: identity.UserActive, SecurityVersion: 1}
+	issued, err := sessionService.Issue(context.Background(), user.ID, user.SecurityVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := authentication.NewService(identitySource{value: authentication.LocalIdentity{User: user, PasswordHash: hash}}, &limiter{}, passwords, sessionService, clock, dummy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := authentication.ReauthenticateCommand{UserID: user.ID, SessionID: issued.Session.ID, Password: "wrong password"}
+	if err := service.Reauthenticate(context.Background(), command); !errors.Is(err, authentication.ErrInvalidCredentials) {
+		t.Fatalf("wrong-password result = %v", err)
+	}
+	command.Password = "correct horse battery staple"
+	if err := service.Reauthenticate(context.Background(), command); err != nil {
+		t.Fatal(err)
 	}
 }

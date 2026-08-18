@@ -104,6 +104,10 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /verify", s.verifyPage)
 	mux.HandleFunc("POST /verify", s.verify)
 	mux.HandleFunc("GET /app", s.app)
+	mux.HandleFunc("GET /app/security", s.securityPage)
+	mux.HandleFunc("POST /app/security/reauthenticate", s.reauthenticate)
+	mux.HandleFunc("POST /app/security/sessions/revoke", s.revokeSession)
+	mux.HandleFunc("POST /app/security/sessions/revoke-all", s.revokeAllSessions)
 	mux.HandleFunc("POST /app/account", s.selectAccount)
 	mux.HandleFunc("POST /app/invitations", s.createInvitation)
 	mux.HandleFunc("POST /app/billing/checkout", s.startCheckout)
@@ -139,6 +143,7 @@ type pageData struct {
 	BillingConfigured, CanManageBilling, CanStartCheckout, HasBillingCustomer               bool
 	BillingState, BillingPeriod, BillingSynced                                              string
 	BillingPlans                                                                            []billingPlan
+	ActiveSessions                                                                          []sessions.ActiveSession
 }
 
 type billingPlan struct {
@@ -172,7 +177,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusBadRequest, "login", pageData{Title: "Sign in", Error: "The sign-in form could not be read."})
 		return
 	}
-	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: r.FormValue("email"), Password: r.FormValue("password")})
+	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: r.FormValue("email"), Password: r.FormValue("password"), ClientLabel: r.UserAgent()})
 	if err != nil {
 		s.render(w, http.StatusUnauthorized, "login", pageData{Title: "Sign in", Error: "The email or password is incorrect.", Email: r.FormValue("email"), ReturnTo: safeReturnTo(r.FormValue("return_to"))})
 		return
@@ -304,6 +309,10 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !s.sessions.RecentlyReauthenticated(authenticated.Session, 10*time.Minute) {
+		http.Redirect(w, r, "/app/security?status=reauth_required", http.StatusSeeOther)
+		return
+	}
 	if !s.validOrigin(r, false) {
 		http.Error(w, "Request origin was not accepted.", http.StatusForbidden)
 		return
@@ -329,6 +338,90 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	active, err := s.sessions.Active(r.Context(), authenticated.Session.UserID, authenticated.Session.ID)
+	if err != nil {
+		http.Error(w, "Security settings could not be loaded.", http.StatusServiceUnavailable)
+		return
+	}
+	notice := ""
+	switch r.URL.Query().Get("status") {
+	case "confirmed":
+		notice = "Password confirmed. Sensitive actions are unlocked for 10 minutes."
+	case "revoked":
+		notice = "The selected session has been signed out."
+	case "reauth_required":
+		notice = "Confirm your password before continuing with a sensitive action."
+	}
+	s.render(w, http.StatusOK, "security", pageData{Title: "Identity security", Notice: notice, ActiveSessions: active})
+}
+
+func (s *Server) reauthenticate(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		s.render(w, http.StatusForbidden, "security", pageData{Title: "Identity security", Error: "This password confirmation request could not be verified."})
+		return
+	}
+	err := s.authentication.Reauthenticate(r.Context(), authentication.ReauthenticateCommand{UserID: authenticated.Session.UserID, SessionID: authenticated.Session.ID, Password: r.FormValue("password")})
+	if err != nil {
+		active, _ := s.sessions.Active(r.Context(), authenticated.Session.UserID, authenticated.Session.ID)
+		s.render(w, http.StatusUnauthorized, "security", pageData{Title: "Identity security", Error: "The password is incorrect.", ActiveSessions: active})
+		return
+	}
+	http.Redirect(w, r, "/app/security?status=confirmed", http.StatusSeeOther)
+}
+
+func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Request origin was not accepted.", http.StatusForbidden)
+		return
+	}
+	raw := r.FormValue("session_id")
+	if ids.Validate(raw) != nil {
+		http.Error(w, "Invalid session.", http.StatusBadRequest)
+		return
+	}
+	revoked, err := s.sessions.RevokeOwned(r.Context(), authenticated.Session.UserID, ids.SessionID(raw))
+	if err != nil || !revoked {
+		http.Error(w, "Session could not be revoked.", http.StatusNotFound)
+		return
+	}
+	if ids.SessionID(raw) == authenticated.Session.ID {
+		s.clearCookies(w)
+		http.Redirect(w, r, "/login?status=signed_out", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/app/security?status=revoked", http.StatusSeeOther)
+}
+
+func (s *Server) revokeAllSessions(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Request origin was not accepted.", http.StatusForbidden)
+		return
+	}
+	if err := s.sessions.RevokeAll(r.Context(), authenticated.Session.UserID); err != nil {
+		http.Error(w, "Sessions could not be revoked.", http.StatusServiceUnavailable)
+		return
+	}
+	s.clearCookies(w)
+	http.Redirect(w, r, "/login?status=signed_out", http.StatusSeeOther)
 }
 
 func (s *Server) acceptInvitationPage(w http.ResponseWriter, r *http.Request) {

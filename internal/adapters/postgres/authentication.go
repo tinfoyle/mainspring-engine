@@ -9,12 +9,30 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 type AuthenticationRepository struct{ pool *pgxpool.Pool }
 
 func NewAuthenticationRepository(pool *pgxpool.Pool) *AuthenticationRepository {
 	return &AuthenticationRepository{pool: pool}
+}
+
+func (r *AuthenticationRepository) LocalIdentityForUser(ctx context.Context, userID ids.UserID) (authentication.LocalIdentity, error) {
+	var result authentication.LocalIdentity
+	err := r.pool.QueryRow(ctx, `
+		SELECT u.id,u.primary_email,u.display_name,u.state,u.email_verified_at,
+		       u.security_version,u.created_at,i.secret_hash
+		FROM authentication_identities i
+		JOIN users u ON u.id=i.user_id
+		WHERE i.provider='local' AND u.id=$1`, userID).Scan(
+		&result.User.ID, &result.User.PrimaryEmail, &result.User.DisplayName,
+		&result.User.State, &result.User.EmailVerifiedAt, &result.User.SecurityVersion,
+		&result.User.CreatedAt, &result.PasswordHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authentication.LocalIdentity{}, authentication.ErrIdentityNotFound
+	}
+	return result, err
 }
 
 func (r *AuthenticationRepository) LocalIdentity(ctx context.Context, email string) (authentication.LocalIdentity, error) {

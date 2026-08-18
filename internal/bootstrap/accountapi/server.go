@@ -141,7 +141,7 @@ func New(ctx context.Context, config Config, sender NotificationSender, logger *
 	apiHandler := httpapi.NewServer(registrations, func() catalog.PublishedCatalog { return publishedCatalog }, nil, false, logger,
 		httpapi.WithBillingWebhook(webhook),
 		httpapi.WithCommercialAccess(commercialService, config.AppOrigin),
-		httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Secure: true}),
+		httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Secure: true, Origin: config.AppOrigin}),
 		httpapi.WithAccountAccess(accountAccess),
 		httpapi.WithInvitations(invitationService, nil, false),
 	).Handler()

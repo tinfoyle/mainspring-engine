@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -77,6 +78,45 @@ func (s *SessionStore) Revoke(_ context.Context, sessionID ids.SessionID, now ti
 	value.RevokedAt = &revoked
 	s.values[sessionID] = value
 	return nil
+}
+
+func (s *SessionStore) RevokeOwned(_ context.Context, userID ids.UserID, sessionID ids.SessionID, now time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, ok := s.values[sessionID]
+	if !ok || value.UserID != userID || value.RevokedAt != nil {
+		return false, nil
+	}
+	revoked := now.UTC()
+	value.RevokedAt = &revoked
+	s.values[sessionID] = value
+	return true, nil
+}
+
+func (s *SessionStore) Active(_ context.Context, userID ids.UserID, now time.Time, idleTTL time.Duration) ([]sessions.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := make([]sessions.Session, 0)
+	for _, value := range s.values {
+		if value.UserID == userID && value.RevokedAt == nil && value.ExpiresAt.After(now) && value.LastSeenAt.Add(idleTTL).After(now) {
+			result = append(result, value)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].LastSeenAt.After(result[j].LastSeenAt) })
+	return result, nil
+}
+
+func (s *SessionStore) MarkReauthenticated(_ context.Context, userID ids.UserID, sessionID ids.SessionID, now time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	value, ok := s.values[sessionID]
+	if !ok || value.UserID != userID || value.RevokedAt != nil || !value.ExpiresAt.After(now) {
+		return false, nil
+	}
+	value.ReauthenticatedAt = now.UTC()
+	value.LastSeenAt = now.UTC()
+	s.values[sessionID] = value
+	return true, nil
 }
 
 var _ sessions.Repository = (*SessionStore)(nil)
