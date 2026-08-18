@@ -76,6 +76,7 @@ const (
 )
 
 type OwnershipTransferNotice struct {
+	AccountID                                               ids.AccountID
 	Email, DisplayName, AccountName, CounterpartDisplayName string
 	RecipientRole                                           OwnershipNoticeRole
 	OccurredAt                                              time.Time
@@ -83,6 +84,7 @@ type OwnershipTransferNotice struct {
 
 type PreparedNotification struct {
 	ID         string
+	AccountID  ids.AccountID
 	Ciphertext []byte
 	Nonce      []byte
 	KeyVersion int

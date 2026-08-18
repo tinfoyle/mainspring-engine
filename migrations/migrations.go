@@ -61,7 +61,7 @@ func Apply(ctx context.Context, pool *pgxpool.Pool, target Target) (Result, erro
 	}()
 
 	if _, err := connection.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS spyglass_schema_migrations (
+		CREATE TABLE IF NOT EXISTS public.spyglass_schema_migrations (
 			target text NOT NULL,
 			version bigint NOT NULL,
 			name text NOT NULL,
@@ -77,7 +77,7 @@ func Apply(ctx context.Context, pool *pgxpool.Pool, target Target) (Result, erro
 	for _, migration := range migrations {
 		var storedName string
 		var storedChecksum []byte
-		err := connection.QueryRow(ctx, `SELECT name,checksum FROM spyglass_schema_migrations WHERE target=$1 AND version=$2`, target, migration.version).Scan(&storedName, &storedChecksum)
+		err := connection.QueryRow(ctx, `SELECT name,checksum FROM public.spyglass_schema_migrations WHERE target=$1 AND version=$2`, target, migration.version).Scan(&storedName, &storedChecksum)
 		switch {
 		case err == nil:
 			if storedName != migration.name || !bytes.Equal(storedChecksum, migration.checksum[:]) {
@@ -98,7 +98,7 @@ func Apply(ctx context.Context, pool *pgxpool.Pool, target Target) (Result, erro
 			return Result{}, fmt.Errorf("apply migration %s/%s: %w", target, migration.name, err)
 		}
 		elapsed := time.Since(started).Milliseconds()
-		if _, err := tx.Exec(ctx, `INSERT INTO spyglass_schema_migrations (target,version,name,checksum,applied_at,execution_milliseconds) VALUES ($1,$2,$3,$4,statement_timestamp(),$5)`, target, migration.version, migration.name, migration.checksum[:], elapsed); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO public.spyglass_schema_migrations (target,version,name,checksum,applied_at,execution_milliseconds) VALUES ($1,$2,$3,$4,statement_timestamp(),$5)`, target, migration.version, migration.name, migration.checksum[:], elapsed); err != nil {
 			_ = tx.Rollback(ctx)
 			return Result{}, fmt.Errorf("record migration %s: %w", migration.name, err)
 		}

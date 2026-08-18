@@ -179,5 +179,5 @@ func (p *ownershipNoticePreparer) PrepareOwnershipTransfer(id string, notice acc
 	if p.fail {
 		return accountmembers.PreparedNotification{}, errors.New("notification encryption unavailable")
 	}
-	return accountmembers.PreparedNotification{ID: id, Ciphertext: []byte("encrypted:" + string(notice.RecipientRole)), Nonce: []byte{1, 2, 3}, KeyVersion: 1, CreatedAt: notice.OccurredAt}, nil
+	return accountmembers.PreparedNotification{ID: id, AccountID: notice.AccountID, Ciphertext: []byte("encrypted:" + string(notice.RecipientRole)), Nonce: []byte{1, 2, 3}, KeyVersion: 1, CreatedAt: notice.OccurredAt}, nil
 }

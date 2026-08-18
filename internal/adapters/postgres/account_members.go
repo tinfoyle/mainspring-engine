@@ -242,11 +242,11 @@ func (r *AccountMemberRepository) TransferOwnership(ctx context.Context, mutatio
 		if err := tx.QueryRow(ctx, `SELECT display_name FROM accounts WHERE id=$1`, mutation.AccountID).Scan(&accountName); err != nil {
 			return accountmembers.TransferResult{}, err
 		}
-		previousNotice, err := r.ownershipNotifications.PrepareOwnershipTransfer(mutation.PreviousOwnerNoticeID, accountmembers.OwnershipTransferNotice{Email: actor.Email, DisplayName: actor.DisplayName, AccountName: accountName, CounterpartDisplayName: target.DisplayName, RecipientRole: accountmembers.OwnershipNoticePreviousOwner, OccurredAt: mutation.At})
+		previousNotice, err := r.ownershipNotifications.PrepareOwnershipTransfer(mutation.PreviousOwnerNoticeID, accountmembers.OwnershipTransferNotice{AccountID: mutation.AccountID, Email: actor.Email, DisplayName: actor.DisplayName, AccountName: accountName, CounterpartDisplayName: target.DisplayName, RecipientRole: accountmembers.OwnershipNoticePreviousOwner, OccurredAt: mutation.At})
 		if err != nil {
 			return accountmembers.TransferResult{}, err
 		}
-		newNotice, err := r.ownershipNotifications.PrepareOwnershipTransfer(mutation.NewOwnerNoticeID, accountmembers.OwnershipTransferNotice{Email: target.Email, DisplayName: target.DisplayName, AccountName: accountName, CounterpartDisplayName: actor.DisplayName, RecipientRole: accountmembers.OwnershipNoticeNewOwner, OccurredAt: mutation.At})
+		newNotice, err := r.ownershipNotifications.PrepareOwnershipTransfer(mutation.NewOwnerNoticeID, accountmembers.OwnershipTransferNotice{AccountID: mutation.AccountID, Email: target.Email, DisplayName: target.DisplayName, AccountName: accountName, CounterpartDisplayName: actor.DisplayName, RecipientRole: accountmembers.OwnershipNoticeNewOwner, OccurredAt: mutation.At})
 		if err != nil {
 			return accountmembers.TransferResult{}, err
 		}
@@ -277,13 +277,13 @@ func (r *AccountMemberRepository) TransferOwnership(ctx context.Context, mutatio
 }
 
 func insertOwnershipNotification(ctx context.Context, tx pgx.Tx, notice accountmembers.PreparedNotification) error {
-	if notice.ID == "" || len(notice.Ciphertext) == 0 || len(notice.Nonce) == 0 || notice.KeyVersion <= 0 || notice.CreatedAt.IsZero() {
+	if notice.ID == "" || notice.AccountID == "" || len(notice.Ciphertext) == 0 || len(notice.Nonce) == 0 || notice.KeyVersion <= 0 || notice.CreatedAt.IsZero() {
 		return errors.New("prepared ownership notification is invalid")
 	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO identity_notification_outbox
-		(id,kind,ciphertext,nonce,key_version,processing_state,attempt_count,created_at)
-		VALUES ($1,'ownership_transfer',$2,$3,$4,'queued',0,$5)`, notice.ID, notice.Ciphertext, notice.Nonce, notice.KeyVersion, notice.CreatedAt.UTC())
+		(id,account_id,kind,ciphertext,nonce,key_version,processing_state,attempt_count,created_at)
+		VALUES ($1,$2,'ownership_transfer',$3,$4,$5,'queued',0,$6)`, notice.ID, notice.AccountID, notice.Ciphertext, notice.Nonce, notice.KeyVersion, notice.CreatedAt.UTC())
 	return err
 }
 

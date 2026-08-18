@@ -29,7 +29,7 @@ func TestWebhookVerifiesAndDeduplicatesBeforeProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := []byte(fmt.Sprintf(`{"id":"evt_phase2","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_123"}}}`, now.Unix()))
+	payload := []byte(fmt.Sprintf(`{"id":"evt_phase2","type":"customer.subscription.updated","created":%d,"livemode":false,"data":{"object":{"id":"sub_123","metadata":{"spyglass_account_id":"11111111-1111-4111-8111-111111111111"}}}}`, now.Unix()))
 	header := sign(secret, now.Unix(), payload)
 
 	first, err := service.Ingest(context.Background(), payload, header)
@@ -47,7 +47,7 @@ func TestWebhookVerifiesAndDeduplicatesBeforeProjection(t *testing.T) {
 		t.Fatal("duplicate delivery was accepted twice")
 	}
 	entry, ok := inbox.Entry("evt_phase2")
-	if !ok || entry.ProviderObjectID != "sub_123" || entry.ProcessingState != "accepted" {
+	if !ok || entry.ProviderObjectID != "sub_123" || entry.AccountID != "11111111-1111-4111-8111-111111111111" || entry.ProcessingState != "accepted" {
 		t.Fatalf("unexpected inbox entry: %#v", entry)
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 var (
@@ -89,6 +91,7 @@ type EventEnvelope struct {
 
 type InboxEntry struct {
 	ProviderEventID     string
+	AccountID           ids.AccountID
 	EventType           string
 	ProviderCreatedAt   time.Time
 	ProviderObjectID    string
@@ -147,7 +150,7 @@ func (s *WebhookService) Ingest(ctx context.Context, payload []byte, signatureHe
 		return IngestResult{}, ErrWrongMode
 	}
 	objectID := extractObjectID(envelope.Data)
-	entry := InboxEntry{ProviderEventID: envelope.ID, EventType: envelope.Type, ProviderCreatedAt: time.Unix(envelope.Created, 0).UTC(), ProviderObjectID: objectID, Mode: eventMode, PayloadHash: sha256.Sum256(payload), SignatureVerifiedAt: verifiedAt, ProcessingState: "accepted", CreatedAt: s.clock.Now().UTC()}
+	entry := InboxEntry{ProviderEventID: envelope.ID, AccountID: extractAccountID(envelope.Data), EventType: envelope.Type, ProviderCreatedAt: time.Unix(envelope.Created, 0).UTC(), ProviderObjectID: objectID, Mode: eventMode, PayloadHash: sha256.Sum256(payload), SignatureVerifiedAt: verifiedAt, ProcessingState: "accepted", CreatedAt: s.clock.Now().UTC()}
 	accepted, err := s.inbox.Accept(ctx, entry, payload)
 	if err != nil {
 		return IngestResult{}, err
@@ -165,4 +168,29 @@ func extractObjectID(data json.RawMessage) string {
 		return ""
 	}
 	return wrapper.Object.ID
+}
+
+func extractAccountID(data json.RawMessage) ids.AccountID {
+	var wrapper struct {
+		Object struct {
+			ClientReferenceID string `json:"client_reference_id"`
+			Metadata          struct {
+				AccountID string `json:"spyglass_account_id"`
+			} `json:"metadata"`
+			SubscriptionDetails struct {
+				Metadata struct {
+					AccountID string `json:"spyglass_account_id"`
+				} `json:"metadata"`
+			} `json:"subscription_details"`
+		} `json:"object"`
+	}
+	if json.Unmarshal(data, &wrapper) != nil {
+		return ""
+	}
+	for _, candidate := range []string{wrapper.Object.Metadata.AccountID, wrapper.Object.ClientReferenceID, wrapper.Object.SubscriptionDetails.Metadata.AccountID} {
+		if ids.Validate(candidate) == nil {
+			return ids.AccountID(candidate)
+		}
+	}
+	return ""
 }

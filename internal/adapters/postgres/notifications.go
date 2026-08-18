@@ -20,8 +20,8 @@ func NewNotificationOutbox(pool *pgxpool.Pool) *NotificationOutbox {
 func (o *NotificationOutbox) Enqueue(ctx context.Context, entry notifications.Entry) error {
 	_, err := o.pool.Exec(ctx, `
 		INSERT INTO identity_notification_outbox
-		(id,kind,ciphertext,nonce,key_version,processing_state,attempt_count,created_at)
-		VALUES ($1,$2,$3,$4,$5,'queued',0,$6)`, entry.ID, entry.Kind, entry.Ciphertext, entry.Nonce, entry.KeyVersion, entry.CreatedAt.UTC())
+		(id,account_id,kind,ciphertext,nonce,key_version,processing_state,attempt_count,created_at)
+		VALUES ($1,NULLIF($2::text,'')::uuid,$3,$4,$5,$6,'queued',0,$7)`, entry.ID, entry.AccountID, entry.Kind, entry.Ciphertext, entry.Nonce, entry.KeyVersion, entry.CreatedAt.UTC())
 	return err
 }
 
@@ -39,8 +39,8 @@ func (o *NotificationOutbox) Claim(ctx context.Context, now time.Time, lease tim
 		SET processing_state='processing',attempt_count=n.attempt_count+1,
 		    lease_expires_at=$1+($2*interval '1 second'),last_error_code=NULL
 		FROM candidate c WHERE n.id=c.id
-		RETURNING n.id,n.kind,n.ciphertext,n.nonce,n.key_version,n.created_at,n.attempt_count`, now.UTC(), int64(lease/time.Second)).Scan(
-		&entry.ID, &entry.Kind, &entry.Ciphertext, &entry.Nonce, &entry.KeyVersion, &entry.CreatedAt, &entry.AttemptCount)
+		RETURNING n.id,COALESCE(n.account_id::text,''),n.kind,n.ciphertext,n.nonce,n.key_version,n.created_at,n.attempt_count`, now.UTC(), int64(lease/time.Second)).Scan(
+		&entry.ID, &entry.AccountID, &entry.Kind, &entry.Ciphertext, &entry.Nonce, &entry.KeyVersion, &entry.CreatedAt, &entry.AttemptCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return notifications.Entry{}, false, nil
 	}

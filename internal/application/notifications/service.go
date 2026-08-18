@@ -34,6 +34,7 @@ var ErrDeliveryFailed = errors.New("notification delivery failed")
 
 type Entry struct {
 	ID           string
+	AccountID    ids.AccountID
 	Kind         Kind
 	Ciphertext   []byte
 	Nonce        []byte
@@ -113,18 +114,18 @@ func NewQueuedSender(queue Queue, envelopeCipher *Cipher, generator ids.Generato
 }
 
 func (s *QueuedSender) SendVerification(ctx context.Context, message registration.VerificationMessage) error {
-	return s.enqueue(ctx, KindVerification, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, ExpiresAt: message.ExpiresAt})
+	return s.enqueue(ctx, "", KindVerification, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, ExpiresAt: message.ExpiresAt})
 }
 
 func (s *QueuedSender) SendInvitation(ctx context.Context, message invitations.Message) error {
-	return s.enqueue(ctx, KindInvitation, payload{Email: message.Email, Token: message.Token, AccountName: message.AccountName, Role: string(message.Role), ExpiresAt: message.ExpiresAt})
+	return s.enqueue(ctx, message.AccountID, KindInvitation, payload{Email: message.Email, Token: message.Token, AccountName: message.AccountName, Role: string(message.Role), ExpiresAt: message.ExpiresAt})
 }
 
 func (s *QueuedSender) SendRecovery(ctx context.Context, message recovery.Message) error {
 	if message.Suppress {
-		return s.enqueue(ctx, KindDiscard, payload{Token: message.Token, ExpiresAt: message.ExpiresAt})
+		return s.enqueue(ctx, "", KindDiscard, payload{Token: message.Token, ExpiresAt: message.ExpiresAt})
 	}
-	return s.enqueue(ctx, KindRecovery, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, ExpiresAt: message.ExpiresAt})
+	return s.enqueue(ctx, "", KindRecovery, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, ExpiresAt: message.ExpiresAt})
 }
 
 func (s *QueuedSender) PrepareOwnershipTransfer(id string, message accountmembers.OwnershipTransferNotice) (accountmembers.PreparedNotification, error) {
@@ -136,10 +137,10 @@ func (s *QueuedSender) PrepareOwnershipTransfer(id string, message accountmember
 	if err != nil {
 		return accountmembers.PreparedNotification{}, err
 	}
-	return accountmembers.PreparedNotification{ID: id, Ciphertext: ciphertext, Nonce: nonce, KeyVersion: keyVersion, CreatedAt: s.clock.Now().UTC()}, nil
+	return accountmembers.PreparedNotification{ID: id, AccountID: message.AccountID, Ciphertext: ciphertext, Nonce: nonce, KeyVersion: keyVersion, CreatedAt: s.clock.Now().UTC()}, nil
 }
 
-func (s *QueuedSender) enqueue(ctx context.Context, kind Kind, value payload) error {
+func (s *QueuedSender) enqueue(ctx context.Context, accountID ids.AccountID, kind Kind, value payload) error {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -149,7 +150,7 @@ func (s *QueuedSender) enqueue(ctx context.Context, kind Kind, value payload) er
 	if err != nil {
 		return err
 	}
-	return s.queue.Enqueue(ctx, Entry{ID: id, Kind: kind, Ciphertext: ciphertext, Nonce: nonce, KeyVersion: keyVersion, CreatedAt: s.clock.Now().UTC()})
+	return s.queue.Enqueue(ctx, Entry{ID: id, AccountID: accountID, Kind: kind, Ciphertext: ciphertext, Nonce: nonce, KeyVersion: keyVersion, CreatedAt: s.clock.Now().UTC()})
 }
 
 type Delivery interface {
@@ -197,7 +198,7 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 	if entry.Kind != KindOwnership && !value.ExpiresAt.After(now) {
 		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "expired", true)
 	}
-	err = p.deliver(ctx, entry.Kind, value)
+	err = p.deliver(ctx, entry.AccountID, entry.Kind, value)
 	if err == nil {
 		return true, p.queue.MarkDelivered(ctx, entry.ID, now)
 	}
@@ -211,17 +212,17 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 	return true, ErrDeliveryFailed
 }
 
-func (p *Processor) deliver(ctx context.Context, kind Kind, value payload) error {
+func (p *Processor) deliver(ctx context.Context, accountID ids.AccountID, kind Kind, value payload) error {
 	switch kind {
 	case KindVerification:
 		return p.delivery.SendVerification(ctx, registration.VerificationMessage{Email: value.Email, DisplayName: value.DisplayName, Token: value.Token, ExpiresAt: value.ExpiresAt})
 	case KindInvitation:
-		return p.delivery.SendInvitation(ctx, invitations.Message{Email: value.Email, Token: value.Token, AccountName: value.AccountName, Role: accounts.MembershipRole(value.Role), ExpiresAt: value.ExpiresAt})
+		return p.delivery.SendInvitation(ctx, invitations.Message{AccountID: accountID, Email: value.Email, Token: value.Token, AccountName: value.AccountName, Role: accounts.MembershipRole(value.Role), ExpiresAt: value.ExpiresAt})
 	case KindRecovery:
 		return p.delivery.SendRecovery(ctx, recovery.Message{Email: value.Email, DisplayName: value.DisplayName, Token: value.Token, ExpiresAt: value.ExpiresAt})
 	case KindOwnership:
 		role := accountmembers.OwnershipNoticeRole(value.RecipientRole)
-		return p.delivery.SendOwnershipTransfer(ctx, accountmembers.OwnershipTransferNotice{Email: value.Email, DisplayName: value.DisplayName, AccountName: value.AccountName, CounterpartDisplayName: value.CounterpartDisplayName, RecipientRole: role, OccurredAt: value.OccurredAt})
+		return p.delivery.SendOwnershipTransfer(ctx, accountmembers.OwnershipTransferNotice{AccountID: accountID, Email: value.Email, DisplayName: value.DisplayName, AccountName: value.AccountName, CounterpartDisplayName: value.CounterpartDisplayName, RecipientRole: role, OccurredAt: value.OccurredAt})
 	default:
 		return fmt.Errorf("unsupported notification kind %q", kind)
 	}

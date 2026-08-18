@@ -262,6 +262,25 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if provisioned.Account.Type != "free" || len(provisioned.Snapshot.Packages) != 1 || string(provisioned.Snapshot.Packages[0].Code) != "knowledge" {
 		t.Fatalf("unexpected free account projection: type=%s packages=%v", provisioned.Account.Type, provisioned.Snapshot.Packages)
 	}
+	attributedInvitation := invitations.Message{AccountID: provisioned.Account.ID, Email: "member@example.com", AccountName: provisioned.Account.DisplayName, Token: "account-attributed-invitation", Role: accounts.RoleMember, ExpiresAt: now.Add(time.Hour)}
+	if err := queuedSender.SendInvitation(ctx, attributedInvitation); err != nil {
+		t.Fatalf("enqueue Account-attributed notification: %v", err)
+	}
+	var notificationAccountID string
+	if err := pool.QueryRow(ctx, `SELECT account_id::text FROM identity_notification_outbox WHERE processing_state='queued' AND kind='invitation' ORDER BY created_at DESC LIMIT 1`).Scan(&notificationAccountID); err != nil || notificationAccountID != string(provisioned.Account.ID) {
+		t.Fatalf("notification Account attribution = %q, %v", notificationAccountID, err)
+	}
+	billingPayload := []byte(`{"id":"evt_erasure_attribution","data":{"object":{"metadata":{"spyglass_account_id":"` + string(provisioned.Account.ID) + `"}}}}`)
+	billingHash := sha256.Sum256(billingPayload)
+	billingEntry := billing.InboxEntry{ProviderEventID: "evt_erasure_attribution", AccountID: provisioned.Account.ID, EventType: "customer.subscription.updated", ProviderCreatedAt: now, Mode: "test", PayloadHash: billingHash, SignatureVerifiedAt: now, ProcessingState: "accepted", CreatedAt: now}
+	accepted, err := postgresadapter.NewBillingInbox(pool).Accept(ctx, billingEntry, billingPayload)
+	if err != nil || !accepted {
+		t.Fatalf("accept Account-attributed billing event: accepted=%v err=%v", accepted, err)
+	}
+	var billingAccountID string
+	if err := pool.QueryRow(ctx, `SELECT account_id::text FROM billing_event_inbox WHERE provider_event_id=$1`, billingEntry.ProviderEventID).Scan(&billingAccountID); err != nil || billingAccountID != string(provisioned.Account.ID) {
+		t.Fatalf("billing event Account attribution = %q, %v", billingAccountID, err)
+	}
 	directoryEntry, err := postgresadapter.NewAccountDirectoryRepository(pool).Lookup(ctx, provisioned.Account.ID)
 	if err != nil || directoryEntry.CellID != provisioned.Account.CellID || directoryEntry.PlacementGeneration != provisioned.Account.PlacementGeneration || directoryEntry.RouteOrigin != "http://app-api.spyglass-reference.svc.cluster.local" {
 		t.Fatalf("unexpected Account directory route: entry=%+v err=%v", directoryEntry, err)
@@ -734,7 +753,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	}
 
 	var ledgerCount, catalogCount, cellCount, routedCellCount int
-	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass_schema_migrations`).Scan(&ledgerCount); err != nil {
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM public.spyglass_schema_migrations`).Scan(&ledgerCount); err != nil {
 		t.Fatal(err)
 	}
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM catalog_publications WHERE state='published'`).Scan(&catalogCount); err != nil {
@@ -746,12 +765,11 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 28 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 29 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
-
 	testAccountIsolation(t, ctx, owner, databaseURL)
-	if _, err := owner.Exec(ctx, `UPDATE spyglass_schema_migrations SET checksum='\\x00'::bytea WHERE target='global' AND version=1`); err != nil {
+	if _, err := owner.Exec(ctx, `UPDATE public.spyglass_schema_migrations SET checksum='\\x00'::bytea WHERE target='global' AND version=1`); err != nil {
 		t.Fatalf("tamper migration ledger: %v", err)
 	}
 	if _, err := migrations.Apply(ctx, owner, migrations.Global); err == nil || !strings.Contains(err.Error(), "migrations are immutable") {

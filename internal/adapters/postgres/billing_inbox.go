@@ -18,12 +18,12 @@ func NewBillingInbox(pool *pgxpool.Pool) *BillingInbox { return &BillingInbox{po
 func (i *BillingInbox) Accept(ctx context.Context, entry billing.InboxEntry, payload []byte) (bool, error) {
 	command, err := i.pool.Exec(ctx, `
 		INSERT INTO billing_event_inbox (
-			provider_event_id, event_type, provider_created_at, provider_object_id,
+			provider_event_id, account_id, event_type, provider_created_at, provider_object_id,
 			mode, payload_hash, payload_reference, payload, signature_verified_at,
 			processing_state, attempt_count, created_at
-		) VALUES ($1,$2,$3,NULLIF($4,''),$5,$6,'postgres:inline',$7,$8,$9,$10,$11)
+		) VALUES ($1,NULLIF($2::text,'')::uuid,$3,$4,NULLIF($5,''),$6,$7,'postgres:inline',$8,$9,$10,$11,$12)
 		ON CONFLICT (provider_event_id) DO NOTHING`,
-		entry.ProviderEventID, entry.EventType, entry.ProviderCreatedAt, entry.ProviderObjectID,
+		entry.ProviderEventID, entry.AccountID, entry.EventType, entry.ProviderCreatedAt, entry.ProviderObjectID,
 		entry.Mode, entry.PayloadHash[:], payload, entry.SignatureVerifiedAt,
 		entry.ProcessingState, entry.AttemptCount, entry.CreatedAt)
 	if err != nil {
@@ -50,10 +50,10 @@ func (i *BillingInbox) Claim(ctx context.Context, now time.Time, lease time.Dura
 		SET processing_state='processing',attempt_count=e.attempt_count+1,
 		    lease_expires_at=$1+($2 * interval '1 second'),last_error_code=NULL
 		FROM candidate c WHERE e.provider_event_id=c.provider_event_id
-		RETURNING e.provider_event_id,e.event_type,e.provider_created_at,
+		RETURNING e.provider_event_id,COALESCE(e.account_id::text,''),e.event_type,e.provider_created_at,
 		          COALESCE(e.provider_object_id,''),e.mode,e.payload_hash,e.signature_verified_at,
 		          e.processing_state,e.attempt_count,e.created_at,e.payload`, now.UTC(), int64(lease/time.Second)).Scan(
-		&item.Entry.ProviderEventID, &item.Entry.EventType, &item.Entry.ProviderCreatedAt,
+		&item.Entry.ProviderEventID, &item.Entry.AccountID, &item.Entry.EventType, &item.Entry.ProviderCreatedAt,
 		&item.Entry.ProviderObjectID, &item.Entry.Mode, &hash, &item.Entry.SignatureVerifiedAt,
 		&item.Entry.ProcessingState, &item.Entry.AttemptCount, &item.Entry.CreatedAt, &item.Payload)
 	if errors.Is(err, pgx.ErrNoRows) {

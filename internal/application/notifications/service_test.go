@@ -133,12 +133,12 @@ func TestOwnershipTransferPreparationEncryptsAndDeliversOneRecipient(t *testing.
 	queue := &fakeQueue{}
 	now := time.Date(2026, 8, 18, 19, 0, 0, 0, time.UTC)
 	sender, _ := notifications.NewQueuedSender(queue, envelopeCipher, generator{"26000000-0000-4000-8000-000000000002"}, clock{now})
-	message := accountmembers.OwnershipTransferNotice{Email: "successor@example.com", DisplayName: "Successor", AccountName: "Northstar", CounterpartDisplayName: "Original Owner", RecipientRole: accountmembers.OwnershipNoticeNewOwner, OccurredAt: now}
+	message := accountmembers.OwnershipTransferNotice{AccountID: "11111111-1111-4111-8111-111111111111", Email: "successor@example.com", DisplayName: "Successor", AccountName: "Northstar", CounterpartDisplayName: "Original Owner", RecipientRole: accountmembers.OwnershipNoticeNewOwner, OccurredAt: now}
 	prepared, err := sender.PrepareOwnershipTransfer("27000000-0000-4000-8000-000000000002", message)
 	if err != nil || prepared.ID == "" || bytes.Contains(prepared.Ciphertext, []byte(message.Email)) || bytes.Contains(prepared.Ciphertext, []byte(message.AccountName)) {
 		t.Fatalf("prepared ownership envelope=%+v err=%v", prepared, err)
 	}
-	queue.entries = append(queue.entries, notifications.Entry{ID: prepared.ID, Kind: notifications.KindOwnership, Ciphertext: prepared.Ciphertext, Nonce: prepared.Nonce, KeyVersion: prepared.KeyVersion, CreatedAt: prepared.CreatedAt})
+	queue.entries = append(queue.entries, notifications.Entry{ID: prepared.ID, AccountID: prepared.AccountID, Kind: notifications.KindOwnership, Ciphertext: prepared.Ciphertext, Nonce: prepared.Nonce, KeyVersion: prepared.KeyVersion, CreatedAt: prepared.CreatedAt})
 	delivery := &delivery{}
 	processor, _ := notifications.NewProcessor(queue, envelopeCipher, delivery, clock{now}, time.Minute)
 	worked, err := processor.ProcessOne(context.Background())
@@ -157,11 +157,11 @@ func TestOwnershipRecipientsRetryIndependently(t *testing.T) {
 		if index == 1 {
 			role = accountmembers.OwnershipNoticeNewOwner
 		}
-		prepared, err := sender.PrepareOwnershipTransfer([]string{"28000000-0000-4000-8000-000000000001", "28000000-0000-4000-8000-000000000002"}[index], accountmembers.OwnershipTransferNotice{Email: email, DisplayName: "Recipient", AccountName: "Northstar", CounterpartDisplayName: "Counterpart", RecipientRole: role, OccurredAt: now})
+		prepared, err := sender.PrepareOwnershipTransfer([]string{"28000000-0000-4000-8000-000000000001", "28000000-0000-4000-8000-000000000002"}[index], accountmembers.OwnershipTransferNotice{AccountID: "11111111-1111-4111-8111-111111111111", Email: email, DisplayName: "Recipient", AccountName: "Northstar", CounterpartDisplayName: "Counterpart", RecipientRole: role, OccurredAt: now})
 		if err != nil {
 			t.Fatal(err)
 		}
-		queue.entries = append(queue.entries, notifications.Entry{ID: prepared.ID, Kind: notifications.KindOwnership, Ciphertext: prepared.Ciphertext, Nonce: prepared.Nonce, KeyVersion: prepared.KeyVersion, CreatedAt: prepared.CreatedAt})
+		queue.entries = append(queue.entries, notifications.Entry{ID: prepared.ID, AccountID: prepared.AccountID, Kind: notifications.KindOwnership, Ciphertext: prepared.Ciphertext, Nonce: prepared.Nonce, KeyVersion: prepared.KeyVersion, CreatedAt: prepared.CreatedAt})
 	}
 	delivery := &delivery{ownershipErr: map[string]error{"previous@example.com": errors.New("mailbox unavailable")}}
 	processor, _ := notifications.NewProcessor(queue, envelopeCipher, delivery, clock{now}, time.Minute)

@@ -132,12 +132,9 @@ It deletes or minimizes in dependency order:
 
 The transaction decrements `cells.assigned_accounts` with an underflow guard and converts the erasure request/operator history into its content-free tombstone representation. Raw operator reason and Account UUID exist only in the restricted active-workflow tables and are removed at completion.
 
-The current schema needs two hardening changes before this function can be enabled:
+The notification outbox now carries nullable Account attribution outside its encrypted envelope. Verification and recovery remain User-scoped; invitations and ownership-transfer notices are Account-attributed and can be selected for erasure without decrypting unrelated identity messages.
 
-- `identity_notification_outbox` must carry nullable Account attribution so Account messages can be found without decrypting unrelated identity messages.
-- Immutable Account/Membership/lifecycle and cell audit triggers need an erasure-only bypass implemented inside non-PUBLIC security-definer functions. Direct table mutation remains rejected.
-
-`billing_event_inbox` is provider-event scoped and may contain protected Stripe payloads without a relational Account key. The billing projection must record safe Account attribution or an external payload erasure marker before global erasure can claim provider-payload coverage.
+`billing_event_inbox` now records nullable Account attribution without a foreign key, because a provider retry can arrive after the Account row is gone. Stripe ingestion derives it only from a valid Spyglass Account UUID in object metadata, Checkout client reference, or subscription metadata. Unknown and non-Account events remain unattributed. Global finalization still needs the erasure-only audit-trigger bypass and a completed-event policy that deletes attributed provider payloads while safely classifying post-erasure retries against the tombstone.
 
 ## External systems
 
@@ -193,7 +190,7 @@ The schema-coverage test inventories Account foreign keys, composite Account key
 
 ## Delivery sequence
 
-1. Add Account attribution to notification/provider payload boundaries and the global/cell erasure request, event, and tombstone schemas.
+1. Add global/cell erasure request, event, and tombstone schemas. Notification and provider payload boundaries are now Account-attributed.
 2. Implement prepare/inspect/cancel/approve services with four-eyes and eligibility tests; no deletion authority yet.
 3. Add the cell security-definer erasure/attestation function and exhaustive two-Account isolation tests.
 4. Add idempotent cross-database execute orchestration and global finalization.
