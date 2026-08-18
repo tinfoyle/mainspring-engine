@@ -23,6 +23,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/securityposture"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -147,7 +148,13 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	recoveryCodeService, err := recoverycodes.NewService(postgres.NewRecoveryCodeRepository(pool), ids.RandomGenerator{}, recoverycodes.RandomGenerator{}, clock)
+	recoveryCodeRepository := postgres.NewRecoveryCodeRepository(pool)
+	recoveryCodeService, err := recoverycodes.NewService(recoveryCodeRepository, ids.RandomGenerator{}, recoverycodes.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	securityPosture, err := securityposture.NewService(postgres.NewSecurityPostureRepository(pool))
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -162,12 +169,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	authorizer, err := access.NewAuthorizer(postgres.NewAccessRepository(pool))
+	authorizer, err := access.NewAuthorizer(postgres.NewAccessRepository(pool), access.WithOwnerSecurityPolicy(securityPosture))
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	accountAccess, err := accountaccess.NewService(postgres.NewAccountAccessRepository(pool), authorizer)
+	accountAccess, err := accountaccess.NewService(postgres.NewAccountAccessRepository(pool), authorizer, securityPosture)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -223,6 +230,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithRecovery(recoveryService, nil, false),
 		httpapi.WithPasskeys(passkeyService),
 		httpapi.WithRecoveryCodes(recoveryCodeService),
+		httpapi.WithSecurityPosture(securityPosture),
 	).Handler()
 	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService))
 	if err != nil {

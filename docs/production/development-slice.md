@@ -17,6 +17,7 @@ This repository now contains the first executable production slice for Infinite 
 - Opaque rotating session tokens with absolute/idle expiry, user-owned active-session inventory, individual/device-wide revocation, a bounded user-visible security timeline, and password reauthentication for sensitive operations.
 - System-wide WebAuthn passkeys with discoverable user-verified login, recent-auth enrollment/removal, passkey reauthentication, encrypted durable credentials/ceremonies, single-use three-minute challenges, atomic authenticator-counter fencing, and identity security events shared across account-api replicas.
 - User-scoped passkey recovery with one-time 128-bit codes stored only as hashes, passkey-protected set replacement, password-plus-code consumption, session-bound ten-minute replacement grants, concurrent replay prevention, and no Account or operator authority.
+- Mandatory customer-owner factor enrollment enforced in the shared Account authorizer: at least one passkey and one unused recovery code are required before Account selection or any owner operation. A safe global posture endpoint and Account-choice flag drive the prototype-informed browser onboarding state without becoming authorization inputs.
 - Externally issued Ed25519 platform-operator authorization bound to phishing-resistant assurance, actor, exact action/environment/reason/scope, and a ten-minute lifetime across every administrator process, with explicit incident/two-approver/deployment-confirmed break glass.
 - Typed durable session assurance that independently records initial and most-recent password/passkey proof, exposes safe active-session classifications, and prevents password confirmation from satisfying a user-verified cryptographic step-up policy.
 - Shared application-layer strong-auth policy requiring recent User-bound passkey assurance for Membership, ownership, invitation, Checkout, and Customer Portal mutations before persistence or provider calls; successful first passkey enrollment establishes that assurance after password bootstrap/recovery.
@@ -88,6 +89,10 @@ POST /api/v1/passkey-registrations/{ceremonyID}/complete
 DELETE /api/v1/passkeys/{credentialID}
 POST /api/v1/passkey-reauthentications
 POST /api/v1/passkey-reauthentications/{ceremonyID}/complete
+GET  /api/v1/recovery-codes
+POST /api/v1/recovery-codes
+POST /api/v1/recovery-codes/consume
+GET  /api/v1/security-posture
 GET  /api/v1/sessions
 GET  /api/v1/security-events
 DELETE /api/v1/sessions
@@ -158,7 +163,7 @@ npm run dev
 
 ## Next production slices
 
-1. Complete mandatory customer-owner enrollment and customer-visible factor-loss review around the executable privileged-operation step-up and self-service recovery-code path; continue the audited post-retention Account export/physical-erasure workflow with external directive publication/archive, external-store attestations, and deployment grants now that signed platform-operator authorization, dual-approved break glass, leased cross-store execution, atomic database finalization, content-free checkpoint ledgers, runtime restore quarantine, and signed ordered database replay are executable; then add multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
+1. Complete customer-visible factor-loss/support review and real-device accessibility validation around the executable mandatory owner enrollment, privileged-operation step-up, and self-service recovery-code path; continue the audited post-retention Account export/physical-erasure workflow with external directive publication/archive, external-store attestations, and deployment grants now that signed platform-operator authorization, dual-approved break glass, leased cross-store execution, atomic database finalization, content-free checkpoint ledgers, runtime restore quarantine, and signed ordered database replay are executable; then add multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Add fair asynchronous admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests; bounded directory routing and internal workload identity are now executable.

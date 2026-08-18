@@ -22,6 +22,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
@@ -290,6 +291,7 @@ type pageData struct {
 	RecoveryCodeStatus                                                                      recoverycodes.Status
 	RecoveryCodes                                                                           []string
 	RecoveryCodesConfigured                                                                 bool
+	OwnerEnrollmentRequired                                                                 bool
 	WorkMode                                                                                catalog.PackageMode
 	WorkAvailable, WorkReadOnly                                                             bool
 	Script                                                                                  string
@@ -418,7 +420,7 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 	data.Notice = appNotice(r.URL.Query().Get("status"))
 	data.DevelopmentToken = r.URL.Query().Get("development_token")
 	data.BillingConfigured = s.commercial != nil
-	if data.Selected != nil {
+	if data.Selected != nil && !data.OwnerEnrollmentRequired {
 		if s.members != nil {
 			current, err := s.members.Current(r.Context(), authenticated.Session.UserID, data.Selected.AccountID)
 			if err != nil {
@@ -460,6 +462,9 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 			data.CanManageBilling, data.CanStartCheckout, data.HasBillingCustomer = status.CanManage, status.CanStartCheckout, status.HasCustomer
 		}
 		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, data.Selected.AccountType, status, time.Now().UTC())
+	}
+	if data.Selected != nil && data.OwnerEnrollmentRequired {
+		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, data.Selected.AccountType, commercialaccess.Status{}, time.Now().UTC())
 	}
 	s.render(w, http.StatusOK, "app", data)
 }
@@ -535,6 +540,10 @@ func (s *Server) cancelAccountClosure(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) redirectAccountLifecycleError(w http.ResponseWriter, r *http.Request, err error) {
+	if access.IsDenied(err, access.DenialOwnerEnrollment) {
+		http.Redirect(w, r, "/app/security?status=owner_enrollment_required", http.StatusSeeOther)
+		return
+	}
 	if errors.Is(err, strongauth.ErrRequired) {
 		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
 		return
@@ -579,15 +588,16 @@ func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, 
 	}
 	workMode := modes[catalog.PackageWork]
 	data := pageData{
-		Title:         "Spyglass",
-		Choices:       choices,
-		Selected:      selected,
-		Catalog:       s.catalog(),
-		PackageModes:  modes,
-		CanInvite:     selected != nil && (selected.Role == accounts.RoleOwner || selected.Role == accounts.RoleAdministrator),
-		WorkMode:      workMode,
-		WorkAvailable: workMode == catalog.ModeEnabled || workMode == catalog.ModeReadOnly,
-		WorkReadOnly:  workMode == catalog.ModeReadOnly,
+		Title:                   "Spyglass",
+		Choices:                 choices,
+		Selected:                selected,
+		Catalog:                 s.catalog(),
+		PackageModes:            modes,
+		CanInvite:               selected != nil && !selected.OwnerEnrollmentRequired && (selected.Role == accounts.RoleOwner || selected.Role == accounts.RoleAdministrator),
+		OwnerEnrollmentRequired: selected != nil && selected.OwnerEnrollmentRequired,
+		WorkMode:                workMode,
+		WorkAvailable:           workMode == catalog.ModeEnabled || workMode == catalog.ModeReadOnly,
+		WorkReadOnly:            workMode == catalog.ModeReadOnly,
 	}
 	return data, authenticated, true
 }
@@ -611,6 +621,10 @@ func (s *Server) selectAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.accounts.Select(r.Context(), authenticated.Session.UserID, ids.AccountID(accountID)); err != nil {
+		if access.IsDenied(err, access.DenialOwnerEnrollment) {
+			http.Redirect(w, r, "/app/security?status=owner_enrollment_required", http.StatusSeeOther)
+			return
+		}
 		http.Error(w, "Account access denied.", http.StatusForbidden)
 		return
 	}
@@ -638,6 +652,10 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 	created, err := s.invitations.Create(r.Context(), invitations.CreateCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: ids.AccountID(accountID), Email: r.FormValue("email"), Role: accounts.MembershipRole(r.FormValue("role"))})
 	if err != nil {
+		if access.IsDenied(err, access.DenialOwnerEnrollment) {
+			http.Redirect(w, r, "/app/security?status=owner_enrollment_required", http.StatusSeeOther)
+			return
+		}
 		if errors.Is(err, strongauth.ErrRequired) {
 			http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
 			return
@@ -778,6 +796,10 @@ func (s *Server) membershipForm(w http.ResponseWriter, r *http.Request) (session
 }
 
 func (s *Server) redirectMembershipError(w http.ResponseWriter, r *http.Request, err error) {
+	if access.IsDenied(err, access.DenialOwnerEnrollment) {
+		http.Redirect(w, r, "/app/security?status=owner_enrollment_required", http.StatusSeeOther)
+		return
+	}
 	if errors.Is(err, strongauth.ErrRequired) {
 		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
 		return
@@ -808,6 +830,8 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 		data.Notice = "Passkey added and confirmed. Privileged Account actions are unlocked for 10 minutes."
 	case "recovery_code_accepted":
 		data.Notice = "Recovery code accepted for this session. Add a replacement passkey within 10 minutes."
+	case "owner_enrollment_required":
+		data.Notice = "Account owners must add a passkey and save recovery codes before entering an Account or performing owner duties."
 	case "revoked":
 		data.Notice = "The selected session has been signed out."
 	case "reauth_required":

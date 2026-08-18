@@ -11,6 +11,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/securityposture"
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -51,7 +52,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	authorizer, err := access.NewAuthorizer(postgres.NewAccessRepository(pool))
+	securityPosture, err := securityposture.NewService(postgres.NewSecurityPostureRepository(pool))
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	authorizer, err := access.NewAuthorizer(postgres.NewAccessRepository(pool), access.WithOwnerSecurityPolicy(securityPosture))
 	if err != nil {
 		pool.Close()
 		return nil, err

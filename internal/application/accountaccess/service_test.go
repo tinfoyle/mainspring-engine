@@ -2,6 +2,7 @@ package accountaccess_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
@@ -15,6 +16,13 @@ type repository struct {
 	choices []accountaccess.Choice
 	state   access.State
 }
+
+type ownerSecurity struct {
+	ready bool
+	err   error
+}
+
+func (p ownerSecurity) Ready(context.Context, ids.UserID) (bool, error) { return p.ready, p.err }
 
 func (r repository) Choices(context.Context, ids.UserID) ([]accountaccess.Choice, error) {
 	return r.choices, nil
@@ -31,7 +39,7 @@ func TestListAndSelectKeepAccountIdentityExplicit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := accountaccess.NewService(r, authorizer)
+	service, err := accountaccess.NewService(r, authorizer, ownerSecurity{ready: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,5 +53,30 @@ func TestListAndSelectKeepAccountIdentityExplicit(t *testing.T) {
 	}
 	if selected.AccountID != accountID || selected.CellID != "cell-a" || selected.PlacementGeneration != 2 {
 		t.Fatalf("unexpected context: %#v", selected)
+	}
+}
+
+func TestListMarksUnenrolledOwnerWithoutHidingOtherMemberships(t *testing.T) {
+	userID := ids.UserID("user-a")
+	repository := repository{choices: []accountaccess.Choice{
+		{AccountID: "owner-account", Role: accounts.RoleOwner},
+		{AccountID: "member-account", Role: accounts.RoleMember},
+	}}
+	authorizer, _ := access.NewAuthorizer(repository)
+	service, _ := accountaccess.NewService(repository, authorizer, ownerSecurity{})
+	choices, err := service.List(context.Background(), userID)
+	if err != nil || len(choices) != 2 || !choices[0].OwnerEnrollmentRequired || choices[1].OwnerEnrollmentRequired {
+		t.Fatalf("choices=%+v err=%v", choices, err)
+	}
+}
+
+func TestListDoesNotDependOnOwnerPostureForNonOwnerMemberships(t *testing.T) {
+	userID := ids.UserID("user-a")
+	repository := repository{choices: []accountaccess.Choice{{AccountID: "member-account", Role: accounts.RoleMember}}}
+	authorizer, _ := access.NewAuthorizer(repository)
+	service, _ := accountaccess.NewService(repository, authorizer, ownerSecurity{err: errors.New("posture unavailable")})
+	choices, err := service.List(context.Background(), userID)
+	if err != nil || len(choices) != 1 || choices[0].OwnerEnrollmentRequired {
+		t.Fatalf("choices=%+v err=%v", choices, err)
 	}
 }

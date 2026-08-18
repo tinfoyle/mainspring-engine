@@ -82,7 +82,7 @@ Review trust boundaries for browser-to-public-site, browser-to-identity/account 
 Production authentication requires an ADR. Minimum requirements:
 
 - Modern password hashing if passwords remain supported.
-- User-verified passkey step-up for invitation and billing mutations; complete mandatory customer-owner enrollment and customer-visible factor-loss policy before release. Platform-administrator commands require signed phishing-resistant authorization and dual-approved, deployment-confirmed break glass.
+- User-verified passkey step-up for invitation and billing mutations; mandatory customer-owner enrollment requires a passkey plus unused recovery code before any owner authority. Complete customer-visible factor-loss/support policy before release. Platform-administrator commands require signed phishing-resistant authorization and dual-approved, deployment-confirmed break glass.
 - Short-lived authenticated sessions with rotating opaque tokens.
 - Secure, HttpOnly, SameSite cookies and CSRF protection for cookie mutations.
 - Session inventory and remote revocation.

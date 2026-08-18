@@ -93,6 +93,10 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if len(cookies) != 1 || cookies[0].Name != "spyglass_development_session" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
 		t.Fatalf("unexpected session cookie: %#v", cookies)
 	}
+	initialPosture := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/security-posture", "", cookies[0])
+	if initialPosture.StatusCode != http.StatusOK || !bytes.Contains(initialPosture.Body, []byte(`"passkey_count":0`)) || !bytes.Contains(initialPosture.Body, []byte(`"recovery_codes_configured":false`)) || !bytes.Contains(initialPosture.Body, []byte(`"owner_ready":false`)) {
+		t.Fatalf("initial security posture: %d %s", initialPosture.StatusCode, initialPosture.Body)
+	}
 	secondLogin := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"avery@example.com","password":"correct horse battery staple"}`)
 	if secondLogin.StatusCode != http.StatusCreated {
 		t.Fatalf("second login status %d: %s", secondLogin.StatusCode, secondLogin.Body)
@@ -201,7 +205,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	accountsBody, _ := io.ReadAll(accountsResponse.Body)
 	accountsResponse.Body.Close()
-	if accountsResponse.StatusCode != http.StatusOK || !bytes.Contains(accountsBody, []byte(provisioned.Account.ID)) {
+	if accountsResponse.StatusCode != http.StatusOK || !bytes.Contains(accountsBody, []byte(provisioned.Account.ID)) || !bytes.Contains(accountsBody, []byte(`"owner_enrollment_required":true`)) {
 		t.Fatalf("accounts response: %d %s", accountsResponse.StatusCode, accountsBody)
 	}
 	selectRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/session/account", strings.NewReader(`{"account_id":"`+provisioned.Account.ID+`"}`))
@@ -213,16 +217,12 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	selectBody, _ := io.ReadAll(selectResponse.Body)
 	selectResponse.Body.Close()
-	if selectResponse.StatusCode != http.StatusOK || !bytes.Contains(selectBody, []byte(`"placement_generation":1`)) {
-		t.Fatalf("select response: %d %s", selectResponse.StatusCode, selectBody)
-	}
-	selectedCookies := selectResponse.Cookies()
-	if len(selectedCookies) != 1 || selectedCookies[0].Name != "spyglass_development_account" || !selectedCookies[0].HttpOnly {
-		t.Fatalf("unexpected account cookie: %#v", selectedCookies)
+	if selectResponse.StatusCode != http.StatusForbidden || !bytes.Contains(selectBody, []byte(`"code":"owner_security_enrollment_required"`)) {
+		t.Fatalf("unenrolled owner select response: %d %s", selectResponse.StatusCode, selectBody)
 	}
 	invite := postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/invitations", `{"email":"member@example.com","role":"member"}`, cookies[0])
-	if invite.StatusCode != http.StatusForbidden || !bytes.Contains(invite.Body, []byte(`"code":"strong_reauthentication_required"`)) {
-		t.Fatalf("password-only invitation step-up: %d %s", invite.StatusCode, invite.Body)
+	if invite.StatusCode != http.StatusForbidden || !bytes.Contains(invite.Body, []byte(`"code":"owner_security_enrollment_required"`)) {
+		t.Fatalf("unenrolled owner invitation: %d %s", invite.StatusCode, invite.Body)
 	}
 	strongRegistration := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, cookies[0])
 	if strongRegistration.StatusCode != http.StatusCreated {
@@ -249,6 +249,30 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	if err := json.Unmarshal(strongCompletion.Body, &enrolledPasskey); err != nil || enrolledPasskey.ID == "" {
 		t.Fatalf("decode enrolled passkey: %+v err=%v", enrolledPasskey, err)
+	}
+	ownerEnrollmentCodes := postJSONCookie(t, server.URL+"/api/v1/recovery-codes", `{}`, cookies[0])
+	if ownerEnrollmentCodes.StatusCode != http.StatusCreated || !bytes.Contains(ownerEnrollmentCodes.Body, []byte(`"remaining":10`)) {
+		t.Fatalf("owner recovery-code enrollment: %d %s", ownerEnrollmentCodes.StatusCode, ownerEnrollmentCodes.Body)
+	}
+	readyPosture := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/security-posture", "", cookies[0])
+	if readyPosture.StatusCode != http.StatusOK || !bytes.Contains(readyPosture.Body, []byte(`"passkey_count":1`)) || !bytes.Contains(readyPosture.Body, []byte(`"recovery_codes_remaining":10`)) || !bytes.Contains(readyPosture.Body, []byte(`"owner_ready":true`)) {
+		t.Fatalf("ready security posture: %d %s", readyPosture.StatusCode, readyPosture.Body)
+	}
+	selectRequest, _ = http.NewRequest(http.MethodPost, server.URL+"/api/v1/session/account", strings.NewReader(`{"account_id":"`+provisioned.Account.ID+`"}`))
+	selectRequest.Header.Set("Content-Type", "application/json")
+	selectRequest.AddCookie(cookies[0])
+	selectResponse, err = http.DefaultClient.Do(selectRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectBody, _ = io.ReadAll(selectResponse.Body)
+	selectResponse.Body.Close()
+	if selectResponse.StatusCode != http.StatusOK || !bytes.Contains(selectBody, []byte(`"placement_generation":1`)) {
+		t.Fatalf("ready owner select response: %d %s", selectResponse.StatusCode, selectBody)
+	}
+	selectedCookies := selectResponse.Cookies()
+	if len(selectedCookies) != 1 || selectedCookies[0].Name != "spyglass_development_account" || !selectedCookies[0].HttpOnly {
+		t.Fatalf("unexpected account cookie: %#v", selectedCookies)
 	}
 	invite = postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/invitations", `{"email":"member@example.com","role":"member"}`, cookies[0])
 	if invite.StatusCode != http.StatusCreated {
@@ -335,6 +359,27 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if sandboxAccountID == "" {
 		t.Fatalf("member sandbox Account missing: %s", memberAccountsBody)
 	}
+	memberPasskeyRegistration := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, memberCookies[0])
+	var memberPasskeyCeremony struct {
+		CeremonyID string `json:"ceremony_id"`
+		PublicKey  struct {
+			PublicKey struct {
+				Challenge string `json:"challenge"`
+			} `json:"publicKey"`
+		} `json:"public_key"`
+	}
+	if err := json.Unmarshal(memberPasskeyRegistration.Body, &memberPasskeyCeremony); err != nil || memberPasskeyRegistration.StatusCode != http.StatusCreated {
+		t.Fatalf("new-owner passkey ceremony: %d %+v err=%v", memberPasskeyRegistration.StatusCode, memberPasskeyCeremony, err)
+	}
+	memberCredential := registrationCredential(t, memberPasskeyCeremony.PublicKey.PublicKey.Challenge)
+	memberPasskeyCompletion := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations/"+memberPasskeyCeremony.CeremonyID+"/complete", `{"name":"New owner passkey","credential":`+memberCredential+`}`, memberCookies[0])
+	if memberPasskeyCompletion.StatusCode != http.StatusCreated {
+		t.Fatalf("new-owner passkey enrollment: %d %s", memberPasskeyCompletion.StatusCode, memberPasskeyCompletion.Body)
+	}
+	memberRecoveryCodes := postJSONCookie(t, server.URL+"/api/v1/recovery-codes", `{}`, memberCookies[0])
+	if memberRecoveryCodes.StatusCode != http.StatusCreated || !bytes.Contains(memberRecoveryCodes.Body, []byte(`"remaining":10`)) {
+		t.Fatalf("new-owner recovery-code enrollment: %d %s", memberRecoveryCodes.StatusCode, memberRecoveryCodes.Body)
+	}
 	sandboxRoster := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/accounts/"+sandboxAccountID+"/memberships", "", memberCookies[0])
 	var sandboxMembers struct {
 		Memberships []struct {
@@ -377,23 +422,6 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	reactivated := requestJSONCookie(t, http.MethodDelete, suspensionURL, `{"expected_version":3,"reason":"Access review completed"}`, cookies[0])
 	if reactivated.StatusCode != http.StatusOK || !bytes.Contains(reactivated.Body, []byte(`"state":"active"`)) || !bytes.Contains(reactivated.Body, []byte(`"version":4`)) {
 		t.Fatalf("reactivate Membership: %d %s", reactivated.StatusCode, reactivated.Body)
-	}
-	memberPasskeyRegistration := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, memberCookies[0])
-	var memberPasskeyCeremony struct {
-		CeremonyID string `json:"ceremony_id"`
-		PublicKey  struct {
-			PublicKey struct {
-				Challenge string `json:"challenge"`
-			} `json:"publicKey"`
-		} `json:"public_key"`
-	}
-	if err := json.Unmarshal(memberPasskeyRegistration.Body, &memberPasskeyCeremony); err != nil || memberPasskeyRegistration.StatusCode != http.StatusCreated {
-		t.Fatalf("new-owner passkey ceremony: %d %+v err=%v", memberPasskeyRegistration.StatusCode, memberPasskeyCeremony, err)
-	}
-	memberCredential := registrationCredential(t, memberPasskeyCeremony.PublicKey.PublicKey.Challenge)
-	memberPasskeyCompletion := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations/"+memberPasskeyCeremony.CeremonyID+"/complete", `{"name":"New owner passkey","credential":`+memberCredential+`}`, memberCookies[0])
-	if memberPasskeyCompletion.StatusCode != http.StatusCreated {
-		t.Fatalf("new-owner passkey enrollment: %d %s", memberPasskeyCompletion.StatusCode, memberPasskeyCompletion.Body)
 	}
 	transfer := postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/ownership-transfers", fmt.Sprintf(`{"target_membership_id":%q,"expected_actor_version":%d,"expected_target_version":4,"reason":"Planned leadership transition"}`, memberMembershipID, ownerVersion), cookies[0])
 	if transfer.StatusCode != http.StatusOK || !bytes.Contains(transfer.Body, []byte(`"role":"owner"`)) || !bytes.Contains(transfer.Body, []byte(`"role":"administrator"`)) {

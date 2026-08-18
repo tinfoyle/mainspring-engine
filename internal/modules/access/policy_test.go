@@ -16,6 +16,13 @@ func (s fixedSource) AccessState(context.Context, ids.UserID, ids.AccountID) (St
 	return s.state, nil
 }
 
+type fixedOwnerSecurity struct {
+	ready bool
+	err   error
+}
+
+func (p fixedOwnerSecurity) Ready(context.Context, ids.UserID) (bool, error) { return p.ready, p.err }
+
 func TestAuthorizeSeparatesMembershipRoleAndPackage(t *testing.T) {
 	accountID := ids.AccountID("account-a")
 	userID := ids.UserID("user-a")
@@ -67,5 +74,27 @@ func TestMembershipAuthorizerDoesNotAcceptWorkloadIdentity(t *testing.T) {
 	_, err := authorizer.Authorize(context.Background(), Actor{WorkloadID: "schedule-worker"}, ids.AccountID("account-a"), Requirement{})
 	if !IsDenied(err, DenialUnauthenticated) {
 		t.Fatalf("membership authorizer accepted workload identity: %v", err)
+	}
+}
+
+func TestOwnerCannotCrossAccountBoundaryUntilIdentityRecoveryIsReady(t *testing.T) {
+	accountID, userID := ids.AccountID("account-a"), ids.UserID("user-a")
+	state := State{
+		Account:      accounts.Account{ID: accountID, State: accounts.AccountActive, EntitlementVersion: 1},
+		Membership:   accounts.Membership{AccountID: accountID, UserID: userID, Role: accounts.RoleOwner, State: accounts.MembershipActive},
+		Entitlements: entitlements.Snapshot{AccountID: accountID, Version: 1},
+	}
+	authorizer, _ := NewAuthorizer(fixedSource{state: state}, WithOwnerSecurityPolicy(fixedOwnerSecurity{}))
+	if _, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{}); !IsDenied(err, DenialOwnerEnrollment) {
+		t.Fatalf("unenrolled owner error=%v", err)
+	}
+	authorizer, _ = NewAuthorizer(fixedSource{state: state}, WithOwnerSecurityPolicy(fixedOwnerSecurity{ready: true}))
+	if _, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{}); err != nil {
+		t.Fatalf("ready owner error=%v", err)
+	}
+	state.Membership.Role = accounts.RoleMember
+	authorizer, _ = NewAuthorizer(fixedSource{state: state}, WithOwnerSecurityPolicy(fixedOwnerSecurity{}))
+	if _, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{}); err != nil {
+		t.Fatalf("non-owner was incorrectly gated=%v", err)
 	}
 }

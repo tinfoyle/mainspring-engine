@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
+	"github.com/tinfoyle/spyglass-engine/internal/application/securityposture"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
@@ -55,6 +56,14 @@ func TestPostgresRecoveryCodesAreSingleUseSessionBoundAndReplaceLostPasskey(t *t
 	if _, err := pool.Exec(ctx, `INSERT INTO users(id,primary_email,display_name,state,email_verified_at,security_version,created_at) VALUES ($1,'factor-recovery@example.com','Factor Recovery Owner','active',$2,1,$2)`, userID, now); err != nil {
 		t.Fatal(err)
 	}
+	postureService, err := securityposture.NewService(postgresadapter.NewSecurityPostureRepository(pool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialPosture, err := postureService.Status(ctx, userID)
+	if err != nil || initialPosture.PasskeyCount != 0 || initialPosture.RecoveryCodesConfigured || initialPosture.OwnerReady {
+		t.Fatalf("initial security posture=%+v err=%v", initialPosture, err)
+	}
 	sessionIDs := &erasureIDs{values: []string{
 		"fa200000-0000-4000-8000-000000000001", "fa200000-0000-4000-8000-000000000002",
 		"fa200000-0000-4000-8000-000000000003", "fa200000-0000-4000-8000-000000000004",
@@ -73,6 +82,10 @@ func TestPostgresRecoveryCodesAreSingleUseSessionBoundAndReplaceLostPasskey(t *t
 	first, err := recoveryService.Rotate(ctx, passkeySession.Session)
 	if err != nil || first.Status.Version != 1 || first.Status.Remaining != recoverycodes.CodeCount {
 		t.Fatalf("first rotation=%+v err=%v", first, err)
+	}
+	codeOnlyPosture, err := postureService.Status(ctx, userID)
+	if err != nil || codeOnlyPosture.PasskeyCount != 0 || !codeOnlyPosture.RecoveryCodesConfigured || codeOnlyPosture.RecoveryCodesRemaining != recoverycodes.CodeCount || codeOnlyPosture.OwnerReady {
+		t.Fatalf("code-only security posture=%+v err=%v", codeOnlyPosture, err)
 	}
 	var storedHash string
 	if err := pool.QueryRow(ctx, `SELECT encode(code_hash,'hex') FROM user_recovery_codes ORDER BY position LIMIT 1`).Scan(&storedHash); err != nil {
@@ -180,6 +193,10 @@ func TestPostgresRecoveryCodesAreSingleUseSessionBoundAndReplaceLostPasskey(t *t
 	var remainingPasskeys int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM passkey_credentials WHERE user_id=$1`, userID).Scan(&remainingPasskeys); err != nil || remainingPasskeys != 1 {
 		t.Fatalf("remaining passkeys=%d err=%v", remainingPasskeys, err)
+	}
+	readyPosture, err := postureService.Status(ctx, userID)
+	if err != nil || readyPosture.PasskeyCount != 1 || !readyPosture.RecoveryCodesConfigured || readyPosture.RecoveryCodesRemaining != 8 || !readyPosture.OwnerReady {
+		t.Fatalf("ready security posture=%+v err=%v", readyPosture, err)
 	}
 	var eventCount int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_security_events WHERE user_id=$1 AND event_type IN ('recovery_codes_rotated','recovery_code_consumed')`, userID).Scan(&eventCount); err != nil || eventCount != 5 {

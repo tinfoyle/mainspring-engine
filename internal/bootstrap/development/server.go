@@ -18,6 +18,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/securityposture"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -67,19 +68,25 @@ func Handler(logger *slog.Logger) http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	recoveryCodeService, err := recoverycodes.NewService(memory.NewRecoveryCodeRepository(sessionStore), ids.RandomGenerator{}, recoverycodes.RandomGenerator{}, clock)
+	recoveryCodeRepository := memory.NewRecoveryCodeRepository(sessionStore)
+	recoveryCodeService, err := recoverycodes.NewService(recoveryCodeRepository, ids.RandomGenerator{}, recoverycodes.RandomGenerator{}, clock)
 	if err != nil {
 		panic(err)
 	}
-	passkeyService, err := passkeys.NewService(memory.NewPasskeyRepository(store, sessionStore), sessionService, networkGuard, ids.RandomGenerator{}, clock, passkeys.Config{RelyingPartyID: "localhost", Origins: []string{"http://localhost:8080"}, RecoveryPolicy: recoveryCodeService})
+	passkeyRepository := memory.NewPasskeyRepository(store, sessionStore)
+	passkeyService, err := passkeys.NewService(passkeyRepository, sessionService, networkGuard, ids.RandomGenerator{}, clock, passkeys.Config{RelyingPartyID: "localhost", Origins: []string{"http://localhost:8080"}, RecoveryPolicy: recoveryCodeService})
 	if err != nil {
 		panic(err)
 	}
-	authorizer, err := access.NewAuthorizer(store)
+	securityPosture, err := securityposture.NewService(memory.NewSecurityPostureRepository(passkeyRepository, recoveryCodeRepository))
 	if err != nil {
 		panic(err)
 	}
-	accountAccess, err := accountaccess.NewService(store, authorizer)
+	authorizer, err := access.NewAuthorizer(store, access.WithOwnerSecurityPolicy(securityPosture))
+	if err != nil {
+		panic(err)
+	}
+	accountAccess, err := accountaccess.NewService(store, authorizer, securityPosture)
 	if err != nil {
 		panic(err)
 	}
@@ -96,7 +103,7 @@ func Handler(logger *slog.Logger) http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	options := []httpapi.Option{httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Name: "spyglass_development_session"}), httpapi.WithAccountAccess(accountAccess), httpapi.WithAccountLifecycle(accountLifecycle), httpapi.WithAccountMembers(memberService), httpapi.WithInvitations(invitationService, invitationSink, true), httpapi.WithRecovery(recoveryService, recoverySink, true), httpapi.WithPasskeys(passkeyService), httpapi.WithRecoveryCodes(recoveryCodeService)}
+	options := []httpapi.Option{httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Name: "spyglass_development_session"}), httpapi.WithAccountAccess(accountAccess), httpapi.WithAccountLifecycle(accountLifecycle), httpapi.WithAccountMembers(memberService), httpapi.WithInvitations(invitationService, invitationSink, true), httpapi.WithRecovery(recoveryService, recoverySink, true), httpapi.WithPasskeys(passkeyService), httpapi.WithRecoveryCodes(recoveryCodeService), httpapi.WithSecurityPosture(securityPosture)}
 	if secret := os.Getenv("SPYGLASS_STRIPE_WEBHOOK_SECRET"); secret != "" {
 		verifier, err := billing.NewSignatureVerifier(secret, 5*time.Minute, clock)
 		if err != nil {

@@ -17,6 +17,7 @@ const (
 	DenialMembership         DenialCode = "membership_required"
 	DenialAccountUnavailable DenialCode = "account_unavailable"
 	DenialRole               DenialCode = "role_denied"
+	DenialOwnerEnrollment    DenialCode = "owner_security_enrollment_required"
 	DenialPackageNotEntitled DenialCode = "package_not_entitled"
 	DenialPackageReadOnly    DenialCode = "package_read_only"
 	DenialLimitNotDefined    DenialCode = "limit_not_defined"
@@ -72,19 +73,36 @@ type StateSource interface {
 	AccessState(context.Context, ids.UserID, ids.AccountID) (State, error)
 }
 
+type OwnerSecurityPolicy interface {
+	Ready(context.Context, ids.UserID) (bool, error)
+}
+
 type Requirement struct {
 	Roles    []accounts.MembershipRole
 	Package  catalog.PackageCode
 	Mutation bool
 }
 
-type Authorizer struct{ source StateSource }
+type Authorizer struct {
+	source        StateSource
+	ownerSecurity OwnerSecurityPolicy
+}
 
-func NewAuthorizer(source StateSource) (*Authorizer, error) {
+type Option func(*Authorizer)
+
+func WithOwnerSecurityPolicy(policy OwnerSecurityPolicy) Option {
+	return func(authorizer *Authorizer) { authorizer.ownerSecurity = policy }
+}
+
+func NewAuthorizer(source StateSource, options ...Option) (*Authorizer, error) {
 	if source == nil {
 		return nil, errors.New("access state source is required")
 	}
-	return &Authorizer{source: source}, nil
+	authorizer := &Authorizer{source: source}
+	for _, option := range options {
+		option(authorizer)
+	}
+	return authorizer, nil
 }
 
 func (a *Authorizer) Authorize(ctx context.Context, actor Actor, accountID ids.AccountID, requirement Requirement) (AccountContext, error) {
@@ -103,6 +121,15 @@ func (a *Authorizer) Authorize(ctx context.Context, actor Actor, accountID ids.A
 	}
 	if state.Membership.State != accounts.MembershipActive {
 		return AccountContext{}, &DeniedError{Code: DenialMembership}
+	}
+	if state.Membership.Role == accounts.RoleOwner && a.ownerSecurity != nil {
+		ready, err := a.ownerSecurity.Ready(ctx, actor.UserID)
+		if err != nil {
+			return AccountContext{}, err
+		}
+		if !ready {
+			return AccountContext{}, &DeniedError{Code: DenialOwnerEnrollment}
+		}
 	}
 	if len(requirement.Roles) > 0 && !containsRole(requirement.Roles, state.Membership.Role) {
 		return AccountContext{}, &DeniedError{Code: DenialRole}

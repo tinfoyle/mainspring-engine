@@ -30,6 +30,8 @@ Required invariants:
 - At most ten passkeys may be registered for one User.
 - Durable sessions record both the initial authentication method and the latest reauthentication method. Password maps to `single_factor`; a user-verified passkey maps to `user_verified_cryptographic`. Neither value contains or grants Account authority.
 - Membership role/lifecycle/removal changes, self-service Account leave, ownership transfer, invitation creation, Stripe Checkout creation, and Stripe Customer Portal creation require an active authorized role plus user-verified cryptographic proof no older than ten minutes. Password proof cannot satisfy that privileged-operation policy.
+- Every active Owner Membership is additionally gated by a system-wide owner-readiness policy: the User must have at least one passkey and an active recovery-code set with at least one unused code. The gate is enforced by the shared Account authorizer for reads and mutations, not only by the browser. Identity and recovery endpoints remain available so an unready owner can enroll or recover.
+- Owner readiness is derived from durable factor state on every authorization decision. It is not copied into the Membership, session, or Account cookie. Consuming the last recovery code immediately makes the owner unready until a new set is generated; losing or deleting the last passkey has the same effect.
 
 ## 2. Code ownership
 
@@ -37,9 +39,12 @@ Required invariants:
 |---|---|---|
 | Use cases and ports | `internal/application/passkeys` | WebAuthn policy, ceremony lifetime, replay order, counter fencing, session issuance, safe summaries |
 | Recovery use cases and ports | `internal/application/recoverycodes` | Passkey-protected set rotation, password-plus-code consumption, session-bound replacement grants |
+| Security-posture use case and port | `internal/application/securityposture` | Derive safe User-level factor counts and the owner-readiness decision |
+| Account authorization policy | `internal/modules/access` | Apply active Membership, Account, role, package, and mandatory Owner factor gates together |
 | Privileged assurance policy | `internal/application/strongauth` | One typed, transport-independent rule for actor binding, assurance class, and ten-minute freshness |
 | Durable adapter | `internal/adapters/postgres/passkeys.go` | Encrypted records, scoped atomic ceremony consumption, credential counter CAS, security events |
 | Recovery adapter | `internal/adapters/postgres/recovery_codes.go` | Hashed code sets, atomic single-use consumption, grant expiry, rotation invalidation, security events |
+| Security-posture adapter | `internal/adapters/postgres/security_posture.go` | Aggregate passkey and unused-code state without exposing credential material |
 | Development adapter | `internal/adapters/memory/passkeys.go` | Same application port for local journeys and transport tests |
 | HTTP adapter | `internal/transport/httpapi` | Bounded JSON, exact-origin checks, session cookies, public problem responses |
 | Browser adapter | `internal/transport/browserapp` | Prototype-informed login/security presentation and WebAuthn browser serialization |
@@ -84,6 +89,14 @@ The application owns the repository interface. Neither transport imports Postgre
 3. Successful cryptographic validation and counter update mark the existing session recently reauthenticated.
 4. The timestamp unlocks privileged Account mutations for ten minutes; it grants no new Account role.
 
+### Customer-owner enrollment and recovery
+
+1. Free registration still creates the Account and Owner Membership atomically without contacting Stripe. The new User can authenticate and reach global identity/security functions, but cannot enter or operate the owned Account yet.
+2. The owner enrolls a user-verified passkey, then generates and saves a recovery-code set. Only both factors together make `owner_ready` true.
+3. Account listing returns `owner_enrollment_required` for each owned Account while the User is unready. Account selection and every Account operation independently fail with `owner_security_enrollment_required`; hiding controls in the browser is only presentation.
+4. Promotion through ownership transfer does not copy the previous owner's factors or block the atomic transfer. An unready successor becomes the sole owner but is immediately gated until completing their own global factor enrollment. The prior owner is demoted as one transaction and cannot retain owner authority.
+5. A lost final passkey can be replaced only through the password-plus-single-use-code flow above. The replacement passkey alone does not reopen owner access if that consumption exhausted the recovery set; the User must rotate a fresh set first.
+
 ### Session assurance
 
 The session keeps `authentication_method` separate from `reauthentication_method`. Initial sign-in sets both. A later step-up updates only the reauthentication method and timestamp. For example, a passkey-created session later confirmed with a password remains a passkey-created session, but it no longer satisfies a policy requiring recent user-verified cryptographic proof. Unknown method values are rejected by the application and database constraints.
@@ -106,6 +119,7 @@ POST   /api/v1/passkey-reauthentications/{ceremonyID}/complete
 GET    /api/v1/recovery-codes
 POST   /api/v1/recovery-codes
 POST   /api/v1/recovery-codes/consume
+GET    /api/v1/security-posture
 ```
 
 Cookie-authenticated mutations require the configured exact application Origin. Passkey payloads have a dedicated 256 KiB ceiling to accommodate attestation objects while remaining bounded. Errors never reveal whether an anonymous credential ID, user handle, or User exists.
@@ -144,6 +158,7 @@ Automated evidence covers:
 - PostgreSQL encrypted credential/ceremony round trips, stale counter rejection, replay rejection, and cross-User list isolation;
 - active-plus-retained keyring reads, active-only writes, bounded PostgreSQL credential/ceremony re-encryption, old-key retirement, and immutable aggregate operator evidence;
 - passkey-only recovery-set rotation, plaintext non-persistence, single-use and concurrent code consumption, replacement-set invalidation, session-bound grants, replay rejection, lost-passkey replacement policy, and concurrent final-factor deletion fencing;
+- mandatory owner gating before Account selection and operations, safe enrollment flags in Account choices, global factor-enrollment escape paths, and PostgreSQL-derived empty/code-only/ready posture states;
 - platform-administrator Ed25519 authorization bound to phishing-resistant assurance, exact action/environment/reason/scope, ten-minute lifetime, and explicit incident/two-approver break-glass evidence before database composition;
 - HTTP response contracts containing no Account identity and browser presentation on login and identity security pages.
 
@@ -151,7 +166,7 @@ Automated evidence covers:
 
 Passkeys are now a production authentication and strong-reauthentication option, but the broader Phase 2 identity program is not complete:
 
-1. Complete mandatory customer-owner enrollment and customer-visible factor-loss review. Platform-administrator signed authorization and dual-approved break glass are executable; the external workforce identity plane remains the enrollment and approval authority. Self-service recovery codes deliberately cannot authorize Account or operator actions.
+1. Complete customer-visible factor-loss review, support escalation policy, and copy/accessibility review around the executable mandatory owner enrollment. Platform-administrator signed authorization and dual-approved break glass are executable; the external workforce identity plane remains the enrollment and approval authority. Self-service recovery codes deliberately cannot authorize Account or operator actions.
 2. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
 3. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
 4. Add verified contact-method change, passkey rename, compromised-credential response, and customer-visible notification delivery.

@@ -19,6 +19,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/securityposture"
 	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
@@ -52,6 +53,7 @@ type Server struct {
 	exposeRecoveryToken   bool
 	passkeys              *passkeys.Service
 	recoveryCodes         *recoverycodes.Service
+	securityPosture       *securityposture.Service
 }
 
 type SessionCookie struct {
@@ -141,6 +143,10 @@ func WithRecoveryCodes(service *recoverycodes.Service) Option {
 	return func(server *Server) { server.recoveryCodes = service }
 }
 
+func WithSecurityPosture(service *securityposture.Service) Option {
+	return func(server *Server) { server.securityPosture = service }
+}
+
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
 	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
 	for _, option := range options {
@@ -168,6 +174,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/passkey-reauthentications", s.beginPasskeyReauthentication)
 	mux.HandleFunc("POST /api/v1/passkey-reauthentications/{ceremonyID}/complete", s.completePasskeyReauthentication)
 	mux.HandleFunc("GET /api/v1/recovery-codes", s.recoveryCodeStatus)
+	mux.HandleFunc("GET /api/v1/security-posture", s.securityPostureStatus)
 	mux.HandleFunc("POST /api/v1/recovery-codes", s.rotateRecoveryCodes)
 	mux.HandleFunc("POST /api/v1/recovery-codes/consume", s.consumeRecoveryCode)
 	mux.HandleFunc("GET /api/v1/sessions", s.listSessions)
@@ -195,6 +202,23 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
+}
+
+func (s *Server) securityPostureStatus(w http.ResponseWriter, r *http.Request) {
+	if s.securityPosture == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "security_posture_unconfigured", "security posture is not configured")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	state, err := s.securityPosture.Status(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "security_posture_unavailable", "security posture could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, state)
 }
 
 func (s *Server) listAccountClosures(w http.ResponseWriter, r *http.Request) {
@@ -279,6 +303,8 @@ func (s *Server) accountLifecycleRequest(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) writeAccountLifecycleError(w http.ResponseWriter, err error) {
 	switch {
+	case access.IsDenied(err, access.DenialOwnerEnrollment):
+		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before using owner authority")
 	case errors.Is(err, strongauth.ErrRequired):
 		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
 	case errors.Is(err, accountlifecycle.ErrNotFound):
@@ -417,6 +443,8 @@ func (s *Server) commercialRequest(w http.ResponseWriter, r *http.Request) (sess
 
 func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
 	switch {
+	case access.IsDenied(err, access.DenialOwnerEnrollment):
+		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before using owner authority")
 	case errors.Is(err, strongauth.ErrRequired):
 		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
 	case errors.Is(err, commercialaccess.ErrInvalidRequestID):
@@ -654,6 +682,8 @@ func (s *Server) membershipRequest(w http.ResponseWriter, r *http.Request, mutat
 
 func (s *Server) writeMembershipError(w http.ResponseWriter, err error) {
 	switch {
+	case access.IsDenied(err, access.DenialOwnerEnrollment):
+		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before using owner authority")
 	case errors.Is(err, strongauth.ErrRequired):
 		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
 	case errors.Is(err, accountmembers.ErrMembershipNotFound):
@@ -699,6 +729,8 @@ func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) writeInvitationError(w http.ResponseWriter, err error) {
 	switch {
+	case access.IsDenied(err, access.DenialOwnerEnrollment):
+		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before using owner authority")
 	case errors.Is(err, strongauth.ErrRequired):
 		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
 	case errors.Is(err, invitations.ErrMembershipExists):
@@ -753,6 +785,10 @@ func (s *Server) selectAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	resolved, err := s.accounts.Select(r.Context(), authenticated.Session.UserID, ids.AccountID(input.AccountID))
 	if err != nil {
+		if access.IsDenied(err, access.DenialOwnerEnrollment) {
+			writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before entering this owner Account")
+			return
+		}
 		writeProblem(w, http.StatusForbidden, "account_access_denied", "the selected Account is unavailable")
 		return
 	}
