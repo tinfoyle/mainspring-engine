@@ -19,7 +19,7 @@ This verdict separates executable software from environment evidence. The reposi
 | Agents and runners | Boardrooms/personas/runs, immutable plans, dispatch/projection workers, encrypted runner exchange, workload identity, one-use capabilities, action ledger | Partial product package |
 | Kubernetes | Shared workload classes, dedicated runner namespace, least-privilege RBAC, default-deny policies, PDB/topology/HPA contracts, exact content-free worker metric endpoints | Review-only base; adapter and overlay still required |
 | Data lifecycle | Logical closure, governed erasure preparation/execution, restore quarantine and signed database replay | External-store and real restore evidence missing |
-| Quality | Full Go, race, vet, vulnerability, website build/lint/render, npm production audit, PostgreSQL migration, and manifest verification in CI | Strong repository evidence |
+| Quality | Full Go, race, vet, vulnerability, website build/lint/render, npm production audit, PostgreSQL migration, manifest verification, static scratch-image build, runtime identity, SBOM/provenance, and signed-release workflow contracts in CI | Strong repository evidence; release run required |
 
 ## Findings closed during this audit
 
@@ -37,7 +37,7 @@ This verdict separates executable software from environment evidence. The reposi
 4. **Observability and incident response.** The runtime now publishes bounded-cardinality HTTP counters/durations and content-free worker/HPA metrics. Add OpenTelemetry trace export with safe Account/cell correlation, queue-age and projection-lag dashboards, paging thresholds, ownership, and executable runbooks. Complete a staging burn-in and one game day.
 5. **Restore and privacy proof.** Restore global and cell backups into quarantine, verify checkpoint fencing and signed replay, exercise Account export/erasure across every configured external store, and archive retention/attestation evidence.
 6. **Customer-journey certification.** Test deployed-origin signup, real email verification/recovery, passkeys on supported devices, multi-Account switching, paid/downgrade flows, keyboard/screen-reader use, responsive layouts, and failure recovery. Resolve legal, privacy, consent, subprocessors, support, and status ownership.
-7. **Release supply chain.** Produce signed images, SBOMs, provenance, dependency/secret scans, admission verification, staged rollback artifacts, and a reproducible release manifest.
+7. **Release supply chain.** The static scratch image and commit-pinned multi-architecture SBOM/provenance/Cosign release workflow are executable. Produce the first reviewed digest, archive verification and scan evidence, enforce its workflow identity at admission, and rehearse a staged rollback between two retained artifacts.
 
 ### P1 — required for the advertised product scope
 

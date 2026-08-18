@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+
+ARG GO_IMAGE=golang:1.26.6-alpine3.23@sha256:e57c41c1d5864341031181b0db34b9a537bb5773eb6428e4e5bdaea0f9135406
+FROM ${GO_IMAGE} AS build
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+COPY migrations ./migrations
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG VERSION=development
+ARG REVISION=unknown
+ARG CREATED=unknown
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -buildvcs=false \
+    -ldflags="-s -w -buildid= -X github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo.Version=${VERSION} -X github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo.Revision=${REVISION} -X github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo.BuiltAt=${CREATED}" \
+    -o /out/spyglass ./cmd/spyglass
+
+FROM scratch
+
+ARG VERSION=development
+ARG REVISION=unknown
+ARG CREATED=unknown
+LABEL org.opencontainers.image.title="Infinite Ocean: Spyglass" \
+      org.opencontainers.image.description="Shared multi-mode Spyglass application and worker runtime" \
+      org.opencontainers.image.source="https://github.com/tinfoyle/mainspring-engine" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.licenses="Proprietary"
+
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build --chown=65532:65532 /out/spyglass /spyglass
+
+USER 65532:65532
+EXPOSE 8080 8081 8443
+ENTRYPOINT ["/spyglass"]

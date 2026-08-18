@@ -62,3 +62,23 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm audit --omit=dev
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build static scratch image
+        env:
+          DOCKER_BUILDKIT: "1"
+        run: |
+          docker build \
+            --build-arg VERSION=0.0.0-ci \
+            --build-arg REVISION=${GITHUB_SHA} \
+            --build-arg CREATED=1970-01-01T00:00:00Z \
+            --tag spyglass-ci:${GITHUB_SHA} .
+      - name: Verify runtime identity and user
+        run: |
+          test "$(docker inspect --format '{{.Config.User}}' spyglass-ci:${GITHUB_SHA})" = "65532:65532"
+          docker run --rm spyglass-ci:${GITHUB_SHA} version > /tmp/spyglass-version.json
+          test "$(jq -r .version /tmp/spyglass-version.json)" = "0.0.0-ci"
+          test "$(jq -r .revision /tmp/spyglass-version.json)" = "${GITHUB_SHA}"
