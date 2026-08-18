@@ -15,6 +15,7 @@ type Choice struct {
 	Slug                string                  `json:"slug"`
 	DisplayName         string                  `json:"display_name"`
 	AccountType         accounts.AccountType    `json:"account_type"`
+	AccountVersion      uint64                  `json:"account_version"`
 	Role                accounts.MembershipRole `json:"role"`
 	CellID              ids.CellID              `json:"cell_id"`
 	PlacementGeneration uint64                  `json:"placement_generation"`

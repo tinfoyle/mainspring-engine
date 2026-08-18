@@ -23,7 +23,7 @@ const pageTemplates = `
       <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
       <button type="submit">Switch Account</button>
     </form>
-    <nav><p>OPERATE</p><a {{if eq .Page "app"}}class="active"{{end}} href="/app"><i>⌂</i>Overview</a><a {{if eq .Page "work"}}class="active"{{end}} href="/app/work"><i>✓</i>Work</a><a href="/app#agents"><i>◌</i>Agents</a><a href="/app#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i>≋</i>Finance</a><a href="/app#marketing"><i>↗</i>Marketing</a><a href="/app#billing"><i>$</i>Billing</a><a href="/app#settings"><i>⚙</i>Account</a><a href="/app/security"><i>◇</i>Security</a></nav>
+    <nav><p>OPERATE</p><a {{if eq .Page "app"}}class="active"{{end}} href="/app"><i>⌂</i>Overview</a><a {{if eq .Page "work"}}class="active"{{end}} href="/app/work"><i>✓</i>Work</a><a href="/app#agents"><i>◌</i>Agents</a><a href="/app#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i>≋</i>Finance</a><a href="/app#marketing"><i>↗</i>Marketing</a><a href="/app#billing"><i>$</i>Billing</a><a href="/app#settings"><i>⚙</i>Account</a><a {{if eq .Page "closures"}}class="active"{{end}} href="/app/account-closures"><i>○</i>Lifecycle</a><a href="/app/security"><i>◇</i>Security</a></nav>
     <form method="post" action="/logout"><button class="logout">Sign out</button></form>
   </aside>
 {{end}}
@@ -111,6 +111,7 @@ const pageTemplates = `
         {{if .CanInvite}}<div class="invite-member"><div><p class="eyebrow">INVITE</p><h3>Bring a teammate into view</h3><p>The invitation joins an existing Infinite Ocean identity to this Account.</p></div><form method="post" action="/app/invitations"><input type="hidden" name="account_id" value="{{.Selected.AccountID}}"><label>Email<input type="email" name="email" required placeholder="teammate@company.com"></label><label>Role<select name="role"><option value="member">Member</option><option value="viewer">Viewer</option><option value="administrator">Administrator</option><option value="billing_admin">Billing admin</option></select></label><button type="submit">Send invitation</button></form></div>{{end}}
         <p class="team-footnote">Role, lifecycle, removal, and ownership changes require a passkey confirmation from the acting identity. Ownership is transferred atomically and every mutation records an immutable reason.</p>
       </section>{{end}}
+      {{if .CanCloseAccount}}<section class="account-close panel"><header><div><p class="eyebrow">ACCOUNT LIFECYCLE</p><h2>Close this Account</h2></div><span>7-day cooling-off period</span></header><div class="account-close-body"><div><p>Requesting closure immediately freezes this Account for every member. The Account remains recoverable from the global Lifecycle page during cooling-off.</p><p>Active Stripe subscriptions and checkout sessions must be resolved first. Logical closure retains governed records until the separate retention deadline; it does not synchronously erase data.</p></div><form method="post" action="/app/account-closures/request"><input type="hidden" name="account_id" value="{{.Selected.AccountID}}"><input type="hidden" name="account_version" value="{{.Selected.AccountVersion}}"><label>Audit reason<input name="reason" minlength="3" maxlength="300" value="Account is no longer required" required></label><label>Type CLOSE<input name="confirmation" pattern="CLOSE" autocomplete="off" required></label><button type="submit">Request Account closure</button></form></div></section>{{end}}
       {{if .CanLeaveAccount}}<section class="account-leave panel"><header><div><p class="eyebrow">YOUR ACCOUNT ACCESS</p><h2>Leave this Account</h2></div><span>Other Accounts are unaffected</span></header><form method="post" action="/app/memberships/leave"><input type="hidden" name="account_id" value="{{.Selected.AccountID}}"><input type="hidden" name="version" value="{{.ActorMembershipVersion}}"><input type="hidden" name="reason" value="Member chose to leave the Account"><label>Type LEAVE<input name="confirmation" pattern="LEAVE" autocomplete="off" required></label><button type="submit">Leave Account</button></form><p>Leaving is permanent for this Membership. An owner or administrator must invite you again to restore access.</p></section>{{end}}
       {{else}}<section class="empty"><h1>No Spyglass Accounts yet.</h1><p>Create an Account or accept an invitation to begin.</p><a href="/signup">Create Account</a></section>{{end}}
     </div>
@@ -160,6 +161,27 @@ const pageTemplates = `
       </section>
       {{if not .WorkReadOnly}}<dialog class="work-dialog" id="work-create-dialog"><form id="work-create-form"><header><div><p class="eyebrow">NEW WORK</p><h2>Create a clear next step</h2></div><button id="work-create-close" type="button" aria-label="Close">×</button></header><label>Title<input name="title" maxlength="240" required placeholder="What needs to happen?"></label><label>Description<textarea name="description" maxlength="20000" rows="5" placeholder="Add the outcome, context, and definition of done."></textarea></label><div class="work-form-grid"><label>Type<select name="kind"><option value="ticket">Ticket</option><option value="todo">To-do</option></select></label><label>Priority<select name="priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></label><label>Responsibility<select name="responsibility"><option value="shared">Shared</option><option value="user">Assign to me</option></select></label></div><p class="work-form-error" id="work-create-error" role="alert" hidden></p><footer><button class="secondary" id="work-create-cancel" type="button">Cancel</button><button class="primary" type="submit">Create work</button></footer></form></dialog>{{end}}
       {{end}}
+    </div>
+  </main>
+</div></body></html>
+{{end}}
+
+{{define "closures"}}
+{{template "head" .}}
+<div class="app-shell">
+  {{template "private-sidebar" .}}
+  <main class="workspace">
+    {{template "private-topbar" .}}
+    <div class="content lifecycle-content">
+      {{template "alert" .}}
+      <section class="lifecycle-heading"><div><p class="eyebrow">ACCOUNT LIFECYCLE</p><h1>Keep closure<br><em>deliberate and recoverable.</em></h1><p>This identity-wide surface remains available even when an Account is frozen. It is the recovery path for Accounts you own.</p></div><a href="/app">Return to active Accounts</a></section>
+      <section class="lifecycle-list panel"><header><div><p class="eyebrow">OWNED ACCOUNTS</p><h2>Closure history</h2></div><span>{{len .Closures}} records</span></header>
+        <div>{{range .Closures}}<article class="lifecycle-record">
+          <div><small>{{.AccountState}} ACCOUNT</small><h3>{{.AccountName}}</h3><p>{{.Reason}}</p><dl><div><dt>Requested</dt><dd>{{.RequestedAt.Format "02 Jan 2006 15:04 UTC"}}</dd></div><div><dt>Closure eligible</dt><dd>{{.ExecuteAfter.Format "02 Jan 2006 15:04 UTC"}}</dd></div>{{if .DeleteAfter}}<div><dt>Retention deadline</dt><dd>{{.DeleteAfter.Format "02 Jan 2006 15:04 UTC"}}</dd></div>{{end}}</dl></div>
+          <aside><strong class="lifecycle-state {{.State}}">{{.State}}</strong>{{if .BlockerCode}}<p>Blocked: {{.BlockerCode}}</p>{{end}}{{if or (eq .State "cooling_off") (eq .State "blocked") (eq .State "processing")}}<form method="post" action="/app/account-closures/cancel"><input type="hidden" name="account_id" value="{{.AccountID}}"><input type="hidden" name="account_version" value="{{.AccountVersion}}"><input type="hidden" name="reason" value="Owner canceled Account closure"><label>Type RESTORE<input name="confirmation" pattern="RESTORE" autocomplete="off" required></label><button type="submit">Restore Account</button></form>{{end}}</aside>
+        </article>{{else}}<div class="lifecycle-empty"><h3>No closure history</h3><p>Accounts you own remain active. Closure requests and retention deadlines will appear here.</p></div>{{end}}</div>
+      </section>
+      <p class="lifecycle-footnote">Closed means normal Account access is permanently disabled. Physical data erasure is intentionally handled by a separate, audited operator workflow after the displayed retention deadline.</p>
     </div>
   </main>
 </div></body></html>

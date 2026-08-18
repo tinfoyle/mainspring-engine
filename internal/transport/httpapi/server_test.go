@@ -401,6 +401,27 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if ownerLeaveAttempt.StatusCode != http.StatusConflict || !bytes.Contains(ownerLeaveAttempt.Body, []byte(`"code":"ownership_required"`)) {
 		t.Fatalf("owner self-leave guard: %d %s", ownerLeaveAttempt.StatusCode, ownerLeaveAttempt.Body)
 	}
+	closureURL := server.URL + "/api/v1/accounts/" + provisioned.Account.ID + "/closure"
+	closure := postJSONCookie(t, closureURL, `{"expected_account_version":1,"reason":"Business operation concluded"}`, memberCookies[0])
+	if closure.StatusCode != http.StatusAccepted || !bytes.Contains(closure.Body, []byte(`"state":"cooling_off"`)) || !bytes.Contains(closure.Body, []byte(`"account_state":"closing"`)) || !bytes.Contains(closure.Body, []byte(`"account_version":2`)) {
+		t.Fatalf("Account closure request: %d %s", closure.StatusCode, closure.Body)
+	}
+	frozenAccounts := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/session/accounts", "", memberCookies[0])
+	if frozenAccounts.StatusCode != http.StatusOK || bytes.Contains(frozenAccounts.Body, []byte(provisioned.Account.ID)) || !bytes.Contains(frozenAccounts.Body, []byte(sandboxAccountID)) {
+		t.Fatalf("closing Account access freeze: %d %s", frozenAccounts.StatusCode, frozenAccounts.Body)
+	}
+	closureHistory := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/account-closures", "", memberCookies[0])
+	if closureHistory.StatusCode != http.StatusOK || !bytes.Contains(closureHistory.Body, []byte(provisioned.Account.ID)) || !bytes.Contains(closureHistory.Body, []byte(`"state":"cooling_off"`)) {
+		t.Fatalf("global closure recovery list: %d %s", closureHistory.StatusCode, closureHistory.Body)
+	}
+	staleRestore := requestJSONCookie(t, http.MethodDelete, closureURL, `{"expected_account_version":1,"reason":"Stale restoration"}`, memberCookies[0])
+	if staleRestore.StatusCode != http.StatusConflict || !bytes.Contains(staleRestore.Body, []byte(`"code":"account_version_conflict"`)) {
+		t.Fatalf("stale Account restoration: %d %s", staleRestore.StatusCode, staleRestore.Body)
+	}
+	restored := requestJSONCookie(t, http.MethodDelete, closureURL, `{"expected_account_version":2,"reason":"Operations will continue"}`, memberCookies[0])
+	if restored.StatusCode != http.StatusOK || !bytes.Contains(restored.Body, []byte(`"state":"canceled"`)) || !bytes.Contains(restored.Body, []byte(`"account_state":"active"`)) || !bytes.Contains(restored.Body, []byte(`"account_version":3`)) {
+		t.Fatalf("Account restoration: %d %s", restored.StatusCode, restored.Body)
+	}
 	leavePreviousOwner := requestJSONCookie(t, http.MethodDelete, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/membership", `{"expected_version":2,"reason":"Previous owner chose to leave"}`, cookies[0])
 	if leavePreviousOwner.StatusCode != http.StatusNoContent {
 		t.Fatalf("previous owner self-leave: %d %s", leavePreviousOwner.StatusCode, leavePreviousOwner.Body)

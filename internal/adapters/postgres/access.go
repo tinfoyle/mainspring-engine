@@ -21,7 +21,7 @@ func (r *AccessRepository) AccessState(ctx context.Context, userID ids.UserID, a
 	var effectivePackages []byte
 	err := r.pool.QueryRow(ctx, `
 		SELECT a.id,a.slug,a.display_name,a.account_type,a.state,a.cell_id,
-		       a.placement_generation,a.entitlement_version,a.created_by_user_id,a.created_at,
+		       a.placement_generation,a.entitlement_version,a.version,a.created_by_user_id,a.created_at,
 		       m.id,m.account_id,m.user_id,m.role,m.state,m.version,m.created_at,
 		       s.account_id,s.version,s.catalog_version,s.evaluated_at,s.effective_packages
 		FROM accounts a
@@ -34,7 +34,7 @@ func (r *AccessRepository) AccessState(ctx context.Context, userID ids.UserID, a
 		WHERE a.id=$2`, userID, accountID).Scan(
 		&state.Account.ID, &state.Account.Slug, &state.Account.DisplayName, &state.Account.Type,
 		&state.Account.State, &state.Account.CellID, &state.Account.PlacementGeneration,
-		&state.Account.EntitlementVersion, &state.Account.CreatedByUserID, &state.Account.CreatedAt,
+		&state.Account.EntitlementVersion, &state.Account.Version, &state.Account.CreatedByUserID, &state.Account.CreatedAt,
 		&state.Membership.ID, &state.Membership.AccountID, &state.Membership.UserID,
 		&state.Membership.Role, &state.Membership.State, &state.Membership.Version,
 		&state.Membership.CreatedAt, &state.Entitlements.AccountID, &state.Entitlements.Version,

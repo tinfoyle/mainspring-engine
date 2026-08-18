@@ -35,6 +35,7 @@ type Store struct {
 	authAttempts    map[[32]byte]authAttempt
 	networkAttempts map[networkAttemptKey]authAttempt
 	invitations     map[ids.InvitationID]accounts.Invitation
+	closures        map[string]closureRecord
 }
 
 type networkAttemptKey struct {
@@ -49,7 +50,7 @@ type authAttempt struct {
 }
 
 func NewStore(publishedCatalog catalog.PublishedCatalog, cells []placement.Cell) *Store {
-	return &Store{pending: map[ids.RegistrationID]registration.Pending{}, users: map[ids.UserID]identity.User{}, usersByEmail: map[string]ids.UserID{}, credentials: map[ids.UserID]identity.LocalCredential{}, accounts: map[ids.AccountID]accounts.Account{}, memberships: map[ids.MembershipID]accounts.Membership{}, assignments: map[ids.AccountID]placement.Assignment{}, grants: map[ids.AccountID][]entitlements.Grant{}, snapshots: map[ids.AccountID]entitlements.Snapshot{}, cells: append([]placement.Cell(nil), cells...), catalog: publishedCatalog, authAttempts: map[[32]byte]authAttempt{}, networkAttempts: map[networkAttemptKey]authAttempt{}, invitations: map[ids.InvitationID]accounts.Invitation{}}
+	return &Store{pending: map[ids.RegistrationID]registration.Pending{}, users: map[ids.UserID]identity.User{}, usersByEmail: map[string]ids.UserID{}, credentials: map[ids.UserID]identity.LocalCredential{}, accounts: map[ids.AccountID]accounts.Account{}, memberships: map[ids.MembershipID]accounts.Membership{}, assignments: map[ids.AccountID]placement.Assignment{}, grants: map[ids.AccountID][]entitlements.Grant{}, snapshots: map[ids.AccountID]entitlements.Snapshot{}, cells: append([]placement.Cell(nil), cells...), catalog: publishedCatalog, authAttempts: map[[32]byte]authAttempt{}, networkAttempts: map[networkAttemptKey]authAttempt{}, invitations: map[ids.InvitationID]accounts.Invitation{}, closures: map[string]closureRecord{}}
 }
 
 func (s *Store) CreatePending(_ context.Context, pending registration.Pending) error {
@@ -259,7 +260,7 @@ func (s *Store) Choices(_ context.Context, userID ids.UserID) ([]accountaccess.C
 		if !ok || account.State != accounts.AccountActive {
 			continue
 		}
-		result = append(result, accountaccess.Choice{AccountID: account.ID, Slug: account.Slug, DisplayName: account.DisplayName, AccountType: account.Type, Role: membership.Role, CellID: account.CellID, PlacementGeneration: account.PlacementGeneration, Entitlements: s.snapshots[account.ID]})
+		result = append(result, accountaccess.Choice{AccountID: account.ID, Slug: account.Slug, DisplayName: account.DisplayName, AccountType: account.Type, AccountVersion: account.Version, Role: membership.Role, CellID: account.CellID, PlacementGeneration: account.PlacementGeneration, Entitlements: s.snapshots[account.ID]})
 	}
 	return result, nil
 }

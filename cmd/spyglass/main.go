@@ -24,6 +24,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
 	workreleaseapp "github.com/tinfoyle/spyglass-engine/internal/application/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountlifecycleworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/approuter"
@@ -68,6 +69,8 @@ func main() {
 		err = runNotificationWorker(ctx, logger)
 	case "entitlement-worker":
 		err = runEntitlementWorker(ctx, logger)
+	case "account-lifecycle-worker":
+		err = runAccountLifecycleWorker(ctx, logger)
 	case "work-reconciler":
 		err = runWorkReconciler(ctx, logger)
 	case "route-receipt-worker":
@@ -81,7 +84,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -516,6 +519,41 @@ func runEntitlementWorker(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "entitlement", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+}
+
+func runAccountLifecycleWorker(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 5)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_ACCOUNT_CLOSURE_POLL_INTERVAL", time.Second)
+	if err != nil {
+		return err
+	}
+	lease, err := durationEnv("SPYGLASS_ACCOUNT_CLOSURE_LEASE", 2*time.Minute)
+	if err != nil || lease > 30*time.Minute {
+		return errors.New("SPYGLASS_ACCOUNT_CLOSURE_LEASE must be at most 30m")
+	}
+	retention, err := durationEnv("SPYGLASS_ACCOUNT_CLOSURE_RETENTION", 30*24*time.Hour)
+	if err != nil || retention < 7*24*time.Hour || retention > 365*24*time.Hour {
+		return errors.New("SPYGLASS_ACCOUNT_CLOSURE_RETENTION must be between 168h and 8760h")
+	}
+	blockedRetry, err := durationEnv("SPYGLASS_ACCOUNT_CLOSURE_BLOCKED_RETRY", 24*time.Hour)
+	if err != nil || blockedRetry < time.Hour || blockedRetry > 7*24*time.Hour {
+		return errors.New("SPYGLASS_ACCOUNT_CLOSURE_BLOCKED_RETRY must be between 1h and 168h")
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := accountlifecycleworker.New(startup, accountlifecycleworker.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease, Retention: retention, BlockedRetry: blockedRetry}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "account-lifecycle", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
 }
 
 func runWorkReconciler(ctx context.Context, logger *slog.Logger) error {

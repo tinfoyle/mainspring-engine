@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
@@ -38,6 +39,7 @@ type Server struct {
 	sessions              *sessions.Service
 	cookie                SessionCookie
 	accounts              *accountaccess.Service
+	accountLifecycle      *accountlifecycle.Service
 	members               *accountmembers.Service
 	invitations           *invitations.Service
 	invitationTokens      InvitationTokenSource
@@ -96,6 +98,10 @@ func WithAuthentication(service *authentication.Service, sessionService *session
 
 func WithAccountAccess(service *accountaccess.Service) Option {
 	return func(server *Server) { server.accounts = service }
+}
+
+func WithAccountLifecycle(service *accountlifecycle.Service) Option {
+	return func(server *Server) { server.accountLifecycle = service }
 }
 
 func WithAccountMembers(service *accountmembers.Service) Option {
@@ -163,6 +169,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/session", s.logout)
 	mux.HandleFunc("GET /api/v1/session/accounts", s.listAccounts)
 	mux.HandleFunc("POST /api/v1/session/account", s.selectAccount)
+	mux.HandleFunc("GET /api/v1/account-closures", s.listAccountClosures)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/closure", s.requestAccountClosure)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/closure", s.cancelAccountClosure)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/invitations", s.createInvitation)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/memberships", s.listMemberships)
 	mux.HandleFunc("PATCH /api/v1/accounts/{accountID}/memberships/{membershipID}", s.changeMembershipRole)
@@ -177,6 +186,107 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
+}
+
+func (s *Server) listAccountClosures(w http.ResponseWriter, r *http.Request) {
+	if s.accountLifecycle == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "account_lifecycle_unconfigured", "Account lifecycle management is not configured")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	closures, err := s.accountLifecycle.ListOwned(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		s.writeAccountLifecycleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"account_closures": closures})
+}
+
+func (s *Server) requestAccountClosure(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.accountLifecycleRequest(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		ExpectedAccountVersion uint64 `json:"expected_account_version"`
+		Reason                 string `json:"reason"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	status, err := s.accountLifecycle.Request(r.Context(), accountlifecycle.RequestCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, ExpectedAccountVersion: input.ExpectedAccountVersion, Reason: input.Reason})
+	if err != nil {
+		s.writeAccountLifecycleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, status)
+}
+
+func (s *Server) cancelAccountClosure(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.accountLifecycleRequest(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		ExpectedAccountVersion uint64 `json:"expected_account_version"`
+		Reason                 string `json:"reason"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	status, err := s.accountLifecycle.Cancel(r.Context(), accountlifecycle.CancelCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, ExpectedAccountVersion: input.ExpectedAccountVersion, Reason: input.Reason})
+	if err != nil {
+		s.writeAccountLifecycleError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) accountLifecycleRequest(w http.ResponseWriter, r *http.Request) (sessions.Authenticated, ids.AccountID, bool) {
+	if s.accountLifecycle == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "account_lifecycle_unconfigured", "Account lifecycle management is not configured")
+		return sessions.Authenticated{}, "", false
+	}
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return sessions.Authenticated{}, "", false
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return sessions.Authenticated{}, "", false
+	}
+	raw := r.PathValue("accountID")
+	if ids.Validate(raw) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_account_id", "Account ID is invalid")
+		return sessions.Authenticated{}, "", false
+	}
+	return authenticated, ids.AccountID(raw), true
+}
+
+func (s *Server) writeAccountLifecycleError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, strongauth.ErrRequired):
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
+	case errors.Is(err, accountlifecycle.ErrNotFound):
+		writeProblem(w, http.StatusNotFound, "account_closure_not_found", "the Account closure request was not found")
+	case errors.Is(err, accountlifecycle.ErrVersionConflict):
+		writeProblem(w, http.StatusConflict, "account_version_conflict", "the Account changed; reload before trying again")
+	case errors.Is(err, accountlifecycle.ErrStateConflict):
+		writeProblem(w, http.StatusConflict, "account_state_conflict", "the Account is not in a state that allows this transition")
+	case errors.Is(err, accountlifecycle.ErrBillingActive):
+		writeProblem(w, http.StatusConflict, "account_closure_billing_active", "resolve active subscriptions or checkout before requesting closure")
+	case errors.Is(err, accountlifecycle.ErrReasonRequired):
+		writeProblem(w, http.StatusBadRequest, "invalid_account_closure", err.Error())
+	case errors.Is(err, accountlifecycle.ErrOwnershipRequired), access.IsDenied(err, access.DenialRole), access.IsDenied(err, access.DenialMembership), access.IsDenied(err, access.DenialAccountUnavailable):
+		writeProblem(w, http.StatusForbidden, "account_closure_denied", "only an active Account owner may manage closure")
+	default:
+		writeProblem(w, http.StatusServiceUnavailable, "account_lifecycle_failed", "Account lifecycle management could not be completed")
+	}
 }
 
 func (s *Server) beginRecovery(w http.ResponseWriter, r *http.Request) {

@@ -5,7 +5,7 @@ are intentionally not a deployable environment yet: release automation must
 replace `registry.invalid/...:release-placeholder`, inject managed secret
 references and provide environment-specific network/database destinations before promotion. The
 account-api, app-router, cell app-api, private admission-api, per-cell route-receipt
-worker, billing-worker, notification-worker, entitlement-worker, and Work reconciler arguments are executable today.
+worker, billing-worker, notification-worker, entitlement-worker, Account lifecycle worker, and Work reconciler arguments are executable today.
 
 The reference proves the intended unit of scaling: shared workload classes in
 a cell. Nothing here creates a Deployment, Service, namespace, database, or
@@ -39,7 +39,7 @@ Before an environment overlay may use these resources it must add:
   `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
   `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,
   `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`,
-  `spyglass-entitlement-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`, and
+  `spyglass-entitlement-worker-secrets`, `spyglass-account-lifecycle-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`, and
   `spyglass-work-reconciler-secrets` objects from environment configuration
   and secret controllers; they are not committed here. Workload-specific
   Secrets prevent each worker from receiving webhook, Stripe, or SMTP
@@ -110,3 +110,12 @@ container per customer. Replicas coordinate bounded rollout seeding and Account
 claims through PostgreSQL leases. Scale it against oldest queue age and backlog,
 while keeping the replica count multiplied by `SPYGLASS_MAX_DATABASE_CONNS`
 inside the database connection budget.
+
+The Account lifecycle worker is also shared and horizontally scalable. Its
+PostgreSQL `SKIP LOCKED` leases ensure one replica evaluates each due closure
+attempt. It receives only a constrained global-database credential; it does not
+receive Stripe API credentials because billing eligibility is evaluated from
+the verified local subscription projection. Account access freezes at request
+time, owners retain a global cancellation path during cooling-off, and this
+worker performs logical closure only. Physical erasure after the retention
+deadline remains a separate operator-governed workflow.

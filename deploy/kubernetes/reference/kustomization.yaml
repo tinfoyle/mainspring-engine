@@ -10,6 +10,7 @@ resources:
   - billing-worker.yaml
   - notification-worker.yaml
   - entitlement-worker.yaml
+  - account-lifecycle-worker.yaml
   - work-reconciler.yaml
   - route-receipt-worker.yaml
   - policy.yaml

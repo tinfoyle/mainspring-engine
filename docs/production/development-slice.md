@@ -25,13 +25,14 @@ This repository now contains the first executable production slice for Infinite 
 - Explicit Account listing and selection; the selected browser Account is never treated as authorization without rechecking Membership and placement.
 - Invitation creation and acceptance for existing system-wide identities. Acceptance creates a Membership, not a duplicate User or per-customer runtime.
 - Account Membership governance with owner/administrator active-and-suspended roster visibility, owner-only non-owner role changes, bounded removal and suspension authority, role-preserving reactivation, non-owner self-service leave, optimistic versions, atomic ownership transfer, transactional actor/target rechecks, and immutable before/after audit events.
+- Recoverable Account closure with owner/passkey request and cancellation, optimistic Account versions, immediate access freeze, seven-day cooling-off, projected-billing preflight/retry blockers, immutable lifecycle events, irreversible logical close, and an explicit post-close retention deadline. A shared leased worker performs due transitions; physical erasure remains a separate operator-governed workflow.
 - A responsive private application shell for signup, verification, login, Account switching, invitation acceptance, package visibility, and the operational overview.
 - Raw-body Stripe signature verification, durable event deduplication, leased asynchronous processing, crash recovery, and bounded retry scheduling.
 - Server-created Stripe Customer, hosted Checkout, and Customer Portal sessions using authorized Account roles, UUID idempotency keys, exact return origins, and private Offer-to-Price mappings.
 - Durable Account-scoped Checkout reservations prevent parallel subscription attempts and make hosted-session retries resumable.
 - Current-object Subscription projection: webhook events are invalidation signals, paid grants are replaced transactionally, snapshots only advance when effective access changes, and `past_due` becomes read-only.
 - Leased reconciliation and verified-event replay boundaries for billing workers and future operator tooling.
-- Executable `account-api` and `billing-worker` process modes with strict environment validation, independent connection caps, graceful shutdown, and dependency-aware readiness.
+- Executable `account-api`, `billing-worker`, and `account-lifecycle-worker` process modes with strict environment validation, independent connection caps, graceful shutdown, and dependency-aware readiness.
 - An executable `notification-worker` process with encrypted durable identity and Account-ownership envelopes, leased claims, independent per-recipient delivery, crash recovery, bounded retries, terminal dead-letter state, and implicit-TLS SMTP delivery. Ownership transfer atomically inserts previous/new-owner notices with the role swap and immutable event, so SMTP availability cannot split authority from notification intent.
 - Immutable Catalog draft, private Stripe mapping, independent review, effective publication, retirement, rollback, and same-transaction operator audit workflows exposed through a fail-closed one-shot command.
 - Bounded account-api Catalog refresh that propagates effective publications and lower-version rollbacks across replicas without restarts while preserving one snapshot per operation.
@@ -57,7 +58,7 @@ This repository now contains the first executable production slice for Infinite 
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, default-deny networking, and an explicit zero-unavailable/node-spread app-router rollout.
 - GitHub verification for Go format/test/race/vet, disposable PostgreSQL contracts, vulnerability scanning, Kubernetes reference rendering, and public-site build/lint/production dependency audit.
 
-The development command is intentionally memory-backed and refuses to start unless `SPYGLASS_ENV=development`. Persistent `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, and one-shot `route-canary`/`catalog-admin`/`work-release-admin` modes now exist and fail closed until their workload-specific PostgreSQL, route proof, Stripe, origin, encryption, operator, environment-confirmation, workload TLS, or TLS mail configuration is supplied by the environment.
+The development command is intentionally memory-backed and refuses to start unless `SPYGLASS_ENV=development`. Persistent `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, and one-shot `route-canary`/`catalog-admin`/`work-release-admin` modes now exist and fail closed until their workload-specific PostgreSQL, route proof, Stripe, origin, encryption, operator, environment-confirmation, workload TLS, or TLS mail configuration is supplied by the environment.
 
 ## Run locally
 
@@ -93,6 +94,9 @@ DELETE /api/v1/session
 POST /api/v1/session/reauthenticate
 GET  /api/v1/session/accounts
 POST /api/v1/session/account
+GET  /api/v1/account-closures
+POST /api/v1/accounts/{accountID}/closure
+DELETE /api/v1/accounts/{accountID}/closure
 POST /api/v1/accounts/{accountID}/invitations
 GET  /api/v1/accounts/{accountID}/memberships
 PATCH /api/v1/accounts/{accountID}/memberships/{membershipID}
@@ -119,6 +123,9 @@ GET|POST /reset-password
 GET      /app
 GET      /app/work
 GET      /app/security
+GET      /app/account-closures
+POST     /app/account-closures/request
+POST     /app/account-closures/cancel
 POST     /app/security/reauthenticate
 POST     /app/security/sessions/revoke
 POST     /app/security/sessions/revoke-all
@@ -149,7 +156,7 @@ npm run dev
 
 ## Next production slices
 
-1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up; add Account closure/deletion workflows; then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
+1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up; implement the audited post-retention Account export/physical-erasure operator workflow; then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Add fair asynchronous admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests; bounded directory routing and internal workload identity are now executable.
@@ -161,6 +168,6 @@ npm run dev
 - Rendered browser journey coverage proves signup → verification/password → password/passkey login surfaces → Account shell, identity security/passkey management, Membership lifecycle controls, locked/read-only Work package behavior, entitled Work queue structure, and enabled create controls; API journey coverage proves invitation → existing identity → Membership role/suspension/reactivation/ownership/self-leave → Account-list revocation and signed Work read/command contracts.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
-- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification and passkey persistence, single-use passkey ceremonies, credential-counter fencing and cross-User isolation, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, forward and lower-version entitlement rollout, unchanged-access drift repair, independent-grant preservation, governed limit propagation, concurrent capacity admission without oversubscription, UUID retry/release idempotency, expiry reclamation, stale-entitlement rejection, registration, Checkout reservation concurrency, broker-backed Work creation/compensation through split global/cell roles, Work optimistic concurrency, direct Account-scoped Work queries, and transaction-local RLS isolation through non-owner roles. Kubernetes resources remain review-only and have not been applied to a cluster.
+- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification and passkey persistence, single-use passkey ceremonies, credential-counter fencing and cross-User isolation, Account closure billing/freeze/recovery/block/retry/retention invariants, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, forward and lower-version entitlement rollout, unchanged-access drift repair, independent-grant preservation, governed limit propagation, concurrent capacity admission without oversubscription, UUID retry/release idempotency, expiry reclamation, stale-entitlement rejection, registration, Checkout reservation concurrency, broker-backed Work creation/compensation through split global/cell roles, Work optimistic concurrency, direct Account-scoped Work queries, and transaction-local RLS isolation through non-owner roles. Kubernetes resources remain review-only and have not been applied to a cluster.
 - Stripe request translation, event ingestion, deduplication, out-of-order convergence, and queue behavior are tested with local fixtures; no Stripe account mutation has been performed.
 - The private Account shell renders local billing status and paid offers and can enter Checkout/Portal in the persistent composition; no app-owned credentials or Account data were moved into the public Sites deployment.

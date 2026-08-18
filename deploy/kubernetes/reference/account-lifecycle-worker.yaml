@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: account-lifecycle-worker, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: account-lifecycle-worker}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: account-lifecycle-worker, app.kubernetes.io/part-of: spyglass}
+    spec:
+      serviceAccountName: account-lifecycle-worker
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: account-lifecycle-worker
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [account-lifecycle-worker]
+          ports: [{name: health, containerPort: 8081}]
+          env:
+            - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+            - {name: SPYGLASS_ACCOUNT_CLOSURE_POLL_INTERVAL, value: "1s"}
+            - {name: SPYGLASS_ACCOUNT_CLOSURE_LEASE, value: "2m"}
+            - {name: SPYGLASS_ACCOUNT_CLOSURE_RETENTION, value: "720h"}
+            - {name: SPYGLASS_ACCOUNT_CLOSURE_BLOCKED_RETRY, value: "24h"}
+          envFrom:
+            - configMapRef: {name: spyglass-global-runtime}
+            - secretRef: {name: spyglass-account-lifecycle-worker-secrets}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}

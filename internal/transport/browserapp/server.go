@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
@@ -53,6 +54,7 @@ type Server struct {
 	authentication     *authentication.Service
 	sessions           *sessions.Service
 	accounts           *accountaccess.Service
+	accountLifecycle   *accountlifecycle.Service
 	members            *accountmembers.Service
 	invitations        *invitations.Service
 	catalog            func() catalog.PublishedCatalog
@@ -75,6 +77,10 @@ func WithCommercialAccess(service *commercialaccess.Service) Option {
 
 func WithAccountMembers(service *accountmembers.Service) Option {
 	return func(server *Server) { server.members = service }
+}
+
+func WithAccountLifecycle(service *accountlifecycle.Service) Option {
+	return func(server *Server) { server.accountLifecycle = service }
 }
 
 func WithRecovery(service *recovery.Service, tokens RecoveryTokenSource) Option {
@@ -144,6 +150,9 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /app/security/sessions/revoke", s.revokeSession)
 	mux.HandleFunc("POST /app/security/sessions/revoke-all", s.revokeAllSessions)
 	mux.HandleFunc("POST /app/account", s.selectAccount)
+	mux.HandleFunc("GET /app/account-closures", s.accountClosuresPage)
+	mux.HandleFunc("POST /app/account-closures/request", s.requestAccountClosure)
+	mux.HandleFunc("POST /app/account-closures/cancel", s.cancelAccountClosure)
 	mux.HandleFunc("POST /app/invitations", s.createInvitation)
 	mux.HandleFunc("POST /app/memberships/role", s.changeMembershipRole)
 	mux.HandleFunc("POST /app/memberships/remove", s.removeMembership)
@@ -259,6 +268,8 @@ type pageData struct {
 	PackageModes                                                                            map[catalog.PackageCode]catalog.PackageMode
 	CanInvite                                                                               bool
 	CanManageMembers, CanTransferOwnership, CanLeaveAccount                                 bool
+	CanCloseAccount                                                                         bool
+	Closures                                                                                []accountlifecycle.Status
 	Members                                                                                 []memberView
 	ActorMembershipVersion                                                                  uint64
 	BillingConfigured, CanManageBilling, CanStartCheckout, HasBillingCustomer               bool
@@ -427,6 +438,7 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		data.CanCloseAccount = s.accountLifecycle != nil && data.Selected.Role == accounts.RoleOwner
 		var status commercialaccess.Status
 		if s.commercial != nil {
 			var err error
@@ -439,6 +451,90 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, data.Selected.AccountType, status, time.Now().UTC())
 	}
 	s.render(w, http.StatusOK, "app", data)
+}
+
+func (s *Server) accountClosuresPage(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.accountLifecycle == nil {
+		http.Error(w, "Account lifecycle management is unavailable.", http.StatusServiceUnavailable)
+		return
+	}
+	choices, err := s.accounts.List(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		http.Error(w, "Accounts could not be loaded.", http.StatusServiceUnavailable)
+		return
+	}
+	closures, err := s.accountLifecycle.ListOwned(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		http.Error(w, "Account closure history could not be loaded.", http.StatusServiceUnavailable)
+		return
+	}
+	s.render(w, http.StatusOK, "closures", pageData{Title: "Account lifecycle", Choices: choices, Selected: s.selectedChoice(r, choices), Closures: closures, Notice: closureNotice(r.URL.Query().Get("status"))})
+}
+
+func (s *Server) requestAccountClosure(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.accountLifecycle == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Account closure request was not accepted.", http.StatusForbidden)
+		return
+	}
+	accountID := r.FormValue("account_id")
+	version, err := strconv.ParseUint(r.FormValue("account_version"), 10, 64)
+	if ids.Validate(accountID) != nil || err != nil || version == 0 || r.FormValue("confirmation") != "CLOSE" {
+		http.Error(w, "Account closure request was invalid.", http.StatusBadRequest)
+		return
+	}
+	_, err = s.accountLifecycle.Request(r.Context(), accountlifecycle.RequestCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: ids.AccountID(accountID), ExpectedAccountVersion: version, Reason: r.FormValue("reason")})
+	if err != nil {
+		s.redirectAccountLifecycleError(w, r, err)
+		return
+	}
+	s.clearAccountCookie(w)
+	http.Redirect(w, r, "/app/account-closures?status=closure_requested", http.StatusSeeOther)
+}
+
+func (s *Server) cancelAccountClosure(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.accountLifecycle == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Account restoration request was not accepted.", http.StatusForbidden)
+		return
+	}
+	accountID := r.FormValue("account_id")
+	version, err := strconv.ParseUint(r.FormValue("account_version"), 10, 64)
+	if ids.Validate(accountID) != nil || err != nil || version == 0 || r.FormValue("confirmation") != "RESTORE" {
+		http.Error(w, "Account restoration request was invalid.", http.StatusBadRequest)
+		return
+	}
+	_, err = s.accountLifecycle.Cancel(r.Context(), accountlifecycle.CancelCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: ids.AccountID(accountID), ExpectedAccountVersion: version, Reason: r.FormValue("reason")})
+	if err != nil {
+		s.redirectAccountLifecycleError(w, r, err)
+		return
+	}
+	s.setAccountCookie(w, accountID)
+	http.Redirect(w, r, "/app?status=closure_canceled", http.StatusSeeOther)
+}
+
+func (s *Server) redirectAccountLifecycleError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, strongauth.ErrRequired) {
+		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+		return
+	}
+	status := "closure_failed"
+	if errors.Is(err, accountlifecycle.ErrBillingActive) {
+		status = "closure_billing_active"
+	} else if errors.Is(err, accountlifecycle.ErrVersionConflict) || errors.Is(err, accountlifecycle.ErrStateConflict) {
+		status = "closure_conflict"
+	}
+	http.Redirect(w, r, "/app/account-closures?status="+status, http.StatusSeeOther)
 }
 
 func (s *Server) workPage(w http.ResponseWriter, r *http.Request) {
@@ -991,6 +1087,22 @@ func appNotice(status string) string {
 		return "The Membership changed while you were working. Review the current roster and try again."
 	case "membership_failed":
 		return "The Membership change was denied or could not be completed."
+	case "closure_canceled":
+		return "Account closure canceled. Normal Account access has been restored."
+	}
+	return ""
+}
+
+func closureNotice(status string) string {
+	switch status {
+	case "closure_requested":
+		return "Account access is frozen. You may restore it here until the cooling-off period completes."
+	case "closure_billing_active":
+		return "Closure cannot begin while a subscription or checkout is active. Resolve billing, then try again."
+	case "closure_conflict":
+		return "The Account lifecycle changed while you were working. Review the current state and try again."
+	case "closure_failed":
+		return "The Account lifecycle change was denied or could not be completed."
 	}
 	return ""
 }

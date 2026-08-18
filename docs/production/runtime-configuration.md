@@ -1,8 +1,8 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Work reconciliation, migration, Catalog operator, and Work release operator processes
+- Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog operator, and Work release operator processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, one-shot `route-canary`/`work-release-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, one-shot `route-canary`/`work-release-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -163,6 +163,22 @@ Publishing a Catalog creates a durable rollout in the same transaction as the pu
 
 Each Account records the Catalog version last reconciled. A recomputation advances the Account entitlement version and appends an immutable snapshot only when effective package access or limits changed; otherwise only the reconciliation marker advances. Periodic drift detection creates a repair rollout for late Accounts and work missed after a crash. Invalid Catalog content fails terminally, while transient failures retry with bounded exponential backoff and dead-letter on the twelfth attempt. A failed rollout suppresses automatic repair for that Catalog version until an operator publishes a corrected version, preventing an unrecoverable row from creating an infinite retry cycle.
 
+## Account lifecycle worker values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_DATABASE_URL` | Required constrained global credential for Accounts, active owner Membership checks, projected subscriptions/checkouts, closure requests, and lifecycle events |
+| `SPYGLASS_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `5` |
+| `SPYGLASS_ACCOUNT_CLOSURE_POLL_INTERVAL` | Optional positive duration; defaults to `1s` |
+| `SPYGLASS_ACCOUNT_CLOSURE_LEASE` | Optional duration at most `30m`; defaults to `2m` |
+| `SPYGLASS_ACCOUNT_CLOSURE_RETENTION` | Optional duration from `168h` through `8760h`; defaults to `720h` |
+| `SPYGLASS_ACCOUNT_CLOSURE_BLOCKED_RETRY` | Optional duration from `1h` through `168h`; defaults to `24h` |
+| `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
+
+Owners request and cancel closure through the account API using recent passkey assurance and an expected Account version. Requesting atomically changes the Account from `active` to `closing`; ordinary authorization and Account selection then fail immediately. The global lifecycle list deliberately remains available so an active owner can restore a closing Account without first selecting it.
+
+Worker replicas claim due requests with `FOR UPDATE SKIP LOCKED` and expiring leases. Before logical close, each attempt rechecks the locally projected subscription and active Checkout state. A blocker leaves the Account frozen, records an immutable workload event, and reschedules the request. A clear preflight changes the Account to terminal `closed`, records `closed_at`, and schedules `delete_after`. The worker has no Stripe credential, performs no synchronous export or deletion, and must not be granted cell database access. Post-retention physical erasure is a separate reviewed operator workflow.
+
 ## Route receipt worker values
 
 | Environment variable | Requirement |
@@ -219,6 +235,7 @@ spyglass route-receipt-worker
 spyglass billing-worker
 spyglass notification-worker
 spyglass entitlement-worker
+spyglass account-lifecycle-worker
 spyglass work-reconciler
 spyglass work-release-admin <action>
 spyglass catalog-admin <action>
