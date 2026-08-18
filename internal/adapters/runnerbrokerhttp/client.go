@@ -203,6 +203,8 @@ func decodeError(response *http.Response) error {
 		return runnercapability.ErrUnavailable
 	case "capability_action_denied":
 		return runnercapability.ErrActionDenied
+	case "capability_action_unavailable":
+		return runnercapability.ErrActionUnavailable
 	case "capability_execution_failed":
 		return runnercapability.ErrExecutionFailed
 	case "capability_audit_unavailable":

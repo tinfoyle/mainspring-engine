@@ -381,6 +381,8 @@ Acceptance:
 - Repeated approve/execute requests perform at most one external effect.
 - Timeout after provider acceptance produces `unknown`, never an automatic duplicate.
 
+Implementation checkpoint: the runner gateway now requires distinct execute and side-effect-free reconcile methods for consequential definitions. A forced-RLS action authorization projection, ledger, and attempt history bind approval evidence to canonical input SHA-256, use the operation UUID as the stable provider idempotency key, serialize leases with cancellation, default uncertain errors to `unknown`, and force every expired/unknown/succeeded retry through reconciliation. A real consequential provider adapter, explicit failed retry, manual resolution/redacted views, and the Attention-owned approval aggregate remain before P3.5 acceptance can be claimed.
+
 ### P3.6 Transport migration
 
 - Production HTTP queue, detail, mutation, attention, and decision endpoints.

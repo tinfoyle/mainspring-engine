@@ -13,6 +13,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/toolrouterhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runneraction"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -111,7 +112,17 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	capabilities, err := runnercapability.New(exchange, nil, auditor, registration.SystemClock{}, []runnercapability.Definition{{Capability: toolrouter.WorkSummaryCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler}})
+	actionRepository, err := postgres.NewRunnerActionRepository(pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	actions, err := runneraction.New(actionRepository, ids.RandomGenerator{}, registration.SystemClock{}, runneraction.DefaultLease)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	capabilities, err := runnercapability.New(exchange, actions, auditor, registration.SystemClock{}, []runnercapability.Definition{{Capability: toolrouter.WorkSummaryCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler}})
 	if err != nil {
 		pool.Close()
 		return nil, err

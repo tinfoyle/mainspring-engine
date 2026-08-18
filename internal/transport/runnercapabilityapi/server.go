@@ -95,6 +95,8 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, "capability_unavailable", "the capability is unavailable")
 	case errors.Is(err, runnercapability.ErrActionDenied):
 		writeProblem(w, http.StatusForbidden, "capability_action_denied", "the consequential action was denied")
+	case errors.Is(err, runnercapability.ErrActionUnavailable):
+		writeProblem(w, http.StatusServiceUnavailable, "capability_action_unavailable", "consequential action state is temporarily unavailable")
 	case errors.Is(err, runnercapability.ErrExecutionFailed):
 		writeProblem(w, http.StatusBadGateway, "capability_execution_failed", "the capability could not be completed")
 	case errors.Is(err, runnercapability.ErrAuditUnavailable):

@@ -38,21 +38,55 @@ func (a *capabilityAuditor) RecordCapability(_ context.Context, record AuditReco
 }
 
 type actionAuthorizer struct {
-	request ActionRequest
-	err     error
-	calls   int
+	request     ActionRequest
+	lease       ActionLease
+	beginErr    error
+	completeErr error
+	completions []ActionCompletion
+	calls       int
 }
 
-func (a *actionAuthorizer) AuthorizeAction(_ context.Context, request ActionRequest) error {
+func (a *actionAuthorizer) BeginAction(_ context.Context, request ActionRequest) (ActionLease, error) {
 	a.calls++
 	a.request = request
-	return a.err
+	if a.beginErr != nil {
+		return ActionLease{}, a.beginErr
+	}
+	lease := a.lease
+	if lease.AttemptID == "" {
+		lease = ActionLease{AccountID: request.AccountID, InvocationID: request.InvocationID, OperationID: request.OperationID, AttemptID: "51000000-0000-4000-8000-000000000001", Capability: request.Capability, InputDigest: request.InputDigest, Mode: ActionExecute, IdempotencyKey: request.OperationID, LeaseExpiresAt: request.ExpiresAt}
+	}
+	return lease, nil
+}
+
+func (a *actionAuthorizer) CompleteAction(_ context.Context, completion ActionCompletion) error {
+	a.completions = append(a.completions, completion)
+	return a.completeErr
 }
 
 type codeError string
 
 func (e codeError) Error() string { return "private provider detail" }
 func (e codeError) Code() string  { return string(e) }
+
+type definitiveCodeError string
+
+func (e definitiveCodeError) Error() string    { return "private definitive provider detail" }
+func (e definitiveCodeError) Code() string     { return string(e) }
+func (e definitiveCodeError) Definitive() bool { return true }
+
+type consequentialHandler struct {
+	execute   func(context.Context, AuthorizedCall) (json.RawMessage, error)
+	reconcile func(context.Context, AuthorizedCall) (json.RawMessage, ActionOutcome, error)
+}
+
+func (h consequentialHandler) Execute(ctx context.Context, call AuthorizedCall) (json.RawMessage, error) {
+	return h.execute(ctx, call)
+}
+
+func (h consequentialHandler) Reconcile(ctx context.Context, call AuthorizedCall) (json.RawMessage, ActionOutcome, error) {
+	return h.reconcile(ctx, call)
+}
 
 func capabilityFixture() (*capabilityAuthorizer, *capabilityAuditor, capabilityClock, Call) {
 	now := time.Date(2026, 8, 18, 16, 0, 0, 0, time.UTC)
@@ -106,14 +140,24 @@ func TestConsequentialCapabilityRequiresDurableActionAuthorization(t *testing.T)
 	authorizer, auditor, clock, call := capabilityFixture()
 	authorizer.grant.Capability = "email:send"
 	call.Capability = "email:send"
-	actions := &actionAuthorizer{err: codeError("approval_required")}
+	actions := &actionAuthorizer{beginErr: codeError("approval_required")}
 	handlerCalls := 0
-	definition := Definition{Capability: "email:send", Effect: EffectConsequential, Timeout: time.Second, Handler: HandlerFunc(func(context.Context, AuthorizedCall) (json.RawMessage, error) {
-		handlerCalls++
-		return json.RawMessage(`{}`), nil
-	})}
+	handler := consequentialHandler{
+		execute: func(context.Context, AuthorizedCall) (json.RawMessage, error) {
+			handlerCalls++
+			return json.RawMessage(`{}`), nil
+		},
+		reconcile: func(context.Context, AuthorizedCall) (json.RawMessage, ActionOutcome, error) {
+			handlerCalls++
+			return json.RawMessage(`{}`), ActionSucceeded, nil
+		},
+	}
+	definition := Definition{Capability: "email:send", Effect: EffectConsequential, Timeout: time.Second, Handler: handler}
 	if _, err := New(authorizer, nil, auditor, clock, []Definition{definition}); !errors.Is(err, ErrInvalidCall) {
 		t.Fatalf("consequential definition without action authorizer=%v", err)
+	}
+	if _, err := New(authorizer, actions, auditor, clock, []Definition{{Capability: "email:send", Effect: EffectConsequential, Timeout: time.Second, Handler: HandlerFunc(handler.execute)}}); !errors.Is(err, ErrInvalidCall) {
+		t.Fatalf("consequential definition without reconcile handler=%v", err)
 	}
 	service, _ := New(authorizer, actions, auditor, clock, []Definition{definition})
 	if _, err := service.Invoke(context.Background(), "pod-token", authorizer.grant.Identity.InvocationID, call); !errors.Is(err, ErrActionDenied) || actions.calls != 1 || handlerCalls != 0 {
@@ -121,6 +165,151 @@ func TestConsequentialCapabilityRequiresDurableActionAuthorization(t *testing.T)
 	}
 	if actions.request.OperationID != call.OperationID || actions.request.InputDigest == [32]byte{} || len(auditor.records) != 1 || auditor.records[0].ErrorCode != "approval_required" {
 		t.Fatalf("action=%+v audit=%+v", actions.request, auditor.records)
+	}
+}
+
+func TestConsequentialTransientActionAdmissionIsUnavailable(t *testing.T) {
+	for _, code := range []codeError{"action_in_progress", "action_repository_unavailable"} {
+		t.Run(string(code), func(t *testing.T) {
+			authorizer, auditor, clock, call := capabilityFixture()
+			authorizer.grant.Capability, call.Capability = "email:send", "email:send"
+			actions := &actionAuthorizer{beginErr: code}
+			handler := consequentialHandler{
+				execute: func(context.Context, AuthorizedCall) (json.RawMessage, error) {
+					t.Fatal("transient admission failure reached handler")
+					return nil, nil
+				},
+				reconcile: func(context.Context, AuthorizedCall) (json.RawMessage, ActionOutcome, error) {
+					t.Fatal("transient admission failure reached reconciliation")
+					return nil, ActionUnknown, nil
+				},
+			}
+			service, err := New(authorizer, actions, auditor, clock, []Definition{{Capability: call.Capability, Effect: EffectConsequential, Timeout: time.Second, Handler: handler}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.Invoke(context.Background(), "pod-token", authorizer.grant.Identity.InvocationID, call); !errors.Is(err, ErrActionUnavailable) {
+				t.Fatalf("transient admission error=%v", err)
+			}
+			if len(auditor.records) != 1 || auditor.records[0].ErrorCode != string(code) {
+				t.Fatalf("audit=%+v", auditor.records)
+			}
+		})
+	}
+}
+
+func TestConsequentialExecutionUsesStableLeaseAndSettlesSuccess(t *testing.T) {
+	authorizer, auditor, clock, call := capabilityFixture()
+	authorizer.grant.Capability, call.Capability = "email:send", "email:send"
+	actions := &actionAuthorizer{}
+	executeCalls, reconcileCalls := 0, 0
+	handler := consequentialHandler{
+		execute: func(_ context.Context, authorized AuthorizedCall) (json.RawMessage, error) {
+			executeCalls++
+			if authorized.Action == nil || authorized.Action.Mode != ActionExecute || authorized.Action.IdempotencyKey != call.OperationID {
+				t.Fatalf("missing stable action lease: %#v", authorized.Action)
+			}
+			return json.RawMessage(`{"provider_id":"message-redacted"}`), nil
+		},
+		reconcile: func(context.Context, AuthorizedCall) (json.RawMessage, ActionOutcome, error) {
+			reconcileCalls++
+			return nil, ActionUnknown, nil
+		},
+	}
+	service, err := New(authorizer, actions, auditor, clock, []Definition{{Capability: call.Capability, Effect: EffectConsequential, Timeout: time.Second, Handler: handler}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Invoke(context.Background(), "pod-token", authorizer.grant.Identity.InvocationID, call)
+	if err != nil || executeCalls != 1 || reconcileCalls != 0 || !bytes.Contains(result.Output, []byte("provider_id")) {
+		t.Fatalf("result=%s execute=%d reconcile=%d err=%v", result.Output, executeCalls, reconcileCalls, err)
+	}
+	if len(actions.completions) != 1 || actions.completions[0].Outcome != ActionSucceeded || actions.completions[0].ErrorCode != "" {
+		t.Fatalf("completion=%+v", actions.completions)
+	}
+}
+
+func TestConsequentialRetryCanOnlyReconcileUnknownOutcome(t *testing.T) {
+	authorizer, auditor, clock, call := capabilityFixture()
+	authorizer.grant.Capability, call.Capability = "email:send", "email:send"
+	digestInput, digest, _ := validateCall(call)
+	_ = digestInput
+	actions := &actionAuthorizer{lease: ActionLease{
+		AccountID: authorizer.grant.AccountID, InvocationID: authorizer.grant.Identity.InvocationID, OperationID: call.OperationID,
+		AttemptID: "51000000-0000-4000-8000-000000000001", Capability: call.Capability, InputDigest: digest,
+		Mode: ActionReconcile, IdempotencyKey: call.OperationID, LeaseExpiresAt: clock.now.Add(time.Minute),
+	}}
+	executeCalls, reconcileCalls := 0, 0
+	handler := consequentialHandler{
+		execute: func(context.Context, AuthorizedCall) (json.RawMessage, error) {
+			executeCalls++
+			return nil, errors.New("must not execute")
+		},
+		reconcile: func(_ context.Context, authorized AuthorizedCall) (json.RawMessage, ActionOutcome, error) {
+			reconcileCalls++
+			if authorized.Action == nil || authorized.Action.Mode != ActionReconcile {
+				t.Fatal("reconciliation did not receive its lease")
+			}
+			return nil, ActionUnknown, nil
+		},
+	}
+	service, _ := New(authorizer, actions, auditor, clock, []Definition{{Capability: call.Capability, Effect: EffectConsequential, Timeout: time.Second, Handler: handler}})
+	if _, err := service.Invoke(context.Background(), "pod-token", authorizer.grant.Identity.InvocationID, call); !errors.Is(err, ErrExecutionFailed) || executeCalls != 0 || reconcileCalls != 1 {
+		t.Fatalf("err=%v execute=%d reconcile=%d", err, executeCalls, reconcileCalls)
+	}
+	if len(actions.completions) != 1 || actions.completions[0].Outcome != ActionUnknown || actions.completions[0].ErrorCode != "action_unknown" {
+		t.Fatalf("completion=%+v", actions.completions)
+	}
+}
+
+func TestConsequentialErrorsSettleUnknownUnlessProvenDefinitive(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		err     error
+		outcome ActionOutcome
+	}{
+		{"timeout", codeError("provider_timeout"), ActionUnknown},
+		{"rejected", definitiveCodeError("provider_rejected"), ActionFailed},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			authorizer, auditor, clock, call := capabilityFixture()
+			authorizer.grant.Capability, call.Capability = "email:send", "email:send"
+			actions := &actionAuthorizer{}
+			handler := consequentialHandler{
+				execute: func(context.Context, AuthorizedCall) (json.RawMessage, error) { return nil, test.err },
+				reconcile: func(context.Context, AuthorizedCall) (json.RawMessage, ActionOutcome, error) {
+					return nil, ActionUnknown, nil
+				},
+			}
+			service, _ := New(authorizer, actions, auditor, clock, []Definition{{Capability: call.Capability, Effect: EffectConsequential, Timeout: time.Second, Handler: handler}})
+			if _, err := service.Invoke(context.Background(), "pod-token", authorizer.grant.Identity.InvocationID, call); !errors.Is(err, ErrExecutionFailed) {
+				t.Fatalf("execution error=%v", err)
+			}
+			if len(actions.completions) != 1 || actions.completions[0].Outcome != test.outcome || actions.completions[0].ErrorCode != machineError(test.err, "execution_failed") {
+				t.Fatalf("completion=%+v", actions.completions)
+			}
+		})
+	}
+}
+
+func TestConsequentialSettlementFailureIsUnavailableAndDoesNotClaimSuccess(t *testing.T) {
+	authorizer, auditor, clock, call := capabilityFixture()
+	authorizer.grant.Capability, call.Capability = "email:send", "email:send"
+	actions := &actionAuthorizer{completeErr: errors.New("action database unavailable")}
+	handler := consequentialHandler{
+		execute: func(context.Context, AuthorizedCall) (json.RawMessage, error) {
+			return json.RawMessage(`{"accepted":true}`), nil
+		},
+		reconcile: func(context.Context, AuthorizedCall) (json.RawMessage, ActionOutcome, error) {
+			return nil, ActionUnknown, nil
+		},
+	}
+	service, _ := New(authorizer, actions, auditor, clock, []Definition{{Capability: call.Capability, Effect: EffectConsequential, Timeout: time.Second, Handler: handler}})
+	if _, err := service.Invoke(context.Background(), "pod-token", authorizer.grant.Identity.InvocationID, call); !errors.Is(err, ErrActionUnavailable) {
+		t.Fatalf("settlement failure=%v", err)
+	}
+	if len(auditor.records) != 1 || auditor.records[0].Decision != "authorized" {
+		t.Fatalf("gateway claimed a terminal outcome: %+v", auditor.records)
 	}
 }
 

@@ -24,12 +24,13 @@ const (
 )
 
 var (
-	ErrInvalidCall      = errors.New("runner capability call is invalid")
-	ErrUnavailable      = errors.New("runner capability is unavailable")
-	ErrActionDenied     = errors.New("runner consequential action was denied")
-	ErrExecutionFailed  = errors.New("runner capability execution failed")
-	ErrAuditUnavailable = errors.New("runner capability audit is unavailable")
-	validMachineCode    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,99}$`)
+	ErrInvalidCall       = errors.New("runner capability call is invalid")
+	ErrUnavailable       = errors.New("runner capability is unavailable")
+	ErrActionDenied      = errors.New("runner consequential action was denied")
+	ErrActionUnavailable = errors.New("runner consequential action state is unavailable")
+	ErrExecutionFailed   = errors.New("runner capability execution failed")
+	ErrAuditUnavailable  = errors.New("runner capability audit is unavailable")
+	validMachineCode     = regexp.MustCompile(`^[a-z][a-z0-9_]{0,99}$`)
 )
 
 type Effect string
@@ -56,6 +57,7 @@ type AuthorizedCall struct {
 	OperationID string
 	Input       json.RawMessage
 	InputDigest [sha256.Size]byte
+	Action      *ActionLease
 }
 
 type Handler interface {
@@ -66,6 +68,14 @@ type HandlerFunc func(context.Context, AuthorizedCall) (json.RawMessage, error)
 
 func (f HandlerFunc) Execute(ctx context.Context, call AuthorizedCall) (json.RawMessage, error) {
 	return f(ctx, call)
+}
+
+// ConsequentialHandler must provide a side-effect-free reconciliation path.
+// Reconcile may inspect the provider using the stable idempotency key, but it
+// must never create the effect again.
+type ConsequentialHandler interface {
+	Handler
+	Reconcile(context.Context, AuthorizedCall) (json.RawMessage, ActionOutcome, error)
 }
 
 type Definition struct {
@@ -89,10 +99,46 @@ type ActionRequest struct {
 	ExpiresAt    time.Time
 }
 
-// ActionAuthorizer owns approval, action-ledger, and provider-idempotency
-// admission for consequential effects. A handler may run only after it passes.
+type ActionMode string
+
+const (
+	ActionExecute   ActionMode = "execute"
+	ActionReconcile ActionMode = "reconcile"
+)
+
+type ActionOutcome string
+
+const (
+	ActionSucceeded ActionOutcome = "succeeded"
+	ActionFailed    ActionOutcome = "failed"
+	ActionUnknown   ActionOutcome = "unknown"
+)
+
+type ActionLease struct {
+	AccountID      ids.AccountID
+	InvocationID   string
+	OperationID    string
+	AttemptID      string
+	Capability     string
+	InputDigest    [sha256.Size]byte
+	Mode           ActionMode
+	IdempotencyKey string
+	LeaseExpiresAt time.Time
+}
+
+type ActionCompletion struct {
+	Lease     ActionLease
+	Outcome   ActionOutcome
+	ErrorCode string
+	At        time.Time
+}
+
+// ActionAuthorizer owns approval binding, action-ledger leasing, and durable
+// outcome settlement. Execute is admitted once; every uncertain or completed
+// retry is forced through the handler's side-effect-free reconciliation path.
 type ActionAuthorizer interface {
-	AuthorizeAction(context.Context, ActionRequest) error
+	BeginAction(context.Context, ActionRequest) (ActionLease, error)
+	CompleteAction(context.Context, ActionCompletion) error
 }
 
 type AuditRecord struct {
@@ -126,8 +172,13 @@ func New(authorizer Authorizer, actions ActionAuthorizer, auditor Auditor, clock
 		if !runnerbroker.ValidCapability(definition.Capability) || definition.Handler == nil || definition.Timeout < 100*time.Millisecond || definition.Timeout > 5*time.Minute || (definition.Effect != EffectReadOnly && definition.Effect != EffectConsequential) {
 			return nil, ErrInvalidCall
 		}
-		if definition.Effect == EffectConsequential && actions == nil {
-			return nil, ErrInvalidCall
+		if definition.Effect == EffectConsequential {
+			if actions == nil {
+				return nil, ErrInvalidCall
+			}
+			if _, ok := definition.Handler.(ConsequentialHandler); !ok {
+				return nil, ErrInvalidCall
+			}
 		}
 		if _, exists := registered[definition.Capability]; exists {
 			return nil, ErrInvalidCall
@@ -160,12 +211,24 @@ func (s *Service) Invoke(ctx context.Context, token, invocationID string, call C
 	authorized := AuthorizedCall{Grant: grant, OperationID: call.OperationID, Input: canonicalInput, InputDigest: digest}
 	if definition.Effect == EffectConsequential {
 		action := ActionRequest{AccountID: grant.AccountID, InvocationID: grant.Identity.InvocationID, PodUID: grant.Identity.PodUID, OperationID: call.OperationID, Capability: call.Capability, InputDigest: digest, ExpiresAt: grant.ExpiresAt}
-		if err := s.actions.AuthorizeAction(ctx, action); err != nil {
-			if auditErr := s.audit(ctx, grant, call, "denied", machineError(err, "action_denied")); auditErr != nil {
+		lease, err := s.actions.BeginAction(ctx, action)
+		if err != nil {
+			code := machineError(err, "action_denied")
+			if auditErr := s.audit(ctx, grant, call, "denied", code); auditErr != nil {
 				return Result{}, auditErr
+			}
+			if code == "action_in_progress" || code == "action_repository_unavailable" {
+				return Result{}, ErrActionUnavailable
 			}
 			return Result{}, ErrActionDenied
 		}
+		if !validLease(lease, action, now) {
+			if auditErr := s.audit(ctx, grant, call, "denied", "action_lease_invalid"); auditErr != nil {
+				return Result{}, auditErr
+			}
+			return Result{}, ErrActionUnavailable
+		}
+		authorized.Action = &lease
 	}
 	if err := s.audit(ctx, grant, call, "authorized", ""); err != nil {
 		return Result{}, err
@@ -176,9 +239,38 @@ func (s *Service) Invoke(ctx context.Context, token, invocationID string, call C
 	}
 	executionContext, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	output, executionErr := definition.Handler.Execute(executionContext, authorized)
+	var output json.RawMessage
+	var executionErr error
+	actionOutcome := ActionSucceeded
+	if authorized.Action != nil && authorized.Action.Mode == ActionReconcile {
+		output, actionOutcome, executionErr = definition.Handler.(ConsequentialHandler).Reconcile(executionContext, authorized)
+		if !validActionOutcome(actionOutcome) {
+			executionErr = ErrExecutionFailed
+			actionOutcome = ActionUnknown
+		}
+	} else {
+		output, executionErr = definition.Handler.Execute(executionContext, authorized)
+		if executionErr != nil && authorized.Action != nil {
+			actionOutcome = actionFailureOutcome(executionErr)
+		}
+	}
 	if executionErr != nil {
 		code := machineError(executionErr, "execution_failed")
+		if authorized.Action != nil {
+			if err := s.completeAction(ctx, *authorized.Action, actionOutcome, code); err != nil {
+				return Result{}, err
+			}
+		}
+		if err := s.auditAfterExecution(ctx, grant, call, "failed", code); err != nil {
+			return Result{}, err
+		}
+		return Result{}, ErrExecutionFailed
+	}
+	if authorized.Action != nil && actionOutcome != ActionSucceeded {
+		code := "action_" + string(actionOutcome)
+		if err := s.completeAction(ctx, *authorized.Action, actionOutcome, code); err != nil {
+			return Result{}, err
+		}
 		if err := s.auditAfterExecution(ctx, grant, call, "failed", code); err != nil {
 			return Result{}, err
 		}
@@ -186,15 +278,34 @@ func (s *Service) Invoke(ctx context.Context, token, invocationID string, call C
 	}
 	canonicalOutput, err := canonicalObject(output, MaximumOutputBytes)
 	if err != nil {
+		if authorized.Action != nil {
+			if completeErr := s.completeAction(ctx, *authorized.Action, ActionSucceeded, ""); completeErr != nil {
+				return Result{}, completeErr
+			}
+		}
 		if auditErr := s.auditAfterExecution(ctx, grant, call, "failed", "invalid_output"); auditErr != nil {
 			return Result{}, auditErr
 		}
 		return Result{}, ErrExecutionFailed
 	}
+	if authorized.Action != nil {
+		if err := s.completeAction(ctx, *authorized.Action, ActionSucceeded, ""); err != nil {
+			return Result{}, err
+		}
+	}
 	if err := s.auditAfterExecution(ctx, grant, call, "succeeded", ""); err != nil {
 		return Result{}, err
 	}
 	return Result{SchemaVersion: SchemaVersion, Output: canonicalOutput}, nil
+}
+
+func (s *Service) completeAction(ctx context.Context, lease ActionLease, outcome ActionOutcome, errorCode string) error {
+	completionContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	if err := s.actions.CompleteAction(completionContext, ActionCompletion{Lease: lease, Outcome: outcome, ErrorCode: errorCode, At: s.clock.Now().UTC()}); err != nil {
+		return ErrActionUnavailable
+	}
+	return nil
 }
 
 func (s *Service) auditAfterExecution(ctx context.Context, grant runnerbroker.CapabilityGrant, call Call, decision, errorCode string) error {
@@ -251,4 +362,24 @@ func machineError(err error, fallback string) string {
 		return coded.Code()
 	}
 	return fallback
+}
+
+type definitiveError interface{ Definitive() bool }
+
+func actionFailureOutcome(err error) ActionOutcome {
+	var definitive definitiveError
+	if errors.As(err, &definitive) && definitive.Definitive() {
+		return ActionFailed
+	}
+	return ActionUnknown
+}
+
+func validActionOutcome(outcome ActionOutcome) bool {
+	return outcome == ActionSucceeded || outcome == ActionFailed || outcome == ActionUnknown
+}
+
+func validLease(lease ActionLease, request ActionRequest, now time.Time) bool {
+	return lease.AccountID == request.AccountID && lease.InvocationID == request.InvocationID && lease.OperationID == request.OperationID &&
+		lease.Capability == request.Capability && lease.InputDigest == request.InputDigest && ids.Validate(lease.AttemptID) == nil &&
+		lease.IdempotencyKey == request.OperationID && (lease.Mode == ActionExecute || lease.Mode == ActionReconcile) && lease.LeaseExpiresAt.After(now)
 }
