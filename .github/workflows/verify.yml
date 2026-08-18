@@ -35,6 +35,12 @@ jobs:
       - run: go test -race ./...
       - run: go vet ./...
       - run: go run ./cmd/apicontract -check
+      - name: Check customer API backward compatibility
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          git show FETCH_HEAD:api/spyglass.openapi.json > "$RUNNER_TEMP/spyglass-base.openapi.json"
+          go run ./cmd/apicompat -base "$RUNNER_TEMP/spyglass-base.openapi.json" -head api/spyglass.openapi.json
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
       - run: test -z "$(gofmt -l cmd internal migrations)"
       - run: kubectl kustomize deploy/kubernetes/reference >/dev/null

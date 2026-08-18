@@ -11,6 +11,7 @@ Run:
 ```text
 go run ./cmd/apicontract -write
 go run ./cmd/apicontract -check
+go run ./cmd/apicompat -base <base-openapi.json> -head api/spyglass.openapi.json
 ```
 
 The write command deterministically produces:
@@ -21,8 +22,8 @@ The write command deterministically produces:
 
 The check command parses the Go Account/cell transport registrations with the Go AST and compares every customer JSON method/path/service tuple with OpenAPI. It also rejects duplicate operation IDs, missing ownership, missing security declarations, missing responses, unresolved or external schema references, stale generated output, and undocumented or unregistered routes. Regression tests keep the acquisition, identity-security, Account-context, Work, and Agents slices typed, and a whole-surface gate rejects any reintroduction of a generic success response. CI runs the check before accepting a change.
 
-Changing a route therefore requires one reviewed OpenAPI change and regenerated artifacts in the same commit. Do not hand-edit generated files. Breaking path, method, authentication, or payload changes require a versioning/deprecation decision; adding an operation requires authorization, isolation, error, and browser contract tests before advertisement.
+Changing a route therefore requires one reviewed OpenAPI change and regenerated artifacts in the same commit. Do not hand-edit generated files. Pull requests compare the candidate against the target branch and reject removals or incompatible authentication, parameter, request, success-status/header, enum, property, type, bound, or additional-property changes. See [API compatibility policy](api-compatibility.md) for the deliberately bounded classifier and versioning workflow. Breaking changes require a versioning/deprecation decision; adding an operation requires authorization, isolation, error, and browser contract tests before advertisement.
 
 ## Publication closeout
 
-The remaining contract work is operational rather than structural: bind generated operation-specific client calls to these component types, run Go handlers and browser clients against schema fixtures, classify backward-compatible versus breaking diffs in CI, decide which operations are public partner surface versus first-party-only, and publish the resulting sanitized document. Provider payloads such as Stripe events and standards payloads such as WebAuthn remain bounded extension envelopes rather than frozen copies of third-party schemas.
+The remaining contract work is operational rather than structural: bind the remaining first-party client calls to generated component types, run Go handlers and browser clients against schema fixtures, decide which operations are public partner surface versus first-party-only, and publish the resulting sanitized document. The public pricing client now consumes the generated Catalog plan/offer types while retaining runtime checks and illustrative fallback behavior. Provider payloads such as Stripe events and standards payloads such as WebAuthn remain bounded extension envelopes rather than frozen copies of third-party schemas.

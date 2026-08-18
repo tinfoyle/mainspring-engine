@@ -43,7 +43,7 @@ This verdict separates executable software from environment evidence. The reposi
 
 1. Finish the user-facing Agents conversation/orchestration, schedules, attachments, and customer retry/manual-resolution paths. Dispatch/projection dead-letter inspection and exact-target operator requeue are executable; they still require staging role and runbook rehearsal.
 2. Complete Knowledge before claiming source-attributed business memory; complete Finance and Marketing before advertising those packages as usable rather than preview/locked surfaces.
-3. Add handler/browser schema fixtures, backward-compatibility diff classification, first-party-versus-partner publication policy, and a sanitized published OpenAPI artifact. All 56 customer operations now have exact success contracts and generated types; route, owner, authentication, reference, no-generic-response, Go/TypeScript generation, and Go transport drift checks are executable.
+3. Add handler/browser schema fixtures, first-party-versus-partner publication policy, and a sanitized published OpenAPI artifact. All 56 customer operations now have exact success contracts and generated types; the public pricing client consumes generated Catalog types; and route, owner, authentication, reference, no-generic-response, backward-compatibility, Go/TypeScript generation, and Go transport drift checks are executable.
 4. Complete downgrade read-only/export/retention/restoration behavior for every package and transport, including background work and agent capabilities.
 5. Implement and rehearse Account movement between cells, including copy/change capture, reconciliation, placement switch, rollback window, and source retirement.
 
