@@ -19,7 +19,6 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
-	"github.com/tinfoyle/spyglass-engine/internal/transport/toolrouter"
 )
 
 type TokenSigner interface {
@@ -81,7 +80,7 @@ func (c *Client) Execute(ctx context.Context, call runnercapability.AuthorizedCa
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set(toolrouter.ContextHeader, token)
+	request.Header.Set(toolcontext.HeaderName, token)
 	response, err := c.http.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch runner tool: %w", err)

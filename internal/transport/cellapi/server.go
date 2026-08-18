@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	RouteContextHeader = "X-Spyglass-Route-Context"
+	RouteContextHeader = routecontext.HeaderName
 	DefaultMaxBody     = int64(1 << 20)
 )
 

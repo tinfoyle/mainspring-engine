@@ -13,7 +13,6 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
-	"github.com/tinfoyle/spyglass-engine/internal/transport/toolrouter"
 )
 
 type signer struct {
@@ -38,7 +37,7 @@ func TestClientSignsExactAuthorizedCall(t *testing.T) {
 	signer := &signer{}
 	httpClient := &http.Client{Transport: roundTrip(func(request *http.Request) (*http.Response, error) {
 		body, _ := io.ReadAll(request.Body)
-		if request.Header.Get(toolrouter.ContextHeader) != "signed-tool-context" || string(body) != `{}` {
+		if request.Header.Get(toolcontext.HeaderName) != "signed-tool-context" || string(body) != `{}` {
 			t.Fatalf("unexpected dispatch: headers=%v body=%s", request.Header, body)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"active":2}`))}, nil
@@ -49,14 +48,14 @@ func TestClientSignsExactAuthorizedCall(t *testing.T) {
 	}
 	call := runnercapability.AuthorizedCall{Grant: runnerbroker.CapabilityGrant{
 		Identity:  runnerbroker.Identity{InvocationID: "20000000-0000-4000-8000-000000000002", PodUID: "30000000-0000-4000-8000-000000000003"},
-		AccountID: "10000000-0000-4000-8000-000000000001", Capability: toolrouter.WorkSummaryCapability,
+		AccountID: "10000000-0000-4000-8000-000000000001", Capability: runnercapability.WorkSummaryCapability,
 		ExpiresAt: time.Now().Add(time.Minute),
 	}, OperationID: "40000000-0000-4000-8000-000000000004", Input: []byte(`{}`)}
 	output, err := client.Execute(context.Background(), call)
 	if err != nil || string(output) != `{"active":2}` {
 		t.Fatalf("output=%s err=%v", output, err)
 	}
-	if signer.authority.RequestID != "60000000-0000-4000-8000-000000000006" || signer.authority.AccountID != ids.AccountID("10000000-0000-4000-8000-000000000001") || signer.authority.Capability != toolrouter.WorkSummaryCapability {
+	if signer.authority.RequestID != "60000000-0000-4000-8000-000000000006" || signer.authority.AccountID != ids.AccountID("10000000-0000-4000-8000-000000000001") || signer.authority.Capability != runnercapability.WorkSummaryCapability {
 		t.Fatalf("unexpected authority: %#v", signer.authority)
 	}
 	if signer.binding.Method != http.MethodPost || signer.binding.Target != "/internal/v1/tools:invoke" || signer.binding.HeadersSHA256 == "" {

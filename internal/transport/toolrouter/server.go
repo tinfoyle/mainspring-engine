@@ -22,11 +22,10 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
-	"github.com/tinfoyle/spyglass-engine/internal/transport/cellapi"
 )
 
 const (
-	ContextHeader          = "X-Spyglass-Tool-Context"
+	ContextHeader          = toolcontext.HeaderName
 	DefaultMaxRequestBody  = int64(256 << 10)
 	DefaultMaxResponseBody = int64(256 << 10)
 	WorkSummaryCapability  = runnercapability.WorkSummaryCapability
@@ -162,7 +161,7 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "tool_routing_unavailable")
 		return
 	}
-	outbound.Header.Set(cellapi.RouteContextHeader, routeToken)
+	outbound.Header.Set(routecontext.HeaderName, routeToken)
 	outbound.Header.Set("X-Request-ID", requestID)
 	response, err := s.client.Do(outbound)
 	if err != nil {

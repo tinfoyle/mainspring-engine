@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	HeaderName      = "X-Spyglass-Tool-Context"
 	TokenType       = "SPYGLASS-TOOL"
 	Algorithm       = "HS256"
 	Version         = 1

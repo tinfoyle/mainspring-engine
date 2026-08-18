@@ -16,7 +16,6 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
-	"github.com/tinfoyle/spyglass-engine/internal/transport/cellapi"
 )
 
 const (
@@ -69,7 +68,7 @@ func Probe(ctx context.Context, config Config) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	request.Header.Set(cellapi.RouteContextHeader, token)
+	request.Header.Set(routecontext.HeaderName, token)
 	request.Header.Set("Accept", "application/json")
 	client := &http.Client{
 		Transport: config.Transport,

@@ -1272,14 +1272,19 @@ func (s *Server) ready(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) publicCatalog(w http.ResponseWriter, _ *http.Request) {
 	catalog := s.catalog()
-	offers := make([]catalogOffer, 0, len(catalog.Offers))
-	for _, offer := range catalog.Offers {
-		if !offer.Published {
+	offers := effectiveCatalogOffers(catalog, time.Now().UTC())
+	writeJSON(w, http.StatusOK, map[string]any{"version": catalog.Version, "published_at": catalog.PublishedAt, "packages": catalog.Packages, "limits": catalog.EffectiveLimitDefinitions(), "plans": catalog.Plans, "offers": offers})
+}
+
+func effectiveCatalogOffers(publication catalog.PublishedCatalog, now time.Time) []catalogOffer {
+	offers := make([]catalogOffer, 0, len(publication.Offers))
+	for _, offer := range publication.Offers {
+		if !offer.Published || offer.EffectiveFrom.After(now) {
 			continue
 		}
 		offers = append(offers, catalogOffer{Code: offer.Code, PlanCode: offer.PlanCode, PlanVersion: offer.PlanVersion, Currency: offer.Currency, AmountMinor: offer.AmountMinor, BillingInterval: offer.BillingInterval, EffectiveFrom: offer.EffectiveFrom})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"version": catalog.Version, "published_at": catalog.PublishedAt, "packages": catalog.Packages, "limits": catalog.EffectiveLimitDefinitions(), "plans": catalog.Plans, "offers": offers})
+	return offers
 }
 
 type catalogOffer struct {

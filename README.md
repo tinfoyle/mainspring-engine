@@ -58,6 +58,7 @@ The focused design documents are:
 - [Route and workload identity rotation operations](docs/production/route-rotation-operations.md)
 - [Detailed delivery backlog](docs/production/delivery-plan.md)
 - [Quality, security, and operations gates](docs/production/quality-security-operations.md)
+- [Production-readiness audit and closeout gates](docs/production/production-readiness-audit.md)
 - [Current Phase 2 development slice](docs/production/development-slice.md)
 
 Current executable production surfaces:

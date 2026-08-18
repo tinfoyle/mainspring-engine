@@ -22,7 +22,6 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
-	"github.com/tinfoyle/spyglass-engine/internal/transport/cellapi"
 )
 
 const (
@@ -240,7 +239,7 @@ func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body []by
 		return nil, err
 	}
 	copyRequestHeader(outbound.Header, inbound.Header, "Accept", "Content-Type", "If-Match", "Idempotency-Key")
-	outbound.Header.Set(cellapi.RouteContextHeader, token)
+	outbound.Header.Set(routecontext.HeaderName, token)
 	outbound.Header.Set("X-Request-ID", requestID)
 	return outbound, nil
 }

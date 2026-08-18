@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	HeaderName            = "X-Spyglass-Route-Context"
 	TokenType             = "SPYGLASS-ROUTE"
 	Algorithm             = "HS256"
 	Version               = 1
