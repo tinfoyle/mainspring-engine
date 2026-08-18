@@ -97,6 +97,15 @@ credential, operator identity/reason, and exact environment confirmation. It
 must not inherit the reconciler's global credential or any serving secret. See
 [work-release-operations.md](../../../docs/production/work-release-operations.md).
 
+Account erasure administration is intentionally absent as a standing
+Deployment. Environments run `spyglass account-erasure-admin
+prepare|inspect|approve|cancel` as short-lived, human-authorized Jobs with
+separate execute-only global and target-cell credentials, operator evidence,
+and exact environment confirmation. The preparation Job also repeats the
+Account UUID, policy/export evidence, and backup-expiry deadline; its command
+surface has no physical deletion authority. See
+[account-erasure.md](../../../docs/production/account-erasure.md).
+
 Route rotation canaries are intentionally absent as a standing Deployment.
 Environments run `spyglass route-canary` as a short-lived reviewed Job using a
 dedicated internal canary Account, a candidate signing-key secret, and either a

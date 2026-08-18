@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,12 +19,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
 	workreleaseapp "github.com/tinfoyle/spyglass-engine/internal/application/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
+	accounterasurecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/accounterasureadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountlifecycleworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
@@ -79,12 +82,14 @@ func main() {
 		err = runRouteCanary(ctx, logger)
 	case "work-release-admin":
 		err = runWorkReleaseAdmin(ctx, logger)
+	case "account-erasure-admin":
+		err = runAccountErasureAdmin(ctx, logger)
 	case "catalog-admin":
 		err = runCatalogAdmin(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -207,6 +212,126 @@ func runWorkReleaseAdmin(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	return workreleasecommand.Run(startup, config, logger)
+}
+
+func runAccountErasureAdmin(ctx context.Context, logger *slog.Logger) error {
+	if len(os.Args) != 3 || (os.Args[2] != "prepare" && os.Args[2] != "inspect" && os.Args[2] != "approve" && os.Args[2] != "cancel") {
+		return errors.New("usage: spyglass account-erasure-admin prepare|inspect|approve|cancel")
+	}
+	globalDatabaseURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	actor, err := requiredEnv("SPYGLASS_OPERATOR_ID")
+	if err != nil {
+		return err
+	}
+	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
+	if err != nil {
+		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	confirmation, err := requiredEnv("SPYGLASS_CONFIRM_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	globalMaxConns, err := int32Env("SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	config := accounterasurecommand.Config{GlobalDatabaseURL: globalDatabaseURL, Action: os.Args[2], Actor: actor, Reason: reason, Environment: environment, ConfirmEnvironment: confirmation, MaxGlobalConns: globalMaxConns}
+	if config.Action == "prepare" || config.Action == "approve" {
+		config.CellDatabaseURL, err = requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+		if err != nil {
+			return err
+		}
+		cellID, err := requiredEnv("SPYGLASS_CELL_ID")
+		if err != nil {
+			return err
+		}
+		config.CellID = ids.CellID(cellID)
+		config.MaxCellConns, err = int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 2)
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action != "prepare" {
+		config.RequestID, err = requiredEnv("SPYGLASS_ACCOUNT_ERASURE_REQUEST_ID")
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action == "approve" || config.Action == "cancel" {
+		config.ExpectedVersion, err = uint64Env("SPYGLASS_ACCOUNT_ERASURE_VERSION")
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action == "prepare" {
+		accountID, err := requiredEnv("SPYGLASS_ACCOUNT_ID")
+		if err != nil {
+			return err
+		}
+		confirmedAccountID, err := requiredEnv("SPYGLASS_CONFIRM_ACCOUNT_ID")
+		if err != nil {
+			return err
+		}
+		config.AccountID, config.ConfirmAccountID = ids.AccountID(accountID), ids.AccountID(confirmedAccountID)
+		config.PolicyVersion, err = uint64Env("SPYGLASS_ACCOUNT_ERASURE_POLICY_VERSION")
+		if err != nil {
+			return err
+		}
+		backupExpiry, err := requiredEnv("SPYGLASS_ACCOUNT_ERASURE_BACKUP_EXPIRES_AT")
+		if err != nil {
+			return err
+		}
+		config.BackupExpiresAt, err = time.Parse(time.RFC3339, backupExpiry)
+		if err != nil {
+			return errors.New("SPYGLASS_ACCOUNT_ERASURE_BACKUP_EXPIRES_AT must be RFC3339")
+		}
+		disposition, err := requiredEnv("SPYGLASS_ACCOUNT_ERASURE_EXPORT_DISPOSITION")
+		if err != nil {
+			return err
+		}
+		config.Export.Disposition = accounterasure.ExportDisposition(disposition)
+		switch config.Export.Disposition {
+		case accounterasure.ExportArtifact:
+			config.Export.Reference, err = requiredEnv("SPYGLASS_ACCOUNT_ERASURE_EXPORT_REFERENCE")
+			if err != nil {
+				return err
+			}
+			digest, err := requiredEnv("SPYGLASS_ACCOUNT_ERASURE_EXPORT_SHA256")
+			if err != nil {
+				return err
+			}
+			config.Export.SHA256, err = hex.DecodeString(digest)
+			if err != nil || len(config.Export.SHA256) != 32 {
+				return errors.New("SPYGLASS_ACCOUNT_ERASURE_EXPORT_SHA256 must be exactly 64 hexadecimal characters")
+			}
+			exportExpiry, err := requiredEnv("SPYGLASS_ACCOUNT_ERASURE_EXPORT_EXPIRES_AT")
+			if err != nil {
+				return err
+			}
+			parsedExpiry, err := time.Parse(time.RFC3339, exportExpiry)
+			if err != nil {
+				return errors.New("SPYGLASS_ACCOUNT_ERASURE_EXPORT_EXPIRES_AT must be RFC3339")
+			}
+			config.Export.ExpiresAt = &parsedExpiry
+		case accounterasure.ExportNotApplicable:
+			config.Export.Reason, err = requiredEnv("SPYGLASS_ACCOUNT_ERASURE_EXPORT_REASON")
+			if err != nil {
+				return err
+			}
+		default:
+			return errors.New("SPYGLASS_ACCOUNT_ERASURE_EXPORT_DISPOSITION must be artifact or not_applicable")
+		}
+	}
+	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return accounterasurecommand.Run(startup, config, logger)
 }
 
 func runMigrate(ctx context.Context, logger *slog.Logger) error {

@@ -1,8 +1,8 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog operator, and Work release operator processes
+- Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog operator, Work release operator, and non-destructive Account erasure preparation processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, one-shot `route-canary`/`work-release-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, one-shot `route-canary`/`work-release-admin`/`account-erasure-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -19,6 +19,7 @@
 | `entitlement-worker` | Bounded existing-Account Catalog rollout seeding, leased free-plan recomputation, immutable changed-access snapshots, and drift repair | Catalog publication decisions, paid-grant mutation, Stripe or SMTP operations, customer business work |
 | `work-reconciler` | Lease identifier-only terminal Work release jobs, idempotently release global capacity, and checkpoint the matching Account-scoped Work row | Serving traffic, Work content reads, capacity reservation, package mutation, Stripe or SMTP operations |
 | `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
+| `account-erasure-admin` | One audited prepare, inspect, independent approval, or pre-execution cancellation of a retained closed Account | Physical deletion, audit bypass, serving traffic, automatic approval, arbitrary SQL |
 | `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
 | `migrate` | One embedded, immutable migration target against one database | Serving traffic, background work, automatic target selection |
@@ -223,6 +224,14 @@ Every reconciler replica periodically deletes at most the configured batch of co
 
 The operator credential receives only `USAGE` on the `public` and `spyglass` schemas plus `EXECUTE` on the two audited security-definer functions. It receives no direct queue, audit-table, Account namespace, or Work-table grants. See [work-release-operations.md](work-release-operations.md) for grants, diagnosis rules, invocation examples, and verification.
 
+## Account erasure preparation values
+
+`account-erasure-admin prepare|inspect|approve|cancel` is a short-lived controlled job implementing only the reviewed preparation state machine in [account-erasure.md](account-erasure.md). Every action requires `SPYGLASS_GLOBAL_DATABASE_URL`, `SPYGLASS_OPERATOR_ID`, `SPYGLASS_OPERATOR_REASON`, `SPYGLASS_ENVIRONMENT`, and an exact `SPYGLASS_CONFIRM_ENVIRONMENT`. `inspect`, `approve`, and `cancel` require `SPYGLASS_ACCOUNT_ERASURE_REQUEST_ID`; approval and cancellation also require `SPYGLASS_ACCOUNT_ERASURE_VERSION`.
+
+Preparation additionally requires `SPYGLASS_CELL_DATABASE_URL`, `SPYGLASS_CELL_ID`, `SPYGLASS_ACCOUNT_ID`, exact `SPYGLASS_CONFIRM_ACCOUNT_ID`, `SPYGLASS_ACCOUNT_ERASURE_POLICY_VERSION`, RFC3339 `SPYGLASS_ACCOUNT_ERASURE_BACKUP_EXPIRES_AT`, and `SPYGLASS_ACCOUNT_ERASURE_EXPORT_DISPOSITION`. An `artifact` export requires its opaque reference, 64-character hexadecimal SHA-256, and RFC3339 expiry; `not_applicable` requires a policy-approved export reason. Approval reconnects to the snapshotted cell through the configured cell ID and repeats readiness attestation before changing state.
+
+The global and cell credentials receive only `USAGE` on their schemas and `EXECUTE` on the relevant security-definer functions. They receive no direct Account, closure, billing, usage, Work, request, or audit-table privileges. This command contains no execute, delete, tombstone, or immutable-audit bypass path.
+
 ## Local invocation shape
 
 ```text
@@ -238,6 +247,7 @@ spyglass entitlement-worker
 spyglass account-lifecycle-worker
 spyglass work-reconciler
 spyglass work-release-admin <action>
+spyglass account-erasure-admin <action>
 spyglass catalog-admin <action>
 SPYGLASS_MIGRATION_TARGET=global spyglass migrate
 ```
@@ -258,7 +268,7 @@ The runner takes a target-specific PostgreSQL advisory lock, checks the SHA-256 
 
 Migration credentials are an independent deployment secret. They may own or alter schema; serving credentials must not. In particular, a cell serving role must not own cell tables and must not have `SUPERUSER` or `BYPASSRLS`, or PostgreSQL row-level security would not provide the intended Account boundary.
 
-CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, concurrency-safe package capacity admission and Work release recovery, broker-backed Work creation and definitive-failure compensation through split roles, bounded forced-RLS route-receipt cleanup with concurrent-insert schedule fencing, execute-only audited dead-letter operations, registration provisioning, Checkout reservation concurrency, transaction-local Account context, split worker credentials, stale lease rejection, and attempted cross-Account reads and writes through non-owner roles.
+CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, concurrency-safe package capacity admission and Work release recovery, broker-backed Work creation and definitive-failure compensation through split roles, bounded forced-RLS route-receipt cleanup with concurrent-insert schedule fencing, execute-only audited dead-letter operations, retained-Account erasure eligibility, fresh cell readiness, four-eyes approval, non-destructive cancellation, registration provisioning, Checkout reservation concurrency, transaction-local Account context, split worker credentials, stale lease rejection, and attempted cross-Account reads and writes through non-owner roles.
 
 The Kubernetes reference uses these exact arguments and expects environment overlays to supply `spyglass-global-runtime`, `spyglass-cell-reference-runtime`, plus workload-specific `spyglass-account-api-secrets`, `spyglass-app-router-secrets`, `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`, `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`, `spyglass-entitlement-worker-secrets`, and `spyglass-work-reconciler-secrets`. Those objects are intentionally absent from the repository. The router receives a constrained global credential and signing key; app-api receives only a cell credential and verification keyring. Admission-api receives only its narrow global usage credential and verification keyring. The route-receipt worker receives only its constrained cell cleanup credential. The entitlement worker secret needs only its constrained global-database credential. The Work reconciler secret contains distinct cell/global release credentials and no serving, Stripe, or SMTP secret. No literal production credential belongs in source control or a rendered manifest.
 
