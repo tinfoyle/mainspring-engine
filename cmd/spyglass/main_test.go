@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -122,5 +124,13 @@ func TestVerificationKeyParser(t *testing.T) {
 				t.Fatal("expected invalid verification key map")
 			}
 		})
+	}
+}
+
+func TestRouteCanaryRejectsUnknownTargetBeforeLoadingSecrets(t *testing.T) {
+	t.Setenv("SPYGLASS_ROUTE_CANARY_TARGET", "everything")
+	err := runRouteCanary(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || err.Error() != "SPYGLASS_ROUTE_CANARY_TARGET must be cell or admission" {
+		t.Fatalf("error=%v", err)
 	}
 }

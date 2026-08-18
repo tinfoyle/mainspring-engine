@@ -1,8 +1,8 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, global router, cell API, private admission API, route-receipt retention, billing, notification, entitlement-rollout, Work reconciliation, migration, Catalog operator, and Work release operator processes
+- Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Work reconciliation, migration, Catalog operator, and Work release operator processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, one-shot `work-release-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, one-shot `route-canary`/`work-release-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -13,6 +13,7 @@
 | `app-api` | Verify and consume route context, reject replay/stale placement, and execute Account-owned use cases through one shared cell pool | Global database, session cookies, Account/Billing mutation, arbitrary cell routing |
 | `admission-api` | Re-verify routed Work operation proofs, reauthorize current global access, and reserve/compensate governed capacity | Cell database, Work content, browser sessions, terminal Work release, Stripe or SMTP operations |
 | `route-receipt-worker` | Lease identifier-only per-Account cleanup schedules and perform bounded replay-receipt deletion inside Account RLS | Serving traffic, global data, customer Work, cross-Account receipt reads, Stripe or SMTP operations |
+| `route-canary` | One candidate-key and candidate-certificate probe through a dedicated internal Account's protected cell path or admission verifier | Database credentials, customer Accounts, serving traffic, secret logging, usage mutation, or automatic cutover |
 | `billing-worker` | Leased Stripe inbox processing, current Subscription retrieval, transactional grant/snapshot projection, reconciliation queue | Browser/API traffic, raw webhook acceptance, customer business work |
 | `notification-worker` | Leased encrypted identity-notification delivery, bounded retries, terminal dead-letter state | Browser/API traffic, identity mutation, billing credentials, customer business work |
 | `entitlement-worker` | Bounded existing-Account Catalog rollout seeding, leased free-plan recomputation, immutable changed-access snapshots, and drift repair | Catalog publication decisions, paid-grant mutation, Stripe or SMTP operations, customer business work |
@@ -63,20 +64,20 @@ Each account-api replica holds one immutable Catalog snapshot. It polls for the 
 
 | Environment variable | Consumers | Requirement |
 |---|---|---|
-| `SPYGLASS_ROUTE_ISSUER` | App router, app API | Exact shared issuer name, normally `spyglass-app-router` |
-| `SPYGLASS_ROUTE_SIGNING_KEY_ID` | App router | Active non-secret key identifier |
-| `SPYGLASS_ROUTE_SIGNING_KEY` | App router | Standard Base64 encoding of exactly 32 random secret bytes |
+| `SPYGLASS_ROUTE_ISSUER` | App router, app API, route canary | Exact shared issuer name, normally `spyglass-app-router` |
+| `SPYGLASS_ROUTE_SIGNING_KEY_ID` | App router, route canary | Active or candidate non-secret key identifier |
+| `SPYGLASS_ROUTE_SIGNING_KEY` | App router, route canary | Standard Base64 encoding of exactly 32 random secret bytes |
 | `SPYGLASS_ROUTE_VERIFY_KEYS` | App API, admission API | Comma-separated `key-id=base64-key` keyring containing active and retained rotation keys |
 | `SPYGLASS_ROUTE_CONTEXT_TTL` | App router | Optional positive duration; defaults to `20s` and has a hard `30s` maximum |
 | `SPYGLASS_DIRECTORY_CACHE_TTL` | App router | Optional positive duration, at most `5m`; defaults to `30s` |
 | `SPYGLASS_DIRECTORY_CACHE_CAPACITY` | App router | Optional positive Account-route bound, at most 1,000,000; defaults to 10,000 |
-| `SPYGLASS_CELL_ID` | App API | Exact cell identity used as token audience and deployment identity |
+| `SPYGLASS_CELL_ID` | App API, route canary | Exact cell identity used as token audience and deployment identity |
 | `SPYGLASS_SESSION_COOKIE_NAME` | App router | Optional; defaults to `__Host-spyglass_session` |
 | `SPYGLASS_MAX_REQUEST_BODY_BYTES` | App API | Optional positive limit up to 16 MiB; defaults to 1 MiB |
 | `SPYGLASS_WORK_ADMISSION_ORIGIN` | App API | Exact private admission-api origin; HTTPS is the fail-closed default |
-| `SPYGLASS_WORKLOAD_CERT_FILE` | App router, app API, admission API | PEM workload certificate path; app-api certificates need server and client usage |
-| `SPYGLASS_WORKLOAD_KEY_FILE` | App router, app API, admission API | PEM private-key path readable only by the workload |
-| `SPYGLASS_WORKLOAD_CA_FILE` | App router, app API, admission API | PEM trust-bundle path for the environment workload CA rotation set |
+| `SPYGLASS_WORKLOAD_CERT_FILE` | App router, app API, admission API, route canary | PEM workload certificate path; app-api certificates need server and client usage |
+| `SPYGLASS_WORKLOAD_KEY_FILE` | App router, app API, admission API, route canary | PEM private-key path readable only by the workload |
+| `SPYGLASS_WORKLOAD_CA_FILE` | App router, app API, admission API, route canary | PEM trust-bundle path for the environment workload CA rotation set |
 | `SPYGLASS_WORKLOAD_CLIENT_IDENTITIES` | App API, admission API | Comma-separated exact SPIFFE URI identities permitted on private endpoints |
 
 Cell route origins are operational data in the global `cells` registry, not process configuration. Before assigning Accounts, an operator must set each cell's exact internal HTTPS origin whose DNS name appears in that cell server certificate; origins may not contain credentials, paths, queries, fragments, or control characters. The router joins this registry to `account_directory`, caches only eligible assignments, and requires an exact cell/generation match with authorization. `SPYGLASS_ENV=development` is the only plain-HTTP and non-workload-TLS escape hatch.
@@ -99,6 +100,26 @@ Admission-api is private and accepts neither browser cookies nor bearer identity
 App-api presents the original short-lived route proof. Admission-api re-verifies its signature, cell audience, Work mutation path, operation ID, enabled package claim, and exact request binding before current global authorization. The reference NetworkPolicy permits only app-api pods to connect. Production app-api accepts only an HTTPS broker origin and presents its workload certificate; admission-api additionally requires that certificate's exact configured SPIFFE URI. Plain HTTP is available only to an explicitly selected `SPYGLASS_ENV=development` process.
 
 Internal servers require TLS 1.3. They reload the certificate, key, and CA bundle on each new handshake; clients reload those files for each new pooled connection. `/health/*` remains HTTPS but does not require a client certificate so Kubernetes probes work. Every business path requires a verified allowed workload identity. Trust rotation adds the new CA to the bundle before issuing new leaves, waits for new connections and rollout evidence, then removes the old CA; emergency revocation also terminates existing pods/connections.
+
+## Route rotation canary values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_ROUTE_CANARY_TARGET` | Required exact `cell` or `admission` |
+| `SPYGLASS_ROUTE_CANARY_ORIGIN` | Required exact private HTTPS origin for the selected target |
+| `SPYGLASS_ROUTE_CANARY_ACCOUNT_ID` | Required dedicated internal canary Account UUID; never a customer Account |
+| `SPYGLASS_ROUTE_CANARY_PLACEMENT_GENERATION` | Required current positive cell placement generation |
+| `SPYGLASS_ROUTE_CANARY_ENTITLEMENT_VERSION` | Required current positive entitlement version |
+| `SPYGLASS_CELL_ID` | Required exact audience cell ID |
+| `SPYGLASS_ROUTE_ISSUER` | Required issuer matching target verifier configuration |
+| `SPYGLASS_ROUTE_SIGNING_KEY_ID` | Required candidate key ID |
+| `SPYGLASS_ROUTE_SIGNING_KEY` | Required candidate standard-Base64 32-byte signing key |
+| `SPYGLASS_WORKLOAD_CERT_FILE` | Candidate client certificate with the exact allowed app-router or app-api SPIFFE identity |
+| `SPYGLASS_WORKLOAD_KEY_FILE` | Candidate certificate private key |
+| `SPYGLASS_WORKLOAD_CA_FILE` | Trust bundle containing the destination server issuer during the overlap window |
+| `SPYGLASS_ROUTE_CANARY_TIMEOUT` | Optional duration from `1s` through `30s`; defaults to `10s` |
+
+The process is one-shot and has no development/plain-HTTP mode or database credential. A cell target traverses the ordinary Account context verifier, RLS namespace, and replay receipt. An admission target verifies its per-cell keyring without touching usage. The only success log fields are target, cell ID, key ID, and placement generation. See [route-rotation-operations.md](route-rotation-operations.md) for provisioning, rollout, rollback, and retirement steps.
 
 ## Billing worker values
 
@@ -189,6 +210,7 @@ spyglass account-api
 spyglass app-router
 spyglass app-api
 spyglass admission-api
+spyglass route-canary
 spyglass route-receipt-worker
 spyglass billing-worker
 spyglass notification-worker

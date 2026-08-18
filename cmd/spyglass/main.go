@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
 	workreleaseapp "github.com/tinfoyle/spyglass-engine/internal/application/workreleaseadmin"
@@ -71,6 +72,8 @@ func main() {
 		err = runWorkReconciler(ctx, logger)
 	case "route-receipt-worker":
 		err = runRouteReceiptWorker(ctx, logger)
+	case "route-canary":
+		err = runRouteCanary(ctx, logger)
 	case "work-release-admin":
 		err = runWorkReleaseAdmin(ctx, logger)
 	case "catalog-admin":
@@ -78,7 +81,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | work-reconciler | route-receipt-worker | work-release-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -602,6 +605,76 @@ func runRouteReceiptWorker(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "route-receipt", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+}
+
+func runRouteCanary(ctx context.Context, logger *slog.Logger) error {
+	target, err := requiredEnv("SPYGLASS_ROUTE_CANARY_TARGET")
+	if err != nil {
+		return err
+	}
+	if target != "cell" && target != "admission" {
+		return errors.New("SPYGLASS_ROUTE_CANARY_TARGET must be cell or admission")
+	}
+	origin, err := requiredEnv("SPYGLASS_ROUTE_CANARY_ORIGIN")
+	if err != nil {
+		return err
+	}
+	cellID, err := requiredEnv("SPYGLASS_CELL_ID")
+	if err != nil {
+		return err
+	}
+	accountID, err := requiredEnv("SPYGLASS_ROUTE_CANARY_ACCOUNT_ID")
+	if err != nil {
+		return err
+	}
+	generation, err := uint64Env("SPYGLASS_ROUTE_CANARY_PLACEMENT_GENERATION")
+	if err != nil {
+		return err
+	}
+	entitlementVersion, err := uint64Env("SPYGLASS_ROUTE_CANARY_ENTITLEMENT_VERSION")
+	if err != nil {
+		return err
+	}
+	issuer, err := requiredEnv("SPYGLASS_ROUTE_ISSUER")
+	if err != nil {
+		return err
+	}
+	keyID, err := requiredEnv("SPYGLASS_ROUTE_SIGNING_KEY_ID")
+	if err != nil {
+		return err
+	}
+	key, err := base64KeyEnv("SPYGLASS_ROUTE_SIGNING_KEY")
+	if err != nil {
+		return err
+	}
+	timeout, err := durationEnv("SPYGLASS_ROUTE_CANARY_TIMEOUT", routecanary.DefaultTimeout)
+	if err != nil || timeout < time.Second || timeout > 30*time.Second {
+		return errors.New("SPYGLASS_ROUTE_CANARY_TIMEOUT must be between 1s and 30s")
+	}
+	transport, err := workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+	if err != nil {
+		return err
+	}
+	defer transport.CloseIdleConnections()
+	probeContext, cancel := context.WithTimeout(ctx, timeout+time.Second)
+	defer cancel()
+	config := routecanary.Config{
+		Origin: origin, CellID: ids.CellID(cellID), AccountID: ids.AccountID(accountID),
+		PlacementGeneration: generation, EntitlementVersion: entitlementVersion,
+		Issuer: issuer, KeyID: keyID, SigningKey: key, Timeout: timeout,
+		Transport: transport, Clock: registration.SystemClock{}, IDs: ids.RandomGenerator{},
+	}
+	var result routecanary.Result
+	if target == "cell" {
+		result, err = routecanary.Probe(probeContext, config)
+	} else {
+		result, err = routecanary.ProbeAdmission(probeContext, config)
+	}
+	if err != nil {
+		return err
+	}
+	logger.Info("Route rotation canary verified", "target", target, "cell_id", result.CellID, "key_id", result.KeyID, "placement_generation", result.PlacementGeneration)
+	return nil
 }
 
 type runnableWorker interface {

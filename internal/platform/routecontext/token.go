@@ -22,15 +22,16 @@ import (
 )
 
 const (
-	TokenType        = "SPYGLASS-ROUTE"
-	Algorithm        = "HS256"
-	Version          = 1
-	MaxTokenBytes    = 32 * 1024
-	MaxTargetBytes   = 4096
-	MinimumKeyBytes  = 32
-	DefaultLifetime  = 20 * time.Second
-	MaximumLifetime  = 30 * time.Second
-	DefaultClockSkew = 2 * time.Second
+	TokenType             = "SPYGLASS-ROUTE"
+	Algorithm             = "HS256"
+	Version               = 1
+	MaxTokenBytes         = 32 * 1024
+	MaxTargetBytes        = 4096
+	MinimumKeyBytes       = 32
+	DefaultLifetime       = 20 * time.Second
+	MaximumLifetime       = 30 * time.Second
+	DefaultClockSkew      = 2 * time.Second
+	RotationCanaryActorID = "route-rotation-canary"
 )
 
 var (
@@ -122,6 +123,7 @@ type Claims struct {
 	ExpiresAt int64     `json:"exp"`
 	Authority Authority `json:"authority"`
 	Binding   Binding   `json:"binding"`
+	KeyID     string    `json:"-"`
 }
 
 type header struct {
@@ -237,6 +239,7 @@ func (v *Verifier) Verify(token string, binding Binding) (Claims, error) {
 	if claims.Binding != binding {
 		return Claims{}, ErrRequest
 	}
+	claims.KeyID = tokenHeader.KeyID
 	return claims, nil
 }
 

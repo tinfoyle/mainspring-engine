@@ -20,6 +20,7 @@ import (
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
+	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
@@ -122,11 +123,24 @@ func TestTwoCellPostgresRoutingIsolationAndMoveFailureContracts(t *testing.T) {
 	if countReceipts(t, ctx, cellAOwner) != 1 || countReceipts(t, ctx, cellBOwner) != 1 {
 		t.Fatalf("rejected attacks persisted replay receipts: A=%d B=%d", countReceipts(t, ctx, cellAOwner), countReceipts(t, ctx, cellBOwner))
 	}
+	canary, err := routecanary.Probe(ctx, routecanary.Config{
+		Origin: "https://cell-a.test", CellID: cellAID, AccountID: accountAID,
+		PlacementGeneration: 1, EntitlementVersion: 1, Issuer: "spyglass-app-router",
+		KeyID: "current", SigningKey: key, Timeout: 2 * time.Second,
+		Transport: transport, Clock: clock, IDs: fixedIDGenerator{"97000000-0000-4000-8000-000000000007"},
+	})
+	if err != nil || canary.CellID != cellAID || canary.KeyID != "current" || countReceipts(t, ctx, cellAOwner) != 2 {
+		t.Fatalf("real cell route canary=%+v receipts=%d err=%v", canary, countReceipts(t, ctx, cellAOwner), err)
+	}
+	var canaryActorKind, canaryActorID string
+	if err := cellAOwner.QueryRow(ctx, `SELECT actor_kind,actor_id FROM spyglass.route_context_receipts WHERE account_id=$1 AND request_id=$2`, accountAID, "97000000-0000-4000-8000-000000000007").Scan(&canaryActorKind, &canaryActorID); err != nil || canaryActorKind != "workload" || canaryActorID != routecanary.ActorID {
+		t.Fatalf("persisted route canary actor kind=%q id=%q err=%v", canaryActorKind, canaryActorID, err)
+	}
 
 	moveAccountBetweenCells(t, ctx, global, cellAOwner, cellBOwner, accountAID, cellBID, clock.Now())
 	moved := routeAccountContext(router.Handler(), issued.Token, accountAID)
 	assertRoutedCell(t, moved, accountAID, cellBID, 2)
-	if transport.Hits("cell-a.test") != 1 || transport.Hits("cell-b.test") != 2 {
+	if transport.Hits("cell-a.test") != 2 || transport.Hits("cell-b.test") != 2 {
 		t.Fatalf("moved Account was sent to the wrong cell: A=%d B=%d", transport.Hits("cell-a.test"), transport.Hits("cell-b.test"))
 	}
 	stale := directCellRequest(cellAHandler, accountAID, tokenA)

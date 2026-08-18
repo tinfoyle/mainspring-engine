@@ -30,7 +30,7 @@ func TestRoundTripAndRequestBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims.Authority.AccountID != authority.AccountID || claims.Authority.PackageAccess == nil || claims.Authority.PackageAccess.Code != "work" || claims.ExpiresAt-claims.IssuedAt != 20 {
+	if claims.KeyID != "current" || claims.Authority.AccountID != authority.AccountID || claims.Authority.PackageAccess == nil || claims.Authority.PackageAccess.Code != "work" || claims.ExpiresAt-claims.IssuedAt != 20 {
 		t.Fatalf("claims = %+v", claims)
 	}
 	for name, changed := range map[string]Binding{

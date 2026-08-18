@@ -51,6 +51,7 @@ The focused design documents are:
 - [Production runtime configuration](docs/production/runtime-configuration.md)
 - [Pooled Kubernetes and cell topology](docs/production/kubernetes-topology.md)
 - [Global-to-cell routing boundary](docs/production/routing-boundary.md)
+- [Route and workload identity rotation operations](docs/production/route-rotation-operations.md)
 - [Detailed delivery backlog](docs/production/delivery-plan.md)
 - [Quality, security, and operations gates](docs/production/quality-security-operations.md)
 - [Current Phase 2 development slice](docs/production/development-slice.md)
@@ -58,7 +59,7 @@ The focused design documents are:
 Current executable production surfaces:
 
 - [`website/`](website/) contains the public Infinite Ocean site and Spyglass product/package/pricing experience.
-- [`cmd/spyglass`](cmd/spyglass/) provides development, persistent Account API, global app-router, cell app-api, private admission-api, route-receipt/billing/notification/entitlement workers, the Work capacity reconciler, migration, and audited Catalog/Work-release operator modes.
+- [`cmd/spyglass`](cmd/spyglass/) provides development, persistent Account API, global app-router, cell app-api, private admission-api, route-receipt/billing/notification/entitlement workers, the Work capacity reconciler, a one-shot route-rotation canary, migration, and audited Catalog/Work-release operator modes.
 - [`internal/modules`](internal/modules/) contains Identity, Accounts, Sessions, Access, Catalog, Entitlements, Billing, Placement, and the first production Work boundary.
 - [`migrations/`](migrations/) contains the initial global and cell PostgreSQL schemas.
 - [`deploy/kubernetes/reference/`](deploy/kubernetes/reference/) captures the review-only pooled workload topology; it is deliberately fail-closed until release and environment overlays supply real artifacts and managed configuration.

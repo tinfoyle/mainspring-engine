@@ -145,6 +145,71 @@ func TestServerCredentialsReloadOnNewHandshake(t *testing.T) {
 	}
 }
 
+func TestOverlappingTrustRotationKeepsNewConnectionsAvailable(t *testing.T) {
+	previousPKI := newPKIFixture(t)
+	candidatePKI := newPKIFixture(t)
+	serverFiles := previousPKI.issue(t, "previous-server", "", true)
+	clientFiles := previousPKI.issue(t, "previous-router", routerIdentity, false)
+	staleClientFiles := previousPKI.issue(t, "retired-router", routerIdentity, false)
+	candidateServerFiles := candidatePKI.issue(t, "candidate-server", "", true)
+	candidateClientFiles := candidatePKI.issue(t, "candidate-router", routerIdentity, false)
+
+	handler, _ := RequireClientIdentity(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }), []string{routerIdentity}, discardLogger())
+	serverConfig, err := NewServerConfig(serverFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewUnstartedServer(handler)
+	server.TLS = serverConfig
+	server.StartTLS()
+	defer server.Close()
+
+	transport, err := NewClientTransport(clientFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport}
+	if response := request(t, client, server.URL+"/private"); response.StatusCode != http.StatusNoContent {
+		t.Fatalf("previous material status=%d", response.StatusCode)
+	}
+
+	overlap := append(append([]byte(nil), previousPKI.caPEM...), candidatePKI.caPEM...)
+	writeFile(t, serverFiles.TrustBundle, overlap)
+	writeFile(t, clientFiles.TrustBundle, overlap)
+	copyFile(t, candidateClientFiles.Certificate, clientFiles.Certificate)
+	copyFile(t, candidateClientFiles.PrivateKey, clientFiles.PrivateKey)
+	transport.CloseIdleConnections()
+	if response := request(t, client, server.URL+"/private"); response.StatusCode != http.StatusNoContent {
+		t.Fatalf("candidate client with overlap status=%d", response.StatusCode)
+	}
+
+	copyFile(t, candidateServerFiles.Certificate, serverFiles.Certificate)
+	copyFile(t, candidateServerFiles.PrivateKey, serverFiles.PrivateKey)
+	transport.CloseIdleConnections()
+	if response := request(t, client, server.URL+"/private"); response.StatusCode != http.StatusNoContent {
+		t.Fatalf("candidate server with overlap status=%d", response.StatusCode)
+	}
+
+	writeFile(t, serverFiles.TrustBundle, candidatePKI.caPEM)
+	writeFile(t, clientFiles.TrustBundle, candidatePKI.caPEM)
+	transport.CloseIdleConnections()
+	if response := request(t, client, server.URL+"/private"); response.StatusCode != http.StatusNoContent {
+		t.Fatalf("candidate-only trust status=%d", response.StatusCode)
+	}
+
+	writeFile(t, staleClientFiles.TrustBundle, candidatePKI.caPEM)
+	staleTransport, err := NewClientTransport(staleClientFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer staleTransport.CloseIdleConnections()
+	if response, err := (&http.Client{Transport: staleTransport}).Get(server.URL + "/private"); err == nil {
+		_ = response.Body.Close()
+		t.Fatal("retired client certificate remained trusted after old CA removal")
+	}
+}
+
 func TestConfigurationFailsClosed(t *testing.T) {
 	if _, err := NewClientTransport(Files{}); err == nil {
 		t.Fatal("expected missing workload material to fail")

@@ -53,9 +53,51 @@ func New(usage Usage, verifiers map[ids.CellID]Verifier, logger *slog.Logger, ma
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /internal/v1/route-canary", s.routeCanary)
 	mux.HandleFunc("POST /internal/v1/work/capacity/reserve", s.reserve)
 	mux.HandleFunc("POST /internal/v1/work/capacity/release", s.release)
 	return s.recover(s.securityHeaders(mux))
+}
+
+type routeCanaryRequest struct {
+	CellID       ids.CellID           `json:"cell_id"`
+	RouteContext string               `json:"route_context"`
+	Binding      routecontext.Binding `json:"binding"`
+}
+
+func (s *Server) routeCanary(w http.ResponseWriter, r *http.Request) {
+	if mediaType := strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]); mediaType != "application/json" {
+		writeProblem(w, http.StatusUnsupportedMediaType, "json_required", "route canary requires application/json")
+		return
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxBody))
+	decoder.DisallowUnknownFields()
+	var request routeCanaryRequest
+	if err := decoder.Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_route_canary", "the route canary is invalid")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeProblem(w, http.StatusBadRequest, "invalid_route_canary", "the route canary is invalid")
+		return
+	}
+	verifier, exists := s.verifiers[request.CellID]
+	if !exists || request.RouteContext == "" {
+		writeProblem(w, http.StatusUnauthorized, "invalid_route_canary", "the route canary could not be verified")
+		return
+	}
+	claims, err := verifier.Verify(request.RouteContext, request.Binding)
+	if err != nil {
+		writeProblem(w, http.StatusUnauthorized, "invalid_route_canary", "the route canary could not be verified")
+		return
+	}
+	expectedTarget := "/api/v1/accounts/" + string(claims.Authority.AccountID) + "/context"
+	expectedBinding, _ := routecontext.Bind(http.MethodGet, expectedTarget, nil)
+	if claims.Authority.CellID != request.CellID || claims.Authority.ActorKind != "workload" || claims.Authority.ActorID != routecontext.RotationCanaryActorID || claims.Authority.Role != "" || claims.Authority.OperationID != "" || claims.Authority.PackageAccess != nil || claims.Binding != expectedBinding {
+		writeProblem(w, http.StatusForbidden, "route_canary_scope_denied", "the route proof is not a rotation canary")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "verified", "cell_id": request.CellID, "key_id": claims.KeyID})
 }
 
 type capacityRequest struct {

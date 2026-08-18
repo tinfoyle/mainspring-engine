@@ -85,6 +85,14 @@ credential, operator identity/reason, and exact environment confirmation. It
 must not inherit the reconciler's global credential or any serving secret. See
 [work-release-operations.md](../../../docs/production/work-release-operations.md).
 
+Route rotation canaries are intentionally absent as a standing Deployment.
+Environments run `spyglass route-canary` as a short-lived reviewed Job using a
+dedicated internal canary Account, a candidate signing-key secret, and either a
+candidate app-router certificate for a cell target or candidate app-api
+certificate for admission. The Job receives no database credential and records
+no customer identifier or secret. See
+[route-rotation-operations.md](../../../docs/production/route-rotation-operations.md).
+
 The entitlement worker is a shared control-plane workload, not one pod or
 container per customer. Replicas coordinate bounded rollout seeding and Account
 claims through PostgreSQL leases. Scale it against oldest queue age and backlog,

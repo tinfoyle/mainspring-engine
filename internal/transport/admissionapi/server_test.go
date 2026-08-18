@@ -73,6 +73,49 @@ func TestWorkMutationBindingIsAnExactAllowlist(t *testing.T) {
 	}
 }
 
+func TestRouteCanaryVerifiesOnlyDedicatedWorkloadProofWithoutUsage(t *testing.T) {
+	cellID := ids.CellID("cell-us-east-01")
+	binding, err := routecontext.Bind(http.MethodGet, "/api/v1/accounts/"+testAccount+"/context", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := routecontext.Claims{KeyID: "candidate", Authority: routecontext.Authority{
+		AccountID: testAccount, ActorKind: "workload", ActorID: routecontext.RotationCanaryActorID,
+		CellID: cellID, PlacementGeneration: 1, EntitlementVersion: 1,
+	}, Binding: binding}
+	for _, test := range []struct {
+		name   string
+		claims routecontext.Claims
+		status int
+	}{
+		{name: "candidate canary", claims: base, status: http.StatusOK},
+		{name: "ordinary user proof", claims: func() routecontext.Claims {
+			value := base
+			value.Authority.ActorKind, value.Authority.ActorID, value.Authority.Role = "user", testActor, "owner"
+			return value
+		}(), status: http.StatusForbidden},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			usage := &testUsage{}
+			server, err := New(usage, map[ids.CellID]Verifier{cellID: testVerifier{claims: test.claims}}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload, _ := json.Marshal(routeCanaryRequest{CellID: cellID, RouteContext: "signed-proof", Binding: binding})
+			request := httptest.NewRequest(http.MethodPost, "/internal/v1/route-canary", bytes.NewReader(payload))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, request)
+			if response.Code != test.status || usage.calls != 0 {
+				t.Fatalf("status=%d calls=%d body=%s", response.Code, usage.calls, response.Body.String())
+			}
+			if test.status == http.StatusOK && !bytes.Contains(response.Body.Bytes(), []byte(`"key_id":"candidate"`)) {
+				t.Fatalf("body=%s", response.Body.String())
+			}
+		})
+	}
+}
+
 type testVerifier struct{ claims routecontext.Claims }
 
 func (v testVerifier) Verify(string, routecontext.Binding) (routecontext.Claims, error) {
