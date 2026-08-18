@@ -47,6 +47,10 @@ The account API and workers share no in-memory state. Multiple replicas coordina
 | `SPYGLASS_OPERATOR_AUTH_VERIFY_KEYS` | All administrator processes | Comma-separated `key-id=standard-base64` Ed25519 public-key rotation set |
 | `SPYGLASS_OPERATOR_AUTHORIZATION` | All administrator processes | Short-lived signed, action/environment/reason/scope-bound authorization envelope |
 | `SPYGLASS_MAX_DATABASE_CONNS` | Persistent processes except `work-reconciler` | Positive per-process pool cap with a workload-specific default |
+| `SPYGLASS_OTEL_TRACES_ENDPOINT` | Traced modes except `runner-invocation` | Optional exact HTTPS OTLP/HTTP `/v1/traces` endpoint; when set, every trace variable and the workload mTLS files become mandatory |
+| `SPYGLASS_OTEL_TRACE_SAMPLE_RATIO` | All traced modes | Explicit finite root sampling ratio greater than `0` and at most `1` |
+| `SPYGLASS_TRACE_ACCOUNT_HASH_KEY` | All traced modes | Standard Base64 encoding of exactly 32 random bytes used only for HMAC-pseudonymous Account trace correlation |
+| `SPYGLASS_ENVIRONMENT` | All traced modes and administrator processes | Reviewed bounded environment identity |
 
 Database connection limits are per replica. Environment overlays must ensure the replica maximum multiplied by the pool cap fits the managed PostgreSQL connection budget.
 
@@ -146,6 +150,8 @@ Every long-running worker serves process liveness at `GET /health/live`, bounded
 The Agent dispatch, Agent projection, and runner controller endpoints additionally publish the exact gauges `spyglass_agent_dispatch_ready`, `spyglass_agent_projection_ready`, and `spyglass_runner_ready`. Environment monitoring scrapes the health port and the custom/external metrics adapter projects those series into the HPA API. These are current global/cell backlog snapshots repeated by each replica, so adapters must preserve the reference HPA `AverageValue` semantics and alert when a series disappears. Billing, notification, entitlement, Account lifecycle, Work reconciliation, and route-receipt workers expose aggregate processing/failure or queue-state fields through `spyglass_worker_status{worker,field}` without customer-derived labels.
 
 Every HTTP service also exposes `GET /metrics` on its service port. The endpoint reports `spyglass_http_in_flight`, `spyglass_http_requests_total`, and `spyglass_http_request_duration_seconds` with only static service names, a bounded method set, registered `ServeMux` route patterns, and response status classes. Unmatched routes collapse to `unmatched`, non-standard methods collapse to `OTHER`, and raw paths, Account IDs, request bodies, query strings, and headers are never labels. Monitoring must scrape this endpoint over the same trusted network boundary as the service; it is operational telemetry, not a public product endpoint.
+
+When `SPYGLASS_OTEL_TRACES_ENDPOINT` is configured, the process additionally exports bounded OTLP/HTTP traces through the rotating workload mTLS certificate. Server spans contain only static release/environment/cell identity, bounded method and route template, response status, and an HMAC-pseudonymous Account reference. Principal clients propagate sanitized W3C `traceparent` across Infinite Ocean-owned boundaries; inbound `tracestate` is discarded, while external-provider calls remain child spans but strip `traceparent`, `tracestate`, and baggage. Raw destinations, bodies, headers, identifiers, and error strings are never span attributes. Exporter queues, batches, timeouts, retries, graceful flush, required dashboards, and staging acceptance are defined in [OpenTelemetry tracing and observability operations](observability-operations.md).
 
 ## Billing worker values
 

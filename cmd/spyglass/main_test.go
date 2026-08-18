@@ -12,9 +12,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/observability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/operatorauth"
 )
 
@@ -85,6 +88,18 @@ func TestEnvironmentParsersFailClosed(t *testing.T) {
 	t.Setenv("SPYGLASS_TEST_DURATION", "later")
 	if _, err := durationEnv("SPYGLASS_TEST_DURATION", time.Second); err == nil {
 		t.Fatal("expected invalid duration failure")
+	}
+}
+
+func TestTracingEnvironmentIsOptInAndRejectsRunnerCredentialExpansion(t *testing.T) {
+	t.Setenv("SPYGLASS_OTEL_TRACES_ENDPOINT", "")
+	tracing, err := tracingFromEnvironment(context.Background(), "app-router", buildinfo.Info{Revision: strings.Repeat("a", 40)})
+	if err != nil || tracing != observability.DisabledTracing() {
+		t.Fatalf("disabled tracing=%p err=%v", tracing, err)
+	}
+	t.Setenv("SPYGLASS_OTEL_TRACES_ENDPOINT", "https://otel.internal.example/v1/traces")
+	if _, err := tracingFromEnvironment(context.Background(), "runner-invocation", buildinfo.Info{Revision: strings.Repeat("a", 40)}); err == nil {
+		t.Fatal("runner sandbox accepted trace-export credential expansion")
 	}
 }
 

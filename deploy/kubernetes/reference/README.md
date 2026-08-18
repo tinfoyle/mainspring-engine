@@ -39,6 +39,12 @@ Before an environment overlay may use these resources it must add:
   bounded-cardinality request counts, in-flight work, and duration summaries.
   The application exports registered route templates rather than raw customer
   paths; environment dashboards and relabeling must preserve that constraint.
+- An mTLS-authenticated OTLP/HTTP collector or gateway, the exact
+  `SPYGLASS_OTEL_TRACES_ENDPOINT`, explicit sampling ratio, and a managed
+  per-environment 32-byte Account-correlation key. Collector policy must
+  re-enforce the application attribute allowlist, reject baggage/customer
+  content, publish accepted/rejected/export-failure health, and use a separate
+  backend credential. The base intentionally supplies no endpoint or key.
 - Tested NetworkPolicy egress destinations and cluster admission policy. The
   base permits only DNS and the explicit in-namespace runner→broker,
   broker→model-gateway, broker→tool-router, router→cell, and cell→admission

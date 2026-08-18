@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,6 +28,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	agentqueueapp "github.com/tinfoyle/spyglass-engine/internal/application/agentqueueadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
@@ -81,14 +83,20 @@ func main() {
 	release := buildinfo.Current()
 	logger.Info("Spyglass process starting", "version", release.Version, "revision", release.Revision, "built_at", release.BuiltAt)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	mode := ""
 	if len(os.Args) > 1 {
 		mode = os.Args[1]
 	} else if os.Getenv("SPYGLASS_ENV") == "development" {
 		mode = "development"
 	}
-	var err error
+	tracing, err := tracingFromEnvironment(ctx, mode, release)
+	if err != nil {
+		stop()
+		logger.Error("Spyglass tracing configuration failed", "mode", mode, "error", err)
+		os.Exit(1)
+	}
+	ctx = observability.WithTracing(ctx, tracing)
+	err = nil
 	switch mode {
 	case "development":
 		err = runDevelopment(ctx, logger)
@@ -142,6 +150,13 @@ func main() {
 		err = runMigrate(ctx, logger)
 	default:
 		err = errors.New("usage: spyglass version | development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+	}
+	stop()
+	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownErr := tracing.Shutdown(shutdownContext)
+	shutdownCancel()
+	if err == nil && shutdownErr != nil {
+		err = fmt.Errorf("flush OpenTelemetry traces: %w", shutdownErr)
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -713,7 +728,8 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	defer restoreGate.Close()
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
+	stripeClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(nil), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
 	if err != nil {
 		return err
 	}
@@ -780,6 +796,7 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 			return err
 		}
 	}
+	cellTransport = observability.TracingFromContext(ctx).Transport(cellTransport)
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := approuter.New(startup, approuter.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, RouteIssuer: issuer, RouteSigningKeyID: keyID, RouteSigningKey: key, RouteLifetime: lifetime, ToolIssuer: toolIssuer, ToolVerifyKeys: toolVerifyKeys, DirectoryCacheTTL: directoryTTL, DirectoryCapacity: directoryCapacity, CellTransport: cellTransport, SessionCookieName: os.Getenv("SPYGLASS_SESSION_COOKIE_NAME"), SecureCookies: true, TrustedOrigins: []string{appOrigin}, AllowHTTPCells: developmentMode}, logger, registration.SystemClock{})
@@ -838,6 +855,7 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 			return err
 		}
 	}
+	admissionTransport = observability.TracingFromContext(ctx).Transport(admissionTransport)
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := appapi.New(startup, appapi.Config{DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, AdmissionOrigin: admissionOrigin, AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode}, logger, registration.SystemClock{})
@@ -1303,6 +1321,8 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 		toolTransport = http.DefaultTransport
 		modelTransport = http.DefaultTransport
 	}
+	toolTransport = observability.TracingFromContext(ctx).Transport(toolTransport)
+	modelTransport = observability.TracingFromContext(ctx).Transport(modelTransport)
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := runnerbrokerbootstrap.New(startup, runnerbrokerbootstrap.Config{
@@ -1330,8 +1350,10 @@ func runModelGateway(ctx context.Context, logger *slog.Logger) error {
 	if err != nil || maxBody > 256<<10 {
 		return errors.New("SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES must be between 1 and 262144")
 	}
+	providerTransport := http.DefaultTransport.(*http.Transport).Clone()
+	providerTransport.Proxy = nil
 	server, err := modelgatewaybootstrap.New(modelgatewaybootstrap.Config{
-		OpenAIAPIKey: apiKey, OpenAIOrigin: os.Getenv("SPYGLASS_OPENAI_ORIGIN"), MaxRequestBody: maxBody,
+		OpenAIAPIKey: apiKey, OpenAIOrigin: os.Getenv("SPYGLASS_OPENAI_ORIGIN"), OpenAIClient: &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(providerTransport), Timeout: modelgateway.MaximumProviderTimeout, CheckRedirect: rejectOutboundRedirect}, MaxRequestBody: maxBody,
 	}, logger)
 	if err != nil {
 		return err
@@ -1528,13 +1550,14 @@ func runRouteCanary(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer transport.CloseIdleConnections()
+	tracedTransport := observability.TracingFromContext(ctx).Transport(transport)
 	probeContext, cancel := context.WithTimeout(ctx, timeout+time.Second)
 	defer cancel()
 	config := routecanary.Config{
 		Origin: origin, CellID: ids.CellID(cellID), AccountID: ids.AccountID(accountID),
 		PlacementGeneration: generation, EntitlementVersion: entitlementVersion,
 		Issuer: issuer, KeyID: keyID, SigningKey: key, Timeout: timeout,
-		Transport: transport, Clock: registration.SystemClock{}, IDs: ids.RandomGenerator{},
+		Transport: tracedTransport, Clock: registration.SystemClock{}, IDs: ids.RandomGenerator{},
 	}
 	var result routecanary.Result
 	if target == "cell" {
@@ -1557,7 +1580,7 @@ type runnableWorker interface {
 func serveWorker(ctx context.Context, name, healthAddress string, worker runnableWorker, logger *slog.Logger) error {
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
-	httpServer := newHTTPServer(healthAddress, workerHealth(name, worker))
+	httpServer := newHTTPServer(healthAddress, observability.TracingFromContext(ctx).Handler(workerHealth(name, worker)))
 	errorsChannel := make(chan error, 2)
 	go func() { errorsChannel <- worker.Run(runCtx) }()
 	go func() {
@@ -1782,7 +1805,7 @@ func serveHTTPWithWriteTimeout(ctx context.Context, service, address string, han
 	if err != nil {
 		return err
 	}
-	server := newHTTPServer(address, metrics.Handler(handler))
+	server := newHTTPServer(address, observability.TracingFromContext(ctx).Handler(metrics.Handler(handler)))
 	server.WriteTimeout = writeTimeout
 	errorsChannel := make(chan error, 1)
 	go func() {
@@ -1818,7 +1841,7 @@ func serveHTTPSWithWriteTimeout(ctx context.Context, service, address string, ha
 	if err != nil {
 		return err
 	}
-	server := newHTTPServer(address, metrics.Handler(handler))
+	server := newHTTPServer(address, observability.TracingFromContext(ctx).Handler(metrics.Handler(handler)))
 	server.WriteTimeout = writeTimeout
 	server.TLSConfig = config
 	errorsChannel := make(chan error, 1)
@@ -1989,6 +2012,47 @@ func httpAddress(fallback string) string { return envOr("SPYGLASS_HTTP_ADDRESS",
 
 func workloadTLSFilesEnv() workloadidentity.Files {
 	return workloadidentity.Files{Certificate: os.Getenv("SPYGLASS_WORKLOAD_CERT_FILE"), PrivateKey: os.Getenv("SPYGLASS_WORKLOAD_KEY_FILE"), TrustBundle: os.Getenv("SPYGLASS_WORKLOAD_CA_FILE")}
+}
+
+func tracingFromEnvironment(ctx context.Context, service string, release buildinfo.Info) (*observability.Tracing, error) {
+	endpoint := os.Getenv("SPYGLASS_OTEL_TRACES_ENDPOINT")
+	if endpoint == "" {
+		return observability.DisabledTracing(), nil
+	}
+	if service == "runner-invocation" {
+		return nil, errors.New("runner-invocation trace export is not supported by the sandbox credential boundary")
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return nil, err
+	}
+	ratioRaw, err := requiredEnv("SPYGLASS_OTEL_TRACE_SAMPLE_RATIO")
+	if err != nil {
+		return nil, err
+	}
+	ratio, err := strconv.ParseFloat(ratioRaw, 64)
+	if err != nil || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+		return nil, errors.New("SPYGLASS_OTEL_TRACE_SAMPLE_RATIO must be a finite number")
+	}
+	accountKey, err := base64KeyEnv("SPYGLASS_TRACE_ACCOUNT_HASH_KEY")
+	if err != nil {
+		return nil, err
+	}
+	transport, err := workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+	if err != nil {
+		return nil, fmt.Errorf("configure trace exporter workload identity: %w", err)
+	}
+	client := &http.Client{Transport: transport, Timeout: 5 * time.Second, CheckRedirect: rejectOutboundRedirect}
+	tracing, err := observability.NewTracing(ctx, observability.TracingConfig{Service: service, Environment: environment, Revision: release.Revision, CellID: os.Getenv("SPYGLASS_CELL_ID"), Endpoint: endpoint, SampleRatio: ratio, AccountHashKey: accountKey, HTTPClient: client})
+	if err != nil {
+		transport.CloseIdleConnections()
+		return nil, err
+	}
+	return tracing, nil
+}
+
+func rejectOutboundRedirect(*http.Request, []*http.Request) error {
+	return errors.New("outbound redirects are not allowed")
 }
 
 func routeVerifyKeysEnv(name string) (map[string][]byte, error) {

@@ -41,6 +41,7 @@ type Config struct {
 	StripeSecretKey           string
 	StripeAPIVersion          string
 	StripeMode                string
+	StripeHTTPClient          *http.Client
 	MaxDatabaseConns          int32
 	AppOrigin                 string
 	PublicOrigin              string
@@ -205,7 +206,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	stripeProvider, err := stripeadapter.New(config.StripeSecretKey, config.StripeAPIVersion, nil)
+	stripeProvider, err := stripeadapter.New(config.StripeSecretKey, config.StripeAPIVersion, config.StripeHTTPClient)
 	if err != nil {
 		pool.Close()
 		return nil, err
