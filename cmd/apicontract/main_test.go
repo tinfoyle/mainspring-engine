@@ -180,6 +180,25 @@ func TestIdentitySecurityOperationsRemainTyped(t *testing.T) {
 	}
 }
 
+func TestEveryCustomerOperationRemainsTyped(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes, err := loadContract(filepath.Join(root, contractPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(routes) != 56 {
+		t.Fatalf("customer operation count = %d, want 56", len(routes))
+	}
+	for _, route := range routes {
+		if route.Contract != "typed" {
+			t.Errorf("%s %s regressed to %q contract", route.Method, route.Path, route.Contract)
+		}
+	}
+}
+
 func TestCommittedContractMatchesTransportsAndGeneratedFiles(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {

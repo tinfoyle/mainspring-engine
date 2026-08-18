@@ -704,6 +704,10 @@ func (s *Server) writeMembershipError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
 	authenticated, ok := s.authenticateSession(w, r)
 	if !ok {
 		return
@@ -724,7 +728,21 @@ func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 		s.writeInvitationError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"membership": membership})
+	writeJSON(w, http.StatusCreated, invitationAcceptanceResponse{Membership: acceptedMembershipResponse{ID: membership.ID, AccountID: membership.AccountID, UserID: membership.UserID, Role: membership.Role, State: membership.State, Version: membership.Version, CreatedAt: membership.CreatedAt}})
+}
+
+type invitationAcceptanceResponse struct {
+	Membership acceptedMembershipResponse `json:"membership"`
+}
+
+type acceptedMembershipResponse struct {
+	ID        ids.MembershipID         `json:"id"`
+	AccountID ids.AccountID            `json:"account_id"`
+	UserID    ids.UserID               `json:"user_id"`
+	Role      accounts.MembershipRole  `json:"role"`
+	State     accounts.MembershipState `json:"state"`
+	Version   uint64                   `json:"version"`
+	CreatedAt time.Time                `json:"created_at"`
 }
 
 func (s *Server) writeInvitationError(w http.ResponseWriter, err error) {
@@ -764,6 +782,10 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) selectAccount(w http.ResponseWriter, r *http.Request) {
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
 	authenticated, ok := s.authenticateSession(w, r)
 	if !ok {
 		return

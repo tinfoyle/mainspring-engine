@@ -306,7 +306,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 		t.Fatalf("member login: %d %s", memberLogin.StatusCode, memberLogin.Body)
 	}
 	acceptedInvitation := postJSONCookie(t, server.URL+"/api/v1/invitations/accept", `{"token":"`+invitationToken+`"}`, memberCookies[0])
-	if acceptedInvitation.StatusCode != http.StatusCreated {
+	if acceptedInvitation.StatusCode != http.StatusCreated || !bytes.Contains(acceptedInvitation.Body, []byte(`"account_id":"`+provisioned.Account.ID+`"`)) || bytes.Contains(acceptedInvitation.Body, []byte(`"AccountID"`)) {
 		t.Fatalf("accept invitation: %d %s", acceptedInvitation.StatusCode, acceptedInvitation.Body)
 	}
 	memberAccountsRequest, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/session/accounts", nil)
