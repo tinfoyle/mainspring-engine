@@ -59,6 +59,14 @@ type ToolOutput struct {
 	Output json.RawMessage `json:"output"`
 }
 
+// ToolExchange preserves provider output and the application-authorized tool
+// result in their original order without exposing provider-specific state to
+// the orchestrator. A request carries the complete bounded history.
+type ToolExchange struct {
+	Continuation json.RawMessage `json:"continuation"`
+	ToolOutput   ToolOutput      `json:"tool_output"`
+}
+
 type OutputFormat struct {
 	Name   string          `json:"name"`
 	Schema json.RawMessage `json:"schema"`
@@ -78,8 +86,7 @@ type Request struct {
 	Tools            []ToolDefinition `json:"tools"`
 	OutputFormat     OutputFormat     `json:"output_format"`
 	MaximumOutTokens int              `json:"maximum_output_tokens"`
-	Continuation     json.RawMessage  `json:"continuation,omitempty"`
-	ToolOutputs      []ToolOutput     `json:"tool_outputs,omitempty"`
+	History          []ToolExchange   `json:"history,omitempty"`
 }
 
 type ToolCall struct {
@@ -193,25 +200,19 @@ func ValidateRequest(request Request) (Request, error) {
 			return Request{}, ErrInvalidRequest
 		}
 	}
-	if len(request.Continuation) == 0 {
-		if len(request.ToolOutputs) != 0 {
+	if len(request.History) > 5 {
+		return Request{}, ErrInvalidRequest
+	}
+	for index := range request.History {
+		exchange := &request.History[index]
+		continuation, err := canonicalArray(exchange.Continuation, 128<<10)
+		if err != nil || !validOpaqueID(exchange.ToolOutput.CallID) {
 			return Request{}, ErrInvalidRequest
 		}
-	} else {
-		continuation, err := canonicalArray(request.Continuation, 128<<10)
-		if err != nil || len(request.ToolOutputs) == 0 || len(request.ToolOutputs) > 1 {
+		exchange.Continuation = continuation
+		exchange.ToolOutput.Output, err = canonicalJSON(exchange.ToolOutput.Output, 64<<10)
+		if err != nil {
 			return Request{}, ErrInvalidRequest
-		}
-		request.Continuation = continuation
-		for index := range request.ToolOutputs {
-			output := &request.ToolOutputs[index]
-			if !validOpaqueID(output.CallID) {
-				return Request{}, ErrInvalidRequest
-			}
-			output.Output, err = canonicalJSON(output.Output, 64<<10)
-			if err != nil {
-				return Request{}, ErrInvalidRequest
-			}
 		}
 	}
 	return request, nil

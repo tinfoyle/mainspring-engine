@@ -305,17 +305,18 @@ type ResultEnvelope struct {
 }
 
 func ValidateResult(result ResultEnvelope) (ResultEnvelope, error) {
-	result.Findings = append([]string(nil), result.Findings...)
-	result.Recommendations = append([]string(nil), result.Recommendations...)
-	result.Questions = append([]string(nil), result.Questions...)
-	result.Citations = append([]Citation(nil), result.Citations...)
-	result.ProposedActions = append([]ProposedAction(nil), result.ProposedActions...)
-	result.Delegations = append([]Delegation(nil), result.Delegations...)
+	missingLists := result.Findings == nil || result.Recommendations == nil || result.Questions == nil || result.Citations == nil || result.ProposedActions == nil || result.Delegations == nil
+	result.Findings = append(make([]string, 0, len(result.Findings)), result.Findings...)
+	result.Recommendations = append(make([]string, 0, len(result.Recommendations)), result.Recommendations...)
+	result.Questions = append(make([]string, 0, len(result.Questions)), result.Questions...)
+	result.Citations = append(make([]Citation, 0, len(result.Citations)), result.Citations...)
+	result.ProposedActions = append(make([]ProposedAction, 0, len(result.ProposedActions)), result.ProposedActions...)
+	result.Delegations = append(make([]Delegation, 0, len(result.Delegations)), result.Delegations...)
 	for index := range result.ProposedActions {
 		result.ProposedActions[index].Evidence = append([]string(nil), result.ProposedActions[index].Evidence...)
 	}
 	result.Contribution = strings.TrimSpace(result.Contribution)
-	if result.Contribution == "" || len(result.Contribution) > 64<<10 || !slices.Contains([]Confidence{ConfidenceLow, ConfidenceMedium, ConfidenceHigh}, result.Confidence) ||
+	if missingLists || result.Contribution == "" || len(result.Contribution) > 64<<10 || !slices.Contains([]Confidence{ConfidenceLow, ConfidenceMedium, ConfidenceHigh}, result.Confidence) ||
 		len(result.Findings) > MaximumListItems || len(result.Recommendations) > MaximumListItems || len(result.Questions) > MaximumListItems || len(result.Citations) > MaximumListItems || len(result.ProposedActions) > MaximumListItems || len(result.Delegations) > MaximumPersonasPerRun {
 		return ResultEnvelope{}, ErrInvalidResult
 	}

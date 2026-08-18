@@ -30,7 +30,7 @@ func TestServiceValidatesAndDispatchesOneStep(t *testing.T) {
 
 func TestRequestRejectsUnboundContinuationAndDuplicateTools(t *testing.T) {
 	request := validRequest()
-	request.Continuation = json.RawMessage(`[]`)
+	request.History = []ToolExchange{{Continuation: json.RawMessage(`[]`)}}
 	if _, err := ValidateRequest(request); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("expected invalid continuation, got %v", err)
 	}

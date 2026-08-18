@@ -70,7 +70,7 @@ func TestRunPlanFreezesOrderedUniquePersonaVersions(t *testing.T) {
 }
 
 func TestResultEnvelopeCanonicalizesActionsAndBoundsDelegations(t *testing.T) {
-	result, err := ValidateResult(ResultEnvelope{Contribution: "  We should reconcile the backlog. ", Findings: []string{"  Three items are blocked. "}, ProposedActions: []ProposedAction{{Kind: "work.create", Reason: "Track the follow-up", Payload: json.RawMessage(`{"priority":"high","title":"Follow up"}`), Evidence: []string{"finding-1"}}}, Delegations: []Delegation{{PersonaID: personaID, Request: "Review the capacity plan."}}, Confidence: ConfidenceHigh})
+	result, err := ValidateResult(ResultEnvelope{Contribution: "  We should reconcile the backlog. ", Findings: []string{"  Three items are blocked. "}, Recommendations: []string{}, Questions: []string{}, Citations: []Citation{}, ProposedActions: []ProposedAction{{Kind: "work.create", Reason: "Track the follow-up", Payload: json.RawMessage(`{"priority":"high","title":"Follow up"}`), Evidence: []string{"finding-1"}}}, Delegations: []Delegation{{PersonaID: personaID, Request: "Review the capacity plan."}}, Confidence: ConfidenceHigh})
 	if err != nil {
 		t.Fatal(err)
 	}

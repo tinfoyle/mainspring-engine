@@ -127,21 +127,19 @@ type responseReasoning struct {
 }
 
 func buildRequest(request modelgateway.Request) (responseRequest, error) {
-	input := make([]any, 0, len(request.Messages)+len(request.ToolOutputs)+8)
+	input := make([]any, 0, len(request.Messages)+len(request.History)*3+8)
 	for _, message := range request.Messages {
 		input = append(input, map[string]any{"role": message.Role, "content": message.Content})
 	}
-	if len(request.Continuation) != 0 {
+	for _, exchange := range request.History {
 		var continuation []json.RawMessage
-		if err := json.Unmarshal(request.Continuation, &continuation); err != nil {
+		if err := json.Unmarshal(exchange.Continuation, &continuation); err != nil {
 			return responseRequest{}, modelgateway.ErrInvalidRequest
 		}
 		for _, item := range continuation {
 			input = append(input, item)
 		}
-		for _, output := range request.ToolOutputs {
-			input = append(input, map[string]any{"type": "function_call_output", "call_id": output.CallID, "output": string(output.Output)})
-		}
+		input = append(input, map[string]any{"type": "function_call_output", "call_id": exchange.ToolOutput.CallID, "output": string(exchange.ToolOutput.Output)})
 	}
 	tools := make([]responseTool, len(request.Tools))
 	for index, tool := range request.Tools {

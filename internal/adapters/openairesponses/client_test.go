@@ -58,8 +58,10 @@ func TestInvokeAppendsOpaqueContinuationAndBoundToolOutput(t *testing.T) {
 	defer server.Close()
 	client, _ := New(Config{APIKey: "secret", Origin: server.URL, HTTPClient: server.Client()})
 	req := request()
-	req.Continuation = json.RawMessage(`[{"type":"function_call","call_id":"call_1","name":"read_work","arguments":"{}"}]`)
-	req.ToolOutputs = []modelgateway.ToolOutput{{CallID: "call_1", Output: json.RawMessage(`{"active":3}`)}}
+	req.History = []modelgateway.ToolExchange{
+		{Continuation: json.RawMessage(`[{"type":"function_call","call_id":"call_1","name":"read_work","arguments":"{}"}]`), ToolOutput: modelgateway.ToolOutput{CallID: "call_1", Output: json.RawMessage(`{"active":3}`)}},
+		{Continuation: json.RawMessage(`[{"type":"function_call","call_id":"call_2","name":"read_work","arguments":"{\"scope\":\"urgent\"}"}]`), ToolOutput: modelgateway.ToolOutput{CallID: "call_2", Output: json.RawMessage(`{"urgent":1}`)}},
+	}
 	result, err := client.Invoke(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -68,8 +70,10 @@ func TestInvokeAppendsOpaqueContinuationAndBoundToolOutput(t *testing.T) {
 		t.Fatalf("unexpected result %#v", result)
 	}
 	input := received["input"].([]any)
-	last := input[len(input)-1].(map[string]any)
-	if last["type"] != "function_call_output" || last["call_id"] != "call_1" || last["output"] != `{"active":3}` {
+	firstOutput := input[2].(map[string]any)
+	secondCall := input[3].(map[string]any)
+	last := input[4].(map[string]any)
+	if firstOutput["type"] != "function_call_output" || firstOutput["call_id"] != "call_1" || secondCall["call_id"] != "call_2" || last["type"] != "function_call_output" || last["call_id"] != "call_2" || last["output"] != `{"urgent":1}` {
 		t.Fatalf("unexpected tool output %#v", last)
 	}
 }

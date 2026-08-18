@@ -27,6 +27,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runneragents"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercontrol"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerexecution"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerwork"
@@ -140,7 +141,10 @@ func runRunnerInvocation(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	service, err := runnerexecution.New(client, client, []runnerexecution.Definition{{Kind: runnerwork.SummarySnapshotKind, Executor: runnerwork.SummarySnapshotExecutor{}}})
+	service, err := runnerexecution.New(client, client, []runnerexecution.Definition{
+		{Kind: runnerwork.SummarySnapshotKind, Executor: runnerwork.SummarySnapshotExecutor{}},
+		{Kind: runneragents.TurnExecutionKind, Executor: runneragents.TurnExecutor{}},
+	})
 	if err != nil {
 		return err
 	}
