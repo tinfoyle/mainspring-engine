@@ -20,7 +20,7 @@ func TestAuthorizeSeparatesMembershipRoleAndPackage(t *testing.T) {
 	accountID := ids.AccountID("account-a")
 	userID := ids.UserID("user-a")
 	state := State{
-		Account:      accounts.Account{ID: accountID, State: accounts.AccountActive, CellID: ids.CellID("cell-a"), PlacementGeneration: 3},
+		Account:      accounts.Account{ID: accountID, State: accounts.AccountActive, CellID: ids.CellID("cell-a"), PlacementGeneration: 3, EntitlementVersion: 7},
 		Membership:   accounts.Membership{AccountID: accountID, UserID: userID, Role: accounts.RoleMember, State: accounts.MembershipActive},
 		Entitlements: entitlements.Snapshot{AccountID: accountID, Version: 7, Packages: []entitlements.PackageAccess{{Code: catalog.PackageWork, Mode: catalog.ModeReadOnly}}},
 	}
@@ -32,14 +32,17 @@ func TestAuthorizeSeparatesMembershipRoleAndPackage(t *testing.T) {
 	if _, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}}); !IsDenied(err, DenialRole) {
 		t.Fatalf("expected role denial, got %v", err)
 	}
-	if _, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{Package: catalog.PackageWork, Mutation: true}); !IsDenied(err, DenialPackage) {
+	if _, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{Package: catalog.PackageWork, Mutation: true}); !IsDenied(err, DenialPackageReadOnly) {
 		t.Fatalf("expected mutation package denial, got %v", err)
+	}
+	if _, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{Package: catalog.PackageAgents}); !IsDenied(err, DenialPackageNotEntitled) {
+		t.Fatalf("expected missing package denial, got %v", err)
 	}
 	resolved, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{Package: catalog.PackageWork})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved.CellID != "cell-a" || resolved.PlacementGeneration != 3 || resolved.EntitlementVersion != 7 {
+	if resolved.CellID != "cell-a" || resolved.PlacementGeneration != 3 || resolved.EntitlementVersion != 7 || resolved.PackageAccess == nil || resolved.PackageAccess.Code != catalog.PackageWork {
 		t.Fatalf("unexpected account context: %#v", resolved)
 	}
 }
@@ -56,5 +59,13 @@ func TestAuthorizeRejectsCrossAccountState(t *testing.T) {
 	_, err = authorizer.Authorize(context.Background(), Actor{UserID: ids.UserID("user-a")}, ids.AccountID("account-a"), Requirement{})
 	if !IsDenied(err, DenialCorruptContext) {
 		t.Fatalf("expected corrupt context denial, got %v", err)
+	}
+}
+
+func TestMembershipAuthorizerDoesNotAcceptWorkloadIdentity(t *testing.T) {
+	authorizer, _ := NewAuthorizer(fixedSource{})
+	_, err := authorizer.Authorize(context.Background(), Actor{WorkloadID: "schedule-worker"}, ids.AccountID("account-a"), Requirement{})
+	if !IsDenied(err, DenialUnauthenticated) {
+		t.Fatalf("membership authorizer accepted workload identity: %v", err)
 	}
 }

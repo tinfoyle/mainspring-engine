@@ -17,11 +17,24 @@ const (
 	DenialMembership         DenialCode = "membership_required"
 	DenialAccountUnavailable DenialCode = "account_unavailable"
 	DenialRole               DenialCode = "role_denied"
-	DenialPackage            DenialCode = "package_denied"
+	DenialPackageNotEntitled DenialCode = "package_not_entitled"
+	DenialPackageReadOnly    DenialCode = "package_read_only"
+	DenialLimitNotDefined    DenialCode = "limit_not_defined"
+	DenialLimitExceeded      DenialCode = "limit_exceeded"
 	DenialCorruptContext     DenialCode = "corrupt_access_context"
+
+	// DenialPackage remains an alias for callers compiled against the initial
+	// policy vocabulary. New surfaces should expose the specific stable code.
+	DenialPackage DenialCode = DenialPackageNotEntitled
 )
 
-type DeniedError struct{ Code DenialCode }
+type DeniedError struct {
+	Code    DenialCode
+	Package catalog.PackageCode
+	Limit   catalog.LimitCode
+	Current int64
+	Maximum int64
+}
 
 func (e *DeniedError) Error() string { return string(e.Code) }
 
@@ -31,16 +44,20 @@ func IsDenied(err error, code DenialCode) bool {
 }
 
 type Actor struct {
-	UserID ids.UserID
+	UserID     ids.UserID
+	WorkloadID string
 }
 
+func (a Actor) Valid() bool { return (a.UserID != "") != (a.WorkloadID != "") }
+
 type AccountContext struct {
-	AccountID           ids.AccountID           `json:"account_id"`
-	AccountName         string                  `json:"account_name"`
-	CellID              ids.CellID              `json:"cell_id"`
-	PlacementGeneration uint64                  `json:"placement_generation"`
-	EntitlementVersion  uint64                  `json:"entitlement_version"`
-	Role                accounts.MembershipRole `json:"role"`
+	AccountID           ids.AccountID               `json:"account_id"`
+	AccountName         string                      `json:"account_name"`
+	CellID              ids.CellID                  `json:"cell_id"`
+	PlacementGeneration uint64                      `json:"placement_generation"`
+	EntitlementVersion  uint64                      `json:"entitlement_version"`
+	Role                accounts.MembershipRole     `json:"role"`
+	PackageAccess       *entitlements.PackageAccess `json:"package_access,omitempty"`
 }
 
 type State struct {
@@ -71,14 +88,14 @@ func NewAuthorizer(source StateSource) (*Authorizer, error) {
 }
 
 func (a *Authorizer) Authorize(ctx context.Context, actor Actor, accountID ids.AccountID, requirement Requirement) (AccountContext, error) {
-	if actor.UserID == "" {
+	if !actor.Valid() || actor.WorkloadID != "" {
 		return AccountContext{}, &DeniedError{Code: DenialUnauthenticated}
 	}
 	state, err := a.source.AccessState(ctx, actor.UserID, accountID)
 	if err != nil {
 		return AccountContext{}, err
 	}
-	if state.Account.ID != accountID || state.Membership.AccountID != accountID || state.Entitlements.AccountID != accountID || state.Membership.UserID != actor.UserID {
+	if state.Account.ID != accountID || state.Membership.AccountID != accountID || state.Entitlements.AccountID != accountID || state.Membership.UserID != actor.UserID || state.Account.EntitlementVersion != state.Entitlements.Version {
 		return AccountContext{}, &DeniedError{Code: DenialCorruptContext}
 	}
 	if state.Account.State != accounts.AccountActive {
@@ -90,10 +107,18 @@ func (a *Authorizer) Authorize(ctx context.Context, actor Actor, accountID ids.A
 	if len(requirement.Roles) > 0 && !containsRole(requirement.Roles, state.Membership.Role) {
 		return AccountContext{}, &DeniedError{Code: DenialRole}
 	}
-	if requirement.Package != "" && !state.Entitlements.Allows(requirement.Package, requirement.Mutation) {
-		return AccountContext{}, &DeniedError{Code: DenialPackage}
+	var packageAccess *entitlements.PackageAccess
+	if requirement.Package != "" {
+		effective, exists := state.Entitlements.Package(requirement.Package)
+		if !exists || effective.Mode == catalog.ModeSuspended {
+			return AccountContext{}, &DeniedError{Code: DenialPackageNotEntitled, Package: requirement.Package}
+		}
+		if requirement.Mutation && effective.Mode != catalog.ModeEnabled {
+			return AccountContext{}, &DeniedError{Code: DenialPackageReadOnly, Package: requirement.Package}
+		}
+		packageAccess = &effective
 	}
-	return AccountContext{AccountID: accountID, AccountName: state.Account.DisplayName, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, Role: state.Membership.Role}, nil
+	return AccountContext{AccountID: accountID, AccountName: state.Account.DisplayName, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, Role: state.Membership.Role, PackageAccess: packageAccess}, nil
 }
 
 func containsRole(roles []accounts.MembershipRole, role accounts.MembershipRole) bool {

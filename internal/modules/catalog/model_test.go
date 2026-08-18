@@ -6,8 +6,35 @@ import (
 )
 
 func TestDefaultCatalogIsValid(t *testing.T) {
-	if err := Default(time.Now()).Validate(); err != nil {
+	if err := Default(time.Now()).ValidateGoverned(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGovernedCatalogRequiresExplicitDefinitionsForDefaults(t *testing.T) {
+	value := Default(time.Now())
+	value.Limits = nil
+	if err := value.Validate(); err != nil {
+		t.Fatalf("legacy published Catalog should remain rollback-compatible: %v", err)
+	}
+	if err := value.ValidateGoverned(); err == nil {
+		t.Fatal("new governed Catalog accepted implicit limit semantics")
+	}
+}
+
+func TestCatalogRejectsInvalidLimitDefinition(t *testing.T) {
+	value := Default(time.Now())
+	value.Limits[0].ReservationTTLSeconds = int64((31 * 24 * time.Hour) / time.Second)
+	if err := value.Validate(); err == nil {
+		t.Fatal("expected unsafe reservation TTL rejection")
+	}
+}
+
+func TestCatalogRejectsUnsafeLimitIdentity(t *testing.T) {
+	value := Default(time.Now())
+	value.Limits[0].Code = "Documents Per Account"
+	if err := value.Validate(); err == nil {
+		t.Fatal("expected non-machine limit code rejection")
 	}
 }
 func TestCatalogRejectsDependencyCycles(t *testing.T) {

@@ -165,7 +165,7 @@ func (s *Service) Complete(ctx context.Context, command CompleteCommand) (Provis
 		if err != nil {
 			return Provisioned{}, err
 		}
-		snapshot, err := entitlements.Evaluate(account.ID, account.EntitlementVersion, publication.Version, grants, now)
+		snapshot, err := entitlements.Evaluate(account.ID, account.EntitlementVersion, publication, grants, now)
 		if err != nil {
 			return Provisioned{}, err
 		}

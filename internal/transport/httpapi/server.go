@@ -639,7 +639,7 @@ func (s *Server) publicCatalog(w http.ResponseWriter, _ *http.Request) {
 		}
 		offers = append(offers, catalogOffer{Code: offer.Code, PlanCode: offer.PlanCode, PlanVersion: offer.PlanVersion, Currency: offer.Currency, AmountMinor: offer.AmountMinor, BillingInterval: offer.BillingInterval, EffectiveFrom: offer.EffectiveFrom})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"version": catalog.Version, "published_at": catalog.PublishedAt, "packages": catalog.Packages, "plans": catalog.Plans, "offers": offers})
+	writeJSON(w, http.StatusOK, map[string]any{"version": catalog.Version, "published_at": catalog.PublishedAt, "packages": catalog.Packages, "limits": catalog.EffectiveLimitDefinitions(), "plans": catalog.Plans, "offers": offers})
 }
 
 type catalogOffer struct {

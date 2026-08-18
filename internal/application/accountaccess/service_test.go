@@ -26,7 +26,7 @@ func (r repository) AccessState(context.Context, ids.UserID, ids.AccountID) (acc
 func TestListAndSelectKeepAccountIdentityExplicit(t *testing.T) {
 	accountID := ids.AccountID("account-a")
 	userID := ids.UserID("user-a")
-	r := repository{choices: []accountaccess.Choice{{AccountID: accountID, DisplayName: "Northstar"}}, state: access.State{Account: accounts.Account{ID: accountID, State: accounts.AccountActive, CellID: ids.CellID("cell-a"), PlacementGeneration: 2}, Membership: accounts.Membership{AccountID: accountID, UserID: userID, State: accounts.MembershipActive, Role: accounts.RoleOwner}, Entitlements: entitlements.Snapshot{AccountID: accountID, Version: 3}}}
+	r := repository{choices: []accountaccess.Choice{{AccountID: accountID, DisplayName: "Northstar"}}, state: access.State{Account: accounts.Account{ID: accountID, State: accounts.AccountActive, CellID: ids.CellID("cell-a"), PlacementGeneration: 2, EntitlementVersion: 3}, Membership: accounts.Membership{AccountID: accountID, UserID: userID, State: accounts.MembershipActive, Role: accounts.RoleOwner}, Entitlements: entitlements.Snapshot{AccountID: accountID, Version: 3}}}
 	authorizer, err := access.NewAuthorizer(r)
 	if err != nil {
 		t.Fatal(err)

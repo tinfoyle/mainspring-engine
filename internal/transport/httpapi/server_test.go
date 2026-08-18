@@ -36,6 +36,9 @@ func TestPublicCatalogDoesNotLeakStripeReferences(t *testing.T) {
 	if !bytes.Contains(body, []byte(`"work"`)) || !bytes.Contains(body, []byte(`"agents"`)) {
 		t.Fatalf("catalog missing packages: %s", body)
 	}
+	if !bytes.Contains(body, []byte(`"concurrent_runs"`)) || !bytes.Contains(body, []byte(`"combine":"maximum"`)) {
+		t.Fatalf("catalog missing governed limit definitions: %s", body)
+	}
 }
 
 func TestRegistrationHTTPJourney(t *testing.T) {

@@ -82,7 +82,7 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 			return Output{}, errors.Join(ErrInvalidCatalog, err)
 		}
 		grants := append(append([]entitlements.Grant(nil), input.OtherGrants...), free...)
-		snapshot, err := entitlements.Evaluate(input.AccountID, input.CurrentVersion+1, input.Publication.Version, grants, now)
+		snapshot, err := entitlements.Evaluate(input.AccountID, input.CurrentVersion+1, input.Publication, grants, now)
 		if err != nil {
 			return Output{}, err
 		}

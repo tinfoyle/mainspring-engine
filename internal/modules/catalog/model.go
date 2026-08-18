@@ -9,6 +9,9 @@ import (
 
 type PackageCode string
 type PackageMode string
+type LimitCode string
+type LimitKind string
+type LimitCombineRule string
 
 const (
 	PackageWork         PackageCode = "work"
@@ -21,16 +24,36 @@ const (
 	ModeEnabled   PackageMode = "enabled"
 	ModeReadOnly  PackageMode = "read_only"
 	ModeSuspended PackageMode = "suspended"
+
+	LimitKindCapacity LimitKind = "capacity"
+
+	LimitReplace LimitCombineRule = "replace"
+	LimitAdd     LimitCombineRule = "add"
+	LimitMaximum LimitCombineRule = "maximum"
+	LimitMinimum LimitCombineRule = "minimum"
 )
 
 type FeaturePackage struct {
-	Code          PackageCode      `json:"code"`
-	Version       uint64           `json:"version"`
-	Name          string           `json:"name"`
-	Description   string           `json:"description"`
-	Dependencies  []PackageCode    `json:"dependencies,omitempty"`
-	Features      []string         `json:"features"`
-	DefaultLimits map[string]int64 `json:"default_limits,omitempty"`
+	Code          PackageCode         `json:"code"`
+	Version       uint64              `json:"version"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description"`
+	Dependencies  []PackageCode       `json:"dependencies,omitempty"`
+	Features      []string            `json:"features"`
+	DefaultLimits map[LimitCode]int64 `json:"default_limits,omitempty"`
+}
+
+// LimitDefinition gives a numeric entitlement value stable enforcement
+// semantics. Capacity is the first supported kind: callers atomically reserve
+// and release units against the effective Account maximum.
+type LimitDefinition struct {
+	Code                  LimitCode        `json:"code"`
+	PackageCode           PackageCode      `json:"package_code"`
+	Name                  string           `json:"name"`
+	Unit                  string           `json:"unit"`
+	Kind                  LimitKind        `json:"kind"`
+	Combine               LimitCombineRule `json:"combine"`
+	ReservationTTLSeconds int64            `json:"reservation_ttl_seconds,omitempty"`
 }
 
 type Plan struct {
@@ -54,18 +77,19 @@ type Offer struct {
 }
 
 type PublishedCatalog struct {
-	Version     uint64           `json:"version"`
-	PublishedAt time.Time        `json:"published_at"`
-	Packages    []FeaturePackage `json:"packages"`
-	Plans       []Plan           `json:"plans"`
-	Offers      []Offer          `json:"offers"`
+	Version     uint64            `json:"version"`
+	PublishedAt time.Time         `json:"published_at"`
+	Packages    []FeaturePackage  `json:"packages"`
+	Limits      []LimitDefinition `json:"limits,omitempty"`
+	Plans       []Plan            `json:"plans"`
+	Offers      []Offer           `json:"offers"`
 }
 
 func Default(now time.Time) PublishedCatalog {
 	packages := []FeaturePackage{
-		{Code: PackageKnowledge, Version: 1, Name: "Knowledge", Description: "Source-attributed business facts, documents, evidence, and citations.", Features: []string{"knowledge.read", "knowledge.baseline"}, DefaultLimits: map[string]int64{"documents": 25}},
-		{Code: PackageWork, Version: 1, Name: "Work", Description: "Accountable work across people and agents.", Features: []string{"work.read", "work.manage"}, DefaultLimits: map[string]int64{"active_items": 100}},
-		{Code: PackageAgents, Version: 1, Name: "Agents", Description: "Governed specialist agents and coordinated boardrooms.", Dependencies: []PackageCode{PackageWork, PackageKnowledge}, Features: []string{"agents.configure", "agents.run"}, DefaultLimits: map[string]int64{"concurrent_runs": 2}},
+		{Code: PackageKnowledge, Version: 1, Name: "Knowledge", Description: "Source-attributed business facts, documents, evidence, and citations.", Features: []string{"knowledge.read", "knowledge.baseline"}, DefaultLimits: map[LimitCode]int64{"documents": 25}},
+		{Code: PackageWork, Version: 1, Name: "Work", Description: "Accountable work across people and agents.", Features: []string{"work.read", "work.manage"}, DefaultLimits: map[LimitCode]int64{"active_items": 100}},
+		{Code: PackageAgents, Version: 1, Name: "Agents", Description: "Governed specialist agents and coordinated boardrooms.", Dependencies: []PackageCode{PackageWork, PackageKnowledge}, Features: []string{"agents.configure", "agents.run"}, DefaultLimits: map[LimitCode]int64{"concurrent_runs": 2}},
 		{Code: PackageFinance, Version: 1, Name: "Finance", Description: "Operational ledgers, accounts, entries, and reports.", Features: []string{"finance.read", "finance.post"}},
 		{Code: PackageMarketing, Version: 1, Name: "Marketing", Description: "Brand knowledge, research, campaign planning, and content work.", Dependencies: []PackageCode{PackageKnowledge}, Features: []string{"marketing.read", "marketing.manage"}},
 		{Code: PackageIntegrations, Version: 1, Name: "Integrations", Description: "Scoped, observable external connectors.", Features: []string{"integrations.read", "integrations.connect"}},
@@ -73,11 +97,54 @@ func Default(now time.Time) PublishedCatalog {
 	free := Plan{Code: "free", Version: 1, Name: "Free", Description: "A real Spyglass Account for exploring the operating model.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled}}
 	team := Plan{Code: "team", Version: 1, Name: "Team", Description: "A focused operating surface for a growing team.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled, PackageWork: ModeEnabled, PackageIntegrations: ModeEnabled}}
 	operating := Plan{Code: "operating", Version: 1, Name: "Operating", Description: "The coordinated Spyglass operating system.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled, PackageWork: ModeEnabled, PackageAgents: ModeEnabled, PackageFinance: ModeEnabled, PackageMarketing: ModeEnabled, PackageIntegrations: ModeEnabled}}
-	return PublishedCatalog{Version: 2, PublishedAt: now.UTC(), Packages: packages, Plans: []Plan{free, team, operating}, Offers: []Offer{
+	limits := []LimitDefinition{
+		{Code: "documents", PackageCode: PackageKnowledge, Name: "Documents", Unit: "document", Kind: LimitKindCapacity, Combine: LimitMaximum},
+		{Code: "active_items", PackageCode: PackageWork, Name: "Active work items", Unit: "work_item", Kind: LimitKindCapacity, Combine: LimitMaximum},
+		{Code: "concurrent_runs", PackageCode: PackageAgents, Name: "Concurrent agent runs", Unit: "run", Kind: LimitKindCapacity, Combine: LimitMaximum, ReservationTTLSeconds: 3600},
+	}
+	return PublishedCatalog{Version: 2, PublishedAt: now.UTC(), Packages: packages, Limits: limits, Plans: []Plan{free, team, operating}, Offers: []Offer{
 		{Code: "free-v1", PlanCode: "free", PlanVersion: 1, Currency: "USD", AmountMinor: 0, BillingInterval: "none", Published: true, EffectiveFrom: now.UTC()},
 		{Code: "team-monthly-v1", PlanCode: "team", PlanVersion: 1, Currency: "USD", AmountMinor: 4900, BillingInterval: "month", Published: true, EffectiveFrom: now.UTC()},
 		{Code: "operating-monthly-v1", PlanCode: "operating", PlanVersion: 1, Currency: "USD", AmountMinor: 14900, BillingInterval: "month", Published: true, EffectiveFrom: now.UTC()},
 	}}
+}
+
+// EffectiveLimitDefinitions keeps immutable pre-definition Catalog versions
+// executable during rollback. Legacy default limits receive conservative
+// capacity/replace semantics; every newly governed draft must be explicit.
+func (c PublishedCatalog) EffectiveLimitDefinitions() []LimitDefinition {
+	definitions := append([]LimitDefinition(nil), c.Limits...)
+	known := make(map[string]struct{}, len(definitions))
+	for _, definition := range definitions {
+		known[limitIdentity(definition.PackageCode, definition.Code)] = struct{}{}
+	}
+	for _, item := range c.Packages {
+		for code := range item.DefaultLimits {
+			if _, exists := known[limitIdentity(item.Code, code)]; exists {
+				continue
+			}
+			definitions = append(definitions, LimitDefinition{Code: code, PackageCode: item.Code, Name: string(code), Unit: "unit", Kind: LimitKindCapacity, Combine: LimitReplace})
+		}
+	}
+	return definitions
+}
+
+func (c PublishedCatalog) ValidateGoverned() error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	definitions := make(map[string]struct{}, len(c.Limits))
+	for _, definition := range c.Limits {
+		definitions[limitIdentity(definition.PackageCode, definition.Code)] = struct{}{}
+	}
+	for _, item := range c.Packages {
+		for code := range item.DefaultLimits {
+			if _, exists := definitions[limitIdentity(item.Code, code)]; !exists {
+				return fmt.Errorf("package %q default limit %q requires an explicit definition", item.Code, code)
+			}
+		}
+	}
+	return nil
 }
 
 func (c PublishedCatalog) Plan(code string) (Plan, bool) {
@@ -98,11 +165,16 @@ func (c PublishedCatalog) Validate() error {
 	}
 	packages := make(map[PackageCode]FeaturePackage, len(c.Packages))
 	for _, item := range c.Packages {
-		if item.Code == "" || item.Version == 0 || strings.TrimSpace(item.Name) == "" {
+		if !validMachineCode(string(item.Code)) || item.Version == 0 || strings.TrimSpace(item.Name) == "" {
 			return errors.New("package code, version, and name are required")
 		}
 		if _, exists := packages[item.Code]; exists {
 			return fmt.Errorf("duplicate package %q", item.Code)
+		}
+		for code, value := range item.DefaultLimits {
+			if !validMachineCode(string(code)) || value < 0 {
+				return fmt.Errorf("package %q has an invalid default limit", item.Code)
+			}
 		}
 		packages[item.Code] = item
 	}
@@ -118,6 +190,38 @@ func (c PublishedCatalog) Validate() error {
 	}
 	if hasDependencyCycle(packages) {
 		return errors.New("package dependencies contain a cycle")
+	}
+	limits := make(map[string]struct{}, len(c.Limits))
+	for _, definition := range c.Limits {
+		identity := limitIdentity(definition.PackageCode, definition.Code)
+		if !validMachineCode(string(definition.Code)) || !validMachineCode(string(definition.PackageCode)) || strings.TrimSpace(definition.Name) == "" || !validMachineCode(definition.Unit) {
+			return errors.New("limit code, package, name, and unit are required")
+		}
+		if _, exists := packages[definition.PackageCode]; !exists {
+			return fmt.Errorf("limit %q belongs to unknown package %q", definition.Code, definition.PackageCode)
+		}
+		if _, exists := limits[identity]; exists {
+			return fmt.Errorf("duplicate package limit %q", identity)
+		}
+		if definition.Kind != LimitKindCapacity {
+			return fmt.Errorf("limit %q has unsupported kind", identity)
+		}
+		if definition.Combine != LimitReplace && definition.Combine != LimitAdd && definition.Combine != LimitMaximum && definition.Combine != LimitMinimum {
+			return fmt.Errorf("limit %q has invalid combination rule", identity)
+		}
+		if definition.ReservationTTLSeconds < 0 || definition.ReservationTTLSeconds > int64((30*24*time.Hour)/time.Second) {
+			return fmt.Errorf("limit %q has an invalid reservation TTL", identity)
+		}
+		limits[identity] = struct{}{}
+	}
+	if len(c.Limits) > 0 {
+		for _, item := range c.Packages {
+			for code := range item.DefaultLimits {
+				if _, exists := limits[limitIdentity(item.Code, code)]; !exists {
+					return fmt.Errorf("package %q default limit %q has no definition", item.Code, code)
+				}
+			}
+		}
 	}
 	plans := make(map[string]Plan, len(c.Plans))
 	for _, plan := range c.Plans {
@@ -171,6 +275,22 @@ func (c PublishedCatalog) Validate() error {
 		offers[offer.Code] = struct{}{}
 	}
 	return nil
+}
+
+func limitIdentity(packageCode PackageCode, limitCode LimitCode) string {
+	return string(packageCode) + "/" + string(limitCode)
+}
+
+func validMachineCode(value string) bool {
+	if len(value) < 1 || len(value) > 64 {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 func hasDependencyCycle(packages map[PackageCode]FeaturePackage) bool {

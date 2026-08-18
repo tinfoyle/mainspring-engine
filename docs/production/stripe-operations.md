@@ -43,7 +43,7 @@ Do not place Price IDs in public Catalog JSON. Price changes require a new Catal
 | `past_due` | Read-only package grants during remediation |
 | `incomplete`, `incomplete_expired`, `paused`, `unpaid`, `canceled` | No subscription grants; other grant sources still apply |
 
-Each recognized event triggers retrieval of the current Stripe Subscription. This makes delayed and out-of-order delivery converge on current state. The transaction locks the Account entitlement version, upserts the Subscription while rejecting cross-Account conflicts, replaces only that Subscription's grants, re-evaluates every active grant source, and publishes a snapshot only when effective access changed.
+Each recognized event triggers retrieval of the current Stripe Subscription. This makes delayed and out-of-order delivery converge on current state. The transaction locks the Account entitlement version, upserts the Subscription while rejecting cross-Account conflicts, replaces only that Subscription's grants, and re-evaluates every active grant source. Historical Offer/Catalog mappings still determine the purchased grant values, while the current effective Catalog supplies dependency and limit-policy semantics for the new Account snapshot; a delayed event therefore cannot roll newer free-plan policy backward. A snapshot is published only when effective access changed.
 
 ## Worker and operator boundaries
 

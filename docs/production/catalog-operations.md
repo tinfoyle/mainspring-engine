@@ -32,7 +32,7 @@ $env:SPYGLASS_OPERATOR_REASON = 'ticket IO-123: publish reviewed annual offers'
 
 ## Create and review a version
 
-Catalog JSON contains public package, plan, and offer identities only. It must not contain Stripe IDs.
+Catalog JSON contains public package, limit, plan, and offer identities only. It must not contain Stripe IDs. Every package default limit in a new draft requires an explicit definition with its owning package, display unit, `capacity` kind, combination rule, and optional reservation TTL. Unsupported or implicit limit semantics fail before the immutable draft is created.
 
 ```powershell
 $env:SPYGLASS_CATALOG_FILE = 'C:\reviewed\catalog.json'
@@ -48,7 +48,7 @@ $env:SPYGLASS_OPERATOR_REASON = 'ticket IO-123: request independent catalog revi
 spyglass catalog-admin request-review
 ```
 
-A different operator reviews the exact content hash, dependency graph, prices, currencies, tax presentation, effective dates, and Stripe dashboard objects:
+A different operator reviews the exact content hash, dependency graph, limit ownership/units/combination/TTL, prices, currencies, tax presentation, effective dates, and Stripe dashboard objects:
 
 ```powershell
 $env:SPYGLASS_OPERATOR_ID = 'reviewer@example.com'

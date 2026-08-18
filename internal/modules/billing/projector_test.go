@@ -89,5 +89,6 @@ type projectionClock struct{ now time.Time }
 
 func (c projectionClock) Now() time.Time { return c.now }
 func testMapping() MappedOffer {
-	return MappedOffer{AccountID: testProjectionAccount, CatalogVersion: 2, Offer: catalog.Offer{Code: "team"}, Plan: catalog.Plan{Code: "team", Packages: map[catalog.PackageCode]catalog.PackageMode{catalog.PackageWork: catalog.ModeEnabled}}, Packages: map[catalog.PackageCode]catalog.FeaturePackage{catalog.PackageWork: {Code: catalog.PackageWork, Version: 1}}}
+	definition := catalog.FeaturePackage{Code: catalog.PackageWork, Version: 1}
+	return MappedOffer{AccountID: testProjectionAccount, CatalogVersion: 2, Offer: catalog.Offer{Code: "team"}, Plan: catalog.Plan{Code: "team", Packages: map[catalog.PackageCode]catalog.PackageMode{catalog.PackageWork: catalog.ModeEnabled}}, Packages: map[catalog.PackageCode]catalog.FeaturePackage{catalog.PackageWork: definition}, Catalog: catalog.PublishedCatalog{Version: 2, Packages: []catalog.FeaturePackage{definition}}}
 }

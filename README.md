@@ -45,6 +45,7 @@ The focused design documents are:
 - [Website, Accounts, Packages, and Billing](docs/production/accounts-packages-billing.md)
 - [Stripe commercial access operations](docs/production/stripe-operations.md)
 - [Catalog publication operations](docs/production/catalog-operations.md)
+- [Package and usage admission](docs/production/usage-admission.md)
 - [Production runtime configuration](docs/production/runtime-configuration.md)
 - [Pooled Kubernetes and cell topology](docs/production/kubernetes-topology.md)
 - [Detailed delivery backlog](docs/production/delivery-plan.md)

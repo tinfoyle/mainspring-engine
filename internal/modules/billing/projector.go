@@ -23,6 +23,7 @@ type MappedOffer struct {
 	Offer          catalog.Offer
 	Plan           catalog.Plan
 	Packages       map[catalog.PackageCode]catalog.FeaturePackage
+	Catalog        catalog.PublishedCatalog
 }
 
 type Projection struct {
@@ -80,6 +81,9 @@ func (p *Projector) Refresh(ctx context.Context, subscriptionID string) error {
 	if current.OfferVersion != 0 && current.OfferVersion != mapping.CatalogVersion {
 		return ErrSubscriptionMismatch
 	}
+	if mapping.Catalog.Version != mapping.CatalogVersion {
+		return ErrSubscriptionMismatch
+	}
 	now := p.clock.Now().UTC()
 	grants := subscriptionGrants(current, mapping, p.ids, now)
 	return p.repository.ApplyProjection(ctx, Projection{Subscription: current, Mapping: mapping, Grants: grants, SyncedAt: now})
@@ -133,7 +137,7 @@ func subscriptionGrants(subscription ProviderSubscription, mapping MappedOffer, 
 		if subscription.State == "past_due" {
 			mode = catalog.ModeReadOnly
 		}
-		limits := make(map[string]int64, len(definition.DefaultLimits))
+		limits := make(map[catalog.LimitCode]int64, len(definition.DefaultLimits))
 		for name, value := range definition.DefaultLimits {
 			limits[name] = value
 		}

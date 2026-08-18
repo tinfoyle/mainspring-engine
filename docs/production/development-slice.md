@@ -34,6 +34,10 @@ This repository now contains the first executable production slice for Infinite 
 - Durable existing-Account entitlement rollouts created atomically with Catalog publication, with bounded cursor seeding, leased claims, retries, dead letters, and late-Account drift repair.
 - Free-plan reconciliation that uses the published package versions and default limits, preserves every independently sourced grant, and appends immutable snapshots only when effective access changes.
 - An executable independently scalable `entitlement-worker` process with database-only authority, strict configuration bounds, graceful shutdown, and dependency-aware readiness.
+- Typed Catalog limit definitions with explicit package ownership, unit, capacity kind, combination rule, optional recovery TTL, and strict governed-draft validation.
+- Deterministic multi-source limit evaluation with stable equal-priority ordering and immutable enforcement policies embedded in Account snapshots.
+- A transport-neutral package/usage admission service with specific `package_not_entitled`, `package_read_only`, `limit_not_defined`, and `limit_exceeded` decisions.
+- PostgreSQL-backed capacity counters and UUID-keyed reservations with entitlement-version fencing, concurrency-safe admission, idempotent retry/release, conflict detection, and lease expiry reclamation.
 - Embedded global, cell, and development PostgreSQL migrations with advisory locking, immutable checksums, an application ledger, and a one-shot production runner.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, and default-deny networking.
 - GitHub verification for Go format/test/race/vet, disposable PostgreSQL contracts, vulnerability scanning, and public-site build/lint/production dependency audit.
@@ -109,7 +113,7 @@ npm run dev
 ## Next production slices
 
 1. Add passkeys/MFA, multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
-2. Add Catalog limit-definition administration and enforcement adapters for every HTTP/MCP/job/tool entry point, including metering and stable limit-denial responses.
+2. Wire the shared usage-admission boundary into each concrete Work/Agents/Knowledge/Finance/Marketing HTTP, MCP, schedule, job, and tool use case as those modules land; add periodic consumption and model/cost budget kinds through new governed semantics rather than overloading capacity.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
 5. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.
@@ -120,6 +124,6 @@ npm run dev
 - Rendered browser journey coverage proves signup â†’ verification/password â†’ login â†’ Account shell, and API journey coverage proves invitation â†’ existing identity â†’ Membership â†’ Account list.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
-- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification delivery, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, forward and lower-version entitlement rollout, unchanged-access drift repair, independent-grant preservation, registration, Checkout reservation concurrency, and transaction-local RLS isolation through a non-owner serving role. Kubernetes resources remain review-only and have not been applied to a cluster.
+- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification delivery, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, forward and lower-version entitlement rollout, unchanged-access drift repair, independent-grant preservation, governed limit propagation, concurrent capacity admission without oversubscription, UUID retry/release idempotency, expiry reclamation, stale-entitlement rejection, registration, Checkout reservation concurrency, and transaction-local RLS isolation through a non-owner serving role. Kubernetes resources remain review-only and have not been applied to a cluster.
 - Stripe request translation, event ingestion, deduplication, out-of-order convergence, and queue behavior are tested with local fixtures; no Stripe account mutation has been performed.
 - The private Account shell renders local billing status and paid offers and can enter Checkout/Portal in the persistent composition; no app-owned credentials or Account data were moved into the public Sites deployment.

@@ -34,7 +34,7 @@ func (r *CatalogAdminRepository) CreateDraft(ctx context.Context, content catalo
 		return catalogadmin.Publication{}, err
 	}
 	content.Version = version
-	if err := content.Validate(); err != nil {
+	if err := content.ValidateGoverned(); err != nil {
 		return catalogadmin.Publication{}, errors.Join(catalogadmin.ErrInvalidChange, err)
 	}
 	raw, err := json.Marshal(content)

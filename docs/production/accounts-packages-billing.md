@@ -241,6 +241,9 @@ UI hiding alone is never enforcement. A non-entitled call returns a stable `pack
 - Explicit time-bounded support overrides outrank plan grants and require reason, actor, and audit.
 - Subscription and promotion grants combine according to catalog policy.
 - Limits combine explicitly by rule (`replace`, `add`, `maximum`, or `minimum`); there is no implicit map merge.
+- Equal-priority grants use immutable grant ID as a deterministic tie-breaker; database row order can never change the winner.
+- Missing or suspended dependencies suspend the dependent package; a read-only dependency propagates read-only mode so a dependent mutation cannot bypass the downgrade.
+- Capacity is reserved through one Account/package/limit counter using a UUID operation key, entitlement-version fencing, idempotent release, and optional crash-recovery expiry.
 - Each evaluation produces an immutable snapshot so requests and runs can record which entitlement version authorized them.
 
 ### Downgrade behavior

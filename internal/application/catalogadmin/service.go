@@ -77,7 +77,7 @@ func (s *Service) CreateDraft(ctx context.Context, content catalog.PublishedCata
 	for index := range content.Offers {
 		content.Offers[index].Published = false
 	}
-	if err := content.Validate(); err != nil {
+	if err := content.ValidateGoverned(); err != nil {
 		return Publication{}, errors.Join(ErrInvalidChange, err)
 	}
 	change, err := s.change(actor, reason)

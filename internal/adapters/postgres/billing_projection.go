@@ -86,6 +86,7 @@ func (r *BillingProjectionRepository) ResolveSubscription(ctx context.Context, s
 	for _, item := range publication.Packages {
 		result.Packages[item.Code] = item
 	}
+	result.Catalog = publication
 	return result, nil
 }
 
@@ -147,7 +148,23 @@ func (r *BillingProjectionRepository) ApplyProjection(ctx context.Context, proje
 	if err != nil {
 		return err
 	}
-	snapshot, err := entitlements.Evaluate(projection.Mapping.AccountID, currentVersion+1, projection.Mapping.CatalogVersion, grants, projection.SyncedAt)
+	var currentCatalogRaw []byte
+	var currentCatalogPublishedAt time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT content,published_at FROM catalog_publications
+		WHERE state='published' AND published_at<=$1
+		ORDER BY published_at DESC,version DESC LIMIT 1`, projection.SyncedAt.UTC()).Scan(&currentCatalogRaw, &currentCatalogPublishedAt); err != nil {
+		return err
+	}
+	var currentCatalog catalog.PublishedCatalog
+	if err := json.Unmarshal(currentCatalogRaw, &currentCatalog); err != nil {
+		return err
+	}
+	currentCatalog.PublishedAt = currentCatalogPublishedAt.UTC()
+	if err := currentCatalog.Validate(); err != nil {
+		return err
+	}
+	snapshot, err := entitlements.Evaluate(projection.Mapping.AccountID, currentVersion+1, currentCatalog, grants, projection.SyncedAt)
 	if err != nil {
 		return err
 	}

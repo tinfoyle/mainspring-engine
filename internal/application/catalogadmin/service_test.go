@@ -62,6 +62,11 @@ func TestDraftValidationAndOperatorAttribution(t *testing.T) {
 	if _, err := service.CreateDraft(context.Background(), catalog.PublishedCatalog{}, "operator@example.com", "invalid empty catalog"); !errors.Is(err, catalogadmin.ErrInvalidChange) {
 		t.Fatalf("invalid catalog result = %v", err)
 	}
+	implicitLimits := content
+	implicitLimits.Limits = nil
+	if _, err := service.CreateDraft(context.Background(), implicitLimits, "operator@example.com", "attempt draft with implicit limit policy"); !errors.Is(err, catalogadmin.ErrInvalidChange) {
+		t.Fatalf("implicit limit draft result = %v", err)
+	}
 	if _, err := service.CreateDraft(context.Background(), content, "operator@example.com", "short"); !errors.Is(err, catalogadmin.ErrInvalidChange) {
 		t.Fatalf("short reason result = %v", err)
 	}

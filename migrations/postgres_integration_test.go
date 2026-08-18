@@ -28,6 +28,8 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
@@ -345,6 +347,110 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil || rollbackCurrent.Version != draft.Version {
 		t.Fatalf("rollback current Catalog = %d, %v", rollbackCurrent.Version, err)
 	}
+	usageRepository := postgresadapter.NewUsageAdmissionRepository(pool)
+	usageAuthorizer, err := access.NewAuthorizer(postgresadapter.NewAccessRepository(pool))
+	if err != nil {
+		t.Fatal(err)
+	}
+	usageNow := rollbackNow.Add(time.Minute)
+	usageService, err := usageadmission.NewService(usageAuthorizer, usageRepository, ids.RandomGenerator{}, fixedClock{now: usageNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstUsageKey := "71000000-0000-4000-8000-000000000001"
+	usageActor := access.Actor{UserID: provisioned.User.ID}
+	firstUsage, err := usageService.Reserve(ctx, usageadmission.ReserveCommand{Actor: usageActor, AccountID: provisioned.Account.ID, PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 60, RequestID: firstUsageKey})
+	if err != nil || firstUsage.Current != 60 || firstUsage.Maximum != 100 || firstUsage.EntitlementVersion != rollbackEntitlementVersion {
+		t.Fatalf("first usage admission = %+v, %v", firstUsage, err)
+	}
+	repeatedUsage, err := usageService.Reserve(ctx, usageadmission.ReserveCommand{Actor: usageActor, AccountID: provisioned.Account.ID, PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 60, RequestID: firstUsageKey})
+	if err != nil || repeatedUsage.ID != firstUsage.ID || repeatedUsage.Current != 60 {
+		t.Fatalf("idempotent usage admission = %+v, %v", repeatedUsage, err)
+	}
+	if _, err := usageService.Reserve(ctx, usageadmission.ReserveCommand{Actor: usageActor, AccountID: provisioned.Account.ID, PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 59, RequestID: firstUsageKey}); !errors.Is(err, usageadmission.ErrReservationConflict) {
+		t.Fatalf("conflicting usage idempotency key = %v", err)
+	}
+	usageResults := make(chan error, 2)
+	for index, requestID := range []string{"71000000-0000-4000-8000-000000000002", "71000000-0000-4000-8000-000000000003"} {
+		go func(index int, requestID string) {
+			_, reserveErr := usageService.Reserve(ctx, usageadmission.ReserveCommand{Actor: usageActor, AccountID: provisioned.Account.ID, PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 30, RequestID: requestID})
+			if reserveErr == nil {
+				usageResults <- nil
+				return
+			}
+			if !access.IsDenied(reserveErr, access.DenialLimitExceeded) {
+				usageResults <- fmt.Errorf("concurrent usage %d: %w", index, reserveErr)
+				return
+			}
+			usageResults <- reserveErr
+		}(index, requestID)
+	}
+	var admittedCount, deniedCount int
+	for range 2 {
+		result := <-usageResults
+		if result == nil {
+			admittedCount++
+		} else if access.IsDenied(result, access.DenialLimitExceeded) {
+			deniedCount++
+		} else {
+			t.Fatal(result)
+		}
+	}
+	if admittedCount != 1 || deniedCount != 1 {
+		t.Fatalf("concurrent usage admission: admitted=%d denied=%d", admittedCount, deniedCount)
+	}
+	if _, err := usageService.Release(ctx, usageadmission.ReleaseCommand{Actor: usageActor, AccountID: provisioned.Account.ID, RequestID: firstUsageKey}); err != nil {
+		t.Fatalf("release usage: %v", err)
+	}
+	releasedAgain, err := usageService.Release(ctx, usageadmission.ReleaseCommand{Actor: usageActor, AccountID: provisioned.Account.ID, RequestID: firstUsageKey})
+	if err != nil || releasedAgain.State != usageadmission.ReservationReleased || releasedAgain.Current != 30 {
+		t.Fatalf("idempotent usage release = %+v, %v", releasedAgain, err)
+	}
+	expiringKey := "71000000-0000-4000-8000-000000000004"
+	expiresAt := usageNow.Add(time.Second)
+	if _, err := usageRepository.Reserve(ctx, usageadmission.PersistCommand{ID: ids.RandomGenerator{}.New(), AccountID: provisioned.Account.ID, RequestID: expiringKey, PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 40, Maximum: 100, ExpectedEntitlementVersion: rollbackEntitlementVersion, ExpiresAt: &expiresAt, Now: usageNow}); err != nil {
+		t.Fatalf("reserve expiring usage: %v", err)
+	}
+	afterExpiry, err := usageRepository.Reserve(ctx, usageadmission.PersistCommand{ID: ids.RandomGenerator{}.New(), AccountID: provisioned.Account.ID, RequestID: "71000000-0000-4000-8000-000000000005", PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 40, Maximum: 100, ExpectedEntitlementVersion: rollbackEntitlementVersion, Now: usageNow.Add(2 * time.Second)})
+	if err != nil || afterExpiry.Current != 70 {
+		t.Fatalf("usage expiry reclamation = %+v, %v", afterExpiry, err)
+	}
+	var expiredState string
+	if err := pool.QueryRow(ctx, `SELECT state FROM entitlement_usage_reservations WHERE account_id=$1 AND request_id=$2`, provisioned.Account.ID, expiringKey).Scan(&expiredState); err != nil || expiredState != "expired" {
+		t.Fatalf("expired usage state = %q, %v", expiredState, err)
+	}
+	_, err = usageRepository.Reserve(ctx, usageadmission.PersistCommand{ID: ids.RandomGenerator{}.New(), AccountID: provisioned.Account.ID, RequestID: "71000000-0000-4000-8000-000000000006", PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 1, Maximum: 100, ExpectedEntitlementVersion: rollbackEntitlementVersion + 1, Now: usageNow})
+	if !errors.Is(err, usageadmission.ErrEntitlementChanged) {
+		t.Fatalf("stale entitlement usage admission = %v", err)
+	}
+	legacyTeam, ok := published.Plan("team")
+	if !ok {
+		t.Fatal("seeded legacy Catalog has no Team plan")
+	}
+	legacyOffer := catalog.Offer{}
+	for _, offer := range published.Offers {
+		if offer.Code == "team-monthly-v1" {
+			legacyOffer = offer
+			break
+		}
+	}
+	legacyPackages := make(map[catalog.PackageCode]catalog.FeaturePackage, len(published.Packages))
+	for _, definition := range published.Packages {
+		legacyPackages[definition.Code] = definition
+	}
+	billingSyncedAt := usageNow.Add(3 * time.Second)
+	if err := postgresadapter.NewBillingProjectionRepository(pool).ApplyProjection(ctx, billing.Projection{
+		Subscription: billing.ProviderSubscription{ID: "sub_catalog_version_contract", Mode: "test", CustomerID: "cus_catalog_version_contract", State: "active", CurrentPeriodStart: billingSyncedAt.Add(-time.Hour), CurrentPeriodEnd: billingSyncedAt.Add(30 * 24 * time.Hour), ObjectVersion: "2026-08-18T10:00:03Z"},
+		Mapping:      billing.MappedOffer{AccountID: provisioned.Account.ID, CatalogVersion: published.Version, Offer: legacyOffer, Plan: legacyTeam, Packages: legacyPackages, Catalog: published},
+		Grants:       []entitlements.Grant{{ID: ids.GrantID(ids.RandomGenerator{}.New()), AccountID: provisioned.Account.ID, PackageCode: catalog.PackageWork, PackageVersion: 1, Mode: catalog.ModeEnabled, Source: entitlements.SourceSubscription, SourceReference: "sub_catalog_version_contract", Limits: map[catalog.LimitCode]int64{"active_items": 100}, StartsAt: billingSyncedAt.Add(-time.Hour), Priority: 50, Reason: "legacy Team subscription contract"}},
+		SyncedAt:     billingSyncedAt,
+	}); err != nil {
+		t.Fatalf("cross-Catalog billing projection: %v", err)
+	}
+	var billingSnapshotCatalog uint64
+	if err := pool.QueryRow(ctx, `SELECT catalog_version FROM entitlement_snapshots WHERE account_id=$1 ORDER BY version DESC LIMIT 1`, provisioned.Account.ID).Scan(&billingSnapshotCatalog); err != nil || billingSnapshotCatalog != draft.Version {
+		t.Fatalf("billing snapshot Catalog = %d, %v; want current %d rather than mapped %d", billingSnapshotCatalog, err, draft.Version, published.Version)
+	}
 	leaseRolloutID := ids.RandomGenerator{}.New()
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO entitlement_catalog_rollouts (id,target_catalog_version,source,state,effective_at,seeded_count,created_at,seeded_at)
@@ -549,7 +655,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 12 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 13 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
