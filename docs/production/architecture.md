@@ -308,6 +308,8 @@ Repositories:
 
 A use case declares one transaction boundary. The adapter sets RLS account context with `SET LOCAL` at transaction start. Cross-module invariants use a coordinating application service whose transaction supplies module repository adapters over the same cell connection. Global-to-cell operations use durable workflows, outboxes, and idempotent reconciliation rather than distributed transactions.
 
+Agents persists Account-owned Boardrooms, Persona identities, immutable PersonaVersions, Conversations, Runs, ordered RunPlan turns, Invocations, and Messages in separate forced-RLS tables. Every relationship and uniqueness constraint includes `account_id`. A successful runner result is projected only when its accepted encrypted-exchange digest matches; invocation success, the next conversation sequence, exactly one persona Message, and terminal Run state then commit atomically. Failure projection records no Message. Projection roles receive execute-only functions and no table reads, while Account erasure counts and removes every Agents table before deleting the namespace.
+
 ### Documents and object storage
 
 The database stores metadata, extracted bounded text, chunk identity, revision provenance, and object references. Original binaries live in encrypted object storage with:
