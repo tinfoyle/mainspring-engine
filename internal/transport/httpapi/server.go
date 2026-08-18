@@ -1387,12 +1387,15 @@ func decodeJSONLimit(w http.ResponseWriter, r *http.Request, target any, maximum
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
 func writeProblem(w http.ResponseWriter, status int, code, detail string) {
-	writeJSON(w, status, map[string]any{"type": "about:blank", "title": http.StatusText(status), "status": status, "code": code, "detail": detail})
+	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+	writeJSON(w, status, map[string]any{"type": "https://infiniteocean.net/problems/" + code, "title": http.StatusText(status), "status": status, "code": code, "detail": detail})
 }
 
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
