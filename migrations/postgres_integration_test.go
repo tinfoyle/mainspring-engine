@@ -281,6 +281,18 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT account_id::text FROM billing_event_inbox WHERE provider_event_id=$1`, billingEntry.ProviderEventID).Scan(&billingAccountID); err != nil || billingAccountID != string(provisioned.Account.ID) {
 		t.Fatalf("billing event Account attribution = %q, %v", billingAccountID, err)
 	}
+	missingAccountID := ids.AccountID(ids.RandomGenerator{}.New())
+	suppressedPayload := []byte(`{"id":"evt_post_erasure_retry","protected":"must-not-persist"}`)
+	suppressedHash := sha256.Sum256(suppressedPayload)
+	suppressedEntry := billing.InboxEntry{ProviderEventID: "evt_post_erasure_retry", AccountID: missingAccountID, EventType: "customer.subscription.updated", ProviderCreatedAt: now, Mode: "test", PayloadHash: suppressedHash, SignatureVerifiedAt: now, ProcessingState: "accepted", CreatedAt: now}
+	accepted, err = postgresadapter.NewBillingInbox(pool).Accept(ctx, suppressedEntry, suppressedPayload)
+	if err != nil || accepted {
+		t.Fatalf("post-erasure billing retry suppression: accepted=%v err=%v", accepted, err)
+	}
+	var suppressedCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM billing_event_inbox WHERE provider_event_id=$1`, suppressedEntry.ProviderEventID).Scan(&suppressedCount); err != nil || suppressedCount != 0 {
+		t.Fatalf("post-erasure billing retry persisted: count=%d err=%v", suppressedCount, err)
+	}
 	directoryEntry, err := postgresadapter.NewAccountDirectoryRepository(pool).Lookup(ctx, provisioned.Account.ID)
 	if err != nil || directoryEntry.CellID != provisioned.Account.CellID || directoryEntry.PlacementGeneration != provisioned.Account.PlacementGeneration || directoryEntry.RouteOrigin != "http://app-api.spyglass-reference.svc.cluster.local" {
 		t.Fatalf("unexpected Account directory route: entry=%+v err=%v", directoryEntry, err)

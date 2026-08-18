@@ -16,7 +16,33 @@ type BillingInbox struct{ pool *pgxpool.Pool }
 func NewBillingInbox(pool *pgxpool.Pool) *BillingInbox { return &BillingInbox{pool: pool} }
 
 func (i *BillingInbox) Accept(ctx context.Context, entry billing.InboxEntry, payload []byte) (bool, error) {
-	command, err := i.pool.Exec(ctx, `
+	tx, err := i.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if entry.AccountID != "" {
+		// Global Account-erasure finalization must acquire this exact
+		// transaction-scoped fence before it deletes attributed inbox rows and
+		// the Account. That makes the existence check and insert atomic with
+		// respect to erasure without coupling provider events to an Account FK.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('spyglass:account-erasure:' || $1::text, 0))`, entry.AccountID); err != nil {
+			return false, err
+		}
+		var accountExists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM accounts WHERE id=$1)`, entry.AccountID).Scan(&accountExists); err != nil {
+			return false, err
+		}
+		if !accountExists {
+			if err := tx.Commit(ctx); err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+	}
+
+	command, err := tx.Exec(ctx, `
 		INSERT INTO billing_event_inbox (
 			provider_event_id, account_id, event_type, provider_created_at, provider_object_id,
 			mode, payload_hash, payload_reference, payload, signature_verified_at,
@@ -27,6 +53,9 @@ func (i *BillingInbox) Accept(ctx context.Context, entry billing.InboxEntry, pay
 		entry.Mode, entry.PayloadHash[:], payload, entry.SignatureVerifiedAt,
 		entry.ProcessingState, entry.AttemptCount, entry.CreatedAt)
 	if err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return false, err
 	}
 	return command.RowsAffected() == 1, nil
