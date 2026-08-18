@@ -33,7 +33,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	if _, err := migrations.Apply(ctx, owner, migrations.Cell); err != nil {
 		t.Fatal(err)
 	}
-	coveredTables := map[string]bool{"account_namespaces": true, "account_audit_events": true, "work_item_number_counters": true, "work_items": true, "work_item_events": true, "route_context_receipts": true, "work_capacity_release_queue": true, "route_context_receipt_cleanup_queue": true, "work_capacity_release_operator_events": true, "runner_account_scheduling": true, "runner_invocation_queue": true, "runner_invocation_exchanges": true, "runner_capability_events": true, "runner_action_authorizations": true, "runner_action_ledger": true, "runner_action_attempts": true, "agent_boardrooms": true, "agent_personas": true, "agent_persona_versions": true, "agent_conversations": true, "agent_runs": true, "agent_run_plan_turns": true, "agent_invocations": true, "agent_messages": true, "agent_result_projection_queue": true, "agent_user_messages": true, "agent_invocation_execution_plans": true, "agent_dispatch_queue": true, "agent_queue_operator_events": true}
+	coveredTables := map[string]bool{"account_namespaces": true, "account_audit_events": true, "work_item_number_counters": true, "work_items": true, "work_item_events": true, "route_context_receipts": true, "work_capacity_release_queue": true, "route_context_receipt_cleanup_queue": true, "work_capacity_release_operator_events": true, "runner_account_scheduling": true, "runner_invocation_queue": true, "runner_invocation_exchanges": true, "runner_capability_events": true, "runner_action_authorizations": true, "runner_action_ledger": true, "runner_action_attempts": true, "agent_boardrooms": true, "agent_personas": true, "agent_persona_versions": true, "agent_conversations": true, "agent_runs": true, "agent_run_plan_turns": true, "agent_invocations": true, "agent_messages": true, "agent_result_projection_queue": true, "agent_user_messages": true, "agent_invocation_execution_plans": true, "agent_dispatch_queue": true, "agent_queue_operator_events": true, "agent_run_resolutions": true}
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 			spyglass.agent_boardrooms,spyglass.agent_personas,spyglass.agent_persona_versions,spyglass.agent_conversations,
 			spyglass.agent_runs,spyglass.agent_run_plan_turns,spyglass.agent_invocations,spyglass.agent_messages,
 			spyglass.agent_result_projection_queue,spyglass.agent_user_messages,spyglass.agent_invocation_execution_plans,
-			spyglass.agent_dispatch_queue,spyglass.agent_queue_operator_events TO `+functionRole+`;
+			spyglass.agent_dispatch_queue,spyglass.agent_queue_operator_events,spyglass.agent_run_resolutions TO `+functionRole+`;
 		GRANT UPDATE ON spyglass.account_namespaces TO `+functionRole+`;
 		ALTER TABLE spyglass.account_erasure_tombstones OWNER TO `+functionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_control(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;
@@ -92,6 +92,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_agent_projection(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_agent_dispatch(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_agent_queue_admin(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;
+		ALTER FUNCTION public.spyglass_erase_account_cell_without_agent_run_resolutions(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;
 		ALTER FUNCTION public.spyglass_attest_account_cell_erasure(uuid,bytea) OWNER TO `+functionRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_erase_account_cell(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) TO `+operatorRole+`;
@@ -143,7 +144,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedCounts := map[string]int64{"route_context_receipts": 1, "route_context_receipt_cleanup_queue": 1, "work_capacity_release_queue": 2, "work_item_events": 2, "work_items": 2, "work_item_number_counters": 1, "account_audit_events": 1, "work_capacity_release_operator_events": 1, "runner_invocation_queue": 1, "runner_account_scheduling": 1, "runner_invocation_exchanges": 1, "runner_capability_events": 1, "account_namespaces": 1, "agent_boardrooms": 1, "agent_personas": 1, "agent_persona_versions": 1, "agent_conversations": 1, "agent_runs": 1, "agent_run_plan_turns": 1, "agent_invocations": 1, "agent_messages": 1, "agent_result_projection_queue": 1, "agent_user_messages": 1, "agent_invocation_execution_plans": 1, "agent_dispatch_queue": 1, "agent_queue_operator_events": 1}
+	expectedCounts := map[string]int64{"route_context_receipts": 1, "route_context_receipt_cleanup_queue": 1, "work_capacity_release_queue": 2, "work_item_events": 2, "work_items": 2, "work_item_number_counters": 1, "account_audit_events": 1, "work_capacity_release_operator_events": 1, "runner_invocation_queue": 1, "runner_account_scheduling": 1, "runner_invocation_exchanges": 1, "runner_capability_events": 1, "account_namespaces": 1, "agent_boardrooms": 1, "agent_personas": 1, "agent_persona_versions": 1, "agent_conversations": 1, "agent_runs": 1, "agent_run_plan_turns": 1, "agent_invocations": 1, "agent_messages": 1, "agent_result_projection_queue": 1, "agent_user_messages": 1, "agent_invocation_execution_plans": 1, "agent_dispatch_queue": 1, "agent_queue_operator_events": 1, "agent_run_resolutions": 1}
 	for name, expected := range expectedCounts {
 		if tombstone.RowCounts[name] != expected {
 			t.Fatalf("row count %s=%d want=%d; all=%v", name, tombstone.RowCounts[name], expected, tombstone.RowCounts)
@@ -265,7 +266,9 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		INSERT INTO spyglass.agent_user_messages(account_id,id,conversation_id,sequence,body,created_by,created_at)
 		VALUES ($1,replace($8::text,'106','107')::uuid,$6,2,'Erasure request',replace($3::text,'01','11')::uuid,$2);
 		INSERT INTO spyglass.agent_invocation_execution_plans(account_id,invocation_id,conversation_id,context_sequence,profile,model_operation_ids,tool_operation_ids,request_expires_at,created_at)
-		VALUES ($1,$9,$6,2,'agent-small',ARRAY[replace($9::text,'051','052')::uuid],ARRAY[]::uuid[],$2::timestamptz+interval '1 hour',$2)`,
+		VALUES ($1,$9,$6,2,'agent-small',ARRAY[replace($9::text,'051','052')::uuid],ARRAY[]::uuid[],$2::timestamptz+interval '1 hour',$2);
+		INSERT INTO spyglass.agent_run_resolutions(account_id,id,run_id,action,note,actor_user_id,retry_run_id,created_at)
+		VALUES ($1,replace($7::text,'105','108')::uuid,$7,'accept_failure','Accepted during erasure fixture',replace($3::text,'01','11')::uuid,NULL,$2)`,
 		pgx.QueryExecModeSimpleProtocol, accountID, now, boardroomID, personaID, personaVersionID, conversationID, runID, messageID, invocationID); err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +312,7 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 
 func assertCellAccountRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, accountID ids.AccountID, expected int) {
 	t.Helper()
-	for _, table := range []string{"account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events"} {
+	for _, table := range []string{"account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions"} {
 		var count int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.`+table+` WHERE account_id=$1`, accountID).Scan(&count); err != nil || (expected == 0 && count != 0) || (expected == 1 && count == 0) {
 			t.Fatalf("table %s Account %s rows=%d expected-presence=%d err=%v", table, accountID, count, expected, err)

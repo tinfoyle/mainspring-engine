@@ -24,6 +24,7 @@ type PersonaID string
 type PersonaVersionID string
 type ConversationID string
 type RunID string
+type RunResolutionID string
 type AgentInvocationID string
 type MessageID string
 

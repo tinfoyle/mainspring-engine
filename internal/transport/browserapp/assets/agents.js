@@ -24,6 +24,11 @@
   const messageList = document.getElementById("agents-message-list");
   const moreMessages = document.getElementById("agents-more-messages");
   const runStatus = document.getElementById("agents-run-status");
+  const recoveryForm = document.getElementById("agents-run-recovery");
+  const recoveryTitle = document.getElementById("agents-recovery-title");
+  const recoverySummary = document.getElementById("agents-recovery-summary");
+  const recoveryNote = document.getElementById("agents-recovery-note");
+  const recoveryError = document.getElementById("agents-recovery-error");
   const form = document.getElementById("agents-run-form");
   const personaPicker = document.getElementById("agents-persona-picker");
   const subjectField = document.getElementById("agents-subject-field");
@@ -39,6 +44,7 @@
   let messageCursor = "";
   let loadedConversations = 0;
   let loadGeneration = 0;
+  let recoverableRun = null;
   const pendingOperations = new Map();
 
   function node(tag, className, text) {
@@ -46,6 +52,14 @@
     if (className) value.className = className;
     if (text !== undefined) value.textContent = text;
     return value;
+  }
+
+  function clearRunRecovery() {
+    recoverableRun = null;
+    if (!recoveryForm) return;
+    recoveryForm.hidden = true;
+    recoveryForm.reset();
+    recoveryError.hidden = true;
   }
 
   function initials(name) {
@@ -135,6 +149,7 @@
     conversationStatus.textContent = "Loading conversations…";
     conversationCount.textContent = "Loading";
     transcript.hidden = true;
+    clearRunRecovery();
     if (form) form.hidden = true;
     try {
       const [personaPage] = await Promise.all([
@@ -272,6 +287,7 @@
       current.setAttribute("aria-pressed", String(active));
     }
     transcript.hidden = false;
+    clearRunRecovery();
     transcriptTitle.textContent = item.subject;
     transcriptState.textContent = item.state;
     messageList.replaceChildren();
@@ -345,6 +361,7 @@
 
   async function pollRun(run, generation, roomID) {
     runStatus.hidden = false;
+    clearRunRecovery();
     for (let attempt = 0; attempt < 40; attempt += 1) {
       if (generation !== loadGeneration || !selectedRoom || selectedRoom.id !== roomID) return;
       runStatus.textContent = `Boardroom run ${run.state.replaceAll("_", " ")}…`;
@@ -360,6 +377,80 @@
     }
     runStatus.textContent = `Boardroom run ${run.state.replaceAll("_", " ")}.`;
     await Promise.all([loadMessages(false), loadConversations(false)]);
+    renderRunRecovery(run, generation, roomID);
+  }
+
+  function renderRunRecovery(run, generation, roomID) {
+    if (!recoveryForm || !["partially_failed", "failed"].includes(run.state)) return;
+    const resolution = Array.isArray(run.resolutions) ? run.resolutions[0] : null;
+    recoveryForm.hidden = false;
+    recoveryError.hidden = true;
+    if (resolution) {
+      recoverableRun = null;
+      recoveryTitle.textContent = resolution.action === "retry_failed" ? "Failed turns retried" : "Failure accepted";
+      recoverySummary.textContent = resolution.note;
+      recoveryNote.closest("label").hidden = true;
+      recoveryForm.querySelector("footer").hidden = true;
+      return;
+    }
+    const invocations = Array.isArray(run.invocations) ? run.invocations : [];
+    const failedCount = invocations.filter((item) => ["failed", "canceled"].includes(item.status)).length;
+    recoverableRun = { run, generation, roomID };
+    recoveryTitle.textContent = run.state === "partially_failed" ? "Some Persona turns did not complete" : "This run did not complete";
+    recoverySummary.textContent = `${failedCount || "One or more"} ${failedCount === 1 ? "turn needs" : "turns need"} a recorded decision. Retrying creates a new immutable run from the original context and exact Persona versions.`;
+    recoveryNote.closest("label").hidden = false;
+    recoveryForm.querySelector("footer").hidden = false;
+  }
+
+  if (recoveryForm && !readOnly) {
+    recoveryForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!recoverableRun) return;
+      const action = event.submitter && event.submitter.value;
+      if (!["retry_failed", "accept_failure"].includes(action)) return;
+      const note = recoveryNote.value.trim();
+      if (note.length < 3) {
+        recoveryError.textContent = "Add a brief resolution note before continuing.";
+        recoveryError.hidden = false;
+        return;
+      }
+      const { run, generation, roomID } = recoverableRun;
+      const body = JSON.stringify({ action, note });
+      const fingerprint = `resolve ${run.id} ${body}`;
+      let operationID = pendingOperations.get(fingerprint);
+      if (!operationID) {
+        operationID = crypto.randomUUID();
+        pendingOperations.set(fingerprint, operationID);
+      }
+      const buttons = [...recoveryForm.querySelectorAll('button[type="submit"]')];
+      for (const button of buttons) button.disabled = true;
+      recoveryError.hidden = true;
+      try {
+        const resolution = await requestJSON(`${baseURL}/agent-runs/${encodeURIComponent(run.id)}/resolutions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": operationID },
+          body,
+        });
+        pendingOperations.delete(fingerprint);
+        recoverableRun = null;
+        recoveryTitle.textContent = action === "retry_failed" ? "Failed turns queued in a new run" : "Failure accepted";
+        recoverySummary.textContent = resolution.note;
+        recoveryNote.closest("label").hidden = true;
+        recoveryForm.querySelector("footer").hidden = true;
+        if (action === "retry_failed" && resolution.retry_run_id && generation === loadGeneration && selectedRoom && selectedRoom.id === roomID) {
+          const retry = await requestJSON(`${baseURL}/agent-runs/${encodeURIComponent(resolution.retry_run_id)}`);
+          void pollRun(retry, generation, roomID);
+        }
+      } catch (error) {
+        if (error.status && error.status < 500) pendingOperations.delete(fingerprint);
+        recoveryError.textContent = error.status === 403
+          ? "This Account cannot resolve Agent runs with its current package access."
+          : error.message;
+        recoveryError.hidden = false;
+      } finally {
+        for (const button of buttons) button.disabled = false;
+      }
+    });
   }
 
   if (form && !readOnly) {
@@ -395,6 +486,7 @@
           body,
         });
         pendingOperations.delete(fingerprint);
+        clearRunRecovery();
         const conversation = { id: run.conversation_id, subject: run.subject, state: "open", message_count: 1, updated_at: run.created_at };
         selectedConversation = conversation;
         transcript.hidden = false;

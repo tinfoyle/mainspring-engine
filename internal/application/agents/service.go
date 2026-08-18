@@ -118,6 +118,49 @@ type Run struct {
 	Prompt        string
 	UserMessageID ids.MessageID
 	InvocationIDs []ids.AgentInvocationID
+	Invocations   []RunInvocation
+	Resolutions   []RunResolution
+}
+
+type RunInvocation struct {
+	ID               ids.AgentInvocationID
+	Turn             uint32
+	PersonaVersionID ids.PersonaVersionID
+	Status           string
+	FailureCode      string
+	StartedAt        *time.Time
+	CompletedAt      *time.Time
+}
+
+type RunResolutionAction string
+
+const (
+	RunResolutionRetryFailed  RunResolutionAction = "retry_failed"
+	RunResolutionAcceptFailed RunResolutionAction = "accept_failure"
+)
+
+type RunResolution struct {
+	ID         ids.RunResolutionID
+	RunID      ids.RunID
+	Action     RunResolutionAction
+	Note       string
+	ActorID    ids.UserID
+	RetryRunID ids.RunID
+	CreatedAt  time.Time
+}
+
+type ResolveRunDraft struct {
+	Actor                access.Actor
+	AccountID            ids.AccountID
+	RunID                ids.RunID
+	ResolutionID         ids.RunResolutionID
+	RetryRunID           ids.RunID
+	Action               RunResolutionAction
+	Note                 string
+	EntitlementVersion   uint64
+	MaximumConcurrentRun int64
+	CreatedAt            time.Time
+	RequestExpiresAt     time.Time
 }
 
 type Repository interface {
@@ -131,6 +174,7 @@ type Repository interface {
 	ListMessages(context.Context, ids.AccountID, ids.ConversationID, MessageListQuery) (MessagePage, error)
 	StartRun(context.Context, StartRunDraft) (Run, bool, error)
 	GetRun(context.Context, ids.AccountID, ids.RunID) (Run, error)
+	ResolveRun(context.Context, ResolveRunDraft) (RunResolution, bool, error)
 }
 
 type Service struct {
@@ -344,6 +388,48 @@ func (s *Service) GetRun(ctx context.Context, actor access.Actor, accountID ids.
 		return Run{}, err
 	}
 	return s.repository.GetRun(ctx, accountID, runID)
+}
+
+type ResolveRunCommand struct {
+	Actor     access.Actor
+	AccountID ids.AccountID
+	RequestID string
+	RunID     ids.RunID
+	Action    RunResolutionAction
+	Note      string
+}
+
+func (s *Service) ResolveRun(ctx context.Context, command ResolveRunCommand) (RunResolution, bool, error) {
+	note := strings.TrimSpace(command.Note)
+	if !command.Actor.Valid() || command.Actor.UserID == "" || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.AccountID)) != nil || ids.Validate(string(command.RunID)) != nil ||
+		(command.Action != RunResolutionRetryFailed && command.Action != RunResolutionAcceptFailed) || utf8.RuneCountInString(note) < 3 || utf8.RuneCountInString(note) > 1000 {
+		return RunResolution{}, false, ErrInvalidCommand
+	}
+	accountContext, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Roles: runRoles(), Package: PackageCode, Mutation: true})
+	if err != nil {
+		return RunResolution{}, false, err
+	}
+	draft := ResolveRunDraft{Actor: command.Actor, AccountID: command.AccountID, RunID: command.RunID, ResolutionID: ids.RunResolutionID(command.RequestID), Action: command.Action, Note: note,
+		EntitlementVersion: accountContext.EntitlementVersion, CreatedAt: s.clock.Now().UTC()}
+	if command.Action == RunResolutionRetryFailed {
+		maximum, exists := accountContext.PackageAccess.Limits[ConcurrentRuns]
+		if !exists || maximum < 1 {
+			return RunResolution{}, false, &access.DeniedError{Code: access.DenialLimitNotDefined, Package: PackageCode, Limit: ConcurrentRuns}
+		}
+		retryID, err := ids.Derive(command.RequestID, "retry-run")
+		if err != nil {
+			return RunResolution{}, false, ErrInvalidCommand
+		}
+		draft.RetryRunID = ids.RunID(retryID)
+		draft.MaximumConcurrentRun = maximum
+		draft.RequestExpiresAt = draft.CreatedAt.Add(DefaultRunLifetime)
+	}
+	resolution, created, err := s.repository.ResolveRun(ctx, draft)
+	var limit *ConcurrentRunLimitError
+	if errors.As(err, &limit) {
+		return RunResolution{}, false, &access.DeniedError{Code: access.DenialLimitExceeded, Package: PackageCode, Limit: ConcurrentRuns, Current: limit.Current, Maximum: limit.Maximum}
+	}
+	return resolution, created, err
 }
 
 func configureRoles() []accounts.MembershipRole {

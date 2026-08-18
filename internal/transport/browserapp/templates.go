@@ -211,6 +211,12 @@ const pageTemplates = `
           <section class="agents-transcript panel" id="agents-transcript" hidden>
             <header><div><p class="eyebrow">CONVERSATION</p><h2 id="agents-transcript-title"></h2></div><span id="agents-transcript-state"></span></header>
             <div id="agents-run-status" class="agents-run-status" role="status" hidden></div>
+            {{if not .AgentsReadOnly}}<form id="agents-run-recovery" class="agents-run-recovery" hidden>
+              <div><p class="eyebrow">RUN RECOVERY</p><h3 id="agents-recovery-title">Resolve this run</h3><p id="agents-recovery-summary"></p></div>
+              <label>Resolution note<textarea id="agents-recovery-note" name="note" minlength="3" maxlength="1000" required rows="3" placeholder="Record why this outcome is being retried or accepted."></textarea></label>
+              <p id="agents-recovery-error" class="agents-form-error" role="alert" hidden></p>
+              <footer><button type="submit" name="action" value="retry_failed">Retry failed turns</button><button class="secondary" type="submit" name="action" value="accept_failure">Accept failure</button></footer>
+            </form>{{end}}
             <div id="agents-message-list"></div>
             <button id="agents-more-messages" class="agents-more" type="button" hidden>Load later messages</button>
           </section>

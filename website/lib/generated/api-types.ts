@@ -224,14 +224,39 @@ export interface AgentRun {
   readonly "entitlement_version": number;
   readonly "id": string;
   readonly "invocation_ids": ReadonlyArray<string>;
+  readonly "invocations": ReadonlyArray<AgentRunInvocation>;
   readonly "plan_digest": string;
   readonly "policy_version": number;
   readonly "prompt": string;
+  readonly "resolutions": ReadonlyArray<AgentRunResolution>;
   readonly "state": AgentRunState;
   readonly "subject": string;
   readonly "turns": ReadonlyArray<AgentRunTurn>;
   readonly "user_message_id": string;
 }
+
+export interface AgentRunInvocation {
+  readonly "completed_at"?: string;
+  readonly "id": string;
+  readonly "persona_version_id": string;
+  readonly "started_at"?: string;
+  readonly "status": AgentRunInvocationState;
+  readonly "turn": number;
+}
+
+export type AgentRunInvocationState = "queued" | "running" | "succeeded" | "failed" | "canceled";
+
+export interface AgentRunResolution {
+  readonly "action": AgentRunResolutionAction;
+  readonly "actor_id": string;
+  readonly "created_at": string;
+  readonly "id": string;
+  readonly "note": string;
+  readonly "retry_run_id"?: string;
+  readonly "run_id": string;
+}
+
+export type AgentRunResolutionAction = "retry_failed" | "accept_failure";
 
 export type AgentRunState = "planned" | "running" | "succeeded" | "partially_failed" | "failed" | "canceled";
 
@@ -601,6 +626,11 @@ export interface RegistrationCompleted {
   readonly "user": ProvisionedUser;
 }
 
+export interface ResolveAgentRunRequest {
+  readonly "action": AgentRunResolutionAction;
+  readonly "note": string;
+}
+
 export interface SecurityEvent {
   readonly "occurred_at": string;
   readonly "session_id"?: string;
@@ -801,6 +831,10 @@ export interface ApiSchemas {
   readonly AgentProposedAction: AgentProposedAction;
   readonly AgentResult: AgentResult;
   readonly AgentRun: AgentRun;
+  readonly AgentRunInvocation: AgentRunInvocation;
+  readonly AgentRunInvocationState: AgentRunInvocationState;
+  readonly AgentRunResolution: AgentRunResolution;
+  readonly AgentRunResolutionAction: AgentRunResolutionAction;
   readonly AgentRunState: AgentRunState;
   readonly AgentRunTurn: AgentRunTurn;
   readonly AgentToolGrant: AgentToolGrant;
@@ -862,6 +896,7 @@ export interface ApiSchemas {
   readonly RecoveryCodeStatus: RecoveryCodeStatus;
   readonly RegistrationAccepted: RegistrationAccepted;
   readonly RegistrationCompleted: RegistrationCompleted;
+  readonly ResolveAgentRunRequest: ResolveAgentRunRequest;
   readonly SecurityEvent: SecurityEvent;
   readonly SecurityEventType: SecurityEventType;
   readonly SecurityEvents: SecurityEvents;

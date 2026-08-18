@@ -136,12 +136,14 @@ func TestAgentRouteAllowlistMatchesCellSurface(t *testing.T) {
 		{http.MethodGet, "agent-conversations/" + routerRequest, false, true},
 		{http.MethodGet, "agent-conversations/" + routerRequest + "/messages", false, true},
 		{http.MethodGet, "agent-runs/" + routerRequest, false, true},
+		{http.MethodPost, "agent-runs/" + routerRequest + "/resolutions", true, true},
 		{http.MethodDelete, "agent-boardrooms", false, false},
 		{http.MethodGet, "agent-boardrooms/not-a-uuid/personas", false, false},
 		{http.MethodGet, "agent-boardrooms/" + routerRequest + "/runs", false, false},
 		{http.MethodGet, "agent-conversations/" + routerRequest + "/unknown", false, false},
 		{http.MethodGet, "agent-conversations/not-a-uuid/messages", false, false},
 		{http.MethodPost, "agent-runs/" + routerRequest, false, false},
+		{http.MethodGet, "agent-runs/" + routerRequest + "/resolutions", false, false},
 	}
 	for _, test := range tests {
 		t.Run(test.method+" "+test.resource, func(t *testing.T) {

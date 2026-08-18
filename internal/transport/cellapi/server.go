@@ -94,6 +94,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-conversations/{conversationID}", s.agentConversation)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-conversations/{conversationID}/messages", s.agentMessages)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-runs/{runID}", s.agentRun)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-runs/{runID}/resolutions", s.agentRunResolve)
 	return s.recover(s.securityHeaders(mux))
 }
 

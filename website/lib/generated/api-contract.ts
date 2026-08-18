@@ -57,6 +57,7 @@ export const apiRoutes = [
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/agent-boardrooms", operationId: "agentBoardroomCreate", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/personas", operationId: "agentPersonaPublish", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/runs", operationId: "agentRunStart", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/agent-runs/{runID}/resolutions", operationId: "agentRunResolve", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/work-items", operationId: "workCreate", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/work-items/{itemID}/transitions", operationId: "workTransition", authentication: "sessionCookie", contract: "typed" },
 ] as const;

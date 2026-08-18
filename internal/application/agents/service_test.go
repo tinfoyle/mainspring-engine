@@ -60,6 +60,8 @@ type serviceRepository struct {
 	messagePage           MessagePage
 	messageQuery          MessageListQuery
 	messageConversation   ids.ConversationID
+	resolutionDraft       ResolveRunDraft
+	resolution            RunResolution
 	err                   error
 }
 
@@ -98,6 +100,10 @@ func (r *serviceRepository) StartRun(_ context.Context, draft StartRunDraft) (Ru
 }
 func (*serviceRepository) GetRun(context.Context, ids.AccountID, ids.RunID) (Run, error) {
 	return Run{}, nil
+}
+func (r *serviceRepository) ResolveRun(_ context.Context, draft ResolveRunDraft) (RunResolution, bool, error) {
+	r.resolutionDraft = draft
+	return r.resolution, true, r.err
 }
 
 func newAgentService(t *testing.T) (*Service, *serviceAuthorizer, *serviceRepository, time.Time) {
@@ -160,6 +166,45 @@ func TestStartRunRejectsMissingCommercialLimit(t *testing.T) {
 	_, _, err := service.StartRun(context.Background(), StartRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, BoardroomID: testBoardroom, Subject: "Weekly operating review", Prompt: "What should we prioritize?", PersonaIDs: []ids.PersonaID{testPersona}})
 	if !access.IsDenied(err, access.DenialLimitNotDefined) {
 		t.Fatalf("missing limit=%v", err)
+	}
+}
+
+func TestResolveRunCreatesStableRetryAndManualResolutionDrafts(t *testing.T) {
+	service, authorizer, repository, now := newAgentService(t)
+	runID := ids.RunID("70000000-0000-4000-8000-000000000007")
+	repository.resolution = RunResolution{ID: ids.RunResolutionID(testRequest), RunID: runID, Action: RunResolutionRetryFailed, RetryRunID: "80000000-0000-4000-8000-000000000008", CreatedAt: now}
+	resolution, created, err := service.ResolveRun(context.Background(), ResolveRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, RunID: runID, Action: RunResolutionRetryFailed, Note: " Retry the failed specialist turns. "})
+	if err != nil || !created || resolution.Action != RunResolutionRetryFailed || ids.Validate(string(repository.resolutionDraft.RetryRunID)) != nil || repository.resolutionDraft.EntitlementVersion != 7 || repository.resolutionDraft.MaximumConcurrentRun != 2 || repository.resolutionDraft.RequestExpiresAt != now.Add(DefaultRunLifetime) || repository.resolutionDraft.Note != "Retry the failed specialist turns." || !authorizer.last.Mutation {
+		t.Fatalf("resolution=%+v draft=%+v requirement=%+v created=%v err=%v", resolution, repository.resolutionDraft, authorizer.last, created, err)
+	}
+	firstRetryID := repository.resolutionDraft.RetryRunID
+	if _, _, err := service.ResolveRun(context.Background(), ResolveRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, RunID: runID, Action: RunResolutionRetryFailed, Note: "Retry the failed specialist turns."}); err != nil || repository.resolutionDraft.RetryRunID != firstRetryID {
+		t.Fatalf("unstable retry draft=%+v err=%v", repository.resolutionDraft, err)
+	}
+	if _, _, err := service.ResolveRun(context.Background(), ResolveRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: "81000000-0000-4000-8000-000000000008", RunID: runID, Action: RunResolutionAcceptFailed, Note: "Resolved outside Spyglass."}); err != nil || repository.resolutionDraft.RetryRunID != "" || repository.resolutionDraft.MaximumConcurrentRun != 0 || !repository.resolutionDraft.RequestExpiresAt.IsZero() {
+		t.Fatalf("manual resolution draft=%+v err=%v", repository.resolutionDraft, err)
+	}
+}
+
+func TestResolveRunRejectsInvalidActionNoteAndMissingRetryLimit(t *testing.T) {
+	service, authorizer, _, _ := newAgentService(t)
+	runID := ids.RunID("70000000-0000-4000-8000-000000000007")
+	base := ResolveRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, RunID: runID, Action: RunResolutionRetryFailed, Note: "Retry failed turns."}
+	for _, command := range []ResolveRunCommand{
+		func() ResolveRunCommand { value := base; value.Action = "replay"; return value }(),
+		func() ResolveRunCommand { value := base; value.Note = "x"; return value }(),
+		func() ResolveRunCommand { value := base; value.Note = strings.Repeat("界", 1001); return value }(),
+	} {
+		if _, _, err := service.ResolveRun(context.Background(), command); !errors.Is(err, ErrInvalidCommand) {
+			t.Fatalf("invalid resolution command=%+v err=%v", command, err)
+		}
+	}
+	authorizer.limit = 0
+	if _, _, err := service.ResolveRun(context.Background(), base); !access.IsDenied(err, access.DenialLimitNotDefined) {
+		t.Fatalf("missing retry limit=%v", err)
+	}
+	if _, _, err := service.ResolveRun(context.Background(), ResolveRunCommand{Actor: base.Actor, AccountID: base.AccountID, RequestID: base.RequestID, RunID: base.RunID, Action: RunResolutionAcceptFailed, Note: "Accept failure."}); err != nil {
+		t.Fatalf("manual acceptance must not require capacity: %v", err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 	"unicode/utf8"
 
@@ -397,42 +398,11 @@ func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunD
 		}
 		invocationIDs := make([]ids.AgentInvocationID, len(turns))
 		for index, turn := range turns {
-			invocationRaw, err := ids.Derive(string(draft.RunID), fmt.Sprintf("turn/%d/invocation", index+1))
+			invocationID, err := insertAgentInvocation(ctx, tx, draft.AccountID, draft.RunID, draft.ConversationID, int64(contextSequence), index+1, turn, versions[index], draft.CreatedAt, draft.RequestExpiresAt)
 			if err != nil {
-				return agentapp.ErrCorrupt
+				return err
 			}
-			invocationID := ids.AgentInvocationID(invocationRaw)
 			invocationIDs[index] = invocationID
-			if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_run_plan_turns
-				(account_id,run_id,turn,persona_id,persona_version_id,persona_digest) VALUES ($1,$2,$3,$4,$5,$6)`,
-				draft.AccountID, draft.RunID, index+1, turn.PersonaID, turn.PersonaVersionID, turn.PersonaDigest[:]); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_invocations
-				(account_id,id,run_id,turn,persona_version_id,status,expected_provider,requested_model,queued_at)
-				VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8)`, draft.AccountID, invocationID, draft.RunID, index+1,
-				turn.PersonaVersionID, versions[index].Policy.Provider, versions[index].Policy.Model, draft.CreatedAt); err != nil {
-				return err
-			}
-			modelIDs, toolIDs := make([]string, versions[index].Policy.MaximumToolSteps+1), make([]string, versions[index].Policy.MaximumToolSteps)
-			for operation := range modelIDs {
-				modelIDs[operation], err = ids.Derive(invocationRaw, fmt.Sprintf("model/%d", operation+1))
-				if err != nil {
-					return agentapp.ErrCorrupt
-				}
-			}
-			for operation := range toolIDs {
-				toolIDs[operation], err = ids.Derive(invocationRaw, fmt.Sprintf("tool/%d", operation+1))
-				if err != nil {
-					return agentapp.ErrCorrupt
-				}
-			}
-			if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_invocation_execution_plans
-				(account_id,invocation_id,conversation_id,context_sequence,profile,model_operation_ids,tool_operation_ids,request_expires_at,created_at)
-				VALUES ($1,$2,$3,$4,$5,$6::uuid[],$7::uuid[],$8,$9)`, draft.AccountID, invocationID, draft.ConversationID,
-				contextSequence, profileFor(versions[index].Policy), modelIDs, toolIDs, draft.RequestExpiresAt, draft.CreatedAt); err != nil {
-				return err
-			}
 		}
 		created = true
 		result = agentapp.Run{Plan: plan, State: "planned", Subject: draft.Subject, Prompt: draft.Prompt, UserMessageID: draft.UserMessageID, InvocationIDs: invocationIDs}
@@ -462,6 +432,175 @@ func (r *AgentRepository) GetRun(ctx context.Context, accountID ids.AccountID, r
 		return nil
 	})
 	return result, classifyAgentError(err)
+}
+
+func (r *AgentRepository) ResolveRun(ctx context.Context, draft agentapp.ResolveRunDraft) (agentapp.RunResolution, bool, error) {
+	var result agentapp.RunResolution
+	created := false
+	err := r.cell.WithAccountTx(ctx, draft.AccountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		if existing, found, err := loadRunResolution(ctx, tx, draft.AccountID, draft.ResolutionID); err != nil {
+			return err
+		} else if found {
+			if existing.RunID != draft.RunID || existing.Action != draft.Action || existing.Note != draft.Note || existing.ActorID != draft.Actor.UserID || existing.RetryRunID != draft.RetryRunID {
+				return agentapp.ErrConflict
+			}
+			result = existing
+			return nil
+		}
+		var sourceState string
+		if err := tx.QueryRow(ctx, `SELECT state FROM spyglass.agent_runs WHERE account_id=$1 AND id=$2 FOR UPDATE`, draft.AccountID, draft.RunID).Scan(&sourceState); errors.Is(err, pgx.ErrNoRows) {
+			return agentapp.ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		if sourceState != "failed" && sourceState != "partially_failed" {
+			return agentapp.ErrConstraint
+		}
+		result = agentapp.RunResolution{ID: draft.ResolutionID, RunID: draft.RunID, Action: draft.Action, Note: draft.Note, ActorID: draft.Actor.UserID, RetryRunID: draft.RetryRunID, CreatedAt: draft.CreatedAt}
+		if draft.Action == agentapp.RunResolutionRetryFailed {
+			if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "agent-runs:"+string(draft.AccountID)); err != nil {
+				return err
+			}
+			var active int64
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM spyglass.agent_runs WHERE account_id=$1 AND state IN ('planned','running')`, draft.AccountID).Scan(&active); err != nil {
+				return err
+			}
+			if active >= draft.MaximumConcurrentRun {
+				return &accessLimitError{current: active, maximum: draft.MaximumConcurrentRun}
+			}
+			source, found, err := loadAgentRun(ctx, tx, draft.AccountID, draft.RunID)
+			if err != nil {
+				return err
+			}
+			if !found || source.State != sourceState {
+				return agentapp.ErrCorrupt
+			}
+			var boardroomState, conversationState string
+			if err := tx.QueryRow(ctx, `SELECT b.state,c.state FROM spyglass.agent_boardrooms b JOIN spyglass.agent_conversations c
+				ON c.account_id=b.account_id AND c.boardroom_id=b.id WHERE b.account_id=$1 AND b.id=$2 AND c.id=$3 FOR SHARE OF b,c`,
+				draft.AccountID, source.Plan.BoardroomID, source.Plan.ConversationID).Scan(&boardroomState, &conversationState); err != nil {
+				return err
+			}
+			if boardroomState != "active" || conversationState != "open" {
+				return agentapp.ErrConstraint
+			}
+			versions := make([]agentdomain.PersonaVersion, 0, len(source.Invocations))
+			turns := make([]agentdomain.PlannedTurn, 0, len(source.Invocations))
+			var contextSequence int64
+			for _, invocation := range source.Invocations {
+				if invocation.Status != "failed" {
+					continue
+				}
+				if invocation.Turn == 0 || int(invocation.Turn) > len(source.Plan.Turns) {
+					return agentapp.ErrCorrupt
+				}
+				original := source.Plan.Turns[invocation.Turn-1]
+				if original.PersonaVersionID != invocation.PersonaVersionID {
+					return agentapp.ErrCorrupt
+				}
+				var invocationContext int64
+				if err := tx.QueryRow(ctx, `SELECT context_sequence FROM spyglass.agent_invocation_execution_plans
+					WHERE account_id=$1 AND invocation_id=$2`, draft.AccountID, invocation.ID).Scan(&invocationContext); err != nil {
+					return err
+				}
+				if contextSequence == 0 {
+					contextSequence = invocationContext
+				} else if contextSequence != invocationContext {
+					return agentapp.ErrCorrupt
+				}
+				version, found, err := loadPersonaVersion(ctx, tx, draft.AccountID, invocation.PersonaVersionID)
+				if err != nil {
+					return err
+				}
+				if !found || version.PersonaID != original.PersonaID || version.ContentDigest != original.PersonaDigest {
+					return agentapp.ErrCorrupt
+				}
+				versions = append(versions, version)
+				turns = append(turns, agentdomain.PlannedTurn{Turn: uint32(len(turns) + 1), PersonaID: original.PersonaID, PersonaVersionID: original.PersonaVersionID, PersonaDigest: original.PersonaDigest})
+			}
+			if len(turns) == 0 || contextSequence < 1 {
+				return agentapp.ErrCorrupt
+			}
+			plan, err := agentdomain.NewRunPlan(agentdomain.RunPlan{RunID: draft.RetryRunID, AccountID: draft.AccountID, BoardroomID: source.Plan.BoardroomID,
+				ConversationID: source.Plan.ConversationID, EntitlementVersion: draft.EntitlementVersion, PolicyVersion: source.Plan.PolicyVersion,
+				Turns: turns, CreatedBy: draft.Actor.UserID, CreatedAt: draft.CreatedAt})
+			if err != nil {
+				return agentapp.ErrCorrupt
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_runs
+				(account_id,id,boardroom_id,conversation_id,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at)
+				VALUES ($1,$2,$3,$4,'planned',$5,$6,$7,$8,$9,$10)`, draft.AccountID, draft.RetryRunID, plan.BoardroomID,
+				plan.ConversationID, plan.EntitlementVersion, plan.PolicyVersion, plan.Digest[:], len(turns), draft.Actor.UserID, draft.CreatedAt); err != nil {
+				return err
+			}
+			for index, turn := range turns {
+				if _, err := insertAgentInvocation(ctx, tx, draft.AccountID, draft.RetryRunID, plan.ConversationID, contextSequence, index+1, turn, versions[index], draft.CreatedAt, draft.RequestExpiresAt); err != nil {
+					return err
+				}
+			}
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_run_resolutions
+			(account_id,id,run_id,action,note,actor_user_id,retry_run_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+			draft.AccountID, draft.ResolutionID, draft.RunID, draft.Action, draft.Note, draft.Actor.UserID, nullableRunID(draft.RetryRunID), draft.CreatedAt); err != nil {
+			return err
+		}
+		created = true
+		return nil
+	})
+	if err != nil {
+		var limit *accessLimitError
+		if errors.As(err, &limit) {
+			return agentapp.RunResolution{}, false, &agentapp.ConcurrentRunLimitError{Current: limit.current, Maximum: limit.maximum}
+		}
+		return agentapp.RunResolution{}, false, classifyAgentError(err)
+	}
+	return result, created, nil
+}
+
+func insertAgentInvocation(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID ids.RunID, conversationID ids.ConversationID, contextSequence int64, turnNumber int, turn agentdomain.PlannedTurn, version agentdomain.PersonaVersion, createdAt, requestExpiresAt time.Time) (ids.AgentInvocationID, error) {
+	invocationRaw, err := ids.Derive(string(runID), fmt.Sprintf("turn/%d/invocation", turnNumber))
+	if err != nil {
+		return "", agentapp.ErrCorrupt
+	}
+	invocationID := ids.AgentInvocationID(invocationRaw)
+	if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_run_plan_turns
+		(account_id,run_id,turn,persona_id,persona_version_id,persona_digest) VALUES ($1,$2,$3,$4,$5,$6)`,
+		accountID, runID, turnNumber, turn.PersonaID, turn.PersonaVersionID, turn.PersonaDigest[:]); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_invocations
+		(account_id,id,run_id,turn,persona_version_id,status,expected_provider,requested_model,queued_at)
+		VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8)`, accountID, invocationID, runID, turnNumber,
+		turn.PersonaVersionID, version.Policy.Provider, version.Policy.Model, createdAt); err != nil {
+		return "", err
+	}
+	modelIDs, toolIDs := make([]string, version.Policy.MaximumToolSteps+1), make([]string, version.Policy.MaximumToolSteps)
+	for operation := range modelIDs {
+		modelIDs[operation], err = ids.Derive(invocationRaw, fmt.Sprintf("model/%d", operation+1))
+		if err != nil {
+			return "", agentapp.ErrCorrupt
+		}
+	}
+	for operation := range toolIDs {
+		toolIDs[operation], err = ids.Derive(invocationRaw, fmt.Sprintf("tool/%d", operation+1))
+		if err != nil {
+			return "", agentapp.ErrCorrupt
+		}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_invocation_execution_plans
+		(account_id,invocation_id,conversation_id,context_sequence,profile,model_operation_ids,tool_operation_ids,request_expires_at,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6::uuid[],$7::uuid[],$8,$9)`, accountID, invocationID, conversationID,
+		contextSequence, profileFor(version.Policy), modelIDs, toolIDs, requestExpiresAt, createdAt); err != nil {
+		return "", err
+	}
+	return invocationID, nil
+}
+
+func nullableRunID(value ids.RunID) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 // agentRunLimitError is translated by the application-facing wrapper below;
@@ -599,7 +738,7 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 		return agentapp.Run{}, false, agentapp.ErrCorrupt
 	}
 	copy(plan.Digest[:], digest)
-	rows, err := tx.Query(ctx, `SELECT t.turn,t.persona_id,t.persona_version_id,t.persona_digest,i.id
+	rows, err := tx.Query(ctx, `SELECT t.turn,t.persona_id,t.persona_version_id,t.persona_digest,i.id,i.status,i.failure_code,i.started_at,i.completed_at
 		FROM spyglass.agent_run_plan_turns t JOIN spyglass.agent_invocations i
 		ON i.account_id=t.account_id AND i.run_id=t.run_id AND i.turn=t.turn
 		WHERE t.account_id=$1 AND t.run_id=$2 ORDER BY t.turn`, accountID, runID)
@@ -608,18 +747,33 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 	}
 	defer rows.Close()
 	var invocations []ids.AgentInvocationID
+	var invocationViews []agentapp.RunInvocation
 	for rows.Next() {
 		var turn agentdomain.PlannedTurn
 		var turnNumber int
 		var rawDigest []byte
-		var invocationID ids.AgentInvocationID
-		if err := rows.Scan(&turnNumber, &turn.PersonaID, &turn.PersonaVersionID, &rawDigest, &invocationID); err != nil || len(rawDigest) != len(turn.PersonaDigest) {
+		var invocation agentapp.RunInvocation
+		var failureCode *string
+		if err := rows.Scan(&turnNumber, &turn.PersonaID, &turn.PersonaVersionID, &rawDigest, &invocation.ID, &invocation.Status, &failureCode, &invocation.StartedAt, &invocation.CompletedAt); err != nil || len(rawDigest) != len(turn.PersonaDigest) {
 			return agentapp.Run{}, false, agentapp.ErrCorrupt
 		}
+		if turnNumber < 1 || !slices.Contains([]string{"queued", "running", "succeeded", "failed", "canceled"}, invocation.Status) ||
+			((invocation.Status == "failed" || invocation.Status == "canceled") != (failureCode != nil)) ||
+			((invocation.Status == "queued") && (invocation.StartedAt != nil || invocation.CompletedAt != nil)) ||
+			((invocation.Status == "running") && (invocation.StartedAt == nil || invocation.CompletedAt != nil)) ||
+			(slices.Contains([]string{"succeeded", "failed", "canceled"}, invocation.Status) && invocation.CompletedAt == nil) {
+			return agentapp.Run{}, false, agentapp.ErrCorrupt
+		}
+		if failureCode != nil {
+			invocation.FailureCode = *failureCode
+		}
 		turn.Turn = uint32(turnNumber)
+		invocation.Turn = uint32(turnNumber)
+		invocation.PersonaVersionID = turn.PersonaVersionID
 		copy(turn.PersonaDigest[:], rawDigest)
 		plan.Turns = append(plan.Turns, turn)
-		invocations = append(invocations, invocationID)
+		invocations = append(invocations, invocation.ID)
+		invocationViews = append(invocationViews, invocation)
 	}
 	if err := rows.Err(); err != nil {
 		return agentapp.Run{}, false, err
@@ -633,7 +787,57 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 		WHERE account_id=$1 AND conversation_id=$2 AND sequence=$3`, accountID, plan.ConversationID, contextSequence).Scan(&messageID); err != nil {
 		return agentapp.Run{}, false, err
 	}
-	return agentapp.Run{Plan: validated, State: state, Subject: subject, Prompt: prompt, UserMessageID: messageID, InvocationIDs: invocations}, true, nil
+	resolutionRows, err := tx.Query(ctx, `SELECT id,run_id,action,note,actor_user_id,retry_run_id,created_at
+		FROM spyglass.agent_run_resolutions WHERE account_id=$1 AND run_id=$2 ORDER BY created_at,id`, accountID, runID)
+	if err != nil {
+		return agentapp.Run{}, false, err
+	}
+	defer resolutionRows.Close()
+	var resolutions []agentapp.RunResolution
+	for resolutionRows.Next() {
+		resolution, err := scanRunResolution(resolutionRows)
+		if err != nil {
+			return agentapp.Run{}, false, err
+		}
+		resolutions = append(resolutions, resolution)
+	}
+	if err := resolutionRows.Err(); err != nil {
+		return agentapp.Run{}, false, err
+	}
+	if len(resolutions) > 1 {
+		return agentapp.Run{}, false, agentapp.ErrCorrupt
+	}
+	return agentapp.Run{Plan: validated, State: state, Subject: subject, Prompt: prompt, UserMessageID: messageID, InvocationIDs: invocations, Invocations: invocationViews, Resolutions: resolutions}, true, nil
+}
+
+func loadRunResolution(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, resolutionID ids.RunResolutionID) (agentapp.RunResolution, bool, error) {
+	resolution, err := scanRunResolution(tx.QueryRow(ctx, `SELECT id,run_id,action,note,actor_user_id,retry_run_id,created_at
+		FROM spyglass.agent_run_resolutions WHERE account_id=$1 AND id=$2`, accountID, resolutionID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return agentapp.RunResolution{}, false, nil
+	}
+	return resolution, err == nil, err
+}
+
+func scanRunResolution(row interface{ Scan(...any) error }) (agentapp.RunResolution, error) {
+	var item agentapp.RunResolution
+	var retryRunID *string
+	if err := row.Scan(&item.ID, &item.RunID, &item.Action, &item.Note, &item.ActorID, &retryRunID, &item.CreatedAt); err != nil {
+		return agentapp.RunResolution{}, err
+	}
+	if ids.Validate(string(item.ID)) != nil || ids.Validate(string(item.RunID)) != nil || ids.Validate(string(item.ActorID)) != nil || item.CreatedAt.IsZero() ||
+		utf8.RuneCountInString(item.Note) < 3 || utf8.RuneCountInString(item.Note) > 1000 ||
+		(item.Action != agentapp.RunResolutionRetryFailed && item.Action != agentapp.RunResolutionAcceptFailed) ||
+		(item.Action == agentapp.RunResolutionRetryFailed) != (retryRunID != nil) {
+		return agentapp.RunResolution{}, agentapp.ErrCorrupt
+	}
+	if retryRunID != nil {
+		if ids.Validate(*retryRunID) != nil || *retryRunID == string(item.RunID) {
+			return agentapp.RunResolution{}, agentapp.ErrCorrupt
+		}
+		item.RetryRunID = ids.RunID(*retryRunID)
+	}
+	return item, nil
 }
 
 func profileFor(policy agentdomain.PersonaPolicy) string {

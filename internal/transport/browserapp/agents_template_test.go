@@ -38,6 +38,9 @@ func TestAgentsTemplateExposesRoutedBoardroomWorkspaceForAvailablePackage(t *tes
 		`id="agents-persona-picker"`,
 		`id="agents-conversation-list"`,
 		`id="agents-message-list"`,
+		`id="agents-run-recovery"`,
+		`value="retry_failed"`,
+		`value="accept_failure"`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("Agents shell missing %q: %s", expected, body)
@@ -62,7 +65,7 @@ func TestAgentsTemplateKeepsRunControlsOutOfReadOnlyAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := rendered.String()
-	if !strings.Contains(body, `data-read-only="true"`) || !strings.Contains(body, `id="agents-message-list"`) || strings.Contains(body, `id="agents-run-form"`) || strings.Contains(body, `id="agents-new-conversation"`) {
+	if !strings.Contains(body, `data-read-only="true"`) || !strings.Contains(body, `id="agents-message-list"`) || strings.Contains(body, `id="agents-run-form"`) || strings.Contains(body, `id="agents-new-conversation"`) || strings.Contains(body, `id="agents-run-recovery"`) {
 		t.Fatalf("read-only Agents mutation surface: %s", body)
 	}
 }
@@ -78,6 +81,9 @@ func TestAgentsScriptUsesSafeRoutedBrowserBoundary(t *testing.T) {
 		`credentials: "same-origin"`,
 		`pendingOperations.set(fingerprint, operationID)`,
 		`"Idempotency-Key": operationID`,
+		`/resolutions`,
+		`"retry_failed"`,
+		`"accept_failure"`,
 		"document.createElement",
 		"textContent",
 	} {

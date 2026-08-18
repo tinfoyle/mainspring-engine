@@ -27,6 +27,7 @@ const (
 	agentBoardroom    = "41000000-0000-4000-8000-000000000001"
 	agentPersona      = "51000000-0000-4000-8000-000000000001"
 	agentRun          = "61000000-0000-4000-8000-000000000001"
+	agentRetryRun     = "62000000-0000-4000-8000-000000000002"
 	agentConversation = "71000000-0000-4000-8000-000000000001"
 	agentInvocation   = "91000000-0000-4000-8000-000000000001"
 )
@@ -35,6 +36,7 @@ type agentTransportService struct {
 	createCommand     agentapp.CreateBoardroomCommand
 	publishCommand    agentapp.PublishPersonaCommand
 	runCommand        agentapp.StartRunCommand
+	resolveCommand    agentapp.ResolveRunCommand
 	conversationQuery agentapp.ConversationListQuery
 	messageQuery      agentapp.MessageListQuery
 	now               time.Time
@@ -64,7 +66,13 @@ func (service *agentTransportService) StartRun(_ context.Context, command agenta
 		PolicyVersion: 1, Turns: []agentdomain.PlannedTurn{{Turn: 1, PersonaID: ids.PersonaID(agentPersona), PersonaVersionID: ids.PersonaVersionID(agentOperation)}},
 		CreatedBy: command.Actor.UserID, CreatedAt: service.now, Digest: [32]byte{1}}, State: "planned",
 		Subject: command.Subject, Prompt: command.Prompt, UserMessageID: ids.MessageID("81000000-0000-4000-8000-000000000001"),
-		InvocationIDs: []ids.AgentInvocationID{ids.AgentInvocationID(agentInvocation)}}, true, nil
+		InvocationIDs: []ids.AgentInvocationID{ids.AgentInvocationID(agentInvocation)}, Invocations: []agentapp.RunInvocation{{ID: ids.AgentInvocationID(agentInvocation), Turn: 1, PersonaVersionID: ids.PersonaVersionID(agentOperation), Status: "queued"}}, Resolutions: []agentapp.RunResolution{}}, true, nil
+}
+
+func (service *agentTransportService) ResolveRun(_ context.Context, command agentapp.ResolveRunCommand) (agentapp.RunResolution, bool, error) {
+	service.resolveCommand = command
+	return agentapp.RunResolution{ID: ids.RunResolutionID(command.RequestID), RunID: command.RunID, Action: command.Action,
+		Note: strings.TrimSpace(command.Note), ActorID: command.Actor.UserID, RetryRunID: ids.RunID(agentRetryRun), CreatedAt: service.now}, true, nil
 }
 
 func (*agentTransportService) ListBoardrooms(context.Context, access.Actor, ids.AccountID, int) ([]agentdomain.Boardroom, error) {
@@ -101,13 +109,17 @@ func (service *agentTransportService) GetRun(_ context.Context, _ access.Actor, 
 		Turns:     []agentdomain.PlannedTurn{{Turn: 1, PersonaID: ids.PersonaID(agentPersona), PersonaVersionID: ids.PersonaVersionID(agentOperation)}},
 		CreatedBy: ids.UserID(agentUser), CreatedAt: service.now, Digest: [32]byte{1}}, State: "planned", Subject: "Weekly review",
 		Prompt: "What should we prioritize?", UserMessageID: ids.MessageID("81000000-0000-4000-8000-000000000001"),
-		InvocationIDs: []ids.AgentInvocationID{ids.AgentInvocationID(agentInvocation)}}, nil
+		InvocationIDs: []ids.AgentInvocationID{ids.AgentInvocationID(agentInvocation)}, Invocations: []agentapp.RunInvocation{{ID: ids.AgentInvocationID(agentInvocation), Turn: 1, PersonaVersionID: ids.PersonaVersionID(agentOperation), Status: "queued"}}, Resolutions: []agentapp.RunResolution{}}, nil
 }
 
 func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testing.T) {
 	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	service := &agentTransportService{now: now}
 	server, err := New(claimAcceptor{claims: agentClaims()}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithAgents(service))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract, err := openapifixture.Load(filepath.Join("..", "..", "..", "api", "spyglass.openapi.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +147,18 @@ func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testi
 		service.runCommand.RequestID != agentOperation || !strings.Contains(run.Body.String(), `"state":"planned"`) ||
 		!strings.Contains(run.Body.String(), `"turns":[{`) || !strings.Contains(run.Body.String(), `"invocation_ids":["`+agentInvocation+`"]`) {
 		t.Fatalf("run=%d location=%q body=%s command=%+v", run.Code, run.Header().Get("Location"), run.Body.String(), service.runCommand)
+	}
+
+	resolutionTarget := "/api/v1/accounts/" + agentAccount + "/agent-runs/" + agentRun + "/resolutions"
+	resolution := agentCommandRequest(server.Handler(), http.MethodPost, resolutionTarget, agentOperation,
+		`{"action":"retry_failed","note":"Retry the provider failure"}`)
+	if resolution.Code != http.StatusCreated || resolution.Header().Get("Location") != "/api/v1/accounts/"+agentAccount+"/agent-runs/"+agentRetryRun ||
+		service.resolveCommand.RunID != ids.RunID(agentRun) || service.resolveCommand.Action != agentapp.RunResolutionRetryFailed ||
+		!strings.Contains(resolution.Body.String(), `"retry_run_id":"`+agentRetryRun+`"`) {
+		t.Fatalf("resolution=%d location=%q body=%s command=%+v", resolution.Code, resolution.Header().Get("Location"), resolution.Body.String(), service.resolveCommand)
+	}
+	if err := contract.ValidateResponse(http.MethodPost, resolutionTarget, resolution.Code, resolution.Header(), resolution.Body.Bytes()); err != nil {
+		t.Fatal(err)
 	}
 }
 

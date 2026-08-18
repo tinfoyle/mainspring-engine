@@ -129,7 +129,7 @@ func TestPostgresGlobalErasureIsCrossStoreExactAndIdempotent(t *testing.T) {
 			spyglass.agent_boardrooms,spyglass.agent_personas,spyglass.agent_persona_versions,spyglass.agent_conversations,
 			spyglass.agent_runs,spyglass.agent_run_plan_turns,spyglass.agent_invocations,spyglass.agent_messages,
 			spyglass.agent_result_projection_queue,spyglass.agent_user_messages,spyglass.agent_invocation_execution_plans,
-			spyglass.agent_dispatch_queue,spyglass.agent_queue_operator_events TO `+cellFunctionRole+`;
+			spyglass.agent_dispatch_queue,spyglass.agent_queue_operator_events,spyglass.agent_run_resolutions TO `+cellFunctionRole+`;
 		ALTER TABLE spyglass.account_erasure_tombstones OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_control(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_exchange(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
@@ -139,6 +139,7 @@ func TestPostgresGlobalErasureIsCrossStoreExactAndIdempotent(t *testing.T) {
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_agent_projection(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_agent_dispatch(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_agent_queue_admin(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
+		ALTER FUNCTION public.spyglass_erase_account_cell_without_agent_run_resolutions(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_attest_account_cell_erasure(uuid,bytea) OWNER TO `+cellFunctionRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_erase_account_cell(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) TO `+cellOperatorRole+`;

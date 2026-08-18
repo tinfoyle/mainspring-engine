@@ -23,6 +23,7 @@ type AgentService interface {
 	CreateBoardroom(context.Context, agentapp.CreateBoardroomCommand) (agentdomain.Boardroom, bool, error)
 	PublishPersona(context.Context, agentapp.PublishPersonaCommand) (agentapp.PersonaSummary, bool, error)
 	StartRun(context.Context, agentapp.StartRunCommand) (agentapp.Run, bool, error)
+	ResolveRun(context.Context, agentapp.ResolveRunCommand) (agentapp.RunResolution, bool, error)
 	ListBoardrooms(context.Context, access.Actor, ids.AccountID, int) ([]agentdomain.Boardroom, error)
 	ListPersonas(context.Context, access.Actor, ids.AccountID, ids.BoardroomID, int) ([]agentapp.PersonaSummary, error)
 	ListConversations(context.Context, access.Actor, ids.AccountID, ids.BoardroomID, agentapp.ConversationListQuery) (agentapp.ConversationPage, error)
@@ -67,6 +68,10 @@ type startAgentRunRequest struct {
 	Subject        *string            `json:"subject"`
 	Prompt         string             `json:"prompt"`
 	PersonaIDs     []ids.PersonaID    `json:"persona_ids"`
+}
+type resolveAgentRunRequest struct {
+	Action agentapp.RunResolutionAction `json:"action"`
+	Note   string                       `json:"note"`
 }
 
 func (s *Server) agentBoardrooms(w http.ResponseWriter, r *http.Request) {
@@ -238,6 +243,39 @@ func (s *Server) agentRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, agentRunView(run))
+}
+
+func (s *Server) agentRunResolve(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, operationID, ok := s.agentRequest(w, r, true)
+	if !ok {
+		return
+	}
+	runID := ids.RunID(r.PathValue("runID"))
+	if len(r.URL.Query()) != 0 || ids.Validate(string(runID)) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_command", "Agent Run resolution target is invalid")
+		return
+	}
+	var request resolveAgentRunRequest
+	if !decodeAgentJSON(w, r, &request) {
+		return
+	}
+	resolution, created, err := s.agents.ResolveRun(routecontext.WithClaims(r.Context(), claims), agentapp.ResolveRunCommand{
+		Actor: actor, AccountID: accountID, RequestID: operationID, RunID: runID, Action: request.Action, Note: request.Note,
+	})
+	if err != nil {
+		s.writeAgentError(w, "resolve_run", err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	targetRunID := resolution.RunID
+	if resolution.RetryRunID != "" {
+		targetRunID = resolution.RetryRunID
+	}
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/accounts/%s/agent-runs/%s", accountID, targetRunID))
+	writeJSON(w, status, agentRunResolutionView(resolution))
 }
 
 func (s *Server) agentConversations(w http.ResponseWriter, r *http.Request) {
@@ -544,20 +582,39 @@ type agentRunTurnResponse struct {
 	PersonaID        ids.PersonaID        `json:"persona_id"`
 	PersonaVersionID ids.PersonaVersionID `json:"persona_version_id"`
 }
+type agentRunInvocationResponse struct {
+	ID               ids.AgentInvocationID `json:"id"`
+	Turn             uint32                `json:"turn"`
+	PersonaVersionID ids.PersonaVersionID  `json:"persona_version_id"`
+	Status           string                `json:"status"`
+	StartedAt        *time.Time            `json:"started_at,omitempty"`
+	CompletedAt      *time.Time            `json:"completed_at,omitempty"`
+}
+type agentRunResolutionResponse struct {
+	ID         ids.RunResolutionID          `json:"id"`
+	RunID      ids.RunID                    `json:"run_id"`
+	Action     agentapp.RunResolutionAction `json:"action"`
+	Note       string                       `json:"note"`
+	ActorID    ids.UserID                   `json:"actor_id"`
+	RetryRunID ids.RunID                    `json:"retry_run_id,omitempty"`
+	CreatedAt  time.Time                    `json:"created_at"`
+}
 type agentRunResponse struct {
-	ID                 ids.RunID               `json:"id"`
-	BoardroomID        ids.BoardroomID         `json:"boardroom_id"`
-	ConversationID     ids.ConversationID      `json:"conversation_id"`
-	State              string                  `json:"state"`
-	Subject            string                  `json:"subject"`
-	Prompt             string                  `json:"prompt"`
-	UserMessageID      ids.MessageID           `json:"user_message_id"`
-	EntitlementVersion uint64                  `json:"entitlement_version"`
-	PolicyVersion      uint64                  `json:"policy_version"`
-	PlanDigest         string                  `json:"plan_digest"`
-	Turns              []agentRunTurnResponse  `json:"turns"`
-	InvocationIDs      []ids.AgentInvocationID `json:"invocation_ids"`
-	CreatedAt          time.Time               `json:"created_at"`
+	ID                 ids.RunID                    `json:"id"`
+	BoardroomID        ids.BoardroomID              `json:"boardroom_id"`
+	ConversationID     ids.ConversationID           `json:"conversation_id"`
+	State              string                       `json:"state"`
+	Subject            string                       `json:"subject"`
+	Prompt             string                       `json:"prompt"`
+	UserMessageID      ids.MessageID                `json:"user_message_id"`
+	EntitlementVersion uint64                       `json:"entitlement_version"`
+	PolicyVersion      uint64                       `json:"policy_version"`
+	PlanDigest         string                       `json:"plan_digest"`
+	Turns              []agentRunTurnResponse       `json:"turns"`
+	InvocationIDs      []ids.AgentInvocationID      `json:"invocation_ids"`
+	Invocations        []agentRunInvocationResponse `json:"invocations"`
+	Resolutions        []agentRunResolutionResponse `json:"resolutions"`
+	CreatedAt          time.Time                    `json:"created_at"`
 }
 
 func agentRunView(run agentapp.Run) agentRunResponse {
@@ -565,10 +622,25 @@ func agentRunView(run agentapp.Run) agentRunResponse {
 	for index, turn := range run.Plan.Turns {
 		turns[index] = agentRunTurnResponse{Turn: turn.Turn, PersonaID: turn.PersonaID, PersonaVersionID: turn.PersonaVersionID}
 	}
+	invocations := make([]agentRunInvocationResponse, len(run.Invocations))
+	for index, invocation := range run.Invocations {
+		invocations[index] = agentRunInvocationResponse{ID: invocation.ID, Turn: invocation.Turn, PersonaVersionID: invocation.PersonaVersionID,
+			Status: invocation.Status, StartedAt: invocation.StartedAt, CompletedAt: invocation.CompletedAt}
+	}
+	resolutions := make([]agentRunResolutionResponse, len(run.Resolutions))
+	for index, resolution := range run.Resolutions {
+		resolutions[index] = agentRunResolutionView(resolution)
+	}
 	return agentRunResponse{ID: run.Plan.RunID, BoardroomID: run.Plan.BoardroomID, ConversationID: run.Plan.ConversationID,
 		State: run.State, Subject: run.Subject, Prompt: run.Prompt, UserMessageID: run.UserMessageID,
 		EntitlementVersion: run.Plan.EntitlementVersion, PolicyVersion: run.Plan.PolicyVersion,
-		PlanDigest: hex.EncodeToString(run.Plan.Digest[:]), Turns: turns, InvocationIDs: run.InvocationIDs, CreatedAt: run.Plan.CreatedAt}
+		PlanDigest: hex.EncodeToString(run.Plan.Digest[:]), Turns: turns, InvocationIDs: run.InvocationIDs,
+		Invocations: invocations, Resolutions: resolutions, CreatedAt: run.Plan.CreatedAt}
+}
+
+func agentRunResolutionView(item agentapp.RunResolution) agentRunResolutionResponse {
+	return agentRunResolutionResponse{ID: item.ID, RunID: item.RunID, Action: item.Action, Note: item.Note,
+		ActorID: item.ActorID, RetryRunID: item.RetryRunID, CreatedAt: item.CreatedAt}
 }
 
 type agentConversationResponse struct {
