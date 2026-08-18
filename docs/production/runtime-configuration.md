@@ -1,8 +1,8 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, billing, and notification processes
+- Status: executable Phase 2 account, billing, notification, migration, and Catalog operator processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `billing-worker`, `notification-worker`, one-shot `migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `billing-worker`, `notification-worker`, one-shot `catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -11,6 +11,7 @@
 | `account-api` | Signup, login/recovery, session security/reauthentication, Account selection, invitations, encrypted notification enqueueing, local billing reads, Checkout/Portal creation, signed Stripe webhook acceptance, private browser shell | SMTP delivery, billing event projection, reconciliation polling, Account business workloads |
 | `billing-worker` | Leased Stripe inbox processing, current Subscription retrieval, transactional grant/snapshot projection, reconciliation queue | Browser/API traffic, raw webhook acceptance, customer business work |
 | `notification-worker` | Leased encrypted identity-notification delivery, bounded retries, terminal dead-letter state | Browser/API traffic, identity mutation, billing credentials, customer business work |
+| `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
 | `migrate` | One embedded, immutable migration target against one database | Serving traffic, background work, automatic target selection |
 
@@ -39,6 +40,7 @@ Database connection limits are per replica. Environment overlays must ensure the
 | `SPYGLASS_PUBLIC_ORIGIN` | Exact HTTPS Infinite Ocean public origin |
 | `SPYGLASS_STRIPE_WEBHOOK_SECRET` | Endpoint-specific `whsec_` secret |
 | `SPYGLASS_TRUSTED_PROXY_CIDRS` | Optional comma-separated ingress/load-balancer networks allowed to supply `X-Forwarded-For`; empty trusts no proxy |
+| `SPYGLASS_CATALOG_REFRESH_INTERVAL` | Optional positive Go duration for effective publication polling; defaults to `5s` |
 
 The account API has no SMTP configuration. It serializes registration, invitation, and credential-recovery messages, encrypts each envelope with AES-256-GCM, and persists only ciphertext, a nonce, and key version in the durable outbox. Associated data binds the ciphertext to the outbox ID and notification kind. Plaintext tokens are never written to the outbox or application logs.
 
@@ -47,6 +49,8 @@ Credential-recovery initiation always returns the same accepted response regardl
 Anonymous login and recovery budgets are shared across replicas in PostgreSQL. The actor key is HMAC-SHA-256 over the canonical socket/client address, so raw addresses are not stored in limiter state and cannot be recovered through an offline hash dictionary. Login permits 60 attempts per actor per 15 minutes; recovery permits 10 per actor per hour. A denied login still performs the identity lookup and password verification before returning the generic credential failure. A denied recovery request performs token generation and encrypted discard enqueueing before returning the generic accepted response.
 
 Forwarding headers are ignored unless the immediate socket peer belongs to `SPYGLASS_TRUSTED_PROXY_CIDRS`. Behind trusted proxies, Spyglass walks `X-Forwarded-For` from right to left and selects the first untrusted hop, preventing a client-supplied leftmost value from becoming authoritative. Malformed trusted forwarding chains fail closed. Environment overlays must set only the exact ingress or load-balancer networks they operate; broad private-network ranges are not safe defaults.
+
+Each account-api replica holds one immutable Catalog snapshot. It polls for the newest effective `published_at` and atomically replaces the snapshot, including deliberate rollback to a lower version. A request or registration completion reads one snapshot, so a concurrent refresh cannot mix versions inside that operation.
 
 ## Billing worker values
 
@@ -80,8 +84,15 @@ Key rotation must retain the currently configured key until every row encrypted 
 spyglass account-api
 spyglass billing-worker
 spyglass notification-worker
+spyglass catalog-admin <action>
 SPYGLASS_MIGRATION_TARGET=global spyglass migrate
 ```
+
+## Catalog operator values
+
+`catalog-admin` is a one-shot process documented in [catalog-operations.md](catalog-operations.md). Every action requires `SPYGLASS_DATABASE_URL`, `SPYGLASS_OPERATOR_ID`, and `SPYGLASS_OPERATOR_REASON`. Draft creation additionally requires `SPYGLASS_CATALOG_FILE`; other actions require `SPYGLASS_CATALOG_VERSION`. `map-price` also requires `SPYGLASS_CATALOG_OFFER_CODE`, `SPYGLASS_STRIPE_MODE`, and `SPYGLASS_STRIPE_PRICE_ID`. `publish` accepts optional RFC3339 `SPYGLASS_CATALOG_EFFECTIVE_AT`.
+
+Run this mode with a dedicated operator database credential in a short-lived controlled job. It does not require or accept account-api, webhook, notification, SMTP, or Stripe secret keys.
 
 ## Database migrations
 

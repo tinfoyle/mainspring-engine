@@ -21,11 +21,13 @@ import (
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
+	"github.com/tinfoyle/spyglass-engine/internal/application/catalogadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/authn"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
@@ -56,6 +58,102 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 	if published.Version != 2 || len(published.Plans) != 3 {
 		t.Fatalf("unexpected published catalog: version=%d plans=%d", published.Version, len(published.Plans))
+	}
+
+	adminNow := time.Now().UTC().Truncate(time.Millisecond)
+	adminService, err := catalogadmin.NewService(postgresadapter.NewCatalogAdminRepository(pool), ids.RandomGenerator{}, fixedClock{now: adminNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := adminService.CreateDraft(ctx, catalog.Default(adminNow), "catalog-author@example.com", "prepare reviewed package and offer publication")
+	if err != nil || draft.Version != 3 || draft.State != catalogadmin.StateDraft {
+		t.Fatalf("create catalog draft = %+v, %v", draft, err)
+	}
+	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v1", "price_catalog_team_test"}, {"operating-monthly-v1", "price_catalog_operating_test"}} {
+		if err := adminService.MapStripePrice(ctx, draft.Version, mapping.offer, "test", mapping.price, "catalog-author@example.com", "attach reviewed Stripe test price mapping"); err != nil {
+			t.Fatalf("map catalog offer %s: %v", mapping.offer, err)
+		}
+	}
+	if _, err := adminService.RequestReview(ctx, draft.Version, "catalog-author@example.com", "request independent commercial catalog review"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminService.Approve(ctx, draft.Version, "catalog-author@example.com", "attempt self approval must be rejected"); !errors.Is(err, catalogadmin.ErrReviewSeparation) {
+		t.Fatalf("self-review result = %v", err)
+	}
+	if _, err := adminService.Approve(ctx, draft.Version, "catalog-reviewer@example.com", "approve validated package and offer publication"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminService.Publish(ctx, draft.Version, adminNow, "catalog-publisher@example.com", "publish independently reviewed catalog version"); err != nil {
+		t.Fatal(err)
+	}
+	current, err := postgresadapter.NewCatalogRepository(pool).Published(ctx)
+	if err != nil || current.Version != draft.Version {
+		t.Fatalf("new publication current = %d, %v", current.Version, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE catalog_publications SET content=jsonb_set(content,'{version}','99'::jsonb) WHERE version=$1`, draft.Version); err == nil || !strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("catalog content mutation result = %v", err)
+	}
+	if _, err := adminService.Retire(ctx, draft.Version, "catalog-publisher@example.com", "retire current catalog to verify safe fallback"); err != nil {
+		t.Fatal(err)
+	}
+	fallback, err := postgresadapter.NewCatalogRepository(pool).Published(ctx)
+	if err != nil || fallback.Version != 2 {
+		t.Fatalf("retired publication fallback = %d, %v", fallback.Version, err)
+	}
+	if _, err := adminService.Publish(ctx, draft.Version, adminNow, "catalog-publisher@example.com", "republish prior reviewed version as rollback recovery"); err != nil {
+		t.Fatal(err)
+	}
+	rolledForward, err := postgresadapter.NewCatalogRepository(pool).Published(ctx)
+	if err != nil || rolledForward.Version != draft.Version {
+		t.Fatalf("republished catalog = %d, %v", rolledForward.Version, err)
+	}
+	var catalogAuditEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM catalog_operator_events WHERE catalog_version=$1`, draft.Version).Scan(&catalogAuditEvents); err != nil || catalogAuditEvents != 8 {
+		t.Fatalf("catalog audit events = %d, %v", catalogAuditEvents, err)
+	}
+	incomplete, err := adminService.CreateDraft(ctx, catalog.Default(adminNow), "catalog-author@example.com", "verify paid offers require provider mappings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adminService.RequestReview(ctx, incomplete.Version, "catalog-author@example.com", "request review without required price mappings"); !errors.Is(err, catalogadmin.ErrOfferMapping) {
+		t.Fatalf("incomplete offer mapping result = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE catalog_publications SET state='published',published_at=$2,published_by='bypass' WHERE version=$1`, incomplete.Version, adminNow); err == nil || !strings.Contains(err.Error(), "invalid catalog state transition") {
+		t.Fatalf("direct catalog state bypass result = %v", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM catalog_publications WHERE version=$1`, incomplete.Version); err == nil || !strings.Contains(err.Error(), "cannot be deleted") {
+		t.Fatalf("catalog deletion result = %v", err)
+	}
+	const concurrentDrafts = 4
+	versions := make(chan uint64, concurrentDrafts)
+	errorsChannel := make(chan error, concurrentDrafts)
+	var catalogGroup sync.WaitGroup
+	for index := 0; index < concurrentDrafts; index++ {
+		catalogGroup.Add(1)
+		go func(index int) {
+			defer catalogGroup.Done()
+			content := catalog.Default(adminNow)
+			content.Plans[0].Description = fmt.Sprintf("Concurrent draft %d", index)
+			created, err := adminService.CreateDraft(ctx, content, "catalog-author@example.com", "verify serialized catalog version allocation")
+			if err != nil {
+				errorsChannel <- err
+				return
+			}
+			versions <- created.Version
+		}(index)
+	}
+	catalogGroup.Wait()
+	close(versions)
+	close(errorsChannel)
+	for err := range errorsChannel {
+		t.Fatal(err)
+	}
+	uniqueVersions := map[uint64]bool{}
+	for version := range versions {
+		uniqueVersions[version] = true
+	}
+	if len(uniqueVersions) != concurrentDrafts {
+		t.Fatalf("concurrent catalog versions = %#v", uniqueVersions)
 	}
 
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
@@ -109,7 +207,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 
 	repository := postgresadapter.NewRegistrationRepository(pool)
 	sender := &captureVerification{}
-	service := registration.NewService(repository, sender, repository, published, ids.RandomGenerator{}, fixedClock{now: now}, staticPasswordHasher{})
+	service := registration.NewService(repository, sender, repository, func() catalog.PublishedCatalog { return published }, ids.RandomGenerator{}, fixedClock{now: now}, staticPasswordHasher{})
 	if _, err := service.Begin(ctx, registration.BeginCommand{Email: "owner@example.com", DisplayName: "Owner", AccountName: "Northstar Labs", Region: "us-east"}); err != nil {
 		t.Fatalf("begin registration: %v", err)
 	}
@@ -209,14 +307,12 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 
 	commercial := postgresadapter.NewCommercialAccessRepository(pool)
-	if _, err := pool.Exec(ctx, `
-		INSERT INTO offer_provider_prices (catalog_version,offer_code,provider,mode,provider_price_id,active,created_at)
-		VALUES (2,'team-monthly-v1','stripe','test','price_team_test',true,$1)`, now); err != nil {
-		t.Fatalf("seed provider price: %v", err)
-	}
-	price, err := commercial.ProviderPrice(ctx, 2, "team-monthly-v1", "stripe", "test")
-	if err != nil || price != "price_team_test" {
+	price, err := commercial.ProviderPrice(ctx, draft.Version, "team-monthly-v1", "stripe", "test")
+	if err != nil || price != "price_catalog_team_test" {
 		t.Fatalf("provider price = %q, %v", price, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE offer_provider_prices SET provider_price_id='price_tampered' WHERE catalog_version=$1 AND offer_code='team-monthly-v1'`, draft.Version); err == nil || !strings.Contains(err.Error(), "only while the catalog is draft") {
+		t.Fatalf("published price mapping mutation result = %v", err)
 	}
 
 	requests := []string{ids.RandomGenerator{}.New(), ids.RandomGenerator{}.New()}
@@ -301,7 +397,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 10 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 11 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 

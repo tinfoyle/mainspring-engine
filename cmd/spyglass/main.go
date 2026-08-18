@@ -18,6 +18,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingworker"
+	catalogcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/catalogadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	"github.com/tinfoyle/spyglass-engine/migrations"
@@ -43,15 +44,78 @@ func main() {
 		err = runBillingWorker(ctx, logger)
 	case "notification-worker":
 		err = runNotificationWorker(ctx, logger)
+	case "catalog-admin":
+		err = runCatalogAdmin(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | billing-worker | notification-worker | migrate")
+		err = errors.New("usage: spyglass development | account-api | billing-worker | notification-worker | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
 		os.Exit(1)
 	}
+}
+
+func runCatalogAdmin(ctx context.Context, logger *slog.Logger) error {
+	if len(os.Args) != 3 {
+		return errors.New("usage: spyglass catalog-admin draft|map-price|request-review|approve|publish|retire")
+	}
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	actor, err := requiredEnv("SPYGLASS_OPERATOR_ID")
+	if err != nil {
+		return err
+	}
+	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	config := catalogcommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Actor: actor, Reason: reason, MaxDatabaseConns: maxConns}
+	if config.Action == "draft" {
+		filename, err := requiredEnv("SPYGLASS_CATALOG_FILE")
+		if err != nil {
+			return err
+		}
+		config.CatalogJSON, err = os.ReadFile(filename)
+		if err != nil {
+			return fmt.Errorf("read catalog file: %w", err)
+		}
+	} else {
+		config.Version, err = uint64Env("SPYGLASS_CATALOG_VERSION")
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action == "map-price" {
+		config.OfferCode, err = requiredEnv("SPYGLASS_CATALOG_OFFER_CODE")
+		if err != nil {
+			return err
+		}
+		config.StripeMode, err = requiredEnv("SPYGLASS_STRIPE_MODE")
+		if err != nil {
+			return err
+		}
+		config.PriceID, err = requiredEnv("SPYGLASS_STRIPE_PRICE_ID")
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action == "publish" && os.Getenv("SPYGLASS_CATALOG_EFFECTIVE_AT") != "" {
+		config.EffectiveAt, err = time.Parse(time.RFC3339, os.Getenv("SPYGLASS_CATALOG_EFFECTIVE_AT"))
+		if err != nil {
+			return errors.New("SPYGLASS_CATALOG_EFFECTIVE_AT must be RFC3339")
+		}
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return catalogcommand.Run(startup, config, logger)
 }
 
 func runMigrate(ctx context.Context, logger *slog.Logger) error {
@@ -87,7 +151,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, TrustedProxyCIDRs: config.trustedProxyCIDRs}, logger)
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
 	if err != nil {
 		return err
 	}
@@ -207,6 +271,7 @@ type persistentConfig struct {
 	networkActorKey                                                                                          []byte
 	trustedProxyCIDRs                                                                                        []string
 	maxDatabaseConns                                                                                         int32
+	catalogRefreshInterval                                                                                   time.Duration
 }
 
 func productionConfig() (persistentConfig, error) {
@@ -233,6 +298,10 @@ func productionConfig() (persistentConfig, error) {
 	}
 	result.trustedProxyCIDRs = csvEnv("SPYGLASS_TRUSTED_PROXY_CIDRS")
 	result.maxDatabaseConns, err = int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
+	if err != nil {
+		return persistentConfig{}, err
+	}
+	result.catalogRefreshInterval, err = durationEnv("SPYGLASS_CATALOG_REFRESH_INTERVAL", 5*time.Second)
 	return result, err
 }
 
@@ -327,6 +396,17 @@ func int32Env(name string, fallback int32) (int32, error) {
 		return 0, fmt.Errorf("%s must be a positive integer", name)
 	}
 	return int32(value), nil
+}
+func uint64Env(name string) (uint64, error) {
+	raw, err := requiredEnv(name)
+	if err != nil {
+		return 0, err
+	}
+	value, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil || value == 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return value, nil
 }
 func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 	raw := os.Getenv(name)

@@ -44,7 +44,7 @@ func Handler(logger *slog.Logger) http.Handler {
 	}
 	verification := &memory.VerificationSink{}
 	passwords := authn.Passwords{}
-	service := registration.NewService(store, verification, store, publishedCatalog, ids.RandomGenerator{}, clock, passwords)
+	service := registration.NewService(store, verification, store, func() catalog.PublishedCatalog { return publishedCatalog }, ids.RandomGenerator{}, clock, passwords)
 	sessionStore := memory.NewSessionStore()
 	sessionService, err := sessions.NewService(sessionStore, ids.RandomGenerator{}, clock, 24*time.Hour, time.Hour, 15*time.Minute)
 	if err != nil {

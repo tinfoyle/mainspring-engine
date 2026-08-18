@@ -93,6 +93,9 @@ func (c PublishedCatalog) Validate() error {
 	if c.Version == 0 {
 		return errors.New("catalog version is required")
 	}
+	if len(c.Packages) == 0 || len(c.Plans) == 0 || len(c.Offers) == 0 {
+		return errors.New("catalog packages, plans, and offers are required")
+	}
 	packages := make(map[PackageCode]FeaturePackage, len(c.Packages))
 	for _, item := range c.Packages {
 		if item.Code == "" || item.Version == 0 || strings.TrimSpace(item.Name) == "" {

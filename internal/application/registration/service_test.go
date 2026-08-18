@@ -42,7 +42,7 @@ func TestBeginReplacesExpiredChallenge(t *testing.T) {
 	published := catalog.Default(now)
 	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-1"), Region: "us-east", State: "active", SoftLimit: 10}})
 	sink := &memory.VerificationSink{}
-	service := registration.NewService(store, sink, store, published, ids.RandomGenerator{}, clock, passwordHasher{})
+	service := registration.NewService(store, sink, store, func() catalog.PublishedCatalog { return published }, ids.RandomGenerator{}, clock, passwordHasher{})
 	command := registration.BeginCommand{Email: "owner@example.com", DisplayName: "Owner", AccountName: "Example", Region: "us-east"}
 	if _, err := service.Begin(context.Background(), command); err != nil {
 		t.Fatal(err)
@@ -59,7 +59,7 @@ func TestFreeRegistrationRequiresVerificationThenProvisionsAtomically(t *testing
 	published := catalog.Default(now)
 	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 10}})
 	messages := &memory.VerificationSink{}
-	service := registration.NewService(store, messages, store, published, &sequenceIDs{}, clock, passwordHasher{})
+	service := registration.NewService(store, messages, store, func() catalog.PublishedCatalog { return published }, &sequenceIDs{}, clock, passwordHasher{})
 
 	begin, err := service.Begin(context.Background(), registration.BeginCommand{Email: "Avery@Example.com", DisplayName: "Avery Johnson", AccountName: "Northstar Studio", Region: "us-east"})
 	if err != nil {
@@ -98,7 +98,7 @@ func TestRegistrationRejectsDuplicatePendingEmail(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	published := catalog.Default(now)
 	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 10}})
-	service := registration.NewService(store, &memory.VerificationSink{}, store, published, &sequenceIDs{}, fixedClock{value: now}, passwordHasher{})
+	service := registration.NewService(store, &memory.VerificationSink{}, store, func() catalog.PublishedCatalog { return published }, &sequenceIDs{}, fixedClock{value: now}, passwordHasher{})
 	command := registration.BeginCommand{Email: "avery@example.com", DisplayName: "Avery", AccountName: "Northstar"}
 	if _, err := service.Begin(context.Background(), command); err != nil {
 		t.Fatal(err)

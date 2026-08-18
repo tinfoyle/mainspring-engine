@@ -42,11 +42,14 @@ type Config struct {
 	NotificationEncryptionKey []byte
 	NetworkActorKey           []byte
 	TrustedProxyCIDRs         []string
+	CatalogRefreshInterval    time.Duration
 }
 
 type Server struct {
 	Handler http.Handler
 	pool    *pgxpool.Pool
+	stop    context.CancelFunc
+	done    <-chan struct{}
 }
 
 // New constructs the persistent account-api mode. Identity messages are
@@ -89,6 +92,14 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	catalogCache, err := catalog.NewCache(publishedCatalog)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if config.CatalogRefreshInterval <= 0 {
+		config.CatalogRefreshInterval = 5 * time.Second
+	}
 	registrationRepository := postgres.NewRegistrationRepository(pool)
 	clock := registration.SystemClock{}
 	networkGuard, err := abuse.NewGuard(postgres.NewNetworkRateLimiter(pool))
@@ -101,7 +112,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	registrations := registration.NewService(registrationRepository, sender, registrationRepository, publishedCatalog, ids.RandomGenerator{}, clock, authn.Passwords{})
+	registrations := registration.NewService(registrationRepository, sender, registrationRepository, catalogCache.Current, ids.RandomGenerator{}, clock, authn.Passwords{})
 	passwords := authn.Passwords{}
 	sessionService, err := sessions.NewService(postgres.NewSessionRepository(pool), ids.RandomGenerator{}, clock, 24*time.Hour, time.Hour, 15*time.Minute)
 	if err != nil {
@@ -159,12 +170,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, errors.New("Stripe secret key mode does not match configured mode")
 	}
-	commercialService, err := commercialaccess.New(stripeProvider, postgres.NewCommercialAccessRepository(pool), authorizer, func() catalog.PublishedCatalog { return publishedCatalog }, clock, config.AppOrigin, config.StripeMode)
+	commercialService, err := commercialaccess.New(stripeProvider, postgres.NewCommercialAccessRepository(pool), authorizer, catalogCache.Current, clock, config.AppOrigin, config.StripeMode)
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	apiHandler := httpapi.NewServer(registrations, func() catalog.PublishedCatalog { return publishedCatalog }, nil, false, logger,
+	apiHandler := httpapi.NewServer(registrations, catalogCache.Current, nil, false, logger,
 		httpapi.WithBillingWebhook(webhook),
 		httpapi.WithCommercialAccess(commercialService, config.AppOrigin),
 		httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Secure: true, Origin: config.AppOrigin}),
@@ -172,15 +183,55 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithInvitations(invitationService, nil, false),
 		httpapi.WithRecovery(recoveryService, nil, false),
 	).Handler()
-	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, func() catalog.PublishedCatalog { return publishedCatalog }, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithRecovery(recoveryService, nil))
+	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithRecovery(recoveryService, nil))
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: withReadiness(pool, actorResolver.Handler(browser.Handler(apiHandler))), pool: pool}, nil
+	refreshContext, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go refreshCatalog(refreshContext, config.CatalogRefreshInterval, catalogRepository, catalogCache, logger, done)
+	return &Server{Handler: withReadiness(pool, actorResolver.Handler(browser.Handler(apiHandler))), pool: pool, stop: stop, done: done}, nil
 }
 
-func (s *Server) Close() { s.pool.Close() }
+func (s *Server) Close() {
+	if s.stop != nil {
+		s.stop()
+		<-s.done
+	}
+	s.pool.Close()
+}
+
+func refreshCatalog(ctx context.Context, interval time.Duration, repository *postgres.CatalogRepository, cache *catalog.Cache, logger *slog.Logger, done chan<- struct{}) {
+	defer close(done)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			queryContext, cancel := context.WithTimeout(ctx, 3*time.Second)
+			next, err := repository.Published(queryContext)
+			cancel()
+			if err != nil {
+				if ctx.Err() == nil {
+					logger.Error("refresh published Catalog", "error", err)
+				}
+				continue
+			}
+			current := cache.Current()
+			if current.Version == next.Version && current.PublishedAt.Equal(next.PublishedAt) {
+				continue
+			}
+			if err := cache.Replace(next); err != nil {
+				logger.Error("reject invalid published Catalog refresh", "error", err)
+				continue
+			}
+			logger.Info("published Catalog refreshed", "catalog_version", next.Version, "published_at", next.PublishedAt)
+		}
+	}
+}
 
 func withReadiness(pool *pgxpool.Pool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -32,3 +32,8 @@ Before an environment overlay may use these resources it must add:
 
 Run `kubectl kustomize deploy/kubernetes/reference` as a structural render
 check. Do not apply the output to a cluster.
+
+Catalog administration is intentionally not a standing Deployment. Environments
+run `spyglass catalog-admin <action>` as a short-lived, human-authorized Job with
+its own restricted database credential, operator identity, reason, and reviewed
+input. It must not inherit any serving, webhook, Stripe secret, or SMTP secret.

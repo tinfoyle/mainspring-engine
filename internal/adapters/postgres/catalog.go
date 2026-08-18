@@ -25,7 +25,7 @@ func (r *CatalogRepository) Published(ctx context.Context) (catalog.PublishedCat
 		SELECT content, published_at
 		FROM catalog_publications
 		WHERE state='published' AND published_at <= statement_timestamp()
-		ORDER BY version DESC LIMIT 1`).Scan(&raw, &publishedAt)
+		ORDER BY published_at DESC,version DESC LIMIT 1`).Scan(&raw, &publishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return catalog.PublishedCatalog{}, errors.New("no published catalog is available")
 	}

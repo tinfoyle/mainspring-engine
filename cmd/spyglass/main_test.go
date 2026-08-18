@@ -76,3 +76,14 @@ func TestCommaSeparatedEnvironmentParser(t *testing.T) {
 		t.Fatalf("parsed values = %#v", values)
 	}
 }
+
+func TestPositiveUnsignedEnvironmentParser(t *testing.T) {
+	t.Setenv("SPYGLASS_TEST_VERSION", "42")
+	if value, err := uint64Env("SPYGLASS_TEST_VERSION"); err != nil || value != 42 {
+		t.Fatalf("version=%d err=%v", value, err)
+	}
+	t.Setenv("SPYGLASS_TEST_VERSION", "0")
+	if _, err := uint64Env("SPYGLASS_TEST_VERSION"); err == nil {
+		t.Fatal("expected zero version to fail closed")
+	}
+}

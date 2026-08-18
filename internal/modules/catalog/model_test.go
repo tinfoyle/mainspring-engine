@@ -37,3 +37,9 @@ func TestCatalogRejectsPlanWithMissingPackageDependency(t *testing.T) {
 		t.Fatal("expected missing package dependency to be rejected")
 	}
 }
+
+func TestCatalogRejectsEmptyCommercialSurface(t *testing.T) {
+	if err := (PublishedCatalog{Version: 1}).Validate(); err == nil {
+		t.Fatal("expected empty catalog rejection")
+	}
+}

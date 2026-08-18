@@ -80,15 +80,15 @@ type Service struct {
 	repository Repository
 	sender     VerificationSender
 	cells      CellSource
-	catalog    catalog.PublishedCatalog
+	catalog    func() catalog.PublishedCatalog
 	ids        ids.Generator
 	clock      Clock
 	passwords  PasswordHasher
 	tokenTTL   time.Duration
 }
 
-func NewService(repository Repository, sender VerificationSender, cells CellSource, publishedCatalog catalog.PublishedCatalog, idGenerator ids.Generator, clock Clock, passwords PasswordHasher) *Service {
-	return &Service{repository: repository, sender: sender, cells: cells, catalog: publishedCatalog, ids: idGenerator, clock: clock, passwords: passwords, tokenTTL: 30 * time.Minute}
+func NewService(repository Repository, sender VerificationSender, cells CellSource, catalogSource func() catalog.PublishedCatalog, idGenerator ids.Generator, clock Clock, passwords PasswordHasher) *Service {
+	return &Service{repository: repository, sender: sender, cells: cells, catalog: catalogSource, ids: idGenerator, clock: clock, passwords: passwords, tokenTTL: 30 * time.Minute}
 }
 
 type BeginCommand struct{ Email, DisplayName, AccountName, Region string }
@@ -129,8 +129,8 @@ func (s *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult,
 type CompleteCommand struct{ Token, Password string }
 
 func (s *Service) Complete(ctx context.Context, command CompleteCommand) (Provisioned, error) {
-	if s.passwords == nil {
-		return Provisioned{}, errors.New("password hashing is not configured")
+	if s.passwords == nil || s.catalog == nil {
+		return Provisioned{}, errors.New("registration completion dependencies are not configured")
 	}
 	hash := sha256.Sum256([]byte(command.Token))
 	now := s.clock.Now().UTC()
@@ -156,12 +156,13 @@ func (s *Service) Complete(ctx context.Context, command CompleteCommand) (Provis
 			return Provisioned{}, err
 		}
 		membership := accounts.NewOwnerMembership(ids.MembershipID(s.ids.New()), account.ID, user.ID, now)
-		plan, ok := s.catalog.Plan("free")
+		publication := s.catalog()
+		plan, ok := publication.Plan("free")
 		if !ok {
 			return Provisioned{}, errors.New("published catalog has no free plan")
 		}
 		grants := entitlements.FreePlanGrants(account.ID, plan, s.ids, now)
-		snapshot, err := entitlements.Evaluate(account.ID, account.EntitlementVersion, s.catalog.Version, grants, now)
+		snapshot, err := entitlements.Evaluate(account.ID, account.EntitlementVersion, publication.Version, grants, now)
 		if err != nil {
 			return Provisioned{}, err
 		}
