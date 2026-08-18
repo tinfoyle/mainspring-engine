@@ -122,7 +122,8 @@ func TestAgentRunRecoveryPreservesHistoryAndExactRetryInputs(t *testing.T) {
 	if err != nil || source.State != "failed" || len(source.Resolutions) != 1 || source.Resolutions[0].RetryRunID != retryRunID || source.Invocations[0].Status != "failed" {
 		t.Fatalf("immutable source Run=%+v err=%v", source, err)
 	}
-	if replay, replayed, err := repository.ResolveRun(ctx, draft); err != nil || replayed || replay != resolution {
+	if replay, replayed, err := repository.ResolveRun(ctx, draft); err != nil || replayed || replay.ID != resolution.ID || replay.RunID != resolution.RunID ||
+		replay.Action != resolution.Action || replay.Note != resolution.Note || replay.ActorID != resolution.ActorID || replay.RetryRunID != resolution.RetryRunID || !replay.CreatedAt.Equal(resolution.CreatedAt) {
 		t.Fatalf("idempotent resolution created=%v resolution=%+v err=%v", replayed, replay, err)
 	}
 	changed := draft
