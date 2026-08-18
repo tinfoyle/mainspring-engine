@@ -1,11 +1,12 @@
 import Link from "next/link";
+import { spyglassURL } from "../links";
 
 export function Brand() {
   return <Link className="brand" href="/" aria-label="Infinite Ocean home"><span className="brand-mark" aria-hidden="true"><i /></span><span><strong>INFINITE OCEAN</strong><small>SPYGLASS</small></span></Link>;
 }
 
 export function SiteHeader() {
-  return <header className="site-header"><div className="shell nav-shell"><Brand /><nav aria-label="Primary navigation"><Link href="/product">Product</Link><Link href="/packages">Packages</Link><Link href="/pricing">Pricing</Link><Link href="/about">Infinite Ocean</Link></nav><div className="nav-actions"><Link className="login-link" href="https://app.infiniteocean.net">Log in</Link><Link className="button small primary" href="/signup">Start free</Link></div><details className="mobile-nav"><summary aria-label="Open navigation"><span /><span /></summary><div><Link href="/product">Product</Link><Link href="/packages">Packages</Link><Link href="/pricing">Pricing</Link><Link href="/about">Infinite Ocean</Link><Link href="/signup">Start free</Link></div></details></div></header>;
+  return <header className="site-header"><div className="shell nav-shell"><Brand /><nav aria-label="Primary navigation"><Link href="/product">Product</Link><Link href="/packages">Packages</Link><Link href="/pricing">Pricing</Link><Link href="/about">Infinite Ocean</Link></nav><div className="nav-actions"><Link className="login-link" href={spyglassURL("/")}>Log in</Link><Link className="button small primary" href="/signup">Start free</Link></div><details className="mobile-nav"><summary aria-label="Open navigation"><span /><span /></summary><div><Link href="/product">Product</Link><Link href="/packages">Packages</Link><Link href="/pricing">Pricing</Link><Link href="/about">Infinite Ocean</Link><Link href="/signup">Start free</Link></div></details></div></header>;
 }
 
 export function SiteFooter() {

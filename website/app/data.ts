@@ -32,7 +32,7 @@ export const packages = [
 ] as const;
 
 export const plans = [
-  { name: "Free", price: "$0", cadence: "forever", description: "A real Spyglass Account for exploring the operating model.", featured: false, features: ["1 Account", "Core business baseline", "Knowledge starter", "Package previews", "No card required"] },
-  { name: "Team", price: "$49", cadence: "per month", description: "For a small team ready to make operating work visible.", featured: true, features: ["Everything in Free", "Work package", "Up to 5 members", "Schedules and exports", "Email support"] },
-  { name: "Operating", price: "$149", cadence: "per month", description: "For businesses coordinating people, agents, and deeper workflows.", featured: false, features: ["Everything in Team", "Agents package", "Finance or Marketing", "Up to 20 members", "Higher automation limits"] },
+  { name: "Free", offerCode: undefined, price: "$0", cadence: "forever", description: "A real Spyglass Account for exploring the operating model.", featured: false, features: ["1 Account", "Core business baseline", "Knowledge starter", "Package previews", "No card required"] },
+  { name: "Team", offerCode: "team-monthly-v1", price: "$49", cadence: "per month", description: "For a small team ready to make operating work visible.", featured: true, features: ["Everything in Free", "Work package", "Up to 5 members", "Schedules and exports", "Email support"] },
+  { name: "Operating", offerCode: "operating-monthly-v1", price: "$149", cadence: "per month", description: "For businesses coordinating people, agents, and deeper workflows.", featured: false, features: ["Everything in Team", "Agents package", "Finance or Marketing", "Up to 20 members", "Higher automation limits"] },
 ] as const;

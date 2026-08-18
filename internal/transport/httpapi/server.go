@@ -1298,12 +1298,13 @@ func (s *Server) beginRegistration(w http.ResponseWriter, r *http.Request) {
 		DisplayName string `json:"display_name"`
 		AccountName string `json:"account_name"`
 		Region      string `json:"region"`
+		OfferCode   string `json:"offer_code"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	result, err := s.registrations.Begin(r.Context(), registration.BeginCommand{Email: input.Email, DisplayName: input.DisplayName, AccountName: input.AccountName, Region: input.Region})
+	result, err := s.registrations.Begin(r.Context(), registration.BeginCommand{Email: input.Email, DisplayName: input.DisplayName, AccountName: input.AccountName, Region: input.Region, OfferCode: input.OfferCode})
 	if err != nil {
 		s.writeRegistrationError(w, err)
 		return
@@ -1342,6 +1343,8 @@ func (s *Server) writeRegistrationError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, registration.ErrEmailExists):
 		writeProblem(w, http.StatusConflict, "registration_conflict", "a registration already exists for this email")
+	case errors.Is(err, registration.ErrOfferUnavailable):
+		writeProblem(w, http.StatusBadRequest, "offer_unavailable", "the selected offer is unavailable")
 	case errors.Is(err, registration.ErrRegistrationExpired):
 		writeProblem(w, http.StatusGone, "registration_expired", "the verification link has expired")
 	case errors.Is(err, registration.ErrRegistrationConsumed):

@@ -116,7 +116,7 @@ func Handler(logger *slog.Logger) http.Handler {
 		options = append(options, httpapi.WithBillingWebhook(webhook))
 	}
 	apiHandler := httpapi.NewServer(service, store.Catalog, verification, true, logger, options...).Handler()
-	browser, err := browserapp.New(service, authenticationService, sessionService, accountAccess, invitationService, store.Catalog, verification, invitationSink, browserapp.Config{SessionCookieName: "spyglass_development_session", AccountCookieName: "spyglass_development_account", TrustedOrigins: []string{"http://localhost:8080", "http://127.0.0.1:8080", "https://infiniteocean.net"}, ExposeDevelopmentTokens: true}, logger, browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, recoverySink), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService))
+	browser, err := browserapp.New(service, authenticationService, sessionService, accountAccess, invitationService, store.Catalog, verification, invitationSink, browserapp.Config{SessionCookieName: "spyglass_development_session", AccountCookieName: "spyglass_development_account", TrustedOrigins: []string{"http://localhost:8080"}, ExposeDevelopmentTokens: true}, logger, browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, recoverySink), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService))
 	if err != nil {
 		panic(err)
 	}

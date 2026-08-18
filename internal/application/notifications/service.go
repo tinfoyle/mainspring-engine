@@ -95,8 +95,8 @@ func (c *Cipher) Open(entry Entry) ([]byte, error) {
 func additionalData(id string, kind Kind) []byte { return []byte(id + "/" + string(kind)) }
 
 type payload struct {
-	Email, DisplayName, Token, AccountName, Role, CounterpartDisplayName, RecipientRole string
-	ExpiresAt, OccurredAt                                                               time.Time
+	Email, DisplayName, Token, OfferCode, AccountName, Role, CounterpartDisplayName, RecipientRole string
+	ExpiresAt, OccurredAt                                                                          time.Time
 }
 
 type QueuedSender struct {
@@ -114,7 +114,7 @@ func NewQueuedSender(queue Queue, envelopeCipher *Cipher, generator ids.Generato
 }
 
 func (s *QueuedSender) SendVerification(ctx context.Context, message registration.VerificationMessage) error {
-	return s.enqueue(ctx, "", KindVerification, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, ExpiresAt: message.ExpiresAt})
+	return s.enqueue(ctx, "", KindVerification, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, OfferCode: message.OfferCode, ExpiresAt: message.ExpiresAt})
 }
 
 func (s *QueuedSender) SendInvitation(ctx context.Context, message invitations.Message) error {
@@ -215,7 +215,7 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 func (p *Processor) deliver(ctx context.Context, accountID ids.AccountID, kind Kind, value payload) error {
 	switch kind {
 	case KindVerification:
-		return p.delivery.SendVerification(ctx, registration.VerificationMessage{Email: value.Email, DisplayName: value.DisplayName, Token: value.Token, ExpiresAt: value.ExpiresAt})
+		return p.delivery.SendVerification(ctx, registration.VerificationMessage{Email: value.Email, DisplayName: value.DisplayName, Token: value.Token, OfferCode: value.OfferCode, ExpiresAt: value.ExpiresAt})
 	case KindInvitation:
 		return p.delivery.SendInvitation(ctx, invitations.Message{AccountID: accountID, Email: value.Email, Token: value.Token, AccountName: value.AccountName, Role: accounts.MembershipRole(value.Role), ExpiresAt: value.ExpiresAt})
 	case KindRecovery:

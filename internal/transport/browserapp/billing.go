@@ -84,7 +84,7 @@ func (s *Server) redirectHosted(w http.ResponseWriter, r *http.Request, raw stri
 	http.Redirect(w, r, target.String(), http.StatusSeeOther)
 }
 
-func billingView(publication catalog.PublishedCatalog, accountType accounts.AccountType, status commercialaccess.Status, now time.Time) ([]billingPlan, string, string, string) {
+func billingView(publication catalog.PublishedCatalog, accountType accounts.AccountType, status commercialaccess.Status, selectedOffer string, now time.Time) ([]billingPlan, string, string, string) {
 	currentOffer, state, period, synced := "free-v1", "Free access", "No billing required", "Local entitlement snapshot"
 	if len(status.Subscriptions) > 0 {
 		current, managed := status.Subscriptions[0], false
@@ -120,7 +120,19 @@ func billingView(publication catalog.PublishedCatalog, accountType accounts.Acco
 		if cents := offer.AmountMinor % 100; cents != 0 {
 			price = fmt.Sprintf("$%d.%02d", offer.AmountMinor/100, cents)
 		}
-		plans = append(plans, billingPlan{OfferCode: offer.Code, Name: plan.Name, Description: plan.Description, Price: price, Interval: offer.BillingInterval, PackageCount: len(plan.Packages), Current: offer.Code == currentOffer})
+		plans = append(plans, billingPlan{OfferCode: offer.Code, Name: plan.Name, Description: plan.Description, Price: price, Interval: offer.BillingInterval, PackageCount: len(plan.Packages), Current: offer.Code == currentOffer, Selected: offer.Code == selectedOffer})
 	}
 	return plans, state, period, synced
+}
+
+func availableOfferCode(publication catalog.PublishedCatalog, requested string, now time.Time) string {
+	for _, offer := range publication.Offers {
+		if offer.Code == requested && offer.Published && offer.AmountMinor > 0 && !offer.EffectiveFrom.After(now) {
+			if _, ok := publication.Plan(offer.PlanCode); ok {
+				return offer.Code
+			}
+			return ""
+		}
+	}
+	return ""
 }

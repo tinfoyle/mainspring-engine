@@ -21,6 +21,7 @@ var (
 	ErrRegistrationExpired  = errors.New("registration expired")
 	ErrRegistrationConsumed = errors.New("registration already consumed")
 	ErrEmailExists          = errors.New("email already registered")
+	ErrOfferUnavailable     = errors.New("requested offer is unavailable")
 )
 
 type Clock interface{ Now() time.Time }
@@ -62,6 +63,7 @@ type VerificationMessage struct {
 	DisplayName    string
 	Token          string
 	ExpiresAt      time.Time
+	OfferCode      string
 }
 
 type VerificationSender interface {
@@ -91,14 +93,21 @@ func NewService(repository Repository, sender VerificationSender, cells CellSour
 	return &Service{repository: repository, sender: sender, cells: cells, catalog: catalogSource, ids: idGenerator, clock: clock, passwords: passwords, tokenTTL: 30 * time.Minute}
 }
 
-type BeginCommand struct{ Email, DisplayName, AccountName, Region string }
+type BeginCommand struct{ Email, DisplayName, AccountName, Region, OfferCode string }
 type BeginResult struct {
 	RegistrationID ids.RegistrationID
 	ExpiresAt      time.Time
 }
 
 func (s *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult, error) {
+	if s.catalog == nil {
+		return BeginResult{}, errors.New("registration Catalog is not configured")
+	}
 	now := s.clock.Now().UTC()
+	offerCode, err := availablePaidOffer(s.catalog(), command.OfferCode, now)
+	if err != nil {
+		return BeginResult{}, err
+	}
 	userID := ids.UserID(s.ids.New())
 	user, err := identity.NewPendingUser(userID, command.Email, command.DisplayName, now)
 	if err != nil {
@@ -118,12 +127,31 @@ func (s *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult,
 	if err := s.repository.CreatePending(ctx, pending); err != nil {
 		return BeginResult{}, err
 	}
-	message := VerificationMessage{RegistrationID: pending.ID, Email: user.PrimaryEmail, DisplayName: user.DisplayName, Token: rawToken, ExpiresAt: pending.ExpiresAt}
+	message := VerificationMessage{RegistrationID: pending.ID, Email: user.PrimaryEmail, DisplayName: user.DisplayName, Token: rawToken, ExpiresAt: pending.ExpiresAt, OfferCode: offerCode}
 	if err := s.sender.SendVerification(ctx, message); err != nil {
 		_ = s.repository.DeletePending(ctx, pending.ID)
 		return BeginResult{}, err
 	}
 	return BeginResult{RegistrationID: pending.ID, ExpiresAt: pending.ExpiresAt}, nil
+}
+
+func availablePaidOffer(publication catalog.PublishedCatalog, requested string, now time.Time) (string, error) {
+	if requested == "" {
+		return "", nil
+	}
+	for _, offer := range publication.Offers {
+		if offer.Code != requested {
+			continue
+		}
+		if !offer.Published || offer.AmountMinor <= 0 || offer.EffectiveFrom.After(now) {
+			return "", ErrOfferUnavailable
+		}
+		if _, ok := publication.Plan(offer.PlanCode); !ok {
+			return "", ErrOfferUnavailable
+		}
+		return offer.Code, nil
+	}
+	return "", ErrOfferUnavailable
 }
 
 type CompleteCommand struct{ Token, Password string }

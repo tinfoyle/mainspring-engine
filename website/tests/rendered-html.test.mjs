@@ -32,5 +32,31 @@ test("renders the public package and signup journeys", async () => {
   const signupHtml = await signup.text();
   assert.match(signupHtml, /No payment information required/);
   assert.match(signupHtml, /app\.infiniteocean\.net\/signup/);
-  assert.match(await pricing.text(), /No card required/);
+  assert.doesNotMatch(signupHtml, /method="post"[^>]*app\.infiniteocean\.net/i);
+  assert.doesNotMatch(signupHtml, /name="email"|name="account_name"/i);
+  const pricingHtml = await pricing.text();
+  assert.match(pricingHtml, /No card required/);
+  assert.match(pricingHtml, /app\.infiniteocean\.net\/signup\?offer=team-monthly-v1/);
+});
+
+test("proxies only the anonymous published Catalog from the configured account origin", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("catalog-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const originalFetch = globalThis.fetch;
+  let requested = "";
+  globalThis.fetch = async (input) => {
+    requested = String(input);
+    return new Response(JSON.stringify({ version: 2, offers: [] }), { headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://infiniteocean.net/api/catalog"), { SPYGLASS_ACCOUNT_API_ORIGIN: "https://app.infiniteocean.net", ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
+    assert.equal(response.status, 200);
+    assert.equal(requested, "https://app.infiniteocean.net/api/v1/catalog/public");
+    assert.match(response.headers.get("cache-control"), /stale-while-revalidate/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const rejected = await worker.fetch(new Request("https://infiniteocean.net/api/catalog"), { SPYGLASS_ACCOUNT_API_ORIGIN: "http://account-api", ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
+  assert.equal(rejected.status, 503);
 });

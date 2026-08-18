@@ -191,6 +191,8 @@ Acceptance:
 - Anonymous pages contain no private API data, secrets, unpublished offers, or live customer demo content.
 - Core signup and pricing journeys pass accessibility, responsive, performance, metadata, and link checks.
 
+Implementation checkpoint: the anonymous website renders the Infinite Ocean/Spyglass information architecture, proxies only the published Catalog through a bounded same-origin cache, and labels bundled fallback prices as illustrative. Public CTAs perform a GET-only handoff to the configured private application origin and never put names, email addresses, or business details in marketing-site requests. A selected paid offer remains an opaque intent: registration accepts it only when the current Catalog publishes an effective paid offer, the encrypted verification outbox and SMTP link preserve it, verification and sign-in revalidate it, and the authenticated billing view merely highlights it. Account creation remains free; only a separately authorized POST can create Stripe Checkout, and only projected signed Stripe state can change entitlements. Consent-aware analytics, generated accessibility evidence, and deployed-origin link certification remain.
+
 ### P2.2 System-wide identity
 
 - Implement User, authentication identity, verified contact method, session, recovery, MFA/passkey policy, and security-event models.
@@ -267,6 +269,8 @@ Acceptance:
 - No card data is accepted or stored by Spyglass application servers.
 
 Implementation checkpoint: signed, exact-scope `billing-admin` inspection, stored verified-event replay, and known-subscription refresh commands are executable through execute-only database functions with immutable same-transaction evidence. A real Stripe test-mode Checkout/webhook/failure/remediation/cancellation exercise and mismatch explanation output remain.
+
+The public-to-paid journey now has an executable browser contract: published offer code -> private signup -> encrypted verification delivery -> free Account provisioning -> authenticated selected-plan view -> privileged server-created Checkout. No public-site request starts billing, no redirect grants access, and a removed, future, free, or invented offer intent is discarded or rejected before it can reach Checkout.
 
 ### P2.7 Global control plane and cell data boundary
 

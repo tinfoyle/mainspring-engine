@@ -270,37 +270,37 @@ func (s *Server) passkeyScript(w http.ResponseWriter, _ *http.Request) {
 }
 
 type pageData struct {
-	Title, Page, Error, Notice, Email, Name, AccountName, Token, ReturnTo, DevelopmentToken string
-	Choices                                                                                 []accountaccess.Choice
-	Selected                                                                                *accountaccess.Choice
-	Catalog                                                                                 catalog.PublishedCatalog
-	PackageModes                                                                            map[catalog.PackageCode]catalog.PackageMode
-	CanInvite                                                                               bool
-	CanManageMembers, CanTransferOwnership, CanLeaveAccount                                 bool
-	CanCloseAccount                                                                         bool
-	Closures                                                                                []accountlifecycle.Status
-	Members                                                                                 []memberView
-	ActorMembershipVersion                                                                  uint64
-	BillingConfigured, CanManageBilling, CanStartCheckout, HasBillingCustomer               bool
-	BillingState, BillingPeriod, BillingSynced                                              string
-	BillingPlans                                                                            []billingPlan
-	ActiveSessions                                                                          []sessions.ActiveSession
-	SecurityEvents                                                                          []securityEventView
-	Passkeys                                                                                []passkeys.CredentialSummary
-	PasskeysConfigured                                                                      bool
-	RecoveryCodeStatus                                                                      recoverycodes.Status
-	RecoveryCodes                                                                           []string
-	RecoveryCodesConfigured                                                                 bool
-	OwnerEnrollmentRequired                                                                 bool
-	WorkMode                                                                                catalog.PackageMode
-	WorkAvailable, WorkReadOnly                                                             bool
-	Script                                                                                  string
+	Title, Page, Error, Notice, Email, Name, AccountName, Token, ReturnTo, DevelopmentToken, OfferCode string
+	Choices                                                                                            []accountaccess.Choice
+	Selected                                                                                           *accountaccess.Choice
+	Catalog                                                                                            catalog.PublishedCatalog
+	PackageModes                                                                                       map[catalog.PackageCode]catalog.PackageMode
+	CanInvite                                                                                          bool
+	CanManageMembers, CanTransferOwnership, CanLeaveAccount                                            bool
+	CanCloseAccount                                                                                    bool
+	Closures                                                                                           []accountlifecycle.Status
+	Members                                                                                            []memberView
+	ActorMembershipVersion                                                                             uint64
+	BillingConfigured, CanManageBilling, CanStartCheckout, HasBillingCustomer                          bool
+	BillingState, BillingPeriod, BillingSynced                                                         string
+	BillingPlans                                                                                       []billingPlan
+	ActiveSessions                                                                                     []sessions.ActiveSession
+	SecurityEvents                                                                                     []securityEventView
+	Passkeys                                                                                           []passkeys.CredentialSummary
+	PasskeysConfigured                                                                                 bool
+	RecoveryCodeStatus                                                                                 recoverycodes.Status
+	RecoveryCodes                                                                                      []string
+	RecoveryCodesConfigured                                                                            bool
+	OwnerEnrollmentRequired                                                                            bool
+	WorkMode                                                                                           catalog.PackageMode
+	WorkAvailable, WorkReadOnly                                                                        bool
+	Script                                                                                             string
 }
 
 type billingPlan struct {
 	OfferCode, Name, Description, Price, Interval string
 	PackageCount                                  int
-	Current                                       bool
+	Current, Selected                             bool
 }
 
 type securityEventView struct {
@@ -358,10 +358,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) signupPage(w http.ResponseWriter, r *http.Request) {
-	s.render(w, http.StatusOK, "signup", pageData{Title: "Create your Account", Notice: signupNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email")})
+	offerCode := availableOfferCode(s.catalog(), r.URL.Query().Get("offer"), time.Now().UTC())
+	s.render(w, http.StatusOK, "signup", pageData{Title: "Create your Account", Notice: signupNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), OfferCode: offerCode})
 }
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
-	if !s.validOrigin(r, true) {
+	if !s.validOrigin(r, false) {
 		s.render(w, http.StatusForbidden, "signup", pageData{Title: "Create your Account", Error: "This signup request could not be verified."})
 		return
 	}
@@ -373,12 +374,13 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = r.FormValue("display_name")
 	}
-	result, err := s.registrations.Begin(r.Context(), registration.BeginCommand{Email: r.FormValue("email"), DisplayName: name, AccountName: r.FormValue("account_name"), Region: r.FormValue("region")})
+	offerCode := availableOfferCode(s.catalog(), r.FormValue("offer_code"), time.Now().UTC())
+	result, err := s.registrations.Begin(r.Context(), registration.BeginCommand{Email: r.FormValue("email"), DisplayName: name, AccountName: r.FormValue("account_name"), Region: r.FormValue("region"), OfferCode: offerCode})
 	if err != nil {
-		s.render(w, http.StatusBadRequest, "signup", pageData{Title: "Create your Account", Error: "We could not start this registration. Check the details or sign in if the email is already registered.", Email: r.FormValue("email"), Name: name, AccountName: r.FormValue("account_name")})
+		s.render(w, http.StatusBadRequest, "signup", pageData{Title: "Create your Account", Error: "We could not start this registration. Check the details or sign in if the email is already registered.", Email: r.FormValue("email"), Name: name, AccountName: r.FormValue("account_name"), OfferCode: offerCode})
 		return
 	}
-	data := pageData{Title: "Check your email", Notice: "Your verification link is on its way.", Email: r.FormValue("email")}
+	data := pageData{Title: "Check your email", Notice: "Your verification link is on its way.", Email: r.FormValue("email"), OfferCode: offerCode}
 	if s.config.ExposeDevelopmentTokens && s.verificationTokens != nil {
 		if message, ok := s.verificationTokens.Latest(); ok && message.RegistrationID == result.RegistrationID {
 			data.DevelopmentToken = message.Token
@@ -393,7 +395,8 @@ func (s *Server) verifyPage(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Verify identity", Error: "The verification link is incomplete."})
 		return
 	}
-	s.render(w, http.StatusOK, "verify", pageData{Title: "Secure your identity", Token: token})
+	offerCode := availableOfferCode(s.catalog(), r.URL.Query().Get("offer"), time.Now().UTC())
+	s.render(w, http.StatusOK, "verify", pageData{Title: "Secure your identity", Token: token, OfferCode: offerCode})
 }
 func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 	if !s.validOrigin(r, false) {
@@ -404,12 +407,17 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Error: "The verification form could not be read."})
 		return
 	}
+	offerCode := availableOfferCode(s.catalog(), r.FormValue("offer_code"), time.Now().UTC())
 	_, err := s.registrations.Complete(r.Context(), registration.CompleteCommand{Token: r.FormValue("token"), Password: r.FormValue("password")})
 	if err != nil {
-		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Token: r.FormValue("token"), Error: "The link is invalid or expired, or the password does not meet the 12-character minimum."})
+		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Token: r.FormValue("token"), OfferCode: offerCode, Error: "The link is invalid or expired, or the password does not meet the 12-character minimum."})
 		return
 	}
-	http.Redirect(w, r, "/login?status=verified", http.StatusSeeOther)
+	loginQuery := url.Values{"status": {"verified"}}
+	if offerCode != "" {
+		loginQuery.Set("return_to", "/app?offer="+url.QueryEscape(offerCode)+"&status=welcome#billing")
+	}
+	http.Redirect(w, r, "/login?"+loginQuery.Encode(), http.StatusSeeOther)
 }
 
 func (s *Server) app(w http.ResponseWriter, r *http.Request) {
@@ -418,6 +426,7 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.Notice = appNotice(r.URL.Query().Get("status"))
+	data.OfferCode = availableOfferCode(data.Catalog, r.URL.Query().Get("offer"), time.Now().UTC())
 	data.DevelopmentToken = r.URL.Query().Get("development_token")
 	data.BillingConfigured = s.commercial != nil
 	if data.Selected != nil && !data.OwnerEnrollmentRequired {
@@ -461,10 +470,10 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 			}
 			data.CanManageBilling, data.CanStartCheckout, data.HasBillingCustomer = status.CanManage, status.CanStartCheckout, status.HasCustomer
 		}
-		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, data.Selected.AccountType, status, time.Now().UTC())
+		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, data.Selected.AccountType, status, data.OfferCode, time.Now().UTC())
 	}
 	if data.Selected != nil && data.OwnerEnrollmentRequired {
-		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, data.Selected.AccountType, commercialaccess.Status{}, time.Now().UTC())
+		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, data.Selected.AccountType, commercialaccess.Status{}, data.OfferCode, time.Now().UTC())
 	}
 	s.render(w, http.StatusOK, "app", data)
 }
@@ -1122,17 +1131,9 @@ func (s *Server) clearCookies(w http.ResponseWriter) {
 		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", HttpOnly: true, Secure: s.config.SecureCookies, SameSite: http.SameSiteLaxMode, Expires: time.Unix(1, 0), MaxAge: -1})
 	}
 }
-func (s *Server) validOrigin(r *http.Request, allowPublic bool) bool {
+func (s *Server) validOrigin(r *http.Request, _ bool) bool {
 	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return false
-	}
-	for index, candidate := range s.config.TrustedOrigins {
-		if origin == candidate && (allowPublic || index == 0) {
-			return true
-		}
-	}
-	return false
+	return origin != "" && origin == s.config.TrustedOrigins[0]
 }
 func safeReturnTo(value string) string {
 	if value == "" || !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") || strings.Contains(value, "\\") {
@@ -1182,6 +1183,8 @@ func appNotice(status string) string {
 		return "Billing could not be opened. Your current access is unchanged."
 	case "billing_unavailable":
 		return "Billing is not configured in this environment."
+	case "welcome":
+		return "Your free Account is ready. Your selected plan is highlighted below; no charge occurs until you explicitly begin Stripe checkout."
 	case "member_role_changed":
 		return "Membership role updated and recorded in the Account audit history."
 	case "member_removed":

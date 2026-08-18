@@ -76,7 +76,8 @@
   background: #fff;
   padding: 18px;
 }
-.plan-card.current { border-color: #78ad91; background: linear-gradient(145deg,#f7fbf8,#eaf5ee); }
+  .plan-card.current { border-color: #78ad91; background: linear-gradient(145deg,#f7fbf8,#eaf5ee); }
+  .plan-card.selected { border-color: #1f7550; box-shadow: 0 0 0 2px rgba(31,117,80,.12); }
 .plan-card h3 { margin: 5px 0 7px; font: 700 1.45rem var(--display); }
 .plan-card p { margin: 0; color: var(--muted); font-size: .64rem; line-height: 1.55; }
 .plan-price { display: flex; align-items: baseline; gap: 5px; }

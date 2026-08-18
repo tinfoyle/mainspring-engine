@@ -5,6 +5,7 @@ import handler from "vinext/server/app-router-entry";
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  SPYGLASS_ACCOUNT_API_ORIGIN?: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -28,6 +29,29 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/api/catalog") {
+      if (request.method !== "GET") return new Response("Method not allowed", { status: 405, headers: { allow: "GET" } });
+      let origin: URL;
+      try {
+        origin = new URL(env.SPYGLASS_ACCOUNT_API_ORIGIN ?? "");
+      } catch {
+        return new Response("Catalog unavailable", { status: 503 });
+      }
+      if (origin.protocol !== "https:" || origin.origin !== origin.href.replace(/\/$/, "") || origin.username || origin.password) {
+        return new Response("Catalog unavailable", { status: 503 });
+      }
+      let upstream: Response;
+      try {
+        upstream = await fetch(new URL("/api/v1/catalog/public", origin), { headers: { accept: "application/json" }, signal: AbortSignal.timeout(5000) });
+      } catch {
+        return new Response("Catalog unavailable", { status: 502 });
+      }
+      if (!upstream.ok || !upstream.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+        return new Response("Catalog unavailable", { status: 502 });
+      }
+      return new Response(upstream.body, { status: 200, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=60, stale-while-revalidate=300", "x-content-type-options": "nosniff" } });
+    }
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

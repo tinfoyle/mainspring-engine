@@ -94,11 +94,11 @@ func TestQueuedNotificationIsEncryptedAndDelivered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	message := registration.VerificationMessage{Email: "owner@example.com", DisplayName: "Owner", Token: "secret-verification-token", ExpiresAt: now.Add(time.Hour)}
+	message := registration.VerificationMessage{Email: "owner@example.com", DisplayName: "Owner", Token: "secret-verification-token", OfferCode: "team-monthly-v1", ExpiresAt: now.Add(time.Hour)}
 	if err := sender.SendVerification(context.Background(), message); err != nil {
 		t.Fatal(err)
 	}
-	if len(queue.entries) != 1 || bytes.Contains(queue.entries[0].Ciphertext, []byte(message.Email)) || bytes.Contains(queue.entries[0].Ciphertext, []byte(message.Token)) {
+	if len(queue.entries) != 1 || bytes.Contains(queue.entries[0].Ciphertext, []byte(message.Email)) || bytes.Contains(queue.entries[0].Ciphertext, []byte(message.Token)) || bytes.Contains(queue.entries[0].Ciphertext, []byte(message.OfferCode)) {
 		t.Fatalf("notification envelope leaked plaintext: %+v", queue.entries)
 	}
 	delivery := &delivery{}
@@ -107,7 +107,7 @@ func TestQueuedNotificationIsEncryptedAndDelivered(t *testing.T) {
 		t.Fatal(err)
 	}
 	worked, err := processor.ProcessOne(context.Background())
-	if err != nil || !worked || delivery.verification.Token != message.Token || queue.delivered == "" {
+	if err != nil || !worked || delivery.verification.Token != message.Token || delivery.verification.OfferCode != message.OfferCode || queue.delivered == "" {
 		t.Fatalf("delivery result: worked=%v message=%+v delivered=%q err=%v", worked, delivery.verification, queue.delivered, err)
 	}
 }

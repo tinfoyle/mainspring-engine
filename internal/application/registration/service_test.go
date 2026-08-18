@@ -107,3 +107,37 @@ func TestRegistrationRejectsDuplicatePendingEmail(t *testing.T) {
 		t.Fatalf("expected duplicate email error, got %v", err)
 	}
 }
+
+func TestRegistrationCarriesOnlyPublishedPaidOfferToVerification(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	published := catalog.Default(now)
+	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 10}})
+	messages := &memory.VerificationSink{}
+	service := registration.NewService(store, messages, store, func() catalog.PublishedCatalog { return published }, &sequenceIDs{}, fixedClock{value: now}, passwordHasher{})
+	command := registration.BeginCommand{Email: "buyer@example.com", DisplayName: "Buyer", AccountName: "Buyer Co", OfferCode: "team-monthly-v1"}
+	if _, err := service.Begin(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	message, ok := messages.Latest()
+	if !ok || message.OfferCode != command.OfferCode {
+		t.Fatalf("verification offer = %q", message.OfferCode)
+	}
+	command.Email = "other@example.com"
+	command.OfferCode = "invented-offer"
+	if _, err := service.Begin(context.Background(), command); !errors.Is(err, registration.ErrOfferUnavailable) {
+		t.Fatalf("unpublished offer error = %v", err)
+	}
+	command.OfferCode = "free-v1"
+	if _, err := service.Begin(context.Background(), command); !errors.Is(err, registration.ErrOfferUnavailable) {
+		t.Fatalf("free offer error = %v", err)
+	}
+	for index := range published.Offers {
+		if published.Offers[index].Code == "team-monthly-v1" {
+			published.Offers[index].EffectiveFrom = now.Add(time.Hour)
+		}
+	}
+	command.OfferCode = "team-monthly-v1"
+	if _, err := service.Begin(context.Background(), command); !errors.Is(err, registration.ErrOfferUnavailable) {
+		t.Fatalf("future offer error = %v", err)
+	}
+}

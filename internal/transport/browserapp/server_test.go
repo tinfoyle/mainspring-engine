@@ -122,6 +122,54 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 }
 
+func TestPublishedOfferIntentSurvivesSecureSignupJourney(t *testing.T) {
+	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 4 * time.Second}
+
+	signupPage, err := client.Get(server.URL + "/signup?offer=team-monthly-v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signupPageBody, _ := io.ReadAll(signupPage.Body)
+	signupPage.Body.Close()
+	if !bytes.Contains(signupPageBody, []byte(`name="offer_code" value="team-monthly-v1"`)) {
+		t.Fatalf("published offer was not accepted by signup: %s", signupPageBody)
+	}
+
+	signup := postForm(t, client, server.URL+"/signup", url.Values{"name": {"Taylor Morgan"}, "email": {"taylor@example.com"}, "account_name": {"Signal Works"}, "region": {"us-east"}, "offer_code": {"team-monthly-v1"}})
+	match := regexp.MustCompile(`/verify\?token=([^"&]+)&(?:amp;)?offer=team-monthly-v1`).FindSubmatch(signup.body)
+	if signup.status != http.StatusAccepted || len(match) != 2 {
+		t.Fatalf("offer-aware signup: %d %s", signup.status, signup.body)
+	}
+	token, _ := url.QueryUnescape(string(match[1]))
+	verified := postForm(t, client, server.URL+"/verify", url.Values{"token": {token}, "password": {"correct horse battery staple"}, "offer_code": {"team-monthly-v1"}})
+	if verified.status != http.StatusOK || !bytes.Contains(verified.body, []byte("Identity verified")) || !bytes.Contains(verified.body, []byte("team-monthly-v1")) {
+		t.Fatalf("offer-aware verification: %d %s", verified.status, verified.body)
+	}
+	signedIn := postForm(t, client, server.URL+"/login", url.Values{"email": {"taylor@example.com"}, "password": {"correct horse battery staple"}, "return_to": {"/app?offer=team-monthly-v1&status=welcome#billing"}})
+	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Your selected plan is highlighted")) || !bytes.Contains(signedIn.body, []byte("SELECTED ON INFINITE OCEAN")) {
+		t.Fatalf("selected offer landing: %d %s", signedIn.status, signedIn.body)
+	}
+}
+
+func TestPublicOriginCannotSubmitSignupMutation(t *testing.T) {
+	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	defer server.Close()
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/signup", strings.NewReader(url.Values{"name": {"Public Post"}, "email": {"public@example.com"}, "account_name": {"Should Not Exist"}}.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request.Header.Set("Origin", "https://infiniteocean.net")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("public-origin signup mutation status = %d", response.StatusCode)
+	}
+}
+
 type formResponse struct {
 	status int
 	body   []byte

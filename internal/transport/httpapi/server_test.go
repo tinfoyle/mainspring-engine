@@ -52,7 +52,11 @@ func TestPublicCatalogDoesNotLeakStripeReferences(t *testing.T) {
 func TestRegistrationHTTPJourney(t *testing.T) {
 	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	defer server.Close()
-	begin := postJSON(t, server.URL+"/api/v1/registrations", `{"email":"avery@example.com","display_name":"Avery Johnson","account_name":"Northstar Studio","region":"us-east"}`)
+	invalidOffer := postJSON(t, server.URL+"/api/v1/registrations", `{"email":"invalid-offer@example.com","display_name":"Invalid Offer","account_name":"Northstar Studio","region":"us-east","offer_code":"invented-offer"}`)
+	if invalidOffer.StatusCode != http.StatusBadRequest || !bytes.Contains(invalidOffer.Body, []byte(`"code":"offer_unavailable"`)) {
+		t.Fatalf("invalid offer status %d: %s", invalidOffer.StatusCode, invalidOffer.Body)
+	}
+	begin := postJSON(t, server.URL+"/api/v1/registrations", `{"email":"avery@example.com","display_name":"Avery Johnson","account_name":"Northstar Studio","region":"us-east","offer_code":"team-monthly-v1"}`)
 	if begin.StatusCode != http.StatusAccepted {
 		t.Fatalf("begin status %d: %s", begin.StatusCode, begin.Body)
 	}
