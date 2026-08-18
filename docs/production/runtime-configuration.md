@@ -278,7 +278,32 @@ The controller uses its in-cluster projected service-account token and CA only t
 
 The broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. Its database role has execute-only exchange, capability-audit, and action begin/complete authority with no direct table grants. A separate future Attention projection role receives only authorization-record/cancel execute authority; it cannot begin or settle an action. The broker reaches model-gateway with its rotating workload certificate; it has no provider key. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
 
-Do not deploy the runner fleet until the Agents serving producer, result claim/decryption worker, and provider-specific consequential adapters are wired into the compiled executor/gateway and protected by a tested NetworkPolicy. The bounded `agent.turn.execute` and `work.summary.snapshot` executors, read-only `work.summary.read` and `agents.model.turn` handlers, digest-bound result projection, and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, and Pod-bound content-free audit are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+Do not deploy the runner fleet until the Agents serving producer and provider-specific consequential adapters are wired into the compiled executor/gateway and protected by a tested NetworkPolicy. The bounded `agent.turn.execute` and `work.summary.snapshot` executors, read-only `work.summary.read` and `agents.model.turn` handlers, lease-fenced result projection worker, and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, Pod-bound content-free audit, and projection retention fencing are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+
+## Agent result projection worker values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_CELL_DATABASE_URL` | Required execute-only projection credential; no direct Agent, runner-exchange, or projection-queue table grants |
+| `SPYGLASS_CELL_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `5` |
+| `SPYGLASS_RUNNER_ENCRYPTION_KEYS` | Same versioned runtime keyring mounted into the broker; never stored in PostgreSQL |
+| `SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION` | Positive version present in the keyring; retained versions decrypt results created before rotation |
+| `SPYGLASS_AGENT_PROJECTION_POLL_INTERVAL` | Optional duration from `100ms` through `1m`; defaults to `1s` |
+| `SPYGLASS_AGENT_PROJECTION_LEASE` | Optional whole-second lease from `1s` through `30m`; defaults to `30s` |
+| `SPYGLASS_AGENT_PROJECTION_MAX_ATTEMPTS` | Optional integer from 1 through 100; defaults to `12` |
+| `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
+| `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
+
+Grant this workload only `USAGE` on `public` and `EXECUTE` on `spyglass_claim_agent_result_projection`, both lease-bound projection functions, `spyglass_fail_agent_result_projection`, and `spyglass_agent_result_projection_stats`. Claim responses contain encrypted envelopes plus bounded identifiers/model routing metadata. The process never logs plaintext, keys, prompts, model results, or ciphertext. Invalid authenticated content is dead-lettered immediately; transient projection failures use bounded exponential retry. Terminal retention cannot purge a linked Agent envelope until queue state is `projected`, and dead-letter ciphertext therefore requires a controlled recovery or erasure decision.
+
+```sql
+GRANT USAGE ON SCHEMA public TO spyglass_agent_projector;
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection(uuid,timestamptz,integer) TO spyglass_agent_projector;
+GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success(uuid,uuid,uuid,uuid,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,timestamptz,timestamptz) TO spyglass_agent_projector;
+GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_failure(uuid,uuid,uuid,bytea,text,timestamptz,timestamptz) TO spyglass_agent_projector;
+GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_result_projection(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer) TO spyglass_agent_projector;
+GRANT EXECUTE ON FUNCTION public.spyglass_agent_result_projection_stats(timestamptz) TO spyglass_agent_projector;
+```
 
 ## Model gateway values
 

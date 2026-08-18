@@ -157,6 +157,20 @@ func TestExchangeSubmitEncryptsOnePodBoundResult(t *testing.T) {
 	if err != nil || stored.Digest != sha256Bytes(raw) {
 		t.Fatalf("decrypt result=%s err=%v", raw, err)
 	}
+	decoded, err := cipher.DecodeResult(stored)
+	if err != nil || decoded.Outcome != "execution_failed" || decoded.ErrorCode != "provider_denied" {
+		t.Fatalf("decoded result=%+v err=%v", decoded, err)
+	}
+	tampered := stored
+	tampered.PodUID = "31000000-0000-4000-8000-000000000002"
+	if _, err := cipher.DecodeResult(tampered); !errors.Is(err, ErrExchangeConflict) {
+		t.Fatalf("cross-Pod result decode=%v", err)
+	}
+	tampered = stored
+	tampered.Outcome = "completed"
+	if _, err := cipher.DecodeResult(tampered); !errors.Is(err, ErrExchangeConflict) {
+		t.Fatalf("outcome-conflicting result decode=%v", err)
+	}
 	if _, err := service.Submit(context.Background(), "bound-token", verifier.identity.InvocationID, Result{SchemaVersion: 1, Outcome: "completed", Output: json.RawMessage(`{}`), ErrorCode: "bad"}); !errors.Is(err, ErrInvalidExchange) {
 		t.Fatalf("completed result with error code=%v", err)
 	}

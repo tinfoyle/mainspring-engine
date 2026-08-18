@@ -24,6 +24,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/runnerbrokerhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
@@ -37,6 +38,7 @@ import (
 	accounterasurecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/accounterasureadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountlifecycleworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentprojectionworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/approuter"
 	billingcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingadmin"
@@ -103,6 +105,8 @@ func main() {
 		err = runModelGateway(ctx, logger)
 	case "runner-invocation":
 		err = runRunnerInvocation(ctx)
+	case "agent-projection-worker":
+		err = runAgentProjectionWorker(ctx, logger)
 	case "route-receipt-worker":
 		err = runRouteReceiptWorker(ctx, logger)
 	case "route-canary":
@@ -118,7 +122,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-projection-worker | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -1264,6 +1268,49 @@ func runModelGateway(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	return serveHTTPSWithWriteTimeout(ctx, httpAddress(":8443"), secured, serverTLS, modelGatewayWriteTimeout, logger)
+}
+
+func runAgentProjectionWorker(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Cell, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
+	keys, activeVersion, err := versionedEncryptionKeysEnv("SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 5)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_AGENT_PROJECTION_POLL_INTERVAL", time.Second)
+	if err != nil || poll < 100*time.Millisecond || poll > time.Minute {
+		return errors.New("SPYGLASS_AGENT_PROJECTION_POLL_INTERVAL must be between 100ms and 1m")
+	}
+	lease, err := durationEnv("SPYGLASS_AGENT_PROJECTION_LEASE", agentprojection.DefaultLease)
+	if err != nil || lease < time.Second || lease > 30*time.Minute || lease%time.Second != 0 {
+		return errors.New("SPYGLASS_AGENT_PROJECTION_LEASE must be whole seconds between 1s and 30m")
+	}
+	maxAttempts, err := int32Env("SPYGLASS_AGENT_PROJECTION_MAX_ATTEMPTS", agentprojection.DefaultMaxAttempts)
+	if err != nil || maxAttempts > agentprojection.MaximumMaxAttempts {
+		return fmt.Errorf("SPYGLASS_AGENT_PROJECTION_MAX_ATTEMPTS must be between 1 and %d", agentprojection.MaximumMaxAttempts)
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := agentprojectionworker.New(startup, agentprojectionworker.Config{
+		CellDatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease,
+		MaxAttempts: int(maxAttempts), EncryptionKeys: keys, ActiveKeyVersion: activeVersion,
+	}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "agent-projection", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
 func runRouteReceiptWorker(ctx context.Context, logger *slog.Logger) error {

@@ -1,0 +1,166 @@
+package agentprojection
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runneragents"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnercontrol"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/agents"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+)
+
+type projectionClock struct{ now time.Time }
+
+func (c projectionClock) Now() time.Time { return c.now }
+
+type projectionIDs struct{ values []string }
+
+func (g *projectionIDs) New() string {
+	value := g.values[0]
+	g.values = g.values[1:]
+	return value
+}
+
+type projectionQueue struct {
+	claim          Claim
+	found          bool
+	claimErr       error
+	projectErr     error
+	success        *Success
+	failure        *Failure
+	failed         bool
+	retry          bool
+	failureCode    string
+	failureState   string
+	failureNext    time.Time
+	claimedLeaseID string
+}
+
+func (q *projectionQueue) Claim(_ context.Context, leaseID string, _ time.Time, _ time.Duration) (Claim, bool, error) {
+	q.claimedLeaseID = leaseID
+	q.claim.LeaseID = leaseID
+	return q.claim, q.found, q.claimErr
+}
+func (q *projectionQueue) ProjectSuccess(_ context.Context, value Success) error {
+	q.success = &value
+	return q.projectErr
+}
+func (q *projectionQueue) ProjectFailure(_ context.Context, value Failure) error {
+	q.failure = &value
+	return q.projectErr
+}
+func (q *projectionQueue) Fail(_ context.Context, _ Claim, retry bool, next time.Time, code string, _ time.Time, _ int) (string, error) {
+	q.failed, q.retry, q.failureCode, q.failureNext = true, retry, code, next
+	if q.failureState == "" {
+		q.failureState = "dead_letter"
+	}
+	return q.failureState, nil
+}
+func (q *projectionQueue) Stats(context.Context, time.Time) (Stats, error) { return Stats{}, nil }
+
+type resultVerifier struct{ identity runnerbroker.Identity }
+
+func (v resultVerifier) Verify(context.Context, string, string) (runnerbroker.Identity, error) {
+	return v.identity, nil
+}
+
+type resultRepository struct{ result runnerbroker.StoredResult }
+
+func (*resultRepository) Provision(context.Context, runnercontrol.Invocation, runnerbroker.StoredRequest) (bool, error) {
+	return false, nil
+}
+func (*resultRepository) Claim(context.Context, runnerbroker.Identity, time.Time) (runnerbroker.StoredRequest, error) {
+	return runnerbroker.StoredRequest{}, nil
+}
+func (r *resultRepository) Submit(_ context.Context, _ runnerbroker.Identity, value runnerbroker.StoredResult, _ time.Time) (bool, error) {
+	r.result = value
+	return true, nil
+}
+
+func storedProjectionResult(t *testing.T, now time.Time, outcome string, output json.RawMessage, code string) (*runnerbroker.Cipher, runnerbroker.StoredResult) {
+	t.Helper()
+	cipher, err := runnerbroker.NewCipher(map[int][]byte{1: bytes.Repeat([]byte{0x31}, 32)}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := runnerbroker.Identity{InvocationID: "11000000-0000-4000-8000-000000000001", Profile: "agent-small", JobName: "runner", JobUID: "21000000-0000-4000-8000-000000000001", PodName: "runner-pod", PodUID: "31000000-0000-4000-8000-000000000001"}
+	repository := &resultRepository{}
+	service, err := runnerbroker.NewService(repository, resultVerifier{identity}, cipher, projectionClock{now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Submit(context.Background(), "token", identity.InvocationID, runnerbroker.Result{SchemaVersion: 1, Outcome: outcome, Output: output, ErrorCode: code}); err != nil {
+		t.Fatal(err)
+	}
+	return cipher, repository.result
+}
+
+func validTurnOutput(t *testing.T) json.RawMessage {
+	t.Helper()
+	result := agents.ResultEnvelope{Contribution: "Prioritize the oldest blocked work.", Findings: []string{}, Recommendations: []string{"Review aging daily."}, Questions: []string{}, Citations: []agents.Citation{}, ProposedActions: []agents.ProposedAction{}, Delegations: []agents.Delegation{}, Confidence: agents.ConfidenceHigh}
+	raw, err := json.Marshal(runneragents.TurnOutput{Provider: "openai", RequestedModel: "gpt-test", ResponseModel: "gpt-test-2026", ResponseID: "resp_123", Usage: modelgateway.Usage{InputTokens: 10, OutputTokens: 4, TotalTokens: 14}, Result: result})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func testProcessor(t *testing.T, queue *projectionQueue, cipher *runnerbroker.Cipher, now time.Time) *Processor {
+	t.Helper()
+	processor, err := New(queue, cipher, projectionClock{now}, &projectionIDs{values: []string{"41000000-0000-4000-8000-000000000001", "51000000-0000-4000-8000-000000000001"}}, DefaultLease, DefaultMaxAttempts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return processor
+}
+
+func TestProcessorProjectsValidatedCompletedTurn(t *testing.T) {
+	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
+	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", validTurnOutput(t), "")
+	queue := &projectionQueue{found: true, claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 1, ExpectedProvider: "openai", RequestedModel: "gpt-test", Result: stored}}
+	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
+	if err != nil || !result.Projected || queue.success == nil || queue.failure != nil || queue.failed {
+		t.Fatalf("result=%+v success=%+v failure=%+v failed=%v err=%v", result, queue.success, queue.failure, queue.failed, err)
+	}
+	if queue.success.MessageID != "51000000-0000-4000-8000-000000000001" || queue.success.Body != "Prioritize the oldest blocked work." || queue.success.TotalTokens != 14 || queue.success.ResultDigest == ([32]byte{}) {
+		t.Fatalf("unexpected success projection: %+v", queue.success)
+	}
+}
+
+func TestProcessorProjectsRunnerExecutionFailureWithoutModelPayload(t *testing.T) {
+	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
+	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "execution_failed", json.RawMessage(`{"retryable":false}`), "provider_denied")
+	queue := &projectionQueue{found: true, claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 1, ExpectedProvider: "openai", RequestedModel: "gpt-test", Result: stored}}
+	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
+	if err != nil || !result.Projected || queue.failure == nil || queue.failure.FailureCode != "provider_denied" || queue.success != nil {
+		t.Fatalf("result=%+v failure=%+v success=%+v err=%v", result, queue.failure, queue.success, err)
+	}
+}
+
+func TestProcessorDeadLettersTamperedOrSemanticallyInvalidResult(t *testing.T) {
+	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
+	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", validTurnOutput(t), "")
+	stored.Ciphertext[0] ^= 0xff
+	queue := &projectionQueue{found: true, claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 1, ExpectedProvider: "openai", RequestedModel: "gpt-test", Result: stored}}
+	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
+	if !errors.Is(err, ErrInvalidPayload) || !result.DeadLetter || queue.failureCode != "result_envelope_invalid" || queue.retry {
+		t.Fatalf("tampered result=%+v code=%s retry=%v err=%v", result, queue.failureCode, queue.retry, err)
+	}
+}
+
+func TestProcessorRetriesProjectionFailureWithBoundedBackoff(t *testing.T) {
+	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
+	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", validTurnOutput(t), "")
+	queue := &projectionQueue{found: true, projectErr: errors.New("database unavailable"), failureState: "retry", claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 3, ExpectedProvider: "openai", RequestedModel: "gpt-test", Result: stored}}
+	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
+	if err == nil || !result.Worked || result.DeadLetter || !queue.retry || queue.failureCode != "success_projection_failed" || queue.failureNext != now.Add(4*time.Second) {
+		t.Fatalf("result=%+v retry=%v code=%s next=%s err=%v", result, queue.retry, queue.failureCode, queue.failureNext, err)
+	}
+}

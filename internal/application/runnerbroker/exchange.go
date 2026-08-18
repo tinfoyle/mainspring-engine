@@ -229,6 +229,29 @@ func (s *Service) Submit(ctx context.Context, token, invocationID string, result
 	return s.repository.Submit(ctx, identity, stored, now)
 }
 
+// DecodeResult opens a stored result only when its authenticated invocation
+// and Pod binding, canonical envelope, declared outcome, and plaintext digest
+// all agree. It is intended for trusted projection workers, not runners or
+// broker HTTP handlers.
+func (c *Cipher) DecodeResult(stored StoredResult) (Result, error) {
+	if ids.Validate(stored.InvocationID) != nil || ids.Validate(stored.PodUID) != nil || stored.SubmittedAt.IsZero() {
+		return Result{}, ErrExchangeConflict
+	}
+	raw, err := c.open(stored.Ciphertext, stored.Nonce, stored.KeyVersion, resultAAD(stored.InvocationID, stored.PodUID))
+	if err != nil || sha256.Sum256(raw) != stored.Digest {
+		return Result{}, ErrExchangeConflict
+	}
+	var result Result
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return Result{}, ErrExchangeConflict
+	}
+	canonical, canonicalRaw, err := canonicalResult(result)
+	if err != nil || canonical.Outcome != stored.Outcome || !slices.Equal(canonicalRaw, raw) {
+		return Result{}, ErrExchangeConflict
+	}
+	return canonical, nil
+}
+
 func (c *Cipher) seal(plaintext, aad []byte) ([]byte, []byte, int, error) {
 	aead := c.keys[c.activeVersion]
 	nonce := make([]byte, aead.NonceSize())

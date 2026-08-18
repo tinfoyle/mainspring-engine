@@ -10,7 +10,9 @@ import (
 	"errors"
 	"io"
 	"math"
+	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
@@ -29,6 +31,8 @@ var (
 	ErrInvalidModelOutput = errors.New("agent model output is invalid")
 	ErrToolLimit          = errors.New("agent tool step limit reached")
 	ErrTokenLimit         = errors.New("agent token ceiling reached")
+	validProvider         = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+	validModel            = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$`)
 )
 
 type Tool struct {
@@ -63,6 +67,29 @@ type TurnOutput struct {
 }
 
 type TurnExecutor struct{}
+
+// ValidateTurnOutput is the trusted persistence-boundary check for an Agent
+// turn. Expected values come from the immutable invocation plan, not from the
+// runner result being validated.
+func ValidateTurnOutput(output TurnOutput, expectedProvider, expectedModel string) (TurnOutput, error) {
+	output.Provider = strings.TrimSpace(output.Provider)
+	output.RequestedModel = strings.TrimSpace(output.RequestedModel)
+	output.ResponseModel = strings.TrimSpace(output.ResponseModel)
+	output.ResponseID = strings.TrimSpace(output.ResponseID)
+	if !validProvider.MatchString(output.Provider) || output.Provider != expectedProvider ||
+		!validModel.MatchString(output.RequestedModel) || output.RequestedModel != expectedModel ||
+		!validModel.MatchString(output.ResponseModel) || output.ResponseID == "" || len(output.ResponseID) > 200 ||
+		strings.ContainsAny(output.ResponseID, " \t\r\n") || output.Usage.InputTokens < 0 || output.Usage.OutputTokens < 0 ||
+		output.Usage.TotalTokens < 0 || output.Usage.TotalTokens != output.Usage.InputTokens+output.Usage.OutputTokens {
+		return TurnOutput{}, ErrInvalidModelOutput
+	}
+	result, err := agents.ValidateResult(output.Result)
+	if err != nil {
+		return TurnOutput{}, ErrInvalidModelOutput
+	}
+	output.Result = result
+	return output, nil
+}
 
 func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execution) (json.RawMessage, error) {
 	if execution.Kind != TurnExecutionKind || execution.Gateway == nil || !slices.Contains(execution.Capabilities, modelgateway.ModelTurnCapability) {
@@ -135,7 +162,11 @@ func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execu
 			if err != nil {
 				return nil, coded("model_output_invalid", ErrInvalidModelOutput)
 			}
-			output, err := json.Marshal(TurnOutput{Provider: result.Provider, RequestedModel: input.Model, ResponseModel: result.Model, ResponseID: result.ResponseID, Usage: usage, Result: structured})
+			turnOutput, err := ValidateTurnOutput(TurnOutput{Provider: result.Provider, RequestedModel: input.Model, ResponseModel: result.Model, ResponseID: result.ResponseID, Usage: usage, Result: structured}, input.Provider, input.Model)
+			if err != nil {
+				return nil, coded("model_output_invalid", ErrInvalidModelOutput)
+			}
+			output, err := json.Marshal(turnOutput)
 			if err != nil {
 				return nil, coded("model_output_invalid", ErrInvalidModelOutput)
 			}
