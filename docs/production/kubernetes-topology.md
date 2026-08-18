@@ -1,6 +1,6 @@
 # Pooled Kubernetes and Cell Architecture
 
-- Status: Accepted direction; thresholds require load evidence
+- Status: Accepted direction; durable fair runner admission implemented, Kubernetes execution and thresholds require applied evidence
 - Product: Infinite Ocean: Spyglass
 - Parent: [Production plan](README.md)
 
@@ -170,6 +170,8 @@ Horizontal autoscaling alone does not provide multi-account fairness. Every asyn
 - A hot account can be throttled, moved, or assigned reserved capacity without a deploy.
 
 Work is never silently dropped because a quota is reached. The durable record states queued, delayed, denied, or failed with a stable reason and retry policy.
+
+The executable runner scheduling model is specified in [Fair Runner Control Plane](runner-control.md). Its identifier-only PostgreSQL queue, weighted Account fairness, concurrency fencing, crash-recovery leases, idempotent completion, least-privilege role, and Account-erasure integration are implemented and tested. Kubernetes Job creation, terminal watching, invocation brokering, and applied scaling remain the next boundary.
 
 ## 9. Kubernetes scaling policy
 

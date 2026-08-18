@@ -141,9 +141,11 @@ func TestPostgresRestoreReplayRebuildsPinnedErasureCheckpoints(t *testing.T) {
 		GRANT EXECUTE ON FUNCTION public.spyglass_attest_global_account_erasure(uuid,bytea) TO `+globalOperatorRole+`;
 		GRANT SELECT,DELETE,UPDATE ON spyglass.account_namespaces,spyglass.account_audit_events,spyglass.work_item_number_counters,
 			spyglass.work_items,spyglass.work_item_events,spyglass.route_context_receipts,spyglass.work_capacity_release_queue,
-			spyglass.route_context_receipt_cleanup_queue,spyglass.work_capacity_release_operator_events TO `+cellFunctionRole+`;
+			spyglass.route_context_receipt_cleanup_queue,spyglass.work_capacity_release_operator_events,
+			spyglass.runner_account_scheduling,spyglass.runner_invocation_queue TO `+cellFunctionRole+`;
 		GRANT SELECT ON spyglass.account_erasure_restore_ledger TO `+cellFunctionRole+`;
 		ALTER TABLE spyglass.account_erasure_tombstones OWNER TO `+cellFunctionRole+`;
+		ALTER FUNCTION public.spyglass_replay_account_cell_erasure_without_runner_control(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) OWNER TO `+cellFunctionRole+`;
 		ALTER FUNCTION public.spyglass_replay_account_cell_erasure(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) OWNER TO `+cellFunctionRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_replay_account_cell_erasure(uuid,uuid,bigint,bigint,bytea,bigint,bigint,text,timestamptz,bytea,bytea,timestamptz,bigint,bytea,bigint,bytea) TO `+cellOperatorRole); err != nil {
 		t.Fatalf("create restore replay roles: %v", err)
