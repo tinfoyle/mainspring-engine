@@ -25,18 +25,18 @@ func (r readinessStub) Ready(context.Context) error { return r.err }
 type statusStub struct{ readinessStub }
 
 func (statusStub) Status(context.Context) (any, error) {
-	return map[string]any{"pending": 2, "dead_letter": 1}, nil
+	return map[string]any{"pending": 2, "ready": 0, "dead_letter": 1}, nil
 }
 
 func TestWorkerHealthReflectsDependencyReadiness(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/health/ready", nil)
 	response := httptest.NewRecorder()
-	workerHealth(readinessStub{}).ServeHTTP(response, request)
+	workerHealth("test-worker", readinessStub{}).ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("ready status=%d", response.Code)
 	}
 	response = httptest.NewRecorder()
-	workerHealth(readinessStub{err: errors.New("database unavailable")}).ServeHTTP(response, request)
+	workerHealth("test-worker", readinessStub{err: errors.New("database unavailable")}).ServeHTTP(response, request)
 	if response.Code != http.StatusServiceUnavailable {
 		t.Fatalf("unready status=%d", response.Code)
 	}
@@ -45,14 +45,31 @@ func TestWorkerHealthReflectsDependencyReadiness(t *testing.T) {
 func TestWorkerHealthExposesOptionalOperationalStatus(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/health/status", nil)
 	response := httptest.NewRecorder()
-	workerHealth(statusStub{}).ServeHTTP(response, request)
+	workerHealth("test-worker", statusStub{}).ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte(`"pending":2`)) || !bytes.Contains(response.Body.Bytes(), []byte(`"dead_letter":1`)) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	response = httptest.NewRecorder()
-	workerHealth(readinessStub{}).ServeHTTP(response, request)
+	workerHealth("test-worker", readinessStub{}).ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("unsupported status=%d", response.Code)
+	}
+}
+
+func TestWorkerHealthExposesPrometheusStatus(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	response := httptest.NewRecorder()
+	workerHealth("agent-dispatch", statusStub{}).ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !bytes.Contains(response.Body.Bytes(), []byte("spyglass_agent_dispatch_ready 0")) || !bytes.Contains(response.Body.Bytes(), []byte(`field="pending"} 2`)) {
+		t.Fatalf("metrics status=%d body=%s", response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "text/plain; version=0.0.4; charset=utf-8" {
+		t.Fatalf("metrics content type=%q", contentType)
+	}
+	response = httptest.NewRecorder()
+	workerHealth("agent-dispatch", statusStub{readinessStub{err: errors.New("restore gate unavailable")}}).ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unready metrics status=%d", response.Code)
 	}
 }
 

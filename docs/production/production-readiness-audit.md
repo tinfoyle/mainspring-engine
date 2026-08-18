@@ -17,7 +17,7 @@ This verdict separates executable software from environment evidence. The reposi
 | Global/cell isolation | Signed request-bound routing, placement generation, forced RLS, constrained roles, replay receipts, two-cell PostgreSQL integration contracts | Applied managed-database exercise required |
 | Work | Typed lifecycle, routed CRUD/assignment, capacity admission, reconciled release, browser surface, Account-scoped persistence | Partial product package |
 | Agents and runners | Boardrooms/personas/runs, immutable plans, dispatch/projection workers, encrypted runner exchange, workload identity, one-use capabilities, action ledger | Partial product package |
-| Kubernetes | Shared workload classes, dedicated runner namespace, least-privilege RBAC, default-deny policies, PDB/topology/HPA contracts | Review-only base; not deployable without an overlay |
+| Kubernetes | Shared workload classes, dedicated runner namespace, least-privilege RBAC, default-deny policies, PDB/topology/HPA contracts, exact content-free worker metric endpoints | Review-only base; adapter and overlay still required |
 | Data lifecycle | Logical closure, governed erasure preparation/execution, restore quarantine and signed database replay | External-store and real restore evidence missing |
 | Quality | Full Go, race, vet, vulnerability, website build/lint/render, npm production audit, PostgreSQL migration, and manifest verification in CI | Strong repository evidence |
 

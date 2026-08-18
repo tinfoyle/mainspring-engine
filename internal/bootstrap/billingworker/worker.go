@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,11 +23,18 @@ type Config struct {
 }
 
 type Worker struct {
-	pool       *pgxpool.Pool
-	processor  eventProcessor
-	reconciler reconciliationProcessor
-	poll       time.Duration
-	logger     *slog.Logger
+	pool                              *pgxpool.Pool
+	processor                         eventProcessor
+	reconciler                        reconciliationProcessor
+	poll                              time.Duration
+	logger                            *slog.Logger
+	events, reconciliations, failures atomic.Uint64
+}
+
+type Status struct {
+	EventsProcessed          uint64 `json:"events_processed"`
+	ReconciliationsProcessed uint64 `json:"reconciliations_processed"`
+	Failures                 uint64 `json:"failures"`
 }
 
 type eventProcessor interface {
@@ -98,10 +106,18 @@ func (w *Worker) Run(ctx context.Context) error {
 			return nil
 		}
 		if eventErr != nil {
+			w.failures.Add(1)
 			w.logger.Error("billing event processing failed", "error", eventErr)
 		}
 		if reconcileErr != nil {
+			w.failures.Add(1)
 			w.logger.Error("billing reconciliation failed", "error", reconcileErr)
+		}
+		if worked {
+			w.events.Add(1)
+		}
+		if reconciled {
+			w.reconciliations.Add(1)
 		}
 		if worked || reconciled {
 			continue
@@ -119,4 +135,7 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) Ready(ctx context.Context) error { return w.pool.Ping(ctx) }
-func (w *Worker) Close()                          { w.pool.Close() }
+func (w *Worker) Status(context.Context) (any, error) {
+	return Status{EventsProcessed: w.events.Load(), ReconciliationsProcessed: w.reconciliations.Load(), Failures: w.failures.Load()}, nil
+}
+func (w *Worker) Close() { w.pool.Close() }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,8 +27,14 @@ type Worker struct {
 	processor interface {
 		ProcessOne(context.Context) (bool, error)
 	}
-	poll   time.Duration
-	logger *slog.Logger
+	poll                time.Duration
+	logger              *slog.Logger
+	processed, failures atomic.Uint64
+}
+
+type Status struct {
+	Processed uint64 `json:"processed"`
+	Failures  uint64 `json:"failures"`
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
@@ -77,7 +84,11 @@ func (w *Worker) Run(ctx context.Context) error {
 			return nil
 		}
 		if err != nil {
+			w.failures.Add(1)
 			w.logger.Error("notification delivery failed", "error", err)
+		}
+		if worked {
+			w.processed.Add(1)
 		}
 		if worked {
 			continue
@@ -95,4 +106,7 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) Ready(ctx context.Context) error { return w.pool.Ping(ctx) }
-func (w *Worker) Close()                          { w.pool.Close() }
+func (w *Worker) Status(context.Context) (any, error) {
+	return Status{Processed: w.processed.Load(), Failures: w.failures.Load()}, nil
+}
+func (w *Worker) Close() { w.pool.Close() }

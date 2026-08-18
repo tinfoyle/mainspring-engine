@@ -138,6 +138,12 @@ Internal servers require TLS 1.3. They reload the certificate, key, and CA bundl
 
 The process is one-shot and has no development/plain-HTTP mode or database credential. A cell target traverses the ordinary Account context verifier, RLS namespace, and replay receipt. An admission target verifies its per-cell keyring without touching usage. The only success log fields are target, cell ID, key ID, and placement generation. See [route-rotation-operations.md](route-rotation-operations.md) for provisioning, rollout, rollback, and retirement steps.
 
+## Shared worker health and metrics
+
+Every long-running worker serves process liveness at `GET /health/live`, bounded dependency readiness at `GET /health/ready`, and a no-store operational snapshot at `GET /health/status` when that worker has queue or aggregate counters. `GET /metrics` renders the same numeric, content-free snapshot in Prometheus text format and fails unavailable when the restore gate, database, or status query is not ready. The renderer accepts only bounded static worker/field labels; it has no Account, User, request, invocation, email, provider object, or customer-content label path.
+
+The Agent dispatch, Agent projection, and runner controller endpoints additionally publish the exact gauges `spyglass_agent_dispatch_ready`, `spyglass_agent_projection_ready`, and `spyglass_runner_ready`. Environment monitoring scrapes the health port and the custom/external metrics adapter projects those series into the HPA API. These are current global/cell backlog snapshots repeated by each replica, so adapters must preserve the reference HPA `AverageValue` semantics and alert when a series disappears. Billing, notification, entitlement, Account lifecycle, Work reconciliation, and route-receipt workers expose aggregate processing/failure or queue-state fields through `spyglass_worker_status{worker,field}` without customer-derived labels.
+
 ## Billing worker values
 
 | Environment variable | Requirement |

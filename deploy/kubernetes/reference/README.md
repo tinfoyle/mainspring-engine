@@ -31,7 +31,8 @@ Before an environment overlay may use these resources it must add:
   browser directly to cell `app-api`.
 - A custom/external metrics adapter exporting the exact referenced
   `spyglass_agent_dispatch_ready`, `spyglass_agent_projection_ready`, and
-  `spyglass_runner_ready` metrics, plus request latency, oldest queue age, and
+  `spyglass_runner_ready` metrics from each worker's no-store `/metrics`
+  endpoint, plus request latency, oldest queue age, and
   schedule-to-start signals. Missing external metrics must alert; environments
   may not silently treat CPU as sufficient proof that backlogs are healthy.
 - Tested NetworkPolicy egress destinations and cluster admission policy. The

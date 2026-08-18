@@ -36,4 +36,8 @@ func TestRunDrainsWorkThenStopsWithContext(t *testing.T) {
 	if events.calls != 2 || reconciliations.calls != 2 {
 		t.Fatalf("unexpected fairness: events=%d reconciliations=%d", events.calls, reconciliations.calls)
 	}
+	status, err := worker.Status(context.Background())
+	if err != nil || status.(Status).EventsProcessed != 1 || status.(Status).Failures != 0 {
+		t.Fatalf("status=%+v err=%v", status, err)
+	}
 }

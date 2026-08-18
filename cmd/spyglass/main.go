@@ -57,6 +57,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/observability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/operatorauth"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/restoregate"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/workloadidentity"
@@ -1481,7 +1482,7 @@ type runnableWorker interface {
 func serveWorker(ctx context.Context, name, healthAddress string, worker runnableWorker, logger *slog.Logger) error {
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
-	httpServer := newHTTPServer(healthAddress, workerHealth(worker))
+	httpServer := newHTTPServer(healthAddress, workerHealth(name, worker))
 	errorsChannel := make(chan error, 2)
 	go func() { errorsChannel <- worker.Run(runCtx) }()
 	go func() {
@@ -1766,7 +1767,7 @@ type statusReporter interface {
 	Status(context.Context) (any, error)
 }
 
-func workerHealth(worker readiness) http.Handler {
+func workerHealth(name string, worker readiness) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1783,12 +1784,7 @@ func workerHealth(worker readiness) http.Handler {
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
 	})
 	mux.HandleFunc("GET /health/status", func(w http.ResponseWriter, r *http.Request) {
-		reporter, ok := worker.(statusReporter)
-		if !ok {
-			if gated, gatedOK := worker.(*restoreGatedWorker); gatedOK {
-				reporter, ok = gated.worker.(statusReporter)
-			}
-		}
+		reporter, ok := workerStatusReporter(worker)
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -1807,7 +1803,46 @@ func workerHealth(worker readiness) http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(status)
 	})
-	return mux
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
+		reporter, ok := workerStatusReporter(worker)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := worker.Ready(ctx); err != nil {
+			http.Error(w, "metrics unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		status, err := reporter.Status(ctx)
+		if err != nil {
+			http.Error(w, "metrics unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		metrics, err := observability.RenderWorkerMetrics(name, status)
+		if err != nil {
+			http.Error(w, "metrics unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		_, _ = w.Write(metrics)
+	})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		mux.ServeHTTP(w, r)
+	})
+}
+
+func workerStatusReporter(worker readiness) (statusReporter, bool) {
+	reporter, ok := worker.(statusReporter)
+	if !ok {
+		if gated, gatedOK := worker.(*restoreGatedWorker); gatedOK {
+			reporter, ok = gated.worker.(statusReporter)
+		}
+	}
+	return reporter, ok
 }
 
 func requiredEnv(name string) (string, error) {
