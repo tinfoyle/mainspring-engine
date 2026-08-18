@@ -70,3 +70,106 @@ spec:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: app-api}
       ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: runner-to-broker, namespace: spyglass-runners-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: spyglass-runner}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: spyglass-reference}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+      ports: [{protocol: TCP, port: 8443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: broker-from-runner, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: spyglass-runners-reference}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: spyglass-runner}
+      ports: [{protocol: TCP, port: 8443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: broker-to-model-gateway, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: model-gateway}
+      ports: [{protocol: TCP, port: 8443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: model-gateway-from-broker, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: model-gateway}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+      ports: [{protocol: TCP, port: 8443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: broker-to-tool-router, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: app-router}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: tool-router-from-broker, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: app-router}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: runner-default-deny, namespace: spyglass-runners-reference}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: runner-permit-dns, namespace: spyglass-runners-reference}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}

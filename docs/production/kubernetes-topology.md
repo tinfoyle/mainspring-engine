@@ -1,6 +1,6 @@
 # Pooled Kubernetes and Cell Architecture
 
-- Status: Accepted direction; durable fair runner admission implemented, Kubernetes execution and thresholds require applied evidence
+- Status: Executable review reference; environment-specific application and load evidence remain
 - Product: Infinite Ocean: Spyglass
 - Parent: [Production plan](README.md)
 
@@ -153,6 +153,9 @@ No pod holds an account-specific connection pool. Each cell deployment pools con
 | Connector workers | Long-lived worker | Queue depth, provider latency | Connector and account concurrency limits |
 | Billing projection workers | Long-lived global worker | Webhook/reconciliation backlog age | Provider limits; account serialization where required |
 | Runner controller | Long-lived control service | Pending invocations and admission latency | Capability, budget and concurrency admission |
+| Agent dispatch worker | Long-lived cell worker | Ready dispatch count and oldest-ready age | Account run limit, immutable plan, bounded retries |
+| Agent projection worker | Long-lived cell worker | Ready result count and oldest-ready age | Digest-bound projection, bounded retries |
+| Model gateway | Stateless internal request | Request concurrency, latency, provider saturation | Model/token/cost bounds and provider limiter |
 | Sandboxed runner | One bounded invocation/job | Pending admitted invocations | Per-invocation CPU, memory, PID, time and egress limits |
 
 Ephemeral runner pods are intentionally per invocation when isolation requires it. This is different from maintaining an always-on customer stack: runners have a bounded job, no customer database credential, and are removed after completion.
@@ -171,7 +174,7 @@ Horizontal autoscaling alone does not provide multi-account fairness. Every asyn
 
 Work is never silently dropped because a quota is reached. The durable record states queued, delayed, denied, or failed with a stable reason and retry policy.
 
-The executable runner scheduling model is specified in [Fair Runner Control Plane](runner-control.md). Its identifier-only PostgreSQL queue, weighted Account fairness, concurrency fencing, crash-recovery leases, fail-closed ambiguous-create reconciliation, due-time terminal inspection, idempotent digest-bound Kubernetes Job creation, Account-bound cancellation, preconditioned foreground deletion, exact completion, least-privilege database role, Account-erasure integration, purpose-bound Pod token projection, and online Pod→Job→invocation verification are implemented and tested. Encrypted invocation exchange, the runner execution client, reference RBAC/NetworkPolicy overlays, and applied scaling remain the next boundary.
+The executable runner scheduling model is specified in [Fair Runner Control Plane](runner-control.md). Its identifier-only PostgreSQL queue, weighted Account fairness, concurrency fencing, crash-recovery leases, fail-closed ambiguous-create reconciliation, due-time terminal inspection, idempotent digest-bound Kubernetes Job creation, Account-bound cancellation, preconditioned foreground deletion, exact completion, least-privilege database role, Account-erasure integration, purpose-bound Pod token projection, online Pod→Job→invocation verification, encrypted exchange, execution client, and Agent dispatch/projection paths are implemented and tested. The reference Kubernetes render now includes their separate Deployments, workload identities, exact Job/TokenReview RBAC, internal default-deny network paths, disruption budgets, topology spread, and external backlog metric contracts. Applied cluster API/provider/database egress, the environment sandbox RuntimeClass, certificate and secret controllers, custom-metric delivery, saturation thresholds, and failure/load evidence remain environment gates.
 
 ## 9. Kubernetes scaling policy
 
@@ -263,6 +266,10 @@ Schema state is observable per cell. A failed cell migration pauses that cohort 
 ## 15. Security boundaries
 
 - Separate Kubernetes service accounts by workload and cell.
+- Run ephemeral invocation Jobs in a dedicated runner namespace whose only
+  allowed application path is runner-to-broker; bind controller Job lifecycle
+  and broker Pod/Job observation there instead of granting either identity
+  rights over application or operator Jobs.
 - Network policies allow only required service, database, queue, object, provider, and observability paths.
 - Secrets are referenced from a managed secret system and mounted only into the workload that needs them.
 - Runner pods have no Kubernetes API authority, Docker socket, database credentials, or general internal network access.

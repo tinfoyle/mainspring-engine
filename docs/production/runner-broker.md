@@ -26,7 +26,7 @@ For every payload or result operation, the broker verifier:
 
 1. Accepts one bounded bearer token and a canonical invocation UUID.
 2. Submits the opaque token to Kubernetes `TokenReview` with the one exact broker audience.
-3. Requires `authenticated=true`, an audience intersection containing that exact value, and username `system:serviceaccount:<cell namespace>:<runner ServiceAccount>`.
+3. Requires `authenticated=true`, an audience intersection containing that exact value, and username `system:serviceaccount:<dedicated runner namespace>:<runner ServiceAccount>`.
 4. Extracts exactly one Pod name and Pod UID from the reviewed private claims.
 5. Gets that exact Pod—never lists Pods—and rejects a missing, terminating, UID-mismatched, differently labeled, or differently serviced Pod.
 6. Requires one controller owner reference to the deterministic Job for the requested invocation.
@@ -43,8 +43,8 @@ The eventual broker ServiceAccount needs only:
 
 ```text
 create authentication.k8s.io/tokenreviews       (cluster-scoped)
-get    core/pods                                (one cell namespace)
-get    batch/jobs                               (one cell namespace)
+get    core/pods                                (one dedicated runner namespace)
+get    batch/jobs                               (one dedicated runner namespace)
 ```
 
 It receives no list/watch, Pod mutation, Job mutation, Secret access, exec/attach/port-forward, TokenRequest creation, node access, or customer database authority. The runner ServiceAccount receives no RBAC at all. NetworkPolicy permits runner-to-broker HTTPS and broker-to-Kubernetes API HTTPS; it does not make either identity authoritative by itself.

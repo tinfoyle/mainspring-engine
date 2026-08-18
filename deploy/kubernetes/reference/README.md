@@ -5,7 +5,7 @@ are intentionally not a deployable environment yet: release automation must
 replace `registry.invalid/...:release-placeholder`, inject managed secret
 references and provide environment-specific network/database destinations before promotion. The
 account-api, app-router, cell app-api, private admission-api, per-cell route-receipt
-worker, billing-worker, notification-worker, entitlement-worker, Account lifecycle worker, Work reconciler, and runner-controller arguments are executable today. Runner-controller is intentionally omitted from this render until the broker/identity service, cluster-specific API egress, narrow RBAC, and sandbox RuntimeClass are supplied together.
+worker, billing-worker, notification-worker, entitlement-worker, Account lifecycle worker, Work reconciler, Agent dispatch/projection workers, runner controller/broker, and model gateway arguments are executable today. The render includes narrow Job/identity RBAC, internal runner/broker/gateway NetworkPolicies, workload-specific service accounts, disruption budgets, and backlog-oriented HPA contracts. It still fails closed as an applied environment until overlays supply the cluster-specific Kubernetes API and managed-service egress, sandbox RuntimeClass, certificates, database roles, provider policy, metrics adapter, and digest-pinned images.
 
 The reference proves the intended unit of scaling: shared workload classes in
 a cell. Nothing here creates a Deployment, Service, namespace, database, or
@@ -29,8 +29,18 @@ Before an environment overlay may use these resources it must add:
   `/api/v1/accounts/{accountID}/work-items...` path family to `app-router` and
   private HTML/global control routes to `account-api`; it must never route a
   browser directly to cell `app-api`.
-- HPA custom metrics for request latency, queue age, and schedule-to-start.
-- Tested NetworkPolicy egress destinations and cluster admission policy.
+- A custom/external metrics adapter exporting the exact referenced
+  `spyglass_agent_dispatch_ready`, `spyglass_agent_projection_ready`, and
+  `spyglass_runner_ready` metrics, plus request latency, oldest queue age, and
+  schedule-to-start signals. Missing external metrics must alert; environments
+  may not silently treat CPU as sufficient proof that backlogs are healthy.
+- Tested NetworkPolicy egress destinations and cluster admission policy. The
+  base permits only DNS and the explicit in-namespace runner→broker,
+  broker→model-gateway, broker→tool-router, router→cell, and cell→admission
+  paths. Each overlay must add exact database endpoints, the cluster API CIDR
+  for controller/broker only, OpenAI/provider HTTPS for model-gateway only,
+  and approved observability/secret-controller paths. Runners receive no
+  general internal or internet egress.
 - Pod monitor, alerts, SLO metadata, and a load-tested replica/connection cap.
 - An ingress/L7 load-balancer probe that removes an unready router endpoint and
   a pod/node-loss exercise proving the next request reaches another ready
@@ -40,12 +50,44 @@ Before an environment overlay may use these resources it must add:
   `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
   `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,
   `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`,
-  `spyglass-entitlement-worker-secrets`, `spyglass-account-lifecycle-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`, and
-  `spyglass-work-reconciler-secrets` objects from environment configuration
+  `spyglass-entitlement-worker-secrets`, `spyglass-account-lifecycle-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`,
+  `spyglass-work-reconciler-secrets`, `spyglass-agent-dispatch-worker-cell-reference-secrets`,
+  `spyglass-agent-projection-worker-cell-reference-secrets`,
+  `spyglass-runner-controller-cell-reference-secrets`,
+  `spyglass-runner-broker-cell-reference-secrets`, and
+  `spyglass-model-gateway-secrets` objects from environment configuration
   and secret controllers; they are not committed here. Workload-specific
   Secrets prevent each worker from receiving webhook, Stripe, or SMTP
   credentials it does not use. The entitlement worker receives only a
   constrained global-database credential.
+- The Agent dispatcher and projector secrets each carry a distinct constrained
+  cell credential and the runtime runner-envelope keyring. The dispatcher can
+  read only immutable forced-RLS planning tables and call the dispatch plus
+  encrypted-provision functions. The projector has execute-only projection
+  authority and no direct customer-table read. Neither receives a provider
+  credential, Kubernetes credential, browser signing key, Stripe key, or SMTP
+  secret.
+- `runner-rbac.yaml` grants the controller only Job `create/get/delete` inside
+  the dedicated `spyglass-runners-reference` namespace, and the broker only
+  TokenReview creation plus Pod/Job `get` in that namespace; neither can list,
+  watch, patch, exec, read Secrets, or impersonate. The `runner` ServiceAccount
+  exists only in the runner namespace, has no RBAC, and has no ordinary token
+  mount. Each generated Job explicitly projects a ten-minute token whose
+  audience is the exact HTTPS broker URL. Namespace-local default denial and a
+  single cross-namespace runner→broker path keep a compromised runner away
+  from application workloads and unrelated operator Jobs.
+- The runner broker secret carries its constrained cell database credential,
+  envelope keyring, and tool-context signing key. The model gateway alone
+  receives the OpenAI/provider credential. A certificate controller supplies
+  `spyglass-runner-broker-cell-reference-workload-tls` and
+  `spyglass-model-gateway-workload-tls`; the broker certificate is also a
+  client identity accepted by model-gateway. `spyglass-runner-broker-ca`
+  exposes only `ca.crt` to ephemeral Jobs. No private key is mounted into a
+  runner.
+- Environments must define the `spyglass-sandboxed` RuntimeClass using their
+  selected isolation technology (for example gVisor or Kata) and verify its
+  node/runtime configuration. The reference does not manufacture a generic
+  RuntimeClass whose handler might not exist.
 - The global and per-cell runtime ConfigMaps pin
   `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` and
   `SPYGLASS_ERASURE_CHECKPOINT_ROOT`. Sequence `0` uses 64 hexadecimal zeroes.

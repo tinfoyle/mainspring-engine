@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agent-projection-worker-cell-reference, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: agent-projection-worker, spyglass.io/cell: reference}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: agent-projection-worker, app.kubernetes.io/part-of: spyglass, spyglass.io/cell: reference}
+    spec:
+      serviceAccountName: agent-projection-worker
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: agent-projection-worker, spyglass.io/cell: reference}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: agent-projection-worker, spyglass.io/cell: reference}
+      containers:
+        - name: worker
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [agent-projection-worker]
+          ports: [{name: health, containerPort: 8081}]
+          env:
+            - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+            - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "5"}
+            - {name: SPYGLASS_AGENT_PROJECTION_POLL_INTERVAL, value: "1s"}
+            - {name: SPYGLASS_AGENT_PROJECTION_LEASE, value: "30s"}
+            - {name: SPYGLASS_AGENT_PROJECTION_MAX_ATTEMPTS, value: "12"}
+          envFrom:
+            - configMapRef: {name: spyglass-cell-reference-runtime}
+            - secretRef: {name: spyglass-agent-projection-worker-cell-reference-secrets}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
+          startupProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 2, failureThreshold: 30}
+          livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: agent-projection-worker-cell-reference, namespace: spyglass-reference}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: agent-projection-worker, spyglass.io/cell: reference}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: agent-projection-worker-cell-reference, namespace: spyglass-reference}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: agent-projection-worker-cell-reference}
+  minReplicas: 2
+  maxReplicas: 20
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies: [{type: Percent, value: 100, periodSeconds: 30}, {type: Pods, value: 4, periodSeconds: 30}]
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 65}
+    - type: External
+      external:
+        metric: {name: spyglass_agent_projection_ready}
+        target: {type: AverageValue, averageValue: "5"}

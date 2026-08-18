@@ -37,6 +37,7 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
       - run: test -z "$(gofmt -l cmd internal migrations)"
       - run: kubectl kustomize deploy/kubernetes/reference >/dev/null
+      - run: bash deploy/kubernetes/reference/verify.sh
 
   website:
     runs-on: ubuntu-latest

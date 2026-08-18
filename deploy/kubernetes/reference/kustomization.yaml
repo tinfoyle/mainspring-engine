@@ -13,4 +13,10 @@ resources:
   - account-lifecycle-worker.yaml
   - work-reconciler.yaml
   - route-receipt-worker.yaml
+  - agent-dispatch-worker.yaml
+  - agent-projection-worker.yaml
+  - runner-controller.yaml
+  - runner-broker.yaml
+  - model-gateway.yaml
+  - runner-rbac.yaml
   - policy.yaml

@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: runner-broker-cell-reference, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: runner-broker, app.kubernetes.io/part-of: spyglass, spyglass.io/cell: reference}
+    spec:
+      serviceAccountName: runner-broker
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 45
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+        - maxSkew: 1
+          minDomains: 2
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+      containers:
+        - name: broker
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [runner-broker]
+          ports: [{name: https, containerPort: 8443}]
+          env:
+            - {name: SPYGLASS_HTTP_ADDRESS, value: ":8443"}
+            - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "10"}
+            - {name: SPYGLASS_RUNNER_NAMESPACE, value: "spyglass-runners-reference"}
+            - {name: SPYGLASS_RUNNER_SERVICE_ACCOUNT, value: "runner"}
+            - {name: SPYGLASS_RUNNER_BROKER_URL, value: "https://runner-broker.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES, value: "2097152"}
+            - {name: SPYGLASS_TOOL_ROUTER_ORIGIN, value: "http://app-router.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_MODEL_GATEWAY_ORIGIN, value: "https://model-gateway.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_TOOL_CONTEXT_ISSUER, value: "spyglass-runner-broker"}
+            - {name: SPYGLASS_TOOL_CONTEXT_TTL, value: "10s"}
+            - {name: SPYGLASS_WORKLOAD_CERT_FILE, value: "/var/run/secrets/spyglass/workload/tls.crt"}
+            - {name: SPYGLASS_WORKLOAD_KEY_FILE, value: "/var/run/secrets/spyglass/workload/tls.key"}
+            - {name: SPYGLASS_WORKLOAD_CA_FILE, value: "/var/run/secrets/spyglass/workload/ca.crt"}
+          envFrom:
+            - configMapRef: {name: spyglass-cell-reference-runtime}
+            - secretRef: {name: spyglass-runner-broker-cell-reference-secrets}
+          resources:
+            requests: {cpu: 200m, memory: 256Mi}
+            limits: {cpu: "2", memory: 1Gi}
+          volumeMounts:
+            - {name: workload-tls, mountPath: /var/run/secrets/spyglass/workload, readOnly: true}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: https, scheme: HTTPS}, periodSeconds: 5}
+          startupProbe: {httpGet: {path: /health/live, port: https, scheme: HTTPS}, periodSeconds: 2, failureThreshold: 30}
+          livenessProbe: {httpGet: {path: /health/live, port: https, scheme: HTTPS}, periodSeconds: 15}
+      volumes:
+        - name: workload-tls
+          secret: {secretName: spyglass-runner-broker-cell-reference-workload-tls}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: runner-broker, namespace: spyglass-reference}
+spec:
+  selector: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+  ports: [{name: https, port: 443, targetPort: https}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: runner-broker-cell-reference, namespace: spyglass-reference}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: runner-broker-cell-reference, namespace: spyglass-reference}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: runner-broker-cell-reference}
+  minReplicas: 2
+  maxReplicas: 20
+  behavior:
+    scaleDown: {stabilizationWindowSeconds: 300}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 60}

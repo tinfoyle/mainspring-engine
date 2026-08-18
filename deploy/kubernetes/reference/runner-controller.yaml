@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: runner-controller-cell-reference, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: runner-controller, spyglass.io/cell: reference}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: runner-controller, app.kubernetes.io/part-of: spyglass, spyglass.io/cell: reference}
+    spec:
+      serviceAccountName: runner-controller
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: runner-controller, spyglass.io/cell: reference}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: runner-controller, spyglass.io/cell: reference}
+      containers:
+        - name: controller
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [runner-controller]
+          ports: [{name: health, containerPort: 8081}]
+          env:
+            - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+            - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "4"}
+            - {name: SPYGLASS_RUNNER_CONTROL_POLL_INTERVAL, value: "1s"}
+            - {name: SPYGLASS_RUNNER_CONTROL_LEASE, value: "30s"}
+            - {name: SPYGLASS_RUNNER_CONTROL_MAX_ATTEMPTS, value: "12"}
+            - {name: SPYGLASS_RUNNER_INSPECTION_BATCH, value: "100"}
+            - {name: SPYGLASS_RUNNER_PAYLOAD_CLEANUP_INTERVAL, value: "1h"}
+            - {name: SPYGLASS_RUNNER_PAYLOAD_RETENTION, value: "168h"}
+            - {name: SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH, value: "500"}
+            - {name: SPYGLASS_RUNNER_NAMESPACE, value: "spyglass-runners-reference"}
+            - {name: SPYGLASS_RUNNER_IMAGE, value: "registry.invalid/infinite-ocean/spyglass-engine:release-placeholder"}
+            - {name: SPYGLASS_RUNNER_SERVICE_ACCOUNT, value: "runner"}
+            - {name: SPYGLASS_RUNNER_RUNTIME_CLASS, value: "spyglass-sandboxed"}
+            - {name: SPYGLASS_RUNNER_BROKER_URL, value: "https://runner-broker.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_RUNNER_BROKER_CA_CONFIG_MAP, value: "spyglass-runner-broker-ca"}
+            - {name: SPYGLASS_RUNNER_ACTIVE_DEADLINE, value: "15m"}
+            - {name: SPYGLASS_RUNNER_JOB_RETENTION, value: "1h"}
+          envFrom:
+            - configMapRef: {name: spyglass-cell-reference-runtime}
+            - secretRef: {name: spyglass-runner-controller-cell-reference-secrets}
+          resources:
+            requests: {cpu: 150m, memory: 192Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
+          startupProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 2, failureThreshold: 30}
+          livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: runner-controller-cell-reference, namespace: spyglass-reference}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: runner-controller, spyglass.io/cell: reference}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: runner-controller-cell-reference, namespace: spyglass-reference}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: runner-controller-cell-reference}
+  minReplicas: 2
+  maxReplicas: 10
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies: [{type: Percent, value: 100, periodSeconds: 30}, {type: Pods, value: 2, periodSeconds: 30}]
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 65}
+    - type: External
+      external:
+        metric: {name: spyglass_runner_ready}
+        target: {type: AverageValue, averageValue: "10"}

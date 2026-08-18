@@ -280,7 +280,7 @@ The controller uses its in-cluster projected service-account token and CA only t
 
 The broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. Its database role has execute-only exchange, capability-audit, and action begin/complete authority with no direct table grants. A separate future Attention projection role receives only authorization-record/cancel execute authority; it cannot begin or settle an action. The broker reaches model-gateway with its rotating workload certificate; it has no provider key. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
 
-Do not deploy the runner fleet until the Agents serving/dispatch workloads and any provider-specific consequential adapters are protected by a tested environment NetworkPolicy. Routed Agent serving, encrypted dispatch, the bounded `agent.turn.execute` and `work.summary.snapshot` executors, read-only `work.summary.read` and `agents.model.turn` handlers, lease-fenced result projection worker, and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, Pod-bound content-free audit, and projection retention fencing are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+Do not deploy the runner fleet until the Agents serving/dispatch workloads and any provider-specific consequential adapters are protected by a tested environment NetworkPolicy. Routed Agent serving, encrypted dispatch, the bounded `agent.turn.execute` and `work.summary.snapshot` executors, read-only `work.summary.read` and `agents.model.turn` handlers, lease-fenced result projection worker, and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology places ephemeral Jobs and their permissionless ServiceAccount in a dedicated runner namespace, includes namespace-scoped Job lifecycle and TokenReview/Pod/Job observer RBAC, and permits only the internal runner→broker→gateway/tool paths. An environment must still supply and validate its cluster API egress CIDR, sandbox RuntimeClass, digest-pinned runner artifact, database/provider egress, certificate/secret controllers, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, Pod-bound content-free audit, and projection retention fencing are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
 
 ## Agent dispatch worker values
 
@@ -382,6 +382,10 @@ spyglass admission-api
 spyglass route-canary
 spyglass route-receipt-worker
 spyglass runner-controller
+spyglass runner-broker
+spyglass model-gateway
+spyglass agent-dispatch-worker
+spyglass agent-projection-worker
 spyglass runner-invocation --broker-url=https://runner-broker.example --invocation-id=<uuid> --identity-token-file=/var/run/secrets/spyglass.io/runner-identity/token --broker-ca-file=/var/run/secrets/spyglass.io/broker-ca/ca.crt
 spyglass billing-worker
 spyglass notification-worker
