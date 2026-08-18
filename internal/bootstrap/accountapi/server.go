@@ -15,6 +15,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -28,14 +29,15 @@ import (
 )
 
 type Config struct {
-	DatabaseURL         string
-	StripeWebhookSecret string
-	StripeSecretKey     string
-	StripeAPIVersion    string
-	StripeMode          string
-	MaxDatabaseConns    int32
-	AppOrigin           string
-	PublicOrigin        string
+	DatabaseURL               string
+	StripeWebhookSecret       string
+	StripeSecretKey           string
+	StripeAPIVersion          string
+	StripeMode                string
+	MaxDatabaseConns          int32
+	AppOrigin                 string
+	PublicOrigin              string
+	NotificationEncryptionKey []byte
 }
 
 type Server struct {
@@ -43,18 +45,11 @@ type Server struct {
 	pool    *pgxpool.Pool
 }
 
-type NotificationSender interface {
-	registration.VerificationSender
-	invitations.Sender
-	recovery.Sender
-}
-
-// New constructs the persistent account-api mode. Verification delivery is an
-// explicit required adapter; this composition never falls back to logging or
-// returning verification credentials.
-func New(ctx context.Context, config Config, sender NotificationSender, logger *slog.Logger) (*Server, error) {
-	if config.DatabaseURL == "" || config.AppOrigin == "" || config.PublicOrigin == "" || sender == nil || logger == nil {
-		return nil, errors.New("database URL, application/public origins, notification sender, and logger are required")
+// New constructs the persistent account-api mode. Identity messages are
+// encrypted and durably queued; this process never connects to SMTP.
+func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, error) {
+	if config.DatabaseURL == "" || config.AppOrigin == "" || config.PublicOrigin == "" || logger == nil {
+		return nil, errors.New("database URL, application/public origins, and logger are required")
 	}
 	if config.StripeMode != "test" && config.StripeMode != "live" {
 		return nil, errors.New("Stripe mode must be test or live")
@@ -71,6 +66,16 @@ func New(ctx context.Context, config Config, sender NotificationSender, logger *
 		return nil, err
 	}
 	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	notificationCipher, err := notifications.NewCipher(config.NotificationEncryptionKey, 1)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	sender, err := notifications.NewQueuedSender(postgres.NewNotificationOutbox(pool), notificationCipher, ids.RandomGenerator{}, registration.SystemClock{})
+	if err != nil {
 		pool.Close()
 		return nil, err
 	}

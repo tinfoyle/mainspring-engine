@@ -54,6 +54,7 @@ type Message struct {
 	DisplayName string
 	Token       string
 	ExpiresAt   time.Time
+	Suppress    bool
 }
 
 type Sender interface {
@@ -95,23 +96,24 @@ func (s *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult,
 	if err != nil {
 		return BeginResult{}, err
 	}
-	if blocked {
-		return BeginResult{}, nil
-	}
-	if err := s.limiter.Failure(ctx, limitKey, now, 3, 30*time.Minute); err != nil {
-		return BeginResult{}, err
-	}
 	token, tokenHash, err := newToken()
 	if err != nil {
 		return BeginResult{}, err
 	}
-	pending := Pending{ID: ids.RecoveryID(s.ids.New()), Email: normalized, TokenHash: tokenHash, ExpiresAt: now.Add(s.tokenTTL), CreatedAt: now}
+	expiresAt := now.Add(s.tokenTTL)
+	if blocked {
+		return BeginResult{}, s.sender.SendRecovery(ctx, Message{Token: token, ExpiresAt: expiresAt, Suppress: true})
+	}
+	if err := s.limiter.Failure(ctx, limitKey, now, 3, 30*time.Minute); err != nil {
+		return BeginResult{}, err
+	}
+	pending := Pending{ID: ids.RecoveryID(s.ids.New()), Email: normalized, TokenHash: tokenHash, ExpiresAt: expiresAt, CreatedAt: now}
 	recipient, exists, err := s.repository.Create(ctx, pending)
 	if err != nil {
 		return BeginResult{}, err
 	}
 	if !exists {
-		return BeginResult{}, nil
+		return BeginResult{}, s.sender.SendRecovery(ctx, Message{Token: token, ExpiresAt: expiresAt, Suppress: true})
 	}
 	message := Message{RecoveryID: pending.ID, Email: recipient.Email, DisplayName: recipient.DisplayName, Token: token, ExpiresAt: pending.ExpiresAt}
 	if err := s.sender.SendRecovery(ctx, message); err != nil {

@@ -114,6 +114,9 @@ type RecoverySink struct {
 }
 
 func (s *RecoverySink) SendRecovery(_ context.Context, message recovery.Message) error {
+	if message.Suppress {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.messages = append(s.messages, message)

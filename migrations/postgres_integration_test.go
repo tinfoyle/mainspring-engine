@@ -1,6 +1,7 @@
 package migrations_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -19,6 +20,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
@@ -55,6 +58,41 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	notificationQueue := postgresadapter.NewNotificationOutbox(pool)
+	notificationCipher, err := notifications.NewCipher(bytes.Repeat([]byte{0x51}, 32), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queuedSender, err := notifications.NewQueuedSender(notificationQueue, notificationCipher, ids.RandomGenerator{}, fixedClock{now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queuedRecovery := recovery.Message{Email: "owner@example.com", DisplayName: "Owner", Token: "outbox-secret-token", ExpiresAt: now.Add(time.Hour)}
+	if err := queuedSender.SendRecovery(ctx, queuedRecovery); err != nil {
+		t.Fatalf("enqueue encrypted notification: %v", err)
+	}
+	var plaintextEmail, plaintextToken bool
+	if err := pool.QueryRow(ctx, `
+		SELECT position(convert_to($1,'UTF8') in ciphertext)>0,position(convert_to($2,'UTF8') in ciphertext)>0
+		FROM identity_notification_outbox LIMIT 1`, queuedRecovery.Email, queuedRecovery.Token).Scan(&plaintextEmail, &plaintextToken); err != nil {
+		t.Fatal(err)
+	}
+	if plaintextEmail || plaintextToken {
+		t.Fatal("notification outbox contains plaintext identity credentials")
+	}
+	notificationDelivery := &captureNotifications{}
+	notificationProcessor, err := notifications.NewProcessor(notificationQueue, notificationCipher, notificationDelivery, fixedClock{now: now}, 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := notificationProcessor.ProcessOne(ctx); err != nil || !worked || notificationDelivery.recovery.Token != queuedRecovery.Token {
+		t.Fatalf("process encrypted notification: worked=%v delivery=%+v err=%v", worked, notificationDelivery.recovery, err)
+	}
+	var notificationState string
+	if err := pool.QueryRow(ctx, `SELECT processing_state FROM identity_notification_outbox LIMIT 1`).Scan(&notificationState); err != nil || notificationState != "delivered" {
+		t.Fatalf("notification state = %q, %v", notificationState, err)
+	}
+
 	repository := postgresadapter.NewRegistrationRepository(pool)
 	sender := &captureVerification{}
 	service := registration.NewService(repository, sender, repository, published, ids.RandomGenerator{}, fixedClock{now: now}, staticPasswordHasher{})
@@ -245,7 +283,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 8 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 9 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
@@ -408,6 +446,25 @@ type captureRecovery struct{ message recovery.Message }
 
 func (sender *captureRecovery) SendRecovery(_ context.Context, message recovery.Message) error {
 	sender.message = message
+	return nil
+}
+
+type captureNotifications struct {
+	verification registration.VerificationMessage
+	invitation   invitations.Message
+	recovery     recovery.Message
+}
+
+func (sender *captureNotifications) SendVerification(_ context.Context, message registration.VerificationMessage) error {
+	sender.verification = message
+	return nil
+}
+func (sender *captureNotifications) SendInvitation(_ context.Context, message invitations.Message) error {
+	sender.invitation = message
+	return nil
+}
+func (sender *captureNotifications) SendRecovery(_ context.Context, message recovery.Message) error {
+	sender.recovery = message
 	return nil
 }
 

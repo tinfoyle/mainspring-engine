@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: notification-worker, namespace: spyglass-reference}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: notification-worker}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: notification-worker, app.kubernetes.io/part-of: spyglass}
+    spec:
+      serviceAccountName: notification-worker
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: notification-worker
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [notification-worker]
+          ports: [{name: health, containerPort: 8081}]
+          env:
+            - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+          envFrom:
+            - configMapRef: {name: spyglass-global-runtime}
+            - secretRef: {name: spyglass-notification-worker-secrets}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: "500m", memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}

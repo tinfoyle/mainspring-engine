@@ -77,7 +77,7 @@ func TestBeginIsGenericForUnknownIdentityAndSendsKnownIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	unknown, err := service.Begin(context.Background(), recovery.BeginCommand{Email: "missing@example.com"})
-	if err != nil || unknown.Delivered || delivery.message.Token != "" || limits.attempts != 1 {
+	if err != nil || unknown.Delivered || !delivery.message.Suppress || delivery.message.Token == "" || limits.attempts != 1 {
 		t.Fatalf("unknown recovery = %+v, message=%+v attempts=%d err=%v", unknown, delivery.message, limits.attempts, err)
 	}
 	repo.exists = true

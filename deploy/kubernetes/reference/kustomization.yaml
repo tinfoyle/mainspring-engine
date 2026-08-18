@@ -6,4 +6,5 @@ resources:
   - account-api.yaml
   - app-api.yaml
   - billing-worker.yaml
+  - notification-worker.yaml
   - policy.yaml

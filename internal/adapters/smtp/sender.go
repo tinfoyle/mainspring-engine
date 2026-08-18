@@ -80,6 +80,9 @@ func (s *Sender) SendInvitation(ctx context.Context, message invitations.Message
 }
 
 func (s *Sender) SendRecovery(ctx context.Context, message recovery.Message) error {
+	if message.Suppress {
+		return nil
+	}
 	link := s.origin + "/reset-password?token=" + url.QueryEscape(message.Token)
 	subject := "Reset your Infinite Ocean identity password"
 	plain := fmt.Sprintf("Hello %s,\r\n\r\nA password reset was requested for your Infinite Ocean identity. Set a new password here:\r\n%s\r\n\r\nThis single-use link expires at %s. If you did not request it, no change has been made.\r\n", message.DisplayName, link, message.ExpiresAt.UTC().Format(time.RFC1123))

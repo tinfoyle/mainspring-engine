@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,11 +14,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/tinfoyle/spyglass-engine/internal/adapters/smtp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -39,10 +40,12 @@ func main() {
 		err = runAccountAPI(ctx, logger)
 	case "billing-worker":
 		err = runBillingWorker(ctx, logger)
+	case "notification-worker":
+		err = runNotificationWorker(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | billing-worker | migrate")
+		err = errors.New("usage: spyglass development | account-api | billing-worker | notification-worker | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -81,13 +84,9 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	sender, err := smtp.New(smtp.Config{Address: config.smtpAddress, ServerName: config.smtpServerName, Username: config.smtpUsername, Password: config.smtpPassword, FromAddress: config.smtpFromAddress, FromName: config.smtpFromName, AppOrigin: config.appOrigin})
-	if err != nil {
-		return err
-	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin}, sender, logger)
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey}, logger)
 	if err != nil {
 		return err
 	}
@@ -123,14 +122,65 @@ func runBillingWorker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer worker.Close()
+	return serveWorker(ctx, "billing", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+}
+
+func runNotificationWorker(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	key, err := base64KeyEnv("SPYGLASS_NOTIFICATION_ENCRYPTION_KEY")
+	if err != nil {
+		return err
+	}
+	address, err := requiredEnv("SPYGLASS_SMTP_ADDRESS")
+	if err != nil {
+		return err
+	}
+	serverName, err := requiredEnv("SPYGLASS_SMTP_SERVER_NAME")
+	if err != nil {
+		return err
+	}
+	fromAddress, err := requiredEnv("SPYGLASS_SMTP_FROM_ADDRESS")
+	if err != nil {
+		return err
+	}
+	appOrigin, err := requiredEnv("SPYGLASS_APP_ORIGIN")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 5)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_NOTIFICATION_POLL_INTERVAL", time.Second)
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := notificationworker.New(startup, notificationworker.Config{DatabaseURL: databaseURL, NotificationEncryptionKey: key, SMTPAddress: address, SMTPServerName: serverName, SMTPUsername: os.Getenv("SPYGLASS_SMTP_USERNAME"), SMTPPassword: os.Getenv("SPYGLASS_SMTP_PASSWORD"), SMTPFromAddress: fromAddress, SMTPFromName: envOr("SPYGLASS_SMTP_FROM_NAME", "Infinite Ocean"), AppOrigin: appOrigin, MaxDatabaseConns: maxConns, PollInterval: poll}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "notification", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), worker, logger)
+}
+
+type runnableWorker interface {
+	Run(context.Context) error
+	Ready(context.Context) error
+}
+
+func serveWorker(ctx context.Context, name, healthAddress string, worker runnableWorker, logger *slog.Logger) error {
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
-	health := workerHealth(worker)
-	httpServer := newHTTPServer(envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), health)
+	httpServer := newHTTPServer(healthAddress, workerHealth(worker))
 	errorsChannel := make(chan error, 2)
 	go func() { errorsChannel <- worker.Run(runCtx) }()
 	go func() {
-		logger.Info("Spyglass billing worker health listening", "address", httpServer.Addr)
+		logger.Info("Spyglass worker health listening", "worker", name, "address", httpServer.Addr)
 		err := httpServer.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
@@ -151,8 +201,9 @@ func runBillingWorker(ctx context.Context, logger *slog.Logger) error {
 }
 
 type persistentConfig struct {
-	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, smtpAddress, smtpServerName, smtpUsername, smtpPassword, smtpFromAddress, smtpFromName string
-	maxDatabaseConns                                                                                                                                                                                 int32
+	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin string
+	notificationEncryptionKey                                                                                []byte
+	maxDatabaseConns                                                                                         int32
 }
 
 func productionConfig() (persistentConfig, error) {
@@ -161,7 +212,7 @@ func productionConfig() (persistentConfig, error) {
 	fields := []struct {
 		name   string
 		target *string
-	}{{"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}, {"SPYGLASS_SMTP_ADDRESS", &result.smtpAddress}, {"SPYGLASS_SMTP_SERVER_NAME", &result.smtpServerName}, {"SPYGLASS_SMTP_FROM_ADDRESS", &result.smtpFromAddress}}
+	}{{"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}}
 	for _, field := range fields {
 		*field.target, err = requiredEnv(field.name)
 		if err != nil {
@@ -169,11 +220,24 @@ func productionConfig() (persistentConfig, error) {
 		}
 	}
 	result.stripeAPIVersion = envOr("SPYGLASS_STRIPE_API_VERSION", stripe.DefaultAPIVersion)
-	result.smtpUsername = os.Getenv("SPYGLASS_SMTP_USERNAME")
-	result.smtpPassword = os.Getenv("SPYGLASS_SMTP_PASSWORD")
-	result.smtpFromName = envOr("SPYGLASS_SMTP_FROM_NAME", "Infinite Ocean")
+	result.notificationEncryptionKey, err = base64KeyEnv("SPYGLASS_NOTIFICATION_ENCRYPTION_KEY")
+	if err != nil {
+		return persistentConfig{}, err
+	}
 	result.maxDatabaseConns, err = int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
 	return result, err
+}
+
+func base64KeyEnv(name string) ([]byte, error) {
+	raw, err := requiredEnv(name)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil || len(decoded) != 32 {
+		return nil, fmt.Errorf("%s must be standard base64 encoding of exactly 32 bytes", name)
+	}
+	return decoded, nil
 }
 
 func serveHTTP(ctx context.Context, address string, handler http.Handler, logger *slog.Logger) error {
