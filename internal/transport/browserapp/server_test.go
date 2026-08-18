@@ -72,7 +72,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	securityBody, _ := io.ReadAll(security.Body)
 	security.Body.Close()
-	if security.StatusCode != http.StatusOK || !bytes.Contains(securityBody, []byte("Where you are signed in")) || !bytes.Contains(securityBody, []byte("Current session")) {
+	if security.StatusCode != http.StatusOK || !bytes.Contains(securityBody, []byte("Where you are signed in")) || !bytes.Contains(securityBody, []byte("Current session")) || !bytes.Contains(securityBody, []byte("Recent identity activity")) || !bytes.Contains(securityBody, []byte("Signed in")) {
 		t.Fatalf("security center: %d %s", security.StatusCode, securityBody)
 	}
 	confirmed := postForm(t, client, server.URL+"/app/security/reauthenticate", url.Values{"password": {"correct horse battery staple"}})

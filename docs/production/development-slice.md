@@ -14,7 +14,7 @@ This repository now contains the first executable production slice for Infinite 
 - Registration application flow: verification challenge followed by atomic User/Account/Membership/placement/free-entitlement provisioning.
 - PostgreSQL registration, published Catalog, session, access-state, and signed billing-inbox adapters.
 - Production account-api composition that requires PostgreSQL, real verification delivery, a published Catalog, and a valid Stripe webhook configuration.
-- Opaque rotating session tokens with absolute/idle expiry, user-owned active-session inventory, individual/device-wide revocation, durable security events, and password reauthentication for sensitive operations.
+- Opaque rotating session tokens with absolute/idle expiry, user-owned active-session inventory, individual/device-wide revocation, a bounded user-visible security timeline, and password reauthentication for sensitive operations.
 - Enumeration-resistant credential-recovery response bodies with identifier throttling, hashed single-use 30-minute links, atomic Argon2id credential replacement, User security-version advancement, and all-session revocation.
 - Argon2id local credentials created atomically with verified identity and Account provisioning, plus generic login failures and durable identifier-hash lockouts.
 - A shared authorization policy that keeps authentication, Account Membership, role, Account state, and Feature Package access separate.
@@ -53,6 +53,7 @@ POST /api/v1/recovery-challenges
 POST /api/v1/recovery-challenges/complete
 POST /api/v1/sessions
 GET  /api/v1/sessions
+GET  /api/v1/security-events
 DELETE /api/v1/sessions
 DELETE /api/v1/sessions/{sessionID}
 DELETE /api/v1/session
@@ -101,7 +102,7 @@ npm run dev
 
 ## Next production slices
 
-1. Add passkeys/MFA, user-visible security-event history, a durable notification outbox, and distributed recovery/login rate limiting by network actor in addition to the durable identifier controls.
+1. Add passkeys/MFA, a durable notification outbox, and distributed recovery/login rate limiting by network actor in addition to the durable identifier controls.
 2. Add Catalog draft/review/publication administration and enforcement adapters for every HTTP/MCP/job/tool entry point.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.

@@ -134,6 +134,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/recovery-challenges/complete", s.completeRecovery)
 	mux.HandleFunc("POST /api/v1/sessions", s.login)
 	mux.HandleFunc("GET /api/v1/sessions", s.listSessions)
+	mux.HandleFunc("GET /api/v1/security-events", s.listSecurityEvents)
 	mux.HandleFunc("DELETE /api/v1/sessions", s.logoutAll)
 	mux.HandleFunc("DELETE /api/v1/sessions/{sessionID}", s.revokeSession)
 	mux.HandleFunc("POST /api/v1/session/reauthenticate", s.reauthenticate)
@@ -474,6 +475,19 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": active})
+}
+
+func (s *Server) listSecurityEvents(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	events, err := s.sessions.SecurityEvents(r.Context(), authenticated.Session.UserID, 50)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "security_events_unavailable", "security history could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
 }
 
 func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {

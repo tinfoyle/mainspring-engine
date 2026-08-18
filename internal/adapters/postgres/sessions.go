@@ -124,4 +124,24 @@ func (r *SessionRepository) MarkReauthenticated(ctx context.Context, userID ids.
 	return command.RowsAffected() == 1, err
 }
 
+func (r *SessionRepository) SecurityEvents(ctx context.Context, userID ids.UserID, limit int) ([]sessions.SecurityEvent, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT event_type,COALESCE(session_id::text,''),occurred_at
+		FROM user_security_events WHERE user_id=$1
+		ORDER BY occurred_at DESC,id DESC LIMIT $2`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]sessions.SecurityEvent, 0)
+	for rows.Next() {
+		var value sessions.SecurityEvent
+		if err := rows.Scan(&value.Type, &value.SessionID, &value.OccurredAt); err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, rows.Err()
+}
+
 var _ sessions.Repository = (*SessionRepository)(nil)

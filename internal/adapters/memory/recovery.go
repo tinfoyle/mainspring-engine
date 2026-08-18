@@ -8,6 +8,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/identity"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -94,6 +95,7 @@ func (r *RecoveryRepository) Complete(_ context.Context, tokenHash [32]byte, pas
 			r.sessions.values[sessionID] = session
 		}
 	}
+	r.sessions.appendEventLocked(challenge.userID, sessions.SecurityEvent{Type: sessions.EventCredentialRecovered, OccurredAt: now.UTC()})
 	for candidateID, candidate := range r.challenges {
 		if candidate.userID == challenge.userID && candidate.consumedAt == nil {
 			consumed := now.UTC()

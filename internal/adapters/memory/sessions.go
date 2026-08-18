@@ -13,16 +13,18 @@ import (
 type SessionStore struct {
 	mu     sync.Mutex
 	values map[ids.SessionID]sessions.Session
+	events map[ids.UserID][]sessions.SecurityEvent
 }
 
 func NewSessionStore() *SessionStore {
-	return &SessionStore{values: map[ids.SessionID]sessions.Session{}}
+	return &SessionStore{values: map[ids.SessionID]sessions.Session{}, events: map[ids.UserID][]sessions.SecurityEvent{}}
 }
 
 func (s *SessionStore) Create(_ context.Context, session sessions.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.values[session.ID] = session
+	s.appendEventLocked(session.UserID, sessions.SecurityEvent{Type: sessions.EventSessionCreated, SessionID: session.ID, OccurredAt: session.AuthenticatedAt})
 	return nil
 }
 
@@ -57,12 +59,17 @@ func (s *SessionStore) Rotate(_ context.Context, id ids.SessionID, oldHash, newH
 func (s *SessionStore) RevokeAll(_ context.Context, userID ids.UserID, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	revokedAny := false
 	for id, value := range s.values {
 		if value.UserID == userID && value.RevokedAt == nil {
 			revoked := now.UTC()
 			value.RevokedAt = &revoked
 			s.values[id] = value
+			revokedAny = true
 		}
+	}
+	if revokedAny {
+		s.appendEventLocked(userID, sessions.SecurityEvent{Type: sessions.EventSessionsRevoked, OccurredAt: now.UTC()})
 	}
 	return nil
 }
@@ -71,12 +78,13 @@ func (s *SessionStore) Revoke(_ context.Context, sessionID ids.SessionID, now ti
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	value, ok := s.values[sessionID]
-	if !ok {
+	if !ok || value.RevokedAt != nil {
 		return nil
 	}
 	revoked := now.UTC()
 	value.RevokedAt = &revoked
 	s.values[sessionID] = value
+	s.appendEventLocked(value.UserID, sessions.SecurityEvent{Type: sessions.EventSessionRevoked, SessionID: sessionID, OccurredAt: now.UTC()})
 	return nil
 }
 
@@ -90,6 +98,7 @@ func (s *SessionStore) RevokeOwned(_ context.Context, userID ids.UserID, session
 	revoked := now.UTC()
 	value.RevokedAt = &revoked
 	s.values[sessionID] = value
+	s.appendEventLocked(userID, sessions.SecurityEvent{Type: sessions.EventSessionRevoked, SessionID: sessionID, OccurredAt: now.UTC()})
 	return true, nil
 }
 
@@ -116,7 +125,23 @@ func (s *SessionStore) MarkReauthenticated(_ context.Context, userID ids.UserID,
 	value.ReauthenticatedAt = now.UTC()
 	value.LastSeenAt = now.UTC()
 	s.values[sessionID] = value
+	s.appendEventLocked(userID, sessions.SecurityEvent{Type: sessions.EventSessionReauthenticated, SessionID: sessionID, OccurredAt: now.UTC()})
 	return true, nil
+}
+
+func (s *SessionStore) SecurityEvents(_ context.Context, userID ids.UserID, limit int) ([]sessions.SecurityEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	values := append([]sessions.SecurityEvent(nil), s.events[userID]...)
+	sort.SliceStable(values, func(i, j int) bool { return values[i].OccurredAt.After(values[j].OccurredAt) })
+	if len(values) > limit {
+		values = values[:limit]
+	}
+	return values, nil
+}
+
+func (s *SessionStore) appendEventLocked(userID ids.UserID, event sessions.SecurityEvent) {
+	s.events[userID] = append(s.events[userID], event)
 }
 
 var _ sessions.Repository = (*SessionStore)(nil)

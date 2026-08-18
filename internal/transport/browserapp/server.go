@@ -215,12 +215,19 @@ type pageData struct {
 	BillingState, BillingPeriod, BillingSynced                                              string
 	BillingPlans                                                                            []billingPlan
 	ActiveSessions                                                                          []sessions.ActiveSession
+	SecurityEvents                                                                          []securityEventView
 }
 
 type billingPlan struct {
 	OfferCode, Name, Description, Price, Interval string
 	PackageCount                                  int
 	Current                                       bool
+}
+
+type securityEventView struct {
+	Label      string
+	Detail     string
+	OccurredAt time.Time
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, data pageData) {
@@ -421,6 +428,11 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Security settings could not be loaded.", http.StatusServiceUnavailable)
 		return
 	}
+	events, err := s.sessions.SecurityEvents(r.Context(), authenticated.Session.UserID, 50)
+	if err != nil {
+		http.Error(w, "Security history could not be loaded.", http.StatusServiceUnavailable)
+		return
+	}
 	notice := ""
 	switch r.URL.Query().Get("status") {
 	case "confirmed":
@@ -430,7 +442,31 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	case "reauth_required":
 		notice = "Confirm your password before continuing with a sensitive action."
 	}
-	s.render(w, http.StatusOK, "security", pageData{Title: "Identity security", Notice: notice, ActiveSessions: active})
+	s.render(w, http.StatusOK, "security", pageData{Title: "Identity security", Notice: notice, ActiveSessions: active, SecurityEvents: securityEventViews(events)})
+}
+
+func securityEventViews(events []sessions.SecurityEvent) []securityEventView {
+	result := make([]securityEventView, 0, len(events))
+	for _, event := range events {
+		view := securityEventView{OccurredAt: event.OccurredAt, Detail: "Infinite Ocean identity"}
+		switch event.Type {
+		case sessions.EventSessionCreated:
+			view.Label = "Signed in"
+		case sessions.EventSessionReauthenticated:
+			view.Label = "Password confirmed"
+		case sessions.EventSessionRevoked:
+			view.Label = "Session signed out"
+		case sessions.EventSessionsRevoked:
+			view.Label = "All sessions signed out"
+		case sessions.EventCredentialRecovered:
+			view.Label = "Password recovered"
+			view.Detail = "Credential replaced and all sessions revoked"
+		default:
+			view.Label = "Security setting changed"
+		}
+		result = append(result, view)
+	}
+	return result
 }
 
 func (s *Server) reauthenticate(w http.ResponseWriter, r *http.Request) {

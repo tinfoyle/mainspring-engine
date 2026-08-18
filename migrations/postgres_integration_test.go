@@ -143,6 +143,14 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if securityEvents != 3 {
 		t.Fatalf("security event count after recovery = %d, want three", securityEvents)
 	}
+	securityHistory, err := sessionService.SecurityEvents(ctx, provisioned.User.ID, 10)
+	if err != nil || len(securityHistory) != 3 || securityHistory[0].Type != sessions.EventCredentialRecovered {
+		t.Fatalf("persistent security history = %+v, %v", securityHistory, err)
+	}
+	otherSecurityHistory, err := sessionService.SecurityEvents(ctx, ids.UserID("30000000-0000-4000-8000-000000000003"), 10)
+	if err != nil || len(otherSecurityHistory) != 0 {
+		t.Fatalf("cross-user security history = %+v, %v", otherSecurityHistory, err)
+	}
 
 	commercial := postgresadapter.NewCommercialAccessRepository(pool)
 	if _, err := pool.Exec(ctx, `

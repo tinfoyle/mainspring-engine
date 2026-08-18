@@ -40,6 +40,23 @@ type Repository interface {
 	RevokeOwned(context.Context, ids.UserID, ids.SessionID, time.Time) (bool, error)
 	Active(context.Context, ids.UserID, time.Time, time.Duration) ([]Session, error)
 	MarkReauthenticated(context.Context, ids.UserID, ids.SessionID, time.Time) (bool, error)
+	SecurityEvents(context.Context, ids.UserID, int) ([]SecurityEvent, error)
+}
+
+type SecurityEventType string
+
+const (
+	EventSessionCreated         SecurityEventType = "session_created"
+	EventSessionReauthenticated SecurityEventType = "session_reauthenticated"
+	EventSessionRevoked         SecurityEventType = "session_revoked"
+	EventSessionsRevoked        SecurityEventType = "sessions_revoked"
+	EventCredentialRecovered    SecurityEventType = "credential_recovered"
+)
+
+type SecurityEvent struct {
+	Type       SecurityEventType `json:"type"`
+	SessionID  ids.SessionID     `json:"session_id,omitempty"`
+	OccurredAt time.Time         `json:"occurred_at"`
 }
 
 type Clock interface{ Now() time.Time }
@@ -118,6 +135,19 @@ func (s *Service) Active(ctx context.Context, userID ids.UserID, currentID ids.S
 		result = append(result, ActiveSession{ID: value.ID, ClientLabel: value.ClientLabel, AuthenticatedAt: value.AuthenticatedAt, ReauthenticatedAt: value.ReauthenticatedAt, LastSeenAt: value.LastSeenAt, ExpiresAt: value.ExpiresAt, Current: value.ID == currentID})
 	}
 	return result, nil
+}
+
+func (s *Service) SecurityEvents(ctx context.Context, userID ids.UserID, limit int) ([]SecurityEvent, error) {
+	if userID == "" {
+		return nil, errors.New("user ID is required")
+	}
+	if limit == 0 {
+		limit = 25
+	}
+	if limit < 1 || limit > 100 {
+		return nil, errors.New("security event limit must be between 1 and 100")
+	}
+	return s.repository.SecurityEvents(ctx, userID, limit)
 }
 
 func (s *Service) RevokeOwned(ctx context.Context, userID ids.UserID, sessionID ids.SessionID) (bool, error) {

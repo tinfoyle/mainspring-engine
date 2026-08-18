@@ -95,4 +95,12 @@ func TestSessionInventoryOwnershipAndReauthentication(t *testing.T) {
 	if !service.RecentlyReauthenticated(refreshed.Session, 10*time.Minute) {
 		t.Fatal("password confirmation did not refresh recent-auth policy")
 	}
+	events, err := service.SecurityEvents(context.Background(), ids.UserID("user-a"), 10)
+	if err != nil || len(events) != 4 || events[0].Type != sessions.EventSessionReauthenticated {
+		t.Fatalf("security events = %+v, %v", events, err)
+	}
+	otherEvents, err := service.SecurityEvents(context.Background(), ids.UserID("user-b"), 10)
+	if err != nil || len(otherEvents) != 1 || otherEvents[0].Type != sessions.EventSessionCreated {
+		t.Fatalf("other-user security events = %+v, %v", otherEvents, err)
+	}
 }

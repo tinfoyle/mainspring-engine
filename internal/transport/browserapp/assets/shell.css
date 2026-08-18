@@ -110,4 +110,11 @@
 .session-list em { width: max-content; border-radius: 99px; background: var(--green-pale); padding: 3px 7px; color: var(--green); font-size: .5rem; font-style: normal; font-weight: 800; }
 .session-list small { color: var(--muted); font-size: .56rem; }
 .session-list article button { border: 1px solid var(--line); background: #fff; color: var(--muted); }
+.security-events { grid-column: 1 / -1; }
+.event-list { display: grid; margin-top: 10px; border-top: 1px solid var(--line); }
+.event-list article { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 11px; padding: 14px 2px; border-bottom: 1px solid var(--line); }
+.event-list i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 5px var(--green-pale); }
+.event-list article > div { display: grid; gap: 3px; }
+.event-list strong { font-size: .67rem; }
+.event-list small,.event-list time { color: var(--muted); font-size: .56rem; }
 @media(max-width:760px){.security-grid{grid-template-columns:1fr}.security-layout{width:min(100% - 26px,1160px)}.security-hero{padding-top:50px}.security-card-head{align-items:stretch;flex-direction:column}.security-card-head form,.security-card-head button{width:100%}}

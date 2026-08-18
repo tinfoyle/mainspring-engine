@@ -129,6 +129,17 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if confirmation.StatusCode != http.StatusNoContent {
 		t.Fatalf("reauthentication status: %d %s", confirmation.StatusCode, confirmation.Body)
 	}
+	securityEventsRequest, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/security-events", nil)
+	securityEventsRequest.AddCookie(cookies[0])
+	securityEventsResponse, err := http.DefaultClient.Do(securityEventsRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	securityEventsBody, _ := io.ReadAll(securityEventsResponse.Body)
+	securityEventsResponse.Body.Close()
+	if securityEventsResponse.StatusCode != http.StatusOK || !bytes.Contains(securityEventsBody, []byte(`"type":"session_created"`)) || !bytes.Contains(securityEventsBody, []byte(`"type":"session_reauthenticated"`)) {
+		t.Fatalf("security events response: %d %s", securityEventsResponse.StatusCode, securityEventsBody)
+	}
 	accountsRequest, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/session/accounts", nil)
 	accountsRequest.AddCookie(cookies[0])
 	accountsResponse, err := http.DefaultClient.Do(accountsRequest)
