@@ -1,8 +1,8 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, global router, cell API, private admission API, billing, notification, entitlement-rollout, Work reconciliation, migration, Catalog operator, and Work release operator processes
+- Status: executable Phase 2 account, global router, cell API, private admission API, route-receipt retention, billing, notification, entitlement-rollout, Work reconciliation, migration, Catalog operator, and Work release operator processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, one-shot `work-release-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `work-reconciler`, one-shot `work-release-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -12,6 +12,7 @@
 | `app-router` | Authenticate the global session, recheck Account authority, resolve an eligible directory cell, issue request-bound route context, and proxy bounded workload-authenticated Account API traffic | Cell database access, business-record queries, arbitrary destinations |
 | `app-api` | Verify and consume route context, reject replay/stale placement, and execute Account-owned use cases through one shared cell pool | Global database, session cookies, Account/Billing mutation, arbitrary cell routing |
 | `admission-api` | Re-verify routed Work operation proofs, reauthorize current global access, and reserve/compensate governed capacity | Cell database, Work content, browser sessions, terminal Work release, Stripe or SMTP operations |
+| `route-receipt-worker` | Lease identifier-only per-Account cleanup schedules and perform bounded replay-receipt deletion inside Account RLS | Serving traffic, global data, customer Work, cross-Account receipt reads, Stripe or SMTP operations |
 | `billing-worker` | Leased Stripe inbox processing, current Subscription retrieval, transactional grant/snapshot projection, reconciliation queue | Browser/API traffic, raw webhook acceptance, customer business work |
 | `notification-worker` | Leased encrypted identity-notification delivery, bounded retries, terminal dead-letter state | Browser/API traffic, identity mutation, billing credentials, customer business work |
 | `entitlement-worker` | Bounded existing-Account Catalog rollout seeding, leased free-plan recomputation, immutable changed-access snapshots, and drift repair | Catalog publication decisions, paid-grant mutation, Stripe or SMTP operations, customer business work |
@@ -27,7 +28,7 @@ The account API and workers share no in-memory state. Multiple replicas coordina
 
 | Environment variable | Consumers | Meaning |
 |---|---|---|
-| `SPYGLASS_DATABASE_URL` | Persistent processes except `work-reconciler` | Workload-specific PostgreSQL connection string: global for control-plane modes and one cell database for `app-api` |
+| `SPYGLASS_DATABASE_URL` | Persistent processes except `work-reconciler` | Workload-specific PostgreSQL connection string: global for control-plane modes and one cell database for `app-api` or `route-receipt-worker` |
 | `SPYGLASS_STRIPE_SECRET_KEY` | Account API, billing worker | Environment-specific `sk_test_` or `sk_live_` key |
 | `SPYGLASS_STRIPE_MODE` | Account API, billing worker | Exact `test` or `live` mode; must match the key |
 | `SPYGLASS_STRIPE_API_VERSION` | Account API, billing worker | Optional deliberate override; defaults to the compiled, tested pin |
@@ -137,6 +138,22 @@ Publishing a Catalog creates a durable rollout in the same transaction as the pu
 
 Each Account records the Catalog version last reconciled. A recomputation advances the Account entitlement version and appends an immutable snapshot only when effective package access or limits changed; otherwise only the reconciliation marker advances. Periodic drift detection creates a repair rollout for late Accounts and work missed after a crash. Invalid Catalog content fails terminally, while transient failures retry with bounded exponential backoff and dead-letter on the twelfth attempt. A failed rollout suppresses automatic repair for that Catalog version until an operator publishes a corrected version, preventing an unrecoverable row from creating an infinite retry cycle.
 
+## Route receipt worker values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_DATABASE_URL` | Required credential for exactly one cell, restricted to the identifier-only cleanup queue and forced-RLS route receipts |
+| `SPYGLASS_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `5` |
+| `SPYGLASS_ROUTE_RECEIPT_POLL_INTERVAL` | Optional duration from `100ms` through `1m`; defaults to `1s` |
+| `SPYGLASS_ROUTE_RECEIPT_LEASE` | Optional duration from `1s` through `30m`; defaults to `30s` |
+| `SPYGLASS_ROUTE_RECEIPT_RETENTION` | Optional post-expiry replay-evidence retention from `1m` through `24h`; defaults to `5m` |
+| `SPYGLASS_ROUTE_RECEIPT_PRUNE_BATCH` | Optional bounded delete batch from 1 through 1000; defaults to `500` |
+| `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
+
+Receipt insertion schedules an Account identifier in a non-RLS technical queue; it never copies request bindings, actors, paths, or business content into the coordination surface. Replicas claim with `FOR UPDATE SKIP LOCKED` and expiring leases. Deletion then runs through `CellPool` with transaction-local Account context and forced RLS. Because the bounded selection locks receipt rows, the credential needs `SELECT/UPDATE/DELETE` on `route_context_receipts`, plus `SELECT/UPDATE/DELETE` on the cleanup queue and schema usage. It must not own either table, receive `BYPASSRLS`, or read Account business tables.
+
+The schedule version advances on every receipt insert. Cleanup acknowledgement is fenced by both lease ID and schedule version, so an insert racing with an empty cleanup cannot remove or postpone its schedule. `/health/status` exposes scheduled, ready, leased, retrying, oldest-due age, and aggregate process/prune/failure counters without Account or request identifiers.
+
 ## Work reconciler values
 
 | Environment variable | Requirement |
@@ -172,6 +189,7 @@ spyglass account-api
 spyglass app-router
 spyglass app-api
 spyglass admission-api
+spyglass route-receipt-worker
 spyglass billing-worker
 spyglass notification-worker
 spyglass entitlement-worker
@@ -197,8 +215,8 @@ The runner takes a target-specific PostgreSQL advisory lock, checks the SHA-256 
 
 Migration credentials are an independent deployment secret. They may own or alter schema; serving credentials must not. In particular, a cell serving role must not own cell tables and must not have `SUPERUSER` or `BYPASSRLS`, or PostgreSQL row-level security would not provide the intended Account boundary.
 
-CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, concurrency-safe package capacity admission and Work release recovery, broker-backed Work creation and definitive-failure compensation through split roles, execute-only audited dead-letter operations, registration provisioning, Checkout reservation concurrency, transaction-local Account context, split reconciler credentials, stale lease rejection, and attempted cross-Account reads and writes through non-owner roles.
+CI starts a disposable PostgreSQL 17 service and proves all three migration targets are executable and idempotent. The same gate exercises distributed network budgets, encrypted notification delivery, governed Catalog publication and rollback, existing-Account entitlement rollout and drift repair, concurrency-safe package capacity admission and Work release recovery, broker-backed Work creation and definitive-failure compensation through split roles, bounded forced-RLS route-receipt cleanup with concurrent-insert schedule fencing, execute-only audited dead-letter operations, registration provisioning, Checkout reservation concurrency, transaction-local Account context, split worker credentials, stale lease rejection, and attempted cross-Account reads and writes through non-owner roles.
 
-The Kubernetes reference uses these exact arguments and expects environment overlays to supply `spyglass-global-runtime`, `spyglass-cell-reference-runtime`, plus workload-specific `spyglass-account-api-secrets`, `spyglass-app-router-secrets`, `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`, `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`, `spyglass-entitlement-worker-secrets`, and `spyglass-work-reconciler-secrets`. Those objects are intentionally absent from the repository. The router receives a constrained global credential and signing key; app-api receives only a cell credential and verification keyring. Admission-api receives only its narrow global usage credential and verification keyring. The entitlement worker secret needs only its constrained global-database credential. The Work reconciler secret contains distinct cell/global release credentials and no serving, Stripe, or SMTP secret. No literal production credential belongs in source control or a rendered manifest.
+The Kubernetes reference uses these exact arguments and expects environment overlays to supply `spyglass-global-runtime`, `spyglass-cell-reference-runtime`, plus workload-specific `spyglass-account-api-secrets`, `spyglass-app-router-secrets`, `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`, `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`, `spyglass-entitlement-worker-secrets`, and `spyglass-work-reconciler-secrets`. Those objects are intentionally absent from the repository. The router receives a constrained global credential and signing key; app-api receives only a cell credential and verification keyring. Admission-api receives only its narrow global usage credential and verification keyring. The route-receipt worker receives only its constrained cell cleanup credential. The entitlement worker secret needs only its constrained global-database credential. The Work reconciler secret contains distinct cell/global release credentials and no serving, Stripe, or SMTP secret. No literal production credential belongs in source control or a rendered manifest.
 
 The `development` process still requires `SPYGLASS_ENV=development`; omitting both a mode and that explicit marker fails closed.

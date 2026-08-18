@@ -57,6 +57,7 @@ One signed application artifact supports distinct process modes so supply-chain 
 | `app-router` | Authenticate selected Account, resolve its cell, sign route context | Bounded directory cache; no cell data queries |
 | `app-api` | Browser/API/MCP use cases for Accounts assigned to one cell | One cell database, object store, account context; no Kubernetes authority |
 | `admission-api` | Private package-capacity admission for routed cell commands | Narrow global access projection and usage counters/reservations; no cell/business data |
+| `route-receipt-worker` | Bound routed-request replay evidence for one cell | Identifier-only cleanup queue and Account-RLS receipts; no customer Work or global data |
 | `worker` | Temporal activities and durable business automation for one cell/workload class | One cell database, capability broker, runner-controller client |
 | `billing-worker` | Verify/project queued Stripe events and reconcile provider state | Billing subset of global database and Stripe adapter; no business data |
 | `work-reconciler` | Release global capacity for terminal cell Work and prune expired completed technical jobs | Narrow cell outbox/Account checkpoint and global usage-release credentials; no serving traffic |

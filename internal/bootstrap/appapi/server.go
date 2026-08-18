@@ -2,6 +2,7 @@ package appapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -104,12 +105,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: withHealth(pool, transport.Handler()), pool: pool}, nil
+	return &Server{Handler: withHealth(pool, transport, transport.Handler()), pool: pool}, nil
 }
 
 func (s *Server) Close() { s.pool.Close() }
 
-func withHealth(pool *pgxpool.Pool, next http.Handler) http.Handler {
+func withHealth(pool *pgxpool.Pool, routes *cellapi.Server, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/health/live" {
 			w.Header().Set("Content-Type", "application/json")
@@ -126,6 +127,12 @@ func withHealth(pool *pgxpool.Pool, next http.Handler) http.Handler {
 				return
 			}
 			_, _ = w.Write([]byte(`{"status":"ready"}`))
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/health/status" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "route_context": routes.Stats()})
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -34,16 +34,17 @@ const (
 )
 
 var (
-	ErrInvalid     = errors.New("route context is invalid")
-	ErrSignature   = errors.New("route context signature is invalid")
-	ErrExpired     = errors.New("route context has expired")
-	ErrRequest     = errors.New("route context does not bind this request")
-	ErrUnknownKey  = errors.New("route context signing key is unknown")
-	ErrReplay      = errors.New("route context was already consumed")
-	ErrPlacement   = errors.New("route context placement is stale")
-	ErrUnavailable = errors.New("route context account is unavailable")
-	machineCode    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
-	cellCode       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,99}$`)
+	ErrInvalid      = errors.New("route context is invalid")
+	ErrSignature    = errors.New("route context signature is invalid")
+	ErrExpired      = errors.New("route context has expired")
+	ErrRequest      = errors.New("route context does not bind this request")
+	ErrUnknownKey   = errors.New("route context signing key is unknown")
+	ErrReplay       = errors.New("route context was already consumed")
+	ErrPlacement    = errors.New("route context placement is stale")
+	ErrUnavailable  = errors.New("route context account is unavailable")
+	ErrReceiptStore = errors.New("route context receipt store is unavailable")
+	machineCode     = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	cellCode        = regexp.MustCompile(`^[a-z][a-z0-9-]{0,99}$`)
 )
 
 type Clock interface{ Now() time.Time }

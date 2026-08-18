@@ -48,6 +48,7 @@ flowchart TB
     subgraph CellAGroup["Cell A"]
       CellA --> APIA["App API replicas"]
       APIA --> DBA["Account-data PostgreSQL"]
+      ReceiptA["Route receipt workers"] --> DBA
       WorkerA["Workflow workers"] --> DBA
       IngestA["Ingestion workers"] --> DBA
       ConnectorA["Connector workers"] --> DBA
@@ -57,6 +58,7 @@ flowchart TB
     subgraph CellBGroup["Cell B"]
       CellB --> APIB["App API replicas"]
       APIB --> DBB["Account-data PostgreSQL"]
+      ReceiptB["Route receipt workers"] --> DBB
       WorkerB["Workflow workers"] --> DBB
       IngestB["Ingestion workers"] --> DBB
       ConnectorB["Connector workers"] --> DBB
@@ -91,6 +93,7 @@ Each cell contains:
 
 - An ingress or service-mesh boundary accepting only trusted internal route identity.
 - Stateless Spyglass API replicas.
+- Shared route-receipt retention workers coordinated by an identifier-only cell queue.
 - Stateless Temporal workflow/activity workers partitioned by task queue.
 - Specialized ingestion, indexing, and connector workers.
 - A runner controller and ephemeral sandboxed runner jobs.
@@ -144,6 +147,7 @@ No pod holds an account-specific connection pool. Each cell deployment pools con
 | Public website | Stateless request | Requests, latency, CPU | Public rate and abuse limits |
 | Identity/account API | Stateless request | Requests, latency, CPU | Actor/IP limits; sensitive-operation controls |
 | Spyglass app API | Stateless request/SSE | Requests, active streams, latency, CPU | Account and actor quotas |
+| Route receipt retention | Long-lived cell worker | Ready schedules, oldest-due age, prune rate | Bounded Account-RLS batches and cell connection cap |
 | Temporal workflow workers | Long-lived worker | Task backlog and schedule-to-start latency | Fair task queues, concurrency and package limits |
 | Ingestion/indexing workers | Long-lived worker | Queue depth, age, bytes pending | Per-account byte/job quotas |
 | Connector workers | Long-lived worker | Queue depth, provider latency | Connector and account concurrency limits |

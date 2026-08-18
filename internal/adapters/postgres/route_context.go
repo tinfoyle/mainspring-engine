@@ -42,9 +42,6 @@ func (r *RouteContextReceiptRepository) Consume(ctx context.Context, claims rout
 				return routecontext.ErrUnavailable
 			}
 		}
-		if _, err := tx.Exec(ctx, `DELETE FROM spyglass.route_context_receipts WHERE account_id=$1 AND expires_at<$2`, authority.AccountID, now.Add(-time.Minute)); err != nil {
-			return err
-		}
 		targetDigest := sha256.Sum256([]byte(claims.Binding.Target))
 		bodyDigest, err := hex.DecodeString(claims.Binding.BodySHA256)
 		if err != nil || len(bodyDigest) != sha256.Size {
@@ -66,10 +63,10 @@ func (r *RouteContextReceiptRepository) Consume(ctx context.Context, claims rout
 		return err
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23514" || pgErr.Code == "42501") {
+	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23514") {
 		return fmt.Errorf("%w: route receipt constraint", routecontext.ErrInvalid)
 	}
-	return fmt.Errorf("route receipt unavailable: %w", err)
+	return fmt.Errorf("%w: %v", routecontext.ErrReceiptStore, err)
 }
 
 var _ routecontext.ReceiptStore = (*RouteContextReceiptRepository)(nil)

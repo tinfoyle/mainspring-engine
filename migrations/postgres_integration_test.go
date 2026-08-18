@@ -34,6 +34,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
@@ -688,7 +689,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 21 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 22 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 
@@ -775,10 +776,10 @@ func testAccountIsolation(t *testing.T, ctx context.Context, owner *pgxpool.Pool
 	}
 
 	testWorkIsolationAndConcurrency(t, ctx, serving, cellPool, accountA, accountB)
-	testRouteContextReceipts(t, ctx, cellPool, accountA)
+	testRouteContextReceipts(t, ctx, owner, databaseURL, cellPool, accountA)
 }
 
-func testRouteContextReceipts(t *testing.T, ctx context.Context, cellPool *database.CellPool, accountID ids.AccountID) {
+func testRouteContextReceipts(t *testing.T, ctx context.Context, owner *pgxpool.Pool, databaseURL string, cellPool *database.CellPool, accountID ids.AccountID) {
 	t.Helper()
 	repository, err := postgresadapter.NewRouteContextReceiptRepository(cellPool)
 	if err != nil {
@@ -824,6 +825,85 @@ func testRouteContextReceipts(t *testing.T, ctx context.Context, cellPool *datab
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+	workerRole := "spyglass_route_retention_" + randomSuffix(t)
+	if _, err := owner.Exec(ctx, `CREATE ROLE `+workerRole+` NOLOGIN;
+		GRANT USAGE ON SCHEMA spyglass TO `+workerRole+`;
+		GRANT SELECT,UPDATE,DELETE ON spyglass.route_context_receipt_cleanup_queue TO `+workerRole+`;
+		GRANT SELECT,UPDATE,DELETE ON spyglass.route_context_receipts TO `+workerRole); err != nil {
+		t.Fatalf("create route receipt worker role: %v", err)
+	}
+	workerPool := openPool(t, ctx, databaseURL, func(ctx context.Context, connection *pgx.Conn) error {
+		_, err := connection.Exec(ctx, `SET ROLE `+workerRole)
+		return err
+	})
+	defer func() {
+		workerPool.Close()
+		_, _ = owner.Exec(context.Background(), `DROP OWNED BY `+workerRole+`; DROP ROLE IF EXISTS `+workerRole)
+	}()
+	var crossAccountVisible int
+	if err := workerPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.route_context_receipts`).Scan(&crossAccountVisible); err != nil || crossAccountVisible != 0 {
+		t.Fatalf("route receipt worker bypassed Account RLS: count=%d err=%v", crossAccountVisible, err)
+	}
+	if err := workerPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_items`).Scan(&crossAccountVisible); err == nil {
+		t.Fatal("route receipt worker read customer Work")
+	}
+	if err := workerPool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&crossAccountVisible); err == nil {
+		t.Fatal("route receipt worker read global Users")
+	}
+	workerCell, err := database.NewCellPool(workerPool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup, err := postgresadapter.NewRouteReceiptCleanupRepository(workerPool, workerCell, fixedIDGenerator{"a0000000-0000-4000-8000-00000000000a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupNow := now.Add(2 * time.Minute)
+	job, found, err := cleanup.Claim(ctx, cleanupNow, time.Minute)
+	if err != nil || !found {
+		t.Fatalf("claim route receipt cleanup found=%t err=%v", found, err)
+	}
+	concurrent := claims
+	concurrent.Authority.RequestID = "b0000000-0000-4000-8000-00000000000b"
+	concurrent.IssuedAt = cleanupNow.Unix()
+	concurrent.ExpiresAt = cleanupNow.Add(20 * time.Second).Unix()
+	if err := repository.Consume(ctx, concurrent, cleanupNow); err != nil {
+		t.Fatalf("consume receipt during cleanup lease: %v", err)
+	}
+	pruned, err := cleanup.Prune(ctx, job, cleanupNow, time.Minute, 100)
+	if err != nil || pruned != 2 {
+		t.Fatalf("concurrent route receipt cleanup pruned=%d err=%v", pruned, err)
+	}
+	processor, err := routeretention.NewProcessor(cleanup, fixedClock{now: cleanupNow}, time.Minute, time.Minute, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := processor.ProcessOne(ctx)
+	if err != nil || !result.Worked || result.Pruned != 0 {
+		t.Fatalf("rescheduled route receipt inspection result=%+v err=%v", result, err)
+	}
+	stats, err := processor.Stats(ctx)
+	if err != nil || stats.Scheduled != 1 || stats.Ready != 0 {
+		t.Fatalf("route receipt cleanup stats after concurrent insert=%+v err=%v", stats, err)
+	}
+	processor, err = routeretention.NewProcessor(cleanup, fixedClock{now: cleanupNow.Add(2 * time.Minute)}, time.Minute, time.Minute, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err = processor.ProcessOne(ctx)
+	if err != nil || !result.Worked || result.Pruned != 1 {
+		t.Fatalf("final route receipt cleanup result=%+v err=%v", result, err)
+	}
+	stats, err = processor.Stats(ctx)
+	if err != nil || stats.Scheduled != 0 {
+		t.Fatalf("final route receipt cleanup stats=%+v err=%v", stats, err)
+	}
+	var remaining int
+	if err := cellPool.WithAccountTx(ctx, accountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM spyglass.route_context_receipts WHERE account_id=$1`, accountID).Scan(&remaining)
+	}); err != nil || remaining != 0 {
+		t.Fatalf("remaining route receipts=%d err=%v", remaining, err)
 	}
 }
 

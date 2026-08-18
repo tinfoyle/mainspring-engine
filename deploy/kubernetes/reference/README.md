@@ -4,8 +4,8 @@ These manifests encode Phase 2 workload and security defaults for review. They
 are intentionally not a deployable environment yet: release automation must
 replace `registry.invalid/...:release-placeholder`, inject managed secret
 references and provide environment-specific network/database destinations before promotion. The
-account-api, app-router, cell app-api, private admission-api, billing-worker,
-notification-worker, entitlement-worker, and Work reconciler arguments are executable today.
+account-api, app-router, cell app-api, private admission-api, per-cell route-receipt
+worker, billing-worker, notification-worker, entitlement-worker, and Work reconciler arguments are executable today.
 
 The reference proves the intended unit of scaling: shared workload classes in
 a cell. Nothing here creates a Deployment, Service, namespace, database, or
@@ -28,12 +28,18 @@ Before an environment overlay may use these resources it must add:
   `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
   `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,
   `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`,
-  `spyglass-entitlement-worker-secrets`, and
+  `spyglass-entitlement-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`, and
   `spyglass-work-reconciler-secrets` objects from environment configuration
   and secret controllers; they are not committed here. Workload-specific
   Secrets prevent each worker from receiving webhook, Stripe, or SMTP
   credentials it does not use. The entitlement worker receives only a
   constrained global-database credential.
+- The route-receipt worker secret supplies one narrow cell credential. It can
+  lease the identifier-only cleanup queue and use `SELECT/UPDATE/DELETE` on the
+  forced-RLS receipt table after setting transaction-local Account scope. It
+  cannot read Work or global data and has no `BYPASSRLS`. Replicas coordinate
+  with expiring leases and schedule versions; scale them against ready count and
+  oldest-due age within the cell connection budget.
 - The Work reconciler secret supplies distinct `SPYGLASS_CELL_DATABASE_URL` and
   `SPYGLASS_GLOBAL_DATABASE_URL` credentials. The cell credential can lease the
   identifier-only release outbox, prune expired completed jobs, and enter Account-scoped Work transactions;

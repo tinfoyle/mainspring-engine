@@ -11,4 +11,5 @@ resources:
   - notification-worker.yaml
   - entitlement-worker.yaml
   - work-reconciler.yaml
+  - route-receipt-worker.yaml
   - policy.yaml

@@ -1,6 +1,6 @@
 # Global-to-cell routing boundary
 
-Status: executable signed route-context, global app-router, bounded Account Directory cache, TLS 1.3 workload identity, cell app-api Work reads/commands, private usage-admission broker, shared replay receipts, placement-generation rejection, and Kubernetes reference topology implemented.
+Status: executable signed route-context, global app-router, bounded Account Directory cache, TLS 1.3 workload identity, cell app-api Work reads/commands, private usage-admission broker, bounded shared replay receipts, placement-generation rejection, and Kubernetes reference topology implemented.
 
 ## Why this boundary exists
 
@@ -35,7 +35,7 @@ Cryptographic verification happens before database access. The cell then uses th
 4. Inserts the UUID request into `route_context_receipts` under a composite Account key.
 5. Rejects a duplicate as `route_replay` across every app-api replica sharing the cell database.
 
-Expired receipts are removed inside Account scope. The serving database role needs bounded delete authority on this RLS-protected technical table; it still must not own tables or have `BYPASSRLS`.
+Receipt insertion schedules an identifier-only cleanup row in the same database transaction. Shared `route-receipt-worker` replicas lease due Accounts from that non-RLS technical queue, then enter the Account's forced-RLS transaction to delete at most the configured batch of receipts whose expiry is older than the retention window. The worker role requires `SELECT/UPDATE/DELETE` on receipts because PostgreSQL row locking requires `UPDATE`; it must not own tables, have `BYPASSRLS`, or read customer Work. A monotonic schedule version prevents a receipt inserted during cleanup from losing its future cleanup. Crashed leases are reclaimable and a full batch is rescheduled immediately.
 
 ## Executable processes
 
@@ -59,6 +59,8 @@ PATCH /api/v1/accounts/{accountID}/work-items/{itemID}/assignment
 ```
 
 The context probe proves the base global-session-to-cell-RLS path. Work routes add an exact Work package claim, translate verified claims back into the shared application authorization contract, and return explicit customer-safe DTOs. Mutations require the signed operation ID, and transition/assignment require the signed weak ETag. The global router and Account API do not query Work records.
+
+App-api `/health/status` exposes only aggregate route-boundary counters: accepted, missing context, replay denied, stale placement denied, Account unavailable, verification denied, and receipt-store unavailable. `spyglass route-receipt-worker` is a shared per-cell process with its own narrow database credential. Its status endpoint reports scheduled, ready, leased, retrying, oldest-due age, processing, pruning, and failure totals without Account or request identifiers.
 
 `spyglass admission-api` is a private global process for narrow usage admission. A cell presents the same short-lived route proof; the broker re-verifies its cell audience, Work mutation path, operation ID, and enabled package claim, then rechecks current global access. It can read only the access projection and mutate usage counters/reservations. It never receives cell SQL authority or Work content. Replays are safe because reservation and compensation keys are idempotent and finalized keys cannot be resurrected. Network policy and workload identity permit only app-api workloads to reach this surface.
 
@@ -96,6 +98,7 @@ Keys are standard Base64 encodings of exactly 32 random bytes. They belong in a 
 | Cell timeout/redirect/oversized response | Bounded gateway failure |
 | Token expired/altered/wrong audience | Cell returns `invalid_route_context` |
 | Duplicate request UUID | Cell returns `route_replay` |
+| Replay receipt store unavailable | Cell returns `route_boundary_unavailable`; it does not accept an unrecorded request |
 | Placement generation changed | Cell returns `stale_route`; caller refreshes global placement |
 | Account draining/frozen write | Cell returns `account_unavailable`; safe reads may continue |
 | Missing/changed Idempotency-Key or If-Match | Router/cell rejects the command before a business write |
@@ -107,11 +110,11 @@ The router never guesses another cell, follows redirects, or falls back to query
 
 ## Remaining production work
 
-1. Add route receipt retention/partitioning and metrics for replay, stale generation, verification failure, latency, cell saturation, and cache age.
+1. Export the content-free route and receipt-worker status counters through the production metrics stack; add latency, saturation, cache-age alerts, and receipt-table partitioning only when measured cell volume justifies it.
 2. Add two-cell PostgreSQL integration tests, route-signing and workload-certificate rotation canaries, router failover, cell/admission failover, and load/fairness evidence. Unit coverage already proves stale-cache refresh, bounded eviction, coalesced misses, refusal to use expired entries during source failure, exact workload identity, certificate-free health probes, and credential reload on new connections.
 
 ## Evidence and limits
 
-Unit tests cover mutual TLS chain/DNS verification, exact SPIFFE client identity, denial of another CA-valid workload, encrypted certificate-free health probes, credential reload, directory cache behavior, request binding, signature alteration, key rotation, origin rejection, credential stripping, exact allowlisted paths, successful router-to-cell traversal, replay, altered Account paths, Work package translation, read-only package behavior, strict query/command parsing, safe Work views, assignment spoofing, and cross-Account Work paths. The PostgreSQL 17 contract proves replay uniqueness, stale placement rejection, draining-write rejection, draining-read acceptance, RLS, routed broker-backed Work creation/compensation through split roles, Work query isolation, and migration replay through non-owner roles.
+Unit tests cover mutual TLS chain/DNS verification, exact SPIFFE client identity, denial of another CA-valid workload, encrypted certificate-free health probes, credential reload, directory cache behavior, request binding, signature alteration, key rotation, origin rejection, credential stripping, exact allowlisted paths, successful router-to-cell traversal, replay, route-status classification, bounded receipt cleanup/retry behavior, altered Account paths, Work package translation, read-only package behavior, strict query/command parsing, safe Work views, assignment spoofing, and cross-Account Work paths. The PostgreSQL 17 contract proves replay uniqueness, stale placement rejection, draining-write rejection, draining-read acceptance, receipt-cleanup lease coordination, concurrent-insert schedule preservation, least-privilege forced-RLS pruning, routed broker-backed Work creation/compensation through split roles, Work query isolation, and migration replay through non-owner roles.
 
 The manifests remain review-only. They have no literal secrets or real endpoints and the default-deny policy still requires environment overlays for ingress, global/cell database egress, workload-certificate issuance, monitoring, and image digests. An edge overlay must route the more-specific `/api/v1/accounts/{accountID}/work-items...` family to `app-router` while private HTML and global control routes remain on `account-api`.
