@@ -121,6 +121,36 @@ func TestRouterRejectsUnpublishedWorkCommandsBeforeAuthentication(t *testing.T) 
 	}
 }
 
+func TestAgentRouteAllowlistMatchesCellSurface(t *testing.T) {
+	tests := []struct {
+		method, resource string
+		mutation         bool
+		allowed          bool
+	}{
+		{http.MethodGet, "agent-boardrooms", false, true},
+		{http.MethodPost, "agent-boardrooms", true, true},
+		{http.MethodGet, "agent-boardrooms/" + routerRequest + "/personas", false, true},
+		{http.MethodPost, "agent-boardrooms/" + routerRequest + "/personas", true, true},
+		{http.MethodPost, "agent-boardrooms/" + routerRequest + "/runs", true, true},
+		{http.MethodGet, "agent-runs/" + routerRequest, false, true},
+		{http.MethodDelete, "agent-boardrooms", false, false},
+		{http.MethodGet, "agent-boardrooms/not-a-uuid/personas", false, false},
+		{http.MethodGet, "agent-boardrooms/" + routerRequest + "/runs", false, false},
+		{http.MethodPost, "agent-runs/" + routerRequest, false, false},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.resource, func(t *testing.T) {
+			requirement, allowed := routeRequirement(test.method, test.resource)
+			if allowed != test.allowed {
+				t.Fatalf("allowed=%t want %t requirement=%+v", allowed, test.allowed, requirement)
+			}
+			if test.allowed && (requirement.Package != catalog.PackageAgents || requirement.Mutation != test.mutation) {
+				t.Fatalf("requirement=%+v", requirement)
+			}
+		})
+	}
+}
+
 func TestWorkMutationCarriesOnlyAuthorizedPackageAccess(t *testing.T) {
 	clock := fixedClock{time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)}
 	key := []byte("0123456789abcdef0123456789abcdef")
