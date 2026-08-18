@@ -1,6 +1,6 @@
 # Stripe Commercial Access Operations
 
-- Status: implemented boundary; test-mode environment validation pending
+- Status: implemented boundary and audited operator controls; live Stripe test-mode exercise pending
 - API version: `2026-07-29.dahlia`
 - Projection authority: verified webhook inbox plus current Stripe Subscription retrieval
 
@@ -23,14 +23,14 @@ Configure the webhook endpoint in Stripe Workbench with API version `2026-07-29.
 
 ## Publishing a paid Offer mapping
 
-Catalog publication and Stripe object creation are separate reviewed operations. After creating an immutable recurring Stripe Price, insert one mapping for each enabled mode:
+Catalog publication and Stripe object creation are separate reviewed operations. After creating an immutable recurring Stripe Price, use the signed Catalog operator command for each enabled mode:
 
-```sql
-INSERT INTO offer_provider_prices (
-  catalog_version, offer_code, provider, mode, provider_price_id, active, created_at
-) VALUES (
-  2, 'team-monthly-v1', 'stripe', 'test', 'price_REPLACE_IN_ENVIRONMENT', true, statement_timestamp()
-);
+```powershell
+$env:SPYGLASS_CATALOG_VERSION = '2'
+$env:SPYGLASS_CATALOG_OFFER_CODE = 'team-monthly-v1'
+$env:SPYGLASS_STRIPE_MODE = 'test'
+$env:SPYGLASS_STRIPE_PRICE_ID = 'price_REPLACE_IN_ENVIRONMENT'
+spyglass catalog-admin map-price
 ```
 
 Do not place Price IDs in public Catalog JSON. Price changes require a new Catalog Offer/mapping; existing subscriptions retain the historical mapping needed to explain access.
@@ -52,7 +52,30 @@ Each recognized event triggers retrieval of the current Stripe Subscription. Thi
 - `BillingInbox.Replay` can requeue only a stored, signature-verified event that is processed or failed; it cannot inject a payload.
 - `BillingProjectionRepository.QueueReconciliation` is the boundary for scheduled drift scans and operator-requested refresh.
 
-Production commands over replay/reconciliation must require an operator identity, reason, audit record, and environment confirmation. Direct database mutation is not an operator interface.
+`spyglass billing-admin inspect|replay-event|refresh-subscription` is the production operator interface. Every invocation requires exact environment confirmation and a signed phishing-resistant authorization bound to action, Stripe mode, bounded inspection limit, and exact target ID. The authorization ID/mode are appended to the durable reason before PostgreSQL is opened.
+
+The short-lived database role receives only connection/schema usage and execute on the three security-definer functions:
+
+```sql
+GRANT EXECUTE ON FUNCTION public.spyglass_inspect_billing_failures(uuid,text,text,text,text,integer) TO spyglass_billing_operator;
+GRANT EXECUTE ON FUNCTION public.spyglass_replay_billing_event(uuid,text,text,text,text,text) TO spyglass_billing_operator;
+GRANT EXECUTE ON FUNCTION public.spyglass_queue_billing_subscription_refresh(uuid,text,text,text,text,text) TO spyglass_billing_operator;
+```
+
+It receives no direct `SELECT`, `INSERT`, `UPDATE`, or `DELETE` on inbox, Subscription, entitlement, Account, or audit tables. Revoke the credential after the operation.
+
+Common configuration:
+
+```powershell
+$env:SPYGLASS_ENVIRONMENT = 'staging'
+$env:SPYGLASS_CONFIRM_ENVIRONMENT = 'staging'
+$env:SPYGLASS_STRIPE_MODE = 'test'
+$env:SPYGLASS_OPERATOR_ID = 'operator@example.com'
+$env:SPYGLASS_OPERATOR_REASON = 'Ticket IO-123: inspect failed Stripe projection work'
+spyglass billing-admin inspect
+```
+
+Replay requires `SPYGLASS_STRIPE_EVENT_ID=evt_...`; the database accepts only a stored, signature-verified `processed` or `failed` event and never accepts replacement payload bytes. Refresh requires `SPYGLASS_STRIPE_SUBSCRIPTION_ID=sub_...`; it accepts only a known local Stripe Subscription in the exact configured mode and queues retrieval of current provider state. Both changes and inspection results are recorded in immutable `billing_operator_events` in the same transaction as the action. Direct database mutation is not an operator interface.
 
 ## Environment validation gate
 

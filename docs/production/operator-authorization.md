@@ -5,7 +5,7 @@
 
 ## 1. Trust boundary
 
-`SPYGLASS_OPERATOR_ID` is audit metadata, not authentication. Every `catalog-admin`, `passkey-admin`, `work-release-admin`, and `account-erasure-admin` invocation now fails before opening a database unless it verifies a short-lived authorization envelope issued by the external Infinite Ocean operator identity plane.
+`SPYGLASS_OPERATOR_ID` is audit metadata, not authentication. Every `catalog-admin`, `billing-admin`, `passkey-admin`, `work-release-admin`, and `account-erasure-admin` invocation now fails before opening a database unless it verifies a short-lived authorization envelope issued by the external Infinite Ocean operator identity plane.
 
 The issuer enrolls platform administrators, requires phishing-resistant authentication, applies workforce lifecycle policy, records approvals, and holds the Ed25519 private signing keys. Spyglass receives only a rotation keyring of public keys. A customer passkey, recovery code, Account role, database password, environment confirmation, or operator-name string cannot mint this authority.
 
@@ -43,6 +43,7 @@ The canonical scope is compact JSON with lexically sorted keys. It binds:
 |---|---|
 | `passkey-admin` | Active envelope-key version, complete configured version set, re-encryption batch |
 | `catalog-admin` | Catalog version or draft content digest, Offer, Stripe mode/Price, effective time |
+| `billing-admin` | Stripe test/live mode, inspection limit, exact event or Subscription target |
 | `work-release-admin` | Inspection limit or exact Account/Work/reservation target |
 | `account-erasure-admin` | Request, Account confirmation, cell, expected/policy versions, export evidence, backup deadline, lease, restore-directive path |
 

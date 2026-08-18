@@ -32,6 +32,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/approuter"
+	billingcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingworker"
 	catalogcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/catalogadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
@@ -72,6 +73,8 @@ func main() {
 		err = runAdmissionAPI(ctx, logger)
 	case "billing-worker":
 		err = runBillingWorker(ctx, logger)
+	case "billing-admin":
+		err = runBillingAdmin(ctx, logger)
 	case "notification-worker":
 		err = runNotificationWorker(ctx, logger)
 	case "entitlement-worker":
@@ -95,12 +98,71 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
 		os.Exit(1)
 	}
+}
+
+func runBillingAdmin(ctx context.Context, logger *slog.Logger) error {
+	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "replay-event" && os.Args[2] != "refresh-subscription") {
+		return errors.New("usage: spyglass billing-admin inspect|replay-event|refresh-subscription")
+	}
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	actor, err := requiredEnv("SPYGLASS_OPERATOR_ID")
+	if err != nil {
+		return err
+	}
+	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
+	if err != nil {
+		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	confirmation, err := requiredEnv("SPYGLASS_CONFIRM_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	mode, err := requiredEnv("SPYGLASS_STRIPE_MODE")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	config := billingcommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Actor: actor, Reason: reason, Environment: environment, ConfirmEnvironment: confirmation, Mode: mode, InspectLimit: 50, MaxDatabaseConns: maxConns}
+	if config.Action == "inspect" {
+		limit, err := int64Env("SPYGLASS_BILLING_INSPECT_LIMIT", 50)
+		if err != nil {
+			return err
+		}
+		config.InspectLimit = int(limit)
+	} else if config.Action == "replay-event" {
+		config.TargetID, err = requiredEnv("SPYGLASS_STRIPE_EVENT_ID")
+		if err != nil {
+			return err
+		}
+	} else {
+		config.TargetID, err = requiredEnv("SPYGLASS_STRIPE_SUBSCRIPTION_ID")
+		if err != nil {
+			return err
+		}
+	}
+	config.Reason, err = requireOperatorAuthorization(logger, "billing-admin", config.Action, config.Actor, config.Reason, config.Environment, operatorScope(map[string]string{"stripe_mode": config.Mode, "inspect_limit": strconv.Itoa(config.InspectLimit), "target_id": config.TargetID}))
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return billingcommand.Run(startup, config, logger)
 }
 
 func runPasskeyAdmin(ctx context.Context, logger *slog.Logger) error {

@@ -35,7 +35,8 @@ This repository now contains the first executable production slice for Infinite 
 - Server-created Stripe Customer, hosted Checkout, and Customer Portal sessions using authorized Account roles, UUID idempotency keys, exact return origins, and private Offer-to-Price mappings.
 - Durable Account-scoped Checkout reservations prevent parallel subscription attempts and make hosted-session retries resumable.
 - Current-object Subscription projection: webhook events are invalidation signals, paid grants are replaced transactionally, snapshots only advance when effective access changes, and `past_due` becomes read-only.
-- Leased reconciliation and verified-event replay boundaries for billing workers and future operator tooling.
+- Leased reconciliation and verified-event replay boundaries for billing workers.
+- Signed `billing-admin` inspection, verified-event replay, and current-subscription refresh controls with exact Stripe-mode/environment/target binding, execute-only security-definer functions, and immutable same-transaction audit evidence.
 - Executable `account-api`, `billing-worker`, and `account-lifecycle-worker` process modes with strict environment validation, independent connection caps, graceful shutdown, and dependency-aware readiness.
 - An executable `notification-worker` process with encrypted durable identity and Account-ownership envelopes, leased claims, independent per-recipient delivery, crash recovery, bounded retries, terminal dead-letter state, and implicit-TLS SMTP delivery. Ownership transfer atomically inserts previous/new-owner notices with the role swap and immutable event, so SMTP availability cannot split authority from notification intent.
 - Immutable Catalog draft, private Stripe mapping, independent review, effective publication, retirement, rollback, and same-transaction operator audit workflows exposed through a fail-closed one-shot command.
@@ -166,7 +167,7 @@ npm run dev
 
 1. Complete customer-visible factor-loss/support review and real-device accessibility validation around the executable mandatory owner enrollment, privileged-operation step-up, and self-service recovery-code path; continue the audited post-retention Account export/physical-erasure workflow with external directive publication/archive, external-store attestations, and deployment grants now that signed platform-operator authorization, dual-approved break glass, leased cross-store execution, atomic database finalization, content-free checkpoint ledgers, runtime restore quarantine, and signed ordered database replay are executable; then add multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
-3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
+3. Execute live Stripe test-mode contract journeys through the audited reconciliation/replay controls; local request translation, database contracts, and signed operator commands are executable.
 4. Add fair asynchronous admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests; bounded directory routing and internal workload identity are now executable.
 5. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.
 

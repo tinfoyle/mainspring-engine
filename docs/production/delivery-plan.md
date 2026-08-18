@@ -266,6 +266,8 @@ Acceptance:
 - Checkout redirects never grant access; only verified projected state changes paid entitlements.
 - No card data is accepted or stored by Spyglass application servers.
 
+Implementation checkpoint: signed, exact-scope `billing-admin` inspection, stored verified-event replay, and known-subscription refresh commands are executable through execute-only database functions with immutable same-transaction evidence. A real Stripe test-mode Checkout/webhook/failure/remediation/cancellation exercise and mismatch explanation output remain.
+
 ### P2.7 Global control plane and cell data boundary
 
 Implementation checkpoint: transaction-local Account RLS, versioned request/body/semantic-header-bound route context, signed mutation operation IDs, key rotation, candidate route-key/workload-certificate canaries, overlapping-CA rollover evidence, bounded shared cell replay receipts with a lease-coordinated per-cell cleanup worker, placement-generation rejection, draining/frozen write denial, executable app-router/app-api/admission-api modes, content-free route status, bounded directory caching, TLS 1.3 workload identity, stateless router-replica handoff, shared cell-replica replay defense, zero-unavailable/node-spread router rollout, one-retry same-cell Service connection recovery with fresh route receipts and stable mutation identity, idempotent admission connection recovery, routed Work reads/commands, split-role global capacity admission, a split-credential Work capacity reconciler, and a three-database two-cell placement/move/attack/outage contract are implemented. Applied ingress failure injection, managed database, sustained admission-outage, and load/fairness evidence remain. See [routing-boundary.md](routing-boundary.md).
