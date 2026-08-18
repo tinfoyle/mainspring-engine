@@ -26,7 +26,7 @@ func (r *InvitationRepository) Create(ctx context.Context, value accounts.Invita
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var exists bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.account_id=$1 AND u.primary_email=$2 AND m.state='active')`, value.AccountID, value.Email).Scan(&exists); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.account_id=$1 AND u.primary_email=$2 AND m.state IN ('active','suspended'))`, value.AccountID, value.Email).Scan(&exists); err != nil {
 		return err
 	}
 	if exists {
@@ -72,7 +72,7 @@ func (r *InvitationRepository) Accept(ctx context.Context, userID ids.UserID, ha
 	}
 	membership := accounts.Membership{ID: membershipID, AccountID: invitation.AccountID, UserID: userID, Role: invitation.Role, State: accounts.MembershipActive, Version: 1, CreatedAt: now.UTC()}
 	_, err = tx.Exec(ctx, `INSERT INTO memberships(id,account_id,user_id,role,state,version,created_at)VALUES($1,$2,$3,$4,$5,$6,$7)`, membership.ID, membership.AccountID, membership.UserID, membership.Role, membership.State, membership.Version, membership.CreatedAt)
-	if isUniqueConstraint(err, "memberships_account_id_user_id_key") {
+	if isUniqueConstraint(err, "memberships_account_user_current") {
 		return accounts.Membership{}, invitations.ErrMembershipExists
 	}
 	if err != nil {

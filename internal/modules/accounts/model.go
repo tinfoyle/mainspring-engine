@@ -26,11 +26,12 @@ const (
 	RoleMember        MembershipRole = "member"
 	RoleViewer        MembershipRole = "viewer"
 
-	MembershipActive   MembershipState = "active"
-	MembershipRemoved  MembershipState = "removed"
-	InvitationPending  InvitationState = "pending"
-	InvitationAccepted InvitationState = "accepted"
-	InvitationRevoked  InvitationState = "revoked"
+	MembershipActive    MembershipState = "active"
+	MembershipSuspended MembershipState = "suspended"
+	MembershipRemoved   MembershipState = "removed"
+	InvitationPending   InvitationState = "pending"
+	InvitationAccepted  InvitationState = "accepted"
+	InvitationRevoked   InvitationState = "revoked"
 )
 
 type Account struct {

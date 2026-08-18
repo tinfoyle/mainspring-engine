@@ -401,6 +401,9 @@ Route organization mirrors features, not page technology:
 GET    /api/v1/accounts/{account_id}/memberships
 PATCH  /api/v1/accounts/{account_id}/memberships/{membership_id}
 DELETE /api/v1/accounts/{account_id}/memberships/{membership_id}
+POST   /api/v1/accounts/{account_id}/memberships/{membership_id}/suspensions
+DELETE /api/v1/accounts/{account_id}/memberships/{membership_id}/suspensions
+DELETE /api/v1/accounts/{account_id}/membership
 POST   /api/v1/accounts/{account_id}/ownership-transfers
 /api/v1/accounts/{account_id}/entitlements
 /api/v1/catalog/public

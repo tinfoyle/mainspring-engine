@@ -235,10 +235,15 @@
 .member-list .ownership-form button { border: 1px solid #c69043; background: #fff9ef; color: #855a1d; }
 .member-list .remove-member-form { grid-template-columns: auto; }
 .member-list .remove-member-form button { border: 1px solid #e2b9b2; background: #fff5f3; color: #8b463d; }
+.member-list .state-member-form { grid-template-columns: auto; }
+.member-list .state-member-form button { border: 1px solid #bfd4c6; background: #f3faf6; color: var(--green-dark); }
 .invite-member { display: grid; grid-template-columns: minmax(230px,.65fr) minmax(0,1.35fr); align-items: end; gap: 20px; padding: 20px 18px; background: #fbfcfa; }
 .invite-member h3 { margin: 0; font: 700 1rem var(--display); }
 .invite-member p:not(.eyebrow) { margin: 7px 0 0; color: var(--muted); font-size: .6rem; line-height: 1.5; }
 .invite-member form { padding: 0; }
 .team-footnote { margin: 0; border-top: 1px solid var(--line); padding: 12px 18px; color: var(--muted); font-size: .55rem; line-height: 1.5; }
+.account-leave form { display: grid; grid-template-columns: minmax(180px,280px) auto; align-items: end; gap: 10px; padding: 18px; }
+.account-leave form button { min-height: 49px; border: 1px solid #e2b9b2; border-radius: 10px; background: #fff5f3; padding: 0 18px; color: #8b463d; font-weight: 760; cursor: pointer; }
+.account-leave > p { margin: 0; border-top: 1px solid var(--line); padding: 12px 18px; color: var(--muted); font-size: .56rem; }
 @media(max-width:1100px){.member-list > article{grid-template-columns:1fr}.member-list form,.member-list .ownership-form{grid-template-columns:repeat(3,minmax(0,1fr))}.member-list .remove-member-form{grid-template-columns:auto}.invite-member{grid-template-columns:1fr}}
-@media(max-width:650px){.member-list form,.member-list .ownership-form,.invite-member form{grid-template-columns:1fr}.member-list form button{width:100%}}
+@media(max-width:650px){.member-list form,.member-list .ownership-form,.invite-member form,.account-leave form{grid-template-columns:1fr}.member-list form button{width:100%}}

@@ -351,6 +351,27 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if staleRoleChange.StatusCode != http.StatusConflict || !bytes.Contains(staleRoleChange.Body, []byte(`"code":"membership_version_conflict"`)) {
 		t.Fatalf("stale Membership role change: %d %s", staleRoleChange.StatusCode, staleRoleChange.Body)
 	}
+	suspensionURL := roleChangeURL + "/suspensions"
+	suspended := requestJSONCookie(t, http.MethodPost, suspensionURL, `{"expected_version":2,"reason":"Temporary access review"}`, cookies[0])
+	if suspended.StatusCode != http.StatusOK || !bytes.Contains(suspended.Body, []byte(`"state":"suspended"`)) || !bytes.Contains(suspended.Body, []byte(`"version":3`)) {
+		t.Fatalf("suspend Membership: %d %s", suspended.StatusCode, suspended.Body)
+	}
+	suspendedAccounts := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/session/accounts", "", memberCookies[0])
+	if suspendedAccounts.StatusCode != http.StatusOK || bytes.Contains(suspendedAccounts.Body, []byte(provisioned.Account.ID)) {
+		t.Fatalf("suspended Membership retained Account access: %d %s", suspendedAccounts.StatusCode, suspendedAccounts.Body)
+	}
+	suspendedRosterAccess := requestJSONCookie(t, http.MethodGet, membershipURL, "", memberCookies[0])
+	if suspendedRosterAccess.StatusCode != http.StatusForbidden || !bytes.Contains(suspendedRosterAccess.Body, []byte(`"code":"membership_denied"`)) {
+		t.Fatalf("suspended Membership retained roster access: %d %s", suspendedRosterAccess.StatusCode, suspendedRosterAccess.Body)
+	}
+	staleReactivate := requestJSONCookie(t, http.MethodDelete, suspensionURL, `{"expected_version":2,"reason":"Stale restore"}`, cookies[0])
+	if staleReactivate.StatusCode != http.StatusConflict || !bytes.Contains(staleReactivate.Body, []byte(`"code":"membership_version_conflict"`)) {
+		t.Fatalf("stale reactivation: %d %s", staleReactivate.StatusCode, staleReactivate.Body)
+	}
+	reactivated := requestJSONCookie(t, http.MethodDelete, suspensionURL, `{"expected_version":3,"reason":"Access review completed"}`, cookies[0])
+	if reactivated.StatusCode != http.StatusOK || !bytes.Contains(reactivated.Body, []byte(`"state":"active"`)) || !bytes.Contains(reactivated.Body, []byte(`"version":4`)) {
+		t.Fatalf("reactivate Membership: %d %s", reactivated.StatusCode, reactivated.Body)
+	}
 	memberPasskeyRegistration := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, memberCookies[0])
 	var memberPasskeyCeremony struct {
 		CeremonyID string `json:"ceremony_id"`
@@ -368,17 +389,21 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if memberPasskeyCompletion.StatusCode != http.StatusCreated {
 		t.Fatalf("new-owner passkey enrollment: %d %s", memberPasskeyCompletion.StatusCode, memberPasskeyCompletion.Body)
 	}
-	transfer := postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/ownership-transfers", fmt.Sprintf(`{"target_membership_id":%q,"expected_actor_version":%d,"expected_target_version":2,"reason":"Planned leadership transition"}`, memberMembershipID, ownerVersion), cookies[0])
+	transfer := postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/ownership-transfers", fmt.Sprintf(`{"target_membership_id":%q,"expected_actor_version":%d,"expected_target_version":4,"reason":"Planned leadership transition"}`, memberMembershipID, ownerVersion), cookies[0])
 	if transfer.StatusCode != http.StatusOK || !bytes.Contains(transfer.Body, []byte(`"role":"owner"`)) || !bytes.Contains(transfer.Body, []byte(`"role":"administrator"`)) {
 		t.Fatalf("ownership transfer: %d %s", transfer.StatusCode, transfer.Body)
 	}
-	removeOwnerAttempt := requestJSONCookie(t, http.MethodDelete, membershipURL+"/"+memberMembershipID, `{"expected_version":3,"reason":"Cannot remove current owner"}`, cookies[0])
+	removeOwnerAttempt := requestJSONCookie(t, http.MethodDelete, membershipURL+"/"+memberMembershipID, `{"expected_version":5,"reason":"Cannot remove current owner"}`, cookies[0])
 	if removeOwnerAttempt.StatusCode != http.StatusConflict || !bytes.Contains(removeOwnerAttempt.Body, []byte(`"code":"ownership_required"`)) {
 		t.Fatalf("previous owner continuity guard: %d %s", removeOwnerAttempt.StatusCode, removeOwnerAttempt.Body)
 	}
-	removePreviousOwner := requestJSONCookie(t, http.MethodDelete, membershipURL+"/"+ownerMembershipID, `{"expected_version":2,"reason":"Previous owner access concluded"}`, memberCookies[0])
-	if removePreviousOwner.StatusCode != http.StatusNoContent {
-		t.Fatalf("remove previous owner: %d %s", removePreviousOwner.StatusCode, removePreviousOwner.Body)
+	ownerLeaveAttempt := requestJSONCookie(t, http.MethodDelete, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/membership", `{"expected_version":5,"reason":"Owner cannot abandon Account"}`, memberCookies[0])
+	if ownerLeaveAttempt.StatusCode != http.StatusConflict || !bytes.Contains(ownerLeaveAttempt.Body, []byte(`"code":"ownership_required"`)) {
+		t.Fatalf("owner self-leave guard: %d %s", ownerLeaveAttempt.StatusCode, ownerLeaveAttempt.Body)
+	}
+	leavePreviousOwner := requestJSONCookie(t, http.MethodDelete, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/membership", `{"expected_version":2,"reason":"Previous owner chose to leave"}`, cookies[0])
+	if leavePreviousOwner.StatusCode != http.StatusNoContent {
+		t.Fatalf("previous owner self-leave: %d %s", leavePreviousOwner.StatusCode, leavePreviousOwner.Body)
 	}
 	removedOwnerList := requestJSONCookie(t, http.MethodGet, membershipURL, "", cookies[0])
 	if removedOwnerList.StatusCode != http.StatusForbidden || !bytes.Contains(removedOwnerList.Body, []byte(`"code":"membership_denied"`)) {

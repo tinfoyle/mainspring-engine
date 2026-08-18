@@ -35,13 +35,17 @@ func (s memberState) AccessState(context.Context, ids.UserID, ids.AccountID) (ac
 }
 
 type memberRepository struct {
-	changeCalls, removeCalls, transferCalls int
-	change                                  ChangeRoleMutation
-	remove                                  RemoveMutation
-	transfer                                TransferMutation
+	changeCalls, removeCalls, transferCalls, stateCalls int
+	change                                              ChangeRoleMutation
+	remove                                              RemoveMutation
+	transfer                                            TransferMutation
+	state                                               StateMutation
 }
 
 func (*memberRepository) List(context.Context, ids.AccountID) ([]Member, error) { return nil, nil }
+func (*memberRepository) Current(context.Context, ids.AccountID, ids.UserID) (Member, error) {
+	return Member{MembershipID: memberTestTarget, UserID: memberTestUser, Role: accounts.RoleMember, State: accounts.MembershipActive, Version: 1}, nil
+}
 func (r *memberRepository) ChangeRole(_ context.Context, value ChangeRoleMutation) (Member, error) {
 	r.changeCalls++
 	r.change = value
@@ -52,10 +56,46 @@ func (r *memberRepository) Remove(_ context.Context, value RemoveMutation) error
 	r.remove = value
 	return nil
 }
+func (r *memberRepository) ChangeState(_ context.Context, value StateMutation) (Member, error) {
+	r.stateCalls++
+	r.state = value
+	state := accounts.MembershipSuspended
+	if value.Action == StateActionReactivate {
+		state = accounts.MembershipActive
+	} else if value.Action == StateActionLeave {
+		state = accounts.MembershipRemoved
+	}
+	return Member{MembershipID: value.TargetMembershipID, State: state, Version: value.ExpectedVersion + 1}, nil
+}
 func (r *memberRepository) TransferOwnership(_ context.Context, value TransferMutation) (TransferResult, error) {
 	r.transferCalls++
 	r.transfer = value
 	return TransferResult{NewOwner: Member{MembershipID: value.TargetMembershipID, Role: accounts.RoleOwner}}, nil
+}
+
+func TestMembershipLifecycleRequiresStrongEvidenceAndCarriesStatePolicy(t *testing.T) {
+	now := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
+	repository := &memberRepository{}
+	owner, _ := access.NewAuthorizer(memberState{role: accounts.RoleOwner})
+	service, _ := NewService(repository, owner, memberIDs{}, memberClock{now})
+	strong := sessions.Session{UserID: memberTestUser, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey}
+
+	suspended, err := service.Suspend(context.Background(), StateCommand{ActorUserID: memberTestUser, Session: strong, AccountID: memberTestAccount, TargetMembershipID: memberTestTarget, ExpectedVersion: 2, Reason: " Temporary access hold "})
+	if err != nil || suspended.State != accounts.MembershipSuspended || repository.state.Action != StateActionSuspend || repository.state.Reason != "Temporary access hold" || repository.state.ExpectedActorRole != accounts.RoleOwner {
+		t.Fatalf("suspended=%+v mutation=%+v err=%v", suspended, repository.state, err)
+	}
+	if _, err := service.Reactivate(context.Background(), StateCommand{ActorUserID: memberTestUser, Session: sessions.Session{UserID: memberTestUser, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPassword}, AccountID: memberTestAccount, TargetMembershipID: memberTestTarget, ExpectedVersion: 3, Reason: "Restore access"}); !errors.Is(err, strongauth.ErrRequired) {
+		t.Fatalf("weak reactivation error=%v", err)
+	}
+
+	member, _ := access.NewAuthorizer(memberState{role: accounts.RoleMember})
+	service, _ = NewService(repository, member, memberIDs{}, memberClock{now})
+	if err := service.Leave(context.Background(), LeaveCommand{ActorUserID: memberTestUser, Session: strong, AccountID: memberTestAccount, ExpectedVersion: 4, Reason: " Voluntary departure "}); err != nil || repository.state.Action != StateActionLeave || repository.state.TargetMembershipID != "" || repository.state.Reason != "Voluntary departure" {
+		t.Fatalf("leave mutation=%+v err=%v", repository.state, err)
+	}
+	if repository.stateCalls != 2 {
+		t.Fatalf("state calls=%d", repository.stateCalls)
+	}
 }
 
 func TestOwnerMutationsCarryStrongActorBoundEvidenceAndAuditInputs(t *testing.T) {

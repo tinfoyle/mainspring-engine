@@ -167,6 +167,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/memberships", s.listMemberships)
 	mux.HandleFunc("PATCH /api/v1/accounts/{accountID}/memberships/{membershipID}", s.changeMembershipRole)
 	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/memberships/{membershipID}", s.removeMembership)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions", s.suspendMembership)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions", s.reactivateMembership)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/membership", s.leaveAccount)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/ownership-transfers", s.transferOwnership)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/checkout-sessions", s.createCheckoutSession)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/billing-portal-sessions", s.createBillingPortalSession)
@@ -421,6 +424,67 @@ func (s *Server) removeMembership(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) suspendMembership(w http.ResponseWriter, r *http.Request) {
+	s.changeMembershipState(w, r, true)
+}
+
+func (s *Server) reactivateMembership(w http.ResponseWriter, r *http.Request) {
+	s.changeMembershipState(w, r, false)
+}
+
+func (s *Server) changeMembershipState(w http.ResponseWriter, r *http.Request, suspend bool) {
+	authenticated, accountID, ok := s.membershipRequest(w, r, true)
+	if !ok {
+		return
+	}
+	memberID := r.PathValue("membershipID")
+	if ids.Validate(memberID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_membership_id", "Membership ID is invalid")
+		return
+	}
+	var input struct {
+		ExpectedVersion uint64 `json:"expected_version"`
+		Reason          string `json:"reason"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	command := accountmembers.StateCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, TargetMembershipID: ids.MembershipID(memberID), ExpectedVersion: input.ExpectedVersion, Reason: input.Reason}
+	var member accountmembers.Member
+	var err error
+	if suspend {
+		member, err = s.members.Suspend(r.Context(), command)
+	} else {
+		member, err = s.members.Reactivate(r.Context(), command)
+	}
+	if err != nil {
+		s.writeMembershipError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"membership": member})
+}
+
+func (s *Server) leaveAccount(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.membershipRequest(w, r, true)
+	if !ok {
+		return
+	}
+	var input struct {
+		ExpectedVersion uint64 `json:"expected_version"`
+		Reason          string `json:"reason"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if err := s.members.Leave(r.Context(), accountmembers.LeaveCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, ExpectedVersion: input.ExpectedVersion, Reason: input.Reason}); err != nil {
+		s.writeMembershipError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) transferOwnership(w http.ResponseWriter, r *http.Request) {
 	authenticated, accountID, ok := s.membershipRequest(w, r, true)
 	if !ok {
@@ -477,6 +541,8 @@ func (s *Server) writeMembershipError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, "membership_not_found", "the Membership was not found")
 	case errors.Is(err, accountmembers.ErrVersionConflict):
 		writeProblem(w, http.StatusConflict, "membership_version_conflict", "the Membership changed; reload before trying again")
+	case errors.Is(err, accountmembers.ErrStateConflict):
+		writeProblem(w, http.StatusConflict, "membership_state_conflict", "the Membership is not in a state that allows this change")
 	case errors.Is(err, accountmembers.ErrOwnershipRequired):
 		writeProblem(w, http.StatusConflict, "ownership_required", "transfer ownership before changing or removing the owner")
 	case errors.Is(err, accountmembers.ErrRoleInvalid), errors.Is(err, accountmembers.ErrReasonRequired):

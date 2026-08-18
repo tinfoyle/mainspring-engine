@@ -14,7 +14,7 @@ func (s *Store) List(_ context.Context, accountID ids.AccountID) ([]accountmembe
 	defer s.mu.RUnlock()
 	result := make([]accountmembers.Member, 0)
 	for _, membership := range s.memberships {
-		if membership.AccountID != accountID || membership.State != accounts.MembershipActive {
+		if membership.AccountID != accountID || (membership.State != accounts.MembershipActive && membership.State != accounts.MembershipSuspended) {
 			continue
 		}
 		user, ok := s.users[membership.UserID]
@@ -36,6 +36,17 @@ func (s *Store) List(_ context.Context, accountID ids.AccountID) ([]accountmembe
 		return result[i].DisplayName < result[j].DisplayName
 	})
 	return result, nil
+}
+
+func (s *Store) Current(_ context.Context, accountID ids.AccountID, userID ids.UserID) (accountmembers.Member, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	membership, ok := s.activeMembershipForUser(accountID, userID)
+	if !ok {
+		return accountmembers.Member{}, accountmembers.ErrMembershipNotFound
+	}
+	user := s.users[membership.UserID]
+	return memberView(membership, user.DisplayName, user.PrimaryEmail), nil
 }
 
 func (s *Store) ChangeRole(_ context.Context, mutation accountmembers.ChangeRoleMutation) (accountmembers.Member, error) {
@@ -64,6 +75,61 @@ func (s *Store) ChangeRole(_ context.Context, mutation accountmembers.ChangeRole
 	return memberView(target, user.DisplayName, user.PrimaryEmail), nil
 }
 
+func (s *Store) ChangeState(_ context.Context, mutation accountmembers.StateMutation) (accountmembers.Member, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	actor, ok := s.activeMembershipForUser(mutation.AccountID, mutation.ActorUserID)
+	if !ok || actor.Role != mutation.ExpectedActorRole {
+		return accountmembers.Member{}, accountmembers.ErrTargetDenied
+	}
+	target := accounts.Membership{}
+	switch mutation.Action {
+	case accountmembers.StateActionLeave:
+		target = actor
+	case accountmembers.StateActionSuspend, accountmembers.StateActionReactivate:
+		if actor.Role != accounts.RoleOwner && actor.Role != accounts.RoleAdministrator {
+			return accountmembers.Member{}, accountmembers.ErrTargetDenied
+		}
+		var found bool
+		target, found = s.memberships[mutation.TargetMembershipID]
+		if !found || target.AccountID != mutation.AccountID || target.State == accounts.MembershipRemoved {
+			return accountmembers.Member{}, accountmembers.ErrMembershipNotFound
+		}
+	default:
+		return accountmembers.Member{}, accountmembers.ErrStateConflict
+	}
+	if target.Version != mutation.ExpectedVersion {
+		return accountmembers.Member{}, accountmembers.ErrVersionConflict
+	}
+	if target.Role == accounts.RoleOwner {
+		return accountmembers.Member{}, accountmembers.ErrOwnershipRequired
+	}
+	if mutation.Action != accountmembers.StateActionLeave && actor.Role == accounts.RoleAdministrator && target.Role == accounts.RoleAdministrator {
+		return accountmembers.Member{}, accountmembers.ErrTargetDenied
+	}
+	switch mutation.Action {
+	case accountmembers.StateActionLeave:
+		if target.State != accounts.MembershipActive {
+			return accountmembers.Member{}, accountmembers.ErrStateConflict
+		}
+		target.State = accounts.MembershipRemoved
+	case accountmembers.StateActionSuspend:
+		if target.State != accounts.MembershipActive {
+			return accountmembers.Member{}, accountmembers.ErrStateConflict
+		}
+		target.State = accounts.MembershipSuspended
+	case accountmembers.StateActionReactivate:
+		if target.State != accounts.MembershipSuspended {
+			return accountmembers.Member{}, accountmembers.ErrStateConflict
+		}
+		target.State = accounts.MembershipActive
+	}
+	target.Version++
+	s.memberships[target.ID] = target
+	user := s.users[target.UserID]
+	return memberView(target, user.DisplayName, user.PrimaryEmail), nil
+}
+
 func (s *Store) Remove(_ context.Context, mutation accountmembers.RemoveMutation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -72,7 +138,7 @@ func (s *Store) Remove(_ context.Context, mutation accountmembers.RemoveMutation
 		return accountmembers.ErrTargetDenied
 	}
 	target, ok := s.memberships[mutation.TargetMembershipID]
-	if !ok || target.AccountID != mutation.AccountID || target.State != accounts.MembershipActive {
+	if !ok || target.AccountID != mutation.AccountID || (target.State != accounts.MembershipActive && target.State != accounts.MembershipSuspended) {
 		return accountmembers.ErrMembershipNotFound
 	}
 	if target.Role == accounts.RoleOwner {

@@ -24,7 +24,7 @@ This repository now contains the first executable production slice for Infinite 
 - A shared authorization policy that keeps authentication, Account Membership, role, Account state, and Feature Package access separate.
 - Explicit Account listing and selection; the selected browser Account is never treated as authorization without rechecking Membership and placement.
 - Invitation creation and acceptance for existing system-wide identities. Acceptance creates a Membership, not a duplicate User or per-customer runtime.
-- Account Membership governance with owner/administrator roster visibility, owner-only non-owner role changes, bounded removal authority, optimistic versions, atomic ownership transfer, transactional actor/target rechecks, and immutable reasoned audit events.
+- Account Membership governance with owner/administrator active-and-suspended roster visibility, owner-only non-owner role changes, bounded removal and suspension authority, role-preserving reactivation, non-owner self-service leave, optimistic versions, atomic ownership transfer, transactional actor/target rechecks, and immutable before/after audit events.
 - A responsive private application shell for signup, verification, login, Account switching, invitation acceptance, package visibility, and the operational overview.
 - Raw-body Stripe signature verification, durable event deduplication, leased asynchronous processing, crash recovery, and bounded retry scheduling.
 - Server-created Stripe Customer, hosted Checkout, and Customer Portal sessions using authorized Account roles, UUID idempotency keys, exact return origins, and private Offer-to-Price mappings.
@@ -97,6 +97,9 @@ POST /api/v1/accounts/{accountID}/invitations
 GET  /api/v1/accounts/{accountID}/memberships
 PATCH /api/v1/accounts/{accountID}/memberships/{membershipID}
 DELETE /api/v1/accounts/{accountID}/memberships/{membershipID}
+POST /api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions
+DELETE /api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions
+DELETE /api/v1/accounts/{accountID}/membership
 POST /api/v1/accounts/{accountID}/ownership-transfers
 POST /api/v1/accounts/{accountID}/checkout-sessions
 POST /api/v1/accounts/{accountID}/billing-portal-sessions
@@ -123,6 +126,9 @@ POST     /app/account
 POST     /app/invitations
 POST     /app/memberships/role
 POST     /app/memberships/remove
+POST     /app/memberships/suspend
+POST     /app/memberships/reactivate
+POST     /app/memberships/leave
 POST     /app/ownership-transfer
 POST     /app/billing/checkout
 POST     /app/billing/portal
@@ -143,7 +149,7 @@ npm run dev
 
 ## Next production slices
 
-1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up; add self-service Account leave, suspension/reactivation, ownership-transfer notification, and Account lifecycle workflows; then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
+1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up; add ownership-transfer notification and Account closure/deletion workflows; then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Add fair asynchronous admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests; bounded directory routing and internal workload identity are now executable.
@@ -152,7 +158,7 @@ npm run dev
 ## Evidence and current limits
 
 - `go test ./...`, `go vet ./...`, and `govulncheck ./...` pass with Go 1.26.6. Go 1.26.5 was rejected after the vulnerability scan found reachable standard-library advisories fixed by 1.26.6.
-- Rendered browser journey coverage proves signup → verification/password → password/passkey login surfaces → Account shell, identity security/passkey management, locked/read-only Work package behavior, entitled Work queue structure, and enabled create controls; API journey coverage proves invitation → existing identity → Membership → Account list and signed Work read/command contracts.
+- Rendered browser journey coverage proves signup → verification/password → password/passkey login surfaces → Account shell, identity security/passkey management, Membership lifecycle controls, locked/read-only Work package behavior, entitled Work queue structure, and enabled create controls; API journey coverage proves invitation → existing identity → Membership role/suspension/reactivation/ownership/self-leave → Account-list revocation and signed Work read/command contracts.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
 - Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification and passkey persistence, single-use passkey ceremonies, credential-counter fencing and cross-User isolation, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, forward and lower-version entitlement rollout, unchanged-access drift repair, independent-grant preservation, governed limit propagation, concurrent capacity admission without oversubscription, UUID retry/release idempotency, expiry reclamation, stale-entitlement rejection, registration, Checkout reservation concurrency, broker-backed Work creation/compensation through split global/cell roles, Work optimistic concurrency, direct Account-scoped Work queries, and transaction-local RLS isolation through non-owner roles. Kubernetes resources remain review-only and have not been applied to a cluster.

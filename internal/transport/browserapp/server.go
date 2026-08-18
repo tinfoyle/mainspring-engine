@@ -147,6 +147,9 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /app/invitations", s.createInvitation)
 	mux.HandleFunc("POST /app/memberships/role", s.changeMembershipRole)
 	mux.HandleFunc("POST /app/memberships/remove", s.removeMembership)
+	mux.HandleFunc("POST /app/memberships/suspend", s.suspendMembership)
+	mux.HandleFunc("POST /app/memberships/reactivate", s.reactivateMembership)
+	mux.HandleFunc("POST /app/memberships/leave", s.leaveAccount)
 	mux.HandleFunc("POST /app/ownership-transfer", s.transferOwnership)
 	mux.HandleFunc("POST /app/billing/checkout", s.startCheckout)
 	mux.HandleFunc("POST /app/billing/portal", s.openBillingPortal)
@@ -255,7 +258,7 @@ type pageData struct {
 	Catalog                                                                                 catalog.PublishedCatalog
 	PackageModes                                                                            map[catalog.PackageCode]catalog.PackageMode
 	CanInvite                                                                               bool
-	CanManageMembers, CanTransferOwnership                                                  bool
+	CanManageMembers, CanTransferOwnership, CanLeaveAccount                                 bool
 	Members                                                                                 []memberView
 	ActorMembershipVersion                                                                  uint64
 	BillingConfigured, CanManageBilling, CanStartCheckout, HasBillingCustomer               bool
@@ -284,7 +287,7 @@ type securityEventView struct {
 
 type memberView struct {
 	accountmembers.Member
-	CanChangeRole, CanRemove, CanTransfer, IsSelf bool
+	CanChangeRole, CanRemove, CanTransfer, CanSuspend, CanReactivate, IsSelf bool
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, data pageData) {
@@ -394,6 +397,15 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 	data.DevelopmentToken = r.URL.Query().Get("development_token")
 	data.BillingConfigured = s.commercial != nil
 	if data.Selected != nil {
+		if s.members != nil {
+			current, err := s.members.Current(r.Context(), authenticated.Session.UserID, data.Selected.AccountID)
+			if err != nil {
+				s.logger.Error("load current Account Membership", "account_id", data.Selected.AccountID, "error", err)
+			} else {
+				data.ActorMembershipVersion = current.Version
+				data.CanLeaveAccount = current.Role != accounts.RoleOwner
+			}
+		}
 		if s.members != nil && (data.Selected.Role == accounts.RoleOwner || data.Selected.Role == accounts.RoleAdministrator) {
 			members, err := s.members.List(r.Context(), authenticated.Session.UserID, data.Selected.AccountID)
 			if err != nil {
@@ -403,9 +415,11 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 				data.CanTransferOwnership = data.Selected.Role == accounts.RoleOwner
 				for _, member := range members {
 					view := memberView{Member: member, IsSelf: member.UserID == authenticated.Session.UserID}
-					view.CanChangeRole = data.Selected.Role == accounts.RoleOwner && member.Role != accounts.RoleOwner
+					view.CanChangeRole = member.State == accounts.MembershipActive && data.Selected.Role == accounts.RoleOwner && member.Role != accounts.RoleOwner
 					view.CanRemove = member.Role != accounts.RoleOwner && (data.Selected.Role == accounts.RoleOwner || member.Role != accounts.RoleAdministrator)
-					view.CanTransfer = data.Selected.Role == accounts.RoleOwner && member.Role != accounts.RoleOwner
+					view.CanTransfer = member.State == accounts.MembershipActive && data.Selected.Role == accounts.RoleOwner && member.Role != accounts.RoleOwner
+					view.CanSuspend = member.State == accounts.MembershipActive && member.Role != accounts.RoleOwner && (data.Selected.Role == accounts.RoleOwner || member.Role != accounts.RoleAdministrator)
+					view.CanReactivate = member.State == accounts.MembershipSuspended && member.Role != accounts.RoleOwner && (data.Selected.Role == accounts.RoleOwner || member.Role != accounts.RoleAdministrator)
 					data.Members = append(data.Members, view)
 					if view.IsSelf {
 						data.ActorMembershipVersion = member.Version
@@ -559,6 +573,61 @@ func (s *Server) removeMembership(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/app?status=member_removed#settings", http.StatusSeeOther)
 }
 
+func (s *Server) suspendMembership(w http.ResponseWriter, r *http.Request) {
+	s.changeMembershipState(w, r, true)
+}
+
+func (s *Server) reactivateMembership(w http.ResponseWriter, r *http.Request) {
+	s.changeMembershipState(w, r, false)
+}
+
+func (s *Server) changeMembershipState(w http.ResponseWriter, r *http.Request, suspend bool) {
+	authenticated, accountID, membershipID, version, ok := s.membershipForm(w, r)
+	if !ok {
+		return
+	}
+	command := accountmembers.StateCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, TargetMembershipID: membershipID, ExpectedVersion: version, Reason: r.FormValue("reason")}
+	var err error
+	if suspend {
+		_, err = s.members.Suspend(r.Context(), command)
+	} else {
+		_, err = s.members.Reactivate(r.Context(), command)
+	}
+	if err != nil {
+		s.redirectMembershipError(w, r, err)
+		return
+	}
+	status := "member_reactivated"
+	if suspend {
+		status = "member_suspended"
+	}
+	http.Redirect(w, r, "/app?status="+status+"#settings", http.StatusSeeOther)
+}
+
+func (s *Server) leaveAccount(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.members == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Membership request was not accepted.", http.StatusForbidden)
+		return
+	}
+	accountID := r.FormValue("account_id")
+	version, err := strconv.ParseUint(r.FormValue("version"), 10, 64)
+	if ids.Validate(accountID) != nil || err != nil || version == 0 || r.FormValue("confirmation") != "LEAVE" {
+		http.Error(w, "Membership request was invalid.", http.StatusBadRequest)
+		return
+	}
+	err = s.members.Leave(r.Context(), accountmembers.LeaveCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: ids.AccountID(accountID), ExpectedVersion: version, Reason: r.FormValue("reason")})
+	if err != nil {
+		s.redirectMembershipError(w, r, err)
+		return
+	}
+	s.clearAccountCookie(w)
+	http.Redirect(w, r, "/app?status=account_left", http.StatusSeeOther)
+}
+
 func (s *Server) transferOwnership(w http.ResponseWriter, r *http.Request) {
 	authenticated, ok := s.requireSession(w, r)
 	if !ok {
@@ -606,7 +675,7 @@ func (s *Server) redirectMembershipError(w http.ResponseWriter, r *http.Request,
 		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
 		return
 	}
-	if errors.Is(err, accountmembers.ErrVersionConflict) {
+	if errors.Is(err, accountmembers.ErrVersionConflict) || errors.Is(err, accountmembers.ErrStateConflict) {
 		http.Redirect(w, r, "/app?status=membership_conflict#settings", http.StatusSeeOther)
 		return
 	}
@@ -838,6 +907,9 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string, expires t
 func (s *Server) setAccountCookie(w http.ResponseWriter, accountID string) {
 	http.SetCookie(w, &http.Cookie{Name: s.config.AccountCookieName, Value: accountID, Path: "/", HttpOnly: true, Secure: s.config.SecureCookies, SameSite: http.SameSiteLaxMode})
 }
+func (s *Server) clearAccountCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: s.config.AccountCookieName, Value: "", Path: "/", HttpOnly: true, Secure: s.config.SecureCookies, SameSite: http.SameSiteLaxMode, Expires: time.Unix(1, 0), MaxAge: -1})
+}
 func (s *Server) clearCookies(w http.ResponseWriter) {
 	for _, name := range []string{s.config.SessionCookieName, s.config.AccountCookieName} {
 		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", HttpOnly: true, Secure: s.config.SecureCookies, SameSite: http.SameSiteLaxMode, Expires: time.Unix(1, 0), MaxAge: -1})
@@ -907,6 +979,12 @@ func appNotice(status string) string {
 		return "Membership role updated and recorded in the Account audit history."
 	case "member_removed":
 		return "Membership removed. The identity no longer has access to this Account."
+	case "member_suspended":
+		return "Membership suspended. Account access is blocked while the role is preserved."
+	case "member_reactivated":
+		return "Membership reactivated with its previous role."
+	case "account_left":
+		return "You left the Account. Your other Account access is unchanged."
 	case "ownership_transferred":
 		return "Ownership transferred atomically. Your Membership is now Administrator."
 	case "membership_conflict":

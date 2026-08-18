@@ -27,7 +27,7 @@ Required invariants:
 - Authenticator clone warnings are rejected and recorded as security events.
 - At most ten passkeys may be registered for one User.
 - Durable sessions record both the initial authentication method and the latest reauthentication method. Password maps to `single_factor`; a user-verified passkey maps to `user_verified_cryptographic`. Neither value contains or grants Account authority.
-- Membership role changes/removals, ownership transfer, invitation creation, Stripe Checkout creation, and Stripe Customer Portal creation require an active authorized role plus user-verified cryptographic proof no older than ten minutes. Password proof cannot satisfy that privileged-operation policy.
+- Membership role/lifecycle/removal changes, self-service Account leave, ownership transfer, invitation creation, Stripe Checkout creation, and Stripe Customer Portal creation require an active authorized role plus user-verified cryptographic proof no older than ten minutes. Password proof cannot satisfy that privileged-operation policy.
 
 ## 2. Code ownership
 
@@ -78,7 +78,7 @@ The session keeps `authentication_method` separate from `reauthentication_method
 
 Active-session API responses expose the two methods and their derived assurance classifications. `strongauth.Require` consumes the session, expected actor, trusted clock, and fixed ten-minute window. Invitation and commercial services call it after Account-role authorization and before persistence or provider calls, so alternate transports cannot bypass the rule. A password confirmation performed after a passkey assertion deliberately replaces the recent assurance and requires another passkey assertion for these operations.
 
-The current privileged set is Membership role change/removal, ownership transfer, invitation creation, Checkout creation, and Customer Portal creation. Invitation acceptance, Account selection, Membership/billing reads, password recovery, and first passkey enrollment are not made impossible by this rule. Recovery replaces the password and revokes all sessions; the User signs in with the new password, enrolls a user-verified passkey, and that enrollment establishes the required recent assurance.
+The current privileged set is Membership role/lifecycle/removal changes, self-service Account leave, ownership transfer, invitation creation, Checkout creation, and Customer Portal creation. Invitation acceptance, Account selection, Membership/billing reads, password recovery, and first passkey enrollment are not made impossible by this rule. Recovery replaces the password and revokes all sessions; the User signs in with the new password, enrolls a user-verified passkey, and that enrollment establishes the required recent assurance.
 
 ## 4. HTTP surface
 

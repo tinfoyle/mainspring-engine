@@ -24,7 +24,7 @@ func (r *AccountMemberRepository) List(ctx context.Context, accountID ids.Accoun
 	rows, err := r.pool.Query(ctx, `
 		SELECT m.id,m.user_id,u.display_name,u.primary_email,m.role,m.state,m.version,m.created_at
 		FROM memberships m JOIN users u ON u.id=m.user_id
-		WHERE m.account_id=$1 AND m.state='active'
+		WHERE m.account_id=$1 AND m.state IN ('active','suspended')
 		ORDER BY CASE WHEN m.role='owner' THEN 0 ELSE 1 END,lower(u.display_name),m.id`, accountID)
 	if err != nil {
 		return nil, err
@@ -39,6 +39,19 @@ func (r *AccountMemberRepository) List(ctx context.Context, accountID ids.Accoun
 		result = append(result, member)
 	}
 	return result, rows.Err()
+}
+
+func (r *AccountMemberRepository) Current(ctx context.Context, accountID ids.AccountID, userID ids.UserID) (accountmembers.Member, error) {
+	var member accountmembers.Member
+	err := r.pool.QueryRow(ctx, `
+		SELECT m.id,m.user_id,u.display_name,u.primary_email,m.role,m.state,m.version,m.created_at
+		FROM memberships m JOIN users u ON u.id=m.user_id
+		WHERE m.account_id=$1 AND m.user_id=$2 AND m.state='active'`, accountID, userID).
+		Scan(&member.MembershipID, &member.UserID, &member.DisplayName, &member.Email, &member.Role, &member.State, &member.Version, &member.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return accountmembers.Member{}, accountmembers.ErrMembershipNotFound
+	}
+	return member, err
 }
 
 func (r *AccountMemberRepository) ChangeRole(ctx context.Context, mutation accountmembers.ChangeRoleMutation) (accountmembers.Member, error) {
@@ -73,7 +86,7 @@ func (r *AccountMemberRepository) ChangeRole(ctx context.Context, mutation accou
 		if _, err := tx.Exec(ctx, `UPDATE memberships SET role=$2,version=$3 WHERE id=$1`, target.MembershipID, target.Role, target.Version); err != nil {
 			return accountmembers.Member{}, classifyMembershipMutation(err)
 		}
-		if err := insertMembershipEvent(ctx, tx, mutation.EventID, mutation.AccountID, mutation.ActorUserID, "role_changed", target.MembershipID, "", previousRole, target.Role, mutation.Reason, mutation.At); err != nil {
+		if err := insertMembershipEvent(ctx, tx, mutation.EventID, mutation.AccountID, mutation.ActorUserID, "role_changed", target.MembershipID, "", previousRole, target.Role, "", "", mutation.Reason, mutation.At); err != nil {
 			return accountmembers.Member{}, classifyMembershipMutation(err)
 		}
 	}
@@ -96,7 +109,7 @@ func (r *AccountMemberRepository) Remove(ctx context.Context, mutation accountme
 	if actor.State != accounts.MembershipActive || actor.Role != mutation.ExpectedActorRole || (actor.Role != accounts.RoleOwner && actor.Role != accounts.RoleAdministrator) {
 		return accountmembers.ErrTargetDenied
 	}
-	if target.State != accounts.MembershipActive {
+	if target.State != accounts.MembershipActive && target.State != accounts.MembershipSuspended {
 		return accountmembers.ErrMembershipNotFound
 	}
 	if target.Role == accounts.RoleOwner {
@@ -111,10 +124,84 @@ func (r *AccountMemberRepository) Remove(ctx context.Context, mutation accountme
 	if _, err := tx.Exec(ctx, `UPDATE memberships SET state='removed',version=version+1 WHERE id=$1`, target.MembershipID); err != nil {
 		return classifyMembershipMutation(err)
 	}
-	if err := insertMembershipEvent(ctx, tx, mutation.EventID, mutation.AccountID, mutation.ActorUserID, "membership_removed", target.MembershipID, "", target.Role, "", mutation.Reason, mutation.At); err != nil {
+	if err := insertMembershipEvent(ctx, tx, mutation.EventID, mutation.AccountID, mutation.ActorUserID, "membership_removed", target.MembershipID, "", target.Role, "", target.State, accounts.MembershipRemoved, mutation.Reason, mutation.At); err != nil {
 		return classifyMembershipMutation(err)
 	}
 	return classifyMembershipMutation(tx.Commit(ctx))
+}
+
+func (r *AccountMemberRepository) ChangeState(ctx context.Context, mutation accountmembers.StateMutation) (accountmembers.Member, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return accountmembers.Member{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var actor, target accountmembers.Member
+	if mutation.Action == accountmembers.StateActionLeave {
+		actor, err = lockCurrentMember(ctx, tx, mutation.AccountID, mutation.ActorUserID)
+		target = actor
+	} else {
+		actor, target, err = lockActorAndTarget(ctx, tx, mutation.AccountID, mutation.ActorUserID, mutation.TargetMembershipID)
+	}
+	if err != nil {
+		return accountmembers.Member{}, classifyMembershipMutation(err)
+	}
+	if actor.State != accounts.MembershipActive || actor.Role != mutation.ExpectedActorRole {
+		return accountmembers.Member{}, accountmembers.ErrTargetDenied
+	}
+	if target.Version != mutation.ExpectedVersion {
+		return accountmembers.Member{}, accountmembers.ErrVersionConflict
+	}
+	if target.Role == accounts.RoleOwner {
+		return accountmembers.Member{}, accountmembers.ErrOwnershipRequired
+	}
+	if mutation.Action != accountmembers.StateActionLeave {
+		if actor.Role != accounts.RoleOwner && actor.Role != accounts.RoleAdministrator {
+			return accountmembers.Member{}, accountmembers.ErrTargetDenied
+		}
+		if actor.Role == accounts.RoleAdministrator && target.Role == accounts.RoleAdministrator {
+			return accountmembers.Member{}, accountmembers.ErrTargetDenied
+		}
+	}
+	previousState, nextState, action := target.State, accounts.MembershipState(""), ""
+	switch mutation.Action {
+	case accountmembers.StateActionLeave:
+		if target.State != accounts.MembershipActive {
+			return accountmembers.Member{}, accountmembers.ErrStateConflict
+		}
+		nextState, action = accounts.MembershipRemoved, "membership_left"
+	case accountmembers.StateActionSuspend:
+		if target.State != accounts.MembershipActive {
+			return accountmembers.Member{}, accountmembers.ErrStateConflict
+		}
+		nextState, action = accounts.MembershipSuspended, "membership_suspended"
+	case accountmembers.StateActionReactivate:
+		if target.State != accounts.MembershipSuspended {
+			return accountmembers.Member{}, accountmembers.ErrStateConflict
+		}
+		nextState, action = accounts.MembershipActive, "membership_reactivated"
+	default:
+		return accountmembers.Member{}, accountmembers.ErrStateConflict
+	}
+	command, err := tx.Exec(ctx, `UPDATE memberships SET state=$2,version=version+1 WHERE id=$1 AND version=$3`, target.MembershipID, nextState, target.Version)
+	if err != nil {
+		return accountmembers.Member{}, classifyMembershipMutation(err)
+	}
+	if command.RowsAffected() != 1 {
+		return accountmembers.Member{}, accountmembers.ErrVersionConflict
+	}
+	newRole := target.Role
+	if mutation.Action == accountmembers.StateActionLeave {
+		newRole = ""
+	}
+	if err := insertMembershipEvent(ctx, tx, mutation.EventID, mutation.AccountID, mutation.ActorUserID, action, target.MembershipID, "", target.Role, newRole, previousState, nextState, mutation.Reason, mutation.At); err != nil {
+		return accountmembers.Member{}, classifyMembershipMutation(err)
+	}
+	target.State, target.Version = nextState, target.Version+1
+	if err := tx.Commit(ctx); err != nil {
+		return accountmembers.Member{}, classifyMembershipMutation(err)
+	}
+	return target, nil
 }
 
 func (r *AccountMemberRepository) TransferOwnership(ctx context.Context, mutation accountmembers.TransferMutation) (accountmembers.TransferResult, error) {
@@ -147,7 +234,7 @@ func (r *AccountMemberRepository) TransferOwnership(ctx context.Context, mutatio
 	if command.RowsAffected() != 2 {
 		return accountmembers.TransferResult{}, accountmembers.ErrVersionConflict
 	}
-	if err := insertMembershipEvent(ctx, tx, mutation.EventID, mutation.AccountID, mutation.ActorUserID, "ownership_transferred", target.MembershipID, actor.MembershipID, previousTargetRole, accounts.RoleOwner, mutation.Reason, mutation.At); err != nil {
+	if err := insertMembershipEvent(ctx, tx, mutation.EventID, mutation.AccountID, mutation.ActorUserID, "ownership_transferred", target.MembershipID, actor.MembershipID, previousTargetRole, accounts.RoleOwner, "", "", mutation.Reason, mutation.At); err != nil {
 		return accountmembers.TransferResult{}, classifyMembershipMutation(err)
 	}
 	actor.Role, actor.Version = accounts.RoleAdministrator, actor.Version+1
@@ -156,6 +243,20 @@ func (r *AccountMemberRepository) TransferOwnership(ctx context.Context, mutatio
 		return accountmembers.TransferResult{}, classifyMembershipMutation(err)
 	}
 	return accountmembers.TransferResult{PreviousOwner: actor, NewOwner: target}, nil
+}
+
+func lockCurrentMember(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, actorUserID ids.UserID) (accountmembers.Member, error) {
+	var member accountmembers.Member
+	err := tx.QueryRow(ctx, `
+		SELECT m.id,m.user_id,u.display_name,u.primary_email,m.role,m.state,m.version,m.created_at
+		FROM memberships m JOIN users u ON u.id=m.user_id
+		WHERE m.account_id=$1 AND m.user_id=$2
+		FOR UPDATE OF m`, accountID, actorUserID).
+		Scan(&member.MembershipID, &member.UserID, &member.DisplayName, &member.Email, &member.Role, &member.State, &member.Version, &member.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return accountmembers.Member{}, accountmembers.ErrMembershipNotFound
+	}
+	return member, err
 }
 
 func lockActorAndTarget(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, actorUserID ids.UserID, targetMembershipID ids.MembershipID) (accountmembers.Member, accountmembers.Member, error) {
@@ -190,7 +291,7 @@ func lockActorAndTarget(ctx context.Context, tx pgx.Tx, accountID ids.AccountID,
 	return actor, target, nil
 }
 
-func insertMembershipEvent(ctx context.Context, tx pgx.Tx, eventID string, accountID ids.AccountID, actorUserID ids.UserID, action string, targetID, previousOwnerID ids.MembershipID, previousRole, newRole accounts.MembershipRole, reason string, at time.Time) error {
+func insertMembershipEvent(ctx context.Context, tx pgx.Tx, eventID string, accountID ids.AccountID, actorUserID ids.UserID, action string, targetID, previousOwnerID ids.MembershipID, previousRole, newRole accounts.MembershipRole, previousState, newState accounts.MembershipState, reason string, at time.Time) error {
 	var previousOwner any
 	if previousOwnerID != "" {
 		previousOwner = previousOwnerID
@@ -199,7 +300,14 @@ func insertMembershipEvent(ctx context.Context, tx pgx.Tx, eventID string, accou
 	if newRole != "" {
 		nextRole = newRole
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO account_membership_events(id,account_id,actor_user_id,action,target_membership_id,previous_owner_membership_id,previous_role,new_role,reason,occurred_at)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, eventID, accountID, actorUserID, action, targetID, previousOwner, previousRole, nextRole, reason, at)
+	var beforeState, nextState any
+	if previousState != "" {
+		beforeState = previousState
+	}
+	if newState != "" {
+		nextState = newState
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO account_membership_events(id,account_id,actor_user_id,action,target_membership_id,previous_owner_membership_id,previous_role,new_role,previous_state,new_state,reason,occurred_at)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, eventID, accountID, actorUserID, action, targetID, previousOwner, previousRole, nextRole, beforeState, nextState, reason, at)
 	return err
 }
 

@@ -13,7 +13,7 @@ func (s *Store) Create(_ context.Context, value accounts.Invitation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, membership := range s.memberships {
-		if membership.AccountID != value.AccountID || membership.State != accounts.MembershipActive {
+		if membership.AccountID != value.AccountID || (membership.State != accounts.MembershipActive && membership.State != accounts.MembershipSuspended) {
 			continue
 		}
 		if user, ok := s.users[membership.UserID]; ok && user.PrimaryEmail == value.Email {
@@ -63,7 +63,7 @@ func (s *Store) Accept(_ context.Context, userID ids.UserID, hash [32]byte, now 
 		return accounts.Membership{}, invitations.ErrInvitationEmailMismatch
 	}
 	for _, current := range s.memberships {
-		if current.AccountID == invitation.AccountID && current.UserID == userID && current.State == accounts.MembershipActive {
+		if current.AccountID == invitation.AccountID && current.UserID == userID && (current.State == accounts.MembershipActive || current.State == accounts.MembershipSuspended) {
 			return accounts.Membership{}, invitations.ErrMembershipExists
 		}
 	}

@@ -138,8 +138,10 @@ Rules:
 - One account has exactly one active owner. Ownership transfer requires recent user-verified passkey proof, explicit current versions for both Memberships, a bounded reason, and one atomic role swap that promotes the successor while demoting the previous owner to Administrator.
 - Owners may change any non-owner Membership among Administrator, Billing Admin, Member, and Viewer. Directly assigning the Owner role is forbidden; ownership moves only through the transfer use case.
 - Owners may remove any non-owner Membership. Administrators may remove Billing Admin, Member, and Viewer Memberships, but cannot remove an Owner or another Administrator.
-- Role changes, removals, and transfers use optimistic Membership versions, recheck the actor and target inside the persistence transaction, and append immutable Account Membership events.
-- Removed Memberships disappear from Account selection and fail current authorization checks; no session is duplicated or globally revoked because the same User may still belong to other Accounts.
+- Owners may suspend/reactivate any non-owner Membership. Administrators may suspend/reactivate Billing Admin, Member, and Viewer Memberships, but cannot manage an Owner or peer Administrator. Suspension preserves the assigned role and manager visibility while immediately failing active-Membership authorization.
+- Any active non-owner may leave an Account after passkey confirmation. Owners must transfer ownership first. Leave and removal transition to the terminal `removed` state; restoration requires a new invitation and Membership.
+- Role, lifecycle, removal, and transfer mutations use optimistic Membership versions, recheck the actor and target inside the persistence transaction, and append immutable Account Membership events with role/state before and after values.
+- Suspended and removed Memberships disappear from Account selection and fail current authorization checks; no session is duplicated or globally revoked because the same User may still belong to other Accounts.
 - Billing roles do not automatically grant access to business content.
 - Account state and package entitlement are evaluated separately.
 - Closing an account is a durable workflow covering subscription, exports, connectors, runs, data retention, and deletion.
@@ -357,6 +359,9 @@ Marketing content and application releases can share a design system but have in
 GET    /api/v1/accounts/{account_id}/memberships
 PATCH  /api/v1/accounts/{account_id}/memberships/{membership_id}
 DELETE /api/v1/accounts/{account_id}/memberships/{membership_id}
+POST   /api/v1/accounts/{account_id}/memberships/{membership_id}/suspensions
+DELETE /api/v1/accounts/{account_id}/memberships/{membership_id}/suspensions
+DELETE /api/v1/accounts/{account_id}/membership
 POST   /api/v1/accounts/{account_id}/ownership-transfers
 /api/v1/accounts/{account_id}/entitlements
 /api/v1/catalog/public
@@ -374,7 +379,7 @@ Audit events include:
 
 - User registration, verification, authentication, recovery, and session changes.
 - Account creation, state, ownership, membership, and cell assignment.
-- Immutable Membership role-change, removal, and ownership-transfer events with actor, target, before/after role, reason, and time.
+- Immutable Membership role-change, suspension, reactivation, leave, removal, and ownership-transfer events with actor, target, before/after role/state, reason, and time.
 - Catalog publication and Stripe mapping changes.
 - Checkout and portal session creation without sensitive payment details.
 - Webhook verification failure, duplicate, projection, and reconciliation.

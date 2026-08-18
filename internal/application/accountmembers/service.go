@@ -23,6 +23,7 @@ var (
 	ErrOwnershipRequired  = errors.New("Account must retain one active owner")
 	ErrTargetDenied       = errors.New("target Membership cannot be managed by this actor")
 	ErrReasonRequired     = errors.New("a reason between 3 and 300 characters is required")
+	ErrStateConflict      = errors.New("Membership state does not allow this transition")
 )
 
 type Member struct {
@@ -67,6 +68,25 @@ type TransferMutation struct {
 	At                    time.Time
 }
 
+type StateAction string
+
+const (
+	StateActionSuspend    StateAction = "suspend"
+	StateActionReactivate StateAction = "reactivate"
+	StateActionLeave      StateAction = "leave"
+)
+
+type StateMutation struct {
+	EventID, Reason    string
+	Action             StateAction
+	ActorUserID        ids.UserID
+	ExpectedActorRole  accounts.MembershipRole
+	AccountID          ids.AccountID
+	TargetMembershipID ids.MembershipID
+	ExpectedVersion    uint64
+	At                 time.Time
+}
+
 type TransferResult struct {
 	PreviousOwner Member `json:"previous_owner"`
 	NewOwner      Member `json:"new_owner"`
@@ -74,8 +94,10 @@ type TransferResult struct {
 
 type Repository interface {
 	List(context.Context, ids.AccountID) ([]Member, error)
+	Current(context.Context, ids.AccountID, ids.UserID) (Member, error)
 	ChangeRole(context.Context, ChangeRoleMutation) (Member, error)
 	Remove(context.Context, RemoveMutation) error
+	ChangeState(context.Context, StateMutation) (Member, error)
 	TransferOwnership(context.Context, TransferMutation) (TransferResult, error)
 }
 
@@ -100,6 +122,13 @@ func (s *Service) List(ctx context.Context, actorUserID ids.UserID, accountID id
 		return nil, err
 	}
 	return s.repository.List(ctx, accountID)
+}
+
+func (s *Service) Current(ctx context.Context, actorUserID ids.UserID, accountID ids.AccountID) (Member, error) {
+	if _, err := s.authorizer.Authorize(ctx, access.Actor{UserID: actorUserID}, accountID, access.Requirement{}); err != nil {
+		return Member{}, err
+	}
+	return s.repository.Current(ctx, accountID, actorUserID)
 }
 
 type ChangeRoleCommand struct {
@@ -158,6 +187,68 @@ func (s *Service) Remove(ctx context.Context, command RemoveCommand) error {
 		return err
 	}
 	return s.repository.Remove(ctx, RemoveMutation{EventID: s.ids.New(), Reason: reason, ActorUserID: command.ActorUserID, ExpectedActorRole: accountContext.Role, AccountID: command.AccountID, TargetMembershipID: command.TargetMembershipID, ExpectedVersion: command.ExpectedVersion, At: s.clock.Now().UTC()})
+}
+
+type StateCommand struct {
+	ActorUserID        ids.UserID
+	Session            sessions.Session
+	AccountID          ids.AccountID
+	TargetMembershipID ids.MembershipID
+	ExpectedVersion    uint64
+	Reason             string
+}
+
+func (s *Service) Suspend(ctx context.Context, command StateCommand) (Member, error) {
+	return s.changeState(ctx, command, StateActionSuspend)
+}
+
+func (s *Service) Reactivate(ctx context.Context, command StateCommand) (Member, error) {
+	return s.changeState(ctx, command, StateActionReactivate)
+}
+
+type LeaveCommand struct {
+	ActorUserID     ids.UserID
+	Session         sessions.Session
+	AccountID       ids.AccountID
+	ExpectedVersion uint64
+	Reason          string
+}
+
+func (s *Service) Leave(ctx context.Context, command LeaveCommand) error {
+	accountContext, err := s.authorizer.Authorize(ctx, access.Actor{UserID: command.ActorUserID}, command.AccountID, access.Requirement{})
+	if err != nil {
+		return err
+	}
+	if err := strongauth.Require(command.Session, command.ActorUserID, s.clock.Now()); err != nil {
+		return err
+	}
+	if command.ExpectedVersion == 0 {
+		return ErrMembershipNotFound
+	}
+	reason, err := normalizeReason(command.Reason)
+	if err != nil {
+		return err
+	}
+	_, err = s.repository.ChangeState(ctx, StateMutation{EventID: s.ids.New(), Reason: reason, Action: StateActionLeave, ActorUserID: command.ActorUserID, ExpectedActorRole: accountContext.Role, AccountID: command.AccountID, ExpectedVersion: command.ExpectedVersion, At: s.clock.Now().UTC()})
+	return err
+}
+
+func (s *Service) changeState(ctx context.Context, command StateCommand, action StateAction) (Member, error) {
+	accountContext, err := s.authorizer.Authorize(ctx, access.Actor{UserID: command.ActorUserID}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator}})
+	if err != nil {
+		return Member{}, err
+	}
+	if err := strongauth.Require(command.Session, command.ActorUserID, s.clock.Now()); err != nil {
+		return Member{}, err
+	}
+	if command.TargetMembershipID == "" || command.ExpectedVersion == 0 {
+		return Member{}, ErrMembershipNotFound
+	}
+	reason, err := normalizeReason(command.Reason)
+	if err != nil {
+		return Member{}, err
+	}
+	return s.repository.ChangeState(ctx, StateMutation{EventID: s.ids.New(), Reason: reason, Action: action, ActorUserID: command.ActorUserID, ExpectedActorRole: accountContext.Role, AccountID: command.AccountID, TargetMembershipID: command.TargetMembershipID, ExpectedVersion: command.ExpectedVersion, At: s.clock.Now().UTC()})
 }
 
 type TransferOwnershipCommand struct {
