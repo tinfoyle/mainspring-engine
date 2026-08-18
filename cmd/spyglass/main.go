@@ -36,6 +36,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
+	passkeycommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/passkeyadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/routereceiptworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
@@ -85,17 +86,62 @@ func main() {
 		err = runWorkReleaseAdmin(ctx, logger)
 	case "account-erasure-admin":
 		err = runAccountErasureAdmin(ctx, logger)
+	case "passkey-admin":
+		err = runPasskeyAdmin(ctx, logger)
 	case "catalog-admin":
 		err = runCatalogAdmin(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
 		os.Exit(1)
 	}
+}
+
+func runPasskeyAdmin(ctx context.Context, logger *slog.Logger) error {
+	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "reencrypt") {
+		return errors.New("usage: spyglass passkey-admin inspect|reencrypt")
+	}
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	actor, err := requiredEnv("SPYGLASS_OPERATOR_ID")
+	if err != nil {
+		return err
+	}
+	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
+	if err != nil {
+		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	confirmation, err := requiredEnv("SPYGLASS_CONFIRM_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	keys, active, err := versionedEncryptionKeysEnv("SPYGLASS_PASSKEY_ENCRYPTION_KEYS", "SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	config := passkeycommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Actor: actor, Reason: reason, Environment: environment, ConfirmEnvironment: confirmation, EncryptionKeys: keys, ActiveKeyVersion: active, MaxDatabaseConns: maxConns}
+	if config.Action == "reencrypt" {
+		batch, err := int32Env("SPYGLASS_PASSKEY_REENCRYPT_BATCH", 100)
+		if err != nil {
+			return err
+		}
+		config.Batch = int(batch)
+	}
+	return passkeycommand.Run(ctx, config, logger)
 }
 
 func runCatalogAdmin(ctx context.Context, logger *slog.Logger) error {
@@ -411,7 +457,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	defer restoreGate.Close()
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKey: config.passkeyEncryptionKey, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
 	if err != nil {
 		return err
 	}
@@ -970,7 +1016,8 @@ type persistentConfig struct {
 	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, passkeyRPID string
 	notificationEncryptionKey                                                                                             []byte
 	networkActorKey                                                                                                       []byte
-	passkeyEncryptionKey                                                                                                  []byte
+	passkeyEncryptionKeys                                                                                                 map[int][]byte
+	passkeyActiveKeyVersion                                                                                               int
 	trustedProxyCIDRs                                                                                                     []string
 	maxDatabaseConns                                                                                                      int32
 	catalogRefreshInterval                                                                                                time.Duration
@@ -998,7 +1045,7 @@ func productionConfig() (persistentConfig, error) {
 	if err != nil {
 		return persistentConfig{}, err
 	}
-	result.passkeyEncryptionKey, err = base64KeyEnv("SPYGLASS_PASSKEY_ENCRYPTION_KEY")
+	result.passkeyEncryptionKeys, result.passkeyActiveKeyVersion, err = versionedEncryptionKeysEnv("SPYGLASS_PASSKEY_ENCRYPTION_KEYS", "SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION")
 	if err != nil {
 		return persistentConfig{}, err
 	}
@@ -1031,6 +1078,40 @@ func base64KeyEnv(name string) ([]byte, error) {
 		return nil, fmt.Errorf("%s must be standard base64 encoding of exactly 32 bytes", name)
 	}
 	return decoded, nil
+}
+
+func versionedEncryptionKeysEnv(keysName, activeName string) (map[int][]byte, int, error) {
+	values, err := keyValueEnv(keysName)
+	if err != nil {
+		return nil, 0, err
+	}
+	activeRaw, err := requiredEnv(activeName)
+	if err != nil {
+		return nil, 0, err
+	}
+	active, err := strconv.Atoi(activeRaw)
+	if err != nil || active <= 0 {
+		return nil, 0, fmt.Errorf("%s must be a positive integer", activeName)
+	}
+	result := make(map[int][]byte, len(values))
+	for rawVersion, encoded := range values {
+		version, err := strconv.Atoi(rawVersion)
+		if err != nil || version <= 0 {
+			return nil, 0, fmt.Errorf("%s version %q must be a positive integer", keysName, rawVersion)
+		}
+		if _, exists := result[version]; exists {
+			return nil, 0, fmt.Errorf("%s contains duplicate normalized version %d", keysName, version)
+		}
+		decoded, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(decoded) != 32 {
+			return nil, 0, fmt.Errorf("%s version %d must be standard base64 encoding of exactly 32 bytes", keysName, version)
+		}
+		result[version] = decoded
+	}
+	if _, exists := result[active]; !exists {
+		return nil, 0, fmt.Errorf("%s version %d is absent from %s", activeName, active, keysName)
+	}
+	return result, active, nil
 }
 
 func serveHTTP(ctx context.Context, address string, handler http.Handler, logger *slog.Logger) error {

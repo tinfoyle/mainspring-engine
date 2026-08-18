@@ -44,7 +44,8 @@ type Config struct {
 	PublicOrigin              string
 	NotificationEncryptionKey []byte
 	NetworkActorKey           []byte
-	PasskeyEncryptionKey      []byte
+	PasskeyEncryptionKeys     map[int][]byte
+	PasskeyActiveKeyVersion   int
 	PasskeyRPID               string
 	TrustedProxyCIDRs         []string
 	CatalogRefreshInterval    time.Duration
@@ -135,7 +136,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	passkeyCipher, err := passkeys.NewCipher(config.PasskeyEncryptionKey, 1)
+	passkeyCipher, err := passkeys.NewCipherKeyring(config.PasskeyEncryptionKeys, config.PasskeyActiveKeyVersion)
 	if err != nil {
 		pool.Close()
 		return nil, err

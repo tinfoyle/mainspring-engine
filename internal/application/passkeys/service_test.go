@@ -196,6 +196,38 @@ func TestCipherAuthenticatesPayloadLabelAndKeyVersion(t *testing.T) {
 	}
 }
 
+func TestCipherKeyringReadsOldVersionAndWritesOnlyActiveVersion(t *testing.T) {
+	oldKey := bytes.Repeat([]byte{0x31}, 32)
+	newKey := bytes.Repeat([]byte{0x42}, 32)
+	oldCipher, err := passkeys.NewCipher(oldKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldEnvelope, err := oldCipher.Seal("credential/a", []byte("old credential"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyring, err := passkeys.NewCipherKeyring(map[int][]byte{1: oldKey, 2: newKey}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, err := keyring.Open("credential/a", oldEnvelope)
+	if err != nil || string(opened) != "old credential" {
+		t.Fatalf("old envelope=%q err=%v", opened, err)
+	}
+	newEnvelope, err := keyring.Seal("credential/a", []byte("new credential"))
+	if err != nil || newEnvelope.KeyVersion != 2 || keyring.ActiveVersion() != 2 {
+		t.Fatalf("new envelope version=%d active=%d err=%v", newEnvelope.KeyVersion, keyring.ActiveVersion(), err)
+	}
+	newOnly, _ := passkeys.NewCipher(newKey, 2)
+	if opened, err := newOnly.Open("credential/a", newEnvelope); err != nil || string(opened) != "new credential" {
+		t.Fatalf("active envelope=%q err=%v", opened, err)
+	}
+	if _, err := newOnly.Open("credential/a", oldEnvelope); err == nil {
+		t.Fatal("envelope using an omitted old version was accepted")
+	}
+}
+
 type fixture struct {
 	service      *passkeys.Service
 	sessions     *sessions.Service

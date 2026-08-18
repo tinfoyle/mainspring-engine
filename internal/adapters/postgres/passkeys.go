@@ -262,6 +262,207 @@ func (r *PasskeyRepository) loadCredentials(ctx context.Context, userID ids.User
 	return result, rows.Err()
 }
 
+func (r *PasskeyRepository) InspectEncryption(ctx context.Context, evidence passkeys.RotationEvidence) (passkeys.RotationStatus, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return passkeys.RotationStatus{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('spyglass:passkey-key-rotation',0))`); err != nil {
+		return passkeys.RotationStatus{}, err
+	}
+	status, err := r.encryptionStatus(ctx, tx)
+	if err != nil {
+		return passkeys.RotationStatus{}, err
+	}
+	credentialRemaining, ceremonyRemaining := oldEnvelopeCounts(status)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO passkey_key_rotation_operator_events
+		(action,actor,reason,environment,active_key_version,batch_limit,updated_count,remaining_credential_count,remaining_ceremony_count,occurred_at)
+		VALUES ('inspect',$1,$2,$3,$4,NULL,0,$5,$6,$7)`, evidence.Actor, evidence.Reason, evidence.Environment,
+		status.ActiveVersion, credentialRemaining, ceremonyRemaining, evidence.OccurredAt.UTC()); err != nil {
+		return passkeys.RotationStatus{}, err
+	}
+	return status, tx.Commit(ctx)
+}
+
+func (r *PasskeyRepository) ReencryptEnvelopeBatch(ctx context.Context, limit int, evidence passkeys.RotationEvidence) (passkeys.RotationResult, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return passkeys.RotationResult{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('spyglass:passkey-key-rotation',0))`); err != nil {
+		return passkeys.RotationResult{}, err
+	}
+	credentials, err := loadCredentialEnvelopes(ctx, tx, r.cipher.ActiveVersion(), limit)
+	if err != nil {
+		return passkeys.RotationResult{}, err
+	}
+	updated := uint64(0)
+	for _, value := range credentials {
+		label := credentialLabel(value.userID, value.credentialID)
+		raw, err := r.cipher.Open(label, value.envelope)
+		if err != nil {
+			return passkeys.RotationResult{}, errors.New("passkey credential envelope cannot be rotated")
+		}
+		replacement, err := r.cipher.Seal(label, raw)
+		if err != nil {
+			return passkeys.RotationResult{}, err
+		}
+		command, err := tx.Exec(ctx, `
+			UPDATE passkey_credentials SET encrypted_credential=$5,encryption_nonce=$6,encryption_key_version=$7
+			WHERE user_id=$1 AND credential_id=$2 AND encryption_key_version=$3 AND encrypted_credential=$4`,
+			value.userID, value.credentialID, value.envelope.KeyVersion, value.envelope.Ciphertext,
+			replacement.Ciphertext, replacement.Nonce, replacement.KeyVersion)
+		if err != nil {
+			return passkeys.RotationResult{}, err
+		}
+		updated += uint64(command.RowsAffected())
+	}
+	remainingLimit := limit - int(updated)
+	if remainingLimit > 0 {
+		ceremonies, err := loadCeremonyEnvelopes(ctx, tx, r.cipher.ActiveVersion(), remainingLimit)
+		if err != nil {
+			return passkeys.RotationResult{}, err
+		}
+		for _, value := range ceremonies {
+			label := ceremonyLabel(value.id, value.kind, value.userID, value.sessionID)
+			raw, err := r.cipher.Open(label, value.envelope)
+			if err != nil {
+				return passkeys.RotationResult{}, errors.New("passkey ceremony envelope cannot be rotated")
+			}
+			replacement, err := r.cipher.Seal(label, raw)
+			if err != nil {
+				return passkeys.RotationResult{}, err
+			}
+			command, err := tx.Exec(ctx, `
+				UPDATE passkey_ceremonies SET encrypted_session_data=$4,encryption_nonce=$5,encryption_key_version=$6
+				WHERE id=$1 AND encryption_key_version=$2 AND encrypted_session_data=$3`, value.id, value.envelope.KeyVersion,
+				value.envelope.Ciphertext, replacement.Ciphertext, replacement.Nonce, replacement.KeyVersion)
+			if err != nil {
+				return passkeys.RotationResult{}, err
+			}
+			updated += uint64(command.RowsAffected())
+		}
+	}
+	status, err := r.encryptionStatus(ctx, tx)
+	if err != nil {
+		return passkeys.RotationResult{}, err
+	}
+	credentialRemaining, ceremonyRemaining := oldEnvelopeCounts(status)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO passkey_key_rotation_operator_events
+		(action,actor,reason,environment,active_key_version,batch_limit,updated_count,remaining_credential_count,remaining_ceremony_count,occurred_at)
+		VALUES ('reencrypt',$1,$2,$3,$4,$5,$6,$7,$8,$9)`, evidence.Actor, evidence.Reason, evidence.Environment,
+		status.ActiveVersion, limit, updated, credentialRemaining, ceremonyRemaining, evidence.OccurredAt.UTC()); err != nil {
+		return passkeys.RotationResult{}, err
+	}
+	result := passkeys.RotationResult{RotationStatus: status, Updated: updated}
+	return result, tx.Commit(ctx)
+}
+
+type rotationQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func (r *PasskeyRepository) encryptionStatus(ctx context.Context, query rotationQuerier) (passkeys.RotationStatus, error) {
+	status := passkeys.RotationStatus{ActiveVersion: r.cipher.ActiveVersion()}
+	rows, err := query.Query(ctx, `
+		SELECT envelope_kind,encryption_key_version,count(*) FROM (
+			SELECT 'credential'::text AS envelope_kind,encryption_key_version FROM passkey_credentials
+			UNION ALL
+			SELECT 'ceremony'::text AS envelope_kind,encryption_key_version FROM passkey_ceremonies
+		) envelopes GROUP BY envelope_kind,encryption_key_version ORDER BY envelope_kind,encryption_key_version`)
+	if err != nil {
+		return passkeys.RotationStatus{}, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind string
+		var value passkeys.EncryptionVersionCount
+		if err := rows.Scan(&kind, &value.Version, &value.Count); err != nil {
+			return passkeys.RotationStatus{}, err
+		}
+		switch kind {
+		case "credential":
+			status.CredentialVersions = append(status.CredentialVersions, value)
+		case "ceremony":
+			status.CeremonyVersions = append(status.CeremonyVersions, value)
+		default:
+			return passkeys.RotationStatus{}, errors.New("passkey encryption status returned an unknown envelope kind")
+		}
+	}
+	return status, rows.Err()
+}
+
+func oldEnvelopeCounts(status passkeys.RotationStatus) (uint64, uint64) {
+	var credentials, ceremonies uint64
+	for _, value := range status.CredentialVersions {
+		if value.Version != status.ActiveVersion {
+			credentials += value.Count
+		}
+	}
+	for _, value := range status.CeremonyVersions {
+		if value.Version != status.ActiveVersion {
+			ceremonies += value.Count
+		}
+	}
+	return credentials, ceremonies
+}
+
+type credentialEnvelope struct {
+	userID       ids.UserID
+	credentialID []byte
+	envelope     passkeys.Envelope
+}
+
+func loadCredentialEnvelopes(ctx context.Context, tx pgx.Tx, activeVersion, limit int) ([]credentialEnvelope, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT user_id,credential_id,encrypted_credential,encryption_nonce,encryption_key_version
+		FROM passkey_credentials WHERE encryption_key_version<>$1 ORDER BY user_id,credential_id LIMIT $2 FOR UPDATE SKIP LOCKED`, activeVersion, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]credentialEnvelope, 0, limit)
+	for rows.Next() {
+		var value credentialEnvelope
+		if err := rows.Scan(&value.userID, &value.credentialID, &value.envelope.Ciphertext, &value.envelope.Nonce, &value.envelope.KeyVersion); err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, rows.Err()
+}
+
+type ceremonyEnvelope struct {
+	id        string
+	kind      passkeys.CeremonyKind
+	userID    ids.UserID
+	sessionID ids.SessionID
+	envelope  passkeys.Envelope
+}
+
+func loadCeremonyEnvelopes(ctx context.Context, tx pgx.Tx, activeVersion, limit int) ([]ceremonyEnvelope, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT id::text,kind,COALESCE(user_id::text,''),COALESCE(session_id::text,''),encrypted_session_data,encryption_nonce,encryption_key_version
+		FROM passkey_ceremonies WHERE encryption_key_version<>$1 ORDER BY id LIMIT $2 FOR UPDATE SKIP LOCKED`, activeVersion, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]ceremonyEnvelope, 0, limit)
+	for rows.Next() {
+		var value ceremonyEnvelope
+		if err := rows.Scan(&value.id, &value.kind, &value.userID, &value.sessionID, &value.envelope.Ciphertext, &value.envelope.Nonce, &value.envelope.KeyVersion); err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, rows.Err()
+}
+
 func (r *PasskeyRepository) sealCredential(userID ids.UserID, credential webauthn.Credential) (passkeys.Envelope, error) {
 	raw, err := json.Marshal(credential)
 	if err != nil {
@@ -286,3 +487,4 @@ func nullableUUID[T ~string](value T) any {
 }
 
 var _ passkeys.Repository = (*PasskeyRepository)(nil)
+var _ passkeys.RotationStore = (*PasskeyRepository)(nil)

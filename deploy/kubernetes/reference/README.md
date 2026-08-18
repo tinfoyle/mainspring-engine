@@ -88,8 +88,9 @@ Before an environment overlay may use these resources it must add:
   certificates contain the configured SPIFFE URI and appropriate extended key
   usage. Files rotate in place and are reloaded on new connections. No private
   key or certificate payload is committed in this reference.
-- The account API secret supplies independent `SPYGLASS_NETWORK_ACTOR_KEY` and
-  `SPYGLASS_PASSKEY_ENCRYPTION_KEY` values. The environment ConfigMap supplies
+- The account API secret supplies independent `SPYGLASS_NETWORK_ACTOR_KEY`,
+  `SPYGLASS_PASSKEY_ENCRYPTION_KEYS`, and
+  `SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION` values. The environment ConfigMap supplies
   `SPYGLASS_PASSKEY_RP_ID` plus only the exact ingress/load-balancer CIDRs through
   `SPYGLASS_TRUSTED_PROXY_CIDRS`. Leaving the CIDR list empty safely ignores
   forwarding headers.
@@ -101,6 +102,12 @@ Catalog administration is intentionally not a standing Deployment. Environments
 run `spyglass catalog-admin <action>` as a short-lived, human-authorized Job with
 its own restricted database credential, operator identity, reason, and reviewed
 input. It must not inherit any serving, webhook, Stripe secret, or SMTP secret.
+
+Passkey key rotation is also absent as a standing Deployment. Environments run
+`spyglass passkey-admin inspect|reencrypt` as a short-lived Job with the reviewed
+active-plus-retained keyring, exact environment confirmation, and a database
+role limited to encrypted passkey columns and immutable aggregate operator
+events. See [passkey-key-rotation.md](../../../docs/production/passkey-key-rotation.md).
 
 Work release administration is also intentionally absent as a standing
 Deployment. Environments run `spyglass work-release-admin inspect|requeue` as a

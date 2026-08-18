@@ -108,10 +108,11 @@ This design scales with the shared account-api Deployment and global PostgreSQL 
 Production account-api requires:
 
 - `SPYGLASS_PASSKEY_RP_ID`: the WebAuthn relying-party domain, normally the application host or a deliberately chosen parent domain.
-- `SPYGLASS_PASSKEY_ENCRYPTION_KEY`: standard Base64 encoding of exactly 32 random bytes, independent from notification and network-actor keys.
+- `SPYGLASS_PASSKEY_ENCRYPTION_KEYS`: comma-separated `positive-version=standard-base64-key` entries, each decoding to exactly 32 bytes and independent from notification/network-actor keys.
+- `SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION`: the exact positive version used for every new or updated envelope; it must be present in the keyring.
 - `SPYGLASS_APP_ORIGIN`: the exact HTTPS browser origin accepted by WebAuthn and mutation-origin checks.
 
-The schema records an encryption key version, but the current process loads one active passkey key. Before rotating a live key, implement a multi-version decrypt keyring plus a bounded re-encryption job, prove all rows use the new version, and only then remove the old key. Losing the only configured key makes existing passkeys and unexpired ceremonies unreadable; password recovery remains the identity recovery path.
+The process writes only with the active version and decrypts only explicitly configured retained versions. The audited `passkey-admin inspect|reencrypt` command migrates at most 500 authenticated credential/ceremony envelopes per invocation with fresh nonces, compare-and-swap updates, and immutable aggregate operator evidence. An old key may be removed only after old-version counts reach zero and the rollout overlap window has elapsed. See [Passkey envelope-key rotation operations](passkey-key-rotation.md).
 
 ## 7. Evidence
 
@@ -126,6 +127,7 @@ Automated evidence covers:
 - resident-key/user-verification registration options and User/session ceremony binding;
 - ciphertext randomness, label binding, key-version binding, and tamper rejection;
 - PostgreSQL encrypted credential/ceremony round trips, stale counter rejection, replay rejection, and cross-User list isolation;
+- active-plus-retained keyring reads, active-only writes, bounded PostgreSQL credential/ceremony re-encryption, old-key retirement, and immutable aggregate operator evidence;
 - HTTP response contracts containing no Account identity and browser presentation on login and identity security pages.
 
 ## 8. Remaining identity work
@@ -133,8 +135,7 @@ Automated evidence covers:
 Passkeys are now a production authentication and strong-reauthentication option, but the broader Phase 2 identity program is not complete:
 
 1. Extend the now-executable privileged-operation step-up into a complete owner/platform-administrator enrollment and recovery policy, including recovery codes, ownership-transfer rules, factor-loss review, and break-glass governance.
-2. Add a multi-version credential-encryption keyring, re-encryption operator, and key-loss/rollback runbook.
-3. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
-4. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
-5. Add verified contact-method change, passkey rename, compromised-credential response, and customer-visible notification delivery.
-6. Run real-browser WebAuthn journeys across supported desktop/mobile platforms and accessibility tooling before release promotion.
+2. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
+3. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
+4. Add verified contact-method change, passkey rename, compromised-credential response, and customer-visible notification delivery.
+5. Run real-browser WebAuthn journeys across supported desktop/mobile platforms and accessibility tooling before release promotion.

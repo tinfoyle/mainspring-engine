@@ -91,6 +91,32 @@ func TestNotificationEncryptionKeyParser(t *testing.T) {
 	}
 }
 
+func TestVersionedEncryptionKeyParserRequiresExactActiveKey(t *testing.T) {
+	oldKey := bytes.Repeat([]byte{0x31}, 32)
+	activeKey := bytes.Repeat([]byte{0x42}, 32)
+	t.Setenv("SPYGLASS_TEST_KEYS", "1="+base64.StdEncoding.EncodeToString(oldKey)+",2="+base64.StdEncoding.EncodeToString(activeKey))
+	t.Setenv("SPYGLASS_TEST_ACTIVE", "2")
+	keys, active, err := versionedEncryptionKeysEnv("SPYGLASS_TEST_KEYS", "SPYGLASS_TEST_ACTIVE")
+	if err != nil || active != 2 || !bytes.Equal(keys[1], oldKey) || !bytes.Equal(keys[2], activeKey) {
+		t.Fatalf("keys=%v active=%d err=%v", keys, active, err)
+	}
+	for name, value := range map[string][2]string{
+		"missing active":    {"1=" + base64.StdEncoding.EncodeToString(oldKey), "2"},
+		"bad version":       {"old=" + base64.StdEncoding.EncodeToString(oldKey), "1"},
+		"duplicate version": {"1=" + base64.StdEncoding.EncodeToString(oldKey) + ",01=" + base64.StdEncoding.EncodeToString(activeKey), "1"},
+		"short key":         {"1=" + base64.StdEncoding.EncodeToString(oldKey[:31]), "1"},
+		"zero active":       {"1=" + base64.StdEncoding.EncodeToString(oldKey), "0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("SPYGLASS_TEST_KEYS", value[0])
+			t.Setenv("SPYGLASS_TEST_ACTIVE", value[1])
+			if _, _, err := versionedEncryptionKeysEnv("SPYGLASS_TEST_KEYS", "SPYGLASS_TEST_ACTIVE"); err == nil {
+				t.Fatal("invalid encryption keyring was accepted")
+			}
+		})
+	}
+}
+
 func TestCommaSeparatedEnvironmentParser(t *testing.T) {
 	t.Setenv("SPYGLASS_TEST_CIDRS", " 10.0.0.0/8, ,192.0.2.0/24 ")
 	values := csvEnv("SPYGLASS_TEST_CIDRS")

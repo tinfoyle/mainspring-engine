@@ -1,8 +1,8 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog operator, Work release operator, and reviewed Account erasure preparation/execution processes
+- Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, one-shot `route-canary`/`work-release-admin`/`account-erasure-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, one-shot `route-canary`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 ## Process ownership
 
@@ -20,6 +20,7 @@
 | `work-reconciler` | Lease identifier-only terminal Work release jobs, idempotently release global capacity, and checkpoint the matching Account-scoped Work row | Serving traffic, Work content reads, capacity reservation, package mutation, Stripe or SMTP operations |
 | `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
 | `account-erasure-admin` | One audited prepare, inspect, independent approval, pre-execution cancellation, leased cross-store execution, or signed restore replay of a retained closed Account | Serving traffic, automatic approval, arbitrary SQL, cross-cell fallback, external-store deletion |
+| `passkey-admin` | One audited key-version inspection or bounded credential/ceremony envelope re-encryption batch | Serving traffic, User/contact reads, password/session authority, automatic key retirement |
 | `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
 | `migrate` | One embedded, immutable migration target against one database | Serving traffic, background work, automatic target selection |
@@ -36,7 +37,8 @@ The account API and workers share no in-memory state. Multiple replicas coordina
 | `SPYGLASS_STRIPE_API_VERSION` | Account API, billing worker | Optional deliberate override; defaults to the compiled, tested pin |
 | `SPYGLASS_NOTIFICATION_ENCRYPTION_KEY` | Account API, notification worker | Standard Base64 encoding of exactly 32 random bytes |
 | `SPYGLASS_NETWORK_ACTOR_KEY` | Account API | Standard Base64 encoding of exactly 32 random bytes used only for keyed request-actor hashing |
-| `SPYGLASS_PASSKEY_ENCRYPTION_KEY` | Account API | Standard Base64 encoding of exactly 32 random bytes used only for WebAuthn credential and ceremony envelopes |
+| `SPYGLASS_PASSKEY_ENCRYPTION_KEYS` | Account API, passkey admin | Comma-separated `positive-version=standard-base64-key` keyring; every key is exactly 32 bytes |
+| `SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION` | Account API, passkey admin | Positive version present in the keyring; new and updated passkey envelopes use only this version |
 | `SPYGLASS_MAX_DATABASE_CONNS` | Persistent processes except `work-reconciler` | Positive per-process pool cap with a workload-specific default |
 
 Database connection limits are per replica. Environment overlays must ensure the replica maximum multiplied by the pool cap fits the managed PostgreSQL connection budget.
@@ -55,7 +57,7 @@ Database connection limits are per replica. Environment overlays must ensure the
 
 The account API has no SMTP configuration. It serializes registration, invitation, and credential-recovery messages, encrypts each envelope with AES-256-GCM, and persists only ciphertext, a nonce, and key version in the durable outbox. Associated data binds the ciphertext to the outbox ID and notification kind. Plaintext tokens are never written to the outbox or application logs.
 
-Passkey credentials and server-side ceremony data use a separate AES-256-GCM key and record-bound associated data; the unencrypted credential ID exists only for WebAuthn lookup and counter fencing. The notification and passkey envelopes record key versions but currently load one active version each. A live rotation requires a multi-version decrypt keyring and completed re-encryption or queue-drain evidence before an old key is removed. See [identity-security.md](identity-security.md).
+Passkey credentials and server-side ceremony data use a separate AES-256-GCM keyring and record-bound associated data; the unencrypted credential ID exists only for WebAuthn lookup and counter fencing. New writes use the configured active version while retained versions are decrypt-only. Live rotation uses `passkey-admin inspect|reencrypt` and the procedure in [passkey-key-rotation.md](passkey-key-rotation.md); an old key is never removed merely because a rollout completed.
 
 Credential-recovery initiation always returns the same accepted response regardless of whether the email is registered, malformed, or throttled. Unknown and throttled identifiers enqueue encrypted discard work so the public request does similar cryptographic and database work without sending mail. Challenges store only a SHA-256 token hash, expire after 30 minutes, and are single use. Completion changes the Argon2id credential, advances the User security version, revokes every session, consumes all pending recovery challenges, and appends a `credential_recovered` security event in one PostgreSQL transaction. Identifier and network-actor throttles are both durable.
 
