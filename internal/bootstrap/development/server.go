@@ -1,12 +1,14 @@
 package development
 
 import (
+	"crypto/rand"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/memory"
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
@@ -19,6 +21,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/authn"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/browserapp"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/httpapi"
 )
@@ -27,6 +30,18 @@ func Handler(logger *slog.Logger) http.Handler {
 	clock := registration.SystemClock{}
 	publishedCatalog := catalog.Default(clock.Now())
 	store := memory.NewStore(publishedCatalog, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 1000}})
+	networkGuard, err := abuse.NewGuard(store)
+	if err != nil {
+		panic(err)
+	}
+	var actorKey [32]byte
+	if _, err := rand.Read(actorKey[:]); err != nil {
+		panic(err)
+	}
+	actorResolver, err := networkactor.New(actorKey[:], nil)
+	if err != nil {
+		panic(err)
+	}
 	verification := &memory.VerificationSink{}
 	passwords := authn.Passwords{}
 	service := registration.NewService(store, verification, store, publishedCatalog, ids.RandomGenerator{}, clock, passwords)
@@ -36,7 +51,7 @@ func Handler(logger *slog.Logger) http.Handler {
 		panic(err)
 	}
 	recoverySink := &memory.RecoverySink{}
-	recoveryService, err := recovery.NewService(memory.NewRecoveryRepository(store, sessionStore), recoverySink, store, passwords, ids.RandomGenerator{}, clock)
+	recoveryService, err := recovery.NewService(memory.NewRecoveryRepository(store, sessionStore), recoverySink, store, networkGuard, passwords, ids.RandomGenerator{}, clock)
 	if err != nil {
 		panic(err)
 	}
@@ -44,7 +59,7 @@ func Handler(logger *slog.Logger) http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	authenticationService, err := authentication.NewService(store, store, passwords, sessionService, clock, dummyHash)
+	authenticationService, err := authentication.NewService(store, store, networkGuard, passwords, sessionService, clock, dummyHash)
 	if err != nil {
 		panic(err)
 	}
@@ -78,5 +93,5 @@ func Handler(logger *slog.Logger) http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	return browser.Handler(apiHandler)
+	return actorResolver.Handler(browser.Handler(apiHandler))
 }

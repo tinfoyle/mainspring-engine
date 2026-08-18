@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -19,20 +20,26 @@ import (
 )
 
 type Store struct {
-	mu           sync.RWMutex
-	pending      map[ids.RegistrationID]registration.Pending
-	users        map[ids.UserID]identity.User
-	usersByEmail map[string]ids.UserID
-	credentials  map[ids.UserID]identity.LocalCredential
-	accounts     map[ids.AccountID]accounts.Account
-	memberships  map[ids.MembershipID]accounts.Membership
-	assignments  map[ids.AccountID]placement.Assignment
-	grants       map[ids.AccountID][]entitlements.Grant
-	snapshots    map[ids.AccountID]entitlements.Snapshot
-	cells        []placement.Cell
-	catalog      catalog.PublishedCatalog
-	authAttempts map[[32]byte]authAttempt
-	invitations  map[ids.InvitationID]accounts.Invitation
+	mu              sync.RWMutex
+	pending         map[ids.RegistrationID]registration.Pending
+	users           map[ids.UserID]identity.User
+	usersByEmail    map[string]ids.UserID
+	credentials     map[ids.UserID]identity.LocalCredential
+	accounts        map[ids.AccountID]accounts.Account
+	memberships     map[ids.MembershipID]accounts.Membership
+	assignments     map[ids.AccountID]placement.Assignment
+	grants          map[ids.AccountID][]entitlements.Grant
+	snapshots       map[ids.AccountID]entitlements.Snapshot
+	cells           []placement.Cell
+	catalog         catalog.PublishedCatalog
+	authAttempts    map[[32]byte]authAttempt
+	networkAttempts map[networkAttemptKey]authAttempt
+	invitations     map[ids.InvitationID]accounts.Invitation
+}
+
+type networkAttemptKey struct {
+	Scope abuse.Scope
+	Actor [32]byte
 }
 
 type authAttempt struct {
@@ -42,7 +49,7 @@ type authAttempt struct {
 }
 
 func NewStore(publishedCatalog catalog.PublishedCatalog, cells []placement.Cell) *Store {
-	return &Store{pending: map[ids.RegistrationID]registration.Pending{}, users: map[ids.UserID]identity.User{}, usersByEmail: map[string]ids.UserID{}, credentials: map[ids.UserID]identity.LocalCredential{}, accounts: map[ids.AccountID]accounts.Account{}, memberships: map[ids.MembershipID]accounts.Membership{}, assignments: map[ids.AccountID]placement.Assignment{}, grants: map[ids.AccountID][]entitlements.Grant{}, snapshots: map[ids.AccountID]entitlements.Snapshot{}, cells: append([]placement.Cell(nil), cells...), catalog: publishedCatalog, authAttempts: map[[32]byte]authAttempt{}, invitations: map[ids.InvitationID]accounts.Invitation{}}
+	return &Store{pending: map[ids.RegistrationID]registration.Pending{}, users: map[ids.UserID]identity.User{}, usersByEmail: map[string]ids.UserID{}, credentials: map[ids.UserID]identity.LocalCredential{}, accounts: map[ids.AccountID]accounts.Account{}, memberships: map[ids.MembershipID]accounts.Membership{}, assignments: map[ids.AccountID]placement.Assignment{}, grants: map[ids.AccountID][]entitlements.Grant{}, snapshots: map[ids.AccountID]entitlements.Snapshot{}, cells: append([]placement.Cell(nil), cells...), catalog: publishedCatalog, authAttempts: map[[32]byte]authAttempt{}, networkAttempts: map[networkAttemptKey]authAttempt{}, invitations: map[ids.InvitationID]accounts.Invitation{}}
 }
 
 func (s *Store) CreatePending(_ context.Context, pending registration.Pending) error {
@@ -198,6 +205,26 @@ func (s *Store) Success(_ context.Context, key [32]byte) error {
 	return nil
 }
 
+func (s *Store) Consume(_ context.Context, scope abuse.Scope, actor [32]byte, now time.Time, policy abuse.Policy) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := networkAttemptKey{Scope: scope, Actor: actor}
+	value := s.networkAttempts[key]
+	if value.LockedUntil.After(now) {
+		return false, nil
+	}
+	if value.WindowStarted.IsZero() || !value.WindowStarted.Add(policy.Window).After(now) {
+		value = authAttempt{WindowStarted: now}
+	}
+	value.Count++
+	allowed := value.Count <= policy.Limit
+	if !allowed {
+		value.LockedUntil = now.Add(policy.Window)
+	}
+	s.networkAttempts[key] = value
+	return allowed, nil
+}
+
 func (s *Store) AccessState(_ context.Context, userID ids.UserID, accountID ids.AccountID) (access.State, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -239,6 +266,7 @@ func (s *Store) Choices(_ context.Context, userID ids.UserID) ([]accountaccess.C
 
 var _ authentication.IdentitySource = (*Store)(nil)
 var _ authentication.AttemptLimiter = (*Store)(nil)
+var _ abuse.Limiter = (*Store)(nil)
 var _ access.StateSource = (*Store)(nil)
 var _ accountaccess.Repository = (*Store)(nil)
 

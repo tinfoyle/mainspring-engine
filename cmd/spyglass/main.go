@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -86,7 +87,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey}, logger)
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, TrustedProxyCIDRs: config.trustedProxyCIDRs}, logger)
 	if err != nil {
 		return err
 	}
@@ -203,6 +204,8 @@ func serveWorker(ctx context.Context, name, healthAddress string, worker runnabl
 type persistentConfig struct {
 	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin string
 	notificationEncryptionKey                                                                                []byte
+	networkActorKey                                                                                          []byte
+	trustedProxyCIDRs                                                                                        []string
 	maxDatabaseConns                                                                                         int32
 }
 
@@ -224,8 +227,23 @@ func productionConfig() (persistentConfig, error) {
 	if err != nil {
 		return persistentConfig{}, err
 	}
+	result.networkActorKey, err = base64KeyEnv("SPYGLASS_NETWORK_ACTOR_KEY")
+	if err != nil {
+		return persistentConfig{}, err
+	}
+	result.trustedProxyCIDRs = csvEnv("SPYGLASS_TRUSTED_PROXY_CIDRS")
 	result.maxDatabaseConns, err = int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
 	return result, err
+}
+
+func csvEnv(name string) []string {
+	var result []string
+	for _, value := range strings.Split(os.Getenv(name), ",") {
+		if value = strings.TrimSpace(value); value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func base64KeyEnv(name string) ([]byte, error) {

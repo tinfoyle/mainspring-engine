@@ -25,6 +25,10 @@ Before an environment overlay may use these resources it must add:
   and secret controllers; they are not committed here. Workload-specific
   Secrets prevent each worker from receiving webhook, Stripe, or SMTP
   credentials it does not use.
+- The account API secret supplies `SPYGLASS_NETWORK_ACTOR_KEY`; the environment
+  ConfigMap supplies only the exact ingress/load-balancer CIDRs through
+  `SPYGLASS_TRUSTED_PROXY_CIDRS`. Leaving the CIDR list empty safely ignores
+  forwarding headers.
 
 Run `kubectl kustomize deploy/kubernetes/reference` as a structural render
 check. Do not apply the output to a cluster.

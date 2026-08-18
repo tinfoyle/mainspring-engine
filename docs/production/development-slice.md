@@ -16,6 +16,7 @@ This repository now contains the first executable production slice for Infinite 
 - Production account-api composition that requires PostgreSQL, real verification delivery, a published Catalog, and a valid Stripe webhook configuration.
 - Opaque rotating session tokens with absolute/idle expiry, user-owned active-session inventory, individual/device-wide revocation, a bounded user-visible security timeline, and password reauthentication for sensitive operations.
 - Enumeration-resistant credential-recovery response bodies with identifier throttling, hashed single-use 30-minute links, atomic Argon2id credential replacement, User security-version advancement, and all-session revocation.
+- Keyed, privacy-preserving network-actor derivation with explicit trusted-proxy CIDRs and PostgreSQL-backed login/recovery budgets shared across account-api replicas.
 - Argon2id local credentials created atomically with verified identity and Account provisioning, plus generic login failures and durable identifier-hash lockouts.
 - A shared authorization policy that keeps authentication, Account Membership, role, Account state, and Feature Package access separate.
 - Explicit Account listing and selection; the selected browser Account is never treated as authorization without rechecking Membership and placement.
@@ -102,7 +103,7 @@ npm run dev
 
 ## Next production slices
 
-1. Add passkeys/MFA, multi-version notification key rotation, retention/operator handling for dead letters, and distributed recovery/login rate limiting by network actor in addition to the durable identifier controls.
+1. Add passkeys/MFA, multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Add Catalog draft/review/publication administration and enforcement adapters for every HTTP/MCP/job/tool entry point.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Implement app-router/app-api/billing-worker process modes, signed route context, directory caching, fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
@@ -114,6 +115,6 @@ npm run dev
 - Rendered browser journey coverage proves signup â†’ verification/password â†’ login â†’ Account shell, and API journey coverage proves invitation â†’ existing identity â†’ Membership â†’ Account list.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
-- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise encrypted notification enqueue/claim/delivery, provision a real registration, load the published Catalog, exercise concurrent Checkout reservations, and prove transaction-local RLS isolation through a non-owner serving role. Kubernetes resources remain review-only and have not been applied to a cluster.
+- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budget locking/reset and encrypted notification enqueue/claim/delivery, provision a real registration, load the published Catalog, exercise concurrent Checkout reservations, and prove transaction-local RLS isolation through a non-owner serving role. Kubernetes resources remain review-only and have not been applied to a cluster.
 - Stripe request translation, event ingestion, deduplication, out-of-order convergence, and queue behavior are tested with local fixtures; no Stripe account mutation has been performed.
 - The private Account shell renders local billing status and paid offers and can enter Checkout/Portal in the persistent composition; no app-owned credentials or Account data were moved into the public Sites deployment.

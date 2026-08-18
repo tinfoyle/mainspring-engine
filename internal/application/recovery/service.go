@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/identity"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -65,20 +66,24 @@ type Service struct {
 	repository Repository
 	sender     Sender
 	limiter    AttemptLimiter
+	network    *abuse.Guard
 	passwords  PasswordHasher
 	ids        ids.Generator
 	clock      Clock
 	tokenTTL   time.Duration
 }
 
-func NewService(repository Repository, sender Sender, limiter AttemptLimiter, passwords PasswordHasher, generator ids.Generator, clock Clock) (*Service, error) {
-	if repository == nil || sender == nil || limiter == nil || passwords == nil || generator == nil || clock == nil {
+func NewService(repository Repository, sender Sender, limiter AttemptLimiter, network *abuse.Guard, passwords PasswordHasher, generator ids.Generator, clock Clock) (*Service, error) {
+	if repository == nil || sender == nil || limiter == nil || network == nil || passwords == nil || generator == nil || clock == nil {
 		return nil, errors.New("credential recovery dependencies are required")
 	}
-	return &Service{repository: repository, sender: sender, limiter: limiter, passwords: passwords, ids: generator, clock: clock, tokenTTL: 30 * time.Minute}, nil
+	return &Service{repository: repository, sender: sender, limiter: limiter, network: network, passwords: passwords, ids: generator, clock: clock, tokenTTL: 30 * time.Minute}, nil
 }
 
-type BeginCommand struct{ Email string }
+type BeginCommand struct {
+	Email        string
+	NetworkActor [32]byte
+}
 type BeginResult struct {
 	RecoveryID ids.RecoveryID
 	ExpiresAt  time.Time
@@ -87,6 +92,10 @@ type BeginResult struct {
 
 func (s *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult, error) {
 	now := s.clock.Now().UTC()
+	networkAllowed, err := s.network.Allow(ctx, abuse.ScopeRecovery, command.NetworkActor, now, abuse.RecoveryPolicy)
+	if err != nil {
+		return BeginResult{}, err
+	}
 	normalized, err := identity.NormalizeEmail(command.Email)
 	if err != nil {
 		normalized = strings.ToLower(strings.TrimSpace(command.Email))
@@ -101,7 +110,7 @@ func (s *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult,
 		return BeginResult{}, err
 	}
 	expiresAt := now.Add(s.tokenTTL)
-	if blocked {
+	if blocked || !networkAllowed {
 		return BeginResult{}, s.sender.SendRecovery(ctx, Message{Token: token, ExpiresAt: expiresAt, Suppress: true})
 	}
 	if err := s.limiter.Failure(ctx, limitKey, now, 3, 30*time.Minute); err != nil {

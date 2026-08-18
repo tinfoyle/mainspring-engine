@@ -21,6 +21,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
 )
 
 type Server struct {
@@ -162,7 +163,8 @@ func (s *Server) beginRecovery(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	result, err := s.recovery.Begin(r.Context(), recovery.BeginCommand{Email: input.Email})
+	actor, _ := networkactor.FromContext(r.Context())
+	result, err := s.recovery.Begin(r.Context(), recovery.BeginCommand{Email: input.Email, NetworkActor: actor})
 	if err != nil {
 		s.logger.Error("begin credential recovery", "error", err)
 	}
@@ -451,7 +453,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: input.Email, Password: input.Password, ClientLabel: r.UserAgent()})
+	actor, _ := networkactor.FromContext(r.Context())
+	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: input.Email, Password: input.Password, ClientLabel: r.UserAgent(), NetworkActor: actor})
 	if err != nil {
 		if errors.Is(err, authentication.ErrInvalidCredentials) {
 			writeProblem(w, http.StatusUnauthorized, "invalid_credentials", "the email or password is incorrect")

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/identity"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -38,23 +39,31 @@ type PasswordVerifier interface {
 type Service struct {
 	identities IdentitySource
 	limiter    AttemptLimiter
+	network    *abuse.Guard
 	passwords  PasswordVerifier
 	sessions   *sessions.Service
 	clock      sessions.Clock
 	dummyHash  string
 }
 
-func NewService(identities IdentitySource, limiter AttemptLimiter, passwords PasswordVerifier, sessionService *sessions.Service, clock sessions.Clock, dummyHash string) (*Service, error) {
-	if identities == nil || limiter == nil || passwords == nil || sessionService == nil || clock == nil || dummyHash == "" {
+func NewService(identities IdentitySource, limiter AttemptLimiter, network *abuse.Guard, passwords PasswordVerifier, sessionService *sessions.Service, clock sessions.Clock, dummyHash string) (*Service, error) {
+	if identities == nil || limiter == nil || network == nil || passwords == nil || sessionService == nil || clock == nil || dummyHash == "" {
 		return nil, errors.New("authentication dependencies are required")
 	}
-	return &Service{identities: identities, limiter: limiter, passwords: passwords, sessions: sessionService, clock: clock, dummyHash: dummyHash}, nil
+	return &Service{identities: identities, limiter: limiter, network: network, passwords: passwords, sessions: sessionService, clock: clock, dummyHash: dummyHash}, nil
 }
 
-type LoginCommand struct{ Email, Password, ClientLabel string }
+type LoginCommand struct {
+	Email, Password, ClientLabel string
+	NetworkActor                 [32]byte
+}
 
 func (s *Service) Login(ctx context.Context, command LoginCommand) (sessions.Issued, error) {
 	now := s.clock.Now().UTC()
+	networkAllowed, err := s.network.Allow(ctx, abuse.ScopeLogin, command.NetworkActor, now, abuse.LoginPolicy)
+	if err != nil {
+		return sessions.Issued{}, err
+	}
 	normalized, normalizeErr := identity.NormalizeEmail(command.Email)
 	identifier := normalized
 	if identifier == "" {
@@ -75,7 +84,7 @@ func (s *Service) Login(ctx context.Context, command LoginCommand) (sessions.Iss
 	if lookupErr != nil && !errors.Is(lookupErr, ErrIdentityNotFound) {
 		return sessions.Issued{}, lookupErr
 	}
-	if blocked {
+	if blocked || !networkAllowed {
 		return sessions.Issued{}, ErrInvalidCredentials
 	}
 	valid := normalizeErr == nil && lookupErr == nil && passwordMatches && local.User.State == identity.UserActive && !blocked

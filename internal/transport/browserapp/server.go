@@ -20,6 +20,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
 )
 
 //go:embed assets/*.css
@@ -149,7 +150,8 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusForbidden, "forgot", pageData{Title: "Recover your identity", Error: "This recovery request could not be verified."})
 		return
 	}
-	result, err := s.recovery.Begin(r.Context(), recovery.BeginCommand{Email: r.FormValue("email")})
+	actor, _ := networkactor.FromContext(r.Context())
+	result, err := s.recovery.Begin(r.Context(), recovery.BeginCommand{Email: r.FormValue("email"), NetworkActor: actor})
 	if err != nil {
 		s.logger.Error("begin credential recovery", "error", err)
 	}
@@ -255,7 +257,8 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusBadRequest, "login", pageData{Title: "Sign in", Error: "The sign-in form could not be read."})
 		return
 	}
-	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: r.FormValue("email"), Password: r.FormValue("password"), ClientLabel: r.UserAgent()})
+	actor, _ := networkactor.FromContext(r.Context())
+	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: r.FormValue("email"), Password: r.FormValue("password"), ClientLabel: r.UserAgent(), NetworkActor: actor})
 	if err != nil {
 		s.render(w, http.StatusUnauthorized, "login", pageData{Title: "Sign in", Error: "The email or password is incorrect.", Email: r.FormValue("email"), ReturnTo: safeReturnTo(r.FormValue("return_to"))})
 		return

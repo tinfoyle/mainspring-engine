@@ -68,3 +68,11 @@ func TestNotificationEncryptionKeyParser(t *testing.T) {
 		})
 	}
 }
+
+func TestCommaSeparatedEnvironmentParser(t *testing.T) {
+	t.Setenv("SPYGLASS_TEST_CIDRS", " 10.0.0.0/8, ,192.0.2.0/24 ")
+	values := csvEnv("SPYGLASS_TEST_CIDRS")
+	if len(values) != 2 || values[0] != "10.0.0.0/8" || values[1] != "192.0.2.0/24" {
+		t.Fatalf("parsed values = %#v", values)
+	}
+}

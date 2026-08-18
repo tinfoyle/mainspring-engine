@@ -11,6 +11,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	stripeadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
@@ -24,6 +25,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/authn"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/browserapp"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/httpapi"
 )
@@ -38,6 +40,8 @@ type Config struct {
 	AppOrigin                 string
 	PublicOrigin              string
 	NotificationEncryptionKey []byte
+	NetworkActorKey           []byte
+	TrustedProxyCIDRs         []string
 }
 
 type Server struct {
@@ -87,6 +91,16 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	}
 	registrationRepository := postgres.NewRegistrationRepository(pool)
 	clock := registration.SystemClock{}
+	networkGuard, err := abuse.NewGuard(postgres.NewNetworkRateLimiter(pool))
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	actorResolver, err := networkactor.New(config.NetworkActorKey, config.TrustedProxyCIDRs)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	registrations := registration.NewService(registrationRepository, sender, registrationRepository, publishedCatalog, ids.RandomGenerator{}, clock, authn.Passwords{})
 	passwords := authn.Passwords{}
 	sessionService, err := sessions.NewService(postgres.NewSessionRepository(pool), ids.RandomGenerator{}, clock, 24*time.Hour, time.Hour, 15*time.Minute)
@@ -100,12 +114,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		return nil, err
 	}
 	authenticationRepository := postgres.NewAuthenticationRepository(pool)
-	authenticationService, err := authentication.NewService(authenticationRepository, authenticationRepository, passwords, sessionService, clock, dummyHash)
+	authenticationService, err := authentication.NewService(authenticationRepository, authenticationRepository, networkGuard, passwords, sessionService, clock, dummyHash)
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	recoveryService, err := recovery.NewService(postgres.NewRecoveryRepository(pool), sender, authenticationRepository, passwords, ids.RandomGenerator{}, clock)
+	recoveryService, err := recovery.NewService(postgres.NewRecoveryRepository(pool), sender, authenticationRepository, networkGuard, passwords, ids.RandomGenerator{}, clock)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -163,7 +177,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: withReadiness(pool, browser.Handler(apiHandler)), pool: pool}, nil
+	return &Server{Handler: withReadiness(pool, actorResolver.Handler(browser.Handler(apiHandler))), pool: pool}, nil
 }
 
 func (s *Server) Close() { s.pool.Close() }

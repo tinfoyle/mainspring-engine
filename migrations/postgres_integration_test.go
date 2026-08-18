@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
@@ -58,6 +59,19 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	networkLimiter := postgresadapter.NewNetworkRateLimiter(pool)
+	actor := [32]byte{9}
+	policy := abuse.Policy{Limit: 2, Window: 15 * time.Minute}
+	for attempt, expected := range []bool{true, true, false, false} {
+		allowed, err := networkLimiter.Consume(ctx, abuse.ScopeLogin, actor, now, policy)
+		if err != nil || allowed != expected {
+			t.Fatalf("network limiter attempt %d: allowed=%v want=%v err=%v", attempt+1, allowed, expected, err)
+		}
+	}
+	allowedAfterWindow, err := networkLimiter.Consume(ctx, abuse.ScopeLogin, actor, now.Add(16*time.Minute), policy)
+	if err != nil || !allowedAfterWindow {
+		t.Fatalf("network limiter did not reset after window: allowed=%v err=%v", allowedAfterWindow, err)
+	}
 	notificationQueue := postgresadapter.NewNotificationOutbox(pool)
 	notificationCipher, err := notifications.NewCipher(bytes.Repeat([]byte{0x51}, 32), 1)
 	if err != nil {
@@ -142,15 +156,19 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 
 	recoverySender := &captureRecovery{}
 	authenticationRepository := postgresadapter.NewAuthenticationRepository(pool)
-	recoveryService, err := recovery.NewService(postgresadapter.NewRecoveryRepository(pool), recoverySender, authenticationRepository, authn.Passwords{}, ids.RandomGenerator{}, fixedClock{now: now.Add(time.Minute)})
+	networkGuard, err := abuse.NewGuard(postgresadapter.NewNetworkRateLimiter(pool))
 	if err != nil {
 		t.Fatal(err)
 	}
-	unknownRecovery, err := recoveryService.Begin(ctx, recovery.BeginCommand{Email: "missing@example.com"})
+	recoveryService, err := recovery.NewService(postgresadapter.NewRecoveryRepository(pool), recoverySender, authenticationRepository, networkGuard, authn.Passwords{}, ids.RandomGenerator{}, fixedClock{now: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownRecovery, err := recoveryService.Begin(ctx, recovery.BeginCommand{Email: "missing@example.com", NetworkActor: [32]byte{1}})
 	if err != nil || unknownRecovery.Delivered {
 		t.Fatalf("unknown persistent recovery = %+v, %v", unknownRecovery, err)
 	}
-	startedRecovery, err := recoveryService.Begin(ctx, recovery.BeginCommand{Email: " OWNER@example.com "})
+	startedRecovery, err := recoveryService.Begin(ctx, recovery.BeginCommand{Email: " OWNER@example.com ", NetworkActor: [32]byte{1}})
 	if err != nil || !startedRecovery.Delivered || recoverySender.message.Token == "" {
 		t.Fatalf("begin persistent recovery = %+v, message=%+v, %v", startedRecovery, recoverySender.message, err)
 	}
@@ -283,7 +301,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 9 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 10 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
