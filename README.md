@@ -42,6 +42,7 @@ Start with the [production rewrite plan](docs/production/README.md). Its governi
 The focused design documents are:
 
 - [Target architecture](docs/production/architecture.md)
+- [Accepted architecture decisions](docs/production/decisions/README.md)
 - [Website, Accounts, Packages, and Billing](docs/production/accounts-packages-billing.md)
 - [Identity security and passkeys](docs/production/identity-security.md)
 - [Passkey envelope-key rotation operations](docs/production/passkey-key-rotation.md)

@@ -1,6 +1,6 @@
 # Website, Accounts, Packages, and Billing Architecture
 
-- Status: Accepted direction; implementation details require ADRs
+- Status: Accepted by [ADR-0001](decisions/0001-product-identity-and-web-surfaces.md) and [ADR-0002](decisions/0002-system-identity-accounts-packages-and-billing.md)
 - Product: Infinite Ocean: Spyglass
 - Public domain: `infiniteocean.net`
 - Parent: [Production plan](README.md)

@@ -1,6 +1,6 @@
 # Pooled Kubernetes and Cell Architecture
 
-- Status: Executable review reference; environment-specific application and load evidence remain
+- Status: Accepted by [ADR-0003](decisions/0003-pooled-cell-runtime.md); environment-specific application and load evidence remain
 - Product: Infinite Ocean: Spyglass
 - Parent: [Production plan](README.md)
 

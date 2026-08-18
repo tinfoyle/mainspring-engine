@@ -177,6 +177,8 @@ Acceptance:
 
 This phase follows the detailed decisions in [accounts-packages-billing.md](accounts-packages-billing.md) and [kubernetes-topology.md](kubernetes-topology.md). It must land before feature modules rely on identity, package access, quotas, or data placement.
 
+Architecture prerequisites are accepted in [ADR-0001](decisions/0001-product-identity-and-web-surfaces.md), [ADR-0002](decisions/0002-system-identity-accounts-packages-and-billing.md), and [ADR-0003](decisions/0003-pooled-cell-runtime.md). A Phase 2 implementation is incomplete if it passes a feature test while violating an ADR verification criterion—for example, by authorizing from Stripe synchronously, treating a User as an Account, checking packages only in the UI, or creating customer-specific Kubernetes resources.
+
 ### P2.1 Product identity and public website
 
 - Establish Infinite Ocean brand and **Infinite Ocean: Spyglass** product naming in code, configuration, metadata, UI, email, documentation, and deployment labels.

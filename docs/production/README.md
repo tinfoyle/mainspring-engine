@@ -3,6 +3,7 @@
 - Status: Working production charter
 - Prototype baseline: `8024f8d`
 - Last updated: 2026-08-18
+- Accepted decisions: [Architecture decision index](decisions/README.md)
 
 ## 1. Purpose
 
@@ -39,6 +40,8 @@ The production system must provide:
 - Safe global and cell database evolution with upgrade, rollback, reconciliation, and cell-cohort rollout procedures.
 - Shared, horizontally scalable Kubernetes workloads with bounded noisy-neighbor impact and no always-on stack per account.
 - Enough observability to answer what happened, for which account, in which cell, under whose authority, and how to recover it.
+
+The product identity, Account/commercial boundary, and pooled runtime model are fixed by [ADR-0001](decisions/0001-product-identity-and-web-surfaces.md), [ADR-0002](decisions/0002-system-identity-accounts-packages-and-billing.md), and [ADR-0003](decisions/0003-pooled-cell-runtime.md). Their verification criteria are release requirements, not optional implementation guidance.
 
 ## 3. Product and architectural invariants
 
