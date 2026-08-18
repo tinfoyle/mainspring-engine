@@ -31,6 +31,24 @@ export interface AccountSelected {
   readonly "account_context": SelectedAccountContext;
 }
 
+export interface ActiveSession {
+  readonly "authenticated_at": string;
+  readonly "authentication_assurance": AuthenticationAssurance;
+  readonly "authentication_method": AuthenticationMethod;
+  readonly "client_label": string;
+  readonly "current": boolean;
+  readonly "expires_at": string;
+  readonly "id": string;
+  readonly "last_seen_at": string;
+  readonly "reauthenticated_at": string;
+  readonly "reauthentication_assurance": AuthenticationAssurance;
+  readonly "reauthentication_method": AuthenticationMethod;
+}
+
+export interface ActiveSessions {
+  readonly "sessions": ReadonlyArray<ActiveSession>;
+}
+
 export interface AgentBoardroom {
   readonly "created_at": string;
   readonly "id": string;
@@ -139,6 +157,14 @@ export interface AssignWorkRequest {
   readonly "reason"?: string;
 }
 
+export type AuthenticationAssurance = "single_factor" | "user_verified_cryptographic";
+
+export type AuthenticationMethod = "password" | "passkey";
+
+export interface BeginRecoveryRequest {
+  readonly "email": string;
+}
+
 export interface BeginRegistrationRequest {
   readonly "account_name": string;
   readonly "display_name": string;
@@ -189,9 +215,32 @@ export interface CatalogPlan {
   readonly "version": number;
 }
 
+export interface CompletePasskeyLoginRequest {
+  readonly "client_label"?: string;
+  readonly "credential": WebAuthnAssertionCredential;
+}
+
+export interface CompletePasskeyReauthenticationRequest {
+  readonly "credential": WebAuthnAssertionCredential;
+}
+
+export interface CompletePasskeyRegistrationRequest {
+  readonly "credential": WebAuthnCreationCredential;
+  readonly "name": string;
+}
+
+export interface CompleteRecoveryRequest {
+  readonly "password": string;
+  readonly "token": string;
+}
+
 export interface CompleteRegistrationRequest {
   readonly "password": string;
   readonly "token": string;
+}
+
+export interface ConsumeRecoveryCodeRequest {
+  readonly "code": string;
 }
 
 export interface CreateAgentBoardroomRequest {
@@ -256,6 +305,27 @@ export interface PackageAccess {
   readonly "version": number;
 }
 
+export interface PasskeyCredential {
+  readonly "backed_up": boolean;
+  readonly "backup_eligible": boolean;
+  readonly "created_at": string;
+  readonly "id": string;
+  readonly "last_used_at"?: string;
+  readonly "name": string;
+}
+
+export interface PasskeyLoginSession {
+  readonly "authentication_assurance": "user_verified_cryptographic";
+  readonly "authentication_method": "passkey";
+  readonly "expires_at": string;
+  readonly "status": "authenticated";
+  readonly "user_id": string;
+}
+
+export interface Passkeys {
+  readonly "passkeys": ReadonlyArray<PasskeyCredential>;
+}
+
 export interface Problem {
   readonly "code": string;
   readonly "detail": string;
@@ -306,6 +376,27 @@ export interface PublishAgentPersonaRequest {
   readonly "system_instructions": string;
 }
 
+export interface ReauthenticateRequest {
+  readonly "password": string;
+}
+
+export interface RecoveryAccepted {
+  readonly "development_recovery_token"?: string;
+  readonly "status": "accepted";
+}
+
+export interface RecoveryCodeRotation {
+  readonly "codes": ReadonlyArray<string>;
+  readonly "status": RecoveryCodeStatus;
+}
+
+export interface RecoveryCodeStatus {
+  readonly "configured": boolean;
+  readonly "created_at"?: string;
+  readonly "remaining": number;
+  readonly "version"?: number;
+}
+
 export interface RegistrationAccepted {
   readonly "development_verification_token"?: string;
   readonly "expires_at": string;
@@ -318,6 +409,25 @@ export interface RegistrationCompleted {
   readonly "entitlements": EntitlementSnapshot;
   readonly "membership": ProvisionedMembership;
   readonly "user": ProvisionedUser;
+}
+
+export interface SecurityEvent {
+  readonly "occurred_at": string;
+  readonly "session_id"?: string;
+  readonly "type": SecurityEventType;
+}
+
+export type SecurityEventType = "session_created" | "session_reauthenticated" | "session_revoked" | "sessions_revoked" | "credential_recovered" | "passkey_added" | "passkey_removed" | "passkey_authenticated" | "passkey_reauthenticated" | "passkey_clone_warning" | "recovery_codes_rotated" | "recovery_code_consumed";
+
+export interface SecurityEvents {
+  readonly "events": ReadonlyArray<SecurityEvent>;
+}
+
+export interface SecurityPosture {
+  readonly "owner_ready": boolean;
+  readonly "passkey_count": number;
+  readonly "recovery_codes_configured": boolean;
+  readonly "recovery_codes_remaining": number;
 }
 
 export interface SelectAccountRequest {
@@ -343,6 +453,47 @@ export interface StartAgentRunRequest {
 export interface TransitionWorkRequest {
   readonly "reason"?: string;
   readonly "to": WorkState;
+}
+
+export interface WebAuthnAssertionCredential {
+  readonly "authenticatorAttachment"?: "platform" | "cross-platform";
+  readonly "clientExtensionResults"?: Readonly<Record<string, unknown>>;
+  readonly "id": string;
+  readonly "rawId": string;
+  readonly "response": WebAuthnAssertionResponse;
+  readonly "type": "public-key";
+}
+
+export interface WebAuthnAssertionResponse {
+  readonly "authenticatorData": string;
+  readonly "clientDataJSON": string;
+  readonly "signature": string;
+  readonly "userHandle"?: string | null;
+}
+
+export interface WebAuthnCeremony {
+  readonly "ceremony_id": string;
+  readonly "expires_at": string;
+  readonly "public_key": WebAuthnPublicKeyOptions;
+}
+
+export interface WebAuthnCreationCredential {
+  readonly "authenticatorAttachment"?: "platform" | "cross-platform";
+  readonly "clientExtensionResults"?: Readonly<Record<string, unknown>>;
+  readonly "id": string;
+  readonly "rawId": string;
+  readonly "response": WebAuthnCreationResponse;
+  readonly "type": "public-key";
+}
+
+export interface WebAuthnCreationResponse {
+  readonly "attestationObject": string;
+  readonly "clientDataJSON": string;
+  readonly "transports"?: ReadonlyArray<string>;
+}
+
+export interface WebAuthnPublicKeyOptions {
+  readonly "publicKey": Readonly<Record<string, unknown>>;
 }
 
 export interface WorkActor {
@@ -421,6 +572,8 @@ export interface ApiSchemas {
   readonly AccountChoices: AccountChoices;
   readonly AccountContext: AccountContext;
   readonly AccountSelected: AccountSelected;
+  readonly ActiveSession: ActiveSession;
+  readonly ActiveSessions: ActiveSessions;
   readonly AgentBoardroom: AgentBoardroom;
   readonly AgentBoardroomState: AgentBoardroomState;
   readonly AgentBoardrooms: AgentBoardrooms;
@@ -435,6 +588,9 @@ export interface ApiSchemas {
   readonly AgentToolGrant: AgentToolGrant;
   readonly AgentToolGrantInput: AgentToolGrantInput;
   readonly AssignWorkRequest: AssignWorkRequest;
+  readonly AuthenticationAssurance: AuthenticationAssurance;
+  readonly AuthenticationMethod: AuthenticationMethod;
+  readonly BeginRecoveryRequest: BeginRecoveryRequest;
   readonly BeginRegistrationRequest: BeginRegistrationRequest;
   readonly CatalogFeaturePackage: CatalogFeaturePackage;
   readonly CatalogLimitDefinition: CatalogLimitDefinition;
@@ -442,7 +598,12 @@ export interface ApiSchemas {
   readonly CatalogPackageCode: CatalogPackageCode;
   readonly CatalogPackageMode: CatalogPackageMode;
   readonly CatalogPlan: CatalogPlan;
+  readonly CompletePasskeyLoginRequest: CompletePasskeyLoginRequest;
+  readonly CompletePasskeyReauthenticationRequest: CompletePasskeyReauthenticationRequest;
+  readonly CompletePasskeyRegistrationRequest: CompletePasskeyRegistrationRequest;
+  readonly CompleteRecoveryRequest: CompleteRecoveryRequest;
   readonly CompleteRegistrationRequest: CompleteRegistrationRequest;
+  readonly ConsumeRecoveryCodeRequest: ConsumeRecoveryCodeRequest;
   readonly CreateAgentBoardroomRequest: CreateAgentBoardroomRequest;
   readonly CreateWorkRequest: CreateWorkRequest;
   readonly EntitlementGrantSource: EntitlementGrantSource;
@@ -452,18 +613,35 @@ export interface ApiSchemas {
   readonly LoginRequest: LoginRequest;
   readonly LoginSession: LoginSession;
   readonly PackageAccess: PackageAccess;
+  readonly PasskeyCredential: PasskeyCredential;
+  readonly PasskeyLoginSession: PasskeyLoginSession;
+  readonly Passkeys: Passkeys;
   readonly Problem: Problem;
   readonly ProvisionedAccount: ProvisionedAccount;
   readonly ProvisionedMembership: ProvisionedMembership;
   readonly ProvisionedUser: ProvisionedUser;
   readonly PublicCatalog: PublicCatalog;
   readonly PublishAgentPersonaRequest: PublishAgentPersonaRequest;
+  readonly ReauthenticateRequest: ReauthenticateRequest;
+  readonly RecoveryAccepted: RecoveryAccepted;
+  readonly RecoveryCodeRotation: RecoveryCodeRotation;
+  readonly RecoveryCodeStatus: RecoveryCodeStatus;
   readonly RegistrationAccepted: RegistrationAccepted;
   readonly RegistrationCompleted: RegistrationCompleted;
+  readonly SecurityEvent: SecurityEvent;
+  readonly SecurityEventType: SecurityEventType;
+  readonly SecurityEvents: SecurityEvents;
+  readonly SecurityPosture: SecurityPosture;
   readonly SelectAccountRequest: SelectAccountRequest;
   readonly SelectedAccountContext: SelectedAccountContext;
   readonly StartAgentRunRequest: StartAgentRunRequest;
   readonly TransitionWorkRequest: TransitionWorkRequest;
+  readonly WebAuthnAssertionCredential: WebAuthnAssertionCredential;
+  readonly WebAuthnAssertionResponse: WebAuthnAssertionResponse;
+  readonly WebAuthnCeremony: WebAuthnCeremony;
+  readonly WebAuthnCreationCredential: WebAuthnCreationCredential;
+  readonly WebAuthnCreationResponse: WebAuthnCreationResponse;
+  readonly WebAuthnPublicKeyOptions: WebAuthnPublicKeyOptions;
   readonly WorkActor: WorkActor;
   readonly WorkAssignment: WorkAssignment;
   readonly WorkAssignmentInput: WorkAssignmentInput;

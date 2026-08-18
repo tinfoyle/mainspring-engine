@@ -130,6 +130,56 @@ func TestPublicAccountEntryOperationsRemainTyped(t *testing.T) {
 	}
 }
 
+func TestIdentitySecurityOperationsRemainTyped(t *testing.T) {
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes, err := loadContract(filepath.Join(root, contractPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"beginRecovery":                   false,
+		"completeRecovery":                false,
+		"beginPasskeyLogin":               false,
+		"completePasskeyLogin":            false,
+		"listPasskeys":                    false,
+		"beginPasskeyRegistration":        false,
+		"completePasskeyRegistration":     false,
+		"deletePasskey":                   false,
+		"beginPasskeyReauthentication":    false,
+		"completePasskeyReauthentication": false,
+		"recoveryCodeStatus":              false,
+		"rotateRecoveryCodes":             false,
+		"consumeRecoveryCode":             false,
+		"securityPostureStatus":           false,
+		"listSessions":                    false,
+		"listSecurityEvents":              false,
+		"revokeSession":                   false,
+		"logoutAll":                       false,
+		"reauthenticate":                  false,
+		"logout":                          false,
+	}
+	for _, route := range routes {
+		if _, exists := want[route.OperationID]; !exists {
+			continue
+		}
+		if route.Service != "account-api" {
+			t.Errorf("%s is owned by %q, want account-api", route.OperationID, route.Service)
+		}
+		if route.Contract != "typed" {
+			t.Errorf("%s regressed to %q contract", route.OperationID, route.Contract)
+		}
+		want[route.OperationID] = true
+	}
+	for operationID, found := range want {
+		if !found {
+			t.Errorf("typed identity-security operation %q is missing", operationID)
+		}
+	}
+}
+
 func TestCommittedContractMatchesTransportsAndGeneratedFiles(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
