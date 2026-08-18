@@ -11,6 +11,14 @@ The reference proves the intended unit of scaling: shared workload classes in
 a cell. Nothing here creates a Deployment, Service, namespace, database, or
 credential per Spyglass Account.
 
+The app-router reference keeps at least two replicas, requires at least two
+eligible node domains with a hard max-skew policy, permits no unavailable pod
+during a rolling update, waits for a new
+pod to remain ready, and retains one ready replica during voluntary disruption.
+Its startup probe allows dependency initialization before liveness enforcement.
+Environment overlays must provide enough nodes and capacity to satisfy these
+constraints; weakening them is an explicit availability-policy change.
+
 Before an environment overlay may use these resources it must add:
 
 - A pinned image digest produced by the verified release workflow.
@@ -24,6 +32,9 @@ Before an environment overlay may use these resources it must add:
 - HPA custom metrics for request latency, queue age, and schedule-to-start.
 - Tested NetworkPolicy egress destinations and cluster admission policy.
 - Pod monitor, alerts, SLO metadata, and a load-tested replica/connection cap.
+- An ingress/L7 load-balancer probe that removes an unready router endpoint and
+  a pod/node-loss exercise proving the next request reaches another ready
+  replica without session affinity or customer-visible state loss.
 - `spyglass-global-runtime`, `spyglass-cell-reference-runtime`,
   `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
   `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,

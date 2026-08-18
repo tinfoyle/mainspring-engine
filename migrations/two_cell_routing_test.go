@@ -74,6 +74,9 @@ func TestTwoCellPostgresRoutingIsolationAndMoveFailureContracts(t *testing.T) {
 	cellBHandler, closeCellB := newRoutingCell(t, ctx, cellBOwner, cellBURL, cellBID, accountBID, key, clock, logger)
 	defer closeCellB()
 	transport := newRoutingCellTransport(map[string]http.Handler{"cell-a.test": cellAHandler, "cell-b.test": cellBHandler})
+	cellBReplica, closeCellBReplica := newRoutingCellReplica(t, ctx, cellBOwner, cellBURL, cellBID, key, clock, logger)
+	defer closeCellBReplica()
+	transport.AddHandler("cell-b.test", cellBReplica)
 
 	seedTwoCellGlobalControl(t, ctx, global, clock.Now(), userID, accountAID, accountBID, cellAID, cellBID)
 	sessionService, err := sessions.NewService(postgresadapter.NewSessionRepository(global), fixedIDGenerator{"96000000-0000-4000-8000-000000000006"}, clock, 24*time.Hour, time.Hour, 15*time.Minute)
@@ -100,6 +103,26 @@ func TestTwoCellPostgresRoutingIsolationAndMoveFailureContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	replicaSessions, err := sessions.NewService(postgresadapter.NewSessionRepository(global), fixedIDGenerator{"98000000-0000-4000-8000-000000000008"}, clock, 24*time.Hour, time.Hour, 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replicaAuthorizer, err := access.NewAuthorizer(postgresadapter.NewAccessRepository(global))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replicaDirectory, err := accountdirectory.NewCache(postgresadapter.NewAccountDirectoryRepository(global), clock, accountdirectory.Config{TTL: 30 * time.Second, Capacity: 10, AllowHTTP: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replicaSigner, err := routecontext.NewSigner("spyglass-app-router", "current", key, 20*time.Second, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routerReplica, err := routertransport.New(replicaSessions, replicaAuthorizer, replicaDirectory, replicaSigner, ids.RandomGenerator{}, routertransport.Config{SessionCookieName: "spyglass_session", TrustedOrigins: []string{"https://app.test"}, Transport: transport}, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	responseA := routeAccountContext(router.Handler(), issued.Token, accountAID)
 	assertRoutedCell(t, responseA, accountAID, cellAID, 1)
@@ -107,6 +130,15 @@ func TestTwoCellPostgresRoutingIsolationAndMoveFailureContracts(t *testing.T) {
 	assertRoutedCell(t, responseB, accountBID, cellBID, 1)
 	if transport.Hits("cell-a.test") != 1 || transport.Hits("cell-b.test") != 1 {
 		t.Fatalf("initial cell hits: A=%d B=%d", transport.Hits("cell-a.test"), transport.Hits("cell-b.test"))
+	}
+	tokenB := transport.LastToken("cell-b.test")
+	assertRoutedCell(t, routeAccountContext(routerReplica.Handler(), issued.Token, accountBID), accountBID, cellBID, 1)
+	if stats := replicaDirectory.Stats(); stats.Misses != 1 || stats.Entries != 1 {
+		t.Fatalf("cold replica directory stats=%+v", stats)
+	}
+	sharedReplay := directCellRequest(cellBReplica, accountBID, tokenB)
+	if sharedReplay.Code != http.StatusConflict || !strings.Contains(sharedReplay.Body.String(), `"code":"route_replay"`) {
+		t.Fatalf("cross-replica replay status=%d body=%s", sharedReplay.Code, sharedReplay.Body.String())
 	}
 	assertPhysicalCellPlacement(t, ctx, cellAOwner, accountAID, accountBID)
 	assertPhysicalCellPlacement(t, ctx, cellBOwner, accountBID, accountAID)
@@ -120,7 +152,7 @@ func TestTwoCellPostgresRoutingIsolationAndMoveFailureContracts(t *testing.T) {
 	if attack.Code != http.StatusUnauthorized || !strings.Contains(attack.Body.String(), `"code":"invalid_route_context"`) {
 		t.Fatalf("cross-Account path attack status=%d body=%s", attack.Code, attack.Body.String())
 	}
-	if countReceipts(t, ctx, cellAOwner) != 1 || countReceipts(t, ctx, cellBOwner) != 1 {
+	if countReceipts(t, ctx, cellAOwner) != 1 || countReceipts(t, ctx, cellBOwner) != 2 {
 		t.Fatalf("rejected attacks persisted replay receipts: A=%d B=%d", countReceipts(t, ctx, cellAOwner), countReceipts(t, ctx, cellBOwner))
 	}
 	canary, err := routecanary.Probe(ctx, routecanary.Config{
@@ -138,9 +170,9 @@ func TestTwoCellPostgresRoutingIsolationAndMoveFailureContracts(t *testing.T) {
 	}
 
 	moveAccountBetweenCells(t, ctx, global, cellAOwner, cellBOwner, accountAID, cellBID, clock.Now())
-	moved := routeAccountContext(router.Handler(), issued.Token, accountAID)
+	moved := routeAccountContext(routerReplica.Handler(), issued.Token, accountAID)
 	assertRoutedCell(t, moved, accountAID, cellBID, 2)
-	if transport.Hits("cell-a.test") != 2 || transport.Hits("cell-b.test") != 2 {
+	if transport.Hits("cell-a.test") != 2 || transport.Hits("cell-b.test") != 3 {
 		t.Fatalf("moved Account was sent to the wrong cell: A=%d B=%d", transport.Hits("cell-a.test"), transport.Hits("cell-b.test"))
 	}
 	stale := directCellRequest(cellAHandler, accountAID, tokenA)
@@ -150,25 +182,25 @@ func TestTwoCellPostgresRoutingIsolationAndMoveFailureContracts(t *testing.T) {
 
 	transport.SetFailed("cell-b.test", true)
 	cellAHits, cellBHits := transport.Hits("cell-a.test"), transport.Hits("cell-b.test")
-	unavailable := routeAccountContext(router.Handler(), issued.Token, accountAID)
+	unavailable := routeAccountContext(routerReplica.Handler(), issued.Token, accountAID)
 	if unavailable.Code != http.StatusBadGateway || !strings.Contains(unavailable.Body.String(), `"code":"cell_unavailable"`) {
 		t.Fatalf("assigned-cell failure status=%d body=%s", unavailable.Code, unavailable.Body.String())
 	}
 	if transport.Hits("cell-a.test") != cellAHits || transport.Hits("cell-b.test") != cellBHits+2 {
 		t.Fatalf("router guessed a fallback cell: before A=%d B=%d after A=%d B=%d", cellAHits, cellBHits, transport.Hits("cell-a.test"), transport.Hits("cell-b.test"))
 	}
-	if stats := router.TransportStats(); stats.RetryAttempts != 1 || stats.RetryRecovered != 0 || stats.RequestsFailed != 1 {
+	if stats := routerReplica.TransportStats(); stats.RetryAttempts != 1 || stats.RetryRecovered != 0 || stats.RequestsFailed != 1 {
 		t.Fatalf("assigned-cell failure stats=%+v", stats)
 	}
 	transport.SetFailed("cell-b.test", false)
-	assertRoutedCell(t, routeAccountContext(router.Handler(), issued.Token, accountAID), accountAID, cellBID, 2)
+	assertRoutedCell(t, routeAccountContext(routerReplica.Handler(), issued.Token, accountAID), accountAID, cellBID, 2)
 
 	if _, err := global.Exec(ctx, `UPDATE cells SET state='disabled' WHERE id=$1`, cellBID); err != nil {
 		t.Fatal(err)
 	}
 	clock.Advance(31 * time.Second)
 	cellAHits, cellBHits = transport.Hits("cell-a.test"), transport.Hits("cell-b.test")
-	unroutable := routeAccountContext(router.Handler(), issued.Token, accountAID)
+	unroutable := routeAccountContext(routerReplica.Handler(), issued.Token, accountAID)
 	if unroutable.Code != http.StatusServiceUnavailable || !strings.Contains(unroutable.Body.String(), `"code":"routing_unavailable"`) {
 		t.Fatalf("disabled-cell refresh status=%d body=%s", unroutable.Code, unroutable.Body.String())
 	}
@@ -178,7 +210,7 @@ func TestTwoCellPostgresRoutingIsolationAndMoveFailureContracts(t *testing.T) {
 	if _, err := global.Exec(ctx, `UPDATE cells SET state='active' WHERE id=$1`, cellBID); err != nil {
 		t.Fatal(err)
 	}
-	assertRoutedCell(t, routeAccountContext(router.Handler(), issued.Token, accountAID), accountAID, cellBID, 2)
+	assertRoutedCell(t, routeAccountContext(routerReplica.Handler(), issued.Token, accountAID), accountAID, cellBID, 2)
 }
 
 func testPostgresURL(t *testing.T) string {
@@ -195,6 +227,11 @@ func newRoutingCell(t *testing.T, ctx context.Context, owner *pgxpool.Pool, data
 	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.account_namespaces (account_id,placement_generation,state,created_at) VALUES ($1,1,'active',$2)`, accountID, clock.Now()); err != nil {
 		t.Fatalf("seed %s Account namespace: %v", cellID, err)
 	}
+	return newRoutingCellReplica(t, ctx, owner, databaseURL, cellID, key, clock, logger)
+}
+
+func newRoutingCellReplica(t *testing.T, ctx context.Context, owner *pgxpool.Pool, databaseURL string, cellID ids.CellID, key []byte, clock routecontext.Clock, logger *slog.Logger) (http.Handler, func()) {
+	t.Helper()
 	role := "spyglass_two_cell_" + randomSuffix(t)
 	if _, err := owner.Exec(ctx, `CREATE ROLE `+role+` NOLOGIN;
 		GRANT USAGE ON SCHEMA spyglass TO `+role+`;
@@ -378,20 +415,30 @@ func (clock *routingTestClock) Advance(duration time.Duration) {
 
 type routingCellTransport struct {
 	mu       sync.Mutex
-	handlers map[string]http.Handler
+	handlers map[string][]http.Handler
+	next     map[string]int
 	failed   map[string]bool
 	hits     map[string]int
 	tokens   map[string][]string
 }
 
 func newRoutingCellTransport(handlers map[string]http.Handler) *routingCellTransport {
-	return &routingCellTransport{handlers: handlers, failed: make(map[string]bool), hits: make(map[string]int), tokens: make(map[string][]string)}
+	values := make(map[string][]http.Handler, len(handlers))
+	for host, handler := range handlers {
+		values[host] = []http.Handler{handler}
+	}
+	return &routingCellTransport{handlers: values, next: make(map[string]int), failed: make(map[string]bool), hits: make(map[string]int), tokens: make(map[string][]string)}
 }
 
 func (transport *routingCellTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	host := request.URL.Host
 	transport.mu.Lock()
-	handler := transport.handlers[host]
+	handlers := transport.handlers[host]
+	var handler http.Handler
+	if len(handlers) > 0 {
+		handler = handlers[transport.next[host]%len(handlers)]
+		transport.next[host]++
+	}
 	failed := transport.failed[host]
 	transport.hits[host]++
 	transport.tokens[host] = append(transport.tokens[host], request.Header.Get(cellapi.RouteContextHeader))
@@ -405,6 +452,12 @@ func (transport *routingCellTransport) RoundTrip(request *http.Request) (*http.R
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response.Result(), nil
+}
+
+func (transport *routingCellTransport) AddHandler(host string, handler http.Handler) {
+	transport.mu.Lock()
+	transport.handlers[host] = append(transport.handlers[host], handler)
+	transport.mu.Unlock()
 }
 
 func (transport *routingCellTransport) SetFailed(host string, failed bool) {

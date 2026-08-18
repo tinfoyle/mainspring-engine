@@ -183,6 +183,8 @@ Deployments declare resource requests, limits, graceful termination, readiness, 
 
 Pod disruption budgets, topology spread constraints, zone-aware anti-affinity, rolling-update surge limits, and priority classes protect availability. Scaling rules are load-tested; they are not copied from defaults.
 
+The reference `app-router` Deployment makes its replica contract explicit: minimum two replicas, zero unavailable during rolling updates, one surge replica, five seconds of stable readiness before availability, a startup probe, one pod retained by the disruption budget, and at least two eligible node domains with hard hostname max-skew. Router replicas hold no authoritative session, placement, replay, or business state in process. A database-backed fixture composes two independent routers with separate directory caches, routes one system-wide session through both, advances placement through the surviving router, and proves two cell API replicas reject a replay through their shared cell receipt store. Applied environments still must exercise the actual ingress endpoint-removal and node/zone-loss path.
+
 Scale-to-zero is appropriate only for non-latency-sensitive workers whose queue semantics tolerate cold start. Public, account, application, routing, and webhook ingress retain ready capacity.
 
 ## 10. Provisioning
@@ -245,7 +247,8 @@ Schema state is observable per cell. A failed cell migration pauses that cohort 
 
 | Failure | Required behavior |
 |---|---|
-| One API pod | Ingress routes around it; clients retry safe operations |
+| One app-router pod | Readiness removes it; the Service selects another stateless replica using the same global session and shared control data |
+| One cell API pod | The router's one same-Service retry may reach another replica; shared receipts and operation idempotency prevent duplicate visible effects |
 | One worker pod | Durable work is retried from its queue/workflow history |
 | Cell database writer | Cell rejects writes, preserves durable queued work, and follows managed failover policy |
 | One cell | Only assigned accounts are degraded; routing and status identify the affected cohort |

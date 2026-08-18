@@ -36,6 +36,7 @@ jobs:
       - run: go vet ./...
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
       - run: test -z "$(gofmt -l cmd internal migrations)"
+      - run: kubectl kustomize deploy/kubernetes/reference >/dev/null
 
   website:
     runs-on: ubuntu-latest
