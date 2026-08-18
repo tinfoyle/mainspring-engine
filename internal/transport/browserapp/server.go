@@ -139,6 +139,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/app", http.StatusSeeOther) })
 	mux.HandleFunc("GET /assets/spyglass.css", s.styles)
 	mux.HandleFunc("GET /assets/work.js", s.workScript)
+	mux.HandleFunc("GET /assets/agents.js", s.agentScript)
 	mux.HandleFunc("GET /assets/passkeys.js", s.passkeyScript)
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
@@ -152,6 +153,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /verify", s.verify)
 	mux.HandleFunc("GET /app", s.app)
 	mux.HandleFunc("GET /app/work", s.workPage)
+	mux.HandleFunc("GET /app/agents", s.agentsPage)
 	mux.HandleFunc("GET /app/security", s.securityPage)
 	mux.HandleFunc("POST /app/security/reauthenticate", s.reauthenticate)
 	mux.HandleFunc("POST /app/security/recovery-codes", s.rotateRecoveryCodes)
@@ -258,6 +260,17 @@ func (s *Server) workScript(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(raw)
 }
 
+func (s *Server) agentScript(w http.ResponseWriter, _ *http.Request) {
+	raw, err := assets.ReadFile("assets/agents.js")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(raw)
+}
+
 func (s *Server) passkeyScript(w http.ResponseWriter, _ *http.Request) {
 	raw, err := assets.ReadFile("assets/passkeys.js")
 	if err != nil {
@@ -294,6 +307,8 @@ type pageData struct {
 	OwnerEnrollmentRequired                                                                            bool
 	WorkMode                                                                                           catalog.PackageMode
 	WorkAvailable, WorkReadOnly                                                                        bool
+	AgentsMode                                                                                         catalog.PackageMode
+	AgentsAvailable, AgentsReadOnly                                                                    bool
 	Script                                                                                             string
 }
 
@@ -578,6 +593,18 @@ func (s *Server) workPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "work", data)
 }
 
+func (s *Server) agentsPage(w http.ResponseWriter, r *http.Request) {
+	data, _, ok := s.appPageData(w, r)
+	if !ok {
+		return
+	}
+	data.Title = "Agents"
+	if data.AgentsAvailable {
+		data.Script = "/assets/agents.js"
+	}
+	s.render(w, http.StatusOK, "agents", data)
+}
+
 func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, sessions.Authenticated, bool) {
 	authenticated, ok := s.requireSession(w, r)
 	if !ok {
@@ -596,6 +623,7 @@ func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, 
 		}
 	}
 	workMode := modes[catalog.PackageWork]
+	agentsMode := modes[catalog.PackageAgents]
 	data := pageData{
 		Title:                   "Spyglass",
 		Choices:                 choices,
@@ -607,6 +635,9 @@ func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, 
 		WorkMode:                workMode,
 		WorkAvailable:           workMode == catalog.ModeEnabled || workMode == catalog.ModeReadOnly,
 		WorkReadOnly:            workMode == catalog.ModeReadOnly,
+		AgentsMode:              agentsMode,
+		AgentsAvailable:         agentsMode == catalog.ModeEnabled || agentsMode == catalog.ModeReadOnly,
+		AgentsReadOnly:          agentsMode == catalog.ModeReadOnly,
 	}
 	return data, authenticated, true
 }

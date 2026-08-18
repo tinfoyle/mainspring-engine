@@ -67,6 +67,15 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	if policy := workPage.Header.Get("Content-Security-Policy"); !strings.Contains(policy, "script-src 'self'") || !strings.Contains(policy, "connect-src 'self'") {
 		t.Fatalf("Work page content security policy: %q", policy)
 	}
+	agentsPage, err := client.Get(server.URL + "/app/agents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentsBody, _ := io.ReadAll(agentsPage.Body)
+	agentsPage.Body.Close()
+	if agentsPage.StatusCode != http.StatusOK || !bytes.Contains(agentsBody, []byte("Convene the right minds")) || !bytes.Contains(agentsBody, []byte("Operating plan")) || bytes.Contains(agentsBody, []byte("/assets/agents.js")) {
+		t.Fatalf("locked Agents page: %d %s", agentsPage.StatusCode, agentsBody)
+	}
 	parsed, _ := url.Parse(server.URL)
 	cookies := jar.Cookies(parsed)
 	foundSession := false

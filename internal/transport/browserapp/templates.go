@@ -23,7 +23,7 @@ const pageTemplates = `
       <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
       <button type="submit">Switch Account</button>
     </form>
-    <nav><p>OPERATE</p><a {{if eq .Page "app"}}class="active"{{end}} href="/app"><i>⌂</i>Overview</a><a {{if eq .Page "work"}}class="active"{{end}} href="/app/work"><i>✓</i>Work</a><a href="/app#agents"><i>◌</i>Agents</a><a href="/app#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i>≋</i>Finance</a><a href="/app#marketing"><i>↗</i>Marketing</a><a href="/app#billing"><i>$</i>Billing</a><a href="/app#settings"><i>⚙</i>Account</a><a {{if eq .Page "closures"}}class="active"{{end}} href="/app/account-closures"><i>○</i>Lifecycle</a><a href="/app/security"><i>◇</i>Security</a></nav>
+    <nav><p>OPERATE</p><a {{if eq .Page "app"}}class="active"{{end}} href="/app"><i>⌂</i>Overview</a><a {{if eq .Page "work"}}class="active"{{end}} href="/app/work"><i>✓</i>Work</a><a {{if eq .Page "agents"}}class="active"{{end}} href="/app/agents"><i>◌</i>Agents</a><a href="/app#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i>≋</i>Finance</a><a href="/app#marketing"><i>↗</i>Marketing</a><a href="/app#billing"><i>$</i>Billing</a><a href="/app#settings"><i>⚙</i>Account</a><a {{if eq .Page "closures"}}class="active"{{end}} href="/app/account-closures"><i>○</i>Lifecycle</a><a href="/app/security"><i>◇</i>Security</a></nav>
     <form method="post" action="/logout"><button class="logout">Sign out</button></form>
   </aside>
 {{end}}
@@ -163,6 +163,59 @@ const pageTemplates = `
         </div>
       </section>
       {{if not .WorkReadOnly}}<dialog class="work-dialog" id="work-create-dialog"><form id="work-create-form"><header><div><p class="eyebrow">NEW WORK</p><h2>Create a clear next step</h2></div><button id="work-create-close" type="button" aria-label="Close">×</button></header><label>Title<input name="title" maxlength="240" required placeholder="What needs to happen?"></label><label>Description<textarea name="description" maxlength="20000" rows="5" placeholder="Add the outcome, context, and definition of done."></textarea></label><div class="work-form-grid"><label>Type<select name="kind"><option value="ticket">Ticket</option><option value="todo">To-do</option></select></label><label>Priority<select name="priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></label><label>Responsibility<select name="responsibility"><option value="shared">Shared</option><option value="user">Assign to me</option></select></label></div><p class="work-form-error" id="work-create-error" role="alert" hidden></p><footer><button class="secondary" id="work-create-cancel" type="button">Cancel</button><button class="primary" type="submit">Create work</button></footer></form></dialog>{{end}}
+      {{end}}
+    </div>
+  </main>
+</div></body></html>
+{{end}}
+
+{{define "agents"}}
+{{template "head" .}}
+<div class="app-shell">
+  {{template "private-sidebar" .}}
+  <main class="workspace">
+    {{template "private-topbar" .}}
+    <div class="content agents-content">
+      {{template "alert" .}}
+      {{if not .Selected}}
+      <section class="empty"><h1>No Spyglass Accounts yet.</h1><p>Create an Account or accept an invitation to begin.</p><a href="/signup">Create Account</a></section>
+      {{else if not .AgentsAvailable}}
+      <section class="agents-locked panel"><div><p class="eyebrow">AGENTS PACKAGE</p><h1>Convene the right minds.<br><em>Keep every action governed.</em></h1><p>Agents is not included in this Account's current package set. The Operating plan adds versioned specialists, coordinated Boardrooms, and Account-bound runs.</p><a href="/app#billing">Review Account plans →</a></div><div class="agents-locked-orbit" aria-hidden="true"><i></i><i></i><i></i><b>IO</b></div></section>
+      {{else}}
+      <section class="agents-heading"><div><p class="eyebrow">AGENTS</p><h1>A boardroom for<br><em>the question at hand.</em></h1><p>Bring governed specialists into one Account-scoped conversation. Every run freezes its Persona versions, policy, tools, and entitlement boundary.</p></div><span class="work-mode">{{if .AgentsReadOnly}}READ-ONLY ACCESS{{else}}PACKAGE ENABLED{{end}}</span></section>
+      <section class="agents-app" id="agents-app" data-account-id="{{.Selected.AccountID}}" data-read-only="{{.AgentsReadOnly}}" aria-busy="true">
+        <aside class="agents-rail panel">
+          <header><div><p class="eyebrow">BOARDROOMS</p><h2>Operating rooms</h2></div><span id="agents-room-count">Loading</span></header>
+          <div class="agents-status" id="agents-room-status" role="status">Loading Boardrooms…</div>
+          <nav id="agents-room-list" aria-label="Agent Boardrooms"></nav>
+        </aside>
+        <section class="agents-stage">
+          <section class="agents-roster panel">
+            <header><div><p class="eyebrow">CURRENT BOARDROOM</p><h2 id="agents-room-name">Select a Boardroom</h2><p id="agents-room-purpose">Choose an operating room to inspect its team and conversations.</p></div><span id="agents-room-policy"></span></header>
+            <div id="agents-personas" class="agents-personas" aria-label="Boardroom Personas"></div>
+          </section>
+          {{if not .AgentsReadOnly}}<form class="agents-composer panel" id="agents-run-form" hidden>
+            <header><div><p class="eyebrow" id="agents-compose-label">NEW CONVERSATION</p><h2 id="agents-compose-title">Convene this Boardroom</h2></div><button class="agents-new-conversation" id="agents-new-conversation" type="button" hidden>New conversation</button></header>
+            <label id="agents-subject-field">Subject<input name="subject" minlength="2" maxlength="240" required placeholder="What decision or situation needs a clear view?"></label>
+            <label>Your question<textarea name="prompt" maxlength="65536" required rows="5" placeholder="Give the Boardroom the context, constraints, and outcome you need."></textarea></label>
+            <fieldset><legend>Invite Personas</legend><div id="agents-persona-picker"></div></fieldset>
+            <p class="agents-form-error" id="agents-form-error" role="alert" hidden></p>
+            <footer><span>Runs are immutable, capacity-governed, and Account-bound.</span><button type="submit">Convene Boardroom →</button></footer>
+          </form>{{end}}
+          <section class="agents-conversations panel">
+            <header><div><p class="eyebrow">CONVERSATIONS</p><h2>Decision history</h2></div><span id="agents-conversation-count">Select a room</span></header>
+            <div id="agents-conversation-status" class="agents-status" role="status">No Boardroom selected.</div>
+            <div id="agents-conversation-list"></div>
+            <button id="agents-more-conversations" class="agents-more" type="button" hidden>Load more conversations</button>
+          </section>
+          <section class="agents-transcript panel" id="agents-transcript" hidden>
+            <header><div><p class="eyebrow">CONVERSATION</p><h2 id="agents-transcript-title"></h2></div><span id="agents-transcript-state"></span></header>
+            <div id="agents-run-status" class="agents-run-status" role="status" hidden></div>
+            <div id="agents-message-list"></div>
+            <button id="agents-more-messages" class="agents-more" type="button" hidden>Load later messages</button>
+          </section>
+        </section>
+      </section>
       {{end}}
     </div>
   </main>
