@@ -19,11 +19,13 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnercontrol"
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
 	workreleaseapp "github.com/tinfoyle/spyglass-engine/internal/application/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
@@ -40,6 +42,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	passkeycommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/passkeyadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/routereceiptworker"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/runnercontroller"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -83,6 +86,8 @@ func main() {
 		err = runAccountLifecycleWorker(ctx, logger)
 	case "work-reconciler":
 		err = runWorkReconciler(ctx, logger)
+	case "runner-controller":
+		err = runRunnerController(ctx, logger)
 	case "route-receipt-worker":
 		err = runRouteReceiptWorker(ctx, logger)
 	case "route-canary":
@@ -98,7 +103,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -992,6 +997,83 @@ func runWorkReconciler(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "work-reconciler", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{cellRestoreGate, globalRestoreGate}}, logger)
+}
+
+func runRunnerController(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Cell, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
+	maxConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 4)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_RUNNER_CONTROL_POLL_INTERVAL", time.Second)
+	if err != nil || poll < 100*time.Millisecond || poll > time.Minute {
+		return errors.New("SPYGLASS_RUNNER_CONTROL_POLL_INTERVAL must be between 100ms and 1m")
+	}
+	lease, err := durationEnv("SPYGLASS_RUNNER_CONTROL_LEASE", runnercontrol.DefaultLease)
+	if err != nil || lease < time.Second || lease > 30*time.Minute {
+		return errors.New("SPYGLASS_RUNNER_CONTROL_LEASE must be between 1s and 30m")
+	}
+	maxAttempts, err := int32Env("SPYGLASS_RUNNER_CONTROL_MAX_ATTEMPTS", runnercontrol.DefaultMaxAttempts)
+	if err != nil || maxAttempts > 100 {
+		return errors.New("SPYGLASS_RUNNER_CONTROL_MAX_ATTEMPTS must be between 1 and 100")
+	}
+	inspectionBatch, err := int32Env("SPYGLASS_RUNNER_INSPECTION_BATCH", 100)
+	if err != nil || inspectionBatch > 1000 {
+		return errors.New("SPYGLASS_RUNNER_INSPECTION_BATCH must be between 1 and 1000")
+	}
+	namespace, err := requiredEnv("SPYGLASS_RUNNER_NAMESPACE")
+	if err != nil {
+		return err
+	}
+	image, err := requiredEnv("SPYGLASS_RUNNER_IMAGE")
+	if err != nil {
+		return err
+	}
+	serviceAccount, err := requiredEnv("SPYGLASS_RUNNER_SERVICE_ACCOUNT")
+	if err != nil {
+		return err
+	}
+	runtimeClass, err := requiredEnv("SPYGLASS_RUNNER_RUNTIME_CLASS")
+	if err != nil {
+		return err
+	}
+	brokerURL, err := requiredEnv("SPYGLASS_RUNNER_BROKER_URL")
+	if err != nil {
+		return err
+	}
+	deadline, err := durationEnv("SPYGLASS_RUNNER_ACTIVE_DEADLINE", 15*time.Minute)
+	if err != nil || deadline < 30*time.Second || deadline > 24*time.Hour || deadline%time.Second != 0 {
+		return errors.New("SPYGLASS_RUNNER_ACTIVE_DEADLINE must be whole seconds between 30s and 24h")
+	}
+	retention, err := durationEnv("SPYGLASS_RUNNER_JOB_RETENTION", time.Hour)
+	if err != nil || retention < time.Minute || retention > 7*24*time.Hour || retention%time.Second != 0 {
+		return errors.New("SPYGLASS_RUNNER_JOB_RETENTION must be whole seconds between 1m and 168h")
+	}
+	profiles := map[string]kubernetes.ResourceProfile{
+		"agent-small":  {CPURequest: "250m", CPULimit: "1", MemoryRequest: "256Mi", MemoryLimit: "1Gi", EphemeralStorageLimit: "1Gi"},
+		"agent-medium": {CPURequest: "500m", CPULimit: "2", MemoryRequest: "512Mi", MemoryLimit: "2Gi", EphemeralStorageLimit: "2Gi"},
+		"agent-large":  {CPURequest: "1", CPULimit: "4", MemoryRequest: "1Gi", MemoryLimit: "4Gi", EphemeralStorageLimit: "4Gi"},
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := runnercontroller.New(startup, runnercontroller.Config{
+		CellDatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease,
+		MaxAttempts: int(maxAttempts), InspectionBatch: int(inspectionBatch),
+		Kubernetes: kubernetes.Config{Namespace: namespace, RunnerImage: image, RunnerServiceAccount: serviceAccount, RunnerRuntimeClass: runtimeClass, BrokerURL: brokerURL, Profiles: profiles, ActiveDeadlineSeconds: int64(deadline / time.Second), TTLSecondsAfterFinished: int64(retention / time.Second)},
+	}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "runner-controller", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
 func runRouteReceiptWorker(ctx context.Context, logger *slog.Logger) error {

@@ -12,6 +12,7 @@ type queueStub struct {
 	found                  bool
 	launched, failed, dead bool
 	completed              string
+	launchedItems          []Invocation
 	policy                 AccountPolicy
 }
 
@@ -36,14 +37,23 @@ func (q *queueStub) Complete(_ context.Context, _, _, outcome string, _ time.Tim
 	q.completed = outcome
 	return nil
 }
+func (q *queueStub) ClaimLaunched(context.Context, time.Time, time.Duration, int) ([]Invocation, error) {
+	return q.launchedItems, nil
+}
 func (q *queueStub) Stats(context.Context, time.Time) (Stats, error) {
 	return Stats{Ready: 1}, nil
 }
 
-type launcherStub struct{ err error }
+type launcherStub struct {
+	err      error
+	terminal TerminalStatus
+}
 
 func (l launcherStub) Ensure(context.Context, Invocation) (string, error) {
 	return "runner-invocation", l.err
+}
+func (l launcherStub) Inspect(context.Context, Invocation) (TerminalStatus, error) {
+	return l.terminal, l.err
 }
 
 type clockStub struct{ now time.Time }
@@ -85,5 +95,19 @@ func TestCompletionValidatesTerminalOutcome(t *testing.T) {
 	}
 	if err := service.Complete(context.Background(), invocationID, "runner-1", "failed"); !errors.Is(err, ErrInvalidInvocation) {
 		t.Fatalf("invalid outcome err=%v", err)
+	}
+}
+
+func TestReconcileLaunchedCompletesOnlyTerminalJobs(t *testing.T) {
+	now := time.Date(2026, 8, 18, 19, 0, 0, 0, time.UTC)
+	queue := &queueStub{launchedItems: []Invocation{{ID: "10000000-0000-4000-8000-000000000001", JobName: "runner-1"}}}
+	service, _ := NewService(queue, launcherStub{terminal: TerminalStatus{Terminal: true, Outcome: "completed"}}, clockStub{now}, time.Minute, 3)
+	if completed, err := service.ReconcileLaunched(context.Background(), 10); err != nil || completed != 1 || queue.completed != "completed" {
+		t.Fatalf("completed=%d outcome=%q err=%v", completed, queue.completed, err)
+	}
+	queue.completed = ""
+	service, _ = NewService(queue, launcherStub{}, clockStub{now}, time.Minute, 3)
+	if completed, err := service.ReconcileLaunched(context.Background(), 10); err != nil || completed != 0 || queue.completed != "" {
+		t.Fatalf("nonterminal completed=%d outcome=%q err=%v", completed, queue.completed, err)
 	}
 }

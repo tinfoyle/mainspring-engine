@@ -225,6 +225,30 @@ Terminal Work updates enqueue in the same cell transaction. A unique lease token
 
 Every reconciler replica periodically deletes at most the configured batch of completed rows older than the retention cutoff using `FOR UPDATE SKIP LOCKED`. It never deletes pending, processing, failed, or dead-letter rows. The partial `completed_at` index keeps cleanup independent of live queue scans, and immutable `work_capacity_release_operator_events` remain after queue cleanup because they intentionally have no queue foreign key.
 
+## Runner controller values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_CELL_DATABASE_URL` | Required controller credential with `SELECT/UPDATE` only on the two identifier-only runner-control tables |
+| `SPYGLASS_CELL_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `4` |
+| `SPYGLASS_RUNNER_CONTROL_POLL_INTERVAL` | Optional duration from `100ms` through `1m`; defaults to `1s` |
+| `SPYGLASS_RUNNER_CONTROL_LEASE` | Optional launch lease from `1s` through `30m`; defaults to `2m` |
+| `SPYGLASS_RUNNER_CONTROL_MAX_ATTEMPTS` | Optional integer from 1 through 100; defaults to `8` |
+| `SPYGLASS_RUNNER_INSPECTION_BATCH` | Optional terminal-inspection claim batch from 1 through 1000; defaults to `100` |
+| `SPYGLASS_RUNNER_NAMESPACE` | Required exact Kubernetes namespace DNS label |
+| `SPYGLASS_RUNNER_IMAGE` | Required immutable image reference ending in `@sha256:` plus exactly 64 lowercase hexadecimal characters |
+| `SPYGLASS_RUNNER_SERVICE_ACCOUNT` | Required runner-pod service account; it has no RBAC and automatic API token mounting is disabled |
+| `SPYGLASS_RUNNER_RUNTIME_CLASS` | Required sandbox RuntimeClass DNS label; the environment must test its isolation and PID behavior |
+| `SPYGLASS_RUNNER_BROKER_URL` | Required HTTPS broker origin/path with no embedded credentials, query, or fragment |
+| `SPYGLASS_RUNNER_ACTIVE_DEADLINE` | Optional whole-second Job deadline from `30s` through `24h`; defaults to `15m` |
+| `SPYGLASS_RUNNER_JOB_RETENTION` | Optional whole-second completed-Job TTL from `1m` through `168h`; defaults to `1h` |
+| `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
+| `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
+
+The controller uses its in-cluster projected service-account token and CA only to create and get Jobs. Its database role cannot insert work; the separate producer role has no table grants and executes only the bounded configure/enqueue functions. Runner Jobs receive no database credential and set `automountServiceAccountToken: false`. The three compiled resource profiles (`agent-small`, `agent-medium`, and `agent-large`) are deployment policy rather than invocation input.
+
+Do not deploy this process until the invocation broker authenticates an invocation-bound runner identity, returns only the exact admitted payload/capabilities, accepts one bounded result, and has a tested NetworkPolicy path. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow Job RBAC, sandbox RuntimeClass, digest-pinned runner artifact, cancellation semantics, and alert/custom-metric integration. See [runner-control.md](runner-control.md).
+
 ## Work release operator values
 
 `work-release-admin inspect|requeue` is a short-lived controlled job, never a standing Deployment. Both actions require `SPYGLASS_CELL_DATABASE_URL`, `SPYGLASS_OPERATOR_ID`, `SPYGLASS_OPERATOR_REASON`, `SPYGLASS_ENVIRONMENT`, and an exact matching `SPYGLASS_CONFIRM_ENVIRONMENT`. Inspection accepts optional `SPYGLASS_WORK_RELEASE_INSPECT_LIMIT` from 1 through 100. Requeue requires `SPYGLASS_WORK_ACCOUNT_ID`, `SPYGLASS_WORK_ITEM_ID`, and `SPYGLASS_WORK_RESERVATION_ID` from an inspected record.
@@ -258,6 +282,7 @@ spyglass app-api
 spyglass admission-api
 spyglass route-canary
 spyglass route-receipt-worker
+spyglass runner-controller
 spyglass billing-worker
 spyglass notification-worker
 spyglass entitlement-worker

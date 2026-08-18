@@ -186,7 +186,7 @@ func (q *RunnerControlQueue) MarkLaunched(ctx context.Context, invocation runner
 	result, err := q.pool.Exec(ctx, `
 		UPDATE spyglass.runner_invocation_queue SET
 			processing_state='launched',lease_id=NULL,lease_expires_at=NULL,
-			job_name=$3,launched_at=COALESCE(launched_at,$4),last_error_code=NULL
+			job_name=$3,launched_at=COALESCE(launched_at,$4),next_inspection_at=$4,last_error_code=NULL
 		WHERE invocation_id=$1 AND processing_state='launching' AND lease_id=$2`,
 		invocation.ID, invocation.LeaseID, jobName, now.UTC())
 	if err != nil {
@@ -248,7 +248,7 @@ func (q *RunnerControlQueue) Complete(ctx context.Context, invocationID, jobName
 	var accountID ids.AccountID
 	err = tx.QueryRow(ctx, `
 		UPDATE spyglass.runner_invocation_queue SET
-			processing_state=$3,completed_at=$4,last_error_code=NULL
+			processing_state=$3,completed_at=$4,next_inspection_at=NULL,last_error_code=NULL
 		WHERE invocation_id=$1 AND processing_state='launched' AND job_name=$2
 		RETURNING account_id`, invocationID, jobName, outcome, now.UTC()).Scan(&accountID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -272,6 +272,40 @@ func (q *RunnerControlQueue) Complete(ctx context.Context, invocationID, jobName
 		return fmt.Errorf("commit runner completion: %w", err)
 	}
 	return nil
+}
+
+func (q *RunnerControlQueue) ClaimLaunched(ctx context.Context, now time.Time, interval time.Duration, limit int) ([]runnercontrol.Invocation, error) {
+	rows, err := q.pool.Query(ctx, `
+		WITH candidates AS (
+			SELECT invocation_id
+			FROM spyglass.runner_invocation_queue
+			WHERE processing_state='launched' AND next_inspection_at<=$1
+			ORDER BY next_inspection_at,launched_at,invocation_id
+			FOR UPDATE SKIP LOCKED LIMIT $2
+		)
+		UPDATE spyglass.runner_invocation_queue q SET
+			next_inspection_at=$1+($3::bigint*interval '1 millisecond')
+		FROM candidates c WHERE q.invocation_id=c.invocation_id
+		RETURNING q.invocation_id,q.account_id,q.profile,q.processing_state,q.attempt_count,q.job_name,q.queued_at,q.launched_at`,
+		now.UTC(), limit, interval.Milliseconds())
+	if err != nil {
+		return nil, fmt.Errorf("list launched runner invocations: %w", err)
+	}
+	defer rows.Close()
+	result := make([]runnercontrol.Invocation, 0)
+	for rows.Next() {
+		var invocation runnercontrol.Invocation
+		var launchedAt time.Time
+		if err := rows.Scan(&invocation.ID, &invocation.AccountID, &invocation.Profile, &invocation.State, &invocation.AttemptCount, &invocation.JobName, &invocation.QueuedAt, &launchedAt); err != nil {
+			return nil, fmt.Errorf("scan launched runner invocation: %w", err)
+		}
+		invocation.LaunchedAt = &launchedAt
+		result = append(result, invocation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate launched runner invocations: %w", err)
+	}
+	return result, nil
 }
 
 func decrementRunnerActive(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, now time.Time) error {

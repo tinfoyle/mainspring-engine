@@ -1,6 +1,6 @@
 # Fair Runner Control Plane
 
-- Status: Durable scheduling kernel and PostgreSQL contract implemented; Kubernetes launch/reconciliation pending
+- Status: Kubernetes launch and terminal reconciliation executable; invocation broker, cancellation, manifests, and applied evidence pending
 - Product: Infinite Ocean: Spyglass
 - Parent: [Pooled Kubernetes and Cell Architecture](kubernetes-topology.md)
 
@@ -10,7 +10,7 @@ Spyglass runs bounded asynchronous invocations in a shared cell fleet. It does n
 
 The scheduling policy is independent of Kubernetes. PostgreSQL owns durable admission, Account fairness, concurrency, launch leases, retries, and terminal state. A launcher adapter owns idempotent interaction with the cluster. This keeps business policy testable without a cluster and permits another execution substrate without rewriting admission semantics.
 
-This slice does not yet make the runner controller deployable. The implemented boundary stops before Kubernetes Job creation so the repository cannot launch a pod that has no production invocation broker, credentials, completion callback, or cleanup watcher.
+The `spyglass runner-controller` process now performs durable fair claims, idempotent Kubernetes Job creation, due-time terminal inspection, and exact capacity release. It intentionally has no reference Deployment yet: the production invocation broker, runner workload identity, environment-specific Kubernetes API egress, cancellation path, and verified runner image are not complete, so promoting a manifest would create an attractive but incomplete execution surface.
 
 ## Control record and payload boundary
 
@@ -46,7 +46,7 @@ stateDiagram-v2
 
 `failed` means the controller could not establish a Kubernetes Job and may retry. `execution_failed` means the launched workload reached a terminal unsuccessful outcome. Those meanings are intentionally distinct.
 
-Every `launching` row has a lease and no Job name. Every `launched` or execution-terminal row has a Job name and no controller lease. Retryable rows have a due time. Execution-terminal rows have a completion time. Database constraints reject partial combinations.
+Every `launching` row has a lease and no Job name. Every `launched` or execution-terminal row has a Job name and no controller lease. Retryable rows have a due time. A launched row has a durable next-inspection time; controller replicas claim bounded due pages with `FOR UPDATE SKIP LOCKED` and advance that time before calling Kubernetes. This prevents a page of long-running Jobs from starving newer terminal Jobs and avoids every replica polling every Job. Execution-terminal rows have a completion time and no next inspection. Database constraints reject partial combinations.
 
 ## Fair scheduling
 
@@ -82,7 +82,7 @@ Active count is incremented exactly once on the first fresh claim. It is decreme
 
 Completion binds both invocation UUID and Job name. A repeated identical completion is idempotent. A stale lease, different Job name, or conflicting terminal outcome fails closed. The PostgreSQL contract proves expired-lease reclaim does not double-count capacity and that a stale controller cannot fail or launch the reclaimed invocation.
 
-The Kubernetes controller still needs a Job watcher/reconciler. Until it exists, this queue is an executable persistence and policy boundary, not a production launch service.
+The Kubernetes reconciler treats missing or ambiguous Jobs as nonterminal and keeps inspecting them; it never silently releases capacity. Successful and failed Job conditions become `completed` and `execution_failed` respectively. Inspection verifies the immutable invocation, profile, and launch-contract digest before trusting a Job condition.
 
 ## Database authority
 
@@ -112,18 +112,18 @@ The original erasure functions remain under internal names because applied migra
 
 ## Kubernetes adapter contract
 
-The next executable slice must add an idempotent launcher and terminal reconciler with these fixed rules:
+The executable adapter enforces these rules:
 
 - Job name is derived only from invocation UUID.
-- Image, command, profile-to-resources mapping, service account, deadline, and retention are operator configuration, never invocation input.
+- Digest-pinned image, command, profile-to-resources mapping, sandbox RuntimeClass, service account, deadline, and retention are operator configuration, never invocation input.
 - An HTTP `409 AlreadyExists` is success only after the existing Job's immutable invocation identity matches.
-- Pods run as non-root with read-only root filesystem, RuntimeDefault seccomp, no privilege escalation, all Linux capabilities dropped, bounded CPU/memory/PIDs/time, and no host namespaces or volumes.
+- Pods run as UID/GID 65532 with a read-only root filesystem, RuntimeDefault seccomp, no privilege escalation, all Linux capabilities dropped, bounded CPU/memory/ephemeral-storage/time, an operator-selected sandbox RuntimeClass, and no host namespaces or volumes. The RuntimeClass/admission policy must supply the tested PID and stronger sandbox boundary.
 - Runner service accounts have `automountServiceAccountToken: false` and no RBAC.
-- Runner-controller RBAC can get/list/watch/create/delete only Jobs it owns in its cell namespace; it cannot read Secrets or exec into pods.
+- The implemented API client needs only `create` and `get` on Jobs in its cell namespace. Cancellation will add exact `delete`; it must never gain Secret reads, pod exec, or wildcard RBAC.
 - NetworkPolicy denies all by default and allows only DNS, the invocation broker, approved model/tool egress gateways, and telemetry as required by the fixed profile.
 - The controller observes Job conditions and records one terminal outcome; missing or ambiguous Jobs remain visible and reconcilable rather than silently releasing capacity.
 
-The controller Deployment is horizontally replicated. PostgreSQL `SKIP LOCKED`, leases, deterministic Job names, and idempotent terminal transitions—not leader-local memory—coordinate replicas.
+The controller process is horizontally safe. PostgreSQL `SKIP LOCKED`, launch leases, durable inspection due-times, deterministic Job names, launch-contract hashes, and idempotent terminal transitions—not leader-local memory—coordinate replicas.
 
 ## Scaling and observability
 

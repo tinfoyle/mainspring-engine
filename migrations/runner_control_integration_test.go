@@ -130,6 +130,17 @@ func TestRunnerControlFairnessRecoveryAndLeastPrivilege(t *testing.T) {
 	if err := controllerQueue.MarkLaunched(ctx, second, "runner-b1", now); err != nil {
 		t.Fatal(err)
 	}
+	inspectedFirst, err := controllerQueue.ClaimLaunched(ctx, now, runnercontrol.InspectionInterval, 1)
+	if err != nil || len(inspectedFirst) != 1 || inspectedFirst[0].ID != first.ID {
+		t.Fatalf("first inspection claim=%+v err=%v", inspectedFirst, err)
+	}
+	inspectedSecond, err := controllerQueue.ClaimLaunched(ctx, now, runnercontrol.InspectionInterval, 1)
+	if err != nil || len(inspectedSecond) != 1 || inspectedSecond[0].ID != second.ID {
+		t.Fatalf("second inspection claim=%+v err=%v", inspectedSecond, err)
+	}
+	if inspectedAgain, err := controllerQueue.ClaimLaunched(ctx, now, runnercontrol.InspectionInterval, 10); err != nil || len(inspectedAgain) != 0 {
+		t.Fatalf("duplicate inspection claim=%+v err=%v", inspectedAgain, err)
+	}
 	if blocked, found, err := controllerQueue.ClaimFair(ctx, now, lease); err != nil || found {
 		t.Fatalf("capacity-exhausted claim=%+v found=%v err=%v", blocked, found, err)
 	}

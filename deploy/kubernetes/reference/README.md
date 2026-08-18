@@ -5,7 +5,7 @@ are intentionally not a deployable environment yet: release automation must
 replace `registry.invalid/...:release-placeholder`, inject managed secret
 references and provide environment-specific network/database destinations before promotion. The
 account-api, app-router, cell app-api, private admission-api, per-cell route-receipt
-worker, billing-worker, notification-worker, entitlement-worker, Account lifecycle worker, and Work reconciler arguments are executable today.
+worker, billing-worker, notification-worker, entitlement-worker, Account lifecycle worker, Work reconciler, and runner-controller arguments are executable today. Runner-controller is intentionally omitted from this render until the broker/identity service, cluster-specific API egress, narrow RBAC, and sandbox RuntimeClass are supplied together.
 
 The reference proves the intended unit of scaling: shared workload classes in
 a cell. Nothing here creates a Deployment, Service, namespace, database, or

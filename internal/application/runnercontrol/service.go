@@ -16,6 +16,7 @@ import (
 const (
 	DefaultLease       = 2 * time.Minute
 	DefaultMaxAttempts = 8
+	InspectionInterval = 10 * time.Second
 )
 
 var (
@@ -35,6 +36,7 @@ type Invocation struct {
 	LeaseExpiresAt *time.Time
 	JobName        string
 	QueuedAt       time.Time
+	LaunchedAt     *time.Time
 }
 
 type AccountPolicy struct {
@@ -54,12 +56,19 @@ type Queue interface {
 	ClaimFair(context.Context, time.Time, time.Duration) (Invocation, bool, error)
 	MarkLaunched(context.Context, Invocation, string, time.Time) error
 	FailLaunch(context.Context, Invocation, time.Time, string, bool) error
+	ClaimLaunched(context.Context, time.Time, time.Duration, int) ([]Invocation, error)
 	Complete(context.Context, string, string, string, time.Time) error
 	Stats(context.Context, time.Time) (Stats, error)
 }
 
 type Launcher interface {
 	Ensure(context.Context, Invocation) (string, error)
+	Inspect(context.Context, Invocation) (TerminalStatus, error)
+}
+
+type TerminalStatus struct {
+	Terminal bool
+	Outcome  string
 }
 
 type Clock interface{ Now() time.Time }
@@ -119,6 +128,41 @@ func (s *Service) ProcessOne(ctx context.Context) (bool, error) {
 
 func (s *Service) Stats(ctx context.Context) (Stats, error) {
 	return s.queue.Stats(ctx, s.clock.Now().UTC())
+}
+
+// ReconcileLaunched observes a bounded set of launched jobs and durably
+// releases Account capacity for terminal outcomes. Multiple controller
+// replicas may inspect the same job because completion is idempotent.
+func (s *Service) ReconcileLaunched(ctx context.Context, limit int) (int, error) {
+	if limit < 1 || limit > 1000 {
+		return 0, ErrInvalidInvocation
+	}
+	invocations, err := s.queue.ClaimLaunched(ctx, s.clock.Now().UTC(), InspectionInterval, limit)
+	if err != nil {
+		return 0, err
+	}
+	completed := 0
+	var failures []error
+	for _, invocation := range invocations {
+		status, inspectErr := s.launcher.Inspect(ctx, invocation)
+		if inspectErr != nil {
+			failures = append(failures, inspectErr)
+			continue
+		}
+		if !status.Terminal {
+			continue
+		}
+		if status.Outcome != "completed" && status.Outcome != "execution_failed" && status.Outcome != "canceled" {
+			failures = append(failures, ErrInvalidInvocation)
+			continue
+		}
+		if completeErr := s.queue.Complete(ctx, invocation.ID, invocation.JobName, status.Outcome, s.clock.Now().UTC()); completeErr != nil {
+			failures = append(failures, completeErr)
+			continue
+		}
+		completed++
+	}
+	return completed, errors.Join(failures...)
 }
 
 // Complete records a terminal runner outcome and releases the Account's
