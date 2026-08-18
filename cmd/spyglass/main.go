@@ -215,8 +215,8 @@ func runWorkReleaseAdmin(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runAccountErasureAdmin(ctx context.Context, logger *slog.Logger) error {
-	if len(os.Args) != 3 || (os.Args[2] != "prepare" && os.Args[2] != "inspect" && os.Args[2] != "approve" && os.Args[2] != "cancel") {
-		return errors.New("usage: spyglass account-erasure-admin prepare|inspect|approve|cancel")
+	if len(os.Args) != 3 || (os.Args[2] != "prepare" && os.Args[2] != "inspect" && os.Args[2] != "approve" && os.Args[2] != "cancel" && os.Args[2] != "execute") {
+		return errors.New("usage: spyglass account-erasure-admin prepare|inspect|approve|cancel|execute")
 	}
 	globalDatabaseURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
 	if err != nil {
@@ -243,7 +243,7 @@ func runAccountErasureAdmin(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	config := accounterasurecommand.Config{GlobalDatabaseURL: globalDatabaseURL, Action: os.Args[2], Actor: actor, Reason: reason, Environment: environment, ConfirmEnvironment: confirmation, MaxGlobalConns: globalMaxConns}
-	if config.Action == "prepare" || config.Action == "approve" {
+	if config.Action == "prepare" || config.Action == "approve" || config.Action == "execute" {
 		config.CellDatabaseURL, err = requiredEnv("SPYGLASS_CELL_DATABASE_URL")
 		if err != nil {
 			return err
@@ -264,8 +264,27 @@ func runAccountErasureAdmin(ctx context.Context, logger *slog.Logger) error {
 			return err
 		}
 	}
-	if config.Action == "approve" || config.Action == "cancel" {
+	if config.Action == "approve" || config.Action == "cancel" || config.Action == "execute" {
 		config.ExpectedVersion, err = uint64Env("SPYGLASS_ACCOUNT_ERASURE_VERSION")
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action == "execute" {
+		accountID, err := requiredEnv("SPYGLASS_ACCOUNT_ID")
+		if err != nil {
+			return err
+		}
+		confirmedAccountID, err := requiredEnv("SPYGLASS_CONFIRM_ACCOUNT_ID")
+		if err != nil {
+			return err
+		}
+		config.AccountID, config.ConfirmAccountID = ids.AccountID(accountID), ids.AccountID(confirmedAccountID)
+		config.EvidenceKey, err = base64KeyEnv("SPYGLASS_ACCOUNT_ERASURE_EVIDENCE_KEY")
+		if err != nil {
+			return err
+		}
+		config.LeaseDuration, err = durationEnv("SPYGLASS_ACCOUNT_ERASURE_LEASE", 5*time.Minute)
 		if err != nil {
 			return err
 		}

@@ -1,5 +1,5 @@
-// Package accounterasureadmin wires the short-lived, reviewed, non-destructive
-// Account erasure preparation command.
+// Package accounterasureadmin wires the short-lived, reviewed Account erasure
+// preparation and cross-store execution command.
 package accounterasureadmin
 
 import (
@@ -28,6 +28,8 @@ type Config struct {
 	ExpectedVersion, PolicyVersion     uint64
 	Export                             accounterasure.ExportEvidence
 	BackupExpiresAt                    time.Time
+	EvidenceKey                        []byte
+	LeaseDuration                      time.Duration
 	MaxGlobalConns, MaxCellConns       int32
 }
 
@@ -59,7 +61,8 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 
 	var cellPool *pgxpool.Pool
 	var cellStore accounterasure.CellStore = unusedCell{}
-	if config.Action == "prepare" || config.Action == "approve" {
+	var cellExecutor accounterasure.CellExecutor
+	if config.Action == "prepare" || config.Action == "approve" || config.Action == "execute" {
 		cellConfig, err := pgxpool.ParseConfig(config.CellDatabaseURL)
 		if err != nil {
 			return err
@@ -75,9 +78,27 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 		if err := cellPool.Ping(ctx); err != nil {
 			return err
 		}
-		cellStore = postgres.NewAccountErasureCellRepository(cellPool, config.CellID)
+		cellRepository := postgres.NewAccountErasureCellRepository(cellPool, config.CellID)
+		cellStore = cellRepository
+		cellExecutor = cellRepository
 	}
-	service, err := accounterasure.NewService(postgres.NewAccountErasureRepository(globalPool), cellStore, ids.RandomGenerator{}, registration.SystemClock{})
+	globalRepository := postgres.NewAccountErasureRepository(globalPool)
+	if config.Action == "execute" {
+		service, err := accounterasure.NewExecutionService(globalRepository, cellExecutor, ids.RandomGenerator{}, registration.SystemClock{}, config.EvidenceKey)
+		if err != nil {
+			return err
+		}
+		result, err := service.Execute(ctx, accounterasure.ExecuteCommand{
+			RequestID: config.RequestID, AccountID: config.AccountID, ExpectedVersion: config.ExpectedVersion,
+			LeaseDuration: config.LeaseDuration, Actor: config.Actor, Reason: config.Reason, Environment: config.Environment,
+		})
+		if err != nil {
+			return err
+		}
+		logger.Info("Spyglass Account erasure execution complete", "request_id", result.RequestID, "state", "completed", "policy_version", result.PolicyVersion, "environment", result.Environment, "completed_at", result.CompletedAt, "backup_expires_at", result.BackupExpiresAt)
+		return nil
+	}
+	service, err := accounterasure.NewService(globalRepository, cellStore, ids.RandomGenerator{}, registration.SystemClock{})
 	if err != nil {
 		return err
 	}
@@ -127,6 +148,13 @@ func validateConfig(config Config, logger *slog.Logger) error {
 		}
 	case "cancel":
 		if ids.Validate(config.RequestID) != nil || config.ExpectedVersion == 0 {
+			return accounterasure.ErrInvalidChange
+		}
+	case "execute":
+		if config.CellDatabaseURL == "" || config.CellID == "" || ids.Validate(config.RequestID) != nil ||
+			ids.Validate(string(config.AccountID)) != nil || config.ConfirmAccountID != config.AccountID ||
+			config.ExpectedVersion == 0 || len(config.EvidenceKey) != 32 ||
+			config.LeaseDuration < 30*time.Second || config.LeaseDuration > time.Hour {
 			return accounterasure.ErrInvalidChange
 		}
 	default:

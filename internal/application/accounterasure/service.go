@@ -16,9 +16,12 @@ type State string
 type ExportDisposition string
 
 const (
-	StatePrepared State = "prepared"
-	StateApproved State = "approved"
-	StateCanceled State = "canceled"
+	StatePrepared      State = "prepared"
+	StateApproved      State = "approved"
+	StateCanceled      State = "canceled"
+	StateCellErasing   State = "cell_erasing"
+	StateCellErased    State = "cell_erased"
+	StateGlobalErasing State = "global_erasing"
 
 	ExportArtifact      ExportDisposition = "artifact"
 	ExportNotApplicable ExportDisposition = "not_applicable"
@@ -67,6 +70,12 @@ type Request struct {
 	ApprovedAt                                                  *time.Time
 	CanceledBy, CancelReason                                    string
 	CanceledAt                                                  *time.Time
+	AccountFingerprint, OperatorEvidenceSHA256                  []byte
+	CellRequestVersion                                          uint64
+	ExecutionLeaseID                                            string
+	LeaseExpiresAt, CellErasedAt                                *time.Time
+	CellRowCounts                                               map[string]int64
+	CellTombstoneSHA256                                         []byte
 }
 
 type ExportEvidence struct {

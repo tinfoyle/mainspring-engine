@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -18,7 +19,9 @@ const erasureRequestColumns = `
 	id::text,closure_request_id::text,account_id::text,state,cell_id,placement_generation,account_version,policy_version,version,
 	export_disposition,COALESCE(export_reference,''),export_sha256,export_expires_at,COALESCE(export_reason,''),backup_expires_at,
 	cell_namespace_state,cell_attested_at,environment,requested_by,request_reason,requested_at,
-	COALESCE(approved_by,''),COALESCE(approve_reason,''),approved_at,COALESCE(canceled_by,''),COALESCE(cancel_reason,''),canceled_at`
+	COALESCE(approved_by,''),COALESCE(approve_reason,''),approved_at,COALESCE(canceled_by,''),COALESCE(cancel_reason,''),canceled_at,
+	account_fingerprint,operator_evidence_sha256,COALESCE(cell_request_version,0),COALESCE(execution_lease_id::text,''),lease_expires_at,
+	cell_erased_at,COALESCE(cell_row_counts,'{}'::jsonb),cell_tombstone_sha256`
 
 type AccountErasureRepository struct{ pool *pgxpool.Pool }
 
@@ -77,6 +80,59 @@ func (r *AccountErasureRepository) Cancel(ctx context.Context, requestID string,
 	result, err := scanErasureRequest(r.pool.QueryRow(ctx, query, requestID, change.EventID, expectedVersion, change.Actor, change.Reason, change.Environment))
 	if err != nil {
 		return accounterasure.Request{}, classifyErasureRequestError(err)
+	}
+	return result, nil
+}
+
+func (r *AccountErasureRepository) ClaimExecution(ctx context.Context, command accounterasure.ExecutionClaim) (accounterasure.Request, error) {
+	query := `SELECT ` + erasureRequestColumns + ` FROM public.spyglass_claim_account_erasure_execution($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`
+	result, err := scanErasureRequest(r.pool.QueryRow(ctx, query,
+		command.RequestID, command.EventID, command.AccountID, command.ExpectedVersion, command.LeaseID,
+		int64(command.LeaseDuration/time.Second), command.AccountFingerprint, command.OperatorEvidenceSHA256,
+		command.Change.Actor, command.Change.Reason, command.Change.Environment))
+	if err != nil {
+		return accounterasure.Request{}, classifyErasureExecutionError(err)
+	}
+	return result, nil
+}
+
+func (r *AccountErasureRepository) RecordCellErasure(ctx context.Context, command accounterasure.CellRecord) (accounterasure.Request, error) {
+	rowCounts, err := json.Marshal(command.CellRowCounts)
+	if err != nil {
+		return accounterasure.Request{}, err
+	}
+	query := `SELECT ` + erasureRequestColumns + ` FROM public.spyglass_record_account_cell_erasure($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`
+	result, err := scanErasureRequest(r.pool.QueryRow(ctx, query,
+		command.RequestID, command.EventID, command.ExpectedVersion, command.LeaseID, command.AccountFingerprint,
+		command.CellErasedAt.UTC(), rowCounts, command.CellTombstoneSHA256,
+		command.Change.Actor, command.Change.Reason, command.Change.Environment))
+	if err != nil {
+		return accounterasure.Request{}, classifyErasureExecutionError(err)
+	}
+	return result, nil
+}
+
+const globalTombstoneColumns = `
+	request_id::text,account_fingerprint,policy_version,final_request_version,environment,prepared_at,approved_at,
+	cell_erased_at,completed_at,cell_row_counts,global_row_counts,export_sha256,cell_tombstone_sha256,
+	operator_evidence_sha256,backup_expires_at`
+
+func (r *AccountErasureRepository) FinalizeGlobalErasure(ctx context.Context, command accounterasure.GlobalFinalize) (accounterasure.GlobalTombstone, error) {
+	query := `SELECT ` + globalTombstoneColumns + ` FROM public.spyglass_finalize_account_erasure($1,$2,$3,$4,$5,$6,$7)`
+	result, err := scanGlobalTombstone(r.pool.QueryRow(ctx, query,
+		command.RequestID, command.AccountID, command.ExpectedVersion, command.LeaseID,
+		command.AccountFingerprint, command.CellTombstoneSHA256, command.Environment))
+	if err != nil {
+		return accounterasure.GlobalTombstone{}, classifyErasureExecutionError(err)
+	}
+	return result, nil
+}
+
+func (r *AccountErasureRepository) AttestGlobalErasure(ctx context.Context, requestID string, fingerprint []byte) (accounterasure.GlobalTombstone, error) {
+	query := `SELECT ` + globalTombstoneColumns + ` FROM public.spyglass_attest_global_account_erasure($1,$2)`
+	result, err := scanGlobalTombstone(r.pool.QueryRow(ctx, query, requestID, fingerprint))
+	if err != nil {
+		return accounterasure.GlobalTombstone{}, classifyErasureExecutionError(err)
 	}
 	return result, nil
 }
@@ -140,14 +196,20 @@ type erasureRow interface{ Scan(...any) error }
 
 func scanErasureRequest(row erasureRow) (accounterasure.Request, error) {
 	var result accounterasure.Request
+	var rawCellCounts []byte
 	err := row.Scan(
 		&result.ID, &result.ClosureRequestID, &result.AccountID, &result.State, &result.CellID,
 		&result.PlacementGeneration, &result.AccountVersion, &result.PolicyVersion, &result.Version,
 		&result.ExportDisposition, &result.ExportReference, &result.ExportSHA256, &result.ExportExpiresAt, &result.ExportReason, &result.BackupExpiresAt,
 		&result.CellNamespaceState, &result.CellAttestedAt, &result.Environment, &result.RequestedBy, &result.RequestReason, &result.RequestedAt,
-		&result.ApprovedBy, &result.ApproveReason, &result.ApprovedAt, &result.CanceledBy, &result.CancelReason, &result.CanceledAt)
+		&result.ApprovedBy, &result.ApproveReason, &result.ApprovedAt, &result.CanceledBy, &result.CancelReason, &result.CanceledAt,
+		&result.AccountFingerprint, &result.OperatorEvidenceSHA256, &result.CellRequestVersion, &result.ExecutionLeaseID, &result.LeaseExpiresAt,
+		&result.CellErasedAt, &rawCellCounts, &result.CellTombstoneSHA256)
 	if err != nil {
 		return accounterasure.Request{}, fmt.Errorf("scan Account erasure request: %w", err)
+	}
+	if err := json.Unmarshal(rawCellCounts, &result.CellRowCounts); err != nil {
+		return accounterasure.Request{}, fmt.Errorf("decode cell Account erasure row counts: %w", err)
 	}
 	return result, nil
 }
@@ -163,6 +225,25 @@ func scanCellTombstone(row erasureRow) (accounterasure.CellTombstone, error) {
 	}
 	if err := json.Unmarshal(rawCounts, &result.RowCounts); err != nil {
 		return accounterasure.CellTombstone{}, fmt.Errorf("decode cell Account erasure row counts: %w", err)
+	}
+	return result, nil
+}
+
+func scanGlobalTombstone(row erasureRow) (accounterasure.GlobalTombstone, error) {
+	var result accounterasure.GlobalTombstone
+	var rawCellCounts, rawGlobalCounts []byte
+	err := row.Scan(&result.RequestID, &result.AccountFingerprint, &result.PolicyVersion, &result.FinalRequestVersion,
+		&result.Environment, &result.PreparedAt, &result.ApprovedAt, &result.CellErasedAt, &result.CompletedAt,
+		&rawCellCounts, &rawGlobalCounts, &result.ExportSHA256, &result.CellTombstoneSHA256,
+		&result.OperatorEvidenceSHA256, &result.BackupExpiresAt)
+	if err != nil {
+		return accounterasure.GlobalTombstone{}, fmt.Errorf("scan global Account erasure tombstone: %w", err)
+	}
+	if err := json.Unmarshal(rawCellCounts, &result.CellRowCounts); err != nil {
+		return accounterasure.GlobalTombstone{}, fmt.Errorf("decode global Account erasure cell counts: %w", err)
+	}
+	if err := json.Unmarshal(rawGlobalCounts, &result.GlobalRowCounts); err != nil {
+		return accounterasure.GlobalTombstone{}, fmt.Errorf("decode global Account erasure row counts: %w", err)
 	}
 	return result, nil
 }
@@ -235,6 +316,21 @@ func classifyCellErasureError(err error) error {
 	return fmt.Errorf("cell Account erasure unavailable: %w", err)
 }
 
+func classifyErasureExecutionError(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return accounterasure.ErrNotFound
+	}
+	switch postgresCode(err) {
+	case "22023":
+		return accounterasure.ErrInvalidChange
+	case "P0002":
+		return accounterasure.ErrNotFound
+	case "P0001", "P0003", "23505":
+		return accounterasure.ErrStateConflict
+	}
+	return fmt.Errorf("Account erasure execution unavailable: %w", err)
+}
+
 func postgresCode(err error) string {
 	var databaseError *pgconn.PgError
 	if errors.As(err, &databaseError) {
@@ -246,3 +342,4 @@ func postgresCode(err error) string {
 var _ accounterasure.Store = (*AccountErasureRepository)(nil)
 var _ accounterasure.CellStore = (*AccountErasureCellRepository)(nil)
 var _ accounterasure.CellExecutor = (*AccountErasureCellRepository)(nil)
+var _ accounterasure.ExecutionStore = (*AccountErasureRepository)(nil)

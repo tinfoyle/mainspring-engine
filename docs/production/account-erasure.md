@@ -1,6 +1,6 @@
 # Account Export and Erasure Workflow
 
-Status: production contract; logical closure, four-eyes preparation, and the dormant exact-cell tombstone transaction are executable, while cross-store physical erasure remains disabled
+Status: production contract; logical closure, four-eyes preparation, leased cross-store execution, and content-free global/cell tombstones are executable; external-system reconciliation and restore replay remain release gates
 
 Account closure and Account erasure are deliberately different operations. Closure is customer-facing, recoverable during cooling-off, and eventually disables normal access. Erasure destroys live customer data after retention and therefore requires reviewed operator authority, export evidence, cross-store reconciliation, and a durable content-free tombstone.
 
@@ -23,7 +23,7 @@ No HTTP request, account-api replica, or lifecycle-worker attempt may directly e
 
 ## Authority and process boundaries
 
-The workflow uses short-lived, human-authorized jobs rather than a standing high-privilege worker. The binary currently exposes only the first three actions plus pre-execution cancellation; `execute` and `verify` remain intentionally unavailable:
+The workflow uses short-lived, human-authorized jobs rather than a standing high-privilege worker. The binary exposes reviewed preparation, inspection, approval, pre-execution cancellation, and leased execution. A separate restore-oriented `verify` action remains intentionally unavailable:
 
 ```text
 spyglass account-erasure-admin prepare
@@ -33,7 +33,7 @@ spyglass account-erasure-admin execute
 spyglass account-erasure-admin verify
 ```
 
-`prepare`, `inspect`, `approve`, and global finalization use a narrow global credential. Cell execution uses a credential for exactly the snapshotted cell. `execute` may receive both credentials, but they remain distinct pools and database roles. The command receives no browser session, serving credential, Stripe secret, SMTP secret, route-signing key, or arbitrary SQL surface.
+`prepare`, `inspect`, `approve`, and global finalization use a narrow global credential. Cell execution uses a credential for exactly the snapshotted cell. `execute` receives both database URLs, but they remain distinct pools and execute-only database roles. It also receives a 32-byte evidence key used for domain-separated HMAC Account fingerprints and operator-evidence digests; the key and raw Account identifier are absent from completed tombstones and completion logs. The command receives no browser session, serving credential, Stripe secret, SMTP secret, route-signing key, or arbitrary SQL surface.
 
 Every action requires:
 
@@ -190,11 +190,11 @@ The schema-coverage test inventories Account foreign keys, composite Account key
 
 ## Delivery sequence
 
-1. Notification/provider payload attribution, restricted active request/operator-event schemas, and the content-free cell tombstone are executable; add the content-free global tombstone alongside finalization.
+1. Notification/provider payload attribution, restricted active request/operator-event schemas, and content-free cell/global tombstones are executable.
 2. Prepare/inspect/cancel/approve services, repeated cell readiness, four-eyes enforcement, and eligibility tests are executable with no deletion authority.
 3. The cell security-definer erasure/attestation boundary, forced-RLS exact targeting, content-free tombstone, concurrent idempotency, and multi-Account isolation tests are executable. Its function remains revoked from `PUBLIC` and no command currently invokes it.
-4. Add idempotent cross-database execute orchestration and global finalization.
+4. Idempotent leased cross-database execute orchestration, repeated cell attestation, shared billing-ingestion fencing, and atomic global finalization are executable through split database roles.
 5. Integrate connector, object, index, analytics, Stripe-retention, export-expiry, and backup-replay attestations as those stores become executable.
 6. Add restricted Kubernetes Job templates/runbook, alert rules, restore drill, and production security review before enabling an erasure credential.
 
-Until step 4 passes, Spyglass may truthfully report `closed`, a retention deadline, and a prepared/approved erasure request, but it must not report an Account as physically erased. A cell tombstone alone is explicitly not global completion.
+Database completion is reportable only after the global tombstone commits; a cell tombstone alone is explicitly not completion. Product-level physical-erasure claims remain gated on step 5 for every external store enabled by that environment and on the restore-replay readiness gate in step 6.
