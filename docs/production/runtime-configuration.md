@@ -81,6 +81,8 @@ Each account-api replica holds one immutable Catalog snapshot. It polls for the 
 | `SPYGLASS_ROUTE_SIGNING_KEY` | App router, route canary | Standard Base64 encoding of exactly 32 random secret bytes |
 | `SPYGLASS_ROUTE_VERIFY_KEYS` | App API, admission API | Comma-separated `key-id=base64-key` keyring containing active and retained rotation keys |
 | `SPYGLASS_ROUTE_CONTEXT_TTL` | App router | Optional positive duration; defaults to `20s` and has a hard `30s` maximum |
+| `SPYGLASS_TOOL_CONTEXT_ISSUER` | App router, runner broker | Exact broker tool-dispatch issuer, normally `spyglass-runner-broker`; distinct from the route issuer |
+| `SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS` | App router | Comma-separated `key-id=base64-key` keyring for broker tool proofs only |
 | `SPYGLASS_DIRECTORY_CACHE_TTL` | App router | Optional positive duration, at most `5m`; defaults to `30s` |
 | `SPYGLASS_DIRECTORY_CACHE_CAPACITY` | App router | Optional positive Account-route bound, at most 1,000,000; defaults to 10,000 |
 | `SPYGLASS_CELL_ID` | App API, route canary | Exact cell identity used as token audience and deployment identity |
@@ -94,7 +96,7 @@ Each account-api replica holds one immutable Catalog snapshot. It polls for the 
 
 Cell route origins are operational data in the global `cells` registry, not process configuration. Before assigning Accounts, an operator must set each cell's exact internal HTTPS origin whose DNS name appears in that cell server certificate; origins may not contain credentials, paths, queries, fragments, or control characters. The router joins this registry to `account_directory`, caches only eligible assignments, and requires an exact cell/generation match with authorization. `SPYGLASS_ENV=development` is the only plain-HTTP and non-workload-TLS escape hatch.
 
-The signing and verification keys follow the add-verifier, switch-signer, wait-for-expiry, remove-old-key sequence in [routing-boundary.md](routing-boundary.md). The app-router database credential is global and needs read-only access to `account_directory` and the routing columns of `cells`; it cannot read cell schemas. The app-api credential is cell-local and cannot read global Users, Memberships, Entitlements, Billing, or sessions. Every routed mutation requires a UUID `Idempotency-Key`; transition and assignment require `If-Match`. Those semantic headers are included in the signed request binding.
+The signing and verification keys follow the add-verifier, switch-signer, wait-for-expiry, remove-old-key sequence in [routing-boundary.md](routing-boundary.md). Tool-context keys follow the same overlap sequence but are a separate credential family and have a maximum 15-second lifetime. The app-router database credential is global and needs read-only access to Account routing/current-entitlement state plus insert-only access to `tool_context_receipts`; it cannot read cell schemas. Tool receipts contain identifiers and digests only, are consumed before routing, and cascade away during Account erasure. The app-api credential is cell-local and cannot read global Users, Memberships, Entitlements, Billing, or sessions. Every routed mutation requires a UUID `Idempotency-Key`; transition and assignment require `If-Match`. Those semantic headers are included in the signed request binding.
 
 ## Admission API values
 
@@ -259,13 +261,18 @@ The controller uses its in-cluster projected service-account token and CA only t
 | `SPYGLASS_RUNNER_ENCRYPTION_KEYS` | Required comma-separated `positive-version=base64-32-byte-key` keyring; runtime secret, never database configuration |
 | `SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION` | Required positive version present in the keyring; all new envelopes use it |
 | `SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES` | Optional positive result-request limit through 2 MiB; defaults to 2 MiB while the application envelope remains capped at 1 MiB |
+| `SPYGLASS_TOOL_ROUTER_ORIGIN` | Required private app-router origin; HTTPS outside development |
+| `SPYGLASS_TOOL_CONTEXT_ISSUER` | Required exact issuer matching the app-router verifier |
+| `SPYGLASS_TOOL_CONTEXT_SIGNING_KEY_ID` | Required active tool-proof key identifier |
+| `SPYGLASS_TOOL_CONTEXT_SIGNING_KEY` | Standard Base64 encoding of at least 32 random secret bytes; never reuse route or envelope keys |
+| `SPYGLASS_TOOL_CONTEXT_TTL` | Optional positive duration through `15s`; defaults to `10s` |
 | `SPYGLASS_WORKLOAD_CERT_FILE` / `SPYGLASS_WORKLOAD_KEY_FILE` / `SPYGLASS_WORKLOAD_CA_FILE` | Required rotating TLS 1.3 server material |
 | `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
 | `SPYGLASS_HTTP_ADDRESS` | Optional broker HTTPS address; defaults to `:8443` |
 
 The broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. Its database role has execute-only exchange authority. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
 
-Do not deploy the runner fleet until real kind-specific executors, concrete capability handlers, and the durable consequential-action authorizer are wired into the generic harness/gateway and protected by a tested NetworkPolicy. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, and Pod-bound content-free audit are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+Do not deploy the runner fleet until real kind-specific executors and the durable consequential-action authorizer are wired into the generic harness/gateway and protected by a tested NetworkPolicy. The first read-only `work.summary.read` handler is executable through the one-use broker-to-router proof boundary; no consequential handler exists. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow broker RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, and Pod-bound content-free audit are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
 
 ## Work release operator values
 

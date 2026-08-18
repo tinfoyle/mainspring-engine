@@ -11,9 +11,15 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/toolrouterhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
 	brokertransport "github.com/tinfoyle/spyglass-engine/internal/transport/runnerbrokerapi"
+	capabilitytransport "github.com/tinfoyle/spyglass-engine/internal/transport/runnercapabilityapi"
+	"github.com/tinfoyle/spyglass-engine/internal/transport/toolrouter"
 )
 
 type Config struct {
@@ -23,6 +29,10 @@ type Config struct {
 	MaxDatabaseConns                                                 int32
 	MaxRequestBody                                                   int64
 	IdentityVerifier                                                 runnerbroker.IdentityVerifier
+	ToolRouterOrigin, ToolIssuer, ToolSigningKeyID                   string
+	ToolSigningKey                                                   []byte
+	ToolLifetime                                                     time.Duration
+	ToolTransport                                                    http.RoundTripper
 }
 
 type Server struct {
@@ -31,7 +41,7 @@ type Server struct {
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, error) {
-	if config.CellDatabaseURL == "" || config.BrokerAudience == "" || config.Namespace == "" || config.RunnerServiceAccount == "" || logger == nil {
+	if config.CellDatabaseURL == "" || config.BrokerAudience == "" || config.Namespace == "" || config.RunnerServiceAccount == "" || config.ToolRouterOrigin == "" || config.ToolIssuer == "" || config.ToolSigningKeyID == "" || logger == nil {
 		return nil, errors.New("runner broker configuration is required")
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.CellDatabaseURL)
@@ -83,7 +93,50 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: withHealth(pool, transport.Handler()), pool: pool}, nil
+	if config.ToolLifetime == 0 {
+		config.ToolLifetime = toolcontext.DefaultLifetime
+	}
+	toolSigner, err := toolcontext.NewSigner(config.ToolIssuer, config.ToolSigningKeyID, config.ToolSigningKey, config.ToolLifetime, registration.SystemClock{})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	toolHandler, err := toolrouterhttp.New(toolrouterhttp.Config{Origin: config.ToolRouterOrigin, Signer: toolSigner, IDs: ids.RandomGenerator{}, HTTPClient: clientFor(config.ToolTransport)})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	auditor, err := postgres.NewRunnerCapabilityAuditor(pool, ids.RandomGenerator{})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	capabilities, err := runnercapability.New(exchange, nil, auditor, registration.SystemClock{}, []runnercapability.Definition{{Capability: toolrouter.WorkSummaryCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler}})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	capabilityAPI, err := capabilitytransport.New(capabilities, logger, capabilitytransport.DefaultMaxBody)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	brokerHandler, capabilityHandler := transport.Handler(), capabilityAPI.Handler()
+	combined := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(r.URL.Path) >= len("/capabilities:invoke") && r.URL.Path[len(r.URL.Path)-len("/capabilities:invoke"):] == "/capabilities:invoke" {
+			capabilityHandler.ServeHTTP(w, r)
+			return
+		}
+		brokerHandler.ServeHTTP(w, r)
+	})
+	return &Server{Handler: withHealth(pool, combined), pool: pool}, nil
+}
+
+func clientFor(transport http.RoundTripper) *http.Client {
+	if transport == nil {
+		return nil
+	}
+	return &http.Client{Transport: transport, Timeout: 15 * time.Second}
 }
 
 func (s *Server) Close() { s.pool.Close() }

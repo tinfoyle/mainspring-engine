@@ -623,6 +623,14 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	toolIssuer, err := requiredEnv("SPYGLASS_TOOL_CONTEXT_ISSUER")
+	if err != nil {
+		return err
+	}
+	toolVerifyKeys, err := routeVerifyKeysEnv("SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS")
+	if err != nil {
+		return err
+	}
 	appOrigin, err := requiredEnv("SPYGLASS_APP_ORIGIN")
 	if err != nil {
 		return err
@@ -653,7 +661,7 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := approuter.New(startup, approuter.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, RouteIssuer: issuer, RouteSigningKeyID: keyID, RouteSigningKey: key, RouteLifetime: lifetime, DirectoryCacheTTL: directoryTTL, DirectoryCapacity: directoryCapacity, CellTransport: cellTransport, SessionCookieName: os.Getenv("SPYGLASS_SESSION_COOKIE_NAME"), SecureCookies: true, TrustedOrigins: []string{appOrigin}, AllowHTTPCells: developmentMode}, logger, registration.SystemClock{})
+	server, err := approuter.New(startup, approuter.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, RouteIssuer: issuer, RouteSigningKeyID: keyID, RouteSigningKey: key, RouteLifetime: lifetime, ToolIssuer: toolIssuer, ToolVerifyKeys: toolVerifyKeys, DirectoryCacheTTL: directoryTTL, DirectoryCapacity: directoryCapacity, CellTransport: cellTransport, SessionCookieName: os.Getenv("SPYGLASS_SESSION_COOKIE_NAME"), SecureCookies: true, TrustedOrigins: []string{appOrigin}, AllowHTTPCells: developmentMode}, logger, registration.SystemClock{})
 	if err != nil {
 		return err
 	}
@@ -1080,6 +1088,7 @@ func runRunnerController(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
+	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
 	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
 	if err != nil {
 		return err
@@ -1105,6 +1114,26 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	toolRouterOrigin, err := requiredEnv("SPYGLASS_TOOL_ROUTER_ORIGIN")
+	if err != nil {
+		return err
+	}
+	toolIssuer, err := requiredEnv("SPYGLASS_TOOL_CONTEXT_ISSUER")
+	if err != nil {
+		return err
+	}
+	toolSigningKeyID, err := requiredEnv("SPYGLASS_TOOL_CONTEXT_SIGNING_KEY_ID")
+	if err != nil {
+		return err
+	}
+	toolSigningKey, err := base64KeyEnv("SPYGLASS_TOOL_CONTEXT_SIGNING_KEY")
+	if err != nil {
+		return err
+	}
+	toolLifetime, err := durationEnv("SPYGLASS_TOOL_CONTEXT_TTL", 10*time.Second)
+	if err != nil || toolLifetime > 15*time.Second {
+		return errors.New("SPYGLASS_TOOL_CONTEXT_TTL must be between 1ns and 15s")
+	}
 	maxConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 10)
 	if err != nil {
 		return err
@@ -1117,12 +1146,23 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	var toolTransport http.RoundTripper
+	if !developmentMode {
+		toolTransport, err = workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+		if err != nil {
+			return err
+		}
+	} else {
+		toolTransport = http.DefaultTransport
+	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := runnerbrokerbootstrap.New(startup, runnerbrokerbootstrap.Config{
 		CellDatabaseURL: databaseURL, BrokerAudience: brokerAudience, Namespace: namespace,
 		RunnerServiceAccount: runnerServiceAccount, EncryptionKeys: keys, ActiveKeyVersion: activeVersion,
-		MaxDatabaseConns: maxConns, MaxRequestBody: maxBody,
+		MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, ToolRouterOrigin: toolRouterOrigin,
+		ToolIssuer: toolIssuer, ToolSigningKeyID: toolSigningKeyID, ToolSigningKey: toolSigningKey,
+		ToolLifetime: toolLifetime, ToolTransport: toolTransport,
 	}, logger)
 	if err != nil {
 		return err

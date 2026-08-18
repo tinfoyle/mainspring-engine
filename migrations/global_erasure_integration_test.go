@@ -329,7 +329,9 @@ func seedGlobalErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.P
 		INSERT INTO identity_notification_outbox(id,kind,ciphertext,nonce,key_version,processing_state,attempt_count,created_at,account_id) VALUES (gen_random_uuid(),'invitation',convert_to($8,'UTF8'),decode(repeat('01',12),'hex'),1,'queued',0,$4,$6);
 		INSERT INTO billing_event_inbox(provider_event_id,event_type,provider_created_at,mode,payload_hash,payload_reference,payload,signature_verified_at,processing_state,attempt_count,created_at,account_id) VALUES ($15,'customer.subscription.deleted',$4,'test',sha256(convert_to($8,'UTF8')),'postgres:inline',convert_to($8,'UTF8'),$4,'processed',1,$4,$6);
 		INSERT INTO account_membership_events(id,account_id,actor_user_id,action,target_membership_id,previous_role,new_role,reason,occurred_at) VALUES (gen_random_uuid(),$6,$1,'role_changed',$11,'viewer','member','reviewed role change',$4);
-		INSERT INTO account_lifecycle_events(id,account_id,closure_request_id,action,from_state,to_state,actor_kind,actor_id,reason,occurred_at) VALUES (gen_random_uuid(),$6,$9,'account_closed','closing','closed','workload','account-lifecycle-worker','retention scheduled',$4);`,
+		INSERT INTO account_lifecycle_events(id,account_id,closure_request_id,action,from_state,to_state,actor_kind,actor_id,reason,occurred_at) VALUES (gen_random_uuid(),$6,$9,'account_closed','closing','closed','workload','account-lifecycle-worker','retention scheduled',$4);
+		INSERT INTO tool_context_receipts(request_id,account_id,invocation_id,pod_uid,operation_id,capability,method,target_sha256,body_sha256,issued_at,expires_at,consumed_at)
+		VALUES (gen_random_uuid(),$6,gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'work.summary.read','POST',sha256(convert_to('/internal/v1/tools:invoke','UTF8')),sha256(convert_to('{}','UTF8')),$4,$4::timestamptz+interval '10 seconds',$4);`,
 		pgx.QueryExecModeSimpleProtocol, userID, "erasure-"+marker+"@example.com", memberUserID, now, "member-"+marker+"@example.com",
 		accountID, "erasure-"+marker+"-account", "Erasure "+marker+" Account", closureID,
 		ownerMembershipID, memberMembershipID, "invite-"+marker+"@example.com", "cus_"+marker, "sub_"+marker, "evt_erasure_"+marker); err != nil {
@@ -351,7 +353,7 @@ func seedGlobalErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.P
 
 func assertGlobalAccountRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, accountID ids.AccountID, wantPresent bool) {
 	t.Helper()
-	accountTables := []string{"accounts", "account_directory", "memberships", "invitations", "billing_profiles", "subscriptions", "billing_event_inbox", "entitlement_grants", "entitlement_snapshots", "billing_checkout_attempts", "entitlement_recompute_queue", "entitlement_usage_counters", "entitlement_usage_reservations", "account_membership_events", "account_closure_requests", "account_lifecycle_events", "identity_notification_outbox"}
+	accountTables := []string{"accounts", "account_directory", "memberships", "invitations", "billing_profiles", "subscriptions", "billing_event_inbox", "entitlement_grants", "entitlement_snapshots", "billing_checkout_attempts", "entitlement_recompute_queue", "entitlement_usage_counters", "entitlement_usage_reservations", "account_membership_events", "account_closure_requests", "account_lifecycle_events", "identity_notification_outbox", "tool_context_receipts"}
 	for _, table := range accountTables {
 		var count int
 		column := "account_id"

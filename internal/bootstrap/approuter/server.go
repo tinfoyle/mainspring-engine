@@ -18,7 +18,9 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
 	routertransport "github.com/tinfoyle/spyglass-engine/internal/transport/approuter"
+	"github.com/tinfoyle/spyglass-engine/internal/transport/toolrouter"
 )
 
 type Config struct {
@@ -28,6 +30,8 @@ type Config struct {
 	RouteSigningKeyID string
 	RouteSigningKey   []byte
 	RouteLifetime     time.Duration
+	ToolIssuer        string
+	ToolVerifyKeys    map[string][]byte
 	DirectoryCacheTTL time.Duration
 	DirectoryCapacity int
 	CellTransport     http.RoundTripper
@@ -43,7 +47,7 @@ type Server struct {
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger, clock routecontext.Clock) (*Server, error) {
-	if config.DatabaseURL == "" || config.RouteIssuer == "" || config.RouteSigningKeyID == "" || len(config.RouteSigningKey) < routecontext.MinimumKeyBytes || logger == nil || clock == nil {
+	if config.DatabaseURL == "" || config.RouteIssuer == "" || config.RouteSigningKeyID == "" || len(config.RouteSigningKey) < routecontext.MinimumKeyBytes || config.ToolIssuer == "" || len(config.ToolVerifyKeys) == 0 || logger == nil || clock == nil {
 		return nil, errors.New("app router configuration is required")
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
@@ -79,7 +83,8 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	authorizer, err := access.NewAuthorizer(postgres.NewAccessRepository(pool), access.WithOwnerSecurityPolicy(securityPosture))
+	accessRepository := postgres.NewAccessRepository(pool)
+	authorizer, err := access.NewAuthorizer(accessRepository, access.WithOwnerSecurityPolicy(securityPosture))
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -94,7 +99,35 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: withHealth(pool, directory, transport, transport.Handler()), pool: pool}, nil
+	toolVerifier, err := toolcontext.NewVerifier(config.ToolIssuer, config.ToolVerifyKeys, toolcontext.MaximumLifetime, routecontext.DefaultClockSkew, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	toolReceipts, err := postgres.NewToolContextReceiptRepository(pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	toolAcceptor, err := toolcontext.NewAcceptor(toolVerifier, toolReceipts, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	workloadAuthorizer, err := access.NewWorkloadAuthorizer(accessRepository)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	tools, err := toolrouter.New(toolAcceptor, workloadAuthorizer, directory, signer, ids.RandomGenerator{}, logger, toolrouter.Config{Transport: config.CellTransport, AllowHTTPCells: config.AllowHTTPCells})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/internal/v1/tools:invoke", tools.Handler())
+	mux.Handle("/", transport.Handler())
+	return &Server{Handler: withHealth(pool, directory, transport, mux), pool: pool}, nil
 }
 
 func (s *Server) Close() { s.pool.Close() }
