@@ -20,6 +20,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/approuter"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingworker"
@@ -52,6 +53,8 @@ func main() {
 		err = runAppRouter(ctx, logger)
 	case "app-api":
 		err = runAppAPI(ctx, logger)
+	case "admission-api":
+		err = runAdmissionAPI(ctx, logger)
 	case "billing-worker":
 		err = runBillingWorker(ctx, logger)
 	case "notification-worker":
@@ -65,7 +68,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass development | account-api | app-router | app-api | billing-worker | notification-worker | entitlement-worker | work-reconciler | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass development | account-api | app-router | app-api | admission-api | billing-worker | notification-worker | entitlement-worker | work-reconciler | catalog-admin <action> | migrate")
 	}
 	if err != nil {
 		logger.Error("Spyglass process stopped", "mode", mode, "error", err)
@@ -235,6 +238,10 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	admissionOrigin, err := requiredEnv("SPYGLASS_WORK_ADMISSION_ORIGIN")
+	if err != nil {
+		return err
+	}
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
 	if err != nil {
 		return err
@@ -245,7 +252,46 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := appapi.New(startup, appapi.Config{DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody}, logger, registration.SystemClock{})
+	server, err := appapi.New(startup, appapi.Config{DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, AdmissionOrigin: admissionOrigin, AllowHTTPAdmission: os.Getenv("SPYGLASS_ALLOW_HTTP_ADMISSION") == "true"}, logger, registration.SystemClock{})
+	if err != nil {
+		return err
+	}
+	defer server.Close()
+	return serveHTTP(ctx, httpAddress(":8080"), server.Handler, logger)
+}
+
+func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	issuer, err := requiredEnv("SPYGLASS_ROUTE_ISSUER")
+	if err != nil {
+		return err
+	}
+	keys, err := routeVerifyKeysEnv("SPYGLASS_ROUTE_VERIFY_KEYS")
+	if err != nil {
+		return err
+	}
+	rawCells := csvEnv("SPYGLASS_ADMISSION_CELL_IDS")
+	if len(rawCells) == 0 {
+		return errors.New("SPYGLASS_ADMISSION_CELL_IDS is required")
+	}
+	cells := make([]ids.CellID, len(rawCells))
+	for index, value := range rawCells {
+		cells[index] = ids.CellID(value)
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
+	if err != nil {
+		return err
+	}
+	maxBody, err := int64Env("SPYGLASS_ADMISSION_MAX_REQUEST_BODY_BYTES", 64<<10)
+	if err != nil || maxBody > 1<<20 {
+		return errors.New("SPYGLASS_ADMISSION_MAX_REQUEST_BODY_BYTES must be between 1 and 1048576")
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	server, err := admissionapi.New(startup, admissionapi.Config{DatabaseURL: databaseURL, RouteIssuer: issuer, RouteVerifyKeys: keys, CellIDs: cells, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody}, logger, registration.SystemClock{})
 	if err != nil {
 		return err
 	}

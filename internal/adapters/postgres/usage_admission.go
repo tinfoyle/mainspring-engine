@@ -28,7 +28,7 @@ func (r *UsageAdmissionRepository) Reserve(ctx context.Context, command usageadm
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var entitlementVersion uint64
-	if err := tx.QueryRow(ctx, `SELECT entitlement_version FROM accounts WHERE id=$1 FOR UPDATE`, command.AccountID).Scan(&entitlementVersion); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT spyglass_lock_account_entitlement_version($1)`, command.AccountID).Scan(&entitlementVersion); err != nil {
 		return usageadmission.Reservation{}, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -85,7 +85,7 @@ func (r *UsageAdmissionRepository) Reserve(ctx context.Context, command usageadm
 	if _, err := tx.Exec(ctx, `UPDATE entitlement_usage_counters SET current_value=$4,version=version+1,updated_at=$5 WHERE account_id=$1 AND package_code=$2 AND limit_code=$3`, command.AccountID, command.PackageCode, command.LimitCode, current, command.Now.UTC()); err != nil {
 		return usageadmission.Reservation{}, err
 	}
-	reservation = usageadmission.Reservation{ID: command.ID, AccountID: command.AccountID, RequestID: command.RequestID, PackageCode: command.PackageCode, LimitCode: command.LimitCode, Amount: command.Amount, Current: current, Maximum: command.Maximum, EntitlementVersion: command.ExpectedEntitlementVersion, State: usageadmission.ReservationActive, ExpiresAt: command.ExpiresAt, CreatedAt: command.Now.UTC()}
+	reservation = usageadmission.Reservation{ID: command.ID, AccountID: command.AccountID, RequestID: command.RequestID, PackageCode: command.PackageCode, LimitCode: command.LimitCode, Amount: command.Amount, Current: current, Maximum: command.Maximum, EntitlementVersion: command.ExpectedEntitlementVersion, State: usageadmission.ReservationActive, ExpiresAt: command.ExpiresAt, CreatedAt: command.Now.UTC(), NewlyCreated: true}
 	if err := tx.Commit(ctx); err != nil {
 		return usageadmission.Reservation{}, err
 	}

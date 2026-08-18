@@ -90,6 +90,29 @@ func TestMutationRequiresTrustedOriginBeforeAuthorization(t *testing.T) {
 	}
 }
 
+func TestRouterRejectsUnpublishedWorkCommandsBeforeAuthentication(t *testing.T) {
+	clock := fixedClock{time.Now()}
+	key := []byte("0123456789abcdef0123456789abcdef")
+	signer, _ := routecontext.NewSigner("router", "current", key, 20*time.Second, clock)
+	authorizer := &captureAuthorizer{}
+	router, _ := New(fakeSessions{}, authorizer, signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "test", TrustedOrigins: []string{"https://app.example"}, CellRoutes: map[ids.CellID]string{"cell": "http://cell.test"}, AllowHTTPCells: true}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for _, target := range []struct{ method, path string }{
+		{http.MethodDelete, "/api/v1/accounts/" + routerAccount + "/work-items/" + routerRequest},
+		{http.MethodPost, "/api/v1/accounts/" + routerAccount + "/work-items/" + routerRequest + "/children"},
+		{http.MethodPatch, "/api/v1/accounts/" + routerAccount + "/work-items/not-a-uuid/assignment"},
+	} {
+		request := httptest.NewRequest(target.method, target.path, nil)
+		response := httptest.NewRecorder()
+		router.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("%s %s = %d %s", target.method, target.path, response.Code, response.Body.String())
+		}
+	}
+	if authorizer.calls != 0 {
+		t.Fatalf("unpublished routes reached authorization %d times", authorizer.calls)
+	}
+}
+
 func TestWorkMutationCarriesOnlyAuthorizedPackageAccess(t *testing.T) {
 	clock := fixedClock{time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)}
 	key := []byte("0123456789abcdef0123456789abcdef")
@@ -99,7 +122,7 @@ func TestWorkMutationCarriesOnlyAuthorizedPackageAccess(t *testing.T) {
 	var routed routecontext.Claims
 	cellServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		binding, _ := routecontext.Bind(r.Method, routecontext.Target(r), body)
+		binding, _ := routecontext.BindRequest(r, body)
 		claims, err := verifier.Verify(r.Header.Get(cellapi.RouteContextHeader), binding)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
@@ -120,6 +143,7 @@ func TestWorkMutationCarriesOnlyAuthorizedPackageAccess(t *testing.T) {
 	request.AddCookie(&http.Cookie{Name: "test", Value: "session"})
 	request.Header.Set("Origin", "https://app.example")
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "50000000-0000-4000-8000-000000000005")
 	response := httptest.NewRecorder()
 	router.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -128,7 +152,7 @@ func TestWorkMutationCarriesOnlyAuthorizedPackageAccess(t *testing.T) {
 	if authorizer.requirement.Package != catalog.PackageWork || !authorizer.requirement.Mutation {
 		t.Fatalf("requirement=%+v", authorizer.requirement)
 	}
-	if routed.Authority.PackageAccess == nil || routed.Authority.PackageAccess.Code != "work" || routed.Authority.PackageAccess.Mode != "enabled" || routed.Authority.PackageAccess.Limits["active_items"] != 100 {
+	if routed.Authority.OperationID != "50000000-0000-4000-8000-000000000005" || routed.Authority.PackageAccess == nil || routed.Authority.PackageAccess.Code != "work" || routed.Authority.PackageAccess.Mode != "enabled" || routed.Authority.PackageAccess.Limits["active_items"] != 100 {
 		t.Fatalf("routed authority=%+v", routed.Authority)
 	}
 }

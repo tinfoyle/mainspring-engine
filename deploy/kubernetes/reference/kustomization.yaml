@@ -6,6 +6,7 @@ resources:
   - account-api.yaml
   - app-router.yaml
   - app-api.yaml
+  - admission-api.yaml
   - billing-worker.yaml
   - notification-worker.yaml
   - entitlement-worker.yaml

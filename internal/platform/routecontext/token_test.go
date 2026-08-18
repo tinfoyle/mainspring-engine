@@ -2,6 +2,7 @@ package routecontext
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -42,6 +43,21 @@ func TestRoundTripAndRequestBinding(t *testing.T) {
 				t.Fatalf("error = %v", err)
 			}
 		})
+	}
+}
+
+func TestRequestBindingProtectsCommandHeaders(t *testing.T) {
+	request, _ := http.NewRequest("POST", "https://cell.test/api/v1/accounts/10000000-0000-4000-8000-000000000001/work-items", strings.NewReader(`{"title":"Close books"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Idempotency-Key", "50000000-0000-4000-8000-000000000005")
+	binding, err := BindRequest(request, []byte(`{"title":"Close books"}`))
+	if err != nil || binding.HeadersSHA256 == "" {
+		t.Fatalf("binding=%+v err=%v", binding, err)
+	}
+	request.Header.Set("Idempotency-Key", "60000000-0000-4000-8000-000000000006")
+	changed, _ := BindRequest(request, []byte(`{"title":"Close books"}`))
+	if changed == binding {
+		t.Fatal("changed command header retained the same binding")
 	}
 }
 
@@ -90,6 +106,7 @@ func TestInvalidAuthorityAndConfigurationFailClosed(t *testing.T) {
 		"role":       func(a *Authority) { a.Role = "superuser" },
 		"package":    func(a *Authority) { a.PackageAccess.Code = "Work!" },
 		"limit":      func(a *Authority) { a.PackageAccess.Limits["active_items"] = -1 },
+		"operation":  func(a *Authority) { a.OperationID = "wrong" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 var (
 	ErrInvalidRequest      = errors.New("usage reservation request is invalid")
 	ErrReservationConflict = errors.New("usage reservation key conflicts with an existing request")
+	ErrReservationClosed   = errors.New("usage reservation is already closed")
 	ErrEntitlementChanged  = errors.New("entitlement changed during usage admission")
 	ErrCorruptUsage        = errors.New("usage counter state is corrupt")
 )
@@ -42,6 +43,7 @@ type Reservation struct {
 	ExpiresAt          *time.Time
 	CreatedAt          time.Time
 	ClosedAt           *time.Time
+	NewlyCreated       bool
 }
 
 type PersistCommand struct {
@@ -131,6 +133,9 @@ func (s *Service) Reserve(ctx context.Context, command ReserveCommand) (Reservat
 		var exceeded *CapacityExceededError
 		if errors.As(err, &exceeded) {
 			return Reservation{}, &access.DeniedError{Code: access.DenialLimitExceeded, Package: command.PackageCode, Limit: command.LimitCode, Current: exceeded.Current, Maximum: exceeded.Maximum}
+		}
+		if err == nil && reservation.State != ReservationActive {
+			return Reservation{}, ErrReservationClosed
 		}
 		return reservation, err
 	}

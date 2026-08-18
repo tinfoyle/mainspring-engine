@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/admissionhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
@@ -19,12 +20,14 @@ import (
 )
 
 type Config struct {
-	DatabaseURL      string
-	CellID           ids.CellID
-	RouteIssuer      string
-	RouteVerifyKeys  map[string][]byte
-	MaxDatabaseConns int32
-	MaxRequestBody   int64
+	DatabaseURL        string
+	CellID             ids.CellID
+	RouteIssuer        string
+	RouteVerifyKeys    map[string][]byte
+	MaxDatabaseConns   int32
+	MaxRequestBody     int64
+	AdmissionOrigin    string
+	AllowHTTPAdmission bool
 }
 
 type Server struct {
@@ -33,7 +36,7 @@ type Server struct {
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger, clock routecontext.Clock) (*Server, error) {
-	if config.DatabaseURL == "" || !routecontext.ValidCellID(config.CellID) || config.RouteIssuer == "" || len(config.RouteVerifyKeys) == 0 || logger == nil || clock == nil {
+	if config.DatabaseURL == "" || !routecontext.ValidCellID(config.CellID) || config.RouteIssuer == "" || len(config.RouteVerifyKeys) == 0 || config.AdmissionOrigin == "" || logger == nil || clock == nil {
 		return nil, errors.New("cell app API configuration is required")
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
@@ -85,7 +88,17 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries))
+	capacity, err := admissionhttp.New(config.AdmissionOrigin, config.AllowHTTPAdmission, nil)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	workCommands, err := workapp.NewService(routeaccess.NewAuthorizer(), capacity, workRepository, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands))
 	if err != nil {
 		pool.Close()
 		return nil, err

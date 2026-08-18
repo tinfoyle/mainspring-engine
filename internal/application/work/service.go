@@ -27,7 +27,7 @@ var (
 	ErrConflict               = errors.New("work item version conflict")
 	ErrConstraint             = errors.New("work item constraint failed")
 	ErrCorrupt                = errors.New("work item persistence is corrupt")
-	ErrCapacityReleasePending = errors.New("work item changed but its capacity release is pending")
+	ErrCapacityOutcomeUnknown = errors.New("work creation outcome is unknown; retry the same operation")
 	ErrCapacityCompensation   = errors.New("work creation failed and capacity compensation also failed")
 )
 
@@ -140,7 +140,8 @@ func (s *Service) Create(ctx context.Context, command CreateCommand) (workdomain
 	if err != nil {
 		return workdomain.Item{}, ErrInvalidCommand
 	}
-	if _, err := s.capacity.Reserve(ctx, usageadmission.ReserveCommand{Actor: command.Actor, AccountID: command.AccountID, PackageCode: PackageCode, LimitCode: ActiveItems, Amount: 1, RequestID: command.RequestID}); err != nil {
+	reservation, err := s.capacity.Reserve(ctx, usageadmission.ReserveCommand{Actor: command.Actor, AccountID: command.AccountID, PackageCode: PackageCode, LimitCode: ActiveItems, Amount: 1, RequestID: command.RequestID})
+	if err != nil {
 		return workdomain.Item{}, err
 	}
 	now := s.clock.Now().UTC()
@@ -148,10 +149,18 @@ func (s *Service) Create(ctx context.Context, command CreateCommand) (workdomain
 	if err == nil {
 		return item, nil
 	}
-	if _, releaseErr := s.capacity.Release(ctx, usageadmission.ReleaseCommand{Actor: command.Actor, AccountID: command.AccountID, RequestID: command.RequestID}); releaseErr != nil {
-		return workdomain.Item{}, errors.Join(err, ErrCapacityCompensation, releaseErr)
+	// Only a classified constraint is a definitive rollback. Conflicts can
+	// refer to an already-created item under this operation key, and transport
+	// or commit errors can have an unknown outcome. Retaining the reservation
+	// makes an exact idempotent retry safe and avoids undercounting real Work.
+	definitiveRollback := reservation.NewlyCreated && (errors.Is(err, ErrConstraint) || errors.Is(err, ErrConflict))
+	if !definitiveRollback {
+		if errors.Is(err, ErrConflict) {
+			return workdomain.Item{}, err
+		}
+		return workdomain.Item{}, errors.Join(err, ErrCapacityOutcomeUnknown)
 	}
-	return workdomain.Item{}, err
+	return workdomain.Item{}, s.compensateCapacity(ctx, command.Actor, command.AccountID, command.RequestID, reservation, err)
 }
 
 type TransitionCommand struct {
@@ -183,34 +192,49 @@ func (s *Service) Transition(ctx context.Context, command TransitionCommand) (wo
 		return workdomain.Item{}, err
 	}
 	reopening := item.State == workdomain.StateDone && command.To == workdomain.StateOpen
+	var reservation usageadmission.Reservation
+	var reserveErr error
 	if reopening {
 		if ids.Validate(command.RequestID) != nil {
 			return workdomain.Item{}, ErrInvalidCommand
 		}
-		if _, err := s.capacity.Reserve(ctx, usageadmission.ReserveCommand{Actor: command.Actor, AccountID: command.AccountID, PackageCode: PackageCode, LimitCode: ActiveItems, Amount: 1, RequestID: command.RequestID}); err != nil {
-			return workdomain.Item{}, err
+		reservation, reserveErr = s.capacity.Reserve(ctx, usageadmission.ReserveCommand{Actor: command.Actor, AccountID: command.AccountID, PackageCode: PackageCode, LimitCode: ActiveItems, Amount: 1, RequestID: command.RequestID})
+		if reserveErr != nil {
+			return workdomain.Item{}, reserveErr
 		}
 		updated, err = updated.WithReopenedCapacity(command.RequestID)
 		if err != nil {
-			return workdomain.Item{}, err
+			return workdomain.Item{}, s.compensateCapacity(ctx, command.Actor, command.AccountID, command.RequestID, reservation, err)
 		}
 	}
 	updated, err = s.repository.Update(ctx, updated, item.Version, Mutation{Kind: MutationTransitioned, Actor: domainActor(command.Actor), Reason: strings.TrimSpace(command.Reason), CorrelationID: command.CorrelationID, At: now})
 	if err != nil {
-		if reopening {
-			_, _ = s.capacity.Release(ctx, usageadmission.ReleaseCommand{Actor: command.Actor, AccountID: command.AccountID, RequestID: command.RequestID})
+		if !reopening {
+			return workdomain.Item{}, err
 		}
-		return workdomain.Item{}, err
+		// An optimistic conflict is a definite losing write only when this call
+		// created the reservation. A replayed reservation may back an earlier
+		// successful reopen. Unknown commit outcomes retain capacity so the cell
+		// can be reconciled without ever undercounting active Work.
+		if errors.Is(err, ErrConstraint) || errors.Is(err, ErrConflict) {
+			return workdomain.Item{}, s.compensateCapacity(ctx, command.Actor, command.AccountID, command.RequestID, reservation, err)
+		}
+		return workdomain.Item{}, errors.Join(err, ErrCapacityOutcomeUnknown)
 	}
-	if updated.State.Terminal() && !item.State.Terminal() && updated.CapacityReservationID != "" {
-		if _, releaseErr := s.capacity.Release(ctx, usageadmission.ReleaseCommand{Actor: command.Actor, AccountID: command.AccountID, RequestID: updated.CapacityReservationID}); releaseErr != nil {
-			return updated, errors.Join(ErrCapacityReleasePending, releaseErr)
-		}
-		if markErr := s.repository.MarkCapacityReleased(ctx, command.AccountID, updated.ID, updated.CapacityReservationID, now); markErr != nil {
-			return updated, errors.Join(ErrCapacityReleasePending, markErr)
-		}
-	}
+	// Terminal writes enqueue their release in the same cell transaction. The
+	// dedicated reconciler owns the cross-database release and checkpoint; a
+	// serving cell never needs global release authority.
 	return updated, nil
+}
+
+func (s *Service) compensateCapacity(ctx context.Context, actor access.Actor, accountID ids.AccountID, requestID string, reservation usageadmission.Reservation, cause error) error {
+	if !reservation.NewlyCreated {
+		return cause
+	}
+	if _, releaseErr := s.capacity.Release(ctx, usageadmission.ReleaseCommand{Actor: actor, AccountID: accountID, RequestID: requestID}); releaseErr != nil {
+		return errors.Join(cause, ErrCapacityCompensation, releaseErr)
+	}
+	return cause
 }
 
 type AssignCommand struct {

@@ -4,8 +4,8 @@ These manifests encode Phase 2 workload and security defaults for review. They
 are intentionally not a deployable environment yet: release automation must
 replace `registry.invalid/...:release-placeholder`, inject managed secret
 references and provide environment-specific network/database destinations before promotion. The
-account-api, app-router, cell app-api, billing-worker, notification-worker,
-entitlement-worker, and Work reconciler arguments are executable today.
+account-api, app-router, cell app-api, private admission-api, billing-worker,
+notification-worker, entitlement-worker, and Work reconciler arguments are executable today.
 
 The reference proves the intended unit of scaling: shared workload classes in
 a cell. Nothing here creates a Deployment, Service, namespace, database, or
@@ -26,9 +26,8 @@ Before an environment overlay may use these resources it must add:
 - Pod monitor, alerts, SLO metadata, and a load-tested replica/connection cap.
 - `spyglass-global-runtime`, `spyglass-cell-reference-runtime`,
   `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
-  `spyglass-app-api-secrets`,
-  `spyglass-billing-worker-secrets`, and
-  `spyglass-notification-worker-secrets`, and
+  `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,
+  `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`,
   `spyglass-entitlement-worker-secrets`, and
   `spyglass-work-reconciler-secrets` objects from environment configuration
   and secret controllers; they are not committed here. Workload-specific
@@ -40,6 +39,14 @@ Before an environment overlay may use these resources it must add:
   identifier-only release outbox and enter Account-scoped Work transactions;
   the global credential can only read Account existence and release usage
   reservations/counters. Neither credential is suitable for app-api.
+- The admission-api secret supplies a narrow global credential plus the route
+  verification keyring. It can read the Account access projection, execute the
+  entitlement-version lock function, and mutate only usage counters and
+  reservations. App-api reaches it with a signed routed-operation proof and
+  retains only its cell credential. This review-only base opts into plain HTTP
+  behind the ingress/egress NetworkPolicies because it contains no certificate
+  material. Production overlays must add internal TLS/workload identity, set an
+  `https://` origin, and remove `SPYGLASS_ALLOW_HTTP_ADMISSION`.
 - The app-router secret supplies one active route-signing key and the cell API
   secret supplies the active plus retained verification keys during rotation.
   The router receives only the global database credential; the cell API

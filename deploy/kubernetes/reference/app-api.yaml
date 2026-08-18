@@ -19,6 +19,10 @@ spec:
           env:
             - {name: SPYGLASS_HTTP_ADDRESS, value: ":8080"}
             - {name: SPYGLASS_CELL_ID, value: "reference"}
+            # Review topology only. A production overlay must replace this with
+            # internal TLS/workload identity and remove the HTTP opt-in.
+            - {name: SPYGLASS_WORK_ADMISSION_ORIGIN, value: "http://admission-api.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_ALLOW_HTTP_ADMISSION, value: "true"}
           envFrom:
             - configMapRef: {name: spyglass-cell-reference-runtime}
             - secretRef: {name: spyglass-app-api-secrets}

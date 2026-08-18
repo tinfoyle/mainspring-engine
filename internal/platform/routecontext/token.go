@@ -49,9 +49,10 @@ var (
 type Clock interface{ Now() time.Time }
 
 type Binding struct {
-	Method     string `json:"method"`
-	Target     string `json:"target"`
-	BodySHA256 string `json:"body_sha256"`
+	Method        string `json:"method"`
+	Target        string `json:"target"`
+	BodySHA256    string `json:"body_sha256"`
+	HeadersSHA256 string `json:"headers_sha256,omitempty"`
 }
 
 func Bind(method, target string, body []byte) (Binding, error) {
@@ -61,6 +62,29 @@ func Bind(method, target string, body []byte) (Binding, error) {
 	}
 	digest := sha256.Sum256(body)
 	return Binding{Method: method, Target: target, BodySHA256: hex.EncodeToString(digest[:])}, nil
+}
+
+// BindRequest also authenticates the small set of request headers that can
+// change command semantics. Hop-by-hop and presentation headers are excluded.
+func BindRequest(request *http.Request, body []byte) (Binding, error) {
+	if request == nil {
+		return Binding{}, ErrInvalid
+	}
+	binding, err := Bind(request.Method, Target(request), body)
+	if err != nil {
+		return Binding{}, err
+	}
+	values := []string{
+		strings.TrimSpace(request.Header.Get("Content-Type")),
+		strings.TrimSpace(request.Header.Get("Idempotency-Key")),
+		strings.TrimSpace(request.Header.Get("If-Match")),
+	}
+	if values[0] == "" && values[1] == "" && values[2] == "" {
+		return binding, nil
+	}
+	digest := sha256.Sum256([]byte("content-type:" + values[0] + "\nidempotency-key:" + values[1] + "\nif-match:" + values[2] + "\n"))
+	binding.HeadersSHA256 = hex.EncodeToString(digest[:])
+	return binding, nil
 }
 
 type LimitPolicy struct {
@@ -79,6 +103,7 @@ type PackageAccess struct {
 
 type Authority struct {
 	RequestID           string         `json:"request_id"`
+	OperationID         string         `json:"operation_id,omitempty"`
 	AccountID           ids.AccountID  `json:"account_id"`
 	ActorKind           string         `json:"actor_kind"`
 	ActorID             string         `json:"actor_id"`
@@ -258,6 +283,9 @@ func validAuthority(authority Authority) bool {
 	if ids.Validate(authority.RequestID) != nil || ids.Validate(string(authority.AccountID)) != nil || !cellCode.MatchString(string(authority.CellID)) || authority.PlacementGeneration == 0 || authority.EntitlementVersion == 0 {
 		return false
 	}
+	if authority.OperationID != "" && ids.Validate(authority.OperationID) != nil {
+		return false
+	}
 	switch authority.ActorKind {
 	case "user":
 		if ids.Validate(authority.ActorID) != nil || !validRole(authority.Role) {
@@ -301,8 +329,18 @@ func validBinding(binding Binding) bool {
 	if len(binding.BodySHA256) != sha256.Size*2 {
 		return false
 	}
-	_, err := hex.DecodeString(binding.BodySHA256)
-	return err == nil && binding.Method == strings.ToUpper(binding.Method)
+	if _, err := hex.DecodeString(binding.BodySHA256); err != nil {
+		return false
+	}
+	if binding.HeadersSHA256 != "" {
+		if len(binding.HeadersSHA256) != sha256.Size*2 {
+			return false
+		}
+		if _, err := hex.DecodeString(binding.HeadersSHA256); err != nil {
+			return false
+		}
+	}
+	return binding.Method == strings.ToUpper(binding.Method)
 }
 
 func sign(key []byte, input string) []byte {
@@ -312,6 +350,12 @@ func sign(key []byte, input string) []byte {
 }
 
 type RequestClaimsKey struct{}
+type RequestProofKey struct{}
+
+type Proof struct {
+	Token   string
+	Binding Binding
+}
 
 func WithClaims(ctx context.Context, claims Claims) context.Context {
 	return context.WithValue(ctx, RequestClaimsKey{}, claims)
@@ -319,6 +363,15 @@ func WithClaims(ctx context.Context, claims Claims) context.Context {
 func FromContext(ctx context.Context) (Claims, bool) {
 	claims, ok := ctx.Value(RequestClaimsKey{}).(Claims)
 	return claims, ok
+}
+
+func WithProof(ctx context.Context, proof Proof) context.Context {
+	return context.WithValue(ctx, RequestProofKey{}, proof)
+}
+
+func ProofFromContext(ctx context.Context) (Proof, bool) {
+	proof, ok := ctx.Value(RequestProofKey{}).(Proof)
+	return proof, ok && proof.Token != "" && validBinding(proof.Binding)
 }
 
 func Target(r *http.Request) string {

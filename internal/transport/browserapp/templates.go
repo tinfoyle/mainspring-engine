@@ -117,8 +117,8 @@ const pageTemplates = `
       {{else if not .WorkAvailable}}
       <section class="work-locked panel"><div><p class="eyebrow">WORK PACKAGE</p><h1>Bring every commitment<br><em>into one clear view.</em></h1><p>Work is not included in this Account's current package set. Upgrade to Team or Operating to coordinate accountable work across people and agents.</p><a href="/app#billing">Review Account plans →</a></div><div class="work-locked-map" aria-hidden="true"><i></i><i></i><i></i><b></b></div></section>
       {{else}}
-      <section class="work-heading"><div><p class="eyebrow">WORK</p><h1>What is moving,<br><em>what needs attention.</em></h1><p>One Account-scoped queue for human commitments, agent activity, and operational follow-through.</p></div><span class="work-mode">{{if .WorkReadOnly}}READ-ONLY ACCESS{{else}}PACKAGE ENABLED{{end}}</span></section>
-      <section class="work-app" id="work-app" data-account-id="{{.Selected.AccountID}}" aria-busy="true">
+      <section class="work-heading"><div><p class="eyebrow">WORK</p><h1>What is moving,<br><em>what needs attention.</em></h1><p>One Account-scoped queue for human commitments, agent activity, and operational follow-through.</p></div><div class="work-heading-actions"><span class="work-mode">{{if .WorkReadOnly}}READ-ONLY ACCESS{{else}}PACKAGE ENABLED{{end}}</span>{{if not .WorkReadOnly}}<button class="work-new" id="work-create-open" type="button">＋ New work</button>{{end}}</div></section>
+      <section class="work-app" id="work-app" data-account-id="{{.Selected.AccountID}}" data-read-only="{{.WorkReadOnly}}" aria-busy="true">
         <div class="work-summary" aria-label="Work summary">
           <article><small>ACTIVE</small><strong data-summary="active">—</strong><span>Open commitments</span></article>
           <article><small>IN PROGRESS</small><strong data-summary="in_progress">—</strong><span>Moving now</span></article>
@@ -144,6 +144,7 @@ const pageTemplates = `
           </aside>
         </div>
       </section>
+      {{if not .WorkReadOnly}}<dialog class="work-dialog" id="work-create-dialog"><form id="work-create-form"><header><div><p class="eyebrow">NEW WORK</p><h2>Create a clear next step</h2></div><button id="work-create-close" type="button" aria-label="Close">×</button></header><label>Title<input name="title" maxlength="240" required placeholder="What needs to happen?"></label><label>Description<textarea name="description" maxlength="20000" rows="5" placeholder="Add the outcome, context, and definition of done."></textarea></label><div class="work-form-grid"><label>Type<select name="kind"><option value="ticket">Ticket</option><option value="todo">To-do</option></select></label><label>Priority<select name="priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></label><label>Responsibility<select name="responsibility"><option value="shared">Shared</option><option value="user">Assign to me</option></select></label></div><p class="work-form-error" id="work-create-error" role="alert" hidden></p><footer><button class="secondary" id="work-create-cancel" type="button">Cancel</button><button class="primary" type="submit">Create work</button></footer></form></dialog>{{end}}
       {{end}}
     </div>
   </main>

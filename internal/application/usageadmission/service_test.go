@@ -94,6 +94,15 @@ func TestReserveTranslatesCapacityDenial(t *testing.T) {
 	}
 }
 
+func TestReserveNeverResurrectsAClosedRequest(t *testing.T) {
+	repository := &store{result: Reservation{ID: "reservation", State: ReservationReleased}}
+	service := serviceFor(t, repository, catalog.ModeEnabled, true, time.Now().UTC())
+	_, err := service.Reserve(context.Background(), ReserveCommand{Actor: access.Actor{UserID: testUserID}, AccountID: testAccountID, PackageCode: catalog.PackageAgents, LimitCode: "concurrent_runs", Amount: 1, RequestID: testRequestID})
+	if !errors.Is(err, ErrReservationClosed) {
+		t.Fatalf("closed reservation error = %v", err)
+	}
+}
+
 func TestReleaseRemainsAvailableAfterReadOnlyDowngrade(t *testing.T) {
 	repository := &store{result: Reservation{ID: "reservation", State: ReservationReleased}}
 	service := serviceFor(t, repository, catalog.ModeReadOnly, true, time.Now().UTC())

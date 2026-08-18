@@ -35,6 +35,9 @@ func TestWorkTemplateExposesRoutedQueueOnlyForAvailablePackage(t *testing.T) {
 		`data-account-id="01J00000000000000000000000"`,
 		`id="work-filters"`,
 		`id="work-detail"`,
+		`id="work-create-dialog"`,
+		`id="work-create-form"`,
+		`data-read-only="false"`,
 		`data-summary="urgent"`,
 	} {
 		if !strings.Contains(body, expected) {
@@ -43,5 +46,19 @@ func TestWorkTemplateExposesRoutedQueueOnlyForAvailablePackage(t *testing.T) {
 	}
 	if strings.Contains(body, "capacity_reservation") || strings.Contains(body, "capacity_released") {
 		t.Fatalf("Work shell exposed internal capacity bookkeeping: %s", body)
+	}
+}
+
+func TestWorkTemplateKeepsMutationControlsOutOfReadOnlyAccess(t *testing.T) {
+	pages, _ := template.New("pages").Parse(pageTemplates)
+	accountID := ids.AccountID("01J00000000000000000000000")
+	data := pageData{Title: "Work", Page: "work", Selected: &accountaccess.Choice{AccountID: accountID, DisplayName: "Northstar Studio"}, WorkAvailable: true, WorkReadOnly: true, Script: "/assets/work.js"}
+	var rendered bytes.Buffer
+	if err := pages.ExecuteTemplate(&rendered, "work", data); err != nil {
+		t.Fatal(err)
+	}
+	body := rendered.String()
+	if !strings.Contains(body, `data-read-only="true"`) || strings.Contains(body, `id="work-create-dialog"`) || strings.Contains(body, `id="work-create-open"`) {
+		t.Fatalf("read-only Work mutation surface: %s", body)
 	}
 }

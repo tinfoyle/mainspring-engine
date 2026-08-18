@@ -50,7 +50,7 @@ func TestCreateAuthorizesAndReservesCapacity(t *testing.T) {
 
 func TestCreateCompensatesCapacityWhenCellWriteFails(t *testing.T) {
 	repository := &fakeRepository{createErr: ErrConstraint}
-	capacity := &fakeCapacity{}
+	capacity := &fakeCapacity{reservation: usageadmission.Reservation{NewlyCreated: true}}
 	service, _ := NewService(fakeAuthorizer{role: accounts.RoleOwner}, capacity, repository, fakeClock{time.Now()})
 	_, err := service.Create(context.Background(), createCommand())
 	if !errors.Is(err, ErrConstraint) {
@@ -61,7 +61,47 @@ func TestCreateCompensatesCapacityWhenCellWriteFails(t *testing.T) {
 	}
 }
 
-func TestTerminalTransitionReleasesCapacity(t *testing.T) {
+func TestCreateDoesNotReleaseAReplayedReservationAfterConstraint(t *testing.T) {
+	repository := &fakeRepository{createErr: ErrConstraint}
+	capacity := &fakeCapacity{}
+	service, _ := NewService(fakeAuthorizer{role: accounts.RoleOwner}, capacity, repository, fakeClock{time.Now()})
+	_, err := service.Create(context.Background(), createCommand())
+	if !errors.Is(err, ErrConstraint) || len(capacity.releases) != 0 {
+		t.Fatalf("error=%v releases=%+v", err, capacity.releases)
+	}
+}
+
+func TestCreateRetainsCapacityWhenCellOutcomeIsAmbiguous(t *testing.T) {
+	repository := &fakeRepository{createErr: errors.New("cell commit response lost")}
+	capacity := &fakeCapacity{}
+	service, _ := NewService(fakeAuthorizer{role: accounts.RoleOwner}, capacity, repository, fakeClock{time.Now()})
+	_, err := service.Create(context.Background(), createCommand())
+	if !errors.Is(err, ErrCapacityOutcomeUnknown) || len(capacity.releases) != 0 {
+		t.Fatalf("error=%v releases=%+v", err, capacity.releases)
+	}
+}
+
+func TestCreateDoesNotReleaseAnExistingReservationOnPayloadConflict(t *testing.T) {
+	repository := &fakeRepository{createErr: ErrConflict}
+	capacity := &fakeCapacity{}
+	service, _ := NewService(fakeAuthorizer{role: accounts.RoleOwner}, capacity, repository, fakeClock{time.Now()})
+	_, err := service.Create(context.Background(), createCommand())
+	if !errors.Is(err, ErrConflict) || errors.Is(err, ErrCapacityOutcomeUnknown) || len(capacity.releases) != 0 {
+		t.Fatalf("error=%v releases=%+v", err, capacity.releases)
+	}
+}
+
+func TestCreateCompensatesAFreshReservationAfterSerializedConflict(t *testing.T) {
+	repository := &fakeRepository{createErr: ErrConflict}
+	capacity := &fakeCapacity{reservation: usageadmission.Reservation{NewlyCreated: true}}
+	service, _ := NewService(fakeAuthorizer{role: accounts.RoleOwner}, capacity, repository, fakeClock{time.Now()})
+	_, err := service.Create(context.Background(), createCommand())
+	if !errors.Is(err, ErrConflict) || len(capacity.releases) != 1 {
+		t.Fatalf("error=%v releases=%+v", err, capacity.releases)
+	}
+}
+
+func TestTerminalTransitionDefersCapacityToDurableReconciliation(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	item := materialized(t, now)
 	item, _ = item.Transition(workdomain.TransitionCommand{To: workdomain.StateInProgress, Role: accounts.RoleOwner, Actor: workdomain.Actor{Kind: workdomain.ActorUser, ID: testUser}, ExpectedVersion: 1, At: now.Add(time.Minute)})
@@ -72,8 +112,48 @@ func TestTerminalTransitionReleasesCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if completed.State != workdomain.StateDone || completed.CompletedAt == nil || len(capacity.releases) != 1 || repository.releasedReservation != testRequest {
+	if completed.State != workdomain.StateDone || completed.CompletedAt == nil || len(capacity.releases) != 0 || repository.releasedReservation != "" {
 		t.Fatalf("completed=%+v releases=%+v marked=%s", completed, capacity.releases, repository.releasedReservation)
+	}
+}
+
+func TestReopenCompensatesOnlyAFreshReservationAfterLosingWrite(t *testing.T) {
+	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	item := materialized(t, now)
+	item, _ = item.Transition(workdomain.TransitionCommand{To: workdomain.StateInProgress, Role: accounts.RoleOwner, Actor: workdomain.Actor{Kind: workdomain.ActorUser, ID: testUser}, ExpectedVersion: item.Version, At: now.Add(time.Minute)})
+	item, _ = item.Transition(workdomain.TransitionCommand{To: workdomain.StateDone, Role: accounts.RoleOwner, Actor: workdomain.Actor{Kind: workdomain.ActorUser, ID: testUser}, ExpectedVersion: item.Version, At: now.Add(2 * time.Minute)})
+
+	for _, test := range []struct {
+		name          string
+		newlyCreated  bool
+		expectedDrops int
+	}{
+		{name: "fresh", newlyCreated: true, expectedDrops: 1},
+		{name: "replayed", newlyCreated: false, expectedDrops: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			capacity := &fakeCapacity{reservation: usageadmission.Reservation{NewlyCreated: test.newlyCreated}}
+			repository := &fakeRepository{item: item, updateErr: ErrConflict}
+			service, _ := NewService(fakeAuthorizer{role: accounts.RoleOwner}, capacity, repository, fakeClock{now.Add(3 * time.Minute)})
+			_, err := service.Transition(context.Background(), TransitionCommand{Actor: access.Actor{UserID: ids.UserID(testUser)}, AccountID: ids.AccountID(testAccount), WorkItemID: item.ID, To: workdomain.StateOpen, ExpectedVersion: item.Version, RequestID: testRequest, Reason: "new evidence", CorrelationID: testRequest})
+			if !errors.Is(err, ErrConflict) || len(capacity.releases) != test.expectedDrops {
+				t.Fatalf("error=%v releases=%+v", err, capacity.releases)
+			}
+		})
+	}
+}
+
+func TestReopenRetainsCapacityWhenCellOutcomeIsAmbiguous(t *testing.T) {
+	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	item := materialized(t, now)
+	item, _ = item.Transition(workdomain.TransitionCommand{To: workdomain.StateInProgress, Role: accounts.RoleOwner, Actor: workdomain.Actor{Kind: workdomain.ActorUser, ID: testUser}, ExpectedVersion: item.Version, At: now.Add(time.Minute)})
+	item, _ = item.Transition(workdomain.TransitionCommand{To: workdomain.StateDone, Role: accounts.RoleOwner, Actor: workdomain.Actor{Kind: workdomain.ActorUser, ID: testUser}, ExpectedVersion: item.Version, At: now.Add(2 * time.Minute)})
+	capacity := &fakeCapacity{reservation: usageadmission.Reservation{NewlyCreated: true}}
+	repository := &fakeRepository{item: item, updateErr: errors.New("cell commit response lost")}
+	service, _ := NewService(fakeAuthorizer{role: accounts.RoleOwner}, capacity, repository, fakeClock{now.Add(3 * time.Minute)})
+	_, err := service.Transition(context.Background(), TransitionCommand{Actor: access.Actor{UserID: ids.UserID(testUser)}, AccountID: ids.AccountID(testAccount), WorkItemID: item.ID, To: workdomain.StateOpen, ExpectedVersion: item.Version, RequestID: testRequest, Reason: "new evidence", CorrelationID: testRequest})
+	if !errors.Is(err, ErrCapacityOutcomeUnknown) || len(capacity.releases) != 0 {
+		t.Fatalf("error=%v releases=%+v", err, capacity.releases)
 	}
 }
 
@@ -117,11 +197,12 @@ type fakeCapacity struct {
 	reserves               []usageadmission.ReserveCommand
 	releases               []usageadmission.ReleaseCommand
 	reserveErr, releaseErr error
+	reservation            usageadmission.Reservation
 }
 
 func (f *fakeCapacity) Reserve(_ context.Context, command usageadmission.ReserveCommand) (usageadmission.Reservation, error) {
 	f.reserves = append(f.reserves, command)
-	return usageadmission.Reservation{}, f.reserveErr
+	return f.reservation, f.reserveErr
 }
 func (f *fakeCapacity) Release(_ context.Context, command usageadmission.ReleaseCommand) (usageadmission.Reservation, error) {
 	f.releases = append(f.releases, command)
@@ -132,6 +213,7 @@ type fakeRepository struct {
 	item                workdomain.Item
 	mutation            Mutation
 	createErr           error
+	updateErr           error
 	releasedReservation string
 }
 
@@ -149,7 +231,7 @@ func (f *fakeRepository) Get(_ context.Context, _ ids.AccountID, _ ids.WorkItemI
 }
 func (f *fakeRepository) Update(_ context.Context, item workdomain.Item, _ uint64, mutation Mutation) (workdomain.Item, error) {
 	f.item, f.mutation = item, mutation
-	return item, nil
+	return item, f.updateErr
 }
 func (f *fakeRepository) MarkCapacityReleased(_ context.Context, _ ids.AccountID, _ ids.WorkItemID, requestID string, _ time.Time) error {
 	f.releasedReservation = requestID

@@ -154,13 +154,22 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds the router limit")
 		return
 	}
-	binding, err := routecontext.Bind(r.Method, routecontext.Target(r), body)
+	binding, err := routecontext.BindRequest(r, body)
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", "request target is invalid")
 		return
 	}
 	requestID := s.ids.New()
-	authority := routecontext.Authority{RequestID: requestID, AccountID: accountContext.AccountID, ActorKind: "user", ActorID: string(authenticated.Session.UserID), Role: string(accountContext.Role), CellID: accountContext.CellID, PlacementGeneration: accountContext.PlacementGeneration, EntitlementVersion: accountContext.EntitlementVersion, PackageAccess: packageClaim(accountContext.PackageAccess)}
+	operationID := ""
+	if requirement.Mutation {
+		values := r.Header.Values("Idempotency-Key")
+		if len(values) != 1 || ids.Validate(strings.TrimSpace(values[0])) != nil {
+			writeProblem(w, http.StatusBadRequest, "idempotency_key_required", "a UUID Idempotency-Key is required for mutations")
+			return
+		}
+		operationID = strings.TrimSpace(values[0])
+	}
+	authority := routecontext.Authority{RequestID: requestID, OperationID: operationID, AccountID: accountContext.AccountID, ActorKind: "user", ActorID: string(authenticated.Session.UserID), Role: string(accountContext.Role), CellID: accountContext.CellID, PlacementGeneration: accountContext.PlacementGeneration, EntitlementVersion: accountContext.EntitlementVersion, PackageAccess: packageClaim(accountContext.PackageAccess)}
 	token, err := s.signer.Issue(routecontext.Audience(accountContext.CellID), authority, binding)
 	if err != nil {
 		s.logger.Error("issue cell route context", "request_id", requestID, "error", err)
@@ -200,8 +209,25 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 	if resource == "context" {
 		return access.Requirement{}, method == http.MethodGet
 	}
-	if resource == "work-items" || strings.HasPrefix(resource, "work-items/") {
-		return access.Requirement{Package: catalog.PackageWork, Mutation: method != http.MethodGet && method != http.MethodHead}, method == http.MethodGet || method == http.MethodHead || method == http.MethodPost || method == http.MethodPatch || method == http.MethodDelete
+	parts := strings.Split(resource, "/")
+	if len(parts) == 1 && parts[0] == "work-items" {
+		return access.Requirement{Package: catalog.PackageWork, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
+	}
+	if len(parts) == 2 && parts[0] == "work-items" && parts[1] == "summary" {
+		return access.Requirement{Package: catalog.PackageWork}, method == http.MethodGet
+	}
+	if len(parts) == 2 && parts[0] == "work-items" && ids.Validate(parts[1]) == nil {
+		return access.Requirement{Package: catalog.PackageWork}, method == http.MethodGet
+	}
+	if len(parts) == 3 && parts[0] == "work-items" && ids.Validate(parts[1]) == nil {
+		switch parts[2] {
+		case "children":
+			return access.Requirement{Package: catalog.PackageWork}, method == http.MethodGet
+		case "transitions":
+			return access.Requirement{Package: catalog.PackageWork, Mutation: true}, method == http.MethodPost
+		case "assignment":
+			return access.Requirement{Package: catalog.PackageWork, Mutation: true}, method == http.MethodPatch
+		}
 	}
 	return access.Requirement{}, false
 }

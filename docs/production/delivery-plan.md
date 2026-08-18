@@ -261,7 +261,7 @@ Acceptance:
 
 ### P2.7 Global control plane and cell data boundary
 
-Implementation checkpoint: transaction-local Account RLS, versioned request-bound signed route context, key rotation, shared cell replay receipts, placement-generation rejection, draining/frozen write denial, executable app-router/app-api modes, routed Work reads, and a split-credential Work capacity reconciler are implemented. Directory caching, internal TLS identity, two-cell attack fixtures, and business mutation rollout remain. See [routing-boundary.md](routing-boundary.md).
+Implementation checkpoint: transaction-local Account RLS, versioned request/body/semantic-header-bound route context, signed mutation operation IDs, key rotation, shared cell replay receipts, placement-generation rejection, draining/frozen write denial, executable app-router/app-api/admission-api modes, routed Work reads/commands, split-role global capacity admission, and a split-credential Work capacity reconciler are implemented. Directory caching, internal TLS/workload identity, and two-cell attack fixtures remain. See [routing-boundary.md](routing-boundary.md).
 
 - Create global schemas for Identity, Accounts, Catalog, Billing, Entitlements, Account Directory, and platform operations.
 - Create cell schemas for account business records with non-null `account_id`, RLS, explicit predicates, and composite account-scoped keys/foreign keys.
@@ -304,7 +304,7 @@ Acceptance:
 
 ### P3.1 Work domain
 
-Implementation checkpoint: typed construction, lifecycle/role matrix, assignment and provenance values, maximum depth, optimistic versioning, and active-item admission are implemented. See [work-module.md](work-module.md). Persona ownership and provenance attachment commands remain.
+Implementation checkpoint: typed construction, lifecycle/role matrix, assignment and provenance values, maximum depth, optimistic versioning, private broker-backed active-item admission, routed create/transition/assignment contracts, and first creation/lifecycle browser controls are implemented. See [work-module.md](work-module.md). Persona ownership, assignment editing, and provenance attachment commands remain.
 
 - Replace raw kind/status/priority/source/responsibility strings with validated value types.
 - Specify transition matrix and role permissions.
@@ -320,7 +320,7 @@ Acceptance:
 
 ### P3.2 Work persistence and queries
 
-Implementation checkpoint: pooled-cell schema, forced RLS, Account-local numbering, composite parent constraints, optimistic create/update, direct children, stable cursor queue, summaries, mutation events, and non-owner isolation/concurrency tests are implemented. Capacity-release reconciliation, representative query plans, and transport contracts remain.
+Implementation checkpoint: pooled-cell schema, forced RLS, Account-local numbering, composite parent constraints, optimistic create/update, direct children, stable cursor queue, summaries, mutation events, routed query/command transport, durable split-credential capacity release, and non-owner isolation/concurrency tests are implemented. Representative query plans, provenance links, Persona foreign keys, and audited release dead-letter operations remain.
 
 - Repository commands for create, update status, assign, attach provenance, and link conversations.
 - Cursor-based queue query with stable ordering.

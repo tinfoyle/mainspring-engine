@@ -1,6 +1,6 @@
 # Work module production design
 
-Status: domain, command/query application boundaries, cell schema, PostgreSQL adapter, signed read transport, first queue/detail browser surface, and durable capacity-release reconciler implemented. Mutation admission/transport remain.
+Status: domain, command/query application boundaries, cell schema, PostgreSQL adapter, signed read/command transport, internal global admission broker, queue/detail/create/lifecycle browser surface, and durable capacity-release reconciler implemented.
 
 ## Purpose
 
@@ -30,7 +30,9 @@ Work code is split into three boundaries:
 - `internal/application/work`: authenticated commands and bounded queries, shared package enforcement, role checks, active-item admission, and cross-database compensation semantics.
 - `internal/adapters/postgres/work.go`: explicit cell SQL, Account-scoped transactions, persistence mapping, cursor queries, event append, and error classification. No pgx type escapes this adapter.
 
-The private Account service does not connect directly to cell data. Work reads pass through the app router, which authenticates the system-wide session, resolves current placement, signs Account route context, and sends the request to the correct cell `app-api`. The cell service verifies the signature, placement generation, Account, resource scope, and local entitlement context before the repository opens its RLS transaction.
+The private Account service does not connect directly to cell data. Work requests pass through the app router, which authenticates the system-wide session, resolves current placement, signs Account route context, and sends the request to the correct cell `app-api`. The cell service verifies the signature, placement generation, Account, resource scope, local entitlement context, operation identity, and command headers before the repository opens its RLS transaction.
+
+`app-api` owns only a cell database credential. For creation or reopen admission it presents the router's short-lived, request-bound proof to the private `admission-api`. That broker re-verifies the exact cell audience, mutation path, signed operation UUID, and Work package claim, then reauthorizes current Membership and Entitlements from the global database before calling the shared usage-admission service. Its global role can read Accounts, Memberships, and Entitlement snapshots and mutate only usage counters/reservations. A security-definer lock function fences the Account entitlement version without granting the broker `UPDATE` on Accounts.
 
 ## Aggregate and invariants
 
@@ -81,13 +83,15 @@ This is intentionally not represented as a distributed transaction:
 1. Authorize current Account membership, package mode, and role.
 2. Reserve capacity with entitlement-version fencing.
 3. Create the cell Work item and mutation event.
-4. If cell creation fails, release the reservation using the same idempotency key.
+4. If the cell transaction definitively rolls back, release a newly created reservation using the same idempotency key.
 
-Done or canceled work releases its active capacity. The cell row records `capacity_released_at` only after the global release succeeds. If global release or the checkpoint write fails after the visible transition, the service returns `ErrCapacityReleasePending`. Reopen obtains a new reservation before the optimistic cell update and compensates it if another writer wins.
+A reservation receipt records whether this call created the reservation or replayed an existing one. A finalized key cannot be resurrected. The service never releases an existing reservation after a payload conflict, because that reservation may belong to an already-created item. A transport or commit error has an unknown outcome: Spyglass retains capacity and returns `work_outcome_unknown`, and the caller repeats the exact body and Idempotency-Key. That retry either returns the idempotently created item or safely attempts the cell transaction again.
+
+Done or canceled work releases its active capacity asynchronously. The visible terminal update and release outbox commit together, so the command succeeds without giving the serving cell global release authority. Reopen obtains a new signed operation/reservation before the optimistic cell update and compensates only a definitive losing write.
 
 The terminal Work update and an identifier-only `work_capacity_release_queue` row commit in the same cell transaction through a database trigger. Shared `work-reconciler` replicas claim jobs with unique leases and `FOR UPDATE SKIP LOCKED`, release the global reservation idempotently, then enter Account RLS scope to checkpoint the matching Work row. A crash after global release is safe because the next lease repeats the same release key. A stale worker cannot complete a reclaimed lease. If an item reopens before its old release completes, the old job completes without marking the new reservation released.
 
-The reconciler has separate cell and global pools. Its cell credential can lease only the technical outbox and update Account-scoped Work checkpoints; its global credential can only read Account existence and release usage reservation/counter rows. App-api receives neither global credential nor cross-database release code. `/health/status` exposes pending, processing, dead-letter, and oldest-pending-age values without customer content.
+The reconciler has separate cell and global pools. Its cell credential can lease only the technical outbox and update Account-scoped Work checkpoints; its global credential can only read Account existence and release usage reservation/counter rows. `app-api` receives neither global credential nor cross-database release code. `/health/status` exposes pending, processing, dead-letter, and oldest-pending-age values without customer content.
 
 ## Persistence and query contract
 
@@ -102,16 +106,19 @@ Queue pagination orders by `(updated_at DESC, id DESC)` and carries both values 
 
 Repository errors are limited to not found, conflict, constraint, corruption, or unavailable. The read transport maps these to the shared problem-details vocabulary without exposing PostgreSQL messages or revealing resources in another Account.
 
-The first public read contract is Account-scoped and bounded:
+The Account-scoped HTTP contract is bounded:
 
 ```text
 GET /api/v1/accounts/{accountID}/work-items
 GET /api/v1/accounts/{accountID}/work-items/summary
 GET /api/v1/accounts/{accountID}/work-items/{itemID}
 GET /api/v1/accounts/{accountID}/work-items/{itemID}/children
+POST /api/v1/accounts/{accountID}/work-items
+POST /api/v1/accounts/{accountID}/work-items/{itemID}/transitions
+PATCH /api/v1/accounts/{accountID}/work-items/{itemID}/assignment
 ```
 
-List filters accept repeated known `state` and `kind` values, one bounded search term, one page limit, and one opaque versioned cursor. Detail emits a weak ETag from the aggregate version. Explicit response DTOs exclude capacity reservation and release bookkeeping.
+List filters accept repeated known `state` and `kind` values, one bounded search term, one page limit, and one opaque versioned cursor. Detail and command responses emit a weak ETag from the aggregate version. Every mutation requires a UUID Idempotency-Key; transition and assignment also require the current weak ETag through `If-Match`. Manual creation derives provenance and actor server-side. Interactive assignment is currently limited to shared, self, or an external reference; Persona assignment remains closed until its cell-owned foreign key is available. Explicit response DTOs exclude capacity reservation and release bookkeeping.
 
 ## Product surface plan
 
@@ -123,21 +130,20 @@ The first Work screen carries forward the prototype's strongest visual ideas ins
 - A sticky detail surface with description, direct children, provenance, responsibility, due time, and aggregate version-backed detail reads.
 - Package-disabled and package-read-only states derived from the same server decision as the API, never navigation alone.
 
-Creation and inline mutation controls remain absent until command admission can reserve global capacity without giving app-api a broad global credential. At that point the UI will send idempotency keys on create and `If-Match`/expected version on mutation. A version conflict will reload the item, preserve the operator's draft where safe, and explain the winning change.
+Enabled Accounts now receive a prototype-informed New Work dialog and lifecycle controls. The browser generates and retains a UUID operation key for an exact command body, sends the current ETag on transitions, refreshes the queue/summary after success, and reloads a winning version after a precondition conflict. Read-only package access renders no mutation controls. Assignment editing and a first-class inline reason dialog remain follow-up UI work.
 
 ## Remaining delivery order
 
-1. Design command admission so app-api can coordinate global capacity without receiving a broad global database credential; then publish create, assign, and transition HTTP contracts.
-2. Add audited operator inspection/requeue for Work release dead letters and retention for completed technical jobs.
-3. Add inline transition and creation surfaces with idempotency keys, ETags/expected versions, preserved drafts, and explicit conflict recovery.
-4. Replace the static route map with the bounded directory cache and internal TLS identity described in [routing-boundary.md](routing-boundary.md).
-5. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
-6. Add representative query-plan fixtures, pagination property tests, concurrent completion/assignment stress, and two-cell cross-Account API attack fixtures.
-7. Characterize and migrate prototype Work data Account by Account; verify numbers, hierarchy, state, assignment, provenance, and active-capacity reconciliation before switching traffic.
-8. Add Attention concepts—human input, review, approval, and external action—as separate aggregates that reference Work rather than expanding Work into another catch-all store.
+1. Add audited operator inspection/requeue for Work release dead letters and retention for completed technical jobs.
+2. Replace the static route map with the bounded directory cache and internal TLS/workload identity described in [routing-boundary.md](routing-boundary.md); the admission API must remain private.
+3. Add assignment editing, inline reason capture, preserved create drafts across navigation, and accessible command announcements.
+4. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
+5. Add representative query-plan fixtures, pagination property tests, concurrent completion/assignment stress, and two-cell cross-Account API attack fixtures.
+6. Characterize and migrate prototype Work data Account by Account; verify numbers, hierarchy, state, assignment, provenance, and active-capacity reconciliation before switching traffic.
+7. Add Attention concepts—human input, review, approval, and external action—as separate aggregates that reference Work rather than expanding Work into another catch-all store.
 
 ## Current evidence and limits
 
-Table-driven domain tests cover every state/role pair and reject invalid construction, stale versions, and missing reasons. Application tests cover role denial, capacity admission, failed-create compensation, and terminal release. The disposable PostgreSQL 17 contract applies every migration twice, runs through a non-owner role, proves guessed cross-Account Work IDs are invisible, exercises Account-local summary/list queries, and proves a stale writer loses after a competing transition.
+Table-driven domain tests cover every state/role pair and reject invalid construction, stale versions, and missing reasons. Application tests cover role denial, fresh versus replayed capacity admission, definitive rollback compensation, ambiguous cell outcomes, payload conflicts, and deferred terminal release. The disposable PostgreSQL 17 contract applies every migration twice, runs the global admission broker and cell repository through different non-owner roles, proves neither can read the other's data, creates Work through the HTTP broker, compensates a rejected parent, proves guessed cross-Account Work IDs are invisible, exercises Account-local summary/list queries, and proves a stale writer loses after a competing transition.
 
-Signed Account-scoped list, summary, detail, and direct-child routes now run through app-router and cell app-api. The browser shell renders locked package state without a data request and loads entitled queues only through those routes. Transport tests cover malformed filters and cursors, safe DTO fields, cross-Account paths, package authority, ETags, and response naming. Reconciliation tests prove atomic terminal enqueue, idempotent global release, lease exclusion/reclaim, stale-lease rejection, synchronous checkpoint completion, least-privilege role separation, and reopen-before-old-release safety. There is not yet a Work mutation HTTP surface, audited dead-letter requeue command, Persona foreign key, representative-scale query-plan result, or applied Kubernetes environment.
+Signed Account-scoped reads and commands now run through app-router and cell app-api. The browser shell renders locked/read-only package states and only exposes creation/lifecycle controls for enabled Work. Transport tests cover header/body binding, required operation keys, malformed filters and commands, safe DTO fields, cross-Account paths, package authority, assignment spoofing, ETags, and conflict responses. Reconciliation tests prove atomic terminal enqueue, idempotent global release, lease exclusion/reclaim, stale-lease rejection, synchronous checkpoint completion, least-privilege role separation, and reopen-before-old-release safety. There is not yet an audited dead-letter requeue command, Persona foreign key, representative-scale query-plan result, complete command accessibility pass, internal mTLS identity, or applied Kubernetes environment.

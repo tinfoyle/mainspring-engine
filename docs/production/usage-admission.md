@@ -45,6 +45,8 @@ The authorized `AccountContext` carries the exact entitlement version and packag
 
 - The caller supplies one UUID request ID per logical operation. Repeating the same Account/request/amount returns the original reservation without consuming capacity again.
 - Reusing that key for another package, limit, or amount returns a conflict.
+- A response distinguishes a newly inserted reservation from an idempotent replay for saga compensation decisions. This flag is operational metadata, not a persisted billing fact.
+- Released or expired request IDs are final. A later reserve returns `reservation_closed`; it never treats a closed record as active admission.
 - The transaction locks the Account entitlement version and the counter. A version change returns `ErrEntitlementChanged`; the service reloads authorization once and never admits against a stale maximum.
 - Concurrent reservations serialize at the counter boundary and cannot exceed the effective maximum. A denial returns `limit_exceeded` with safe current and maximum values.
 - Release is idempotent and remains available after package downgrade so retained resources and canceled work can return capacity.
@@ -52,6 +54,14 @@ The authorized `AccountContext` carries the exact entitlement version and packag
 - Negative counters, over-release, or inconsistent reservation state fail as corruption; application code does not repair those records with ad hoc SQL.
 
 Capacity reservation and the eventual feature-domain mutation cannot always share a database transaction because cell workloads and the global control plane are separate. Feature use cases therefore use a durable operation ID, release the reservation after a failed creation, and reconcile orphaned domain objects/reservations. A reservation receipt is evidence of capacity admission, not evidence that the business operation completed.
+
+## Private admission broker
+
+Cell workloads do not receive a global database connection. `spyglass admission-api` exposes a private, Work-scoped broker that accepts only a still-valid app-router proof bound to an allowlisted mutation and signed UUID operation ID. It re-verifies the exact cell audience and route, then reauthorizes current Membership, Account state, package mode, limit, and entitlement version against the global database before calling `usageadmission.Service`.
+
+The broker role can select Accounts, Memberships, and entitlement snapshots and can select/insert/update only usage counters and reservations. It executes `spyglass_lock_account_entitlement_version(uuid)`, a public-execute-revoked security-definer function, to take the required row lock without gaining Account-update authority. It cannot read Users, sessions, Billing, or any cell Work table. App-api can reach the broker through NetworkPolicy but holds only its cell database credential; internal TLS/workload identity is still required before environment promotion.
+
+Work compensates only a definitive cell rollback. A newly reserved operation that loses a serialization conflict may be released. An existing reservation plus a payload conflict is never released because it may back an already-created item. A transport or commit error retains capacity and returns an unknown-outcome response; an exact retry with the same body and operation ID resolves the ambiguity idempotently.
 
 ## Stable denial vocabulary
 

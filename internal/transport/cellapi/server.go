@@ -30,12 +30,17 @@ type Server struct {
 	logger   *slog.Logger
 	maxBody  int64
 	work     WorkQueries
+	commands WorkCommands
 }
 
 type Option func(*Server)
 
 func WithWorkQueries(queries WorkQueries) Option {
 	return func(server *Server) { server.work = queries }
+}
+
+func WithWorkCommands(commands WorkCommands) Option {
+	return func(server *Server) { server.commands = commands }
 }
 
 func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
@@ -53,9 +58,12 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/context", s.accountContext)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items", s.workList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/work-items", s.workCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items/summary", s.workSummary)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items/{itemID}", s.workItem)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items/{itemID}/children", s.workChildren)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/work-items/{itemID}/transitions", s.workTransition)
+	mux.HandleFunc("PATCH /api/v1/accounts/{accountID}/work-items/{itemID}/assignment", s.workAssign)
 	return s.recover(s.securityHeaders(mux))
 }
 
@@ -89,7 +97,7 @@ func (s *Server) accept(w http.ResponseWriter, r *http.Request) (routecontext.Cl
 		return routecontext.Claims{}, false
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
-	binding, err := routecontext.Bind(r.Method, routecontext.Target(r), body)
+	binding, err := routecontext.BindRequest(r, body)
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", "request target is invalid")
 		return routecontext.Claims{}, false
@@ -108,6 +116,7 @@ func (s *Server) accept(w http.ResponseWriter, r *http.Request) (routecontext.Cl
 		}
 		return routecontext.Claims{}, false
 	}
+	*r = *r.WithContext(routecontext.WithProof(r.Context(), routecontext.Proof{Token: token, Binding: binding}))
 	return claims, true
 }
 

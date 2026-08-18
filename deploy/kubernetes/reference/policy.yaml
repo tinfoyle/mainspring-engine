@@ -44,3 +44,29 @@ spec:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: app-router}
       ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cell-api-to-admission-api, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: app-api}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: admission-api}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: admission-api-from-cell-api, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: admission-api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: app-api}
+      ports: [{protocol: TCP, port: 8080}]

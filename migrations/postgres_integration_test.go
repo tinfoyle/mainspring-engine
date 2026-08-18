@@ -9,7 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
@@ -21,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/admissionhttp"
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/catalogadmin"
@@ -29,6 +33,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreconciliation"
@@ -43,6 +48,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
+	admissiontransport "github.com/tinfoyle/spyglass-engine/internal/transport/admissionapi"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -71,7 +77,14 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 		t.Fatalf("unexpected published catalog: version=%d plans=%d", published.Version, len(published.Plans))
 	}
 
-	adminNow := time.Now().UTC().Truncate(time.Millisecond)
+	// Anchor publication time to the database clock after seed migrations. A
+	// host clock value in the past can sort behind the seeded publication, while
+	// a future value is not yet visible to Published().
+	var adminNow time.Time
+	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&adminNow); err != nil {
+		t.Fatal(err)
+	}
+	adminNow = adminNow.UTC()
 	adminService, err := catalogadmin.NewService(postgresadapter.NewCatalogAdminRepository(pool), ids.RandomGenerator{}, fixedClock{now: adminNow})
 	if err != nil {
 		t.Fatal(err)
@@ -325,7 +338,11 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if _, err := adminService.Retire(ctx, draft.Version, "catalog-publisher@example.com", "retire prior version before rollback verification"); err != nil {
 		t.Fatal(err)
 	}
-	rollbackNow := time.Now().UTC().Add(-time.Millisecond)
+	var rollbackNow time.Time
+	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&rollbackNow); err != nil {
+		t.Fatal(err)
+	}
+	rollbackNow = rollbackNow.UTC()
 	rollbackService, _ := catalogadmin.NewService(postgresadapter.NewCatalogAdminRepository(pool), ids.RandomGenerator{}, fixedClock{now: rollbackNow})
 	if _, err := rollbackService.Publish(ctx, draft.Version, rollbackNow, "catalog-publisher@example.com", "republish reviewed lower version for rollback"); err != nil {
 		t.Fatal(err)
@@ -429,7 +446,8 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if !errors.Is(err, usageadmission.ErrEntitlementChanged) {
 		t.Fatalf("stale entitlement usage admission = %v", err)
 	}
-	testWorkReleaseReconciliation(t, ctx, pool, databaseURL, provisioned.Account.ID, rollbackEntitlementVersion, usageNow.Add(3*time.Second))
+	testRoutedWorkCommandAdmission(t, ctx, pool, databaseURL, provisioned.User.ID, provisioned.Account.ID, provisioned.Account.CellID, rollbackEntitlementVersion, usageNow.Add(3*time.Second))
+	testWorkReleaseReconciliation(t, ctx, pool, databaseURL, provisioned.Account.ID, rollbackEntitlementVersion, usageNow.Add(10*time.Second))
 	legacyTeam, ok := published.Plan("team")
 	if !ok {
 		t.Fatal("seeded legacy Catalog has no Team plan")
@@ -662,7 +680,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE state='active'`).Scan(&cellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 16 || catalogCount != 1 || cellCount != 1 {
+	if ledgerCount != 17 || catalogCount != 1 || cellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d", ledgerCount, catalogCount, cellCount)
 	}
 
@@ -929,6 +947,100 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	}
 }
 
+func testRoutedWorkCommandAdmission(t *testing.T, ctx context.Context, pool *pgxpool.Pool, databaseURL string, userID ids.UserID, accountID ids.AccountID, cellID ids.CellID, entitlementVersion uint64, now time.Time) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.account_namespaces (account_id,placement_generation,state,created_at) VALUES ($1,1,'active',$2) ON CONFLICT (account_id) DO NOTHING`, accountID, now); err != nil {
+		t.Fatalf("seed command Account namespace: %v", err)
+	}
+	cellRole := "spyglass_command_cell_" + randomSuffix(t)
+	globalRole := "spyglass_admission_global_" + randomSuffix(t)
+	if _, err := pool.Exec(ctx, `CREATE ROLE `+cellRole+` NOLOGIN; CREATE ROLE `+globalRole+` NOLOGIN;
+		GRANT USAGE ON SCHEMA spyglass TO `+cellRole+`;
+		GRANT SELECT ON spyglass.account_namespaces,spyglass.work_items TO `+cellRole+`;
+		GRANT SELECT,INSERT,UPDATE ON spyglass.work_item_number_counters,spyglass.work_items,spyglass.work_item_events,spyglass.work_capacity_release_queue TO `+cellRole+`;
+		GRANT SELECT ON accounts,memberships,entitlement_snapshots TO `+globalRole+`;
+		GRANT SELECT,INSERT,UPDATE ON entitlement_usage_counters,entitlement_usage_reservations TO `+globalRole+`;
+		GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid) TO `+globalRole); err != nil {
+		t.Fatalf("create routed Work command roles: %v", err)
+	}
+	cellPool := openPool(t, ctx, databaseURL, func(ctx context.Context, connection *pgx.Conn) error {
+		_, err := connection.Exec(ctx, `SET ROLE `+cellRole)
+		return err
+	})
+	globalPool := openPool(t, ctx, databaseURL, func(ctx context.Context, connection *pgx.Conn) error {
+		_, err := connection.Exec(ctx, `SET ROLE `+globalRole)
+		return err
+	})
+	defer func() {
+		cellPool.Close()
+		globalPool.Close()
+		_, _ = pool.Exec(context.Background(), `DROP OWNED BY `+cellRole+`; DROP OWNED BY `+globalRole+`; DROP ROLE IF EXISTS `+cellRole+`; DROP ROLE IF EXISTS `+globalRole)
+	}()
+	var forbidden int
+	if err := cellPool.QueryRow(ctx, `SELECT count(*) FROM memberships`).Scan(&forbidden); err == nil {
+		t.Fatal("cell command credential read global Memberships")
+	}
+	if err := globalPool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&forbidden); err == nil {
+		t.Fatal("admission credential read global Users")
+	}
+	if err := globalPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_items`).Scan(&forbidden); err == nil {
+		t.Fatal("admission credential read cell Work")
+	}
+
+	globalAuthorizer, _ := access.NewAuthorizer(postgresadapter.NewAccessRepository(globalPool))
+	usageService, _ := usageadmission.NewService(globalAuthorizer, postgresadapter.NewUsageAdmissionRepository(globalPool), ids.RandomGenerator{}, fixedClock{now: now})
+	key := []byte("0123456789abcdef0123456789abcdef")
+	signer, _ := routecontext.NewSigner("spyglass-app-router", "current", key, 20*time.Second, fixedClock{now: now})
+	verifier, _ := routecontext.NewVerifier("spyglass-app-router", routecontext.Audience(cellID), map[string][]byte{"current": key}, routecontext.MaximumLifetime, 0, fixedClock{now: now})
+	admissionServer, err := admissiontransport.New(usageService, map[ids.CellID]admissiontransport.Verifier{cellID: verifier}, slog.New(slog.NewTextHandler(io.Discard, nil)), admissiontransport.DefaultMaxBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(admissionServer.Handler())
+	defer httpServer.Close()
+	capacityClient, _ := admissionhttp.New(httpServer.URL, true, nil)
+	cell, _ := database.NewCellPool(cellPool)
+	workRepository, _ := postgresadapter.NewWorkRepository(cell, ids.RandomGenerator{})
+	workService, _ := workapp.NewService(routeaccess.NewAuthorizer(), capacityClient, workRepository, fixedClock{now: now})
+	packageAccess := &routecontext.PackageAccess{Code: "work", Version: 1, Mode: "enabled", Limits: map[string]int64{"active_items": 100}, LimitPolicies: map[string]routecontext.LimitPolicy{"active_items": {Kind: "capacity", Combine: "maximum"}}}
+	proofContext := func(operationID, routeID, body string) context.Context {
+		request, _ := http.NewRequest(http.MethodPost, "https://cell.test/api/v1/accounts/"+string(accountID)+"/work-items", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Idempotency-Key", operationID)
+		binding, _ := routecontext.BindRequest(request, []byte(body))
+		authority := routecontext.Authority{RequestID: routeID, OperationID: operationID, AccountID: accountID, ActorKind: "user", ActorID: string(userID), Role: "owner", CellID: cellID, PlacementGeneration: 1, EntitlementVersion: entitlementVersion, PackageAccess: packageAccess}
+		token, err := signer.Issue(routecontext.Audience(cellID), authority, binding)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claims, err := verifier.Verify(token, binding)
+		if err != nil {
+			t.Fatal(err)
+		}
+		requestContext := routecontext.WithClaims(ctx, claims)
+		return routecontext.WithProof(requestContext, routecontext.Proof{Token: token, Binding: binding})
+	}
+	operationID := "81000000-0000-4000-8000-000000000001"
+	actor := access.Actor{UserID: userID}
+	created, err := workService.Create(proofContext(operationID, "81000000-0000-4000-8000-000000000003", `{"title":"Admitted Work"}`), workapp.CreateCommand{Actor: actor, AccountID: accountID, RequestID: operationID, Kind: workdomain.KindTicket, Title: "Admitted Work", Priority: workdomain.PriorityHigh, Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared}, Provenance: workdomain.Provenance{Source: workdomain.SourceManual, CreatedBy: workdomain.Actor{Kind: workdomain.ActorUser, ID: string(userID)}}, CorrelationID: operationID})
+	if err != nil || created.ID != ids.WorkItemID(operationID) || created.CapacityReservationID != operationID {
+		t.Fatalf("routed admitted Work=%+v err=%v", created, err)
+	}
+	var reservationState string
+	if err := pool.QueryRow(ctx, `SELECT state FROM entitlement_usage_reservations WHERE account_id=$1 AND request_id=$2`, accountID, operationID).Scan(&reservationState); err != nil || reservationState != "active" {
+		t.Fatalf("admitted reservation state=%q err=%v", reservationState, err)
+	}
+
+	rejectedID := "81000000-0000-4000-8000-000000000002"
+	_, err = workService.Create(proofContext(rejectedID, "81000000-0000-4000-8000-000000000004", `{"title":"Rejected Work"}`), workapp.CreateCommand{Actor: actor, AccountID: accountID, RequestID: rejectedID, ParentID: "82000000-0000-4000-8000-000000000005", Kind: workdomain.KindTodo, Title: "Rejected Work", Priority: workdomain.PriorityNormal, Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared}, Provenance: workdomain.Provenance{Source: workdomain.SourceManual, CreatedBy: workdomain.Actor{Kind: workdomain.ActorUser, ID: string(userID)}}, CorrelationID: rejectedID})
+	if !errors.Is(err, workapp.ErrConstraint) {
+		t.Fatalf("definitive cell rejection=%v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT state FROM entitlement_usage_reservations WHERE account_id=$1 AND request_id=$2`, accountID, rejectedID).Scan(&reservationState); err != nil || reservationState != "released" {
+		t.Fatalf("compensated reservation state=%q err=%v", reservationState, err)
+	}
+}
+
 func testWorkReleaseReconciliation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, databaseURL string, accountID ids.AccountID, entitlementVersion uint64, now time.Time) {
 	t.Helper()
 	reservationID := "72000000-0000-4000-8000-000000000001"
@@ -936,7 +1048,7 @@ func testWorkReleaseReconciliation(t *testing.T, ctx context.Context, pool *pgxp
 	if _, err := usage.Reserve(ctx, usageadmission.PersistCommand{ID: ids.RandomGenerator{}.New(), AccountID: accountID, RequestID: reservationID, PackageCode: catalog.PackageWork, LimitCode: workapp.ActiveItems, Amount: 1, Maximum: 100, ExpectedEntitlementVersion: entitlementVersion, Now: now}); err != nil {
 		t.Fatalf("reserve Work reconciliation capacity: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.account_namespaces (account_id,placement_generation,state,created_at) VALUES ($1,1,'active',$2)`, accountID, now); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.account_namespaces (account_id,placement_generation,state,created_at) VALUES ($1,1,'active',$2) ON CONFLICT (account_id) DO NOTHING`, accountID, now); err != nil {
 		t.Fatalf("seed reconciled Account namespace: %v", err)
 	}
 	cell, _ := database.NewCellPool(pool)

@@ -5,6 +5,7 @@
   if (!root) return;
 
   const accountID = root.dataset.accountId;
+  const readOnly = root.dataset.readOnly === "true";
   const baseURL = `/api/v1/accounts/${encodeURIComponent(accountID)}/work-items`;
   const form = document.getElementById("work-filters");
   const list = document.getElementById("work-list");
@@ -12,6 +13,11 @@
   const count = document.getElementById("work-result-count");
   const more = document.getElementById("work-more");
   const detail = document.getElementById("work-detail");
+  const createOpen = document.getElementById("work-create-open");
+  const createDialog = document.getElementById("work-create-dialog");
+  const createForm = document.getElementById("work-create-form");
+  const createError = document.getElementById("work-create-error");
+  const pendingOperations = new Map();
   let nextCursor = "";
   let loadedCount = 0;
   let listRequest;
@@ -77,6 +83,29 @@
       error.status = response.status;
       throw error;
     }
+    return response.json();
+  }
+
+  async function mutateJSON(url, method, payload, version) {
+    const body = JSON.stringify(payload);
+    const fingerprint = `${method} ${url} ${version || ""} ${body}`;
+    let operationID = pendingOperations.get(fingerprint);
+    if (!operationID) {
+      operationID = crypto.randomUUID();
+      pendingOperations.set(fingerprint, operationID);
+    }
+    const headers = { Accept: "application/json", "Content-Type": "application/json", "Idempotency-Key": operationID };
+    if (version) headers["If-Match"] = `W/"${version}"`;
+    const response = await fetch(url, { method, credentials: "same-origin", headers, body });
+    if (!response.ok) {
+      let problem = {};
+      try { problem = await response.json(); } catch (_) { /* retain the safe fallback */ }
+      const error = new Error(problem.detail || "Spyglass could not save this Work command.");
+      error.status = response.status;
+      error.code = problem.code || "work_unavailable";
+      throw error;
+    }
+    pendingOperations.delete(fingerprint);
     return response.json();
   }
 
@@ -193,14 +222,59 @@
     } else {
       for (const child of children) childSection.append(workCard(child));
     }
-    detail.replaceChildren(header, description, facts, childSection);
+    const sections = [header, description, facts];
+    if (!readOnly) sections.push(workActions(item, children));
+    sections.push(childSection);
+    detail.replaceChildren(...sections);
+  }
+
+  function workActions(item, children) {
+    const section = node("section", "work-actions");
+    const message = node("p", "work-action-message");
+    message.hidden = true;
+    const transitions = {
+      open: [["in_progress", "Start"], ["canceled", "Cancel"]],
+      in_progress: [["waiting", "Mark waiting"], ["done", "Complete"], ["canceled", "Cancel"]],
+      waiting: [["in_progress", "Resume"], ["canceled", "Cancel"]],
+      done: [["open", "Reopen"]],
+    }[item.state] || [];
+    section.append(node("strong", "", "Move this work"));
+    const controls = node("div", "work-action-controls");
+    for (const [state, text] of transitions) {
+      const button = node("button", state === "done" ? "primary" : "secondary", text);
+      button.type = "button";
+      button.addEventListener("click", async () => {
+        let reason = "";
+        if (["waiting", "canceled", "open"].includes(state)) {
+          reason = String(window.prompt(state === "open" ? "Why is this work reopening?" : "Add the operational reason:") || "").trim();
+          if (!reason) return;
+        }
+        for (const control of controls.querySelectorAll("button")) control.disabled = true;
+        message.hidden = true;
+        try {
+          const updated = await mutateJSON(`${baseURL}/${encodeURIComponent(item.id)}/transitions`, "POST", { to: state, ...(reason ? { reason } : {}) }, item.version);
+          renderDetail(updated, children);
+          loadSummary();
+          loadList(false);
+        } catch (error) {
+          message.textContent = error.status === 412 ? "This item changed. Reloading the current version…" : error.message;
+          message.hidden = false;
+          if (error.status === 412) setTimeout(() => loadDetail(item.id), 350);
+          for (const control of controls.querySelectorAll("button")) control.disabled = false;
+        }
+      });
+      controls.append(button);
+    }
+    if (transitions.length === 0) controls.append(node("span", "", "No further lifecycle action is available."));
+    section.append(controls, message);
+    return section;
   }
 
   async function loadDetail(itemID, card) {
     if (detailRequest) detailRequest.abort();
     detailRequest = new AbortController();
     for (const current of list.querySelectorAll(".work-card.selected")) current.classList.remove("selected");
-    card.classList.add("selected");
+    if (card) card.classList.add("selected");
     detail.replaceChildren(node("div", "work-detail-empty", "Loading work detail…"));
     try {
       const [item, childPage] = await Promise.all([
@@ -222,6 +296,45 @@
     loadList(false);
   });
   more.addEventListener("click", () => loadList(true));
+  if (createOpen && createDialog && createForm) {
+    const closeCreate = () => {
+      createDialog.close();
+      createError.hidden = true;
+    };
+    createOpen.addEventListener("click", () => {
+      createError.hidden = true;
+      createDialog.showModal();
+      createForm.elements.title.focus();
+    });
+    document.getElementById("work-create-close").addEventListener("click", closeCreate);
+    document.getElementById("work-create-cancel").addEventListener("click", closeCreate);
+    createForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const values = new FormData(createForm);
+      const submit = createForm.querySelector('button[type="submit"]');
+      const payload = {
+        kind: String(values.get("kind")),
+        title: String(values.get("title") || "").trim(),
+        description: String(values.get("description") || "").trim(),
+        priority: String(values.get("priority")),
+        assignment: { responsibility: String(values.get("responsibility")) },
+      };
+      submit.disabled = true;
+      createError.hidden = true;
+      try {
+        const item = await mutateJSON(baseURL, "POST", payload);
+        createForm.reset();
+        closeCreate();
+        await Promise.all([loadSummary(), loadList(false)]);
+        loadDetail(item.id);
+      } catch (error) {
+        createError.textContent = error.message;
+        createError.hidden = false;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  }
   loadSummary();
   loadList(false);
 })();
