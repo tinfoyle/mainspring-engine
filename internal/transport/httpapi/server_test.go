@@ -86,6 +86,40 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if secondLogin.StatusCode != http.StatusCreated {
 		t.Fatalf("second login status %d: %s", secondLogin.StatusCode, secondLogin.Body)
 	}
+	secondCookies := (&http.Response{Header: secondLogin.Header}).Cookies()
+	passkeyListRequest, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/passkeys", nil)
+	passkeyListRequest.AddCookie(cookies[0])
+	passkeyListResponse, err := http.DefaultClient.Do(passkeyListRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passkeyListBody, _ := io.ReadAll(passkeyListResponse.Body)
+	passkeyListResponse.Body.Close()
+	if passkeyListResponse.StatusCode != http.StatusOK || !bytes.Contains(passkeyListBody, []byte(`"passkeys":[]`)) || bytes.Contains(passkeyListBody, []byte(provisioned.Account.ID)) {
+		t.Fatalf("identity-only passkey list: %d %s", passkeyListResponse.StatusCode, passkeyListBody)
+	}
+	passkeyRegistration := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, cookies[0])
+	if passkeyRegistration.StatusCode != http.StatusCreated || !bytes.Contains(passkeyRegistration.Body, []byte(`"residentKey":"required"`)) || !bytes.Contains(passkeyRegistration.Body, []byte(`"userVerification":"required"`)) {
+		t.Fatalf("passkey registration options: %d %s", passkeyRegistration.StatusCode, passkeyRegistration.Body)
+	}
+	var passkeyCeremony struct {
+		CeremonyID string `json:"ceremony_id"`
+	}
+	if err := json.Unmarshal(passkeyRegistration.Body, &passkeyCeremony); err != nil {
+		t.Fatal(err)
+	}
+	crossSessionCompletion := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations/"+passkeyCeremony.CeremonyID+"/complete", `{"name":"Test passkey","credential":{}}`, secondCookies[0])
+	if crossSessionCompletion.StatusCode != http.StatusBadRequest || !bytes.Contains(crossSessionCompletion.Body, []byte(`"code":"passkey_invalid"`)) {
+		t.Fatalf("cross-session passkey ceremony: %d %s", crossSessionCompletion.StatusCode, crossSessionCompletion.Body)
+	}
+	ownerCompletion := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations/"+passkeyCeremony.CeremonyID+"/complete", `{"name":"Test passkey","credential":{}}`, cookies[0])
+	if ownerCompletion.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid registration credential: %d %s", ownerCompletion.StatusCode, ownerCompletion.Body)
+	}
+	passkeyLogin := postJSON(t, server.URL+"/api/v1/passkey-login/challenges", `{}`)
+	if passkeyLogin.StatusCode != http.StatusCreated || !bytes.Contains(passkeyLogin.Body, []byte(`"userVerification":"required"`)) {
+		t.Fatalf("passkey login options: %d %s", passkeyLogin.StatusCode, passkeyLogin.Body)
+	}
 	sessionsRequest, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/sessions", nil)
 	sessionsRequest.AddCookie(cookies[0])
 	sessionsResponse, err := http.DefaultClient.Do(sessionsRequest)

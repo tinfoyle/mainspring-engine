@@ -43,6 +43,7 @@ The focused design documents are:
 
 - [Target architecture](docs/production/architecture.md)
 - [Website, Accounts, Packages, and Billing](docs/production/accounts-packages-billing.md)
+- [Identity security and passkeys](docs/production/identity-security.md)
 - [Stripe commercial access operations](docs/production/stripe-operations.md)
 - [Catalog publication operations](docs/production/catalog-operations.md)
 - [Package and usage admission](docs/production/usage-admission.md)

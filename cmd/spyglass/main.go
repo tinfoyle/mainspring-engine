@@ -239,7 +239,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKey: config.passkeyEncryptionKey, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
 	if err != nil {
 		return err
 	}
@@ -710,12 +710,13 @@ func serveWorker(ctx context.Context, name, healthAddress string, worker runnabl
 }
 
 type persistentConfig struct {
-	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin string
-	notificationEncryptionKey                                                                                []byte
-	networkActorKey                                                                                          []byte
-	trustedProxyCIDRs                                                                                        []string
-	maxDatabaseConns                                                                                         int32
-	catalogRefreshInterval                                                                                   time.Duration
+	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, passkeyRPID string
+	notificationEncryptionKey                                                                                             []byte
+	networkActorKey                                                                                                       []byte
+	passkeyEncryptionKey                                                                                                  []byte
+	trustedProxyCIDRs                                                                                                     []string
+	maxDatabaseConns                                                                                                      int32
+	catalogRefreshInterval                                                                                                time.Duration
 }
 
 func productionConfig() (persistentConfig, error) {
@@ -724,7 +725,7 @@ func productionConfig() (persistentConfig, error) {
 	fields := []struct {
 		name   string
 		target *string
-	}{{"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}}
+	}{{"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}, {"SPYGLASS_PASSKEY_RP_ID", &result.passkeyRPID}}
 	for _, field := range fields {
 		*field.target, err = requiredEnv(field.name)
 		if err != nil {
@@ -737,6 +738,10 @@ func productionConfig() (persistentConfig, error) {
 		return persistentConfig{}, err
 	}
 	result.networkActorKey, err = base64KeyEnv("SPYGLASS_NETWORK_ACTOR_KEY")
+	if err != nil {
+		return persistentConfig{}, err
+	}
+	result.passkeyEncryptionKey, err = base64KeyEnv("SPYGLASS_PASSKEY_ENCRYPTION_KEY")
 	if err != nil {
 		return persistentConfig{}, err
 	}

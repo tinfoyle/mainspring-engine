@@ -1,0 +1,318 @@
+package passkeys_test
+
+import (
+	"bytes"
+	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
+	"github.com/go-webauthn/webauthn/protocol/webauthncose"
+	"github.com/go-webauthn/webauthn/webauthn"
+
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/memory"
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
+	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/identity"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+)
+
+func TestDiscoverableLoginVerifiesSignatureUpdatesCounterAndRejectsReplay(t *testing.T) {
+	fixture := newFixture(t)
+	begun, err := fixture.service.BeginLogin(context.Background(), [32]byte{1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := signedAssertion(t, fixture.privateKey, fixture.credentialID, fixture.handle, fixture.repository.ceremonies[begun.CeremonyID].Data.Challenge, 8)
+	issued, err := fixture.service.CompleteLogin(context.Background(), passkeys.LoginCommand{CeremonyID: begun.CeremonyID, Response: response, ClientLabel: "test browser"})
+	if err != nil {
+		t.Fatalf("complete signed passkey login: %v", err)
+	}
+	if issued.Session.UserID != fixture.userID || issued.Session.ClientLabel != "test browser" || issued.Token == "" {
+		t.Fatalf("unexpected issued session: %+v", issued.Session)
+	}
+	if got := fixture.repository.user.Credentials[0].Credential.Authenticator.SignCount; got != 8 {
+		t.Fatalf("sign counter = %d, want 8", got)
+	}
+	if fixture.repository.lastEvent != passkeys.EventAuthenticated {
+		t.Fatalf("event = %q", fixture.repository.lastEvent)
+	}
+	if _, err := fixture.service.CompleteLogin(context.Background(), passkeys.LoginCommand{CeremonyID: begun.CeremonyID, Response: response}); !errors.Is(err, passkeys.ErrInvalidCeremony) {
+		t.Fatalf("replay error = %v, want invalid ceremony", err)
+	}
+}
+
+func TestLoginRejectsTamperedSignatureAndExpiredCeremony(t *testing.T) {
+	fixture := newFixture(t)
+	begun, err := fixture.service.BeginLogin(context.Background(), [32]byte{2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := signedAssertion(t, fixture.privateKey, fixture.credentialID, fixture.handle, fixture.repository.ceremonies[begun.CeremonyID].Data.Challenge, 8)
+	response = tamperedSignature(t, response)
+	if _, err := fixture.service.CompleteLogin(context.Background(), passkeys.LoginCommand{CeremonyID: begun.CeremonyID, Response: response}); !errors.Is(err, passkeys.ErrInvalidCredential) {
+		t.Fatalf("tampered signature error = %v", err)
+	}
+
+	begun, err = fixture.service.BeginLogin(context.Background(), [32]byte{3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.clock.now = fixture.clock.now.Add(passkeys.CeremonyTTL + time.Second)
+	if _, err := fixture.service.CompleteLogin(context.Background(), passkeys.LoginCommand{CeremonyID: begun.CeremonyID, Response: []byte(`{}`)}); !errors.Is(err, passkeys.ErrInvalidCeremony) {
+		t.Fatalf("expired ceremony error = %v", err)
+	}
+}
+
+func TestLoginRejectsAuthenticatorCloneWarning(t *testing.T) {
+	fixture := newFixture(t)
+	begun, err := fixture.service.BeginLogin(context.Background(), [32]byte{4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := signedAssertion(t, fixture.privateKey, fixture.credentialID, fixture.handle, fixture.repository.ceremonies[begun.CeremonyID].Data.Challenge, 6)
+	if _, err := fixture.service.CompleteLogin(context.Background(), passkeys.LoginCommand{CeremonyID: begun.CeremonyID, Response: response}); !errors.Is(err, passkeys.ErrInvalidCredential) {
+		t.Fatalf("counter rollback error = %v", err)
+	}
+	if fixture.repository.cloneEvents != 1 {
+		t.Fatalf("clone warning events = %d, want 1", fixture.repository.cloneEvents)
+	}
+}
+
+func TestRegistrationOptionsRequireResidentKeyAndUserVerification(t *testing.T) {
+	fixture := newFixture(t)
+	fixture.repository.user.Handle = nil
+	session := sessions.Session{ID: ids.SessionID("00000000-0000-4000-8000-000000000090"), UserID: fixture.userID, ReauthenticatedAt: fixture.clock.now}
+	result, err := fixture.service.BeginRegistration(context.Background(), session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var options struct {
+		PublicKey struct {
+			Attestation            string `json:"attestation"`
+			AuthenticatorSelection struct {
+				ResidentKey      string `json:"residentKey"`
+				UserVerification string `json:"userVerification"`
+			} `json:"authenticatorSelection"`
+		} `json:"publicKey"`
+	}
+	if err := json.Unmarshal(result.PublicKey, &options); err != nil {
+		t.Fatal(err)
+	}
+	if options.PublicKey.Attestation != "none" || options.PublicKey.AuthenticatorSelection.ResidentKey != "required" || options.PublicKey.AuthenticatorSelection.UserVerification != "required" {
+		t.Fatalf("unsafe registration options: %+v", options.PublicKey)
+	}
+	stored := fixture.repository.ceremonies[result.CeremonyID]
+	if stored.UserID != fixture.userID || stored.SessionID != session.ID || len(fixture.repository.user.Handle) != 32 {
+		t.Fatalf("registration ceremony was not bound to identity and session: %+v", stored)
+	}
+}
+
+func tamperedSignature(t *testing.T, response []byte) []byte {
+	t.Helper()
+	var value map[string]any
+	if err := json.Unmarshal(response, &value); err != nil {
+		t.Fatal(err)
+	}
+	assertion := value["response"].(map[string]any)
+	raw, err := base64.RawURLEncoding.DecodeString(assertion["signature"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[len(raw)-1] ^= 1
+	assertion["signature"] = base64.RawURLEncoding.EncodeToString(raw)
+	result, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func TestCipherAuthenticatesPayloadLabelAndKeyVersion(t *testing.T) {
+	cipher, err := passkeys.NewCipher(bytes.Repeat([]byte{7}, 32), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := cipher.Seal("credential/a", []byte("private credential material"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _ := cipher.Seal("credential/a", []byte("private credential material"))
+	if bytes.Equal(first.Ciphertext, second.Ciphertext) || bytes.Contains(first.Ciphertext, []byte("private credential material")) {
+		t.Fatal("credential envelope was deterministic or exposed plaintext")
+	}
+	if opened, err := cipher.Open("credential/a", first); err != nil || string(opened) != "private credential material" {
+		t.Fatalf("open valid envelope: %q, %v", opened, err)
+	}
+	if _, err := cipher.Open("credential/b", first); err == nil {
+		t.Fatal("changed record label was accepted")
+	}
+	first.Ciphertext[0] ^= 1
+	if _, err := cipher.Open("credential/a", first); err == nil {
+		t.Fatal("tampered ciphertext was accepted")
+	}
+	first.KeyVersion++
+	if _, err := cipher.Open("credential/a", first); err == nil {
+		t.Fatal("wrong key version was accepted")
+	}
+}
+
+type fixture struct {
+	service      *passkeys.Service
+	repository   *repository
+	clock        *testClock
+	privateKey   *ecdsa.PrivateKey
+	credentialID []byte
+	handle       []byte
+	userID       ids.UserID
+}
+
+func newFixture(t *testing.T) fixture {
+	t.Helper()
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey, err := webauthncbor.Marshal(webauthncose.EC2PublicKeyData{
+		PublicKeyData: webauthncose.PublicKeyData{KeyType: int64(webauthncose.EllipticKey), Algorithm: int64(webauthncose.AlgES256)},
+		Curve:         int64(webauthncose.P256), XCoord: privateKey.X.FillBytes(make([]byte, 32)), YCoord: privateKey.Y.FillBytes(make([]byte, 32)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	userID := ids.UserID("00000000-0000-4000-8000-000000000001")
+	handle := bytes.Repeat([]byte{4}, 32)
+	credentialID := []byte("credential-id-0001")
+	repository := &repository{user: passkeys.User{
+		Identity:    identity.User{ID: userID, PrimaryEmail: "owner@example.com", DisplayName: "Owner", State: identity.UserActive, SecurityVersion: 1},
+		Handle:      handle,
+		Credentials: []passkeys.CredentialRecord{{UserID: userID, Name: "Test key", Credential: webauthn.Credential{ID: credentialID, PublicKey: publicKey, Authenticator: webauthn.Authenticator{SignCount: 7}}}},
+	}, ceremonies: map[string]passkeys.Ceremony{}}
+	clock := &testClock{now: time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)}
+	sessionService, err := sessions.NewService(memory.NewSessionStore(), &sequence{}, clock, time.Hour, 30*time.Minute, 10*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := passkeys.NewService(repository, sessionService, allowGuard{}, &sequence{}, clock, passkeys.Config{RelyingPartyID: "app.infiniteocean.net", Origins: []string{"https://app.infiniteocean.net"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fixture{service: service, repository: repository, clock: clock, privateKey: privateKey, credentialID: credentialID, handle: handle, userID: userID}
+}
+
+func signedAssertion(t *testing.T, privateKey *ecdsa.PrivateKey, credentialID, userHandle []byte, challenge string, counter uint32) []byte {
+	t.Helper()
+	clientData := []byte(fmt.Sprintf(`{"type":"webauthn.get","challenge":%q,"origin":"https://app.infiniteocean.net"}`, challenge))
+	rpHash := sha256.Sum256([]byte("app.infiniteocean.net"))
+	authenticatorData := make([]byte, 37)
+	copy(authenticatorData, rpHash[:])
+	authenticatorData[32] = 0x05
+	binary.BigEndian.PutUint32(authenticatorData[33:], counter)
+	clientHash := sha256.Sum256(clientData)
+	signed := append(append([]byte(nil), authenticatorData...), clientHash[:]...)
+	digest := sha256.Sum256(signed)
+	signature, err := ecdsa.SignASN1(rand.Reader, privateKey, digest[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedID := base64.RawURLEncoding.EncodeToString(credentialID)
+	response := map[string]any{
+		"id": encodedID, "rawId": encodedID, "type": "public-key",
+		"response": map[string]string{
+			"authenticatorData": base64.RawURLEncoding.EncodeToString(authenticatorData),
+			"clientDataJSON":    base64.RawURLEncoding.EncodeToString(clientData),
+			"signature":         base64.RawURLEncoding.EncodeToString(signature),
+			"userHandle":        base64.RawURLEncoding.EncodeToString(userHandle),
+		},
+	}
+	raw, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+type repository struct {
+	user        passkeys.User
+	ceremonies  map[string]passkeys.Ceremony
+	lastEvent   passkeys.CredentialEvent
+	cloneEvents int
+}
+
+func (r *repository) EnsureUser(_ context.Context, _ ids.UserID, handle []byte, _ time.Time) (passkeys.User, error) {
+	if len(r.user.Handle) == 0 {
+		r.user.Handle = append([]byte(nil), handle...)
+	}
+	return r.user, nil
+}
+func (r *repository) User(context.Context, ids.UserID) (passkeys.User, error) { return r.user, nil }
+func (r *repository) UserByHandle(_ context.Context, handle, credentialID []byte) (passkeys.User, error) {
+	if !bytes.Equal(handle, r.user.Handle) || !bytes.Equal(credentialID, r.user.Credentials[0].Credential.ID) {
+		return passkeys.User{}, passkeys.ErrCredentialNotFound
+	}
+	return r.user, nil
+}
+func (r *repository) CreateCeremony(_ context.Context, value passkeys.Ceremony) error {
+	r.ceremonies[value.ID] = value
+	return nil
+}
+func (r *repository) ConsumeCeremony(_ context.Context, id string, kind passkeys.CeremonyKind, userID ids.UserID, sessionID ids.SessionID, now time.Time) (passkeys.Ceremony, error) {
+	value, ok := r.ceremonies[id]
+	if !ok || value.Kind != kind || value.UserID != userID || value.SessionID != sessionID || !value.ExpiresAt.After(now) {
+		return passkeys.Ceremony{}, passkeys.ErrInvalidCeremony
+	}
+	delete(r.ceremonies, id)
+	return value, nil
+}
+func (r *repository) CreateCredential(_ context.Context, userID ids.UserID, name string, credential webauthn.Credential, now time.Time, _ int) error {
+	r.user.Credentials = append(r.user.Credentials, passkeys.CredentialRecord{UserID: userID, Name: name, Credential: credential, CreatedAt: now})
+	return nil
+}
+func (r *repository) UpdateCredential(_ context.Context, _ ids.UserID, credentialID []byte, expected uint32, credential webauthn.Credential, event passkeys.CredentialEvent, now time.Time) (bool, error) {
+	for index := range r.user.Credentials {
+		if bytes.Equal(r.user.Credentials[index].Credential.ID, credentialID) && r.user.Credentials[index].Credential.Authenticator.SignCount == expected {
+			r.user.Credentials[index].Credential = credential
+			r.user.Credentials[index].LastUsedAt = &now
+			r.lastEvent = event
+			return true, nil
+		}
+	}
+	return false, nil
+}
+func (r *repository) RecordCloneWarning(context.Context, ids.UserID, []byte, time.Time) error {
+	r.cloneEvents++
+	return nil
+}
+func (r *repository) ListCredentials(context.Context, ids.UserID) ([]passkeys.CredentialRecord, error) {
+	return r.user.Credentials, nil
+}
+func (r *repository) DeleteCredential(context.Context, ids.UserID, []byte, time.Time) (bool, error) {
+	return false, nil
+}
+
+type testClock struct{ now time.Time }
+
+func (c *testClock) Now() time.Time { return c.now }
+
+type sequence struct{ next int }
+
+func (s *sequence) New() string {
+	s.next++
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", s.next)
+}
+
+type allowGuard struct{}
+
+func (allowGuard) Allow(context.Context, abuse.Scope, [32]byte, time.Time, abuse.Policy) (bool, error) {
+	return true, nil
+}

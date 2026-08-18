@@ -14,6 +14,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
@@ -59,6 +60,7 @@ type Server struct {
 	commercial         *commercialaccess.Service
 	recovery           *recovery.Service
 	recoveryTokens     RecoveryTokenSource
+	passkeys           *passkeys.Service
 }
 
 type Option func(*Server)
@@ -72,6 +74,10 @@ func WithRecovery(service *recovery.Service, tokens RecoveryTokenSource) Option 
 		server.recovery = service
 		server.recoveryTokens = tokens
 	}
+}
+
+func WithPasskeys(service *passkeys.Service) Option {
+	return func(server *Server) { server.passkeys = service }
 }
 
 func New(registrations *registration.Service, authenticationService *authentication.Service, sessionService *sessions.Service, accountService *accountaccess.Service, invitationService *invitations.Service, catalogSource func() catalog.PublishedCatalog, verificationTokens VerificationTokenSource, invitationTokens InvitationTokenSource, config Config, logger *slog.Logger, options ...Option) (*Server, error) {
@@ -112,6 +118,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/app", http.StatusSeeOther) })
 	mux.HandleFunc("GET /assets/spyglass.css", s.styles)
 	mux.HandleFunc("GET /assets/work.js", s.workScript)
+	mux.HandleFunc("GET /assets/passkeys.js", s.passkeyScript)
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("GET /forgot-password", s.forgotPasswordPage)
@@ -219,6 +226,17 @@ func (s *Server) workScript(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(raw)
 }
 
+func (s *Server) passkeyScript(w http.ResponseWriter, _ *http.Request) {
+	raw, err := assets.ReadFile("assets/passkeys.js")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(raw)
+}
+
 type pageData struct {
 	Title, Page, Error, Notice, Email, Name, AccountName, Token, ReturnTo, DevelopmentToken string
 	Choices                                                                                 []accountaccess.Choice
@@ -231,6 +249,8 @@ type pageData struct {
 	BillingPlans                                                                            []billingPlan
 	ActiveSessions                                                                          []sessions.ActiveSession
 	SecurityEvents                                                                          []securityEventView
+	Passkeys                                                                                []passkeys.CredentialSummary
+	PasskeysConfigured                                                                      bool
 	WorkMode                                                                                catalog.PackageMode
 	WorkAvailable, WorkReadOnly                                                             bool
 	Script                                                                                  string
@@ -262,7 +282,11 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/app", http.StatusSeeOther)
 		return
 	}
-	s.render(w, http.StatusOK, "login", pageData{Title: "Sign in", Notice: loginNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to"))})
+	data := pageData{Title: "Sign in", Notice: loginNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), PasskeysConfigured: s.passkeys != nil}
+	if data.PasskeysConfigured {
+		data.Script = "/assets/passkeys.js"
+	}
+	s.render(w, http.StatusOK, "login", data)
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !s.validOrigin(r, false) {
@@ -486,6 +510,14 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Security history could not be loaded.", http.StatusServiceUnavailable)
 		return
 	}
+	credentials := []passkeys.CredentialSummary{}
+	if s.passkeys != nil {
+		credentials, err = s.passkeys.Credentials(r.Context(), authenticated.Session.UserID)
+		if err != nil {
+			http.Error(w, "Passkeys could not be loaded.", http.StatusServiceUnavailable)
+			return
+		}
+	}
 	notice := ""
 	switch r.URL.Query().Get("status") {
 	case "confirmed":
@@ -495,7 +527,11 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	case "reauth_required":
 		notice = "Confirm your password before continuing with a sensitive action."
 	}
-	s.render(w, http.StatusOK, "security", pageData{Title: "Identity security", Notice: notice, ActiveSessions: active, SecurityEvents: securityEventViews(events)})
+	data := pageData{Title: "Identity security", Notice: notice, ActiveSessions: active, SecurityEvents: securityEventViews(events), Passkeys: credentials, PasskeysConfigured: s.passkeys != nil}
+	if data.PasskeysConfigured {
+		data.Script = "/assets/passkeys.js"
+	}
+	s.render(w, http.StatusOK, "security", data)
 }
 
 func securityEventViews(events []sessions.SecurityEvent) []securityEventView {
@@ -514,6 +550,17 @@ func securityEventViews(events []sessions.SecurityEvent) []securityEventView {
 		case sessions.EventCredentialRecovered:
 			view.Label = "Password recovered"
 			view.Detail = "Credential replaced and all sessions revoked"
+		case sessions.EventPasskeyAdded:
+			view.Label = "Passkey added"
+		case sessions.EventPasskeyRemoved:
+			view.Label = "Passkey removed"
+		case sessions.EventPasskeyAuthenticated:
+			view.Label = "Signed in with a passkey"
+		case sessions.EventPasskeyReauthenticated:
+			view.Label = "Identity confirmed with a passkey"
+		case sessions.EventPasskeyCloneWarning:
+			view.Label = "Passkey counter warning"
+			view.Detail = "Authentication was rejected because credential state was unsafe"
 		default:
 			view.Label = "Security setting changed"
 		}

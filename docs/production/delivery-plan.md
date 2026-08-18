@@ -197,11 +197,14 @@ Acceptance:
 - Ensure one User can authenticate once and belong to multiple Accounts.
 - Implement session rotation, revocation, reauthentication for sensitive changes, and durable login/recovery rate limits.
 - Keep provider-specific identity claims behind an adapter and map them to immutable local User IDs.
+- Keep passkey credentials and ceremonies User-scoped, encrypted at rest, replica-independent, short-lived, and single-use; require user verification and atomic counter updates.
+- Record authentication assurance separately from Membership and Account context so future MFA/step-up policy cannot accidentally grant Account authority.
 
 Acceptance:
 
 - Registration, verification, login, logout-all, expiry, recovery, and compromised-session tests pass.
 - Authentication never implies Account Membership or package authorization.
+- Passkey challenge, origin, RP-ID, signature, replay, expiry, counter-race, and cross-User isolation tests pass against application and PostgreSQL boundaries.
 
 ### P2.3 Accounts and Memberships
 

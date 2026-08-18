@@ -17,6 +17,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
+	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -41,6 +42,8 @@ type Config struct {
 	PublicOrigin              string
 	NotificationEncryptionKey []byte
 	NetworkActorKey           []byte
+	PasskeyEncryptionKey      []byte
+	PasskeyRPID               string
 	TrustedProxyCIDRs         []string
 	CatalogRefreshInterval    time.Duration
 }
@@ -130,6 +133,21 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	passkeyCipher, err := passkeys.NewCipher(config.PasskeyEncryptionKey, 1)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	passkeyRepository, err := postgres.NewPasskeyRepository(pool, passkeyCipher)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	passkeyService, err := passkeys.NewService(passkeyRepository, sessionService, networkGuard, ids.RandomGenerator{}, clock, passkeys.Config{RelyingPartyID: config.PasskeyRPID, Origins: []string{config.AppOrigin}})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	recoveryService, err := recovery.NewService(postgres.NewRecoveryRepository(pool), sender, authenticationRepository, networkGuard, passwords, ids.RandomGenerator{}, clock)
 	if err != nil {
 		pool.Close()
@@ -182,8 +200,9 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithAccountAccess(accountAccess),
 		httpapi.WithInvitations(invitationService, nil, false),
 		httpapi.WithRecovery(recoveryService, nil, false),
+		httpapi.WithPasskeys(passkeyService),
 	).Handler()
-	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithRecovery(recoveryService, nil))
+	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin, config.PublicOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService))
 	if err != nil {
 		pool.Close()
 		return nil, err

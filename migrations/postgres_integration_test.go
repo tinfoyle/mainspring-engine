@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,6 +32,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/entitlementrollout"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
+	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
@@ -594,6 +596,56 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil || len(otherSecurityHistory) != 0 {
 		t.Fatalf("cross-user security history = %+v, %v", otherSecurityHistory, err)
 	}
+	passkeyCipher, err := passkeys.NewCipher(bytes.Repeat([]byte{0x72}, 32), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passkeyRepository, err := postgresadapter.NewPasskeyRepository(pool, passkeyCipher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	passkeyUser, err := passkeyRepository.EnsureUser(ctx, provisioned.User.ID, bytes.Repeat([]byte{0x31}, 32), now)
+	if err != nil || passkeyUser.Identity.ID != provisioned.User.ID {
+		t.Fatalf("ensure persistent passkey user = %+v, %v", passkeyUser, err)
+	}
+	storedCredential := webauthn.Credential{ID: []byte("persistent-credential-id"), PublicKey: []byte("encrypted-credential-material"), Flags: webauthn.CredentialFlags{UserPresent: true, UserVerified: true}, Authenticator: webauthn.Authenticator{SignCount: 4}}
+	if err := passkeyRepository.CreateCredential(ctx, provisioned.User.ID, "PostgreSQL passkey", storedCredential, now, passkeys.MaximumPasskeys); err != nil {
+		t.Fatalf("create persistent passkey: %v", err)
+	}
+	var credentialPlaintext bool
+	if err := pool.QueryRow(ctx, `SELECT position($1::bytea in encrypted_credential)>0 FROM passkey_credentials WHERE credential_id=$2`, storedCredential.PublicKey, storedCredential.ID).Scan(&credentialPlaintext); err != nil || credentialPlaintext {
+		t.Fatalf("persistent passkey plaintext exposed=%v err=%v", credentialPlaintext, err)
+	}
+	credentials, err := passkeyRepository.ListCredentials(ctx, provisioned.User.ID)
+	if err != nil || len(credentials) != 1 || !bytes.Equal(credentials[0].Credential.PublicKey, storedCredential.PublicKey) {
+		t.Fatalf("persistent passkey round trip = %+v, %v", credentials, err)
+	}
+	if updated, err := passkeyRepository.UpdateCredential(ctx, provisioned.User.ID, storedCredential.ID, 3, storedCredential, passkeys.EventAuthenticated, now.Add(time.Second)); err != nil || updated {
+		t.Fatalf("stale passkey counter update = %v, %v", updated, err)
+	}
+	storedCredential.Authenticator.SignCount = 5
+	if updated, err := passkeyRepository.UpdateCredential(ctx, provisioned.User.ID, storedCredential.ID, 4, storedCredential, passkeys.EventAuthenticated, now.Add(time.Second)); err != nil || !updated {
+		t.Fatalf("current passkey counter update = %v, %v", updated, err)
+	}
+	ceremonyID := ids.RandomGenerator{}.New()
+	ceremony := passkeys.Ceremony{ID: ceremonyID, Kind: passkeys.CeremonyLogin, Data: webauthn.SessionData{Challenge: "server-only-persistent-challenge"}, CreatedAt: now, ExpiresAt: now.Add(passkeys.CeremonyTTL)}
+	if err := passkeyRepository.CreateCeremony(ctx, ceremony); err != nil {
+		t.Fatalf("create persistent passkey ceremony: %v", err)
+	}
+	var ceremonyPlaintext bool
+	if err := pool.QueryRow(ctx, `SELECT position(convert_to($1,'UTF8') in encrypted_session_data)>0 FROM passkey_ceremonies WHERE id=$2`, ceremony.Data.Challenge, ceremonyID).Scan(&ceremonyPlaintext); err != nil || ceremonyPlaintext {
+		t.Fatalf("persistent ceremony plaintext exposed=%v err=%v", ceremonyPlaintext, err)
+	}
+	consumed, err := passkeyRepository.ConsumeCeremony(ctx, ceremonyID, passkeys.CeremonyLogin, "", "", now.Add(time.Second))
+	if err != nil || consumed.Data.Challenge != ceremony.Data.Challenge {
+		t.Fatalf("consume persistent passkey ceremony = %+v, %v", consumed, err)
+	}
+	if _, err := passkeyRepository.ConsumeCeremony(ctx, ceremonyID, passkeys.CeremonyLogin, "", "", now.Add(time.Second)); !errors.Is(err, passkeys.ErrInvalidCeremony) {
+		t.Fatalf("persistent ceremony replay = %v", err)
+	}
+	if other, err := passkeyRepository.ListCredentials(ctx, ids.UserID("30000000-0000-4000-8000-000000000003")); err != nil || len(other) != 0 {
+		t.Fatalf("cross-user passkey list = %+v, %v", other, err)
+	}
 
 	commercial := postgresadapter.NewCommercialAccessRepository(pool)
 	price, err := commercial.ProviderPrice(ctx, draft.Version, "team-monthly-v1", "stripe", "test")
@@ -689,7 +741,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 22 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 23 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 

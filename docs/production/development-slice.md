@@ -15,6 +15,7 @@ This repository now contains the first executable production slice for Infinite 
 - PostgreSQL registration, published Catalog, session, access-state, and signed billing-inbox adapters.
 - Production account-api composition that requires PostgreSQL, real verification delivery, a published Catalog, and a valid Stripe webhook configuration.
 - Opaque rotating session tokens with absolute/idle expiry, user-owned active-session inventory, individual/device-wide revocation, a bounded user-visible security timeline, and password reauthentication for sensitive operations.
+- System-wide WebAuthn passkeys with discoverable user-verified login, recent-auth enrollment/removal, passkey reauthentication, encrypted durable credentials/ceremonies, single-use three-minute challenges, atomic authenticator-counter fencing, and identity security events shared across account-api replicas.
 - Enumeration-resistant credential-recovery response bodies with identifier throttling, hashed single-use 30-minute links, atomic Argon2id credential replacement, User security-version advancement, and all-session revocation.
 - Keyed, privacy-preserving network-actor derivation with explicit trusted-proxy CIDRs and PostgreSQL-backed login/recovery budgets shared across account-api replicas.
 - Argon2id local credentials created atomically with verified identity and Account provisioning, plus generic login failures and durable identifier-hash lockouts.
@@ -73,6 +74,14 @@ POST /api/v1/registrations/verify
 POST /api/v1/recovery-challenges
 POST /api/v1/recovery-challenges/complete
 POST /api/v1/sessions
+POST /api/v1/passkey-login/challenges
+POST /api/v1/passkey-login/challenges/{ceremonyID}/complete
+GET  /api/v1/passkeys
+POST /api/v1/passkey-registrations
+POST /api/v1/passkey-registrations/{ceremonyID}/complete
+DELETE /api/v1/passkeys/{credentialID}
+POST /api/v1/passkey-reauthentications
+POST /api/v1/passkey-reauthentications/{ceremonyID}/complete
 GET  /api/v1/sessions
 GET  /api/v1/security-events
 DELETE /api/v1/sessions
@@ -124,7 +133,7 @@ npm run dev
 
 ## Next production slices
 
-1. Add passkeys/MFA, multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
+1. Add session authentication-assurance state, mandatory MFA/recovery policy for owners and platform administrators, multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Add fair asynchronous admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests; bounded directory routing and internal workload identity are now executable.
@@ -133,9 +142,9 @@ npm run dev
 ## Evidence and current limits
 
 - `go test ./...`, `go vet ./...`, and `govulncheck ./...` pass with Go 1.26.6. Go 1.26.5 was rejected after the vulnerability scan found reachable standard-library advisories fixed by 1.26.6.
-- Rendered browser journey coverage proves signup → verification/password → login → Account shell, locked/read-only Work package behavior, entitled Work queue structure, and enabled create controls; API journey coverage proves invitation → existing identity → Membership → Account list and signed Work read/command contracts.
+- Rendered browser journey coverage proves signup → verification/password → password/passkey login surfaces → Account shell, identity security/passkey management, locked/read-only Work package behavior, entitled Work queue structure, and enabled create controls; API journey coverage proves invitation → existing identity → Membership → Account list and signed Work read/command contracts.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
-- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification delivery, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, forward and lower-version entitlement rollout, unchanged-access drift repair, independent-grant preservation, governed limit propagation, concurrent capacity admission without oversubscription, UUID retry/release idempotency, expiry reclamation, stale-entitlement rejection, registration, Checkout reservation concurrency, broker-backed Work creation/compensation through split global/cell roles, Work optimistic concurrency, direct Account-scoped Work queries, and transaction-local RLS isolation through non-owner roles. Kubernetes resources remain review-only and have not been applied to a cluster.
+- Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification and passkey persistence, single-use passkey ceremonies, credential-counter fencing and cross-User isolation, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, forward and lower-version entitlement rollout, unchanged-access drift repair, independent-grant preservation, governed limit propagation, concurrent capacity admission without oversubscription, UUID retry/release idempotency, expiry reclamation, stale-entitlement rejection, registration, Checkout reservation concurrency, broker-backed Work creation/compensation through split global/cell roles, Work optimistic concurrency, direct Account-scoped Work queries, and transaction-local RLS isolation through non-owner roles. Kubernetes resources remain review-only and have not been applied to a cluster.
 - Stripe request translation, event ingestion, deduplication, out-of-order convergence, and queue behavior are tested with local fixtures; no Stripe account mutation has been performed.
 - The private Account shell renders local billing status and paid offers and can enter Checkout/Portal in the persistent composition; no app-owned credentials or Account data were moved into the public Sites deployment.

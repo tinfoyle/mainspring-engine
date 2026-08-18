@@ -76,8 +76,9 @@ Before an environment overlay may use these resources it must add:
   certificates contain the configured SPIFFE URI and appropriate extended key
   usage. Files rotate in place and are reloaded on new connections. No private
   key or certificate payload is committed in this reference.
-- The account API secret supplies `SPYGLASS_NETWORK_ACTOR_KEY`; the environment
-  ConfigMap supplies only the exact ingress/load-balancer CIDRs through
+- The account API secret supplies independent `SPYGLASS_NETWORK_ACTOR_KEY` and
+  `SPYGLASS_PASSKEY_ENCRYPTION_KEY` values. The environment ConfigMap supplies
+  `SPYGLASS_PASSKEY_RP_ID` plus only the exact ingress/load-balancer CIDRs through
   `SPYGLASS_TRUSTED_PROXY_CIDRS`. Leaving the CIDR list empty safely ignores
   forwarding headers.
 

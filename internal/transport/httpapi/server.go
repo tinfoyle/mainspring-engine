@@ -13,6 +13,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -43,6 +44,7 @@ type Server struct {
 	recovery              *recovery.Service
 	recoveryTokens        RecoveryTokenSource
 	exposeRecoveryToken   bool
+	passkeys              *passkeys.Service
 }
 
 type SessionCookie struct {
@@ -116,6 +118,10 @@ func WithRecovery(service *recovery.Service, tokens RecoveryTokenSource, exposeD
 	}
 }
 
+func WithPasskeys(service *passkeys.Service) Option {
+	return func(server *Server) { server.passkeys = service }
+}
+
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
 	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
 	for _, option := range options {
@@ -134,6 +140,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/recovery-challenges", s.beginRecovery)
 	mux.HandleFunc("POST /api/v1/recovery-challenges/complete", s.completeRecovery)
 	mux.HandleFunc("POST /api/v1/sessions", s.login)
+	mux.HandleFunc("POST /api/v1/passkey-login/challenges", s.beginPasskeyLogin)
+	mux.HandleFunc("POST /api/v1/passkey-login/challenges/{ceremonyID}/complete", s.completePasskeyLogin)
+	mux.HandleFunc("GET /api/v1/passkeys", s.listPasskeys)
+	mux.HandleFunc("POST /api/v1/passkey-registrations", s.beginPasskeyRegistration)
+	mux.HandleFunc("POST /api/v1/passkey-registrations/{ceremonyID}/complete", s.completePasskeyRegistration)
+	mux.HandleFunc("DELETE /api/v1/passkeys/{credentialID}", s.deletePasskey)
+	mux.HandleFunc("POST /api/v1/passkey-reauthentications", s.beginPasskeyReauthentication)
+	mux.HandleFunc("POST /api/v1/passkey-reauthentications/{ceremonyID}/complete", s.completePasskeyReauthentication)
 	mux.HandleFunc("GET /api/v1/sessions", s.listSessions)
 	mux.HandleFunc("GET /api/v1/security-events", s.listSecurityEvents)
 	mux.HandleFunc("DELETE /api/v1/sessions", s.logoutAll)
@@ -467,6 +481,196 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"status": "authenticated", "user_id": issued.Session.UserID, "expires_at": issued.Session.ExpiresAt})
 }
 
+func (s *Server) beginPasskeyLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	if s.passkeys == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "passkeys_unconfigured", "passkey authentication is not configured")
+		return
+	}
+	actor, _ := networkactor.FromContext(r.Context())
+	result, err := s.passkeys.BeginLogin(r.Context(), actor)
+	if err != nil {
+		if errors.Is(err, passkeys.ErrInvalidCredential) {
+			writeProblem(w, http.StatusTooManyRequests, "login_rate_limited", "try again later")
+			return
+		}
+		writeProblem(w, http.StatusServiceUnavailable, "passkey_login_unavailable", "passkey authentication could not be started")
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) completePasskeyLogin(w http.ResponseWriter, r *http.Request) {
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	if s.passkeys == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "passkeys_unconfigured", "passkey authentication is not configured")
+		return
+	}
+	ceremonyID := r.PathValue("ceremonyID")
+	if ids.Validate(ceremonyID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_ceremony", "the passkey ceremony is invalid")
+		return
+	}
+	var input struct {
+		Credential  json.RawMessage `json:"credential"`
+		ClientLabel string          `json:"client_label"`
+	}
+	if err := decodePasskeyJSON(w, r, &input); err != nil || len(input.Credential) == 0 {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "a valid passkey credential is required")
+		return
+	}
+	if strings.TrimSpace(input.ClientLabel) == "" {
+		input.ClientLabel = r.UserAgent()
+	}
+	issued, err := s.passkeys.CompleteLogin(r.Context(), passkeys.LoginCommand{CeremonyID: ceremonyID, Response: input.Credential, ClientLabel: input.ClientLabel})
+	if err != nil {
+		if errors.Is(err, passkeys.ErrInvalidCeremony) || errors.Is(err, passkeys.ErrInvalidCredential) || errors.Is(err, passkeys.ErrCredentialStateConflict) {
+			writeProblem(w, http.StatusUnauthorized, "passkey_login_failed", "the passkey could not be verified")
+			return
+		}
+		writeProblem(w, http.StatusServiceUnavailable, "passkey_login_unavailable", "passkey authentication could not be completed")
+		return
+	}
+	s.setSessionCookie(w, issued.Token, issued.Session.ExpiresAt)
+	writeJSON(w, http.StatusCreated, map[string]any{"status": "authenticated", "user_id": issued.Session.UserID, "expires_at": issued.Session.ExpiresAt})
+}
+
+func (s *Server) listPasskeys(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.passkeyRequest(w, r, false)
+	if !ok {
+		return
+	}
+	credentials, err := s.passkeys.Credentials(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "passkeys_unavailable", "passkeys could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"passkeys": credentials})
+}
+
+func (s *Server) beginPasskeyRegistration(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.passkeyRequest(w, r, true)
+	if !ok {
+		return
+	}
+	result, err := s.passkeys.BeginRegistration(r.Context(), authenticated.Session)
+	if err != nil {
+		s.writePasskeyMutationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) completePasskeyRegistration(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.passkeyRequest(w, r, true)
+	if !ok {
+		return
+	}
+	ceremonyID := r.PathValue("ceremonyID")
+	if ids.Validate(ceremonyID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_ceremony", "the passkey ceremony is invalid")
+		return
+	}
+	var input struct {
+		Name       string          `json:"name"`
+		Credential json.RawMessage `json:"credential"`
+	}
+	if err := decodePasskeyJSON(w, r, &input); err != nil || len(input.Credential) == 0 {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "a name and valid passkey credential are required")
+		return
+	}
+	credential, err := s.passkeys.CompleteRegistration(r.Context(), authenticated.Session, ceremonyID, input.Name, input.Credential)
+	if err != nil {
+		s.writePasskeyMutationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, credential)
+}
+
+func (s *Server) beginPasskeyReauthentication(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.passkeyRequest(w, r, true)
+	if !ok {
+		return
+	}
+	result, err := s.passkeys.BeginReauthentication(r.Context(), authenticated.Session)
+	if err != nil {
+		s.writePasskeyMutationError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) completePasskeyReauthentication(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.passkeyRequest(w, r, true)
+	if !ok {
+		return
+	}
+	ceremonyID := r.PathValue("ceremonyID")
+	if ids.Validate(ceremonyID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_ceremony", "the passkey ceremony is invalid")
+		return
+	}
+	var input struct {
+		Credential json.RawMessage `json:"credential"`
+	}
+	if err := decodePasskeyJSON(w, r, &input); err != nil || len(input.Credential) == 0 {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "a valid passkey credential is required")
+		return
+	}
+	if err := s.passkeys.CompleteReauthentication(r.Context(), authenticated.Session, ceremonyID, input.Credential); err != nil {
+		s.writePasskeyMutationError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) deletePasskey(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.passkeyRequest(w, r, true)
+	if !ok {
+		return
+	}
+	if err := s.passkeys.Delete(r.Context(), authenticated.Session, r.PathValue("credentialID")); err != nil {
+		s.writePasskeyMutationError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) passkeyRequest(w http.ResponseWriter, r *http.Request, mutation bool) (sessions.Authenticated, bool) {
+	if mutation && !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return sessions.Authenticated{}, false
+	}
+	if s.passkeys == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "passkeys_unconfigured", "passkeys are not configured")
+		return sessions.Authenticated{}, false
+	}
+	return s.authenticateSession(w, r)
+}
+
+func (s *Server) writePasskeyMutationError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, passkeys.ErrReauthenticationNeeded):
+		writeProblem(w, http.StatusForbidden, "reauthentication_required", "confirm your identity before this sensitive operation")
+	case errors.Is(err, passkeys.ErrCredentialNotFound):
+		writeProblem(w, http.StatusNotFound, "passkey_not_found", "the passkey was not found")
+	case errors.Is(err, passkeys.ErrCredentialLimit):
+		writeProblem(w, http.StatusConflict, "passkey_limit_reached", "the identity has reached its passkey limit")
+	case errors.Is(err, passkeys.ErrCredentialStateConflict):
+		writeProblem(w, http.StatusConflict, "passkey_state_changed", "the passkey state changed; try again")
+	case errors.Is(err, passkeys.ErrInvalidCeremony), errors.Is(err, passkeys.ErrInvalidCredential):
+		writeProblem(w, http.StatusBadRequest, "passkey_invalid", "the passkey ceremony is invalid or expired")
+	default:
+		writeProblem(w, http.StatusServiceUnavailable, "passkey_operation_failed", "the passkey operation could not be completed")
+	}
+}
+
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	authenticated, ok := s.authenticateSession(w, r)
 	if !ok {
@@ -714,11 +918,19 @@ func (s *Server) writeRegistrationError(w http.ResponseWriter, err error) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
+	return decodeJSONLimit(w, r, target, 32<<10)
+}
+
+func decodePasskeyJSON(w http.ResponseWriter, r *http.Request, target any) error {
+	return decodeJSONLimit(w, r, target, 256<<10)
+}
+
+func decodeJSONLimit(w http.ResponseWriter, r *http.Request, target any, maximum int64) error {
 	mediaType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
 	if mediaType != "application/json" {
 		return errors.New("content type must be application/json")
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	r.Body = http.MaxBytesReader(w, r.Body, maximum)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

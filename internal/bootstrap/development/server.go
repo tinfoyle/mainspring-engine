@@ -12,6 +12,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -63,6 +64,10 @@ func Handler(logger *slog.Logger) http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	passkeyService, err := passkeys.NewService(memory.NewPasskeyRepository(store, sessionStore), sessionService, networkGuard, ids.RandomGenerator{}, clock, passkeys.Config{RelyingPartyID: "localhost", Origins: []string{"http://localhost:8080"}})
+	if err != nil {
+		panic(err)
+	}
 	authorizer, err := access.NewAuthorizer(store)
 	if err != nil {
 		panic(err)
@@ -76,7 +81,7 @@ func Handler(logger *slog.Logger) http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	options := []httpapi.Option{httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Name: "spyglass_development_session"}), httpapi.WithAccountAccess(accountAccess), httpapi.WithInvitations(invitationService, invitationSink, true), httpapi.WithRecovery(recoveryService, recoverySink, true)}
+	options := []httpapi.Option{httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Name: "spyglass_development_session"}), httpapi.WithAccountAccess(accountAccess), httpapi.WithInvitations(invitationService, invitationSink, true), httpapi.WithRecovery(recoveryService, recoverySink, true), httpapi.WithPasskeys(passkeyService)}
 	if secret := os.Getenv("SPYGLASS_STRIPE_WEBHOOK_SECRET"); secret != "" {
 		verifier, err := billing.NewSignatureVerifier(secret, 5*time.Minute, clock)
 		if err != nil {
@@ -89,7 +94,7 @@ func Handler(logger *slog.Logger) http.Handler {
 		options = append(options, httpapi.WithBillingWebhook(webhook))
 	}
 	apiHandler := httpapi.NewServer(service, store.Catalog, verification, true, logger, options...).Handler()
-	browser, err := browserapp.New(service, authenticationService, sessionService, accountAccess, invitationService, store.Catalog, verification, invitationSink, browserapp.Config{SessionCookieName: "spyglass_development_session", AccountCookieName: "spyglass_development_account", TrustedOrigins: []string{"http://localhost:8080", "http://127.0.0.1:8080", "https://infiniteocean.net"}, ExposeDevelopmentTokens: true}, logger, browserapp.WithRecovery(recoveryService, recoverySink))
+	browser, err := browserapp.New(service, authenticationService, sessionService, accountAccess, invitationService, store.Catalog, verification, invitationSink, browserapp.Config{SessionCookieName: "spyglass_development_session", AccountCookieName: "spyglass_development_account", TrustedOrigins: []string{"http://localhost:8080", "http://127.0.0.1:8080", "https://infiniteocean.net"}, ExposeDevelopmentTokens: true}, logger, browserapp.WithRecovery(recoveryService, recoverySink), browserapp.WithPasskeys(passkeyService))
 	if err != nil {
 		panic(err)
 	}

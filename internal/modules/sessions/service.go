@@ -51,6 +51,11 @@ const (
 	EventSessionRevoked         SecurityEventType = "session_revoked"
 	EventSessionsRevoked        SecurityEventType = "sessions_revoked"
 	EventCredentialRecovered    SecurityEventType = "credential_recovered"
+	EventPasskeyAdded           SecurityEventType = "passkey_added"
+	EventPasskeyRemoved         SecurityEventType = "passkey_removed"
+	EventPasskeyAuthenticated   SecurityEventType = "passkey_authenticated"
+	EventPasskeyReauthenticated SecurityEventType = "passkey_reauthenticated"
+	EventPasskeyCloneWarning    SecurityEventType = "passkey_clone_warning"
 )
 
 type SecurityEvent struct {

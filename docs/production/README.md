@@ -2,7 +2,7 @@
 
 - Status: Working production charter
 - Prototype baseline: `8024f8d`
-- Last updated: 2026-08-14
+- Last updated: 2026-08-18
 
 ## 1. Purpose
 
@@ -199,7 +199,7 @@ Add subpackages only when the module genuinely contains multiple cohesive concep
 | Platform control | Account directory, cell placement, capacity, migration state, and platform operations | Account business records or customer payment instruments |
 | Website | Infinite Ocean and Spyglass public content, package discovery, signup entry, legal/support surfaces | Authentication truth, entitlement evaluation, or billing mutation |
 
-The detailed designs are in [architecture.md](architecture.md), [accounts-packages-billing.md](accounts-packages-billing.md), [stripe-operations.md](stripe-operations.md), [work-module.md](work-module.md), [work-release-operations.md](work-release-operations.md), [route-rotation-operations.md](route-rotation-operations.md), [runtime-configuration.md](runtime-configuration.md), and [kubernetes-topology.md](kubernetes-topology.md).
+The detailed designs are in [architecture.md](architecture.md), [accounts-packages-billing.md](accounts-packages-billing.md), [identity-security.md](identity-security.md), [stripe-operations.md](stripe-operations.md), [work-module.md](work-module.md), [work-release-operations.md](work-release-operations.md), [route-rotation-operations.md](route-rotation-operations.md), [runtime-configuration.md](runtime-configuration.md), and [kubernetes-topology.md](kubernetes-topology.md).
 
 ## 7. Dependency rules
 
@@ -500,7 +500,7 @@ These are proposed engineering objectives to validate with observed prototype an
 
 The following decisions must be resolved by ADR before their dependent phase begins:
 
-1. Production authentication implementation, passkey/MFA policy, and enterprise federation requirements.
+1. Session authentication-assurance representation, mandatory MFA/recovery policy, and enterprise federation requirements beyond the executable password/passkey boundary.
 2. Initial Feature Package/Plan/Offer catalog, quotas, trials, grace periods, downgrade retention, and pricing governance.
 3. Initial cell capacity envelope, account-move mechanism, and enterprise dedicated-placement threshold.
 4. Object storage, malware scanning, and retention implementation for original uploads.

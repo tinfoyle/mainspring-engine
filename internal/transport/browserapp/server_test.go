@@ -27,7 +27,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	loginBody, _ := io.ReadAll(login.Body)
 	login.Body.Close()
-	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Find the signal")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) {
+	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Find the signal")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) || !bytes.Contains(loginBody, []byte("Sign in with a passkey")) || !bytes.Contains(loginBody, []byte("/assets/passkeys.js")) {
 		t.Fatalf("login page: %d %s", login.StatusCode, loginBody)
 	}
 	protected, err := client.Get(server.URL + "/app")
@@ -84,7 +84,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	securityBody, _ := io.ReadAll(security.Body)
 	security.Body.Close()
-	if security.StatusCode != http.StatusOK || !bytes.Contains(securityBody, []byte("Where you are signed in")) || !bytes.Contains(securityBody, []byte("Current session")) || !bytes.Contains(securityBody, []byte("Recent identity activity")) || !bytes.Contains(securityBody, []byte("Signed in")) {
+	if security.StatusCode != http.StatusOK || !bytes.Contains(securityBody, []byte("Where you are signed in")) || !bytes.Contains(securityBody, []byte("Current session")) || !bytes.Contains(securityBody, []byte("Recent identity activity")) || !bytes.Contains(securityBody, []byte("Signed in")) || !bytes.Contains(securityBody, []byte("Phishing-resistant sign-in")) || !bytes.Contains(securityBody, []byte("Add passkey")) {
 		t.Fatalf("security center: %d %s", security.StatusCode, securityBody)
 	}
 	confirmed := postForm(t, client, server.URL+"/app/security/reauthenticate", url.Values{"password": {"correct horse battery staple"}})

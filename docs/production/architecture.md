@@ -101,6 +101,8 @@ Interfaces belong to the code that consumes them. Do not introduce an applicatio
 ```text
 User
   is a system-wide login identity
+PasskeyCredential
+  authenticates one User and carries no Account authority
 Membership
   grants a User a role in one Spyglass Account
 Account

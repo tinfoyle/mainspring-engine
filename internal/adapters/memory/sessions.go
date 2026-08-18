@@ -144,4 +144,10 @@ func (s *SessionStore) appendEventLocked(userID ids.UserID, event sessions.Secur
 	s.events[userID] = append(s.events[userID], event)
 }
 
+func (s *SessionStore) RecordSecurityEvent(userID ids.UserID, event sessions.SecurityEvent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.appendEventLocked(userID, event)
+}
+
 var _ sessions.Repository = (*SessionStore)(nil)
