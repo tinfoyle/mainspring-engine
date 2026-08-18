@@ -89,7 +89,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-boardrooms", s.agentBoardroomCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/personas", s.agentPersonas)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/personas", s.agentPersonaPublish)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/conversations", s.agentConversations)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/runs", s.agentRunStart)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-conversations/{conversationID}", s.agentConversation)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-conversations/{conversationID}/messages", s.agentMessages)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-runs/{runID}", s.agentRun)
 	return s.recover(s.securityHeaders(mux))
 }

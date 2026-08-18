@@ -138,6 +138,24 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	}); err != nil || repeatedCreated || repeated.Plan.Digest != run.Plan.Digest {
 		t.Fatalf("idempotent run=%+v created=%v err=%v", repeated, repeatedCreated, err)
 	}
+	conversationPage, err := repository.ListConversations(ctx, accountID, boardroomID, agentapp.ConversationListQuery{Limit: 1})
+	if err != nil || len(conversationPage.Items) != 1 || conversationPage.Items[0].ID != conversationID || conversationPage.Items[0].MessageCount != 1 || conversationPage.NextCursor != nil {
+		t.Fatalf("conversation page=%+v err=%v", conversationPage, err)
+	}
+	conversation, err := repository.GetConversation(ctx, accountID, conversationID)
+	if err != nil || conversation.Subject != "Reef backlog" || conversation.CreatedBy != userID || conversation.MessageCount != 1 {
+		t.Fatalf("conversation=%+v err=%v", conversation, err)
+	}
+	messagePage, err := repository.ListMessages(ctx, accountID, conversationID, agentapp.MessageListQuery{Limit: 1})
+	if err != nil || len(messagePage.Items) != 1 || messagePage.Items[0].ID != messageID || messagePage.Items[0].Role != agentapp.MessageRoleUser || messagePage.Items[0].Body != prompt || messagePage.Items[0].CreatedBy != userID || messagePage.Items[0].Result != nil || messagePage.NextAfterSequence != nil {
+		t.Fatalf("message page=%+v err=%v", messagePage, err)
+	}
+	if _, err := repository.GetConversation(ctx, otherAccountID, conversationID); !errors.Is(err, agentapp.ErrNotFound) {
+		t.Fatalf("cross-Account conversation lookup=%v", err)
+	}
+	if _, err := repository.ListMessages(ctx, otherAccountID, conversationID, agentapp.MessageListQuery{Limit: 10}); !errors.Is(err, agentapp.ErrNotFound) {
+		t.Fatalf("cross-Account message lookup=%v", err)
+	}
 	if _, _, err := repository.StartRun(ctx, agentapp.StartRunDraft{
 		Actor: access.Actor{UserID: userID}, AccountID: accountID, BoardroomID: boardroomID,
 		RunID: ids.RunID("65000000-0000-4000-8000-000000000002"), ConversationID: ids.ConversationID("75000000-0000-4000-8000-000000000002"), CreateConversation: true,

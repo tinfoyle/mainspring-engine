@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,11 +49,18 @@ func (a *serviceAuthorizer) Authorize(_ context.Context, actor access.Actor, acc
 }
 
 type serviceRepository struct {
-	boardroom agentdomain.Boardroom
-	version   agentdomain.PersonaVersion
-	runDraft  StartRunDraft
-	run       Run
-	err       error
+	boardroom             agentdomain.Boardroom
+	version               agentdomain.PersonaVersion
+	runDraft              StartRunDraft
+	run                   Run
+	conversation          Conversation
+	conversationPage      ConversationPage
+	conversationQuery     ConversationListQuery
+	conversationBoardroom ids.BoardroomID
+	messagePage           MessagePage
+	messageQuery          MessageListQuery
+	messageConversation   ids.ConversationID
+	err                   error
 }
 
 func (r *serviceRepository) CreateBoardroom(_ context.Context, item agentdomain.Boardroom) (agentdomain.Boardroom, bool, error) {
@@ -71,6 +79,18 @@ func (r *serviceRepository) PublishPersona(_ context.Context, _ ids.BoardroomID,
 }
 func (*serviceRepository) ListPersonas(context.Context, ids.AccountID, ids.BoardroomID, int) ([]PersonaSummary, error) {
 	return nil, nil
+}
+func (r *serviceRepository) ListConversations(_ context.Context, _ ids.AccountID, boardroomID ids.BoardroomID, query ConversationListQuery) (ConversationPage, error) {
+	r.conversationBoardroom, r.conversationQuery = boardroomID, query
+	return r.conversationPage, r.err
+}
+func (r *serviceRepository) GetConversation(_ context.Context, _ ids.AccountID, conversationID ids.ConversationID) (Conversation, error) {
+	r.messageConversation = conversationID
+	return r.conversation, r.err
+}
+func (r *serviceRepository) ListMessages(_ context.Context, _ ids.AccountID, conversationID ids.ConversationID, query MessageListQuery) (MessagePage, error) {
+	r.messageConversation, r.messageQuery = conversationID, query
+	return r.messagePage, r.err
 }
 func (r *serviceRepository) StartRun(_ context.Context, draft StartRunDraft) (Run, bool, error) {
 	r.runDraft = draft
@@ -140,5 +160,62 @@ func TestStartRunRejectsMissingCommercialLimit(t *testing.T) {
 	_, _, err := service.StartRun(context.Background(), StartRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, BoardroomID: testBoardroom, Subject: "Weekly operating review", Prompt: "What should we prioritize?", PersonaIDs: []ids.PersonaID{testPersona}})
 	if !access.IsDenied(err, access.DenialLimitNotDefined) {
 		t.Fatalf("missing limit=%v", err)
+	}
+}
+
+func TestStartRunOwnsConversationSubjectInvariant(t *testing.T) {
+	service, _, _, _ := newAgentService(t)
+	base := StartRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, BoardroomID: testBoardroom, Prompt: "Review priorities", PersonaIDs: []ids.PersonaID{testPersona}}
+	for _, command := range []StartRunCommand{
+		base,
+		func() StartRunCommand { value := base; value.Subject = "x"; return value }(),
+		func() StartRunCommand { value := base; value.Subject = strings.Repeat("界", 241); return value }(),
+		func() StartRunCommand {
+			value := base
+			value.Subject = "Ignored"
+			value.ConversationID = "70000000-0000-4000-8000-000000000007"
+			return value
+		}(),
+	} {
+		if _, _, err := service.StartRun(context.Background(), command); !errors.Is(err, ErrInvalidCommand) {
+			t.Fatalf("invalid subject command=%+v err=%v", command, err)
+		}
+	}
+	valid := base
+	valid.Subject = strings.Repeat("界", 240)
+	if _, _, err := service.StartRun(context.Background(), valid); err != nil {
+		t.Fatalf("valid Unicode subject=%v", err)
+	}
+}
+
+func TestConversationAndMessageQueriesAreBoundedAndAuthorized(t *testing.T) {
+	service, authorizer, repository, now := newAgentService(t)
+	conversationID := ids.ConversationID("70000000-0000-4000-8000-000000000007")
+	messageID := ids.MessageID("80000000-0000-4000-8000-000000000008")
+	repository.conversation = Conversation{ID: conversationID, AccountID: testAccount, BoardroomID: testBoardroom, Subject: "Weekly review", State: "open", MessageCount: 1, CreatedBy: testUser, CreatedAt: now, UpdatedAt: now}
+	repository.conversationPage = ConversationPage{Items: []Conversation{repository.conversation}}
+	repository.messagePage = MessagePage{Items: []Message{{ID: messageID, ConversationID: conversationID, Sequence: 1, Role: MessageRoleUser, Body: "What changed?", CreatedBy: testUser, CreatedAt: now}}}
+
+	page, err := service.ListConversations(context.Background(), access.Actor{UserID: testUser}, testAccount, testBoardroom, ConversationListQuery{Limit: 50})
+	if err != nil || len(page.Items) != 1 || repository.conversationBoardroom != testBoardroom || repository.conversationQuery.Limit != 50 || authorizer.last.Package != PackageCode || authorizer.last.Mutation {
+		t.Fatalf("conversation page=%+v query=%+v requirement=%+v err=%v", page, repository.conversationQuery, authorizer.last, err)
+	}
+	loaded, err := service.GetConversation(context.Background(), access.Actor{UserID: testUser}, testAccount, conversationID)
+	if err != nil || loaded.ID != conversationID || repository.messageConversation != conversationID {
+		t.Fatalf("conversation=%+v err=%v", loaded, err)
+	}
+	messages, err := service.ListMessages(context.Background(), access.Actor{UserID: testUser}, testAccount, conversationID, MessageListQuery{Limit: 25, AfterSequence: 4})
+	if err != nil || len(messages.Items) != 1 || repository.messageConversation != conversationID || repository.messageQuery.AfterSequence != 4 {
+		t.Fatalf("messages=%+v query=%+v err=%v", messages, repository.messageQuery, err)
+	}
+
+	invalidCursorTime := now
+	for _, query := range []ConversationListQuery{{Limit: 0}, {Limit: 50, AfterUpdatedAt: &invalidCursorTime}, {Limit: 50, AfterUpdatedAt: &invalidCursorTime, AfterID: "bad"}} {
+		if _, err := service.ListConversations(context.Background(), access.Actor{UserID: testUser}, testAccount, testBoardroom, query); !errors.Is(err, ErrInvalidCommand) {
+			t.Fatalf("invalid conversation query %+v = %v", query, err)
+		}
+	}
+	if _, err := service.ListMessages(context.Background(), access.Actor{UserID: testUser}, testAccount, "bad", MessageListQuery{Limit: 25}); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("invalid message query = %v", err)
 	}
 }

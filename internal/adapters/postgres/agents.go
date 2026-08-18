@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -202,6 +203,104 @@ func (r *AgentRepository) ListPersonas(ctx context.Context, accountID ids.Accoun
 	return result, classifyAgentError(err)
 }
 
+func (r *AgentRepository) ListConversations(ctx context.Context, accountID ids.AccountID, boardroomID ids.BoardroomID, query agentapp.ConversationListQuery) (agentapp.ConversationPage, error) {
+	result := agentapp.ConversationPage{Items: make([]agentapp.Conversation, 0, query.Limit)}
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		var cursorID any
+		if query.AfterUpdatedAt != nil {
+			cursorID = query.AfterID
+		}
+		rows, err := tx.Query(ctx, `SELECT account_id,id,boardroom_id,subject,state,next_message_sequence-1,created_by,created_at,updated_at
+			FROM spyglass.agent_conversations
+			WHERE account_id=$1 AND boardroom_id=$2
+			  AND ($3::timestamptz IS NULL OR (updated_at,id)<($3,$4::uuid))
+			ORDER BY updated_at DESC,id DESC LIMIT $5`, accountID, boardroomID, query.AfterUpdatedAt, cursorID, query.Limit+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			item, err := scanConversation(rows)
+			if err != nil {
+				return err
+			}
+			result.Items = append(result.Items, item)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(result.Items) > query.Limit {
+			last := result.Items[query.Limit-1]
+			result.Items = result.Items[:query.Limit]
+			result.NextCursor = &agentapp.ConversationCursor{UpdatedAt: last.UpdatedAt, ID: last.ID}
+		}
+		return nil
+	})
+	return result, classifyAgentError(err)
+}
+
+func (r *AgentRepository) GetConversation(ctx context.Context, accountID ids.AccountID, conversationID ids.ConversationID) (agentapp.Conversation, error) {
+	var result agentapp.Conversation
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		item, err := scanConversation(tx.QueryRow(ctx, `SELECT account_id,id,boardroom_id,subject,state,next_message_sequence-1,created_by,created_at,updated_at
+			FROM spyglass.agent_conversations WHERE account_id=$1 AND id=$2`, accountID, conversationID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return agentapp.ErrNotFound
+		}
+		result = item
+		return err
+	})
+	return result, classifyAgentError(err)
+}
+
+func (r *AgentRepository) ListMessages(ctx context.Context, accountID ids.AccountID, conversationID ids.ConversationID, query agentapp.MessageListQuery) (agentapp.MessagePage, error) {
+	result := agentapp.MessagePage{Items: make([]agentapp.Message, 0, query.Limit)}
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT true FROM spyglass.agent_conversations WHERE account_id=$1 AND id=$2`, accountID, conversationID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+			return agentapp.ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT id,conversation_id,sequence,role,body,created_by,run_id,invocation_id,persona_version_id,structured_result,created_at
+			FROM (
+				SELECT u.id,u.conversation_id,u.sequence,'user'::text AS role,u.body,u.created_by::text,
+				       NULL::text AS run_id,NULL::text AS invocation_id,NULL::text AS persona_version_id,NULL::jsonb AS structured_result,u.created_at
+				FROM spyglass.agent_user_messages u WHERE u.account_id=$1 AND u.conversation_id=$2 AND u.sequence>$3
+				UNION ALL
+				SELECT m.id,m.conversation_id,m.sequence,m.role,m.body,NULL::text,m.run_id::text,m.invocation_id::text,
+				       m.persona_version_id::text,m.structured_result,m.created_at
+				FROM spyglass.agent_messages m WHERE m.account_id=$1 AND m.conversation_id=$2 AND m.sequence>$3
+			) entries ORDER BY sequence LIMIT $4`, accountID, conversationID, query.AfterSequence, query.Limit+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		var previous uint64
+		for rows.Next() {
+			item, err := scanAgentMessage(rows)
+			if err != nil {
+				return err
+			}
+			if previous != 0 && item.Sequence <= previous {
+				return agentapp.ErrCorrupt
+			}
+			previous = item.Sequence
+			result.Items = append(result.Items, item)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(result.Items) > query.Limit {
+			next := result.Items[query.Limit-1].Sequence
+			result.Items = result.Items[:query.Limit]
+			result.NextAfterSequence = &next
+		}
+		return nil
+	})
+	return result, classifyAgentError(err)
+}
+
 func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunDraft) (agentapp.Run, bool, error) {
 	var result agentapp.Run
 	created := false
@@ -382,6 +481,58 @@ func scanBoardroom(row interface{ Scan(...any) error }) (agentdomain.Boardroom, 
 		return agentdomain.Boardroom{}, agentapp.ErrCorrupt
 	}
 	return validated, nil
+}
+
+func scanConversation(row interface{ Scan(...any) error }) (agentapp.Conversation, error) {
+	var item agentapp.Conversation
+	var count int64
+	if err := row.Scan(&item.AccountID, &item.ID, &item.BoardroomID, &item.Subject, &item.State, &count, &item.CreatedBy, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		return agentapp.Conversation{}, err
+	}
+	if ids.Validate(string(item.AccountID)) != nil || ids.Validate(string(item.ID)) != nil || ids.Validate(string(item.BoardroomID)) != nil || ids.Validate(string(item.CreatedBy)) != nil ||
+		utf8.RuneCountInString(item.Subject) < 2 || utf8.RuneCountInString(item.Subject) > 240 || (item.State != "open" && item.State != "closed") || count < 0 || item.CreatedAt.IsZero() || item.UpdatedAt.Before(item.CreatedAt) {
+		return agentapp.Conversation{}, agentapp.ErrCorrupt
+	}
+	item.MessageCount = uint64(count)
+	return item, nil
+}
+
+func scanAgentMessage(row interface{ Scan(...any) error }) (agentapp.Message, error) {
+	var item agentapp.Message
+	var sequence int64
+	var createdBy, runID, invocationID, personaVersionID *string
+	var rawResult []byte
+	if err := row.Scan(&item.ID, &item.ConversationID, &sequence, &item.Role, &item.Body, &createdBy, &runID, &invocationID, &personaVersionID, &rawResult, &item.CreatedAt); err != nil {
+		return agentapp.Message{}, err
+	}
+	if ids.Validate(string(item.ID)) != nil || ids.Validate(string(item.ConversationID)) != nil || sequence < 1 || utf8.RuneCountInString(item.Body) < 1 || utf8.RuneCountInString(item.Body) > 65536 || item.CreatedAt.IsZero() {
+		return agentapp.Message{}, agentapp.ErrCorrupt
+	}
+	item.Sequence = uint64(sequence)
+	switch item.Role {
+	case agentapp.MessageRoleUser:
+		if createdBy == nil || ids.Validate(*createdBy) != nil || runID != nil || invocationID != nil || personaVersionID != nil || rawResult != nil {
+			return agentapp.Message{}, agentapp.ErrCorrupt
+		}
+		item.CreatedBy = ids.UserID(*createdBy)
+	case agentapp.MessageRolePersona:
+		if createdBy != nil || runID == nil || invocationID == nil || personaVersionID == nil || ids.Validate(*runID) != nil || ids.Validate(*invocationID) != nil || ids.Validate(*personaVersionID) != nil || len(rawResult) == 0 {
+			return agentapp.Message{}, agentapp.ErrCorrupt
+		}
+		var decoded agentdomain.ResultEnvelope
+		if json.Unmarshal(rawResult, &decoded) != nil {
+			return agentapp.Message{}, agentapp.ErrCorrupt
+		}
+		validated, err := agentdomain.ValidateResult(decoded)
+		if err != nil || item.Body != validated.Contribution {
+			return agentapp.Message{}, agentapp.ErrCorrupt
+		}
+		item.RunID, item.InvocationID, item.PersonaVersionID = ids.RunID(*runID), ids.AgentInvocationID(*invocationID), ids.PersonaVersionID(*personaVersionID)
+		item.Result = &validated
+	default:
+		return agentapp.Message{}, agentapp.ErrCorrupt
+	}
+	return item, nil
 }
 
 func loadPersonaVersion(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, versionID ids.PersonaVersionID) (agentdomain.PersonaVersion, bool, error) {

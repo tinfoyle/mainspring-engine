@@ -99,6 +99,57 @@ export interface AgentBoardrooms {
   readonly "items": ReadonlyArray<AgentBoardroom>;
 }
 
+export interface AgentCitation {
+  readonly "chunk_id": string;
+  readonly "document_id": string;
+  readonly "id": string;
+  readonly "label": string;
+}
+
+export interface AgentConversation {
+  readonly "boardroom_id": string;
+  readonly "created_at": string;
+  readonly "created_by": string;
+  readonly "id": string;
+  readonly "message_count": number;
+  readonly "state": AgentConversationState;
+  readonly "subject": string;
+  readonly "updated_at": string;
+}
+
+export type AgentConversationState = "open" | "closed";
+
+export interface AgentConversations {
+  readonly "items": ReadonlyArray<AgentConversation>;
+  readonly "next_cursor"?: string;
+}
+
+export interface AgentDelegation {
+  readonly "persona_id": string;
+  readonly "request": string;
+}
+
+export interface AgentMessage {
+  readonly "body": string;
+  readonly "conversation_id": string;
+  readonly "created_at": string;
+  readonly "created_by"?: string;
+  readonly "id": string;
+  readonly "invocation_id"?: string;
+  readonly "persona_version_id"?: string;
+  readonly "result"?: AgentResult;
+  readonly "role": AgentMessageRole;
+  readonly "run_id"?: string;
+  readonly "sequence": number;
+}
+
+export type AgentMessageRole = "user" | "persona";
+
+export interface AgentMessages {
+  readonly "items": ReadonlyArray<AgentMessage>;
+  readonly "next_cursor"?: string;
+}
+
 export interface AgentPersona {
   readonly "boardroom_id": string;
   readonly "content_digest": string;
@@ -146,6 +197,24 @@ export type AgentPersonaState = "active" | "inactive" | "archived";
 
 export interface AgentPersonas {
   readonly "items": ReadonlyArray<AgentPersona>;
+}
+
+export interface AgentProposedAction {
+  readonly "evidence": ReadonlyArray<string>;
+  readonly "kind": string;
+  readonly "payload": Readonly<Record<string, unknown>>;
+  readonly "reason": string;
+}
+
+export interface AgentResult {
+  readonly "citations": ReadonlyArray<AgentCitation>;
+  readonly "confidence": "low" | "medium" | "high";
+  readonly "contribution": string;
+  readonly "delegations": ReadonlyArray<AgentDelegation>;
+  readonly "findings": ReadonlyArray<string>;
+  readonly "proposed_actions": ReadonlyArray<AgentProposedAction>;
+  readonly "questions": ReadonlyArray<string>;
+  readonly "recommendations": ReadonlyArray<string>;
 }
 
 export interface AgentRun {
@@ -716,11 +785,21 @@ export interface ApiSchemas {
   readonly AgentBoardroom: AgentBoardroom;
   readonly AgentBoardroomState: AgentBoardroomState;
   readonly AgentBoardrooms: AgentBoardrooms;
+  readonly AgentCitation: AgentCitation;
+  readonly AgentConversation: AgentConversation;
+  readonly AgentConversationState: AgentConversationState;
+  readonly AgentConversations: AgentConversations;
+  readonly AgentDelegation: AgentDelegation;
+  readonly AgentMessage: AgentMessage;
+  readonly AgentMessageRole: AgentMessageRole;
+  readonly AgentMessages: AgentMessages;
   readonly AgentPersona: AgentPersona;
   readonly AgentPersonaPolicy: AgentPersonaPolicy;
   readonly AgentPersonaPolicyInput: AgentPersonaPolicyInput;
   readonly AgentPersonaState: AgentPersonaState;
   readonly AgentPersonas: AgentPersonas;
+  readonly AgentProposedAction: AgentProposedAction;
+  readonly AgentResult: AgentResult;
   readonly AgentRun: AgentRun;
   readonly AgentRunState: AgentRunState;
   readonly AgentRunTurn: AgentRunTurn;

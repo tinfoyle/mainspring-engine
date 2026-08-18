@@ -2,6 +2,7 @@ package cellapi
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,9 @@ type AgentService interface {
 	StartRun(context.Context, agentapp.StartRunCommand) (agentapp.Run, bool, error)
 	ListBoardrooms(context.Context, access.Actor, ids.AccountID, int) ([]agentdomain.Boardroom, error)
 	ListPersonas(context.Context, access.Actor, ids.AccountID, ids.BoardroomID, int) ([]agentapp.PersonaSummary, error)
+	ListConversations(context.Context, access.Actor, ids.AccountID, ids.BoardroomID, agentapp.ConversationListQuery) (agentapp.ConversationPage, error)
+	GetConversation(context.Context, access.Actor, ids.AccountID, ids.ConversationID) (agentapp.Conversation, error)
+	ListMessages(context.Context, access.Actor, ids.AccountID, ids.ConversationID, agentapp.MessageListQuery) (agentapp.MessagePage, error)
 	GetRun(context.Context, access.Actor, ids.AccountID, ids.RunID) (agentapp.Run, error)
 }
 
@@ -236,6 +240,204 @@ func (s *Server) agentRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, agentRunView(run))
 }
 
+func (s *Server) agentConversations(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, _, ok := s.agentRequest(w, r, false)
+	if !ok {
+		return
+	}
+	boardroomID := ids.BoardroomID(r.PathValue("boardroomID"))
+	query, err := parseAgentConversationQuery(r)
+	if ids.Validate(string(boardroomID)) != nil || err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_query", "Agent Conversation query is invalid")
+		return
+	}
+	page, err := s.agents.ListConversations(routecontext.WithClaims(r.Context(), claims), actor, accountID, boardroomID, query)
+	if err != nil {
+		s.writeAgentError(w, "list_conversations", err)
+		return
+	}
+	items := make([]agentConversationResponse, len(page.Items))
+	for index, item := range page.Items {
+		items[index] = agentConversationView(item)
+	}
+	response := agentConversationPageResponse{Items: items}
+	if page.NextCursor != nil {
+		response.NextCursor, err = encodeAgentConversationCursor(*page.NextCursor)
+		if err != nil {
+			s.logger.Error("encode Agent Conversation cursor", "error", err)
+			writeProblem(w, http.StatusInternalServerError, "internal_error", "the Agent Conversation page could not be encoded")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) agentConversation(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, _, ok := s.agentRequest(w, r, false)
+	if !ok {
+		return
+	}
+	conversationID := ids.ConversationID(r.PathValue("conversationID"))
+	if ids.Validate(string(conversationID)) != nil || len(r.URL.Query()) != 0 {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_query", "Agent Conversation query is invalid")
+		return
+	}
+	item, err := s.agents.GetConversation(routecontext.WithClaims(r.Context(), claims), actor, accountID, conversationID)
+	if err != nil {
+		s.writeAgentError(w, "get_conversation", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agentConversationView(item))
+}
+
+func (s *Server) agentMessages(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, _, ok := s.agentRequest(w, r, false)
+	if !ok {
+		return
+	}
+	conversationID := ids.ConversationID(r.PathValue("conversationID"))
+	query, err := parseAgentMessageQuery(r)
+	if ids.Validate(string(conversationID)) != nil || err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_query", "Agent Message query is invalid")
+		return
+	}
+	page, err := s.agents.ListMessages(routecontext.WithClaims(r.Context(), claims), actor, accountID, conversationID, query)
+	if err != nil {
+		s.writeAgentError(w, "list_messages", err)
+		return
+	}
+	items := make([]agentMessageResponse, len(page.Items))
+	for index, item := range page.Items {
+		items[index] = agentMessageView(item)
+	}
+	response := agentMessagePageResponse{Items: items}
+	if page.NextAfterSequence != nil {
+		response.NextCursor, err = encodeAgentMessageCursor(*page.NextAfterSequence)
+		if err != nil {
+			s.logger.Error("encode Agent Message cursor", "error", err)
+			writeProblem(w, http.StatusInternalServerError, "internal_error", "the Agent Message page could not be encoded")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+type agentConversationCursorEnvelope struct {
+	Version   int                `json:"v"`
+	UpdatedAt time.Time          `json:"updated_at"`
+	ID        ids.ConversationID `json:"id"`
+}
+
+type agentMessageCursorEnvelope struct {
+	Version       int    `json:"v"`
+	AfterSequence uint64 `json:"after_sequence"`
+}
+
+func parseAgentConversationQuery(r *http.Request) (agentapp.ConversationListQuery, error) {
+	values := r.URL.Query()
+	for key := range values {
+		if key != "cursor" && key != "limit" {
+			return agentapp.ConversationListQuery{}, agentapp.ErrInvalidCommand
+		}
+	}
+	if len(values["cursor"]) > 1 || len(values["limit"]) > 1 {
+		return agentapp.ConversationListQuery{}, agentapp.ErrInvalidCommand
+	}
+	limit, err := parseLimit(r, 50)
+	if err != nil {
+		return agentapp.ConversationListQuery{}, err
+	}
+	query := agentapp.ConversationListQuery{Limit: limit}
+	if raw := values.Get("cursor"); raw != "" {
+		cursor, err := decodeAgentConversationCursor(raw)
+		if err != nil {
+			return agentapp.ConversationListQuery{}, err
+		}
+		query.AfterUpdatedAt, query.AfterID = &cursor.UpdatedAt, cursor.ID
+	}
+	return query, nil
+}
+
+func parseAgentMessageQuery(r *http.Request) (agentapp.MessageListQuery, error) {
+	values := r.URL.Query()
+	for key := range values {
+		if key != "cursor" && key != "limit" {
+			return agentapp.MessageListQuery{}, agentapp.ErrInvalidCommand
+		}
+	}
+	if len(values["cursor"]) > 1 || len(values["limit"]) > 1 {
+		return agentapp.MessageListQuery{}, agentapp.ErrInvalidCommand
+	}
+	limit, err := parseLimit(r, 50)
+	if err != nil {
+		return agentapp.MessageListQuery{}, err
+	}
+	query := agentapp.MessageListQuery{Limit: limit}
+	if raw := values.Get("cursor"); raw != "" {
+		query.AfterSequence, err = decodeAgentMessageCursor(raw)
+		if err != nil {
+			return agentapp.MessageListQuery{}, err
+		}
+	}
+	return query, nil
+}
+
+func encodeAgentConversationCursor(cursor agentapp.ConversationCursor) (string, error) {
+	if cursor.UpdatedAt.IsZero() || ids.Validate(string(cursor.ID)) != nil {
+		return "", agentapp.ErrInvalidCommand
+	}
+	raw, err := json.Marshal(agentConversationCursorEnvelope{Version: 1, UpdatedAt: cursor.UpdatedAt.UTC(), ID: cursor.ID})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func decodeAgentConversationCursor(raw string) (agentapp.ConversationCursor, error) {
+	if len(raw) > 1024 {
+		return agentapp.ConversationCursor{}, agentapp.ErrInvalidCommand
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return agentapp.ConversationCursor{}, agentapp.ErrInvalidCommand
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(decoded)))
+	decoder.DisallowUnknownFields()
+	var value agentConversationCursorEnvelope
+	if err := decoder.Decode(&value); err != nil || value.Version != 1 || value.UpdatedAt.IsZero() || ids.Validate(string(value.ID)) != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) {
+		return agentapp.ConversationCursor{}, agentapp.ErrInvalidCommand
+	}
+	return agentapp.ConversationCursor{UpdatedAt: value.UpdatedAt.UTC(), ID: value.ID}, nil
+}
+
+func encodeAgentMessageCursor(after uint64) (string, error) {
+	if after == 0 {
+		return "", agentapp.ErrInvalidCommand
+	}
+	raw, err := json.Marshal(agentMessageCursorEnvelope{Version: 1, AfterSequence: after})
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func decodeAgentMessageCursor(raw string) (uint64, error) {
+	if len(raw) > 256 {
+		return 0, agentapp.ErrInvalidCommand
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return 0, agentapp.ErrInvalidCommand
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(decoded)))
+	decoder.DisallowUnknownFields()
+	var value agentMessageCursorEnvelope
+	if err := decoder.Decode(&value); err != nil || value.Version != 1 || value.AfterSequence == 0 || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) {
+		return 0, agentapp.ErrInvalidCommand
+	}
+	return value.AfterSequence, nil
+}
+
 func (s *Server) agentRequest(w http.ResponseWriter, r *http.Request, command bool) (routecontext.Claims, access.Actor, ids.AccountID, string, bool) {
 	claims, ok := s.accept(w, r)
 	if !ok {
@@ -367,4 +569,49 @@ func agentRunView(run agentapp.Run) agentRunResponse {
 		State: run.State, Subject: run.Subject, Prompt: run.Prompt, UserMessageID: run.UserMessageID,
 		EntitlementVersion: run.Plan.EntitlementVersion, PolicyVersion: run.Plan.PolicyVersion,
 		PlanDigest: hex.EncodeToString(run.Plan.Digest[:]), Turns: turns, InvocationIDs: run.InvocationIDs, CreatedAt: run.Plan.CreatedAt}
+}
+
+type agentConversationResponse struct {
+	ID           ids.ConversationID `json:"id"`
+	BoardroomID  ids.BoardroomID    `json:"boardroom_id"`
+	Subject      string             `json:"subject"`
+	State        string             `json:"state"`
+	MessageCount uint64             `json:"message_count"`
+	CreatedBy    ids.UserID         `json:"created_by"`
+	CreatedAt    time.Time          `json:"created_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
+}
+
+type agentConversationPageResponse struct {
+	Items      []agentConversationResponse `json:"items"`
+	NextCursor string                      `json:"next_cursor,omitempty"`
+}
+
+func agentConversationView(item agentapp.Conversation) agentConversationResponse {
+	return agentConversationResponse{ID: item.ID, BoardroomID: item.BoardroomID, Subject: item.Subject, State: item.State,
+		MessageCount: item.MessageCount, CreatedBy: item.CreatedBy, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
+}
+
+type agentMessageResponse struct {
+	ID               ids.MessageID               `json:"id"`
+	ConversationID   ids.ConversationID          `json:"conversation_id"`
+	Sequence         uint64                      `json:"sequence"`
+	Role             agentapp.MessageRole        `json:"role"`
+	Body             string                      `json:"body"`
+	CreatedBy        ids.UserID                  `json:"created_by,omitempty"`
+	RunID            ids.RunID                   `json:"run_id,omitempty"`
+	InvocationID     ids.AgentInvocationID       `json:"invocation_id,omitempty"`
+	PersonaVersionID ids.PersonaVersionID        `json:"persona_version_id,omitempty"`
+	Result           *agentdomain.ResultEnvelope `json:"result,omitempty"`
+	CreatedAt        time.Time                   `json:"created_at"`
+}
+
+type agentMessagePageResponse struct {
+	Items      []agentMessageResponse `json:"items"`
+	NextCursor string                 `json:"next_cursor,omitempty"`
+}
+
+func agentMessageView(item agentapp.Message) agentMessageResponse {
+	return agentMessageResponse{ID: item.ID, ConversationID: item.ConversationID, Sequence: item.Sequence, Role: item.Role, Body: item.Body,
+		CreatedBy: item.CreatedBy, RunID: item.RunID, InvocationID: item.InvocationID, PersonaVersionID: item.PersonaVersionID, Result: item.Result, CreatedAt: item.CreatedAt}
 }

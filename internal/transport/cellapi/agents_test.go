@@ -2,10 +2,12 @@ package cellapi
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	agentdomain "github.com/tinfoyle/spyglass-engine/internal/modules/agents"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
+	"github.com/tinfoyle/spyglass-engine/internal/testsupport/openapifixture"
 )
 
 const (
@@ -29,10 +32,12 @@ const (
 )
 
 type agentTransportService struct {
-	createCommand  agentapp.CreateBoardroomCommand
-	publishCommand agentapp.PublishPersonaCommand
-	runCommand     agentapp.StartRunCommand
-	now            time.Time
+	createCommand     agentapp.CreateBoardroomCommand
+	publishCommand    agentapp.PublishPersonaCommand
+	runCommand        agentapp.StartRunCommand
+	conversationQuery agentapp.ConversationListQuery
+	messageQuery      agentapp.MessageListQuery
+	now               time.Time
 }
 
 func (service *agentTransportService) CreateBoardroom(_ context.Context, command agentapp.CreateBoardroomCommand) (agentdomain.Boardroom, bool, error) {
@@ -68,6 +73,26 @@ func (*agentTransportService) ListBoardrooms(context.Context, access.Actor, ids.
 
 func (*agentTransportService) ListPersonas(context.Context, access.Actor, ids.AccountID, ids.BoardroomID, int) ([]agentapp.PersonaSummary, error) {
 	return []agentapp.PersonaSummary{}, nil
+}
+
+func (service *agentTransportService) ListConversations(_ context.Context, _ access.Actor, accountID ids.AccountID, boardroomID ids.BoardroomID, query agentapp.ConversationListQuery) (agentapp.ConversationPage, error) {
+	service.conversationQuery = query
+	item := agentapp.Conversation{ID: ids.ConversationID(agentConversation), AccountID: accountID, BoardroomID: boardroomID, Subject: "Weekly review", State: "open", MessageCount: 2, CreatedBy: ids.UserID(agentUser), CreatedAt: service.now, UpdatedAt: service.now}
+	return agentapp.ConversationPage{Items: []agentapp.Conversation{item}, NextCursor: &agentapp.ConversationCursor{UpdatedAt: service.now, ID: item.ID}}, nil
+}
+
+func (service *agentTransportService) GetConversation(_ context.Context, _ access.Actor, accountID ids.AccountID, conversationID ids.ConversationID) (agentapp.Conversation, error) {
+	return agentapp.Conversation{ID: conversationID, AccountID: accountID, BoardroomID: ids.BoardroomID(agentBoardroom), Subject: "Weekly review", State: "open", MessageCount: 2, CreatedBy: ids.UserID(agentUser), CreatedAt: service.now, UpdatedAt: service.now}, nil
+}
+
+func (service *agentTransportService) ListMessages(_ context.Context, _ access.Actor, _ ids.AccountID, conversationID ids.ConversationID, query agentapp.MessageListQuery) (agentapp.MessagePage, error) {
+	service.messageQuery = query
+	result := agentdomain.ResultEnvelope{Contribution: "Focus on the overdue review.", Findings: []string{}, Recommendations: []string{}, Questions: []string{}, Citations: []agentdomain.Citation{}, ProposedActions: []agentdomain.ProposedAction{}, Delegations: []agentdomain.Delegation{}, Confidence: agentdomain.ConfidenceHigh}
+	next := uint64(2)
+	return agentapp.MessagePage{Items: []agentapp.Message{
+		{ID: "81000000-0000-4000-8000-000000000001", ConversationID: conversationID, Sequence: 1, Role: agentapp.MessageRoleUser, Body: "What should we prioritize?", CreatedBy: ids.UserID(agentUser), CreatedAt: service.now},
+		{ID: "82000000-0000-4000-8000-000000000002", ConversationID: conversationID, Sequence: 2, Role: agentapp.MessageRolePersona, Body: result.Contribution, RunID: ids.RunID(agentRun), InvocationID: ids.AgentInvocationID(agentInvocation), PersonaVersionID: ids.PersonaVersionID(agentOperation), Result: &result, CreatedAt: service.now},
+	}, NextAfterSequence: &next}, nil
 }
 
 func (service *agentTransportService) GetRun(_ context.Context, _ access.Actor, accountID ids.AccountID, runID ids.RunID) (agentapp.Run, error) {
@@ -178,6 +203,55 @@ func TestAgentQueryContractsExposeBoundedCollectionsAndRunView(t *testing.T) {
 	if run.Code != http.StatusOK || !strings.Contains(run.Body.String(), `"id":"`+agentRun+`"`) ||
 		!strings.Contains(run.Body.String(), `"plan_digest":"01`) || !strings.Contains(run.Body.String(), `"invocation_ids":["`+agentInvocation+`"]`) {
 		t.Fatalf("run=%d body=%s", run.Code, run.Body.String())
+	}
+}
+
+func TestAgentConversationAndMessageReadContracts(t *testing.T) {
+	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	service := &agentTransportService{now: now}
+	server, _ := New(claimAcceptor{claims: agentClaims()}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithAgents(service))
+	contract, err := openapifixture.Load(filepath.Join("..", "..", "..", "api", "spyglass.openapi.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conversationsTarget := "/api/v1/accounts/" + agentAccount + "/agent-boardrooms/" + agentBoardroom + "/conversations?limit=25"
+	conversations := routedRequest(t, server.Handler(), conversationsTarget)
+	if conversations.Code != http.StatusOK || service.conversationQuery.Limit != 25 || !strings.Contains(conversations.Body.String(), `"message_count":2`) || !strings.Contains(conversations.Body.String(), `"next_cursor":"`) {
+		t.Fatalf("conversations=%d query=%+v body=%s", conversations.Code, service.conversationQuery, conversations.Body.String())
+	}
+	if err := contract.ValidateResponse(http.MethodGet, conversationsTarget, conversations.Code, conversations.Header(), conversations.Body.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	conversationTarget := "/api/v1/accounts/" + agentAccount + "/agent-conversations/" + agentConversation
+	conversation := routedRequest(t, server.Handler(), conversationTarget)
+	if conversation.Code != http.StatusOK || !strings.Contains(conversation.Body.String(), `"subject":"Weekly review"`) {
+		t.Fatalf("conversation=%d body=%s", conversation.Code, conversation.Body.String())
+	}
+	if err := contract.ValidateResponse(http.MethodGet, conversationTarget, conversation.Code, conversation.Header(), conversation.Body.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	messagesTarget := conversationTarget + "/messages?limit=20"
+	messages := routedRequest(t, server.Handler(), messagesTarget)
+	if messages.Code != http.StatusOK || service.messageQuery.Limit != 20 || !strings.Contains(messages.Body.String(), `"role":"user"`) || !strings.Contains(messages.Body.String(), `"role":"persona"`) || !strings.Contains(messages.Body.String(), `"confidence":"high"`) || !strings.Contains(messages.Body.String(), `"next_cursor":"`) {
+		t.Fatalf("messages=%d query=%+v body=%s", messages.Code, service.messageQuery, messages.Body.String())
+	}
+	if err := contract.ValidateResponse(http.MethodGet, messagesTarget, messages.Code, messages.Header(), messages.Body.Bytes()); err != nil {
+		t.Fatal(err)
+	}
+	var page struct {
+		NextCursor string `json:"next_cursor"`
+	}
+	if json.Unmarshal(messages.Body.Bytes(), &page) != nil || page.NextCursor == "" {
+		t.Fatalf("message cursor body=%s", messages.Body.String())
+	}
+	next := routedRequest(t, server.Handler(), "/api/v1/accounts/"+agentAccount+"/agent-conversations/"+agentConversation+"/messages?cursor="+page.NextCursor)
+	if next.Code != http.StatusOK || service.messageQuery.AfterSequence != 2 || service.messageQuery.Limit != 50 {
+		t.Fatalf("next messages=%d query=%+v body=%s", next.Code, service.messageQuery, next.Body.String())
+	}
+	invalid := routedRequest(t, server.Handler(), "/api/v1/accounts/"+agentAccount+"/agent-conversations/"+agentConversation+"/messages?unknown=true")
+	if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), "invalid_agent_query") {
+		t.Fatalf("invalid messages=%d body=%s", invalid.Code, invalid.Body.String())
 	}
 }
 

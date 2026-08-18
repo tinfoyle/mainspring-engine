@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
@@ -52,14 +53,62 @@ type PersonaSummary struct {
 }
 
 type Conversation struct {
-	ID          ids.ConversationID
-	AccountID   ids.AccountID
-	BoardroomID ids.BoardroomID
-	Subject     string
-	State       string
-	CreatedBy   ids.UserID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           ids.ConversationID
+	AccountID    ids.AccountID
+	BoardroomID  ids.BoardroomID
+	Subject      string
+	State        string
+	MessageCount uint64
+	CreatedBy    ids.UserID
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type ConversationCursor struct {
+	UpdatedAt time.Time
+	ID        ids.ConversationID
+}
+
+type ConversationListQuery struct {
+	Limit          int
+	AfterUpdatedAt *time.Time
+	AfterID        ids.ConversationID
+}
+
+type ConversationPage struct {
+	Items      []Conversation
+	NextCursor *ConversationCursor
+}
+
+type MessageRole string
+
+const (
+	MessageRoleUser    MessageRole = "user"
+	MessageRolePersona MessageRole = "persona"
+)
+
+type Message struct {
+	ID               ids.MessageID
+	ConversationID   ids.ConversationID
+	Sequence         uint64
+	Role             MessageRole
+	Body             string
+	CreatedBy        ids.UserID
+	RunID            ids.RunID
+	InvocationID     ids.AgentInvocationID
+	PersonaVersionID ids.PersonaVersionID
+	Result           *agentdomain.ResultEnvelope
+	CreatedAt        time.Time
+}
+
+type MessageListQuery struct {
+	Limit         int
+	AfterSequence uint64
+}
+
+type MessagePage struct {
+	Items             []Message
+	NextAfterSequence *uint64
 }
 
 type Run struct {
@@ -77,6 +126,9 @@ type Repository interface {
 	GetBoardroom(context.Context, ids.AccountID, ids.BoardroomID) (agentdomain.Boardroom, error)
 	PublishPersona(context.Context, ids.BoardroomID, agentdomain.PersonaVersion, uint64) (PersonaSummary, bool, error)
 	ListPersonas(context.Context, ids.AccountID, ids.BoardroomID, int) ([]PersonaSummary, error)
+	ListConversations(context.Context, ids.AccountID, ids.BoardroomID, ConversationListQuery) (ConversationPage, error)
+	GetConversation(context.Context, ids.AccountID, ids.ConversationID) (Conversation, error)
+	ListMessages(context.Context, ids.AccountID, ids.ConversationID, MessageListQuery) (MessagePage, error)
 	StartRun(context.Context, StartRunDraft) (Run, bool, error)
 	GetRun(context.Context, ids.AccountID, ids.RunID) (Run, error)
 }
@@ -184,8 +236,10 @@ type StartRunCommand struct {
 }
 
 func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, bool, error) {
+	subject := strings.TrimSpace(command.Subject)
 	if !command.Actor.Valid() || command.Actor.UserID == "" || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.AccountID)) != nil || ids.Validate(string(command.BoardroomID)) != nil ||
-		(command.ConversationID != "" && ids.Validate(string(command.ConversationID)) != nil) || len(command.PersonaIDs) == 0 || len(command.PersonaIDs) > agentdomain.MaximumPersonasPerRun || len(strings.TrimSpace(command.Prompt)) == 0 || len(strings.TrimSpace(command.Prompt)) > 65536 {
+		(command.ConversationID != "" && ids.Validate(string(command.ConversationID)) != nil) || (command.ConversationID == "" && (utf8.RuneCountInString(subject) < 2 || utf8.RuneCountInString(subject) > 240)) || (command.ConversationID != "" && subject != "") ||
+		len(command.PersonaIDs) == 0 || len(command.PersonaIDs) > agentdomain.MaximumPersonasPerRun || len(strings.TrimSpace(command.Prompt)) == 0 || len(strings.TrimSpace(command.Prompt)) > 65536 {
 		return Run{}, false, ErrInvalidCommand
 	}
 	personas := append([]ids.PersonaID(nil), command.PersonaIDs...)
@@ -219,7 +273,7 @@ func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, b
 	draft := StartRunDraft{
 		Actor: command.Actor, AccountID: command.AccountID, BoardroomID: command.BoardroomID,
 		RunID: ids.RunID(command.RequestID), ConversationID: conversationID, CreateConversation: createConversation,
-		UserMessageID: ids.MessageID(messageID), Subject: strings.TrimSpace(command.Subject), Prompt: strings.TrimSpace(command.Prompt),
+		UserMessageID: ids.MessageID(messageID), Subject: subject, Prompt: strings.TrimSpace(command.Prompt),
 		PersonaIDs: personas, EntitlementVersion: accountContext.EntitlementVersion, MaximumConcurrentRun: maximum,
 		CreatedAt: now, RequestExpiresAt: now.Add(DefaultRunLifetime),
 	}
@@ -249,6 +303,37 @@ func (s *Service) ListPersonas(ctx context.Context, actor access.Actor, accountI
 		return nil, err
 	}
 	return s.repository.ListPersonas(ctx, accountID, boardroomID, limit)
+}
+
+func (s *Service) ListConversations(ctx context.Context, actor access.Actor, accountID ids.AccountID, boardroomID ids.BoardroomID, query ConversationListQuery) (ConversationPage, error) {
+	if ids.Validate(string(boardroomID)) != nil || query.Limit < 1 || query.Limit > MaximumPageSize ||
+		(query.AfterUpdatedAt == nil) != (query.AfterID == "") || (query.AfterUpdatedAt != nil && (query.AfterUpdatedAt.IsZero() || ids.Validate(string(query.AfterID)) != nil)) {
+		return ConversationPage{}, ErrInvalidCommand
+	}
+	if _, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: PackageCode}); err != nil {
+		return ConversationPage{}, err
+	}
+	return s.repository.ListConversations(ctx, accountID, boardroomID, query)
+}
+
+func (s *Service) GetConversation(ctx context.Context, actor access.Actor, accountID ids.AccountID, conversationID ids.ConversationID) (Conversation, error) {
+	if ids.Validate(string(conversationID)) != nil {
+		return Conversation{}, ErrInvalidCommand
+	}
+	if _, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: PackageCode}); err != nil {
+		return Conversation{}, err
+	}
+	return s.repository.GetConversation(ctx, accountID, conversationID)
+}
+
+func (s *Service) ListMessages(ctx context.Context, actor access.Actor, accountID ids.AccountID, conversationID ids.ConversationID, query MessageListQuery) (MessagePage, error) {
+	if ids.Validate(string(conversationID)) != nil || query.Limit < 1 || query.Limit > MaximumPageSize || query.AfterSequence > uint64(1<<63-1) {
+		return MessagePage{}, ErrInvalidCommand
+	}
+	if _, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: PackageCode}); err != nil {
+		return MessagePage{}, err
+	}
+	return s.repository.ListMessages(ctx, accountID, conversationID, query)
 }
 
 func (s *Service) GetRun(ctx context.Context, actor access.Actor, accountID ids.AccountID, runID ids.RunID) (Run, error) {

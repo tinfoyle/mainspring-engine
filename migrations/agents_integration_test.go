@@ -12,6 +12,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	agentapp "github.com/tinfoyle/spyglass-engine/internal/application/agents"
+	agentdomain "github.com/tinfoyle/spyglass-engine/internal/modules/agents"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -103,6 +108,19 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,$9,$9)`,
 		accountA, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err != nil || created {
 		t.Fatalf("idempotent success created=%v err=%v", created, err)
+	}
+	cell, err := database.NewCellPool(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := postgresadapter.NewAgentRepository(cell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversationA := ids.ConversationID("41000000-0000-4000-8000-000000000001")
+	messagePage, err := repository.ListMessages(ctx, ids.AccountID(accountA), conversationA, agentapp.MessageListQuery{Limit: 10})
+	if err != nil || len(messagePage.Items) != 1 || messagePage.Items[0].Role != agentapp.MessageRolePersona || messagePage.Items[0].InvocationID != ids.AgentInvocationID(invocationA) || messagePage.Items[0].Result == nil || messagePage.Items[0].Result.Confidence != agentdomain.ConfidenceHigh || messagePage.Items[0].Result.Contribution != "Reconcile the backlog." {
+		t.Fatalf("projected message page=%+v err=%v", messagePage, err)
 	}
 	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,$9,$9)`,
 		accountB, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err == nil {
