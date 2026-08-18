@@ -5,7 +5,7 @@ This repository now contains the first executable production slice for Infinite 
 ## Included
 
 - `website/`: the public Infinite Ocean site with Product, Packages, Pricing, signup entry, company, security, privacy, and terms routes.
-- `cmd/spyglass`: a development-only composition for the account API.
+- `cmd/spyglass`: development, persistent global/cell API, worker, migration, and operator process modes.
 - Identity domain: pending User registration and verified activation.
 - Accounts domain: free Account creation and owner Membership.
 - Catalog domain: versioned Feature Packages, Free/Team/Operating Plans, and a public offer projection that omits Stripe references.
@@ -41,6 +41,7 @@ This repository now contains the first executable production slice for Infinite 
 - A typed Work aggregate and transport-neutral application boundary with exhaustive lifecycle/role policy, three-level hierarchy, assignment/provenance values, optimistic versions, Work package enforcement, and governed active-item admission.
 - Pooled-cell Work persistence with Account-local numbers, composite relationships, forced RLS, mutation events, cursor queue/direct-child/summary queries, explicit capacity-release checkpoints, and classified adapter errors.
 - Executable global `app-router` and cell `app-api` modes with session-backed Account authorization, allowlisted cell destinations, short-lived method/target/body-bound route signatures, rotating verification keys, credential stripping, bounded proxying, shared replay receipts, and placement-generation enforcement.
+- Signed Account-scoped Work list, summary, detail, and direct-child reads with opaque cursors, ETags, explicit safe DTOs, a route-claim application authorizer, and a prototype-informed package-aware queue/detail shell.
 - Embedded global, cell, and development PostgreSQL migrations with advisory locking, immutable checksums, an application ledger, and a one-shot production runner.
 - Review-only Kubernetes reference resources for shared workload classes, autoscaling, disruption budgets, restricted pods, and default-deny networking.
 - GitHub verification for Go format/test/race/vet, disposable PostgreSQL contracts, vulnerability scanning, and public-site build/lint/production dependency audit.
@@ -90,6 +91,7 @@ GET|POST /login
 GET|POST /forgot-password
 GET|POST /reset-password
 GET      /app
+GET      /app/work
 GET      /app/security
 POST     /app/security/reauthenticate
 POST     /app/security/sessions/revoke
@@ -116,7 +118,7 @@ npm run dev
 ## Next production slices
 
 1. Add passkeys/MFA, multi-version notification key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
-2. Complete the Work capacity-release reconciler, extend the signed app-router/cell API probe into generated Work HTTP contracts, and build the queue/detail UI described in [work-module.md](work-module.md); then apply the same shared admission boundary to Agents/Knowledge/Finance/Marketing use cases.
+2. Complete the Work capacity-release reconciler and design narrow global admission coordination before exposing create/transition commands in the existing queue/detail UI; then apply the same shared boundary to Agents/Knowledge/Finance/Marketing use cases.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Replace static cell routing with the bounded directory cache, then implement fair admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests.
 5. Replace the website signup handoff with the deployed application origin and generated API client, then complete end-to-end registration accessibility and security tests.
@@ -124,7 +126,7 @@ npm run dev
 ## Evidence and current limits
 
 - `go test ./...`, `go vet ./...`, and `govulncheck ./...` pass with Go 1.26.6. Go 1.26.5 was rejected after the vulnerability scan found reachable standard-library advisories fixed by 1.26.6.
-- Rendered browser journey coverage proves signup â†’ verification/password â†’ login â†’ Account shell, and API journey coverage proves invitation â†’ existing identity â†’ Membership â†’ Account list.
+- Rendered browser journey coverage proves signup → verification/password → login → Account shell, locked Work package behavior, and entitled Work queue structure; API journey coverage proves invitation → existing identity → Membership → Account list and signed Work read contracts.
 - The public website build, rendered-route tests, lint, and production dependency audit pass.
 - The private website preview is deployed at `https://infinite-ocean-spyglass.tinfoyle.chatgpt.site`.
 - Disposable PostgreSQL 17 tests execute all migration sets, verify idempotency and checksum drift rejection, exercise network-actor budgets, encrypted notification delivery, concurrent Catalog version allocation, four-eyes publication, immutable content/mappings, forward and lower-version entitlement rollout, unchanged-access drift repair, independent-grant preservation, governed limit propagation, concurrent capacity admission without oversubscription, UUID retry/release idempotency, expiry reclamation, stale-entitlement rejection, registration, Checkout reservation concurrency, Work optimistic concurrency, direct Account-scoped Work queries, and transaction-local RLS isolation through a non-owner serving role. Kubernetes resources remain review-only and have not been applied to a cluster.

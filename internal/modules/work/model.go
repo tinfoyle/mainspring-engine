@@ -283,6 +283,7 @@ func (i Item) WithReopenedCapacity(requestID string) (Item, error) {
 func (p Priority) Valid() bool {
 	return p == PriorityLow || p == PriorityNormal || p == PriorityHigh || p == PriorityUrgent
 }
+func (k Kind) Valid() bool { return k == KindTodo || k == KindTicket }
 func (s State) Valid() bool {
 	return s == StateOpen || s == StateInProgress || s == StateWaiting || s == StateDone || s == StateCanceled
 }

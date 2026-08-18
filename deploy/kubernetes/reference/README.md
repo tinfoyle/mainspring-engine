@@ -15,7 +15,11 @@ Before an environment overlay may use these resources it must add:
 - A pinned image digest produced by the verified release workflow.
 - External Secrets or workload identity; never literal Secret values.
 - Cell-specific database, object-store, Temporal, and queue references.
-- Ingress/WAF, certificate, DNS, and trusted route-signing configuration.
+- Ingress/WAF, certificate, DNS, and trusted route-signing configuration. The
+  edge must send the more-specific
+  `/api/v1/accounts/{accountID}/work-items...` path family to `app-router` and
+  private HTML/global control routes to `account-api`; it must never route a
+  browser directly to cell `app-api`.
 - HPA custom metrics for request latency, queue age, and schedule-to-start.
 - Tested NetworkPolicy egress destinations and cluster admission policy.
 - Pod monitor, alerts, SLO metadata, and a load-tested replica/connection cap.

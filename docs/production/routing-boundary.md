@@ -1,6 +1,6 @@
 # Global-to-cell routing boundary
 
-Status: executable signed route-context, global app-router, cell app-api probe, shared replay receipts, placement-generation rejection, and Kubernetes reference topology implemented. Directory caching and production Work routes remain.
+Status: executable signed route-context, global app-router, cell app-api probe and Work reads, shared replay receipts, placement-generation rejection, and Kubernetes reference topology implemented. Directory caching, internal TLS identity, and Work mutations remain.
 
 ## Why this boundary exists
 
@@ -41,13 +41,17 @@ Expired receipts are removed inside Account scope. The serving database role nee
 
 `spyglass app-router` owns global session authentication, Account authorization, least-authority token issuance, fixed cell routing, header stripping, bounded proxy bodies, response bounds, no-redirect behavior, and exact-origin checks for mutations. Current allowlisted resources are the Account context probe and the reserved Work path family.
 
-`spyglass app-api` owns one cell database pool, route verification keyring, shared replay receipts, placement checks, and cell API transport. The first executable route is:
+`spyglass app-api` owns one cell database pool, route verification keyring, shared replay receipts, placement checks, and cell API transport. Executable reads are:
 
 ```text
 GET /api/v1/accounts/{accountID}/context
+GET /api/v1/accounts/{accountID}/work-items
+GET /api/v1/accounts/{accountID}/work-items/summary
+GET /api/v1/accounts/{accountID}/work-items/{itemID}
+GET /api/v1/accounts/{accountID}/work-items/{itemID}/children
 ```
 
-This probe proves the complete global-session-to-cell-RLS path without pretending Work transport is finished. It returns safe Account routing facts and no customer business record.
+The context probe proves the base global-session-to-cell-RLS path. Work reads add an exact Work package claim, translate verified claims back into the shared application authorization contract, and return explicit customer-safe DTOs. The global router and Account API do not query Work records.
 
 ## Key rotation
 
@@ -81,13 +85,13 @@ The router never guesses another cell, follows redirects, or falls back to query
 
 1. Replace static `SPYGLASS_CELL_ROUTES` lookup with a bounded, observable directory cache whose entries include cell endpoint, health, and generation policy; global DB outage may use only unexpired cache entries.
 2. Add internal TLS/workload identity between router and cell in addition to application signatures, with certificate rotation and network-policy enforcement.
-3. Define the Work HTTP command/query schema, convert signed package authority into the Work application authorizer, and coordinate global usage admission without adding a global database credential to app-api.
+3. Define Work command schemas and coordinate global usage admission without adding a broad global database credential to app-api; read schemas and signed-package translation are implemented.
 4. Add route receipt retention/partitioning and metrics for replay, stale generation, verification failure, latency, cell saturation, and cache age.
 5. Add two-cell integration tests, stale-cache refresh, key-rotation canaries, router failover, cell failover, bounded global outage, and load/fairness evidence.
-6. Put the Account context and Work routes behind the private Spyglass shell; keep the prototype's queue interaction language while using the production contracts.
+6. Extend the private Spyglass Work shell from query/detail behavior to conflict-safe commands only after durable capacity reconciliation exists.
 
 ## Evidence and limits
 
-Unit tests cover request binding, expiry, signature alteration, unknown keys, key rotation, malformed authority, origin rejection, credential stripping, successful router-to-cell traversal, replay, and altered Account paths. The PostgreSQL 17 contract proves replay uniqueness, stale placement rejection, draining-write rejection, draining-read acceptance, RLS, and migration replay through a non-owner role.
+Unit tests cover request binding, expiry, signature alteration, unknown keys, key rotation, malformed authority, origin rejection, credential stripping, successful router-to-cell traversal, replay, altered Account paths, Work package translation, read-only package behavior, strict query parsing, safe Work views, and cross-Account Work paths. The PostgreSQL 17 contract proves replay uniqueness, stale placement rejection, draining-write rejection, draining-read acceptance, RLS, Work query isolation, and migration replay through a non-owner role.
 
-The manifests remain review-only. They have no literal secrets or real endpoints and the default-deny policy still requires environment overlays for ingress, global/cell database egress, TLS identity, monitoring, and image digests. The Account probe is not a substitute for Work API/UI completion.
+The manifests remain review-only. They have no literal secrets or real endpoints and the default-deny policy still requires environment overlays for ingress, global/cell database egress, TLS identity, monitoring, and image digests. An edge overlay must route the more-specific `/api/v1/accounts/{accountID}/work-items...` family to `app-router` while private HTML and global control routes remain on `account-api`.

@@ -4,7 +4,7 @@ const pageTemplates = `
 {{define "head"}}
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{.Title}} · Infinite Ocean: Spyglass</title><meta name="description" content="Infinite Ocean: Spyglass business operating system">
-<link rel="stylesheet" href="/assets/spyglass.css"></head><body>
+<link rel="stylesheet" href="/assets/spyglass.css">{{if .Script}}<script src="{{.Script}}" defer></script>{{end}}</head><body>
 {{end}}
 
 {{define "brand"}}
@@ -14,6 +14,22 @@ const pageTemplates = `
 {{define "alert"}}
 {{if .Error}}<div class="alert error" role="alert">{{.Error}}</div>{{end}}
 {{if .Notice}}<div class="alert success" role="status">{{.Notice}}</div>{{end}}
+{{end}}
+
+{{define "private-sidebar"}}
+  <aside class="sidebar">
+    {{template "brand" .}}
+    <form class="account-switch" method="post" action="/app/account">
+      <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
+      <button type="submit">Switch Account</button>
+    </form>
+    <nav><p>OPERATE</p><a {{if eq .Page "app"}}class="active"{{end}} href="/app"><i>⌂</i>Overview</a><a {{if eq .Page "work"}}class="active"{{end}} href="/app/work"><i>✓</i>Work</a><a href="/app#agents"><i>◌</i>Agents</a><a href="/app#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i>≋</i>Finance</a><a href="/app#marketing"><i>↗</i>Marketing</a><a href="/app#billing"><i>$</i>Billing</a><a href="/app#settings"><i>⚙</i>Account</a><a href="/app/security"><i>◇</i>Security</a></nav>
+    <form method="post" action="/logout"><button class="logout">Sign out</button></form>
+  </aside>
+{{end}}
+
+{{define "private-topbar"}}
+<header class="topbar"><div><strong>{{if .Selected}}{{.Selected.DisplayName}}{{else}}No Account selected{{end}}</strong><small>Infinite Ocean: Spyglass</small></div><span class="live"><i></i>Account services ready</span></header>
 {{end}}
 
 {{define "login"}}
@@ -56,17 +72,9 @@ const pageTemplates = `
 {{define "app"}}
 {{template "head" .}}
 <div class="app-shell">
-  <aside class="sidebar">
-    {{template "brand" .}}
-    <form class="account-switch" method="post" action="/app/account">
-      <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
-      <button type="submit">Switch Account</button>
-    </form>
-    <nav><p>OPERATE</p><a class="active" href="/app"><i>⌂</i>Overview</a><a href="#work"><i>✓</i>Work</a><a href="#agents"><i>◌</i>Agents</a><a href="#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="#finance"><i>≋</i>Finance</a><a href="#marketing"><i>↗</i>Marketing</a><a href="#billing"><i>$</i>Billing</a><a href="#settings"><i>⚙</i>Account</a><a href="/app/security"><i>◇</i>Security</a></nav>
-    <form method="post" action="/logout"><button class="logout">Sign out</button></form>
-  </aside>
+  {{template "private-sidebar" .}}
   <main class="workspace">
-    <header class="topbar"><div><strong>{{if .Selected}}{{.Selected.DisplayName}}{{else}}No Account selected{{end}}</strong><small>Infinite Ocean: Spyglass</small></div><span class="live"><i></i>Account services ready</span></header>
+    {{template "private-topbar" .}}
     <div class="content">
       {{template "alert" .}}
       {{if .DevelopmentToken}}<div class="dev-link"><strong>Development invitation link</strong><a href="/invitations/accept?token={{.DevelopmentToken}}">Open invitation</a></div>{{end}}
@@ -91,6 +99,52 @@ const pageTemplates = `
       </section>
       {{if .CanInvite}}<section class="team panel" id="settings"><header><div><p class="eyebrow">ACCOUNT</p><h2>Invite a teammate</h2></div><span>Your role: {{.Selected.Role}}</span></header><form method="post" action="/app/invitations"><input type="hidden" name="account_id" value="{{.Selected.AccountID}}"><label>Email<input type="email" name="email" required placeholder="teammate@company.com"></label><label>Role<select name="role"><option value="member">Member</option><option value="viewer">Viewer</option><option value="administrator">Administrator</option><option value="billing_admin">Billing admin</option></select></label><button type="submit">Send invitation</button></form></section>{{end}}
       {{else}}<section class="empty"><h1>No Spyglass Accounts yet.</h1><p>Create an Account or accept an invitation to begin.</p><a href="/signup">Create Account</a></section>{{end}}
+    </div>
+  </main>
+</div></body></html>
+{{end}}
+
+{{define "work"}}
+{{template "head" .}}
+<div class="app-shell">
+  {{template "private-sidebar" .}}
+  <main class="workspace">
+    {{template "private-topbar" .}}
+    <div class="content work-content">
+      {{template "alert" .}}
+      {{if not .Selected}}
+      <section class="empty"><h1>No Spyglass Accounts yet.</h1><p>Create an Account or accept an invitation to begin.</p><a href="/signup">Create Account</a></section>
+      {{else if not .WorkAvailable}}
+      <section class="work-locked panel"><div><p class="eyebrow">WORK PACKAGE</p><h1>Bring every commitment<br><em>into one clear view.</em></h1><p>Work is not included in this Account's current package set. Upgrade to Team or Operating to coordinate accountable work across people and agents.</p><a href="/app#billing">Review Account plans →</a></div><div class="work-locked-map" aria-hidden="true"><i></i><i></i><i></i><b></b></div></section>
+      {{else}}
+      <section class="work-heading"><div><p class="eyebrow">WORK</p><h1>What is moving,<br><em>what needs attention.</em></h1><p>One Account-scoped queue for human commitments, agent activity, and operational follow-through.</p></div><span class="work-mode">{{if .WorkReadOnly}}READ-ONLY ACCESS{{else}}PACKAGE ENABLED{{end}}</span></section>
+      <section class="work-app" id="work-app" data-account-id="{{.Selected.AccountID}}" aria-busy="true">
+        <div class="work-summary" aria-label="Work summary">
+          <article><small>ACTIVE</small><strong data-summary="active">—</strong><span>Open commitments</span></article>
+          <article><small>IN PROGRESS</small><strong data-summary="in_progress">—</strong><span>Moving now</span></article>
+          <article><small>WAITING</small><strong data-summary="waiting">—</strong><span>Needs a signal</span></article>
+          <article><small>URGENT</small><strong data-summary="urgent">—</strong><span>Highest priority</span></article>
+          <article><small>DONE</small><strong data-summary="done">—</strong><span>Recently complete</span></article>
+        </div>
+        <div class="work-layout">
+          <section class="work-queue panel">
+            <header><div><p class="eyebrow">ACCOUNT QUEUE</p><h2>Operational work</h2></div><span id="work-result-count">Loading</span></header>
+            <form class="work-filters" id="work-filters">
+              <label><span class="sr-only">Search work</span><input type="search" name="q" maxlength="200" placeholder="Search title or description"></label>
+              <label><span class="sr-only">Filter by state</span><select name="state"><option value="">All states</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="done">Done</option><option value="canceled">Canceled</option></select></label>
+              <label><span class="sr-only">Filter by kind</span><select name="kind"><option value="">All kinds</option><option value="todo">To-do</option><option value="ticket">Ticket</option></select></label>
+              <button type="submit">Apply</button>
+            </form>
+            <div class="work-status" id="work-status" role="status">Loading Account work…</div>
+            <div class="work-list" id="work-list"></div>
+            <button class="work-more" id="work-more" type="button" hidden>Load more</button>
+          </section>
+          <aside class="work-detail panel" id="work-detail" aria-live="polite">
+            <div class="work-detail-empty"><p class="eyebrow">WORK DETAIL</p><h2>Select an item</h2><p>Open a queue item to inspect its responsibility, origin, timing, and current state.</p></div>
+          </aside>
+        </div>
+      </section>
+      {{end}}
     </div>
   </main>
 </div></body></html>

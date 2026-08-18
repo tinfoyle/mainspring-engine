@@ -55,6 +55,18 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Northstar Studio")) || !bytes.Contains(signedIn.body, []byte("YOUR OPERATING PARTNER")) || !bytes.Contains(signedIn.body, []byte("FEATURE PACKAGES")) || !bytes.Contains(signedIn.body, []byte("BILLING & ACCESS")) || !bytes.Contains(signedIn.body, []byte("Team")) {
 		t.Fatalf("app shell: %d %s", signedIn.status, signedIn.body)
 	}
+	workPage, err := client.Get(server.URL + "/app/work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workBody, _ := io.ReadAll(workPage.Body)
+	workPage.Body.Close()
+	if workPage.StatusCode != http.StatusOK || !bytes.Contains(workBody, []byte("Bring every commitment")) || !bytes.Contains(workBody, []byte("Review Account plans")) || bytes.Contains(workBody, []byte("/assets/work.js")) {
+		t.Fatalf("locked Work page: %d %s", workPage.StatusCode, workBody)
+	}
+	if policy := workPage.Header.Get("Content-Security-Policy"); !strings.Contains(policy, "script-src 'self'") || !strings.Contains(policy, "connect-src 'self'") {
+		t.Fatalf("Work page content security policy: %q", policy)
+	}
 	parsed, _ := url.Parse(server.URL)
 	cookies := jar.Cookies(parsed)
 	foundSession := false

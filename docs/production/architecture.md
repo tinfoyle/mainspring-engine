@@ -398,7 +398,7 @@ Route organization mirrors features, not page technology:
 /api/v1/accounts/{account_id}/billing-portal-sessions
 /api/v1/accounts/{account_id}/billing
 /webhooks/stripe
-/api/v1/work-items
+/api/v1/accounts/{account_id}/work-items
 /api/v1/attention
 /api/v1/baselines
 /api/v1/knowledge/documents

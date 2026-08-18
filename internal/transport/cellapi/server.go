@@ -29,18 +29,33 @@ type Server struct {
 	acceptor Acceptor
 	logger   *slog.Logger
 	maxBody  int64
+	work     WorkQueries
 }
 
-func New(acceptor Acceptor, logger *slog.Logger, maxBody int64) (*Server, error) {
+type Option func(*Server)
+
+func WithWorkQueries(queries WorkQueries) Option {
+	return func(server *Server) { server.work = queries }
+}
+
+func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
 	if acceptor == nil || logger == nil || maxBody <= 0 || maxBody > 16<<20 {
 		return nil, errors.New("cell API dependencies and bounded body size are required")
 	}
-	return &Server{acceptor: acceptor, logger: logger, maxBody: maxBody}, nil
+	server := &Server{acceptor: acceptor, logger: logger, maxBody: maxBody}
+	for _, option := range options {
+		option(server)
+	}
+	return server, nil
 }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/context", s.accountContext)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items", s.workList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items/summary", s.workSummary)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items/{itemID}", s.workItem)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items/{itemID}/children", s.workChildren)
 	return s.recover(s.securityHeaders(mux))
 }
 
@@ -118,11 +133,14 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 }
 
 func writeProblem(w http.ResponseWriter, status int, code, detail string) {
+	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
 	writeJSON(w, status, map[string]any{"type": "https://infiniteocean.net/problems/" + code, "title": http.StatusText(status), "status": status, "code": code, "detail": detail})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }

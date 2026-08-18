@@ -250,7 +250,8 @@ func (s *Service) List(ctx context.Context, actor access.Actor, accountID ids.Ac
 	if query.Limit <= 0 {
 		query.Limit = 50
 	}
-	if query.Limit > MaxPageSize || len(query.States) > 5 || len(query.Kinds) > 2 || len(query.Search) > 200 || (query.AfterUpdatedAt == nil) != (query.AfterID == "") {
+	query.Search = strings.TrimSpace(query.Search)
+	if err := validateListQuery(query); err != nil {
 		return Page{}, ErrInvalidCommand
 	}
 	return s.repository.List(ctx, accountID, query)

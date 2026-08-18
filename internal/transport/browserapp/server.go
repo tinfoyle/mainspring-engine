@@ -23,7 +23,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
 )
 
-//go:embed assets/*.css
+//go:embed assets/*.css assets/*.js
 var assets embed.FS
 
 type VerificationTokenSource interface {
@@ -111,6 +111,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/app", http.StatusSeeOther) })
 	mux.HandleFunc("GET /assets/spyglass.css", s.styles)
+	mux.HandleFunc("GET /assets/work.js", s.workScript)
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("GET /forgot-password", s.forgotPasswordPage)
@@ -122,6 +123,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /verify", s.verifyPage)
 	mux.HandleFunc("POST /verify", s.verify)
 	mux.HandleFunc("GET /app", s.app)
+	mux.HandleFunc("GET /app/work", s.workPage)
 	mux.HandleFunc("GET /app/security", s.securityPage)
 	mux.HandleFunc("POST /app/security/reauthenticate", s.reauthenticate)
 	mux.HandleFunc("POST /app/security/sessions/revoke", s.revokeSession)
@@ -206,6 +208,17 @@ func (s *Server) styles(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+func (s *Server) workScript(w http.ResponseWriter, _ *http.Request) {
+	raw, err := assets.ReadFile("assets/work.js")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(raw)
+}
+
 type pageData struct {
 	Title, Page, Error, Notice, Email, Name, AccountName, Token, ReturnTo, DevelopmentToken string
 	Choices                                                                                 []accountaccess.Choice
@@ -218,6 +231,9 @@ type pageData struct {
 	BillingPlans                                                                            []billingPlan
 	ActiveSessions                                                                          []sessions.ActiveSession
 	SecurityEvents                                                                          []securityEventView
+	WorkMode                                                                                catalog.PackageMode
+	WorkAvailable, WorkReadOnly                                                             bool
+	Script                                                                                  string
 }
 
 type billingPlan struct {
@@ -327,14 +343,49 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) app(w http.ResponseWriter, r *http.Request) {
-	authenticated, ok := s.requireSession(w, r)
+	data, authenticated, ok := s.appPageData(w, r)
 	if !ok {
 		return
+	}
+	data.Notice = appNotice(r.URL.Query().Get("status"))
+	data.DevelopmentToken = r.URL.Query().Get("development_token")
+	data.BillingConfigured = s.commercial != nil
+	if data.Selected != nil {
+		var status commercialaccess.Status
+		if s.commercial != nil {
+			var err error
+			status, err = s.commercial.Status(r.Context(), authenticated.Session.UserID, data.Selected.AccountID)
+			if err != nil {
+				s.logger.Error("load billing status", "account_id", data.Selected.AccountID, "error", err)
+			}
+			data.CanManageBilling, data.CanStartCheckout, data.HasBillingCustomer = status.CanManage, status.CanStartCheckout, status.HasCustomer
+		}
+		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, data.Selected.AccountType, status, time.Now().UTC())
+	}
+	s.render(w, http.StatusOK, "app", data)
+}
+
+func (s *Server) workPage(w http.ResponseWriter, r *http.Request) {
+	data, _, ok := s.appPageData(w, r)
+	if !ok {
+		return
+	}
+	data.Title = "Work"
+	if data.WorkAvailable {
+		data.Script = "/assets/work.js"
+	}
+	s.render(w, http.StatusOK, "work", data)
+}
+
+func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, sessions.Authenticated, bool) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return pageData{}, sessions.Authenticated{}, false
 	}
 	choices, err := s.accounts.List(r.Context(), authenticated.Session.UserID)
 	if err != nil {
 		http.Error(w, "Accounts could not be loaded.", http.StatusServiceUnavailable)
-		return
+		return pageData{}, sessions.Authenticated{}, false
 	}
 	selected := s.selectedChoice(r, choices)
 	modes := map[catalog.PackageCode]catalog.PackageMode{}
@@ -343,20 +394,19 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 			modes[item.Code] = item.Mode
 		}
 	}
-	canInvite := selected != nil && (selected.Role == accounts.RoleOwner || selected.Role == accounts.RoleAdministrator)
-	data := pageData{Title: "Spyglass", Choices: choices, Selected: selected, Catalog: s.catalog(), PackageModes: modes, CanInvite: canInvite, Notice: appNotice(r.URL.Query().Get("status")), DevelopmentToken: r.URL.Query().Get("development_token"), BillingConfigured: s.commercial != nil}
-	if selected != nil {
-		var status commercialaccess.Status
-		if s.commercial != nil {
-			status, err = s.commercial.Status(r.Context(), authenticated.Session.UserID, selected.AccountID)
-			if err != nil {
-				s.logger.Error("load billing status", "account_id", selected.AccountID, "error", err)
-			}
-			data.CanManageBilling, data.CanStartCheckout, data.HasBillingCustomer = status.CanManage, status.CanStartCheckout, status.HasCustomer
-		}
-		data.BillingPlans, data.BillingState, data.BillingPeriod, data.BillingSynced = billingView(data.Catalog, selected.AccountType, status, time.Now().UTC())
+	workMode := modes[catalog.PackageWork]
+	data := pageData{
+		Title:         "Spyglass",
+		Choices:       choices,
+		Selected:      selected,
+		Catalog:       s.catalog(),
+		PackageModes:  modes,
+		CanInvite:     selected != nil && (selected.Role == accounts.RoleOwner || selected.Role == accounts.RoleAdministrator),
+		WorkMode:      workMode,
+		WorkAvailable: workMode == catalog.ModeEnabled || workMode == catalog.ModeReadOnly,
+		WorkReadOnly:  workMode == catalog.ModeReadOnly,
 	}
-	s.render(w, http.StatusOK, "app", data)
+	return data, authenticated, true
 }
 
 func (s *Server) selectAccount(w http.ResponseWriter, r *http.Request) {
@@ -690,7 +740,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		if !strings.HasPrefix(r.URL.Path, "/assets/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}

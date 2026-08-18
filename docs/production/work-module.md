@@ -1,6 +1,6 @@
 # Work module production design
 
-Status: domain, application boundary, cell schema, PostgreSQL adapter, and isolation/concurrency contract implemented; trusted app transport and UI pending.
+Status: domain, command/query application boundaries, cell schema, PostgreSQL adapter, signed read transport, and first queue/detail browser surface implemented. Durable capacity-release reconciliation and mutation transport remain.
 
 ## Purpose
 
@@ -30,7 +30,7 @@ Work code is split into three boundaries:
 - `internal/application/work`: authenticated commands and bounded queries, shared package enforcement, role checks, active-item admission, and cross-database compensation semantics.
 - `internal/adapters/postgres/work.go`: explicit cell SQL, Account-scoped transactions, persistence mapping, cursor queries, event append, and error classification. No pgx type escapes this adapter.
 
-The private Account service must not connect directly to arbitrary cell data as a convenience. Work routes will land only after the app router can authenticate the system-wide session, resolve current placement, sign Account route context, and send it to the correct cell `app-api`. A cell service verifies the signature, placement generation, Account, resource scope, and local entitlement context before opening its RLS transaction.
+The private Account service does not connect directly to cell data. Work reads pass through the app router, which authenticates the system-wide session, resolves current placement, signs Account route context, and sends the request to the correct cell `app-api`. The cell service verifies the signature, placement generation, Account, resource scope, and local entitlement context before the repository opens its RLS transaction.
 
 ## Aggregate and invariants
 
@@ -85,7 +85,7 @@ This is intentionally not represented as a distributed transaction:
 
 Done or canceled work releases its active capacity. The cell row records `capacity_released_at` only after the global release succeeds. If global release or the checkpoint write fails after the visible transition, the service returns `ErrCapacityReleasePending`; the terminal row remains discoverable through the partial index for an idempotent reconciler. Reopen obtains a new reservation before the optimistic cell update and compensates it if another writer wins.
 
-Before transport rollout, add the leased capacity-release reconciler and an operator-visible age/error metric. This closes the crash window without claiming distributed atomicity.
+Before mutation transport rollout, add the leased capacity-release reconciler and an operator-visible age/error metric. This closes the crash window without claiming distributed atomicity.
 
 ## Persistence and query contract
 
@@ -97,35 +97,44 @@ The cell migration adds:
 
 Queue pagination orders by `(updated_at DESC, id DESC)` and carries both values in the cursor. Filters are bounded to known states/kinds plus a 200-character search term. Direct children use `(account_id, parent_id, created_at, id)` rather than loading an arbitrary queue page and filtering in memory. The summary returns active, in-progress, waiting, urgent-active, and done counts from one Account-predicated query.
 
-Repository errors are limited to not found, conflict, constraint, corruption, or unavailable. Public transports will map these to the shared problem-details vocabulary without exposing PostgreSQL messages or revealing resources in another Account.
+Repository errors are limited to not found, conflict, constraint, corruption, or unavailable. The read transport maps these to the shared problem-details vocabulary without exposing PostgreSQL messages or revealing resources in another Account.
+
+The first public read contract is Account-scoped and bounded:
+
+```text
+GET /api/v1/accounts/{accountID}/work-items
+GET /api/v1/accounts/{accountID}/work-items/summary
+GET /api/v1/accounts/{accountID}/work-items/{itemID}
+GET /api/v1/accounts/{accountID}/work-items/{itemID}/children
+```
+
+List filters accept repeated known `state` and `kind` values, one bounded search term, one page limit, and one opaque versioned cursor. Detail emits a weak ETag from the aggregate version. Explicit response DTOs exclude capacity reservation and release bookkeeping.
 
 ## Product surface plan
 
-The first Work screen should carry forward the prototype's strongest visual ideas inside the current Spyglass shell:
+The first Work screen carries forward the prototype's strongest visual ideas inside the current Spyglass shell:
 
 - A restrained header with active, in-progress, waiting, urgent, and done summary cards.
-- Status tabs, kind filter, bounded search, and stable cursor continuation.
-- Paper-like queue cards with `#0001`, kind/state/priority, provenance, responsibility, assignee, due time, and permitted inline transition actions.
-- A right-side creation panel on wide screens and a focused sheet on small screens.
-- A detail route with description, child list, lifecycle history, provenance, assignment, due time, and version-conflict recovery.
+- State and kind filters, bounded search, and stable cursor continuation.
+- Paper-like queue cards with `#0001`, kind/state/priority, responsibility, and due time.
+- A sticky detail surface with description, direct children, provenance, responsibility, due time, and aggregate version-backed detail reads.
 - Package-disabled and package-read-only states derived from the same server decision as the API, never navigation alone.
 
-The UI will send idempotency keys on create and `If-Match`/expected version on mutation. A version conflict reloads the item, preserves the operator's draft where safe, and explains the winning change.
+Creation and inline mutation controls are intentionally absent until the capacity-release reconciler and command transport close the cross-database crash windows. At that point the UI will send idempotency keys on create and `If-Match`/expected version on mutation. A version conflict will reload the item, preserve the operator's draft where safe, and explain the winning change.
 
 ## Remaining delivery order
 
-1. Add a leased cell scan/reconciliation command for terminal rows whose global capacity release is not checkpointed.
-2. Replace the implemented signed route-context/static route boundary with the bounded directory cache and internal TLS identity described in [routing-boundary.md](routing-boundary.md).
-3. Extend the executable cell `app-api` mode from its Account probe to Work commands and queries without adding global customer-data ownership.
-4. Publish generated Work command/query contracts and problem mappings; add session-backed router endpoints.
-5. Build the Work queue/detail surfaces in the Spyglass shell using the production API, not direct repository calls.
-6. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
-7. Add representative query-plan fixtures, pagination property tests, concurrent completion/assignment stress, and cross-Account API attack fixtures.
-8. Characterize and migrate prototype Work data Account by Account; verify numbers, hierarchy, state, assignment, provenance, and active-capacity reconciliation before switching traffic.
-9. Add Attention concepts—human input, review, approval, and external action—as separate aggregates that reference Work rather than expanding Work into another catch-all store.
+1. Add a leased cell scan/reconciliation command for terminal rows whose global capacity release is not checkpointed, with age/error metrics and operator recovery.
+2. Design command admission so app-api can coordinate global capacity without receiving a broad global database credential; then publish create, assign, and transition HTTP contracts.
+3. Add inline transition and creation surfaces with idempotency keys, ETags/expected versions, preserved drafts, and explicit conflict recovery.
+4. Replace the static route map with the bounded directory cache and internal TLS identity described in [routing-boundary.md](routing-boundary.md).
+5. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
+6. Add representative query-plan fixtures, pagination property tests, concurrent completion/assignment stress, and two-cell cross-Account API attack fixtures.
+7. Characterize and migrate prototype Work data Account by Account; verify numbers, hierarchy, state, assignment, provenance, and active-capacity reconciliation before switching traffic.
+8. Add Attention concepts—human input, review, approval, and external action—as separate aggregates that reference Work rather than expanding Work into another catch-all store.
 
 ## Current evidence and limits
 
 Table-driven domain tests cover every state/role pair and reject invalid construction, stale versions, and missing reasons. Application tests cover role denial, capacity admission, failed-create compensation, and terminal release. The disposable PostgreSQL 17 contract applies every migration twice, runs through a non-owner role, proves guessed cross-Account Work IDs are invisible, exercises Account-local summary/list queries, and proves a stale writer loses after a competing transition.
 
-There is not yet a production Work HTTP route, browser screen, release reconciler, Persona foreign key, or representative-scale query-plan result. The signed app-router/cell app-api Account probe is executable, but it does not yet expose Work. The Kubernetes resources remain review-only until the remaining operational boundaries exist.
+Signed Account-scoped list, summary, detail, and direct-child routes now run through app-router and cell app-api. The browser shell renders locked package state without a data request and loads entitled queues only through those routes. Transport tests cover malformed filters and cursors, safe DTO fields, cross-Account paths, package authority, ETags, and response naming. There is not yet a release reconciler, Work mutation HTTP surface, Persona foreign key, representative-scale query-plan result, or applied Kubernetes environment.

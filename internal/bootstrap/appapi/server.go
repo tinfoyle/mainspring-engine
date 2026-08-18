@@ -10,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
+	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -73,7 +75,17 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 	if maxBody == 0 {
 		maxBody = cellapi.DefaultMaxBody
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody)
+	workRepository, err := postgres.NewWorkRepository(cellPool, ids.RandomGenerator{})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	workQueries, err := workapp.NewQueryService(routeaccess.NewAuthorizer(), workRepository)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries))
 	if err != nil {
 		pool.Close()
 		return nil, err
