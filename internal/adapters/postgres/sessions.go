@@ -21,11 +21,11 @@ func NewSessionRepository(pool *pgxpool.Pool) *SessionRepository {
 func (r *SessionRepository) Create(ctx context.Context, value sessions.Session) error {
 	_, err := r.pool.Exec(ctx, `
 		WITH created AS (
-			INSERT INTO sessions (id,user_id,token_hash,security_version,authenticated_at,reauthenticated_at,last_seen_at,rotated_at,expires_at,client_label)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id,user_id,authenticated_at
+			INSERT INTO sessions (id,user_id,token_hash,security_version,authenticated_at,reauthenticated_at,last_seen_at,rotated_at,expires_at,client_label,authentication_method,reauthentication_method)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id,user_id,authenticated_at
 		)
 		INSERT INTO user_security_events (user_id,session_id,event_type,occurred_at)
-		SELECT user_id,id,'session_created',authenticated_at FROM created`, value.ID, value.UserID, value.TokenHash[:], value.SecurityVersion, value.AuthenticatedAt, value.ReauthenticatedAt, value.LastSeenAt, value.RotatedAt, value.ExpiresAt, value.ClientLabel)
+		SELECT user_id,id,'session_created',authenticated_at FROM created`, value.ID, value.UserID, value.TokenHash[:], value.SecurityVersion, value.AuthenticatedAt, value.ReauthenticatedAt, value.LastSeenAt, value.RotatedAt, value.ExpiresAt, value.ClientLabel, value.AuthenticationMethod, value.ReauthenticationMethod)
 	return err
 }
 
@@ -39,9 +39,11 @@ func (r *SessionRepository) Use(ctx context.Context, hash [32]byte, now time.Tim
 		  AND u.security_version=s.security_version AND s.revoked_at IS NULL
 		  AND s.expires_at>$2 AND s.last_seen_at>($2-($3 * interval '1 second'))
 		RETURNING s.id,s.user_id,s.token_hash,s.security_version,s.authenticated_at,s.reauthenticated_at,
-		          s.last_seen_at,s.rotated_at,s.expires_at,s.revoked_at,s.client_label`, hash[:], now.UTC(), int64(idleTTL/time.Second)).Scan(
+		          s.last_seen_at,s.rotated_at,s.expires_at,s.revoked_at,s.client_label,
+		          s.authentication_method,s.reauthentication_method`, hash[:], now.UTC(), int64(idleTTL/time.Second)).Scan(
 		&value.ID, &value.UserID, &tokenHash, &value.SecurityVersion, &value.AuthenticatedAt,
-		&value.ReauthenticatedAt, &value.LastSeenAt, &value.RotatedAt, &value.ExpiresAt, &value.RevokedAt, &value.ClientLabel)
+		&value.ReauthenticatedAt, &value.LastSeenAt, &value.RotatedAt, &value.ExpiresAt, &value.RevokedAt, &value.ClientLabel,
+		&value.AuthenticationMethod, &value.ReauthenticationMethod)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return sessions.Session{}, sessions.ErrInvalidSession
 	}
@@ -92,7 +94,8 @@ func (r *SessionRepository) RevokeOwned(ctx context.Context, userID ids.UserID, 
 
 func (r *SessionRepository) Active(ctx context.Context, userID ids.UserID, now time.Time, idleTTL time.Duration) ([]sessions.Session, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT s.id,s.user_id,s.security_version,s.authenticated_at,s.reauthenticated_at,s.last_seen_at,s.rotated_at,s.expires_at,s.client_label
+		SELECT s.id,s.user_id,s.security_version,s.authenticated_at,s.reauthenticated_at,s.last_seen_at,s.rotated_at,s.expires_at,s.client_label,
+		       s.authentication_method,s.reauthentication_method
 		FROM sessions s JOIN users u ON u.id=s.user_id
 		WHERE s.user_id=$1 AND u.state='active' AND u.security_version=s.security_version
 		  AND s.revoked_at IS NULL AND s.expires_at>$2
@@ -105,7 +108,7 @@ func (r *SessionRepository) Active(ctx context.Context, userID ids.UserID, now t
 	result := make([]sessions.Session, 0)
 	for rows.Next() {
 		var value sessions.Session
-		if err := rows.Scan(&value.ID, &value.UserID, &value.SecurityVersion, &value.AuthenticatedAt, &value.ReauthenticatedAt, &value.LastSeenAt, &value.RotatedAt, &value.ExpiresAt, &value.ClientLabel); err != nil {
+		if err := rows.Scan(&value.ID, &value.UserID, &value.SecurityVersion, &value.AuthenticatedAt, &value.ReauthenticatedAt, &value.LastSeenAt, &value.RotatedAt, &value.ExpiresAt, &value.ClientLabel, &value.AuthenticationMethod, &value.ReauthenticationMethod); err != nil {
 			return nil, err
 		}
 		result = append(result, value)
@@ -113,14 +116,14 @@ func (r *SessionRepository) Active(ctx context.Context, userID ids.UserID, now t
 	return result, rows.Err()
 }
 
-func (r *SessionRepository) MarkReauthenticated(ctx context.Context, userID ids.UserID, sessionID ids.SessionID, now time.Time) (bool, error) {
+func (r *SessionRepository) MarkReauthenticated(ctx context.Context, userID ids.UserID, sessionID ids.SessionID, method sessions.AuthenticationMethod, now time.Time) (bool, error) {
 	command, err := r.pool.Exec(ctx, `
 		WITH refreshed AS (
-			UPDATE sessions SET reauthenticated_at=$3,last_seen_at=$3
+			UPDATE sessions SET reauthenticated_at=$3,last_seen_at=$3,reauthentication_method=$4
 			WHERE id=$2 AND user_id=$1 AND revoked_at IS NULL AND expires_at>$3 RETURNING id,user_id
 		)
 		INSERT INTO user_security_events (user_id,session_id,event_type,occurred_at)
-		SELECT user_id,id,'session_reauthenticated',$3 FROM refreshed`, userID, sessionID, now.UTC())
+		SELECT user_id,id,'session_reauthenticated',$3 FROM refreshed`, userID, sessionID, now.UTC(), method)
 	return command.RowsAffected() == 1, err
 }
 

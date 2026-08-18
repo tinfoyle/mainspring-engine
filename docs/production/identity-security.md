@@ -26,6 +26,7 @@ Required invariants:
 - Every successful assertion updates the authenticator counter with compare-and-swap. A concurrent or stale counter update fails instead of overwriting newer state.
 - Authenticator clone warnings are rejected and recorded as security events.
 - At most ten passkeys may be registered for one User.
+- Durable sessions record both the initial authentication method and the latest reauthentication method. Password maps to `single_factor`; a user-verified passkey maps to `user_verified_cryptographic`. Neither value contains or grants Account authority.
 
 ## 2. Code ownership
 
@@ -68,6 +69,12 @@ The application owns the repository interface. Neither transport imports Postgre
 3. Successful cryptographic validation and counter update mark the existing session recently reauthenticated.
 4. The timestamp unlocks credential and commercial mutations for ten minutes; it grants no new Account role.
 
+### Session assurance
+
+The session keeps `authentication_method` separate from `reauthentication_method`. Initial sign-in sets both. A later step-up updates only the reauthentication method and timestamp. For example, a passkey-created session later confirmed with a password remains a passkey-created session, but it no longer satisfies a policy requiring recent user-verified cryptographic proof. Unknown method values are rejected by the application and database constraints.
+
+Active-session API responses expose the two methods and their derived assurance classifications. This gives future owner/admin MFA and high-risk operation policy a typed input without reinterpreting security events, browser state, Account role, or elapsed time alone.
+
 ## 4. HTTP surface
 
 ```text
@@ -107,6 +114,7 @@ Automated evidence covers:
 
 - a generated P-256 assertion accepted only with the correct challenge, exact origin, RP ID, signature, presence, and verification flags;
 - session issuance only after an atomic credential-counter update;
+- durable separation of initial and recent password/passkey assurance, including rejection of a password step-up for a cryptographic-assurance requirement;
 - rejection of tampered signatures, expired ceremonies, and ceremony replay;
 - resident-key/user-verification registration options and User/session ceremony binding;
 - ciphertext randomness, label binding, key-version binding, and tamper rejection;
@@ -117,10 +125,9 @@ Automated evidence covers:
 
 Passkeys are now a production authentication and strong-reauthentication option, but the broader Phase 2 identity program is not complete:
 
-1. Add an authentication-assurance value to sessions so policy can distinguish password, passkey, and future multi-factor sessions without confusing authentication with Account authorization.
-2. Define and implement MFA enrollment/recovery policy for Account owners and isolated platform administrators, including recovery codes and step-up rules.
-3. Add a multi-version credential-encryption keyring, re-encryption operator, and key-loss/rollback runbook.
-4. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
-5. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
-6. Add verified contact-method change, passkey rename, compromised-credential response, and customer-visible notification delivery.
-7. Run real-browser WebAuthn journeys across supported desktop/mobile platforms and accessibility tooling before release promotion.
+1. Define and implement MFA enrollment/recovery policy for Account owners and isolated platform administrators, including recovery codes and step-up rules built on the typed session assurance.
+2. Add a multi-version credential-encryption keyring, re-encryption operator, and key-loss/rollback runbook.
+3. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
+4. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
+5. Add verified contact-method change, passkey rename, compromised-credential response, and customer-visible notification delivery.
+6. Run real-browser WebAuthn journeys across supported desktop/mobile platforms and accessibility tooling before release promotion.

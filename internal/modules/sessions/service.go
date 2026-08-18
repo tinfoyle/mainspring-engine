@@ -18,17 +18,49 @@ var (
 )
 
 type Session struct {
-	ID                ids.SessionID
-	UserID            ids.UserID
-	TokenHash         [32]byte
-	SecurityVersion   uint64
-	AuthenticatedAt   time.Time
-	ReauthenticatedAt time.Time
-	LastSeenAt        time.Time
-	RotatedAt         time.Time
-	ExpiresAt         time.Time
-	RevokedAt         *time.Time
-	ClientLabel       string
+	ID                     ids.SessionID
+	UserID                 ids.UserID
+	TokenHash              [32]byte
+	SecurityVersion        uint64
+	AuthenticatedAt        time.Time
+	ReauthenticatedAt      time.Time
+	LastSeenAt             time.Time
+	RotatedAt              time.Time
+	ExpiresAt              time.Time
+	RevokedAt              *time.Time
+	ClientLabel            string
+	AuthenticationMethod   AuthenticationMethod
+	ReauthenticationMethod AuthenticationMethod
+}
+
+type AuthenticationMethod string
+
+const (
+	AuthenticationMethodPassword AuthenticationMethod = "password"
+	AuthenticationMethodPasskey  AuthenticationMethod = "passkey"
+)
+
+type AuthenticationAssurance string
+
+const (
+	AssuranceUnknown                   AuthenticationAssurance = "unknown"
+	AssuranceSingleFactor              AuthenticationAssurance = "single_factor"
+	AssuranceUserVerifiedCryptographic AuthenticationAssurance = "user_verified_cryptographic"
+)
+
+func (m AuthenticationMethod) Valid() bool {
+	return m == AuthenticationMethodPassword || m == AuthenticationMethodPasskey
+}
+
+func (m AuthenticationMethod) Assurance() AuthenticationAssurance {
+	switch m {
+	case AuthenticationMethodPassword:
+		return AssuranceSingleFactor
+	case AuthenticationMethodPasskey:
+		return AssuranceUserVerifiedCryptographic
+	default:
+		return AssuranceUnknown
+	}
 }
 
 type Repository interface {
@@ -39,7 +71,7 @@ type Repository interface {
 	RevokeAll(context.Context, ids.UserID, time.Time) error
 	RevokeOwned(context.Context, ids.UserID, ids.SessionID, time.Time) (bool, error)
 	Active(context.Context, ids.UserID, time.Time, time.Duration) ([]Session, error)
-	MarkReauthenticated(context.Context, ids.UserID, ids.SessionID, time.Time) (bool, error)
+	MarkReauthenticated(context.Context, ids.UserID, ids.SessionID, AuthenticationMethod, time.Time) (bool, error)
 	SecurityEvents(context.Context, ids.UserID, int) ([]SecurityEvent, error)
 }
 
@@ -95,8 +127,15 @@ func (s *Service) Issue(ctx context.Context, userID ids.UserID, securityVersion 
 }
 
 func (s *Service) IssueForClient(ctx context.Context, userID ids.UserID, securityVersion uint64, clientLabel string) (Issued, error) {
+	return s.IssueForClientWithMethod(ctx, userID, securityVersion, clientLabel, AuthenticationMethodPassword)
+}
+
+func (s *Service) IssueForClientWithMethod(ctx context.Context, userID ids.UserID, securityVersion uint64, clientLabel string, method AuthenticationMethod) (Issued, error) {
 	if userID == "" || securityVersion == 0 {
 		return Issued{}, errors.New("user ID and security version are required")
+	}
+	if !method.Valid() {
+		return Issued{}, errors.New("authentication method is invalid")
 	}
 	token, hash, err := newToken()
 	if err != nil {
@@ -110,7 +149,7 @@ func (s *Service) IssueForClient(ctx context.Context, userID ids.UserID, securit
 	if len(clientLabel) > 160 {
 		clientLabel = clientLabel[:160]
 	}
-	session := Session{ID: ids.SessionID(s.ids.New()), UserID: userID, TokenHash: hash, SecurityVersion: securityVersion, AuthenticatedAt: now, ReauthenticatedAt: now, LastSeenAt: now, RotatedAt: now, ExpiresAt: now.Add(s.absoluteTTL), ClientLabel: clientLabel}
+	session := Session{ID: ids.SessionID(s.ids.New()), UserID: userID, TokenHash: hash, SecurityVersion: securityVersion, AuthenticatedAt: now, ReauthenticatedAt: now, LastSeenAt: now, RotatedAt: now, ExpiresAt: now.Add(s.absoluteTTL), ClientLabel: clientLabel, AuthenticationMethod: method, ReauthenticationMethod: method}
 	if err := s.repository.Create(ctx, session); err != nil {
 		return Issued{}, err
 	}
@@ -118,13 +157,17 @@ func (s *Service) IssueForClient(ctx context.Context, userID ids.UserID, securit
 }
 
 type ActiveSession struct {
-	ID                ids.SessionID `json:"id"`
-	ClientLabel       string        `json:"client_label"`
-	AuthenticatedAt   time.Time     `json:"authenticated_at"`
-	ReauthenticatedAt time.Time     `json:"reauthenticated_at"`
-	LastSeenAt        time.Time     `json:"last_seen_at"`
-	ExpiresAt         time.Time     `json:"expires_at"`
-	Current           bool          `json:"current"`
+	ID                        ids.SessionID           `json:"id"`
+	ClientLabel               string                  `json:"client_label"`
+	AuthenticatedAt           time.Time               `json:"authenticated_at"`
+	ReauthenticatedAt         time.Time               `json:"reauthenticated_at"`
+	LastSeenAt                time.Time               `json:"last_seen_at"`
+	ExpiresAt                 time.Time               `json:"expires_at"`
+	Current                   bool                    `json:"current"`
+	AuthenticationMethod      AuthenticationMethod    `json:"authentication_method"`
+	AuthenticationAssurance   AuthenticationAssurance `json:"authentication_assurance"`
+	ReauthenticationMethod    AuthenticationMethod    `json:"reauthentication_method"`
+	ReauthenticationAssurance AuthenticationAssurance `json:"reauthentication_assurance"`
 }
 
 func (s *Service) Active(ctx context.Context, userID ids.UserID, currentID ids.SessionID) ([]ActiveSession, error) {
@@ -137,7 +180,7 @@ func (s *Service) Active(ctx context.Context, userID ids.UserID, currentID ids.S
 	}
 	result := make([]ActiveSession, 0, len(values))
 	for _, value := range values {
-		result = append(result, ActiveSession{ID: value.ID, ClientLabel: value.ClientLabel, AuthenticatedAt: value.AuthenticatedAt, ReauthenticatedAt: value.ReauthenticatedAt, LastSeenAt: value.LastSeenAt, ExpiresAt: value.ExpiresAt, Current: value.ID == currentID})
+		result = append(result, ActiveSession{ID: value.ID, ClientLabel: value.ClientLabel, AuthenticatedAt: value.AuthenticatedAt, ReauthenticatedAt: value.ReauthenticatedAt, LastSeenAt: value.LastSeenAt, ExpiresAt: value.ExpiresAt, Current: value.ID == currentID, AuthenticationMethod: value.AuthenticationMethod, AuthenticationAssurance: value.AuthenticationMethod.Assurance(), ReauthenticationMethod: value.ReauthenticationMethod, ReauthenticationAssurance: value.ReauthenticationMethod.Assurance()})
 	}
 	return result, nil
 }
@@ -163,10 +206,17 @@ func (s *Service) RevokeOwned(ctx context.Context, userID ids.UserID, sessionID 
 }
 
 func (s *Service) MarkReauthenticated(ctx context.Context, userID ids.UserID, sessionID ids.SessionID) error {
+	return s.MarkReauthenticatedWithMethod(ctx, userID, sessionID, AuthenticationMethodPassword)
+}
+
+func (s *Service) MarkReauthenticatedWithMethod(ctx context.Context, userID ids.UserID, sessionID ids.SessionID, method AuthenticationMethod) error {
 	if userID == "" || sessionID == "" {
 		return errors.New("user ID and session ID are required")
 	}
-	updated, err := s.repository.MarkReauthenticated(ctx, userID, sessionID, s.clock.Now().UTC())
+	if !method.Valid() {
+		return errors.New("reauthentication method is invalid")
+	}
+	updated, err := s.repository.MarkReauthenticated(ctx, userID, sessionID, method, s.clock.Now().UTC())
 	if err != nil {
 		return err
 	}
@@ -174,6 +224,14 @@ func (s *Service) MarkReauthenticated(ctx context.Context, userID ids.UserID, se
 		return ErrInvalidSession
 	}
 	return nil
+}
+
+func RecentlyReauthenticatedWithAssurance(value Session, now time.Time, maximumAge time.Duration, assurance AuthenticationAssurance) bool {
+	return assurance != AssuranceUnknown && RecentlyReauthenticated(value, now, maximumAge) && value.ReauthenticationMethod.Assurance() == assurance
+}
+
+func (s *Service) RecentlyReauthenticatedWithAssurance(value Session, maximumAge time.Duration, assurance AuthenticationAssurance) bool {
+	return RecentlyReauthenticatedWithAssurance(value, s.clock.Now().UTC(), maximumAge, assurance)
 }
 
 func RecentlyReauthenticated(value Session, now time.Time, maximumAge time.Duration) bool {

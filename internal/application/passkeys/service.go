@@ -282,7 +282,7 @@ func (s *Service) CompleteLogin(ctx context.Context, command LoginCommand) (sess
 	if !updated {
 		return sessions.Issued{}, ErrCredentialStateConflict
 	}
-	return s.sessions.IssueForClient(ctx, loaded.Identity.ID, loaded.Identity.SecurityVersion, command.ClientLabel)
+	return s.sessions.IssueForClientWithMethod(ctx, loaded.Identity.ID, loaded.Identity.SecurityVersion, command.ClientLabel, sessions.AuthenticationMethodPasskey)
 }
 
 func (s *Service) BeginReauthentication(ctx context.Context, session sessions.Session) (BeginResult, error) {
@@ -328,7 +328,7 @@ func (s *Service) CompleteReauthentication(ctx context.Context, session sessions
 	if !updated {
 		return ErrCredentialStateConflict
 	}
-	return s.sessions.MarkReauthenticated(ctx, session.UserID, session.ID)
+	return s.sessions.MarkReauthenticatedWithMethod(ctx, session.UserID, session.ID, sessions.AuthenticationMethodPasskey)
 }
 
 func (s *Service) Credentials(ctx context.Context, userID ids.UserID) ([]CredentialSummary, error) {

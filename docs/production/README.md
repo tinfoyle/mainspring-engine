@@ -500,7 +500,7 @@ These are proposed engineering objectives to validate with observed prototype an
 
 The following decisions must be resolved by ADR before their dependent phase begins:
 
-1. Session authentication-assurance representation, mandatory MFA/recovery policy, and enterprise federation requirements beyond the executable password/passkey boundary.
+1. Mandatory MFA/recovery policy and enterprise federation requirements beyond the executable password/passkey and typed session-assurance boundary.
 2. Initial Feature Package/Plan/Offer catalog, quotas, trials, grace periods, downgrade retention, and pricing governance.
 3. Initial cell capacity envelope, account-move mechanism, and enterprise dedicated-placement threshold.
 4. Object storage, malware scanning, and retention implementation for original uploads.

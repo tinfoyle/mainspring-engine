@@ -78,6 +78,9 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if login.StatusCode != http.StatusCreated {
 		t.Fatalf("login status %d: %s", login.StatusCode, login.Body)
 	}
+	if !bytes.Contains(login.Body, []byte(`"authentication_method":"password"`)) || !bytes.Contains(login.Body, []byte(`"authentication_assurance":"single_factor"`)) {
+		t.Fatalf("password login assurance missing: %s", login.Body)
+	}
 	cookies := (&http.Response{Header: login.Header}).Cookies()
 	if len(cookies) != 1 || cookies[0].Name != "spyglass_development_session" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
 		t.Fatalf("unexpected session cookie: %#v", cookies)
@@ -128,8 +131,10 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	var inventory struct {
 		Sessions []struct {
-			ID      string `json:"id"`
-			Current bool   `json:"current"`
+			ID                      string `json:"id"`
+			Current                 bool   `json:"current"`
+			AuthenticationMethod    string `json:"authentication_method"`
+			AuthenticationAssurance string `json:"authentication_assurance"`
 		} `json:"sessions"`
 	}
 	if err := json.NewDecoder(sessionsResponse.Body).Decode(&inventory); err != nil {
@@ -141,6 +146,9 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 	otherSessionID := ""
 	for _, item := range inventory.Sessions {
+		if item.AuthenticationMethod != "password" || item.AuthenticationAssurance != "single_factor" {
+			t.Fatalf("password session assurance = %+v", item)
+		}
 		if !item.Current {
 			otherSessionID = item.ID
 		}

@@ -97,7 +97,7 @@ func (s *Service) Login(ctx context.Context, command LoginCommand) (sessions.Iss
 	if err := s.limiter.Success(ctx, key); err != nil {
 		return sessions.Issued{}, err
 	}
-	return s.sessions.IssueForClient(ctx, local.User.ID, local.User.SecurityVersion, command.ClientLabel)
+	return s.sessions.IssueForClientWithMethod(ctx, local.User.ID, local.User.SecurityVersion, command.ClientLabel, sessions.AuthenticationMethodPassword)
 }
 
 type ReauthenticateCommand struct {
@@ -136,5 +136,5 @@ func (s *Service) Reauthenticate(ctx context.Context, command ReauthenticateComm
 	if err := s.limiter.Success(ctx, key); err != nil {
 		return err
 	}
-	return s.sessions.MarkReauthenticated(ctx, command.UserID, command.SessionID)
+	return s.sessions.MarkReauthenticatedWithMethod(ctx, command.UserID, command.SessionID, sessions.AuthenticationMethodPassword)
 }

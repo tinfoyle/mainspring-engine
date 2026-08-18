@@ -478,7 +478,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setSessionCookie(w, issued.Token, issued.Session.ExpiresAt)
-	writeJSON(w, http.StatusCreated, map[string]any{"status": "authenticated", "user_id": issued.Session.UserID, "expires_at": issued.Session.ExpiresAt})
+	writeJSON(w, http.StatusCreated, map[string]any{"status": "authenticated", "user_id": issued.Session.UserID, "expires_at": issued.Session.ExpiresAt, "authentication_method": issued.Session.AuthenticationMethod, "authentication_assurance": issued.Session.AuthenticationMethod.Assurance()})
 }
 
 func (s *Server) beginPasskeyLogin(w http.ResponseWriter, r *http.Request) {
@@ -538,7 +538,7 @@ func (s *Server) completePasskeyLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setSessionCookie(w, issued.Token, issued.Session.ExpiresAt)
-	writeJSON(w, http.StatusCreated, map[string]any{"status": "authenticated", "user_id": issued.Session.UserID, "expires_at": issued.Session.ExpiresAt})
+	writeJSON(w, http.StatusCreated, map[string]any{"status": "authenticated", "user_id": issued.Session.UserID, "expires_at": issued.Session.ExpiresAt, "authentication_method": issued.Session.AuthenticationMethod, "authentication_assurance": issued.Session.AuthenticationMethod.Assurance()})
 }
 
 func (s *Server) listPasskeys(w http.ResponseWriter, r *http.Request) {

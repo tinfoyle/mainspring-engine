@@ -521,12 +521,12 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	issued, err := sessionService.IssueForClient(ctx, provisioned.User.ID, provisioned.User.SecurityVersion, "PostgreSQL contract browser")
+	issued, err := sessionService.IssueForClientWithMethod(ctx, provisioned.User.ID, provisioned.User.SecurityVersion, "PostgreSQL contract browser", sessions.AuthenticationMethodPasskey)
 	if err != nil {
 		t.Fatalf("issue persistent session: %v", err)
 	}
 	active, err := sessionService.Active(ctx, provisioned.User.ID, issued.Session.ID)
-	if err != nil || len(active) != 1 || !active[0].Current || active[0].ClientLabel != "PostgreSQL contract browser" {
+	if err != nil || len(active) != 1 || !active[0].Current || active[0].ClientLabel != "PostgreSQL contract browser" || active[0].AuthenticationMethod != sessions.AuthenticationMethodPasskey || active[0].AuthenticationAssurance != sessions.AssuranceUserVerifiedCryptographic {
 		t.Fatalf("persistent active sessions = %+v, %v", active, err)
 	}
 	if revoked, err := sessionService.RevokeOwned(ctx, ids.UserID("30000000-0000-4000-8000-000000000003"), issued.Session.ID); err != nil || revoked {
@@ -534,6 +534,10 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 	if err := sessionService.MarkReauthenticated(ctx, provisioned.User.ID, issued.Session.ID); err != nil {
 		t.Fatalf("mark persistent session reauthenticated: %v", err)
+	}
+	refreshedSession, err := sessionService.Authenticate(ctx, issued.Token)
+	if err != nil || refreshedSession.Session.AuthenticationMethod != sessions.AuthenticationMethodPasskey || refreshedSession.Session.ReauthenticationMethod != sessions.AuthenticationMethodPassword {
+		t.Fatalf("persistent session assurance after password step-up = %+v, %v", refreshedSession.Session, err)
 	}
 	var securityEvents int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_security_events WHERE user_id=$1`, provisioned.User.ID).Scan(&securityEvents); err != nil {
@@ -741,7 +745,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 23 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 24 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 

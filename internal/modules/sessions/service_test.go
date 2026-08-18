@@ -104,3 +104,46 @@ func TestSessionInventoryOwnershipAndReauthentication(t *testing.T) {
 		t.Fatalf("other-user security events = %+v, %v", otherEvents, err)
 	}
 }
+
+func TestSessionAuthenticationAssuranceTracksInitialAndRecentProofSeparately(t *testing.T) {
+	clock := &clock{now: time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)}
+	service, err := sessions.NewService(memory.NewSessionStore(), &generator{}, clock, 24*time.Hour, time.Hour, 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := service.IssueForClientWithMethod(context.Background(), ids.UserID("user-a"), 1, "Passkey browser", sessions.AuthenticationMethodPasskey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued.Session.AuthenticationMethod != sessions.AuthenticationMethodPasskey || issued.Session.AuthenticationMethod.Assurance() != sessions.AssuranceUserVerifiedCryptographic || issued.Session.ReauthenticationMethod != sessions.AuthenticationMethodPasskey {
+		t.Fatalf("unexpected initial assurance: %+v", issued.Session)
+	}
+	clock.now = clock.now.Add(time.Minute)
+	if err := service.MarkReauthenticated(context.Background(), ids.UserID("user-a"), issued.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := service.Authenticate(context.Background(), issued.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.Session.AuthenticationMethod != sessions.AuthenticationMethodPasskey || refreshed.Session.ReauthenticationMethod != sessions.AuthenticationMethodPassword {
+		t.Fatalf("password step-up changed initial method or was not recorded: %+v", refreshed.Session)
+	}
+	if service.RecentlyReauthenticatedWithAssurance(refreshed.Session, 10*time.Minute, sessions.AssuranceUserVerifiedCryptographic) {
+		t.Fatal("password confirmation satisfied cryptographic assurance")
+	}
+	clock.now = clock.now.Add(time.Minute)
+	if err := service.MarkReauthenticatedWithMethod(context.Background(), ids.UserID("user-a"), issued.Session.ID, sessions.AuthenticationMethodPasskey); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err = service.Authenticate(context.Background(), issued.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !service.RecentlyReauthenticatedWithAssurance(refreshed.Session, 10*time.Minute, sessions.AssuranceUserVerifiedCryptographic) {
+		t.Fatal("user-verified passkey did not satisfy cryptographic assurance")
+	}
+	if _, err := service.IssueForClientWithMethod(context.Background(), ids.UserID("user-a"), 1, "Invalid", sessions.AuthenticationMethod("asserted-by-client")); err == nil {
+		t.Fatal("unknown authentication method was accepted")
+	}
+}

@@ -115,7 +115,7 @@ func (s *SessionStore) Active(_ context.Context, userID ids.UserID, now time.Tim
 	return result, nil
 }
 
-func (s *SessionStore) MarkReauthenticated(_ context.Context, userID ids.UserID, sessionID ids.SessionID, now time.Time) (bool, error) {
+func (s *SessionStore) MarkReauthenticated(_ context.Context, userID ids.UserID, sessionID ids.SessionID, method sessions.AuthenticationMethod, now time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	value, ok := s.values[sessionID]
@@ -123,6 +123,7 @@ func (s *SessionStore) MarkReauthenticated(_ context.Context, userID ids.UserID,
 		return false, nil
 	}
 	value.ReauthenticatedAt = now.UTC()
+	value.ReauthenticationMethod = method
 	value.LastSeenAt = now.UTC()
 	s.values[sessionID] = value
 	s.appendEventLocked(userID, sessions.SecurityEvent{Type: sessions.EventSessionReauthenticated, SessionID: sessionID, OccurredAt: now.UTC()})

@@ -38,7 +38,7 @@ func TestDiscoverableLoginVerifiesSignatureUpdatesCounterAndRejectsReplay(t *tes
 	if err != nil {
 		t.Fatalf("complete signed passkey login: %v", err)
 	}
-	if issued.Session.UserID != fixture.userID || issued.Session.ClientLabel != "test browser" || issued.Token == "" {
+	if issued.Session.UserID != fixture.userID || issued.Session.ClientLabel != "test browser" || issued.Token == "" || issued.Session.AuthenticationMethod != sessions.AuthenticationMethodPasskey || issued.Session.ReauthenticationMethod != sessions.AuthenticationMethodPasskey {
 		t.Fatalf("unexpected issued session: %+v", issued.Session)
 	}
 	if got := fixture.repository.user.Credentials[0].Credential.Authenticator.SignCount; got != 8 {
