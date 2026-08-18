@@ -18,5 +18,13 @@ resources:
   - runner-controller.yaml
   - runner-broker.yaml
   - model-gateway.yaml
+  - observability-gateway.yaml
+  - observability/prometheus-rule.yaml
   - runner-rbac.yaml
   - policy.yaml
+
+configMapGenerator:
+  - name: spyglass-otel-collector-config
+    namespace: spyglass-reference
+    files:
+      - collector.yaml=observability/collector.yaml

@@ -1,0 +1,92 @@
+rule_files:
+  - spyglass.rules.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - name: sustained-http-errors-page-after-the-reviewed-window
+    interval: 1m
+    input_series:
+      - series: 'spyglass_http_requests_total{service="app-api",status_class="2xx"}'
+        values: '0+54x30'
+      - series: 'spyglass_http_requests_total{service="app-api",status_class="5xx"}'
+        values: '0+6x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SpyglassHTTPErrorBudgetBurn
+        exp_alerts:
+          - exp_labels: {service: app-api, severity: page, owner: platform-on-call}
+            exp_annotations:
+              summary: Spyglass service has a sustained HTTP 5xx ratio above 5 percent
+              description: app-api is returning too many server errors for customer traffic.
+              runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#http-error-budget-burn
+
+  - name: fixed-http-buckets-produce-tail-latency
+    interval: 1m
+    input_series:
+      - series: 'spyglass_http_request_duration_seconds_bucket{service="app-api",le="0.5"}'
+        values: '0+50x20'
+      - series: 'spyglass_http_request_duration_seconds_bucket{service="app-api",le="1"}'
+        values: '0+90x20'
+      - series: 'spyglass_http_request_duration_seconds_bucket{service="app-api",le="2.5"}'
+        values: '0+100x20'
+      - series: 'spyglass_http_request_duration_seconds_bucket{service="app-api",le="+Inf"}'
+        values: '0+100x20'
+    promql_expr_test:
+      - expr: spyglass:http_duration:p95_5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'spyglass:http_duration:p95_5m{service="app-api"}'
+            value: 1.7499999999999991
+
+  - name: queue-age-and-dead-letter-pages-require-persistence
+    interval: 1m
+    input_series:
+      - series: 'spyglass_worker_status{worker="agent-dispatch",field="oldest_ready_age_seconds"}'
+        values: '600x30'
+      - series: 'spyglass_worker_status{worker="agent-dispatch",field="dead_letter"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SpyglassRunnableQueueStalled
+        exp_alerts:
+          - exp_labels: {worker: agent-dispatch, severity: page, owner: platform-on-call}
+            exp_annotations:
+              summary: Spyglass runnable work has remained queued for more than five minutes
+              description: agent-dispatch has a sustained oldest runnable age of 10m 0s.
+              runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#runnable-queue-stall
+      - eval_time: 10m
+        alertname: SpyglassQueueDeadLetterPresent
+        exp_alerts:
+          - exp_labels: {worker: agent-dispatch, severity: page, owner: platform-on-call}
+            exp_annotations:
+              summary: Spyglass queue contains dead-lettered work
+              description: agent-dispatch reports 1 dead-lettered records.
+              runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#queue-dead-letter
+
+  - name: collector-export-loss-pages-and-absence-pages-separately
+    interval: 1m
+    input_series:
+      - series: 'otelcol_exporter_send_failed_spans{service_name="spyglass-otel-collector"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: SpyglassCollectorExportFailure
+        exp_alerts:
+          - exp_labels: {severity: page, owner: platform-on-call}
+            exp_annotations:
+              summary: The Spyglass collector cannot export all accepted spans
+              description: Collector export or bounded-queue enqueue failures have persisted for five minutes.
+              runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#collector-export-loss
+
+  - name: collector-metric-absence-is-not-health
+    interval: 1m
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SpyglassCollectorMetricsMissing
+        exp_alerts:
+          - exp_labels: {service_name: spyglass-otel-collector, severity: page, owner: platform-on-call}
+            exp_annotations:
+              summary: No Spyglass collector internal telemetry is being scraped
+              description: Collector health, refusal, and export-loss signals are unavailable.
+              runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#missing-telemetry

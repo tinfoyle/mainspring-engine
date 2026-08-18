@@ -1,6 +1,6 @@
 # OpenTelemetry tracing and observability operations
 
-Status: executable content-safe OTLP/HTTP trace export; collector deployment, dashboards, alerts, burn-in, and game-day evidence remain environment gates
+Status: executable content-safe OTLP/HTTP trace export plus a binary-validated collector gateway, Prometheus rules, and Grafana overview reference; applied backend, scrape, paging, burn-in, and game-day evidence remain environment gates
 
 ## Runtime contract
 
@@ -52,6 +52,21 @@ The production overlay must provide an authenticated collector or gateway inside
 
 Do not send customer telemetry directly from application Pods to a third-party backend. Terminate workload mTLS at the environment collector, enforce the attribute allowlist there again, then export under a separate collector-owned credential. Configure retention, regional processing, deletion, access logging, and subprocessor treatment before customer traffic.
 
+The checked-in reference now includes two disruption-protected `otel-collector` gateway replicas using the official OpenTelemetry Collector Contrib `0.159.0` multi-platform image pinned to digest `sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc`. Its configuration is validated by that exact binary in hosted CI. It accepts only one-MiB OTLP/HTTP requests over reloadable TLS 1.3 with a required, reloadable workload-client CA, drops spans containing links, validates bounded resource/span values, removes every non-allowlisted attribute, canonicalizes scope/span/event text, exposes only internal health metrics, and exports through a separate bounded 2,048-item queue over TLS 1.3. It has no Kubernetes API credential, writable root filesystem, debug/content exporter, or embedded backend credential.
+
+The base deliberately cannot export in an applied cluster. An environment overlay must provide all of the following:
+
+- `spyglass-otel-collector-ingress-tls` with the Service-DNS server certificate and private key;
+- `spyglass-workload-client-ca` containing only the reviewed workload client issuer as `ca.crt`;
+- `spyglass-observability-runtime.environment` as the bounded environment label and `backendEndpoint` as the reviewed HTTPS OTLP backend base URL;
+- `spyglass-otel-collector-backend.authorization` and `ca.crt` as the collector-owned backend credential and trust bundle;
+- exact collector-to-backend egress, while keeping the base default denial in force;
+- `SPYGLASS_OTEL_TRACES_ENDPOINT=https://otel-collector.spyglass-reference.svc.cluster.local:4318/v1/traces` and the managed tracing values on traced workloads;
+- a Prometheus Operator-compatible rule selector, authenticated scrape configuration for application metrics, paging receiver/routing policy, and import/provisioning of `deploy/observability/grafana/spyglass-overview.json`;
+- retention, region, access-control, deletion, and subprocessor review for the chosen backend.
+
+The `PrometheusRule` and dashboard are version-controlled product artifacts, not proof that an environment is monitoring anything. Promotion must record their content digests and prove the target Prometheus loaded every rule, the dashboard queries return the exact release series, and a synthetic firing alert reaches the named on-call receiver.
+
 ## Release acceptance
 
 For the exact release artifact and target environment:
@@ -70,6 +85,61 @@ Before staging burn-in, provide version-controlled dashboards for request rate/e
 
 Page on sustained customer SLO burn, isolation denials, billing projection lag, oldest runnable/dispatch/projection work, collector-wide trace loss, and restore-gate failures. Ticket lower urgency capacity trends, individual provider retries, and sampling gaps that do not affect the whole environment. Every alert needs an owner, severity, evaluation window, runbook link, and explicit recovery/verification step.
 
+The reference `spyglass-production` rule group supplies recording rules for five-minute request rate, 5xx ratio, and p95 latency plus paging/ticket alerts for the currently executable HTTP, worker, and collector signals. The dashboard intentionally has no Account-reference variable or panel. Billing projection lag, isolation denial, database saturation, restore-gate, and expected-workload trace-absence signals still require dedicated runtime/environment metrics before their corresponding launch pages can be considered implemented.
+
+## Alert response procedures
+
+These are minimum response contracts. Environment runbooks may add provider-specific commands, but may not replace content-free evidence with customer payload inspection or direct queue/database mutation.
+
+### HTTP error budget burn
+
+1. Acknowledge the page and identify the static `service` label, affected release digest, first firing time, and whether all replicas/routes are affected.
+2. Compare bounded route-template 5xx rates with deployment, dependency, database saturation, and collector timestamps. Do not query raw paths or bodies.
+3. Stop the active rollout. If the failure began with the candidate and rollback safety gates remain satisfied, roll back to the last retained verified digest.
+4. Verify the five-minute ratio remains below five percent for at least two evaluation windows and that no isolation or duplicate-effect signal appeared before resolving.
+
+### HTTP tail latency
+
+1. Confirm the p95 series is backed by current histogram buckets and meaningful request rate; a stale or absent scrape is a telemetry incident instead.
+2. Compare replica CPU/memory, in-flight requests, database connections, queue age, and bounded provider latency. Preserve Account fairness and connection caps while scaling.
+3. Stop or roll back a correlated release; otherwise mitigate the saturated dependency or add replicas within the reviewed limit.
+4. Resolve only after p95 stays below one second for two evaluation windows and queued work is not growing.
+
+### Runnable queue stall
+
+1. Identify the static worker and field, confirm at least one ready replica, and compare ready, leased, retrying, dead-letter, and oldest-age gauges.
+2. Stop rollouts and new discretionary load if age continues to increase. Do not bypass Account-fair claims or capacity fencing.
+3. Use the queue-specific inspected operator command and immutable audit path when a poisoned record is suspected; never update queue rows directly.
+4. Verify oldest age returns below the threshold, ready backlog drains, and no duplicate external effect or capacity leak occurred.
+
+### Queue dead letter
+
+1. Treat every sustained non-zero dead-letter gauge as a failed product operation, not routine backlog.
+2. Use `agent-queue-admin` or `work-release-admin` with exact environment, queue, target, actor, and reason confirmation. Preserve the original immutable evidence.
+3. Requeue only after the deterministic cause is corrected and reviewed. If the operation may have crossed an external-effect boundary, reconcile before retry.
+4. Verify the target reaches its terminal state, the gauge returns to zero, and the audit batch is archived.
+
+### Collector export loss
+
+1. Determine whether enqueue failure, send failure, or queue utilization fired and whether both collector replicas are affected.
+2. Check backend reachability, authorization expiry/rotation, CA validity, quota, and throttling through content-free collector health only.
+3. Preserve the bounded queue and retry limits; do not remove the memory limiter, enable an unbounded queue, or add a debug exporter.
+4. Verify queue utilization returns below 50 percent, failure counters stop increasing, accepted spans resume export, and application latency was unaffected.
+
+### Collector refusal
+
+1. Compare receiver versus processor refusal. Receiver refusal indicates payload/resource pressure; processor refusal normally means a workload violated the strict telemetry shape.
+2. Identify the static workload certificate and release identity without recording customer payloads. Quarantine a workload that emits unexpected attributes, links, identifiers, or malformed values.
+3. Correct instrumentation or capacity; never widen the allowlist during incident response.
+4. Replay only synthetic validation traffic, then verify refusal counters stop increasing and the content scan remains clean.
+
+### Missing telemetry
+
+1. Distinguish a failed workload/collector from failed service discovery, network policy, certificate, or Prometheus ingestion.
+2. Check target health and rule evaluation timestamps from the monitoring plane. Absence is not evidence of health.
+3. Restore scraping/export or fail over the monitoring plane; stop promotion while critical service, worker, or collector signals are missing.
+4. Verify at least two fresh scrapes, successful rule evaluation, and one synthetic alert delivery before resolving.
+
 ## Current limit
 
-This implementation instruments HTTP serving and the principal routed/provider HTTP clients. PostgreSQL calls, worker lease loops, Kubernetes controller calls, runner-invocation exchange, SMTP, and detailed queue phase spans are not yet instrumented. No checked-in collector deployment, backend, dashboard, alert rule, staging burn-in, or game-day result exists. Consequently this closes the runtime export gap but does not close the production observability P0 by itself.
+This implementation instruments HTTP serving and the principal routed/provider HTTP clients. PostgreSQL calls, worker lease loops, Kubernetes controller calls, runner-invocation exchange, SMTP, and detailed queue phase spans are not yet instrumented. A checked-in collector gateway, dashboard, and initial alert rules now exist and are syntax/component validated, but no overlay has supplied the backend, secrets, authenticated application scrape, remaining signals, paging route, applied policy evidence, staging burn-in, or game-day result. Consequently the repository deployment contract is substantially stronger, but the production observability P0 remains open.

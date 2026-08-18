@@ -1,0 +1,99 @@
+{
+  "annotations": {"list": []},
+  "description": "Content-free Spyglass service, queue, and collector health. Account references are deliberately excluded.",
+  "editable": false,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "description": "Completed requests per second by bounded static service label.",
+      "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "id": 1,
+      "targets": [{"expr": "spyglass:http_requests:rate5m", "legendFormat": "{{service}}", "refId": "A"}],
+      "title": "Request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "description": "Five-minute server-error ratio; the page threshold is 5 percent for ten minutes with meaningful traffic.",
+      "fieldConfig": {"defaults": {"max": 1, "min": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 0.05}]}, "unit": "percentunit"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "id": 2,
+      "targets": [{"expr": "spyglass:http_5xx_ratio:rate5m", "legendFormat": "{{service}}", "refId": "A"}],
+      "title": "HTTP 5xx ratio",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "description": "Five-minute p95 derived from fixed cumulative application histogram buckets.",
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}, "unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "id": 3,
+      "targets": [{"expr": "spyglass:http_duration:p95_5m", "legendFormat": "{{service}}", "refId": "A"}],
+      "title": "HTTP p95 latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "description": "Oldest runnable or pending record by worker. Gauges contain no Account or item identifiers.",
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "id": 4,
+      "targets": [{"expr": "max by (worker, field) (spyglass_worker_status{field=~\"oldest_(ready|pending|due)_age_seconds\"})", "legendFormat": "{{worker}} / {{field}}", "refId": "A"}],
+      "title": "Oldest queue age",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "description": "Dead-letter population by worker; any sustained non-zero value pages the owner.",
+      "fieldConfig": {"defaults": {"decimals": 0, "min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "id": 5,
+      "targets": [{"expr": "max by (worker) (spyglass_worker_status{field=\"dead_letter\"})", "legendFormat": "{{worker}}", "refId": "A"}],
+      "title": "Queue dead letters",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "description": "Collector receiver and processor acceptance/refusal rates.",
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "id": 6,
+      "targets": [
+        {"expr": "sum(rate(otelcol_receiver_accepted_spans{service_name=\"spyglass-otel-collector\"}[5m]))", "legendFormat": "accepted", "refId": "A"},
+        {"expr": "sum(rate(otelcol_receiver_refused_spans{service_name=\"spyglass-otel-collector\"}[5m])) + sum(rate(otelcol_processor_refused_spans{service_name=\"spyglass-otel-collector\"}[5m]))", "legendFormat": "refused", "refId": "B"}
+      ],
+      "title": "Collector span flow",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "description": "Bounded exporter queue pressure and failed sends/enqueues.",
+      "fieldConfig": {"defaults": {"min": 0}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "id": 7,
+      "targets": [
+        {"expr": "sum(otelcol_exporter_queue_size{service_name=\"spyglass-otel-collector\"}) / clamp_min(sum(otelcol_exporter_queue_capacity{service_name=\"spyglass-otel-collector\"}), 1)", "legendFormat": "queue utilization", "refId": "A"},
+        {"expr": "sum(rate(otelcol_exporter_send_failed_spans{service_name=\"spyglass-otel-collector\"}[5m])) + sum(rate(otelcol_exporter_enqueue_failed_spans{service_name=\"spyglass-otel-collector\"}[5m]))", "legendFormat": "failed spans/sec", "refId": "B"}
+      ],
+      "title": "Collector export pressure",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["spyglass", "production", "content-free"],
+  "templating": {
+    "list": [
+      {"current": {}, "hide": 0, "includeAll": false, "label": "Prometheus", "name": "DS_PROMETHEUS", "options": [], "query": "prometheus", "refresh": 1, "type": "datasource"}
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Spyglass production overview",
+  "uid": "spyglass-production-overview",
+  "version": 1
+}

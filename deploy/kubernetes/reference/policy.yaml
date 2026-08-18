@@ -173,3 +173,39 @@ spec:
       ports:
         - {protocol: UDP, port: 53}
         - {protocol: TCP, port: 53}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: workloads-to-otel-collector, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/part-of, operator: In, values: [spyglass]}
+      - {key: app.kubernetes.io/name, operator: NotIn, values: [otel-collector]}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: otel-collector}
+      ports: [{protocol: TCP, port: 4318}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: otel-collector-ingress, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: otel-collector}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: app.kubernetes.io/part-of, operator: In, values: [spyglass]}
+              - {key: app.kubernetes.io/name, operator: NotIn, values: [otel-collector]}
+      ports: [{protocol: TCP, port: 4318}]
+    - from:
+        - namespaceSelector:
+            matchLabels: {spyglass.io/observability-access: "true"}
+          podSelector:
+            matchLabels: {spyglass.io/telemetry-scraper: "true"}
+      ports: [{protocol: TCP, port: 8888}]

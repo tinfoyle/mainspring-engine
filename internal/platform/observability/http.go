@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,7 +19,10 @@ type httpMetricKey struct {
 type httpMetricValue struct {
 	count      atomic.Uint64
 	durationNS atomic.Uint64
+	buckets    [len(httpDurationBuckets)]atomic.Uint64
 }
+
+var httpDurationBuckets = [...]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
 type HTTPMetrics struct {
 	service  string
@@ -69,17 +73,28 @@ func (m *HTTPMetrics) observe(r *http.Request, status int, duration time.Duratio
 	if duration > 0 {
 		value.durationNS.Add(uint64(duration))
 	}
+	seconds := duration.Seconds()
+	for index, upperBound := range httpDurationBuckets {
+		if seconds <= upperBound {
+			value.buckets[index].Add(1)
+		}
+	}
 }
 
 func (m *HTTPMetrics) serve(w http.ResponseWriter) {
 	type snapshot struct {
 		key                  httpMetricKey
 		count, durationNanos uint64
+		buckets              [len(httpDurationBuckets)]uint64
 	}
 	values := make([]snapshot, 0)
 	m.values.Range(func(rawKey, rawValue any) bool {
 		key, value := rawKey.(httpMetricKey), rawValue.(*httpMetricValue)
-		values = append(values, snapshot{key: key, count: value.count.Load(), durationNanos: value.durationNS.Load()})
+		current := snapshot{key: key, count: value.count.Load(), durationNanos: value.durationNS.Load()}
+		for index := range value.buckets {
+			current.buckets[index] = value.buckets[index].Load()
+		}
+		values = append(values, current)
 		return true
 	})
 	sort.Slice(values, func(i, j int) bool {
@@ -90,10 +105,14 @@ func (m *HTTPMetrics) serve(w http.ResponseWriter) {
 	output.WriteString("# HELP spyglass_http_in_flight Requests currently executing in this process.\n# TYPE spyglass_http_in_flight gauge\n")
 	fmt.Fprintf(&output, "spyglass_http_in_flight{service=%q} %d\n", m.service, m.inFlight.Load())
 	output.WriteString("# HELP spyglass_http_requests_total Completed HTTP requests.\n# TYPE spyglass_http_requests_total counter\n")
-	output.WriteString("# HELP spyglass_http_request_duration_seconds Request duration without customer-derived labels.\n# TYPE spyglass_http_request_duration_seconds summary\n")
+	output.WriteString("# HELP spyglass_http_request_duration_seconds Request duration without customer-derived labels.\n# TYPE spyglass_http_request_duration_seconds histogram\n")
 	for _, value := range values {
 		labels := fmt.Sprintf("service=%q,method=%q,route=%q,status_class=%q", m.service, value.key.Method, value.key.Route, value.key.StatusClass)
 		fmt.Fprintf(&output, "spyglass_http_requests_total{%s} %d\n", labels, value.count)
+		for index, upperBound := range httpDurationBuckets {
+			fmt.Fprintf(&output, "spyglass_http_request_duration_seconds_bucket{%s,le=%q} %d\n", labels, strconv.FormatFloat(upperBound, 'g', -1, 64), value.buckets[index])
+		}
+		fmt.Fprintf(&output, "spyglass_http_request_duration_seconds_bucket{%s,le=\"+Inf\"} %d\n", labels, value.count)
 		fmt.Fprintf(&output, "spyglass_http_request_duration_seconds_sum{%s} %.9f\n", labels, float64(value.durationNanos)/float64(time.Second))
 		fmt.Fprintf(&output, "spyglass_http_request_duration_seconds_count{%s} %d\n", labels, value.count)
 	}

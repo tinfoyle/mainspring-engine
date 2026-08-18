@@ -7,6 +7,8 @@ references and provide environment-specific network/database destinations before
 account-api, app-router, cell app-api, private admission-api, per-cell route-receipt
 worker, billing-worker, notification-worker, entitlement-worker, Account lifecycle worker, Work reconciler, Agent dispatch/projection workers, runner controller/broker, and model gateway arguments are executable today. The render includes narrow Job/identity RBAC, internal runner/broker/gateway NetworkPolicies, workload-specific service accounts, disruption budgets, and backlog-oriented HPA contracts. It still fails closed as an applied environment until overlays supply the cluster-specific Kubernetes API and managed-service egress, sandbox RuntimeClass, certificates, database roles, provider policy, metrics adapter, and digest-pinned images.
 
+The render also contains a two-replica OpenTelemetry gateway, strict collector-side trace allowlist, initial `PrometheusRule`, and content-free Grafana overview. The third-party Collector image is pinned to an exact official multi-platform digest and its configuration is validated by that exact binary in CI. The base intentionally has no collector backend egress, backend/ingress credential, Prometheus rule selector, authenticated application scrape, dashboard provisioner, or pager route; those remain environment-owned promotion inputs.
+
 The reference proves the intended unit of scaling: shared workload classes in
 a cell. Nothing here creates a Deployment, Service, namespace, database, or
 credential per Spyglass Account.
@@ -36,15 +38,17 @@ Before an environment overlay may use these resources it must add:
   schedule-to-start signals. Missing external metrics must alert; environments
   may not silently treat CPU as sufficient proof that backlogs are healthy.
 - Pod/service monitors scraping each HTTP service's `/metrics` endpoint for
-  bounded-cardinality request counts, in-flight work, and duration summaries.
+  bounded-cardinality request counts, in-flight work, and fixed duration histograms.
   The application exports registered route templates rather than raw customer
   paths; environment dashboards and relabeling must preserve that constraint.
-- An mTLS-authenticated OTLP/HTTP collector or gateway, the exact
+- Collector ingress/backend TLS material, a reviewed HTTPS backend endpoint,
+  exact backend egress, the exact workload
   `SPYGLASS_OTEL_TRACES_ENDPOINT`, explicit sampling ratio, and a managed
-  per-environment 32-byte Account-correlation key. Collector policy must
-  re-enforce the application attribute allowlist, reject baggage/customer
-  content, publish accepted/rejected/export-failure health, and use a separate
-  backend credential. The base intentionally supplies no endpoint or key.
+  per-environment 32-byte Account-correlation key. The base gateway
+  re-enforces the application attribute/value allowlist, canonicalizes text,
+  rejects links, publishes accepted/rejected/export-failure health, and uses a
+  separate backend credential reference; it intentionally supplies no Secret,
+  backend endpoint, egress, or workload correlation key.
 - Tested NetworkPolicy egress destinations and cluster admission policy. The
   base permits only DNS and the explicit in-namespace runner→broker,
   broker→model-gateway, broker→tool-router, router→cell, and cell→admission
@@ -58,6 +62,8 @@ Before an environment overlay may use these resources it must add:
   replica without session affinity or customer-visible state loss.
 - `spyglass-global-runtime`, `spyglass-cell-reference-runtime`,
   `spyglass-work-reconciler-restore-checkpoints`,
+  `spyglass-observability-runtime`, `spyglass-workload-client-ca`,
+  `spyglass-otel-collector-ingress-tls`, `spyglass-otel-collector-backend`,
   `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
   `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,
   `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`,
@@ -148,8 +154,12 @@ Before an environment overlay may use these resources it must add:
   `SPYGLASS_TRUSTED_PROXY_CIDRS`. Leaving the CIDR list empty safely ignores
   forwarding headers.
 
-Run `kubectl kustomize deploy/kubernetes/reference` as a structural render
-check. Do not apply the output to a cluster.
+Run `bash deploy/kubernetes/reference/verify.sh` with `kubectl` and `jq` as the
+local structural/security check. When `promtool` is installed, the same command
+also syntax-checks the rules and executes their threshold/window unit tests;
+hosted CI always runs those tests with an exact digest-pinned Prometheus image
+and validates the Collector config with its exact digest-pinned binary. Do not
+apply the rendered reference directly to a cluster.
 
 Catalog administration is intentionally not a standing Deployment. Environments
 run `spyglass catalog-admin <action>` as a short-lived, human-authorized Job with

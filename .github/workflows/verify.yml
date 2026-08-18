@@ -82,3 +82,27 @@ jobs:
           docker run --rm spyglass-ci:${GITHUB_SHA} version > /tmp/spyglass-version.json
           test "$(jq -r .version /tmp/spyglass-version.json)" = "0.0.0-ci"
           test "$(jq -r .revision /tmp/spyglass-version.json)" = "${GITHUB_SHA}"
+      - name: Validate observability artifacts
+        env:
+          COLLECTOR_IMAGE: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc
+          PROMETHEUS_IMAGE: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+        run: |
+          jq -e . deploy/observability/grafana/spyglass-overview.json >/dev/null
+          mkdir /tmp/spyglass-prometheus
+          sed -n '/^spec:/,$p' deploy/kubernetes/reference/observability/prometheus-rule.yaml | tail -n +2 | sed 's/^  //' >/tmp/spyglass-prometheus/spyglass.rules.yaml
+          cp deploy/observability/prometheus/spyglass.rules.test.yaml /tmp/spyglass-prometheus/
+          docker run --rm \
+            --entrypoint=/bin/promtool \
+            --volume /tmp/spyglass-prometheus:/etc/prometheus/spyglass:ro \
+            "$PROMETHEUS_IMAGE" check rules /etc/prometheus/spyglass/spyglass.rules.yaml
+          docker run --rm \
+            --entrypoint=/bin/promtool \
+            --volume /tmp/spyglass-prometheus:/etc/prometheus/spyglass:ro \
+            --workdir /etc/prometheus/spyglass \
+            "$PROMETHEUS_IMAGE" test rules spyglass.rules.test.yaml
+          docker run --rm \
+            --env SPYGLASS_ENVIRONMENT=ci \
+            --env SPYGLASS_OTEL_BACKEND_ENDPOINT=https://telemetry.invalid \
+            --env 'SPYGLASS_OTEL_BACKEND_AUTHORIZATION=Bearer validation' \
+            --volume "$PWD/deploy/kubernetes/reference/observability/collector.yaml:/etc/spyglass/collector.yaml:ro" \
+            "$COLLECTOR_IMAGE" validate --config=/etc/spyglass/collector.yaml
