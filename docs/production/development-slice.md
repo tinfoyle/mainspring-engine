@@ -156,7 +156,7 @@ npm run dev
 
 ## Next production slices
 
-1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up; continue the audited post-retention Account export/physical-erasure operator workflow from [its cross-store contract](account-erasure.md) with cell tombstones and resumable execution now that payload attribution and four-eyes preparation are executable; then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
+1. Complete mandatory owner/platform-administrator enrollment and factor-loss recovery around the executable privileged-operation step-up; continue the audited post-retention Account export/physical-erasure operator workflow from [its cross-store contract](account-erasure.md) with leased cross-store execution, global finalization, and restore replay now that payload attribution, four-eyes preparation, and the dormant exact-cell tombstone transaction are executable; then add multi-version notification/passkey key rotation, retention/operator handling for dead letters, and scheduled cleanup for durable abuse-control state.
 2. Apply the proven private admission and reconciliation boundaries to Agents, Knowledge, Finance, and Marketing use cases as those package slices become executable.
 3. Execute Stripe test-mode contract tests and add audited operator commands over the reconciliation/replay boundaries.
 4. Add fair asynchronous admission, custom scaling signals, and ephemeral runner control before promoting the reference manifests; bounded directory routing and internal workload identity are now executable.

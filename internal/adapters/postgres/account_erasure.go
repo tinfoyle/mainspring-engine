@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -104,6 +105,37 @@ func (r *AccountErasureCellRepository) Attest(ctx context.Context, target accoun
 	return result, nil
 }
 
+const cellTombstoneColumns = `
+	request_id::text,account_fingerprint,placement_generation,policy_version,request_version,environment,erased_at,
+	row_counts,export_sha256,operator_evidence_sha256,backup_expires_at`
+
+func (r *AccountErasureCellRepository) Erase(ctx context.Context, command accounterasure.CellEraseCommand) (accounterasure.CellTombstone, error) {
+	if command.CellID != r.cellID {
+		return accounterasure.CellTombstone{}, accounterasure.ErrCellMismatch
+	}
+	query := `SELECT ` + cellTombstoneColumns + ` FROM public.spyglass_erase_account_cell($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`
+	result, err := scanCellTombstone(r.pool.QueryRow(ctx, query,
+		command.RequestID, command.AccountID, command.PlacementGeneration, command.AccountFingerprint,
+		command.PolicyVersion, command.RequestVersion, command.Environment, nullableBytes(command.ExportSHA256),
+		command.OperatorEvidenceSHA256, command.BackupExpiresAt.UTC()))
+	if err != nil {
+		return accounterasure.CellTombstone{}, classifyCellErasureError(err)
+	}
+	return result, nil
+}
+
+func (r *AccountErasureCellRepository) AttestErasure(ctx context.Context, cellID ids.CellID, requestID string, fingerprint []byte) (accounterasure.CellTombstone, error) {
+	if cellID != r.cellID {
+		return accounterasure.CellTombstone{}, accounterasure.ErrCellMismatch
+	}
+	query := `SELECT ` + cellTombstoneColumns + ` FROM public.spyglass_attest_account_cell_erasure($1,$2)`
+	result, err := scanCellTombstone(r.pool.QueryRow(ctx, query, requestID, fingerprint))
+	if err != nil {
+		return accounterasure.CellTombstone{}, classifyCellErasureError(err)
+	}
+	return result, nil
+}
+
 type erasureRow interface{ Scan(...any) error }
 
 func scanErasureRequest(row erasureRow) (accounterasure.Request, error) {
@@ -116,6 +148,21 @@ func scanErasureRequest(row erasureRow) (accounterasure.Request, error) {
 		&result.ApprovedBy, &result.ApproveReason, &result.ApprovedAt, &result.CanceledBy, &result.CancelReason, &result.CanceledAt)
 	if err != nil {
 		return accounterasure.Request{}, fmt.Errorf("scan Account erasure request: %w", err)
+	}
+	return result, nil
+}
+
+func scanCellTombstone(row erasureRow) (accounterasure.CellTombstone, error) {
+	var result accounterasure.CellTombstone
+	var rawCounts []byte
+	err := row.Scan(&result.RequestID, &result.AccountFingerprint, &result.PlacementGeneration, &result.PolicyVersion,
+		&result.RequestVersion, &result.Environment, &result.ErasedAt, &rawCounts, &result.ExportSHA256,
+		&result.OperatorEvidenceSHA256, &result.BackupExpiresAt)
+	if err != nil {
+		return accounterasure.CellTombstone{}, fmt.Errorf("scan cell Account erasure tombstone: %w", err)
+	}
+	if err := json.Unmarshal(rawCounts, &result.RowCounts); err != nil {
+		return accounterasure.CellTombstone{}, fmt.Errorf("decode cell Account erasure row counts: %w", err)
 	}
 	return result, nil
 }
@@ -171,6 +218,23 @@ func classifyErasureRequestError(err error) error {
 	return fmt.Errorf("Account erasure request unavailable: %w", err)
 }
 
+func classifyCellErasureError(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return accounterasure.ErrNotFound
+	}
+	switch postgresCode(err) {
+	case "22023":
+		return accounterasure.ErrInvalidChange
+	case "P0002":
+		return accounterasure.ErrNotFound
+	case "P0001":
+		return accounterasure.ErrNotEligible
+	case "P0003", "23505":
+		return accounterasure.ErrStateConflict
+	}
+	return fmt.Errorf("cell Account erasure unavailable: %w", err)
+}
+
 func postgresCode(err error) string {
 	var databaseError *pgconn.PgError
 	if errors.As(err, &databaseError) {
@@ -181,3 +245,4 @@ func postgresCode(err error) string {
 
 var _ accounterasure.Store = (*AccountErasureRepository)(nil)
 var _ accounterasure.CellStore = (*AccountErasureCellRepository)(nil)
+var _ accounterasure.CellExecutor = (*AccountErasureCellRepository)(nil)

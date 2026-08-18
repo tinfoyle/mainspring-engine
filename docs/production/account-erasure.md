@@ -1,6 +1,6 @@
 # Account Export and Erasure Workflow
 
-Status: production contract; logical closure and non-destructive four-eyes preparation are executable, while physical erasure remains disabled
+Status: production contract; logical closure, four-eyes preparation, and the dormant exact-cell tombstone transaction are executable, while cross-store physical erasure remains disabled
 
 Account closure and Account erasure are deliberately different operations. Closure is customer-facing, recoverable during cooling-off, and eventually disables normal access. Erasure destroys live customer data after retention and therefore requires reviewed operator authority, export evidence, cross-store reconciliation, and a durable content-free tombstone.
 
@@ -190,11 +190,11 @@ The schema-coverage test inventories Account foreign keys, composite Account key
 
 ## Delivery sequence
 
-1. Notification/provider payload attribution and restricted active request/operator-event schemas are executable; add the content-free global and cell tombstone schemas alongside execution.
+1. Notification/provider payload attribution, restricted active request/operator-event schemas, and the content-free cell tombstone are executable; add the content-free global tombstone alongside finalization.
 2. Prepare/inspect/cancel/approve services, repeated cell readiness, four-eyes enforcement, and eligibility tests are executable with no deletion authority.
-3. Extend the read-only cell readiness function with the cell security-definer erasure/attestation boundary and exhaustive two-Account isolation tests.
+3. The cell security-definer erasure/attestation boundary, forced-RLS exact targeting, content-free tombstone, concurrent idempotency, and multi-Account isolation tests are executable. Its function remains revoked from `PUBLIC` and no command currently invokes it.
 4. Add idempotent cross-database execute orchestration and global finalization.
 5. Integrate connector, object, index, analytics, Stripe-retention, export-expiry, and backup-replay attestations as those stores become executable.
 6. Add restricted Kubernetes Job templates/runbook, alert rules, restore drill, and production security review before enabling an erasure credential.
 
-Until steps 3–4 pass, Spyglass may truthfully report `closed`, a retention deadline, and a prepared/approved erasure request, but it must not report an Account as physically erased.
+Until step 4 passes, Spyglass may truthfully report `closed`, a retention deadline, and a prepared/approved erasure request, but it must not report an Account as physically erased. A cell tombstone alone is explicitly not global completion.
