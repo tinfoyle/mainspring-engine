@@ -237,7 +237,7 @@ Every reconciler replica periodically deletes at most the configured batch of co
 | `SPYGLASS_RUNNER_INSPECTION_BATCH` | Optional terminal-inspection claim batch from 1 through 1000; defaults to `100` |
 | `SPYGLASS_RUNNER_NAMESPACE` | Required exact Kubernetes namespace DNS label |
 | `SPYGLASS_RUNNER_IMAGE` | Required immutable image reference ending in `@sha256:` plus exactly 64 lowercase hexadecimal characters |
-| `SPYGLASS_RUNNER_SERVICE_ACCOUNT` | Required runner-pod service account; it has no RBAC and automatic API token mounting is disabled |
+| `SPYGLASS_RUNNER_SERVICE_ACCOUNT` | Required runner-pod service account; it has no RBAC, automatic API token mounting is disabled, and only a Pod-bound broker-audience token is projected explicitly |
 | `SPYGLASS_RUNNER_RUNTIME_CLASS` | Required sandbox RuntimeClass DNS label; the environment must test its isolation and PID behavior |
 | `SPYGLASS_RUNNER_BROKER_URL` | Required HTTPS broker origin/path with no embedded credentials, query, or fragment |
 | `SPYGLASS_RUNNER_ACTIVE_DEADLINE` | Optional whole-second Job deadline from `30s` through `24h`; defaults to `15m` |
@@ -245,7 +245,7 @@ Every reconciler replica periodically deletes at most the configured batch of co
 | `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
 | `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
 
-The controller uses its in-cluster projected service-account token and CA only to create, get, and exactly delete Jobs. Its database role cannot insert work or request cancellation; the separate producer role has no table grants and executes only the bounded configure/enqueue/cancel functions. Ambiguous create results retain their Account slot under `launch_uncertain` until the exact Job or its exact absence is observed. Runner Jobs receive no database credential and set `automountServiceAccountToken: false`. The three compiled resource profiles (`agent-small`, `agent-medium`, and `agent-large`) are deployment policy rather than invocation input.
+The controller uses its in-cluster projected service-account token and CA only to create, get, and exactly delete Jobs. Its database role cannot insert work or request cancellation; the separate producer role has no table grants and executes only the bounded configure/enqueue/cancel functions. Ambiguous create results retain their Account slot under `launch_uncertain` until the exact Job or its exact absence is observed. Runner Jobs receive no database credential and set `automountServiceAccountToken: false`; they explicitly project only a short-lived token for the exact configured broker URL. The three compiled resource profiles (`agent-small`, `agent-medium`, and `agent-large`) are deployment policy rather than invocation input.
 
 Do not deploy this process until the invocation broker authenticates an invocation-bound runner identity, returns only the exact admitted payload/capabilities, accepts one bounded result, and has a tested NetworkPolicy path. The reference topology also needs a cluster-specific Kubernetes API egress CIDR, narrow Job RBAC, sandbox RuntimeClass, digest-pinned runner artifact, and alert/custom-metric integration. Durable cancellation semantics are executable but still require applied-cluster proof. See [runner-control.md](runner-control.md).
 

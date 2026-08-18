@@ -26,7 +26,7 @@ The `spyglass runner-controller` process now performs durable fair claims, idemp
 
 It must never contain a prompt, tool input, model output, connector secret, browser credential, provider token, customer file, arbitrary image, arbitrary command, or customer-selected environment variable. Invocation payloads belong behind a separate authenticated broker/object boundary and are resolved by the runner using only its invocation identity.
 
-The runner pod receives no cell/global database credential and no Kubernetes API token. Its eventual broker credential is workload-scoped, short-lived, invocation-bound, and unable to select another Account or invocation.
+The runner Pod receives no cell/global database credential and no default or Kubernetes-API-audience token. It receives one explicit 600-second projected token whose audience is exactly the HTTPS broker URL. Online TokenReview plus exact Pod UID, controller Job UID, invocation/profile labels, and launch-contract checks bind that shared-ServiceAccount credential to one invocation. The runner ServiceAccount has no RBAC. See [Runner Broker Identity and Exchange Boundary](runner-broker.md).
 
 ## State machine
 
@@ -139,7 +139,7 @@ The executable adapter enforces these rules:
 - Network errors, server `5xx` responses, mismatched create responses, and unresolved conflicts preserve the deterministic name as an uncertain launch; they never release capacity as ordinary launch failures.
 - Cancellation first verifies Job name, invocation/profile labels, and launch-contract digest, then sends [foreground deletion](https://kubernetes.io/docs/concepts/architecture/garbage-collection/#foreground-cascading-deletion) with exact [UID and resource-version preconditions](https://kubernetes.io/docs/reference/kubernetes-api/definitions/delete-options-v1-meta/). Only a later `404 Not Found` for a canceling invocation releases capacity; this is evidence that the Job and known blocking dependent Pod API objects are gone.
 - Pods run as UID/GID 65532 with a read-only root filesystem, RuntimeDefault seccomp, no privilege escalation, all Linux capabilities dropped, bounded CPU/memory/ephemeral-storage/time, an operator-selected sandbox RuntimeClass, and no host namespaces or volumes. The RuntimeClass/admission policy must supply the tested PID and stronger sandbox boundary.
-- Runner service accounts have `automountServiceAccountToken: false` and no RBAC.
+- Runner service accounts have `automountServiceAccountToken: false` and no RBAC. One read-only projected token is mounted explicitly for the broker audience; deployment must prove that audience is not accepted for direct Kubernetes API requests.
 - The implemented API client needs only `create`, `get`, and `delete` on Jobs in its cell namespace; it must never gain list/watch, Secret reads, pod exec, or wildcard RBAC.
 - NetworkPolicy denies all by default and allows only DNS, the invocation broker, approved model/tool egress gateways, and telemetry as required by the fixed profile.
 - The controller observes Job conditions and records one terminal outcome; a missing or ambiguous launched Job remains reconcilable rather than silently releasing capacity, while a missing canceling Job is accepted only after the exact delete path.

@@ -25,11 +25,15 @@ import (
 
 const (
 	serviceAccountDirectory = "/var/run/secrets/kubernetes.io/serviceaccount"
+	runnerIdentityDirectory = "/var/run/secrets/spyglass.io/runner-identity"
+	runnerIdentityTokenFile = runnerIdentityDirectory + "/token"
+	runnerTokenLifetime     = int64(600)
 	maximumResponseBytes    = 64 << 10
 )
 
 var dnsLabel = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 var digestImage = regexp.MustCompile(`^\S+@sha256:[0-9a-f]{64}$`)
+var profileName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,49}$`)
 
 type ResourceProfile struct {
 	CPURequest, CPULimit       string
@@ -283,8 +287,8 @@ func (k *RunnerJobs) job(invocation runnercontrol.Invocation, name string, profi
 	contractInput := struct {
 		Invocation, Profile, Image, ServiceAccount, RuntimeClass, Broker string
 		Resources                                                        ResourceProfile
-		Deadline, TTL                                                    int64
-	}{invocation.ID, invocation.Profile, k.image, k.serviceAccount, k.runtimeClass, k.brokerURL, profile, k.activeDeadline, k.ttl}
+		Deadline, TTL, TokenLifetime                                     int64
+	}{invocation.ID, invocation.Profile, k.image, k.serviceAccount, k.runtimeClass, k.brokerURL, profile, k.activeDeadline, k.ttl, runnerTokenLifetime}
 	rawContract, err := json.Marshal(contractInput)
 	if err != nil {
 		return nil, "", err
@@ -305,12 +309,16 @@ func (k *RunnerJobs) job(invocation runnercontrol.Invocation, name string, profi
 					"securityContext": map[string]any{"runAsNonRoot": true, "runAsUser": int64(65532), "runAsGroup": int64(65532), "fsGroup": int64(65532), "seccompProfile": map[string]any{"type": "RuntimeDefault"}},
 					"containers": []any{map[string]any{
 						"name": "runner", "image": k.image, "imagePullPolicy": "IfNotPresent", "workingDir": "/work",
-						"args":            []string{"runner-invocation", "--broker-url=" + k.brokerURL, "--invocation-id=" + invocation.ID},
+						"args":            []string{"runner-invocation", "--broker-url=" + k.brokerURL, "--invocation-id=" + invocation.ID, "--identity-token-file=" + runnerIdentityTokenFile},
 						"resources":       map[string]any{"requests": map[string]string{"cpu": profile.CPURequest, "memory": profile.MemoryRequest}, "limits": map[string]string{"cpu": profile.CPULimit, "memory": profile.MemoryLimit, "ephemeral-storage": profile.EphemeralStorageLimit}},
 						"securityContext": containerSecurity,
-						"volumeMounts":    []any{map[string]any{"name": "work", "mountPath": "/work"}, map[string]any{"name": "tmp", "mountPath": "/tmp"}},
+						"volumeMounts":    []any{map[string]any{"name": "work", "mountPath": "/work"}, map[string]any{"name": "tmp", "mountPath": "/tmp"}, map[string]any{"name": "broker-identity", "mountPath": runnerIdentityDirectory, "readOnly": true}},
 					}},
-					"volumes": []any{map[string]any{"name": "work", "emptyDir": map[string]any{"sizeLimit": profile.EphemeralStorageLimit}}, map[string]any{"name": "tmp", "emptyDir": map[string]any{"medium": "Memory", "sizeLimit": "64Mi"}}},
+					"volumes": []any{
+						map[string]any{"name": "work", "emptyDir": map[string]any{"sizeLimit": profile.EphemeralStorageLimit}},
+						map[string]any{"name": "tmp", "emptyDir": map[string]any{"medium": "Memory", "sizeLimit": "64Mi"}},
+						map[string]any{"name": "broker-identity", "projected": map[string]any{"defaultMode": int32(0o400), "sources": []any{map[string]any{"serviceAccountToken": map[string]any{"audience": k.brokerURL, "expirationSeconds": runnerTokenLifetime, "path": "token"}}}}},
+					},
 				},
 			},
 		},
@@ -319,11 +327,12 @@ func (k *RunnerJobs) job(invocation runnercontrol.Invocation, name string, profi
 }
 
 type jobMetadata struct {
-	Name            string            `json:"name"`
-	UID             string            `json:"uid"`
-	ResourceVersion string            `json:"resourceVersion"`
-	Labels          map[string]string `json:"labels"`
-	Annotations     map[string]string `json:"annotations"`
+	Name              string            `json:"name"`
+	UID               string            `json:"uid"`
+	ResourceVersion   string            `json:"resourceVersion"`
+	DeletionTimestamp string            `json:"deletionTimestamp"`
+	Labels            map[string]string `json:"labels"`
+	Annotations       map[string]string `json:"annotations"`
 }
 
 func matchesJobContract(metadata jobMetadata, invocation runnercontrol.Invocation, contract string) bool {
@@ -392,7 +401,7 @@ func jobName(invocationID string) string {
 }
 
 func validProfile(name string, profile ResourceProfile) bool {
-	if !regexp.MustCompile(`^[a-z][a-z0-9-]{0,49}$`).MatchString(name) {
+	if !profileName.MatchString(name) {
 		return false
 	}
 	for _, value := range []string{profile.CPURequest, profile.CPULimit, profile.MemoryRequest, profile.MemoryLimit, profile.EphemeralStorageLimit} {

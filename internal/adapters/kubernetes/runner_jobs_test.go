@@ -61,8 +61,17 @@ func TestRunnerJobIsHardenedAndTerminalStateIsObserved(t *testing.T) {
 		t.Fatalf("Linux capabilities not dropped: %#v", security)
 	}
 	args := container["args"].([]any)
-	if len(args) != 3 || args[0] != "runner-invocation" || args[2] != "--invocation-id="+invocation.ID {
+	if len(args) != 4 || args[0] != "runner-invocation" || args[2] != "--invocation-id="+invocation.ID || args[3] != "--identity-token-file="+runnerIdentityTokenFile {
 		t.Fatalf("runner arguments=%#v", args)
+	}
+	identityVolume := template["volumes"].([]any)[2].(map[string]any)["projected"].(map[string]any)
+	identitySource := identityVolume["sources"].([]any)[0].(map[string]any)["serviceAccountToken"].(map[string]any)
+	if identityVolume["defaultMode"].(float64) != 0o400 || identitySource["audience"] != testConfig(nil).BrokerURL || identitySource["expirationSeconds"].(float64) != float64(runnerTokenLifetime) || identitySource["path"] != "token" {
+		t.Fatalf("runner broker identity projection=%#v", identityVolume)
+	}
+	identityMount := container["volumeMounts"].([]any)[2].(map[string]any)
+	if identityMount["mountPath"] != runnerIdentityDirectory || !identityMount["readOnly"].(bool) {
+		t.Fatalf("runner identity mount=%#v", identityMount)
 	}
 
 	invocation.JobName = name
