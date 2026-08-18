@@ -60,6 +60,7 @@ The focused design documents are:
 - [Detailed delivery backlog](docs/production/delivery-plan.md)
 - [Quality, security, and operations gates](docs/production/quality-security-operations.md)
 - [Production-readiness audit and closeout gates](docs/production/production-readiness-audit.md)
+- [Account load and fairness certification](docs/production/load-certification.md)
 - [Customer API contract and drift policy](docs/production/api-contract.md)
 - [Current Phase 2 development slice](docs/production/development-slice.md)
 
