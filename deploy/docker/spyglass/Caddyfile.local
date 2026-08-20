@@ -1,0 +1,12 @@
+{
+  admin off
+  auto_https off
+}
+
+http://web.infiniteocean.localhost {
+  reverse_proxy website:3000
+}
+
+http://app.infiniteocean.localhost {
+  reverse_proxy application:8080
+}

@@ -1,0 +1,30 @@
+services:
+  edge:
+    ports:
+      - "127.0.0.1:${SPYGLASS_LOCAL_EDGE_PORT:-8088}:80"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+
+  website:
+    build:
+      context: ../../../website
+      dockerfile: Dockerfile
+    image: infinite-ocean-website:local
+
+  application:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+      args:
+        VERSION: phase2.5-local
+        REVISION: local
+        CREATED: local
+    image: spyglass-application:local
+
+  website-test:
+    profiles: ["test"]
+    build:
+      context: ../../../website
+      dockerfile: Dockerfile
+      target: test
+    image: infinite-ocean-website:test

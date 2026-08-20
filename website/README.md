@@ -15,8 +15,9 @@ The website is intentionally anonymous and stateless. It does not own authentica
 
 Production configuration:
 
-- `NEXT_PUBLIC_SPYGLASS_APP_ORIGIN` — exact HTTPS application origin; defaults to `https://app.infiniteocean.net`.
-- `SPYGLASS_ACCOUNT_API_ORIGIN` — exact HTTPS account API origin used only by the Worker to proxy the anonymous published Catalog at `/api/catalog`.
+- `SPYGLASS_ENVIRONMENT` — exact `local`, `stage`, or `production` environment name.
+- `SPYGLASS_APP_ORIGIN` — exact private application origin; defaults to `https://app.infiniteocean.net`.
+- `SPYGLASS_ACCOUNT_API_ORIGIN` — exact account API origin used only by the server-side route to proxy the anonymous published Catalog at `/api/catalog`.
 
 The Catalog proxy caches successful JSON for 60 seconds with five minutes of stale-while-revalidate. If it is unavailable, the page clearly labels its bundled launch figures as illustrative and the application still rejects stale or unpublished offer codes.
 
@@ -28,4 +29,16 @@ npm run dev
 npm test
 ```
 
-The site uses the bundled Vinext/Cloudflare Sites runtime. `.openai/hosting.json` leaves D1 and R2 disabled because the public site has no durable product state.
+The release path is the standalone Node container:
+
+```bash
+docker build --target test -t infinite-ocean-website-test .
+docker build -t infinite-ocean-website .
+docker run --rm -p 3000:3000 \
+  -e SPYGLASS_ENVIRONMENT=local \
+  -e SPYGLASS_APP_ORIGIN=http://app.infiniteocean.localhost \
+  -e SPYGLASS_ACCOUNT_API_ORIGIN=http://host.docker.internal:8080 \
+  infinite-ocean-website
+```
+
+The website is a normal self-hosted Next.js service. It has no Cloudflare Worker, Sites, D1, R2, Wrangler, or preview-hosting runtime dependency.

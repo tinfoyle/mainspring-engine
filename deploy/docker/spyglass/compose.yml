@@ -1,0 +1,40 @@
+services:
+  edge:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    restart: unless-stopped
+    depends_on:
+      application:
+        condition: service_started
+      website:
+        condition: service_healthy
+    networks:
+      - edge
+
+  website:
+    image: ${SPYGLASS_WEBSITE_IMAGE:-infinite-ocean-website:local}
+    restart: unless-stopped
+    environment:
+      SPYGLASS_ACCOUNT_API_ORIGIN: ${SPYGLASS_ACCOUNT_API_ORIGIN:-http://application:8080}
+      SPYGLASS_APP_ORIGIN: ${SPYGLASS_APP_ORIGIN:-http://app.infiniteocean.localhost:8088}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:-local}
+    expose:
+      - "3000"
+    networks:
+      - edge
+      - application
+
+  application:
+    image: ${SPYGLASS_APPLICATION_IMAGE:-spyglass-application:local}
+    restart: unless-stopped
+    environment:
+      SPYGLASS_ENV: development
+    expose:
+      - "8080"
+    networks:
+      - edge
+      - application
+
+networks:
+  edge:
+  application:
+    internal: true

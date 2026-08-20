@@ -6,14 +6,7 @@ import { JSDOM } from "jsdom";
 const routes = ["/", "/about", "/packages", "/pricing", "/privacy", "/product", "/security", "/signup", "/terms"];
 
 async function render(path) {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("accessibility-test", `${process.pid}-${Date.now()}-${path}`);
-  const { default: worker } = await import(workerUrl.href);
-  return worker.fetch(
-    new Request(`https://infiniteocean.net${path}`, { headers: { accept: "text/html" } }),
-    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
-    { waitUntil() {}, passThroughOnException() {} },
-  );
+  return fetch(`${process.env.TEST_ORIGIN}${path}`, { headers: { accept: "text/html" } });
 }
 
 function formatViolations(violations) {

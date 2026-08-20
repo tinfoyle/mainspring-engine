@@ -3,10 +3,7 @@ import test from "node:test";
 import { publicCatalogFixture } from "./fixtures/public-catalog.mjs";
 
 async function render(path = "/") {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${path}`);
-  const { default: worker } = await import(workerUrl.href);
-  return worker.fetch(new Request(`https://infiniteocean.net${path}`, { headers: { accept: "text/html" } }), { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
+  return fetch(`${process.env.TEST_ORIGIN}${path}`, { headers: { accept: "text/html" } });
 }
 
 test("renders the Infinite Ocean Spyglass home page", async () => {
@@ -18,7 +15,7 @@ test("renders the Infinite Ocean Spyglass home page", async () => {
   assert.equal(response.headers.get("cross-origin-opener-policy"), "same-origin");
   assert.equal(response.headers.get("cross-origin-resource-policy"), "same-origin");
   assert.match(response.headers.get("permissions-policy"), /camera=\(\)/);
-  assert.match(response.headers.get("content-security-policy"), /default-src 'self'.*frame-ancestors 'none'.*script-src 'self'/);
+  assert.match(response.headers.get("content-security-policy"), /default-src 'self'.*frame-ancestors 'none'.*script-src 'self' 'nonce-[^']+' 'strict-dynamic'/);
   const html = await response.text();
   assert.match(html, /<title>Infinite Ocean: Spyglass<\/title>/i);
   assert.match(html, /See the whole business/);
@@ -48,27 +45,14 @@ test("renders the public package and signup journeys", async () => {
 });
 
 test("proxies only the anonymous published Catalog from the configured account origin", async () => {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("catalog-test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-  const originalFetch = globalThis.fetch;
-  let requested = "";
-  globalThis.fetch = async (input) => {
-    requested = String(input);
-    return new Response(JSON.stringify(publicCatalogFixture), { headers: { "content-type": "application/json" } });
-  };
-  try {
-    const response = await worker.fetch(new Request("https://infiniteocean.net/api/catalog"), { SPYGLASS_ACCOUNT_API_ORIGIN: "https://app.infiniteocean.net", ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
-    assert.equal(response.status, 200);
-    assert.equal(requested, "https://app.infiniteocean.net/api/v1/catalog/public");
-    assert.match(response.headers.get("cache-control"), /stale-while-revalidate/);
-    assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
-    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
-    assert.equal(response.headers.get("content-security-policy"), null);
-    assert.deepEqual(await response.json(), publicCatalogFixture);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-  const rejected = await worker.fetch(new Request("https://infiniteocean.net/api/catalog"), { SPYGLASS_ACCOUNT_API_ORIGIN: "http://account-api", ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } }, { waitUntil() {}, passThroughOnException() {} });
-  assert.equal(rejected.status, 503);
+  await fetch(`${process.env.TEST_CATALOG_ORIGIN}/__reset`, { method: "POST" });
+  const response = await fetch(`${process.env.TEST_ORIGIN}/api/catalog`, { headers: { accept: "application/json" } });
+  assert.equal(response.status, 200);
+  const requests = await fetch(`${process.env.TEST_CATALOG_ORIGIN}/__requests`).then((value) => value.json());
+  assert.deepEqual(requests, [{ method: "GET", url: "/api/v1/catalog/public" }]);
+  assert.match(response.headers.get("cache-control"), /stale-while-revalidate/);
+  assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
+  assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(response.headers.get("content-security-policy"), null);
+  assert.deepEqual(await response.json(), publicCatalogFixture);
 });

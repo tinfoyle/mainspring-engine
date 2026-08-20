@@ -19,6 +19,8 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title: "Infinite Ocean: Spyglass", description: "See the whole business. Move what matters.", images: ["/og.png"] },
 };
 
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return <html lang="en"><body className={`${geistSans.variable} ${geistMono.variable}`}>{children}</body></html>;
 }

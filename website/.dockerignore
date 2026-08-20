@@ -1,0 +1,13 @@
+.env*
+.git
+.gitignore
+.next
+.openai
+.vinext
+.wrangler
+Dockerfile*
+node_modules
+npm-debug.log*
+outputs
+work
+dist
