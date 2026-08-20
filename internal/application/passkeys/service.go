@@ -36,6 +36,7 @@ var (
 	ErrReauthenticationNeeded  = errors.New("recent reauthentication is required")
 	ErrCredentialLimit         = errors.New("passkey credential limit reached")
 	ErrCredentialNotFound      = errors.New("passkey credential not found")
+	ErrCredentialNameInvalid   = errors.New("passkey credential name is invalid")
 	ErrCredentialStateConflict = errors.New("passkey credential state changed")
 	ErrRecoveryCodeRequired    = errors.New("a valid recovery code grant is required to replace the lost passkey")
 	ErrRecoveryCodesRequired   = errors.New("recovery codes must be configured before removing the last passkey")
@@ -121,7 +122,9 @@ type Repository interface {
 	UpdateCredential(context.Context, ids.UserID, []byte, uint32, webauthnlib.Credential, CredentialEvent, time.Time) (bool, error)
 	RecordCloneWarning(context.Context, ids.UserID, []byte, time.Time) error
 	ListCredentials(context.Context, ids.UserID) ([]CredentialRecord, error)
+	RenameCredential(context.Context, ids.UserID, []byte, string, time.Time) (bool, error)
 	DeleteCredential(context.Context, ids.UserID, []byte, bool, time.Time) (bool, error)
+	CompromiseCredential(context.Context, ids.UserID, []byte, time.Time) (bool, error)
 }
 
 type NetworkGuard interface {
@@ -370,9 +373,9 @@ func (s *Service) Delete(ctx context.Context, session sessions.Session, encodedI
 	if err := strongauth.Require(session, session.UserID, s.clock.Now().UTC()); err != nil {
 		return ErrReauthenticationNeeded
 	}
-	credentialID, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(encodedID))
-	if err != nil || len(credentialID) == 0 {
-		return ErrCredentialNotFound
+	credentialID, err := decodeCredentialID(encodedID)
+	if err != nil {
+		return err
 	}
 	credentials, err := s.repository.ListCredentials(ctx, session.UserID)
 	if err != nil {
@@ -397,6 +400,57 @@ func (s *Service) Delete(ctx context.Context, session sessions.Session, encodedI
 		return ErrCredentialNotFound
 	}
 	return nil
+}
+
+func (s *Service) Rename(ctx context.Context, session sessions.Session, encodedID, name string) error {
+	if err := strongauth.Require(session, session.UserID, s.clock.Now().UTC()); err != nil {
+		return ErrReauthenticationNeeded
+	}
+	credentialID, err := decodeCredentialID(encodedID)
+	if err != nil {
+		return err
+	}
+	name = strings.TrimSpace(name)
+	if len(name) < 2 || len(name) > 80 {
+		return ErrCredentialNameInvalid
+	}
+	renamed, err := s.repository.RenameCredential(ctx, session.UserID, credentialID, name, s.clock.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if !renamed {
+		return ErrCredentialNotFound
+	}
+	return nil
+}
+
+// Compromise removes a suspected credential and invalidates every session for
+// the identity in one repository transaction. Unlike ordinary deletion, this
+// incident-response path may remove the last passkey.
+func (s *Service) Compromise(ctx context.Context, session sessions.Session, encodedID string) error {
+	if err := strongauth.Require(session, session.UserID, s.clock.Now().UTC()); err != nil {
+		return ErrReauthenticationNeeded
+	}
+	credentialID, err := decodeCredentialID(encodedID)
+	if err != nil {
+		return err
+	}
+	compromised, err := s.repository.CompromiseCredential(ctx, session.UserID, credentialID, s.clock.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if !compromised {
+		return ErrCredentialNotFound
+	}
+	return nil
+}
+
+func decodeCredentialID(encodedID string) ([]byte, error) {
+	credentialID, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(encodedID))
+	if err != nil || len(credentialID) == 0 {
+		return nil, ErrCredentialNotFound
+	}
+	return credentialID, nil
 }
 
 func (s *Service) authorizeRegistration(ctx context.Context, session sessions.Session, user User) error {

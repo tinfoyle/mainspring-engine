@@ -202,6 +202,43 @@ func TestRegistrationAndLastDeletionEnforceRecoveryPolicy(t *testing.T) {
 	}
 }
 
+func TestRenameAndCompromiseRequireStrongAuthAndTargetOwnedCredential(t *testing.T) {
+	fixture := newFixture(t)
+	encodedID := base64.RawURLEncoding.EncodeToString(fixture.credentialID)
+	password := sessions.Session{
+		ID:                     "00000000-0000-4000-8000-000000000092",
+		UserID:                 fixture.userID,
+		ReauthenticatedAt:      fixture.clock.now,
+		ReauthenticationMethod: sessions.AuthenticationMethodPassword,
+	}
+	if err := fixture.service.Rename(context.Background(), password, encodedID, "Office key"); !errors.Is(err, passkeys.ErrReauthenticationNeeded) {
+		t.Fatalf("rename with password assurance=%v", err)
+	}
+	passkey := password
+	passkey.ReauthenticationMethod = sessions.AuthenticationMethodPasskey
+	if err := fixture.service.Rename(context.Background(), passkey, encodedID, "  Office key  "); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if got := fixture.repository.user.Credentials[0].Name; got != "Office key" {
+		t.Fatalf("renamed credential=%q", got)
+	}
+	if err := fixture.service.Rename(context.Background(), passkey, encodedID, "x"); !errors.Is(err, passkeys.ErrCredentialNameInvalid) {
+		t.Fatalf("invalid name error=%v", err)
+	}
+	if err := fixture.service.Compromise(context.Background(), password, encodedID); !errors.Is(err, passkeys.ErrReauthenticationNeeded) {
+		t.Fatalf("compromise with password assurance=%v", err)
+	}
+	if err := fixture.service.Compromise(context.Background(), passkey, encodedID); err != nil {
+		t.Fatalf("compromise last credential: %v", err)
+	}
+	if len(fixture.repository.user.Credentials) != 0 {
+		t.Fatalf("credentials remaining=%d, want 0", len(fixture.repository.user.Credentials))
+	}
+	if err := fixture.service.Compromise(context.Background(), passkey, encodedID); !errors.Is(err, passkeys.ErrCredentialNotFound) {
+		t.Fatalf("repeat compromise error=%v", err)
+	}
+}
+
 func tamperedSignature(t *testing.T, response []byte) []byte {
 	t.Helper()
 	var value map[string]any
@@ -450,6 +487,18 @@ func (r *repository) RecordCloneWarning(context.Context, ids.UserID, []byte, tim
 func (r *repository) ListCredentials(context.Context, ids.UserID) ([]passkeys.CredentialRecord, error) {
 	return r.user.Credentials, nil
 }
+func (r *repository) RenameCredential(_ context.Context, userID ids.UserID, credentialID []byte, name string, _ time.Time) (bool, error) {
+	if userID != r.user.Identity.ID {
+		return false, nil
+	}
+	for index := range r.user.Credentials {
+		if bytes.Equal(r.user.Credentials[index].Credential.ID, credentialID) {
+			r.user.Credentials[index].Name = name
+			return true, nil
+		}
+	}
+	return false, nil
+}
 func (r *repository) DeleteCredential(_ context.Context, userID ids.UserID, credentialID []byte, allowLast bool, _ time.Time) (bool, error) {
 	if userID != r.user.Identity.ID {
 		return false, nil
@@ -459,6 +508,18 @@ func (r *repository) DeleteCredential(_ context.Context, userID ids.UserID, cred
 			if len(r.user.Credentials) == 1 && !allowLast {
 				return false, passkeys.ErrRecoveryCodesRequired
 			}
+			r.user.Credentials = append(r.user.Credentials[:index], r.user.Credentials[index+1:]...)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+func (r *repository) CompromiseCredential(_ context.Context, userID ids.UserID, credentialID []byte, _ time.Time) (bool, error) {
+	if userID != r.user.Identity.ID {
+		return false, nil
+	}
+	for index := range r.user.Credentials {
+		if bytes.Equal(r.user.Credentials[index].Credential.ID, credentialID) {
 			r.user.Credentials = append(r.user.Credentials[:index], r.user.Credentials[index+1:]...)
 			return true, nil
 		}

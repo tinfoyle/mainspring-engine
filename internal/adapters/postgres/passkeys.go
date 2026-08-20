@@ -220,6 +220,22 @@ func (r *PasskeyRepository) ListCredentials(ctx context.Context, userID ids.User
 	return r.loadCredentials(ctx, userID)
 }
 
+func (r *PasskeyRepository) RenameCredential(ctx context.Context, userID ids.UserID, credentialID []byte, name string, now time.Time) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	command, err := tx.Exec(ctx, `UPDATE passkey_credentials SET name=$3 WHERE user_id=$1 AND credential_id=$2`, userID, credentialID, name)
+	if err != nil || command.RowsAffected() != 1 {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO user_security_events (user_id,event_type,occurred_at) VALUES ($1,'passkey_renamed',$2)`, userID, now.UTC()); err != nil {
+		return false, err
+	}
+	return true, tx.Commit(ctx)
+}
+
 func (r *PasskeyRepository) DeleteCredential(ctx context.Context, userID ids.UserID, credentialID []byte, allowLast bool, now time.Time) (bool, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -251,6 +267,37 @@ func (r *PasskeyRepository) DeleteCredential(ctx context.Context, userID ids.Use
 		return false, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO user_security_events (user_id,event_type,occurred_at) VALUES ($1,'passkey_removed',$2)`, userID, now.UTC()); err != nil {
+		return false, err
+	}
+	return true, tx.Commit(ctx)
+}
+
+func (r *PasskeyRepository) CompromiseCredential(ctx context.Context, userID ids.UserID, credentialID []byte, now time.Time) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var lockedUser ids.UserID
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&lockedUser); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	command, err := tx.Exec(ctx, `DELETE FROM passkey_credentials WHERE user_id=$1 AND credential_id=$2`, userID, credentialID)
+	if err != nil || command.RowsAffected() != 1 {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE users SET security_version=security_version+1 WHERE id=$1`, userID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sessions SET revoked_at=$2 WHERE user_id=$1 AND revoked_at IS NULL`, userID, now.UTC()); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO user_security_events (user_id,event_type,occurred_at)
+		VALUES ($1,'passkey_compromised',$2),($1,'sessions_revoked',$2)`, userID, now.UTC()); err != nil {
 		return false, err
 	}
 	return true, tx.Commit(ctx)

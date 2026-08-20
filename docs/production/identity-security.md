@@ -28,6 +28,8 @@ Required invariants:
 - Every successful assertion updates the authenticator counter with compare-and-swap. A concurrent or stale counter update fails instead of overwriting newer state.
 - Authenticator clone warnings are rejected and recorded as security events.
 - At most ten passkeys may be registered for one User.
+- Renaming a passkey requires recent user-verified cryptographic assurance and changes only its human-readable identity-level label.
+- Reporting a passkey as compromised requires the same assurance, but deliberately allows removal of the last passkey. One global-database transaction removes the credential, advances the User security version, revokes every active session, and records both incident and revocation events; the browser then expires identity cookies.
 - Durable sessions record both the initial authentication method and the latest reauthentication method. Password maps to `single_factor`; a user-verified passkey maps to `user_verified_cryptographic`. Neither value contains or grants Account authority.
 - Membership role/lifecycle/removal changes, self-service Account leave, ownership transfer, invitation creation, Stripe Checkout creation, and Stripe Customer Portal creation require an active authorized role plus user-verified cryptographic proof no older than ten minutes. Password proof cannot satisfy that privileged-operation policy.
 - Every active Owner Membership is additionally gated by a system-wide owner-readiness policy: the User must have at least one passkey and an active recovery-code set with at least one unused code. The gate is enforced by the shared Account authorizer for reads and mutations, not only by the browser. Identity and recovery endpoints remain available so an unready owner can enroll or recover.
@@ -44,7 +46,7 @@ Required invariants:
 | Account authorization policy | `internal/modules/access` | Apply active Membership, Account, role, package, and mandatory Owner factor gates together |
 | Privileged assurance policy | `internal/application/strongauth` | One typed, transport-independent rule for actor binding, assurance class, and ten-minute freshness |
 | Verified-contact use case and ports | `internal/application/contactchange` | New-mailbox proof, normalization, single-use lifetime, stale-identity fencing, completion notices |
-| Durable adapter | `internal/adapters/postgres/passkeys.go` | Encrypted records, scoped atomic ceremony consumption, credential counter CAS, security events |
+| Durable adapter | `internal/adapters/postgres/passkeys.go` | Encrypted records, scoped atomic ceremony consumption, credential counter CAS, rename, atomic compromise response, security events |
 | Verified-contact adapter | `internal/adapters/postgres/contact_change.go` | Serializable challenge creation/completion, login-identifier update, session revocation, atomic encrypted outbox and security events |
 | Recovery adapter | `internal/adapters/postgres/recovery_codes.go` | Hashed code sets, atomic single-use consumption, grant expiry, rotation invalidation, security events |
 | Security-posture adapter | `internal/adapters/postgres/security_posture.go` | Aggregate passkey and unused-code state without exposing credential material |
@@ -129,7 +131,9 @@ POST   /api/v1/passkey-login/challenges/{ceremonyID}/complete
 GET    /api/v1/passkeys
 POST   /api/v1/passkey-registrations
 POST   /api/v1/passkey-registrations/{ceremonyID}/complete
+PATCH  /api/v1/passkeys/{credentialID}
 DELETE /api/v1/passkeys/{credentialID}
+POST   /api/v1/passkeys/{credentialID}/compromise
 POST   /api/v1/passkey-reauthentications
 POST   /api/v1/passkey-reauthentications/{ceremonyID}/complete
 GET    /api/v1/recovery-codes
@@ -141,6 +145,8 @@ POST   /api/v1/contact-change-verifications
 ```
 
 Cookie-authenticated mutations require the configured exact application Origin. Passkey payloads have a dedicated 256 KiB ceiling to accommodate attestation objects while remaining bounded. Errors never reveal whether an anonymous credential ID, user handle, or User exists.
+
+Ordinary deletion protects recovery posture and therefore refuses to remove a final passkey without an unused recovery code. Compromise response is intentionally different: suspected credentials must not remain usable, so it removes even the final passkey and signs the User out everywhere. The next login uses an uncompromised passkey or the documented password-plus-recovery-code replacement flow.
 
 ## 5. Persistence and scaling
 
@@ -181,6 +187,7 @@ Automated evidence covers:
 - HTTP response contracts containing no Account identity and browser presentation on login and identity security pages.
 - customer-visible factor-loss steps and the no-support-bypass boundary, including a template contract proving code replacement remains reachable while unavailable passkeys are still registered.
 - verified-contact denial without passkey assurance, normalized same-address rejection, old-login continuity before proof, new-login activation only after proof, challenge replay rejection, all-session revocation, security-version fencing, Account-membership preservation, encrypted old/new mailbox notices, PostgreSQL atomicity, and browser/OpenAPI contracts.
+- passkey rename validation and strong-assurance enforcement, final-credential compromise response, repeat/non-owner target rejection, global session invalidation, security-version fencing, exact-Origin HTTP contracts, and identity-cookie expiry.
 
 ## 8. Remaining identity work
 
@@ -189,5 +196,5 @@ Passkeys are now a production authentication and strong-reauthentication option,
 1. Complete product/security/legal review of the executable customer-visible factor-loss copy and decide whether a delayed, multi-party support-assisted exception will ever exist. The current policy is fail-closed with no support bypass. Platform-administrator signed authorization and dual-approved break glass are executable; the external workforce identity plane remains the enrollment and approval authority. Self-service recovery codes deliberately cannot authorize Account or operator actions.
 2. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
 3. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
-4. Add passkey rename and compromised-credential response; complete live SMTP delivery certification for registration, recovery, invitations, ownership, and verified-contact notices.
+4. Complete live SMTP delivery certification for registration, recovery, invitations, ownership, and verified-contact notices.
 5. Run real-browser WebAuthn journeys across supported desktop/mobile platforms and accessibility tooling before release promotion.

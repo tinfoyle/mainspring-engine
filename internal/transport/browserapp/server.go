@@ -886,6 +886,8 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 		data.Notice = "Passkey confirmed. Privileged Account actions are unlocked for 10 minutes."
 	case "passkey_added":
 		data.Notice = "Passkey added and confirmed. Privileged Account actions are unlocked for 10 minutes."
+	case "passkey_renamed":
+		data.Notice = "Passkey renamed."
 	case "recovery_code_accepted":
 		data.Notice = "Recovery code accepted for this session. Add a replacement passkey within 10 minutes."
 	case "owner_enrollment_required":
@@ -953,6 +955,11 @@ func securityEventViews(events []sessions.SecurityEvent) []securityEventView {
 			view.Label = "Passkey added"
 		case sessions.EventPasskeyRemoved:
 			view.Label = "Passkey removed"
+		case sessions.EventPasskeyRenamed:
+			view.Label = "Passkey renamed"
+		case sessions.EventPasskeyCompromised:
+			view.Label = "Passkey reported compromised"
+			view.Detail = "Credential removed and all sessions revoked"
 		case sessions.EventPasskeyAuthenticated:
 			view.Label = "Signed in with a passkey"
 		case sessions.EventPasskeyReauthenticated:
@@ -1314,6 +1321,8 @@ func loginNotice(status string) string {
 		return "Password updated. Sign in again on every device."
 	case "email_changed":
 		return "Identity email verified and changed. Every previous session was signed out; sign in with the new email."
+	case "passkey_compromised":
+		return "The compromised passkey was removed and every session was signed out. Sign in again and review your identity security settings."
 	}
 	return ""
 }

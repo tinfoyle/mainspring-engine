@@ -149,6 +149,21 @@ func (r *PasskeyRepository) ListCredentials(_ context.Context, userID ids.UserID
 	return cloneRecords(r.credentials[userID]), nil
 }
 
+func (r *PasskeyRepository) RenameCredential(_ context.Context, userID ids.UserID, credentialID []byte, name string, now time.Time) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	values := r.credentials[userID]
+	for index := range values {
+		if bytes.Equal(values[index].Credential.ID, credentialID) {
+			values[index].Name = name
+			r.credentials[userID] = values
+			r.recordEvent(userID, sessions.EventPasskeyRenamed, now)
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (r *PasskeyRepository) DeleteCredential(_ context.Context, userID ids.UserID, credentialID []byte, allowLast bool, now time.Time) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -165,6 +180,37 @@ func (r *PasskeyRepository) DeleteCredential(_ context.Context, userID ids.UserI
 		return true, nil
 	}
 	return false, nil
+}
+
+func (r *PasskeyRepository) CompromiseCredential(ctx context.Context, userID ids.UserID, credentialID []byte, now time.Time) (bool, error) {
+	r.mu.Lock()
+	values := r.credentials[userID]
+	found := false
+	for index := range values {
+		if bytes.Equal(values[index].Credential.ID, credentialID) {
+			r.credentials[userID] = append(values[:index:index], values[index+1:]...)
+			found = true
+			break
+		}
+	}
+	if found {
+		r.recordEvent(userID, sessions.EventPasskeyCompromised, now)
+		r.store.mu.Lock()
+		user := r.store.users[userID]
+		user.SecurityVersion++
+		r.store.users[userID] = user
+		r.store.mu.Unlock()
+	}
+	r.mu.Unlock()
+	if !found {
+		return false, nil
+	}
+	if r.sessions != nil {
+		if err := r.sessions.RevokeAll(ctx, userID, now); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (r *PasskeyRepository) identity(userID ids.UserID) (identity.User, bool) {

@@ -188,7 +188,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/passkeys", s.listPasskeys)
 	mux.HandleFunc("POST /api/v1/passkey-registrations", s.beginPasskeyRegistration)
 	mux.HandleFunc("POST /api/v1/passkey-registrations/{ceremonyID}/complete", s.completePasskeyRegistration)
+	mux.HandleFunc("PATCH /api/v1/passkeys/{credentialID}", s.renamePasskey)
 	mux.HandleFunc("DELETE /api/v1/passkeys/{credentialID}", s.deletePasskey)
+	mux.HandleFunc("POST /api/v1/passkeys/{credentialID}/compromise", s.compromisePasskey)
 	mux.HandleFunc("POST /api/v1/passkey-reauthentications", s.beginPasskeyReauthentication)
 	mux.HandleFunc("POST /api/v1/passkey-reauthentications/{ceremonyID}/complete", s.completePasskeyReauthentication)
 	mux.HandleFunc("GET /api/v1/recovery-codes", s.recoveryCodeStatus)
@@ -1126,6 +1128,38 @@ func (s *Server) deletePasskey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) renamePasskey(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.passkeyRequest(w, r, true)
+	if !ok {
+		return
+	}
+	var input struct {
+		Name string `json:"name"`
+	}
+	if err := decodePasskeyJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "a valid passkey name is required")
+		return
+	}
+	if err := s.passkeys.Rename(r.Context(), authenticated.Session, r.PathValue("credentialID"), input.Name); err != nil {
+		s.writePasskeyMutationError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) compromisePasskey(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.passkeyRequest(w, r, true)
+	if !ok {
+		return
+	}
+	if err := s.passkeys.Compromise(r.Context(), authenticated.Session, r.PathValue("credentialID")); err != nil {
+		s.writePasskeyMutationError(w, err)
+		return
+	}
+	s.clearIdentityCookies(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) passkeyRequest(w http.ResponseWriter, r *http.Request, mutation bool) (sessions.Authenticated, bool) {
 	if mutation && !s.validSessionMutationOrigin(r) {
 		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
@@ -1144,6 +1178,8 @@ func (s *Server) writePasskeyMutationError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusForbidden, "reauthentication_required", "confirm your identity before this sensitive operation")
 	case errors.Is(err, passkeys.ErrCredentialNotFound):
 		writeProblem(w, http.StatusNotFound, "passkey_not_found", "the passkey was not found")
+	case errors.Is(err, passkeys.ErrCredentialNameInvalid):
+		writeProblem(w, http.StatusBadRequest, "passkey_name_invalid", "the passkey name must contain 2 to 80 characters")
 	case errors.Is(err, passkeys.ErrCredentialLimit):
 		writeProblem(w, http.StatusConflict, "passkey_limit_reached", "the identity has reached its passkey limit")
 	case errors.Is(err, passkeys.ErrCredentialStateConflict):

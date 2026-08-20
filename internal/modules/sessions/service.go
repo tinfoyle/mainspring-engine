@@ -85,6 +85,8 @@ const (
 	EventCredentialRecovered         SecurityEventType = "credential_recovered"
 	EventPasskeyAdded                SecurityEventType = "passkey_added"
 	EventPasskeyRemoved              SecurityEventType = "passkey_removed"
+	EventPasskeyRenamed              SecurityEventType = "passkey_renamed"
+	EventPasskeyCompromised          SecurityEventType = "passkey_compromised"
 	EventPasskeyAuthenticated        SecurityEventType = "passkey_authenticated"
 	EventPasskeyReauthenticated      SecurityEventType = "passkey_reauthenticated"
 	EventPasskeyCloneWarning         SecurityEventType = "passkey_clone_warning"

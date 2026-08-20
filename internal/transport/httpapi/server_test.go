@@ -688,6 +688,73 @@ func TestVerifiedContactChangeHTTPJourney(t *testing.T) {
 	}
 }
 
+func TestPasskeyRenameAndCompromiseHTTPJourney(t *testing.T) {
+	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	defer server.Close()
+
+	begin := postJSON(t, server.URL+"/api/v1/registrations", `{"email":"incident@example.com","display_name":"Incident Owner","account_name":"Incident Lab","region":"us-east"}`)
+	var accepted map[string]any
+	if err := json.Unmarshal(begin.Body, &accepted); err != nil || begin.StatusCode != http.StatusAccepted {
+		t.Fatalf("begin identity registration: %d %s err=%v", begin.StatusCode, begin.Body, err)
+	}
+	verificationToken, _ := accepted["development_verification_token"].(string)
+	complete := postJSON(t, server.URL+"/api/v1/registrations/verify", `{"token":"`+verificationToken+`","password":"incident response password"}`)
+	if complete.StatusCode != http.StatusCreated {
+		t.Fatalf("complete identity registration: %d %s", complete.StatusCode, complete.Body)
+	}
+	login := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"incident@example.com","password":"incident response password"}`)
+	cookies := (&http.Response{Header: login.Header}).Cookies()
+	if login.StatusCode != http.StatusCreated || len(cookies) != 1 {
+		t.Fatalf("login: %d %s cookies=%#v", login.StatusCode, login.Body, cookies)
+	}
+	registration := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, cookies[0])
+	var ceremony struct {
+		CeremonyID string `json:"ceremony_id"`
+		PublicKey  struct {
+			PublicKey struct {
+				Challenge string `json:"challenge"`
+			} `json:"publicKey"`
+		} `json:"public_key"`
+	}
+	if err := json.Unmarshal(registration.Body, &ceremony); err != nil || registration.StatusCode != http.StatusCreated || ceremony.CeremonyID == "" || ceremony.PublicKey.PublicKey.Challenge == "" {
+		t.Fatalf("begin passkey registration: %d %s err=%v", registration.StatusCode, registration.Body, err)
+	}
+	credential := registrationCredential(t, ceremony.PublicKey.PublicKey.Challenge)
+	enrolled := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations/"+ceremony.CeremonyID+"/complete", `{"name":"Travel key","credential":`+credential+`}`, cookies[0])
+	var passkey struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(enrolled.Body, &passkey); err != nil || enrolled.StatusCode != http.StatusCreated || passkey.ID == "" {
+		t.Fatalf("enroll passkey: %d %s err=%v", enrolled.StatusCode, enrolled.Body, err)
+	}
+	invalidRename := requestJSONCookie(t, http.MethodPatch, server.URL+"/api/v1/passkeys/"+passkey.ID, `{"name":"x"}`, cookies[0])
+	if invalidRename.StatusCode != http.StatusBadRequest || !bytes.Contains(invalidRename.Body, []byte(`"code":"passkey_name_invalid"`)) {
+		t.Fatalf("invalid rename: %d %s", invalidRename.StatusCode, invalidRename.Body)
+	}
+	renamed := requestJSONCookie(t, http.MethodPatch, server.URL+"/api/v1/passkeys/"+passkey.ID, `{"name":"Office key"}`, cookies[0])
+	if renamed.StatusCode != http.StatusNoContent {
+		t.Fatalf("rename passkey: %d %s", renamed.StatusCode, renamed.Body)
+	}
+	listed := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/passkeys", "", cookies[0])
+	if listed.StatusCode != http.StatusOK || !bytes.Contains(listed.Body, []byte(`"name":"Office key"`)) {
+		t.Fatalf("renamed passkey list: %d %s", listed.StatusCode, listed.Body)
+	}
+	compromised := postJSONCookie(t, server.URL+"/api/v1/passkeys/"+passkey.ID+"/compromise", `{}`, cookies[0])
+	cleared := (&http.Response{Header: compromised.Header}).Cookies()
+	if compromised.StatusCode != http.StatusNoContent || len(cleared) < 2 {
+		t.Fatalf("compromise passkey: %d %s cookies=%#v", compromised.StatusCode, compromised.Body, cleared)
+	}
+	for _, cookie := range cleared {
+		if cookie.MaxAge >= 0 {
+			t.Fatalf("identity cookie was not expired: %#v", cookie)
+		}
+	}
+	stale := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/sessions", "", cookies[0])
+	if stale.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("compromised session remained active: %d %s", stale.StatusCode, stale.Body)
+	}
+}
+
 func postJSONCookie(t *testing.T, url, body string, cookie *http.Cookie) response {
 	return requestJSONCookie(t, http.MethodPost, url, body, cookie)
 }

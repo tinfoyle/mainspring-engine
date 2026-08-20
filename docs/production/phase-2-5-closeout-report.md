@@ -144,7 +144,7 @@ Current evidence: [Account movement operations](account-movement.md) documents t
 
 - Finish the package-by-transport downgrade/read-only/export/retention/restoration matrix.
 - Enforce it through HTTP, UI, MCP, schedules, workers, runners and Agent tools.
-- Add compromised-credential response, passkey rename and scheduled identity cleanup/metrics.
+- Add scheduled identity cleanup/metrics. Passkey rename and the atomic compromised-credential/all-session response are implemented across application, PostgreSQL, HTTP, browser and OpenAPI boundaries.
 - Add billing mismatch explanations and complete Stripe test-mode policy journeys.
 - Complete external-store export/erasure directives, acknowledgements and attestations.
 - Finish Catalog/package/surface inventory and sanitized API publication policy.

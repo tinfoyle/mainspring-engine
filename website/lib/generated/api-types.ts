@@ -649,6 +649,10 @@ export interface RegistrationCompleted {
   readonly "user": ProvisionedUser;
 }
 
+export interface RenamePasskeyRequest {
+  readonly "name": string;
+}
+
 export interface ResolveAgentRunRequest {
   readonly "action": AgentRunResolutionAction;
   readonly "note": string;
@@ -660,7 +664,7 @@ export interface SecurityEvent {
   readonly "type": SecurityEventType;
 }
 
-export type SecurityEventType = "session_created" | "session_reauthenticated" | "session_revoked" | "sessions_revoked" | "credential_recovered" | "passkey_added" | "passkey_removed" | "passkey_authenticated" | "passkey_reauthenticated" | "passkey_clone_warning" | "recovery_codes_rotated" | "recovery_code_consumed" | "primary_email_change_requested" | "primary_email_changed";
+export type SecurityEventType = "session_created" | "session_reauthenticated" | "session_revoked" | "sessions_revoked" | "credential_recovered" | "passkey_added" | "passkey_removed" | "passkey_renamed" | "passkey_compromised" | "passkey_authenticated" | "passkey_reauthenticated" | "passkey_clone_warning" | "recovery_codes_rotated" | "recovery_code_consumed" | "primary_email_change_requested" | "primary_email_changed";
 
 export interface SecurityEvents {
   readonly "events": ReadonlyArray<SecurityEvent>;
@@ -923,6 +927,7 @@ export interface ApiSchemas {
   readonly RecoveryCodeStatus: RecoveryCodeStatus;
   readonly RegistrationAccepted: RegistrationAccepted;
   readonly RegistrationCompleted: RegistrationCompleted;
+  readonly RenamePasskeyRequest: RenamePasskeyRequest;
   readonly ResolveAgentRunRequest: ResolveAgentRunRequest;
   readonly SecurityEvent: SecurityEvent;
   readonly SecurityEventType: SecurityEventType;

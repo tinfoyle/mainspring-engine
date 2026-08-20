@@ -149,7 +149,9 @@ func TestIdentitySecurityOperationsRemainTyped(t *testing.T) {
 		"listPasskeys":                    false,
 		"beginPasskeyRegistration":        false,
 		"completePasskeyRegistration":     false,
+		"renamePasskey":                   false,
 		"deletePasskey":                   false,
+		"compromisePasskey":               false,
 		"beginPasskeyReauthentication":    false,
 		"completePasskeyReauthentication": false,
 		"recoveryCodeStatus":              false,
@@ -191,8 +193,8 @@ func TestEveryCustomerOperationRemainsTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 62 {
-		t.Fatalf("customer operation count = %d, want 62", len(routes))
+	if len(routes) != 64 {
+		t.Fatalf("customer operation count = %d, want 64", len(routes))
 	}
 	for _, route := range routes {
 		if route.Contract != "typed" {

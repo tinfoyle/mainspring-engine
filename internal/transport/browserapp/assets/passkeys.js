@@ -108,4 +108,28 @@
     await request(`/api/v1/passkeys/${encodeURIComponent(button.dataset.credentialId)}`, { method: "DELETE" });
     window.location.assign("/app/security");
   })));
+
+  document.querySelectorAll(".passkey-rename").forEach(button => button.addEventListener("click", () => run(async () => {
+    const current = button.dataset.credentialName || "";
+    const name = window.prompt("Name this passkey", current);
+    if (name === null) {
+      setStatus("");
+      return;
+    }
+    await request(`/api/v1/passkeys/${encodeURIComponent(button.dataset.credentialId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+    window.location.assign("/app/security?status=passkey_renamed");
+  })));
+
+  document.querySelectorAll(".passkey-compromise").forEach(button => button.addEventListener("click", () => run(async () => {
+    if (!window.confirm("Report this passkey as compromised? It will be removed and you will be signed out on every device.")) {
+      setStatus("");
+      return;
+    }
+    await request(`/api/v1/passkeys/${encodeURIComponent(button.dataset.credentialId)}/compromise`, { method: "POST" });
+    window.location.assign("/login?status=passkey_compromised");
+  })));
 })();

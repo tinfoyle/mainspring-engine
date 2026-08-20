@@ -782,6 +782,48 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if other, err := passkeyRepository.ListCredentials(ctx, ids.UserID("30000000-0000-4000-8000-000000000003")); err != nil || len(other) != 0 {
 		t.Fatalf("cross-user passkey list = %+v, %v", other, err)
 	}
+	if renamed, err := passkeyRepository.RenameCredential(ctx, provisioned.User.ID, storedCredential.ID, "Renamed PostgreSQL passkey", now.Add(2*time.Second)); err != nil || !renamed {
+		t.Fatalf("rename persistent passkey = %v, %v", renamed, err)
+	}
+	credentials, err = passkeyRepository.ListCredentials(ctx, provisioned.User.ID)
+	if err != nil || len(credentials) != 1 || credentials[0].Name != "Renamed PostgreSQL passkey" {
+		t.Fatalf("renamed persistent passkey round trip = %+v, %v", credentials, err)
+	}
+	var preIncidentVersion uint64
+	if err := pool.QueryRow(ctx, `SELECT security_version FROM users WHERE id=$1`, provisioned.User.ID).Scan(&preIncidentVersion); err != nil {
+		t.Fatal(err)
+	}
+	incidentSessionService, err := sessions.NewService(sessionRepository, ids.RandomGenerator{}, fixedClock{now: now.Add(3 * time.Second)}, 24*time.Hour, time.Hour, 15*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	incidentSession, err := incidentSessionService.IssueForClientWithMethod(ctx, provisioned.User.ID, preIncidentVersion, "Incident response browser", sessions.AuthenticationMethodPasskey)
+	if err != nil {
+		t.Fatalf("issue incident response session: %v", err)
+	}
+	if compromised, err := passkeyRepository.CompromiseCredential(ctx, provisioned.User.ID, storedCredential.ID, now.Add(4*time.Second)); err != nil || !compromised {
+		t.Fatalf("compromise persistent passkey = %v, %v", compromised, err)
+	}
+	if remaining, err := passkeyRepository.ListCredentials(ctx, provisioned.User.ID); err != nil || len(remaining) != 0 {
+		t.Fatalf("credentials after compromise = %+v, %v", remaining, err)
+	}
+	if _, err := incidentSessionService.Authenticate(ctx, incidentSession.Token); !errors.Is(err, sessions.ErrInvalidSession) {
+		t.Fatalf("compromised credential session remained active: %v", err)
+	}
+	var postIncidentVersion uint64
+	var incidentEvents int
+	if err := pool.QueryRow(ctx, `SELECT security_version FROM users WHERE id=$1`, provisioned.User.ID).Scan(&postIncidentVersion); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_security_events WHERE user_id=$1 AND event_type IN ('passkey_renamed','passkey_compromised','sessions_revoked')`, provisioned.User.ID).Scan(&incidentEvents); err != nil {
+		t.Fatal(err)
+	}
+	if postIncidentVersion != preIncidentVersion+1 || incidentEvents != 3 {
+		t.Fatalf("incident response version/events = %d/%d, want %d/3", postIncidentVersion, incidentEvents, preIncidentVersion+1)
+	}
+	if compromised, err := passkeyRepository.CompromiseCredential(ctx, provisioned.User.ID, storedCredential.ID, now.Add(5*time.Second)); err != nil || compromised {
+		t.Fatalf("repeated compromise = %v, %v", compromised, err)
+	}
 
 	commercial := postgresadapter.NewCommercialAccessRepository(pool)
 	price, err := commercial.ProviderPrice(ctx, draft.Version, "team-monthly-v1", "stripe", "test")
@@ -877,7 +919,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 57 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 58 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)
