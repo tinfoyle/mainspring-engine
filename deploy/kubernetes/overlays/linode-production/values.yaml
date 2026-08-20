@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-environment-values, namespace: spyglass-reference}
+data:
+  application_namespace: spyglass-production
+  runner_namespace: spyglass-runners-production
+  admission_origin: https://admission-api.spyglass-production.svc.cluster.local
+  broker_origin: https://runner-broker.spyglass-production.svc.cluster.local
+  tool_origin: http://app-router.spyglass-production.svc.cluster.local
+  model_origin: https://model-gateway.spyglass-production.svc.cluster.local

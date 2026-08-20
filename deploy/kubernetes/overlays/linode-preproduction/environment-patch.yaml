@@ -1,3 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spyglass-reference
+  annotations:
+    spyglass.io/environment-namespace: spyglass-preproduction
+    spyglass.io/admission-origin: https://admission-api.spyglass-preproduction.svc.cluster.local
+    spyglass.io/broker-origin: https://runner-broker.spyglass-preproduction.svc.cluster.local
+    spyglass.io/tool-origin: http://app-router.spyglass-preproduction.svc.cluster.local
+    spyglass.io/model-origin: https://model-gateway.spyglass-preproduction.svc.cluster.local
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spyglass-runners-reference
+  annotations: {spyglass.io/environment-namespace: spyglass-runners-preproduction}
+---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata: {name: spyglass-public, namespace: spyglass-reference}

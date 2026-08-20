@@ -1,7 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-nameSuffix: -production
-resources: [../linode-common]
+resources:
+  - ../linode-common
+  - values.yaml
 images:
   - name: registry.invalid/infinite-ocean/spyglass-engine
     newName: ghcr.io/tinfoyle/spyglass-engine
@@ -11,3 +12,57 @@ images:
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 patches:
   - path: environment-patch.yaml
+  - target: {group: rbac.authorization.k8s.io, version: v1, kind: ClusterRole, name: spyglass-reference-runner-token-reviewer}
+    patch: |-
+      - {op: replace, path: /metadata/name, value: spyglass-production-runner-token-reviewer}
+  - target: {group: rbac.authorization.k8s.io, version: v1, kind: ClusterRoleBinding, name: spyglass-reference-runner-token-reviewer}
+    patch: |-
+      - {op: replace, path: /metadata/name, value: spyglass-production-runner-token-reviewer}
+      - {op: replace, path: /roleRef/name, value: spyglass-production-runner-token-reviewer}
+replacements:
+  - source: {kind: ConfigMap, name: spyglass-environment-values, fieldPath: data.application_namespace}
+    targets:
+      - select: {namespace: spyglass-reference}
+        fieldPaths: [metadata.namespace]
+      - select: {kind: Namespace, name: spyglass-reference}
+        fieldPaths: [metadata.name]
+      - select: {kind: RoleBinding, namespace: spyglass-runners-reference}
+        fieldPaths: [subjects.*.namespace]
+      - select: {group: rbac.authorization.k8s.io, version: v1, kind: ClusterRoleBinding}
+        fieldPaths: [subjects.*.namespace]
+  - source: {kind: ConfigMap, name: spyglass-environment-values, fieldPath: data.runner_namespace}
+    targets:
+      - select: {namespace: spyglass-runners-reference}
+        fieldPaths: [metadata.namespace]
+      - select: {kind: Namespace, name: spyglass-runners-reference}
+        fieldPaths: [metadata.name]
+  - source: {kind: ConfigMap, name: spyglass-environment-values, fieldPath: data.admission_origin}
+    targets:
+      - select: {group: apps, version: v1, kind: Deployment, name: app-api-cell-reference}
+        fieldPaths: ["spec.template.spec.containers.[name=app-api].env.[name=SPYGLASS_WORK_ADMISSION_ORIGIN].value"]
+  - source: {kind: ConfigMap, name: spyglass-environment-values, fieldPath: data.broker_origin}
+    targets:
+      - select: {group: apps, version: v1, kind: Deployment, name: runner-broker-cell-reference}
+        fieldPaths: ["spec.template.spec.containers.[name=broker].env.[name=SPYGLASS_RUNNER_BROKER_URL].value"]
+      - select: {group: apps, version: v1, kind: Deployment, name: runner-controller-cell-reference}
+        fieldPaths: ["spec.template.spec.containers.[name=controller].env.[name=SPYGLASS_RUNNER_BROKER_URL].value"]
+  - source: {kind: ConfigMap, name: spyglass-environment-values, fieldPath: data.tool_origin}
+    targets:
+      - select: {group: apps, version: v1, kind: Deployment, name: runner-broker-cell-reference}
+        fieldPaths: ["spec.template.spec.containers.[name=broker].env.[name=SPYGLASS_TOOL_ROUTER_ORIGIN].value"]
+  - source: {kind: ConfigMap, name: spyglass-environment-values, fieldPath: data.model_origin}
+    targets:
+      - select: {group: apps, version: v1, kind: Deployment, name: runner-broker-cell-reference}
+        fieldPaths: ["spec.template.spec.containers.[name=broker].env.[name=SPYGLASS_MODEL_GATEWAY_ORIGIN].value"]
+  - source: {kind: ConfigMap, name: spyglass-environment-values, fieldPath: data.application_namespace}
+    targets:
+      - select: {group: networking.k8s.io, version: v1, kind: NetworkPolicy, name: runner-to-broker}
+        fieldPaths: ["spec.egress.0.to.0.namespaceSelector.matchLabels.[kubernetes.io/metadata.name]"]
+  - source: {kind: ConfigMap, name: spyglass-environment-values, fieldPath: data.runner_namespace}
+    targets:
+      - select: {group: apps, version: v1, kind: Deployment, name: runner-broker-cell-reference}
+        fieldPaths: ["spec.template.spec.containers.[name=broker].env.[name=SPYGLASS_RUNNER_NAMESPACE].value"]
+      - select: {group: apps, version: v1, kind: Deployment, name: runner-controller-cell-reference}
+        fieldPaths: ["spec.template.spec.containers.[name=controller].env.[name=SPYGLASS_RUNNER_NAMESPACE].value"]
+      - select: {group: networking.k8s.io, version: v1, kind: NetworkPolicy, name: broker-from-runner}
+        fieldPaths: ["spec.ingress.0.from.0.namespaceSelector.matchLabels.[kubernetes.io/metadata.name]"]
