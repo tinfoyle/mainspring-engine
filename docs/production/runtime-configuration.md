@@ -1,8 +1,8 @@
 # Production Runtime Configuration
 
-- Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure processes
+- Status: executable Phase 2.5 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure/movement processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 The revision-controlled machine contract is [`deploy/spyglass-process-inventory.json`](../../deploy/spyglass-process-inventory.json). Its verification script compares the complete mode set to the binary switch and fails local verification when they drift.
 
@@ -26,6 +26,7 @@ The revision-controlled machine contract is [`deploy/spyglass-process-inventory.
 | `agent-queue-admin` | One audited bounded inspection or exact-target requeue of one cell's Agent dispatch/projection dead letters | Serving traffic, direct queue/content/exchange access, provider credentials, cross-cell discovery |
 | `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
 | `account-erasure-admin` | One audited prepare, inspect, independent approval, pre-execution cancellation, leased cross-store execution, or signed restore replay of a retained closed Account | Serving traffic, automatic approval, arbitrary SQL, cross-cell fallback, external-store deletion |
+| `account-move-admin` | One audited prepare, inspect, single-phase advance, pause/resume, rollback or source-retirement action for one exact source/destination pair | Serving traffic, cell discovery, endpoint substitution, automatic dead-letter disposal, provider credentials |
 | `passkey-admin` | One audited key-version inspection or bounded credential/ceremony envelope re-encryption batch | Serving traffic, User/contact reads, password/session authority, automatic key retirement |
 | `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
@@ -425,6 +426,12 @@ Preparation additionally requires `SPYGLASS_CELL_DATABASE_URL`, `SPYGLASS_CELL_I
 
 Normal operator credentials receive only `USAGE` on their schemas and `EXECUTE` on the relevant security-definer functions. They receive no direct Account, closure, billing, usage, Work, request, or audit-table privileges. Restore replay uses separate function-owner and operator roles; only the replay functions own the narrowly scoped table mutation and immutable-event bypass authority. No serving workload or ordinary erasure operator receives those grants.
 
+## Account movement values
+
+`account-move-admin prepare|inspect|advance|pause|resume|rollback|retire` is the short-lived cross-cell workflow documented in [Account movement operations](account-movement.md). Every action requires the global database, operator identity/reason, exact environment confirmation and signed operator authorization. Preparation requires an Account ID with exact confirmation, destination cell and rollback window. Later actions require the durable move ID; pause/resume additionally require the inspected version; advance/rollback/retire require distinct source/destination database URLs and exact cell IDs.
+
+`SPYGLASS_ACCOUNT_MOVE_LEASE` defaults to 15 minutes and is bounded from 30 seconds through one hour. `SPYGLASS_ACCOUNT_MOVE_OPERATION_TIMEOUT` defaults to one hour and is bounded from five minutes through 24 hours. Rollback windows are whole seconds from five minutes through seven days. The global credential is execute-only. Source and destination credentials are separate, non-`BYPASSRLS` roles with release-generated grants over the exact Account-owned cell-table inventory because the copier deliberately fails closed over every `account_id` table.
+
 ## Local invocation shape
 
 ```text
@@ -449,6 +456,7 @@ spyglass account-lifecycle-worker
 spyglass work-reconciler
 spyglass work-release-admin <action>
 spyglass account-erasure-admin <action>
+spyglass account-move-admin <action>
 spyglass catalog-admin <action>
 SPYGLASS_MIGRATION_TARGET=global spyglass migrate
 ```

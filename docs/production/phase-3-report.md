@@ -129,7 +129,7 @@ Exit: no production use case depends on prototype runtime code, manually duplica
 - Inventory and characterize every retained prototype route, MCP tool, workflow, schedule, table and external object.
 - Build Account-cohort migration tools with checksums, row/object/index counts and rollback checkpoints.
 - Reconcile Membership, placement, entitlements, Work, Knowledge, Baseline, Agents, schedules, actions and provider references.
-- Complete Account export, erasure, restore replay and cell movement across every enabled store.
+- Extend the Phase 2.5 PostgreSQL Account-movement and existing erasure/restore foundations across every new enabled object, search, workflow and provider-reference store; no store may ship without copy/reconciliation/rollback/retirement and erasure/replay handlers.
 - Complete dashboards, alerts, runbooks, capacity limits, security/privacy review and support procedures.
 - Run clean-environment, restored-environment, load/fairness, provider-degradation, game-day and soak suites.
 

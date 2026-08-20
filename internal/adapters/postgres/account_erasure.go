@@ -321,7 +321,7 @@ func classifyErasureEligibilityError(err error) error {
 	case "P0002":
 		return accounterasure.ErrNotFound
 	case "P0001":
-		return accounterasure.ErrNotEligible
+		return fmt.Errorf("%w: %v", accounterasure.ErrNotEligible, err)
 	}
 	return fmt.Errorf("Account erasure eligibility unavailable: %w", err)
 }
@@ -351,7 +351,7 @@ func classifyCellErasureError(err error) error {
 	case "P0002":
 		return accounterasure.ErrNotFound
 	case "P0001":
-		return accounterasure.ErrNotEligible
+		return fmt.Errorf("%w: %v", accounterasure.ErrNotEligible, err)
 	case "P0003", "23505":
 		return accounterasure.ErrStateConflict
 	}

@@ -15,7 +15,8 @@
 | P2.5.2 local parity Compose | Complete | Persistent global/cell A/cell B PostgreSQL, migrations, two active cells, serving APIs/router, separate runtime roles, containerized Go/race/PostgreSQL/OpenAPI/website tests, and HTTPS smoke verification. |
 | P2.5.3 shared process topology | Complete | All implemented global and per-cell workers run with health/status gates and constrained roles; TLS Mailpit capture, the complete machine-readable process inventory, a 17-target Prometheus profile, and a separate non-development TLS 1.3 topology with exact-identity route canaries are verified. |
 | P2.5.4 Docker runner launcher | Complete | A stage-only, mTLS and bearer-authenticated launcher owns the Docker socket; controller and broker have disjoint authority; deterministic constrained containers survive ambiguous creation and launcher restart; cancellation and bounded orphan cleanup are certified against the ubunturojo Docker daemon. |
-| P2.5.5–P2.5.7 | Not started | Interrupted platform closeout is the next slice; connected Hostinger stage and LKE overlays follow in that order. |
+| P2.5.5 platform closeout | In progress | The durable PostgreSQL Account-movement foundation, operator process and crash/queue/reconciliation tests are executable. Commercial/lifecycle, identity and billing closeout remains before this slice is accepted. |
+| P2.5.6–P2.5.7 | Not started | Connected Hostinger stage and LKE overlays follow platform closeout in that order. |
 
 The local implementation and tests run only through Docker commands issued inside `ubunturojo`. No Unity, OpenAI Sites, Cloudflare deployment, or alternate hosted preview is part of this execution path.
 
@@ -137,6 +138,8 @@ Implement the full resumable move workflow, not a test-only generation change:
 9. verified source retirement after policy permits;
 10. inspect/pause/resume/rollback operator commands and crash-boundary tests.
 
+Current evidence: [Account movement operations](account-movement.md) documents the implemented durable state machine. Global placement and cell checkpoints, queue-gated freeze, schema-driven PostgreSQL copy, snapshot high-water mark, row manifest/content digest reconciliation, generation-safe switch/rollback, retained rollback copy, source retirement and signed operator commands are covered by disposable three-database and crash-restart tests. No external Account store is enabled yet; Phase 3 must extend the handler inventory before introducing one.
+
 ### Commercial and lifecycle completion
 
 - Finish the package-by-transport downgrade/read-only/export/retention/restoration matrix.
@@ -201,7 +204,7 @@ Phase 2.5 began with the following bounded P2.5.1 slice, which is now complete:
 5. add a minimal Compose path containing edge, website and the development Spyglass process only as a visual/request smoke gate;
 6. preserve the current public pages, Catalog fallback and private signup handoff behavior.
 
-P2.5.2 subsequently expanded that path to persistent global/two-cell PostgreSQL and production process modes. P2.5.3 completed the implemented worker topology, constrained runtime roles, TLS SMTP capture, local metrics profile, and secure-local workload-identity certification. P2.5.4 added the explicit Docker-stage runner substrate and proved create ambiguity, duplicate launch, identity verification, launcher restart, cancellation, and cleanup through a live Docker Engine integration gate. P2.5.5 platform closeout is the next slice.
+P2.5.2 subsequently expanded that path to persistent global/two-cell PostgreSQL and production process modes. P2.5.3 completed the implemented worker topology, constrained runtime roles, TLS SMTP capture, local metrics profile, and secure-local workload-identity certification. P2.5.4 added the explicit Docker-stage runner substrate and proved create ambiguity, duplicate launch, identity verification, launcher restart, cancellation, and cleanup through a live Docker Engine integration gate. P2.5.5 is now in progress: its Account-movement foundation is executable, while commercial/lifecycle, identity and billing closeout remains.
 
 ## Phase 2.5 completion rule
 

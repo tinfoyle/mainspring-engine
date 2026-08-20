@@ -35,7 +35,7 @@ func TestAgentQueueRecoveryIsExactAuditedAndExecuteOnly(t *testing.T) {
 	}
 	accountID := ids.AccountID("a1000000-0000-4000-8000-000000000001")
 	rootID := "a2000000-0000-4000-8000-000000000001"
-	seedCellErasureAccount(t, ctx, owner, accountID, rootID, "a3000000-0000-4000-8000-000000000001", now.UTC(), true)
+	seedCellErasureAccount(t, ctx, owner, accountID, rootID, "a3000000-0000-4000-8000-000000000001", now.UTC(), false)
 	invocationID := strings.Replace(rootID, "000000000001", "000000000051", 1)
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_dispatch_queue SET state='dead_letter',attempt_count=12,last_error_code='provision_failed',updated_at=$3 WHERE account_id=$1 AND invocation_id=$2;
 		UPDATE spyglass.agent_result_projection_queue SET state='dead_letter',attempt_count=7,last_error_code='projection_failed',projected_at=NULL,updated_at=$3 WHERE account_id=$1 AND invocation_id=$2`, pgx.QueryExecModeSimpleProtocol, accountID, invocationID, now); err != nil {

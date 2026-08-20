@@ -44,6 +44,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
 	accounterasurecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/accounterasureadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountlifecycleworker"
+	accountmovecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountmoveadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentdispatchworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentprojectionworker"
@@ -155,6 +156,8 @@ func main() {
 		err = runWorkReleaseAdmin(ctx, logger)
 	case "account-erasure-admin":
 		err = runAccountErasureAdmin(ctx, logger)
+	case "account-move-admin":
+		err = runAccountMoveAdmin(ctx, logger)
 	case "passkey-admin":
 		err = runPasskeyAdmin(ctx, logger)
 	case "catalog-admin":
@@ -162,7 +165,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -701,6 +704,113 @@ func runAccountErasureAdmin(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	return accounterasurecommand.Run(startup, config, logger)
+}
+
+func runAccountMoveAdmin(ctx context.Context, logger *slog.Logger) error {
+	if len(os.Args) != 3 || (os.Args[2] != "prepare" && os.Args[2] != "inspect" && os.Args[2] != "advance" &&
+		os.Args[2] != "pause" && os.Args[2] != "resume" && os.Args[2] != "rollback" && os.Args[2] != "retire") {
+		return errors.New("usage: spyglass account-move-admin prepare|inspect|advance|pause|resume|rollback|retire")
+	}
+	globalDatabaseURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	actor, err := requiredEnv("SPYGLASS_OPERATOR_ID")
+	if err != nil {
+		return err
+	}
+	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
+	if err != nil {
+		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	confirmation, err := requiredEnv("SPYGLASS_CONFIRM_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	globalMaxConns, err := int32Env("SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	lease, err := durationEnv("SPYGLASS_ACCOUNT_MOVE_LEASE", 15*time.Minute)
+	if err != nil {
+		return err
+	}
+	config := accountmovecommand.Config{GlobalDatabaseURL: globalDatabaseURL, Action: os.Args[2], Actor: actor, Reason: reason,
+		Environment: environment, ConfirmEnvironment: confirmation, MaxGlobalConns: globalMaxConns, Lease: lease}
+	if config.Action == "prepare" {
+		accountID, err := requiredEnv("SPYGLASS_ACCOUNT_ID")
+		if err != nil {
+			return err
+		}
+		confirmedAccountID, err := requiredEnv("SPYGLASS_CONFIRM_ACCOUNT_ID")
+		if err != nil {
+			return err
+		}
+		destinationCellID, err := requiredEnv("SPYGLASS_ACCOUNT_MOVE_DESTINATION_CELL_ID")
+		if err != nil {
+			return err
+		}
+		config.AccountID, config.ConfirmAccountID = ids.AccountID(accountID), ids.AccountID(confirmedAccountID)
+		config.DestinationCellID = ids.CellID(destinationCellID)
+		config.RollbackWindow, err = durationEnv("SPYGLASS_ACCOUNT_MOVE_ROLLBACK_WINDOW", 24*time.Hour)
+		if err != nil {
+			return err
+		}
+	} else {
+		config.MoveID, err = requiredEnv("SPYGLASS_ACCOUNT_MOVE_ID")
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action == "pause" || config.Action == "resume" {
+		config.ExpectedVersion, err = uint64Env("SPYGLASS_ACCOUNT_MOVE_VERSION")
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action == "advance" || config.Action == "rollback" || config.Action == "retire" {
+		config.SourceCellDatabaseURL, err = requiredEnv("SPYGLASS_SOURCE_CELL_DATABASE_URL")
+		if err != nil {
+			return err
+		}
+		config.DestinationDatabaseURL, err = requiredEnv("SPYGLASS_DESTINATION_CELL_DATABASE_URL")
+		if err != nil {
+			return err
+		}
+		sourceCellID, err := requiredEnv("SPYGLASS_ACCOUNT_MOVE_SOURCE_CELL_ID")
+		if err != nil {
+			return err
+		}
+		destinationCellID, err := requiredEnv("SPYGLASS_ACCOUNT_MOVE_DESTINATION_CELL_ID")
+		if err != nil {
+			return err
+		}
+		config.SourceCellID, config.DestinationCellID = ids.CellID(sourceCellID), ids.CellID(destinationCellID)
+		config.MaxCellConns, err = int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 2)
+		if err != nil {
+			return err
+		}
+	}
+	config.Reason, err = requireOperatorAuthorization(logger, "account-move-admin", config.Action, config.Actor, config.Reason, config.Environment, operatorScope(map[string]string{
+		"move_id": config.MoveID, "account_id": string(config.AccountID), "confirm_account_id": string(config.ConfirmAccountID),
+		"source_cell_id": string(config.SourceCellID), "destination_cell_id": string(config.DestinationCellID),
+		"expected_version": strconv.FormatUint(config.ExpectedVersion, 10), "rollback_window_nanoseconds": strconv.FormatInt(int64(config.RollbackWindow), 10),
+		"lease_nanoseconds": strconv.FormatInt(int64(config.Lease), 10),
+	}))
+	if err != nil {
+		return err
+	}
+	operationTimeout, err := durationEnv("SPYGLASS_ACCOUNT_MOVE_OPERATION_TIMEOUT", time.Hour)
+	if err != nil || operationTimeout < 5*time.Minute || operationTimeout > 24*time.Hour {
+		return errors.New("SPYGLASS_ACCOUNT_MOVE_OPERATION_TIMEOUT must be between 5m and 24h")
+	}
+	operation, cancel := context.WithTimeout(ctx, operationTimeout)
+	defer cancel()
+	return accountmovecommand.Run(operation, config, logger)
 }
 
 func runMigrate(ctx context.Context, logger *slog.Logger) error {

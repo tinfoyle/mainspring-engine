@@ -304,6 +304,18 @@
       "actions": ["prepare", "inspect", "approve", "cancel", "execute", "restore-replay"]
     },
     {
+      "mode": "account-move-admin",
+      "kind": "operator_job",
+      "scope": "cell-and-global",
+      "port": null,
+      "health": null,
+      "database_roles": ["global.account-move-operator", "cell.account-move-operator"],
+      "configuration": ["SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_SOURCE_CELL_DATABASE_URL", "SPYGLASS_DESTINATION_CELL_DATABASE_URL", "SPYGLASS_ACCOUNT_ID", "SPYGLASS_CONFIRM_ACCOUNT_ID", "SPYGLASS_ACCOUNT_MOVE_ID", "SPYGLASS_ACCOUNT_MOVE_VERSION", "SPYGLASS_ACCOUNT_MOVE_SOURCE_CELL_ID", "SPYGLASS_ACCOUNT_MOVE_DESTINATION_CELL_ID", "SPYGLASS_ACCOUNT_MOVE_ROLLBACK_WINDOW", "SPYGLASS_ACCOUNT_MOVE_LEASE", "SPYGLASS_ACCOUNT_MOVE_OPERATION_TIMEOUT", "SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", "SPYGLASS_CELL_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "operator_authorization"],
+      "dependencies": ["global-postgresql", "source-cell-postgresql", "destination-cell-postgresql"],
+      "actions": ["prepare", "inspect", "advance", "pause", "resume", "rollback", "retire"]
+    },
+    {
       "mode": "passkey-admin",
       "kind": "operator_job",
       "scope": "global",

@@ -33,6 +33,8 @@
 
 `https://infiniteocean.net` redirects to `https://www.infiniteocean.net`. Only the public website and private application origins are internet-facing. Internal APIs, databases, brokers, workers, model gateway, runners, metrics and administration jobs remain private.
 
+Cross-cell Account movement uses the same short-lived `account-move-admin` image in Docker stage and Kubernetes production. It is never a standing service and never infers endpoints from DNS. The operator supplies separate global/source/destination credentials and exact cell identities under a signed authorization; see [Account movement operations](account-movement.md).
+
 ## Artifact model
 
 ### Application image

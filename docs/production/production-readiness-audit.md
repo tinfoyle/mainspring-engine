@@ -45,7 +45,7 @@ This verdict separates executable software from environment evidence. The reposi
 2. Complete Knowledge before claiming source-attributed business memory; complete Finance and Marketing before advertising those packages as usable rather than preview/locked surfaces.
 3. Decide first-party-versus-partner publication policy and produce a sanitized published OpenAPI artifact. All 62 customer operations now have exact success contracts and generated types; real development-handler responses are validated against resolved OpenAPI schemas; the public pricing boundary has a complete runtime-validated Catalog fixture; and route, owner, authentication, reference, no-generic-response, backward-compatibility, Go/TypeScript generation, and Go transport drift checks are executable.
 4. Complete downgrade read-only/export/retention/restoration behavior for every package and transport, including background work and agent capabilities.
-5. Implement and rehearse Account movement between cells, including copy/change capture, reconciliation, placement switch, rollback window, and source retirement.
+5. Rehearse the implemented PostgreSQL Account-movement workflow in connected stage and extend its handler inventory to every Phase 3 external store before production; retain evidence for queue-gated freeze, high-water-mark reconciliation, placement switch, rollback window and source retirement.
 
 ## Ordered closeout plan
 
