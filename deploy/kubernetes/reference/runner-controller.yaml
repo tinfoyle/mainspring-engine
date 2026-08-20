@@ -41,7 +41,7 @@ spec:
             - {name: SPYGLASS_RUNNER_PAYLOAD_RETENTION, value: "168h"}
             - {name: SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH, value: "500"}
             - {name: SPYGLASS_RUNNER_NAMESPACE, value: "spyglass-runners-reference"}
-            - {name: SPYGLASS_RUNNER_IMAGE, value: "registry.invalid/infinite-ocean/spyglass-engine:release-placeholder"}
+            - {name: SPYGLASS_RUNNER_IMAGE, value: "ghcr.io/tinfoyle/spyglass-engine@sha256:0000000000000000000000000000000000000000000000000000000000000000"}
             - {name: SPYGLASS_RUNNER_SERVICE_ACCOUNT, value: "runner"}
             - {name: SPYGLASS_RUNNER_RUNTIME_CLASS, value: "spyglass-sandboxed"}
             - {name: SPYGLASS_RUNNER_BROKER_URL, value: "https://runner-broker.spyglass-reference.svc.cluster.local"}

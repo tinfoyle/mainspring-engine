@@ -17,7 +17,7 @@
 | P2.5.4 Docker runner launcher | Complete | A stage-only, mTLS and bearer-authenticated launcher owns the Docker socket; controller and broker have disjoint authority; deterministic constrained containers survive ambiguous creation and launcher restart; cancellation and bounded orphan cleanup are certified against the ubunturojo Docker daemon. |
 | P2.5.5 platform closeout | In progress | The durable PostgreSQL Account-movement foundation, operator process and crash/queue/reconciliation tests are executable. Commercial/lifecycle, identity and billing closeout remains before this slice is accepted. |
 | P2.5.6 Hostinger stage | In progress | Read-only VPS inventory is complete. The digest-only, TLS-workload, split-role `spyglass-stage` override, fail-closed verifier/deployer and coexistence contract for the existing Infinite Ocean Caddy edge are revision-controlled. DNS, secret issuance, first release digests and connected journeys remain. |
-| P2.5.7 LKE skeleton | Not started | Renderable Linode pre-production/production overlays follow the stage artifact gate; applied cluster work waits for kubeconfig. |
+| P2.5.7 LKE skeleton | In progress | Both digest-shaped overlays now render with the complete reference topology, website/ingress/certificates and three CloudNativePG clusters. Kubeconfig inventory must resolve namespace placement, real storage/CNI/controllers and sandbox RuntimeClass before the skeleton can be accepted or applied. |
 
 The local implementation and tests run only through Docker commands issued inside `ubunturojo`. No Unity, OpenAI Sites, Cloudflare deployment, or alternate hosted preview is part of this execution path.
 

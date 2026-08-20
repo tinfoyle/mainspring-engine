@@ -1,0 +1,111 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: {name: spyglass-global-postgres, namespace: spyglass-reference}
+spec:
+  instances: 2
+  primaryUpdateStrategy: unsupervised
+  storage: {size: 40Gi, storageClass: spyglass-lke-block-storage}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 2Gi}
+  monitoring: {enablePodMonitor: true}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: {name: spyglass-cell-a-postgres, namespace: spyglass-reference}
+spec:
+  instances: 2
+  primaryUpdateStrategy: unsupervised
+  storage: {size: 80Gi, storageClass: spyglass-lke-block-storage}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 2Gi}
+  monitoring: {enablePodMonitor: true}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: {name: spyglass-cell-b-postgres, namespace: spyglass-reference}
+spec:
+  instances: 2
+  primaryUpdateStrategy: unsupervised
+  storage: {size: 80Gi, storageClass: spyglass-lke-block-storage}
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 2Gi}
+  monitoring: {enablePodMonitor: true}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: infinite-ocean-website, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  selector: {matchLabels: {app.kubernetes.io/name: infinite-ocean-website}}
+  template:
+    metadata: {labels: {app.kubernetes.io/name: infinite-ocean-website, app.kubernetes.io/part-of: spyglass}}
+    spec:
+      serviceAccountName: website
+      automountServiceAccountToken: false
+      containers:
+        - name: website
+          image: registry.invalid/infinite-ocean/infinite-ocean-website:release-placeholder
+          ports: [{name: http, containerPort: 3000}]
+          envFrom: [{configMapRef: {name: spyglass-website-runtime}}]
+          readinessProbe: {httpGet: {path: /health/ready, port: http}}
+          livenessProbe: {httpGet: {path: /health/live, port: http}}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 500m, memory: 384Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: website, namespace: spyglass-reference}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata: {name: infinite-ocean-website, namespace: spyglass-reference}
+spec:
+  selector: {app.kubernetes.io/name: infinite-ocean-website}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: spyglass-public, namespace: spyglass-reference}
+spec:
+  secretName: spyglass-public-tls
+  issuerRef: {kind: ClusterIssuer, name: letsencrypt-production}
+  dnsNames: [stage.invalid, app.stage.invalid]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spyglass-public
+  namespace: spyglass-reference
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+spec:
+  ingressClassName: nginx
+  tls: [{hosts: [stage.invalid, app.stage.invalid], secretName: spyglass-public-tls}]
+  rules:
+    - host: stage.invalid
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: infinite-ocean-website, port: {name: http}}}
+    - host: app.stage.invalid
+      http:
+        paths:
+          - path: /api/v1/accounts
+            pathType: Prefix
+            backend: {service: {name: app-router, port: {name: http}}}
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: account-api, port: {name: http}}}
