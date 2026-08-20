@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"net/mail"
 	stdsmtp "net/smtp"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -29,6 +31,7 @@ import (
 type Config struct {
 	Address, ServerName, Username, Password string
 	FromAddress, FromName, AppOrigin        string
+	RootCAFile                              string
 	Timeout                                 time.Duration
 }
 
@@ -36,6 +39,7 @@ type Sender struct {
 	config Config
 	from   mail.Address
 	origin string
+	roots  *x509.CertPool
 }
 
 func New(config Config) (*Sender, error) {
@@ -62,7 +66,21 @@ func New(config Config) (*Sender, error) {
 	if config.Timeout <= 0 {
 		config.Timeout = 15 * time.Second
 	}
-	return &Sender{config: config, from: mail.Address{Name: config.FromName, Address: parsedAddress.Address}, origin: strings.TrimSuffix(config.AppOrigin, "/")}, nil
+	var roots *x509.CertPool
+	if config.RootCAFile != "" {
+		roots, err = x509.SystemCertPool()
+		if err != nil || roots == nil {
+			roots = x509.NewCertPool()
+		}
+		pem, err := os.ReadFile(config.RootCAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read SMTP root CA: %w", err)
+		}
+		if !roots.AppendCertsFromPEM(pem) {
+			return nil, errors.New("SMTP root CA file contains no certificates")
+		}
+	}
+	return &Sender{config: config, from: mail.Address{Name: config.FromName, Address: parsedAddress.Address}, origin: strings.TrimSuffix(config.AppOrigin, "/"), roots: roots}, nil
 }
 
 func (s *Sender) SendVerification(ctx context.Context, message registration.VerificationMessage) error {
@@ -175,7 +193,7 @@ func (s *Sender) send(ctx context.Context, to, subject, plain, htmlBody string) 
 		deadline = value
 	}
 	_ = connection.SetDeadline(deadline)
-	tlsConnection := tls.Client(connection, &tls.Config{ServerName: s.config.ServerName, MinVersion: tls.VersionTLS12})
+	tlsConnection := tls.Client(connection, &tls.Config{ServerName: s.config.ServerName, MinVersion: tls.VersionTLS12, RootCAs: s.roots})
 	if err := tlsConnection.HandshakeContext(ctx); err != nil {
 		_ = connection.Close()
 		return fmt.Errorf("SMTP TLS: %w", err)

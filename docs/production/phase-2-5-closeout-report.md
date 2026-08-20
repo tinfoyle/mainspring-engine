@@ -6,6 +6,18 @@
 - Purpose: realign the cut-short Phase 2 rewrite with the final container-first form before final application construction
 - Exit state: **a coherent platform foundation, reproducible local Docker environment, connected Hostinger Docker stage, and production-ready LKE deployment skeleton**
 
+## Execution ledger
+
+| Slice | Status on 2026-08-20 | Revision-controlled evidence |
+|---|---|---|
+| P2.5.0 plan normalization | Complete | This report, [Phase 3](phase-3-report.md), and [deployment](stage-production-deployment-report.md) use the same phase model, environments, origins, GHCR policy, and production-release gate. |
+| P2.5.1 website final runtime | Complete | Standard Next.js standalone Node image, runtime origins, server-side Catalog proxy, health endpoints, security headers, and container-only website gate. |
+| P2.5.2 local parity Compose | Complete | Persistent global/cell A/cell B PostgreSQL, migrations, two active cells, serving APIs/router, separate runtime roles, containerized Go/race/PostgreSQL/OpenAPI/website tests, and HTTPS smoke verification. |
+| P2.5.3 shared process topology | In progress | All implemented global and per-cell workers now run with health/status gates and constrained roles; TLS Mailpit capture and the complete machine-readable process inventory are verified. Local observability/profile and workload-TLS configuration evidence remain. |
+| P2.5.4–P2.5.7 | Not started | Docker runner launcher, interrupted platform closeout, connected Hostinger stage, and LKE overlays follow in the order below. |
+
+The local implementation and tests run only through Docker commands issued inside `ubunturojo`. No Unity, OpenAI Sites, Cloudflare deployment, or alternate hosted preview is part of this execution path.
+
 ## Program phase model
 
 | Phase | Meaning |
@@ -177,9 +189,9 @@ Exit evidence: both overlays render and pass repository policy checks without cr
 7. **P2.5.6 — Hostinger stage:** digest deployment, provider connections, certification and rollback.
 8. **P2.5.7 — LKE skeleton:** production overlays, controller contracts and policy verification.
 
-## Start-ready first slice
+## Completed first slice record
 
-Phase 2.5 begins with P2.5.1. The bounded first implementation slice is:
+Phase 2.5 began with the following bounded P2.5.1 slice, which is now complete:
 
 1. remove Sites/Cloudflare build coupling from the website;
 2. add a standard Node 22 standalone production build;
@@ -188,7 +200,7 @@ Phase 2.5 begins with P2.5.1. The bounded first implementation slice is:
 5. add a minimal Compose path containing edge, website and the development Spyglass process only as a visual/request smoke gate;
 6. preserve the current public pages, Catalog fallback and private signup handoff behavior.
 
-The next slice expands that Compose path to persistent global/two-cell PostgreSQL and production process modes.
+P2.5.2 subsequently expanded that path to persistent global/two-cell PostgreSQL and production process modes. P2.5.3 is the current slice.
 
 ## Phase 2.5 completion rule
 

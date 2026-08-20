@@ -4,6 +4,8 @@
 - Binary: `spyglass`
 - Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
+The revision-controlled machine contract is [`deploy/spyglass-process-inventory.json`](../../deploy/spyglass-process-inventory.json). Its verification script compares the complete mode set to the binary switch and fails local verification when they drift.
+
 ## Process ownership
 
 | Mode | Owns | Does not own |
@@ -174,6 +176,7 @@ When `SPYGLASS_OTEL_TRACES_ENDPOINT` is configured, the process additionally exp
 | `SPYGLASS_SMTP_FROM_ADDRESS` | Bare sender email address |
 | `SPYGLASS_SMTP_FROM_NAME` | Optional display name; defaults to `Infinite Ocean` |
 | `SPYGLASS_SMTP_USERNAME`, `SPYGLASS_SMTP_PASSWORD` | Optional as a pair for authenticated relays |
+| `SPYGLASS_SMTP_ROOT_CA_FILE` | Optional PEM trust bundle for a private SMTP relay CA; system roots remain trusted |
 | `SPYGLASS_NOTIFICATION_POLL_INTERVAL` | Optional positive Go duration; defaults to `1s` |
 | `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
 

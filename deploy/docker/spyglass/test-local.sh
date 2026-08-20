@@ -3,6 +3,8 @@ set -euo pipefail
 
 compose=(docker compose --project-name spyglass-local --env-file env/local.env --file compose.yml --file compose.local.yml --profile test)
 
+bash ../../verify-process-inventory.sh
+
 cleanup() {
   "${compose[@]}" rm --stop --force test-db >/dev/null 2>&1 || true
 }

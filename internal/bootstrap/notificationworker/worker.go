@@ -17,6 +17,7 @@ import (
 
 type Config struct {
 	DatabaseURL, SMTPAddress, SMTPServerName, SMTPUsername, SMTPPassword, SMTPFromAddress, SMTPFromName, AppOrigin string
+	SMTPRootCAFile                                                                                                 string
 	NotificationEncryptionKey                                                                                      []byte
 	MaxDatabaseConns                                                                                               int32
 	PollInterval                                                                                                   time.Duration
@@ -64,7 +65,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	delivery, err := smtp.New(smtp.Config{Address: config.SMTPAddress, ServerName: config.SMTPServerName, Username: config.SMTPUsername, Password: config.SMTPPassword, FromAddress: config.SMTPFromAddress, FromName: config.SMTPFromName, AppOrigin: config.AppOrigin})
+	delivery, err := smtp.New(smtp.Config{Address: config.SMTPAddress, ServerName: config.SMTPServerName, Username: config.SMTPUsername, Password: config.SMTPPassword, FromAddress: config.SMTPFromAddress, FromName: config.SMTPFromName, AppOrigin: config.AppOrigin, RootCAFile: config.SMTPRootCAFile})
 	if err != nil {
 		pool.Close()
 		return nil, err

@@ -1,0 +1,330 @@
+{
+  "schema_version": 1,
+  "binary": "spyglass",
+  "utility_commands": ["version", "healthcheck"],
+  "common_configuration_profiles": {
+    "traced": [
+      "SPYGLASS_ENVIRONMENT",
+      "SPYGLASS_OTEL_TRACES_ENDPOINT",
+      "SPYGLASS_OTEL_TRACE_SAMPLE_RATIO",
+      "SPYGLASS_TRACE_ACCOUNT_HASH_KEY",
+      "SPYGLASS_WORKLOAD_CERT_FILE",
+      "SPYGLASS_WORKLOAD_KEY_FILE",
+      "SPYGLASS_WORKLOAD_CA_FILE"
+    ],
+    "global_restore_gate": [
+      "SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE",
+      "SPYGLASS_ERASURE_CHECKPOINT_ROOT"
+    ],
+    "cell_restore_gate": [
+      "SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE",
+      "SPYGLASS_ERASURE_CHECKPOINT_ROOT"
+    ],
+    "cross_store_restore_gate": [
+      "SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE",
+      "SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT",
+      "SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE",
+      "SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT"
+    ],
+    "workload_tls": [
+      "SPYGLASS_WORKLOAD_CERT_FILE",
+      "SPYGLASS_WORKLOAD_KEY_FILE",
+      "SPYGLASS_WORKLOAD_CA_FILE",
+      "SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"
+    ],
+    "operator_authorization": [
+      "SPYGLASS_OPERATOR_ID",
+      "SPYGLASS_OPERATOR_REASON",
+      "SPYGLASS_ENVIRONMENT",
+      "SPYGLASS_CONFIRM_ENVIRONMENT",
+      "SPYGLASS_OPERATOR_AUTH_ISSUER",
+      "SPYGLASS_OPERATOR_AUTH_VERIFY_KEYS",
+      "SPYGLASS_OPERATOR_AUTHORIZATION"
+    ]
+  },
+  "processes": [
+    {
+      "mode": "development",
+      "kind": "local_service",
+      "scope": "memory",
+      "port": 8080,
+      "health": "/health/live,/health/ready",
+      "database_roles": [],
+      "configuration": ["SPYGLASS_ENV", "SPYGLASS_HTTP_ADDRESS"],
+      "configuration_profiles": [],
+      "dependencies": []
+    },
+    {
+      "mode": "account-api",
+      "kind": "service",
+      "scope": "global",
+      "port": 8080,
+      "health": "/health/live,/health/ready",
+      "database_roles": ["global.account-api"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_HTTP_ADDRESS", "SPYGLASS_APP_ORIGIN", "SPYGLASS_PUBLIC_ORIGIN", "SPYGLASS_PASSKEY_RP_ID", "SPYGLASS_STRIPE_WEBHOOK_SECRET", "SPYGLASS_STRIPE_SECRET_KEY", "SPYGLASS_STRIPE_MODE", "SPYGLASS_STRIPE_API_VERSION", "SPYGLASS_NOTIFICATION_ENCRYPTION_KEY", "SPYGLASS_NETWORK_ACTOR_KEY", "SPYGLASS_PASSKEY_ENCRYPTION_KEYS", "SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_TRUSTED_PROXY_CIDRS", "SPYGLASS_CATALOG_REFRESH_INTERVAL", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "global_restore_gate"],
+      "dependencies": ["global-postgresql", "stripe-api"]
+    },
+    {
+      "mode": "app-router",
+      "kind": "service",
+      "scope": "global",
+      "port": 8080,
+      "health": "/health/live,/health/ready",
+      "database_roles": ["global.app-router"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_HTTP_ADDRESS", "SPYGLASS_APP_ORIGIN", "SPYGLASS_ROUTE_ISSUER", "SPYGLASS_ROUTE_SIGNING_KEY_ID", "SPYGLASS_ROUTE_SIGNING_KEY", "SPYGLASS_ROUTE_CONTEXT_TTL", "SPYGLASS_TOOL_CONTEXT_ISSUER", "SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS", "SPYGLASS_DIRECTORY_CACHE_TTL", "SPYGLASS_DIRECTORY_CACHE_CAPACITY", "SPYGLASS_SESSION_COOKIE_NAME", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "global_restore_gate", "workload_tls"],
+      "dependencies": ["global-postgresql", "cell-app-api"]
+    },
+    {
+      "mode": "app-api",
+      "kind": "service",
+      "scope": "cell",
+      "port": 8443,
+      "health": "/health/live,/health/ready",
+      "database_roles": ["cell.app-api"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_HTTP_ADDRESS", "SPYGLASS_CELL_ID", "SPYGLASS_ROUTE_ISSUER", "SPYGLASS_ROUTE_VERIFY_KEYS", "SPYGLASS_WORK_ADMISSION_ORIGIN", "SPYGLASS_MAX_REQUEST_BODY_BYTES", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "cell_restore_gate", "workload_tls"],
+      "dependencies": ["cell-postgresql", "admission-api"]
+    },
+    {
+      "mode": "admission-api",
+      "kind": "service",
+      "scope": "global",
+      "port": 8443,
+      "health": "/health/live,/health/ready",
+      "database_roles": ["global.admission-api"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_HTTP_ADDRESS", "SPYGLASS_ROUTE_ISSUER", "SPYGLASS_ROUTE_VERIFY_KEYS", "SPYGLASS_ADMISSION_CELL_IDS", "SPYGLASS_ADMISSION_MAX_REQUEST_BODY_BYTES", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "global_restore_gate", "workload_tls"],
+      "dependencies": ["global-postgresql"]
+    },
+    {
+      "mode": "billing-worker",
+      "kind": "worker",
+      "scope": "global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.billing-worker"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_STRIPE_SECRET_KEY", "SPYGLASS_STRIPE_MODE", "SPYGLASS_STRIPE_API_VERSION", "SPYGLASS_BILLING_POLL_INTERVAL", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate"],
+      "dependencies": ["global-postgresql", "stripe-api"]
+    },
+    {
+      "mode": "notification-worker",
+      "kind": "worker",
+      "scope": "global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.notification-worker"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_APP_ORIGIN", "SPYGLASS_NOTIFICATION_ENCRYPTION_KEY", "SPYGLASS_SMTP_ADDRESS", "SPYGLASS_SMTP_SERVER_NAME", "SPYGLASS_SMTP_FROM_ADDRESS", "SPYGLASS_SMTP_FROM_NAME", "SPYGLASS_SMTP_USERNAME", "SPYGLASS_SMTP_PASSWORD", "SPYGLASS_SMTP_ROOT_CA_FILE", "SPYGLASS_NOTIFICATION_POLL_INTERVAL", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate"],
+      "dependencies": ["global-postgresql", "implicit-tls-smtp"]
+    },
+    {
+      "mode": "entitlement-worker",
+      "kind": "worker",
+      "scope": "global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.entitlement-worker"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_ENTITLEMENT_POLL_INTERVAL", "SPYGLASS_ENTITLEMENT_SEED_BATCH", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate"],
+      "dependencies": ["global-postgresql"]
+    },
+    {
+      "mode": "account-lifecycle-worker",
+      "kind": "worker",
+      "scope": "global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.account-lifecycle-worker"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_ACCOUNT_CLOSURE_POLL_INTERVAL", "SPYGLASS_ACCOUNT_CLOSURE_LEASE", "SPYGLASS_ACCOUNT_CLOSURE_RETENTION", "SPYGLASS_ACCOUNT_CLOSURE_BLOCKED_RETRY", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate"],
+      "dependencies": ["global-postgresql"]
+    },
+    {
+      "mode": "work-reconciler",
+      "kind": "worker",
+      "scope": "cell-and-global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["cell.work-reconciler", "global.work-reconciler"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", "SPYGLASS_WORK_RECONCILE_POLL_INTERVAL", "SPYGLASS_WORK_RECONCILE_LEASE", "SPYGLASS_WORK_RECONCILE_MAX_ATTEMPTS", "SPYGLASS_WORK_RELEASE_CLEANUP_INTERVAL", "SPYGLASS_WORK_RELEASE_COMPLETED_RETENTION", "SPYGLASS_WORK_RELEASE_PRUNE_BATCH", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "cross_store_restore_gate"],
+      "dependencies": ["cell-postgresql", "global-postgresql"]
+    },
+    {
+      "mode": "route-receipt-worker",
+      "kind": "worker",
+      "scope": "cell",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["cell.route-receipt-worker"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_ROUTE_RECEIPT_POLL_INTERVAL", "SPYGLASS_ROUTE_RECEIPT_LEASE", "SPYGLASS_ROUTE_RECEIPT_RETENTION", "SPYGLASS_ROUTE_RECEIPT_PRUNE_BATCH", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "cell_restore_gate"],
+      "dependencies": ["cell-postgresql"]
+    },
+    {
+      "mode": "agent-dispatch-worker",
+      "kind": "worker",
+      "scope": "cell",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["cell.agent-dispatch-worker"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_AGENT_DISPATCH_POLL_INTERVAL", "SPYGLASS_AGENT_DISPATCH_LEASE", "SPYGLASS_AGENT_DISPATCH_MAX_ATTEMPTS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "cell_restore_gate"],
+      "dependencies": ["cell-postgresql"]
+    },
+    {
+      "mode": "agent-projection-worker",
+      "kind": "worker",
+      "scope": "cell",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["cell.agent-projection-worker"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_AGENT_PROJECTION_POLL_INTERVAL", "SPYGLASS_AGENT_PROJECTION_LEASE", "SPYGLASS_AGENT_PROJECTION_MAX_ATTEMPTS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "cell_restore_gate"],
+      "dependencies": ["cell-postgresql"]
+    },
+    {
+      "mode": "runner-controller",
+      "kind": "worker",
+      "scope": "cell",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["cell.runner-controller"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_RUNNER_NAMESPACE", "SPYGLASS_RUNNER_IMAGE", "SPYGLASS_RUNNER_SERVICE_ACCOUNT", "SPYGLASS_RUNNER_RUNTIME_CLASS", "SPYGLASS_RUNNER_BROKER_URL", "SPYGLASS_RUNNER_BROKER_CA_CONFIG_MAP", "SPYGLASS_RUNNER_ACTIVE_DEADLINE", "SPYGLASS_RUNNER_JOB_RETENTION", "SPYGLASS_RUNNER_CONTROL_POLL_INTERVAL", "SPYGLASS_RUNNER_CONTROL_LEASE", "SPYGLASS_RUNNER_CONTROL_MAX_ATTEMPTS", "SPYGLASS_RUNNER_INSPECTION_BATCH", "SPYGLASS_RUNNER_PAYLOAD_CLEANUP_INTERVAL", "SPYGLASS_RUNNER_PAYLOAD_RETENTION", "SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "cell_restore_gate"],
+      "dependencies": ["cell-postgresql", "kubernetes-api-or-docker-launcher"],
+      "phase_2_5_status": "kubernetes adapter implemented; Docker launcher is P2.5.4"
+    },
+    {
+      "mode": "runner-broker",
+      "kind": "service",
+      "scope": "cell",
+      "port": 8443,
+      "health": "/health/live,/health/ready",
+      "database_roles": ["cell.runner-broker"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_RUNNER_BROKER_URL", "SPYGLASS_RUNNER_NAMESPACE", "SPYGLASS_RUNNER_SERVICE_ACCOUNT", "SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_TOOL_ROUTER_ORIGIN", "SPYGLASS_MODEL_GATEWAY_ORIGIN", "SPYGLASS_TOOL_CONTEXT_ISSUER", "SPYGLASS_TOOL_CONTEXT_SIGNING_KEY_ID", "SPYGLASS_TOOL_CONTEXT_SIGNING_KEY", "SPYGLASS_TOOL_CONTEXT_TTL", "SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HTTP_ADDRESS"],
+      "configuration_profiles": ["traced", "cell_restore_gate", "workload_tls"],
+      "dependencies": ["cell-postgresql", "kubernetes-token-review", "app-router", "model-gateway"]
+    },
+    {
+      "mode": "model-gateway",
+      "kind": "service",
+      "scope": "stateless",
+      "port": 8443,
+      "health": "/health/live,/health/ready",
+      "database_roles": [],
+      "configuration": ["SPYGLASS_OPENAI_API_KEY", "SPYGLASS_OPENAI_ORIGIN", "SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES", "SPYGLASS_HTTP_ADDRESS"],
+      "configuration_profiles": ["traced", "workload_tls"],
+      "dependencies": ["openai-api"]
+    },
+    {
+      "mode": "runner-invocation",
+      "kind": "ephemeral_job",
+      "scope": "runner",
+      "port": null,
+      "health": null,
+      "database_roles": [],
+      "configuration": [],
+      "arguments": ["--broker-url", "--invocation-id", "--identity-token-file", "--broker-ca-file"],
+      "configuration_profiles": [],
+      "dependencies": ["runner-broker"]
+    },
+    {
+      "mode": "route-canary",
+      "kind": "one_shot_job",
+      "scope": "internal",
+      "port": null,
+      "health": null,
+      "database_roles": [],
+      "configuration": ["SPYGLASS_ROUTE_CANARY_TARGET", "SPYGLASS_ROUTE_CANARY_ORIGIN", "SPYGLASS_ROUTE_CANARY_ACCOUNT_ID", "SPYGLASS_ROUTE_CANARY_PLACEMENT_GENERATION", "SPYGLASS_ROUTE_CANARY_ENTITLEMENT_VERSION", "SPYGLASS_ROUTE_CANARY_TIMEOUT", "SPYGLASS_CELL_ID", "SPYGLASS_ROUTE_ISSUER", "SPYGLASS_ROUTE_SIGNING_KEY_ID", "SPYGLASS_ROUTE_SIGNING_KEY"],
+      "configuration_profiles": ["traced", "workload_tls"],
+      "dependencies": ["app-api-or-admission-api"]
+    },
+    {
+      "mode": "billing-admin",
+      "kind": "operator_job",
+      "scope": "global",
+      "port": null,
+      "health": null,
+      "database_roles": ["global.billing-operator"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_STRIPE_MODE", "SPYGLASS_BILLING_INSPECT_LIMIT", "SPYGLASS_STRIPE_EVENT_ID", "SPYGLASS_STRIPE_SUBSCRIPTION_ID", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "operator_authorization"],
+      "dependencies": ["global-postgresql"],
+      "actions": ["inspect", "replay-event", "refresh-subscription"]
+    },
+    {
+      "mode": "agent-queue-admin",
+      "kind": "operator_job",
+      "scope": "cell",
+      "port": null,
+      "health": null,
+      "database_roles": ["cell.agent-queue-operator"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_AGENT_QUEUE", "SPYGLASS_AGENT_QUEUE_INSPECT_LIMIT", "SPYGLASS_AGENT_ACCOUNT_ID", "SPYGLASS_AGENT_INVOCATION_ID", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "operator_authorization"],
+      "dependencies": ["cell-postgresql"],
+      "actions": ["inspect", "requeue"]
+    },
+    {
+      "mode": "work-release-admin",
+      "kind": "operator_job",
+      "scope": "cell",
+      "port": null,
+      "health": null,
+      "database_roles": ["cell.work-release-operator"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_WORK_RELEASE_INSPECT_LIMIT", "SPYGLASS_WORK_ACCOUNT_ID", "SPYGLASS_WORK_ITEM_ID", "SPYGLASS_WORK_RESERVATION_ID", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "operator_authorization"],
+      "dependencies": ["cell-postgresql"],
+      "actions": ["inspect", "requeue"]
+    },
+    {
+      "mode": "account-erasure-admin",
+      "kind": "operator_job",
+      "scope": "cell-and-global",
+      "port": null,
+      "health": null,
+      "database_roles": ["global.account-erasure-operator", "cell.account-erasure-operator", "global.restore-replay-operator", "cell.restore-replay-operator"],
+      "configuration": ["SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_CELL_ID", "SPYGLASS_ACCOUNT_ID", "SPYGLASS_CONFIRM_ACCOUNT_ID", "SPYGLASS_ACCOUNT_ERASURE_REQUEST_ID", "SPYGLASS_ACCOUNT_ERASURE_VERSION", "SPYGLASS_ACCOUNT_ERASURE_POLICY_VERSION", "SPYGLASS_ACCOUNT_ERASURE_BACKUP_EXPIRES_AT", "SPYGLASS_ACCOUNT_ERASURE_EXPORT_DISPOSITION", "SPYGLASS_ACCOUNT_ERASURE_EXPORT_REFERENCE", "SPYGLASS_ACCOUNT_ERASURE_EXPORT_SHA256", "SPYGLASS_ACCOUNT_ERASURE_EXPORT_EXPIRES_AT", "SPYGLASS_ACCOUNT_ERASURE_EXPORT_REASON", "SPYGLASS_ACCOUNT_ERASURE_EVIDENCE_KEY", "SPYGLASS_ACCOUNT_ERASURE_LEASE", "SPYGLASS_ACCOUNT_ERASURE_RESTORE_DIRECTIVE_FILE", "SPYGLASS_ACCOUNT_ERASURE_RESTORE_SIGNING_KEY", "SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", "SPYGLASS_CELL_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "operator_authorization"],
+      "dependencies": ["global-postgresql", "cell-postgresql"],
+      "actions": ["prepare", "inspect", "approve", "cancel", "execute", "restore-replay"]
+    },
+    {
+      "mode": "passkey-admin",
+      "kind": "operator_job",
+      "scope": "global",
+      "port": null,
+      "health": null,
+      "database_roles": ["global.passkey-operator"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_PASSKEY_ENCRYPTION_KEYS", "SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_PASSKEY_REENCRYPT_BATCH", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "operator_authorization"],
+      "dependencies": ["global-postgresql"],
+      "actions": ["inspect", "reencrypt"]
+    },
+    {
+      "mode": "catalog-admin",
+      "kind": "operator_job",
+      "scope": "global",
+      "port": null,
+      "health": null,
+      "database_roles": ["global.catalog-operator"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_STRIPE_MODE", "SPYGLASS_CATALOG_FILE", "SPYGLASS_CATALOG_VERSION", "SPYGLASS_CATALOG_OFFER_CODE", "SPYGLASS_STRIPE_PRICE_ID", "SPYGLASS_CATALOG_EFFECTIVE_AT", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "operator_authorization"],
+      "dependencies": ["global-postgresql"],
+      "actions": ["draft", "map-price", "request-review", "approve", "publish", "retire", "rollback"]
+    },
+    {
+      "mode": "migrate",
+      "kind": "one_shot_job",
+      "scope": "selected-database",
+      "port": null,
+      "health": null,
+      "database_roles": ["global.migrator-or-cell.migrator"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_MIGRATION_TARGET"],
+      "configuration_profiles": [],
+      "dependencies": ["target-postgresql"]
+    }
+  ]
+}

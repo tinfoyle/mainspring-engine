@@ -89,6 +89,81 @@ services:
     depends_on:
       global-roles: {condition: service_completed_successfully}
 
+  mailpit:
+    image: axllent/mailpit:v1.30.7@sha256:d5ecbb067db3705fa953d79e1b7f81ef84038df67aba6c52825d8c02a1ea748a
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      MP_SMTP_TLS_CERT: /etc/mailpit/mailpit.crt
+      MP_SMTP_TLS_KEY: /etc/mailpit/mailpit.key
+      MP_SMTP_REQUIRE_TLS: "true"
+    volumes:
+      - ./mailpit/mailpit.crt:/etc/mailpit/mailpit.crt:ro
+      - ./mailpit/mailpit.key:/etc/mailpit/mailpit.key:ro
+    ports:
+      - "127.0.0.1:${SPYGLASS_LOCAL_SMTP_PORT:-1026}:1025"
+      - "127.0.0.1:${SPYGLASS_LOCAL_MAILPIT_PORT:-8025}:8025"
+    expose: ["1025"]
+    networks: [edge, application]
+
+  billing-worker:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+
+  notification-worker:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+      mailpit: {condition: service_started}
+    volumes:
+      - ./mailpit/ca.crt:/etc/spyglass/mailpit-ca.crt:ro
+
+  entitlement-worker:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+
+  account-lifecycle-worker:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+
+  work-reconciler-a:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+      cell-a-roles: {condition: service_completed_successfully}
+
+  work-reconciler-b:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+      cell-b-roles: {condition: service_completed_successfully}
+
+  route-receipt-worker-a:
+    depends_on:
+      cell-a-roles: {condition: service_completed_successfully}
+
+  route-receipt-worker-b:
+    depends_on:
+      cell-b-roles: {condition: service_completed_successfully}
+
+  agent-dispatch-worker-a:
+    depends_on:
+      cell-a-roles: {condition: service_completed_successfully}
+
+  agent-dispatch-worker-b:
+    depends_on:
+      cell-b-roles: {condition: service_completed_successfully}
+
+  agent-projection-worker-a:
+    depends_on:
+      cell-a-roles: {condition: service_completed_successfully}
+
+  agent-projection-worker-b:
+    depends_on:
+      cell-b-roles: {condition: service_completed_successfully}
+
   website-test:
     profiles: [test]
     build:

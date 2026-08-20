@@ -25,6 +25,11 @@ func TestNewRequiresExactHTTPSOriginAndCompleteCredentials(t *testing.T) {
 	if _, err := New(base); err == nil {
 		t.Fatal("expected incomplete auth rejection")
 	}
+	base.Username = ""
+	base.RootCAFile = "/definitely/missing/spyglass-smtp-ca.crt"
+	if _, err := New(base); err == nil {
+		t.Fatal("expected missing custom root CA rejection")
+	}
 }
 
 func TestOwnershipTransferContentIsRoleSpecificAndEscaped(t *testing.T) {
