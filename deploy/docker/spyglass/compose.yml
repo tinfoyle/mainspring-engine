@@ -153,6 +153,8 @@ services:
       - --username=spyglass_migrator
       - --dbname=spyglass
       - --set=ON_ERROR_STOP=1
+      - --set=cell_a_route_origin=${SPYGLASS_CELL_A_ROUTE_ORIGIN:?set SPYGLASS_CELL_A_ROUTE_ORIGIN}
+      - --set=cell_b_route_origin=${SPYGLASS_CELL_B_ROUTE_ORIGIN:?set SPYGLASS_CELL_B_ROUTE_ORIGIN}
       - --file=/opt/spyglass/seed/global.sql
     environment:
       PGPASSWORD: ${SPYGLASS_GLOBAL_DATABASE_PASSWORD:?set SPYGLASS_GLOBAL_DATABASE_PASSWORD}
@@ -229,7 +231,7 @@ services:
       SPYGLASS_CELL_ID: cell-us-east-01
       SPYGLASS_ROUTE_ISSUER: ${SPYGLASS_ROUTE_ISSUER:?set SPYGLASS_ROUTE_ISSUER}
       SPYGLASS_ROUTE_VERIFY_KEYS: ${SPYGLASS_ROUTE_VERIFY_KEYS:?set SPYGLASS_ROUTE_VERIFY_KEYS}
-      SPYGLASS_WORK_ADMISSION_ORIGIN: http://admission-api:8080
+      SPYGLASS_WORK_ADMISSION_ORIGIN: ${SPYGLASS_WORK_ADMISSION_ORIGIN:?set SPYGLASS_WORK_ADMISSION_ORIGIN}
     expose: ["8080"]
     healthcheck:
       test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]
@@ -255,7 +257,7 @@ services:
       SPYGLASS_CELL_ID: cell-us-west-01
       SPYGLASS_ROUTE_ISSUER: ${SPYGLASS_ROUTE_ISSUER:?set SPYGLASS_ROUTE_ISSUER}
       SPYGLASS_ROUTE_VERIFY_KEYS: ${SPYGLASS_ROUTE_VERIFY_KEYS:?set SPYGLASS_ROUTE_VERIFY_KEYS}
-      SPYGLASS_WORK_ADMISSION_ORIGIN: http://admission-api:8080
+      SPYGLASS_WORK_ADMISSION_ORIGIN: ${SPYGLASS_WORK_ADMISSION_ORIGIN:?set SPYGLASS_WORK_ADMISSION_ORIGIN}
     expose: ["8080"]
     healthcheck:
       test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]

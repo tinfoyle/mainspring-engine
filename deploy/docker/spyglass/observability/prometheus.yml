@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 2s
+  scrape_timeout: 1s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: spyglass-http
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - account-api:8080
+          - app-router:8080
+          - admission-api:8080
+          - app-api-a:8080
+          - app-api-b:8080
+
+  - job_name: spyglass-global-workers
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - billing-worker:8081
+          - notification-worker:8081
+          - entitlement-worker:8081
+          - account-lifecycle-worker:8081
+
+  - job_name: spyglass-cell-workers
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - work-reconciler-a:8081
+          - work-reconciler-b:8081
+          - route-receipt-worker-a:8081
+          - route-receipt-worker-b:8081
+          - agent-dispatch-worker-a:8081
+          - agent-dispatch-worker-b:8081
+          - agent-projection-worker-a:8081
+          - agent-projection-worker-b:8081

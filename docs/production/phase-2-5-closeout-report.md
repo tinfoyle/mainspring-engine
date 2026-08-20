@@ -13,8 +13,8 @@
 | P2.5.0 plan normalization | Complete | This report, [Phase 3](phase-3-report.md), and [deployment](stage-production-deployment-report.md) use the same phase model, environments, origins, GHCR policy, and production-release gate. |
 | P2.5.1 website final runtime | Complete | Standard Next.js standalone Node image, runtime origins, server-side Catalog proxy, health endpoints, security headers, and container-only website gate. |
 | P2.5.2 local parity Compose | Complete | Persistent global/cell A/cell B PostgreSQL, migrations, two active cells, serving APIs/router, separate runtime roles, containerized Go/race/PostgreSQL/OpenAPI/website tests, and HTTPS smoke verification. |
-| P2.5.3 shared process topology | In progress | All implemented global and per-cell workers now run with health/status gates and constrained roles; TLS Mailpit capture and the complete machine-readable process inventory are verified. Local observability/profile and workload-TLS configuration evidence remain. |
-| P2.5.4–P2.5.7 | Not started | Docker runner launcher, interrupted platform closeout, connected Hostinger stage, and LKE overlays follow in the order below. |
+| P2.5.3 shared process topology | Complete | All implemented global and per-cell workers run with health/status gates and constrained roles; TLS Mailpit capture, the complete machine-readable process inventory, a 17-target Prometheus profile, and a separate non-development TLS 1.3 topology with exact-identity route canaries are verified. |
+| P2.5.4–P2.5.7 | Not started | Docker runner launcher is the next slice; interrupted platform closeout, connected Hostinger stage, and LKE overlays follow in the order below. |
 
 The local implementation and tests run only through Docker commands issued inside `ubunturojo`. No Unity, OpenAI Sites, Cloudflare deployment, or alternate hosted preview is part of this execution path.
 
@@ -200,7 +200,7 @@ Phase 2.5 began with the following bounded P2.5.1 slice, which is now complete:
 5. add a minimal Compose path containing edge, website and the development Spyglass process only as a visual/request smoke gate;
 6. preserve the current public pages, Catalog fallback and private signup handoff behavior.
 
-P2.5.2 subsequently expanded that path to persistent global/two-cell PostgreSQL and production process modes. P2.5.3 is the current slice.
+P2.5.2 subsequently expanded that path to persistent global/two-cell PostgreSQL and production process modes. P2.5.3 completed the implemented worker topology, constrained runtime roles, TLS SMTP capture, local metrics profile, and secure-local workload-identity certification. P2.5.4 is the next slice.
 
 ## Phase 2.5 completion rule
 

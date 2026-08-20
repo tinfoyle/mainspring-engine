@@ -1,0 +1,199 @@
+x-secure-restore-gate: &secure-restore-gate
+  SPYGLASS_ENV: local-secure
+  SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+
+x-route-canary: &route-canary
+  image: spyglass-application:local
+  profiles: [workload-tls-canary]
+  restart: "no"
+  command: [route-canary]
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  environment: &route-canary-environment
+    SPYGLASS_ENVIRONMENT: local-secure
+    SPYGLASS_ROUTE_CANARY_ACCOUNT_ID: 99000000-0000-4000-8000-000000000001
+    SPYGLASS_ROUTE_CANARY_PLACEMENT_GENERATION: "1"
+    SPYGLASS_ROUTE_CANARY_ENTITLEMENT_VERSION: "1"
+    SPYGLASS_ROUTE_ISSUER: ${SPYGLASS_ROUTE_ISSUER:?set SPYGLASS_ROUTE_ISSUER}
+    SPYGLASS_ROUTE_SIGNING_KEY_ID: ${SPYGLASS_ROUTE_SIGNING_KEY_ID:?set SPYGLASS_ROUTE_SIGNING_KEY_ID}
+    SPYGLASS_ROUTE_SIGNING_KEY: ${SPYGLASS_ROUTE_SIGNING_KEY:?set SPYGLASS_ROUTE_SIGNING_KEY}
+    SPYGLASS_ROUTE_CANARY_TIMEOUT: 10s
+    SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+    SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+    SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+  networks: [application]
+
+x-secure-canary-seed: &secure-canary-seed
+  image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+  restart: "no"
+  command:
+    - psql
+    - --username=spyglass_migrator
+    - --dbname=spyglass
+    - --set=ON_ERROR_STOP=1
+    - --set=account_id=99000000-0000-4000-8000-000000000001
+    - --file=/opt/spyglass/seed/cell-canary.sql
+  volumes:
+    - ./seed/cell-canary.sql:/opt/spyglass/seed/cell-canary.sql:ro
+  networks: [database]
+
+services:
+  workload-tls-init:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+      target: test-runtime
+    image: spyglass-go-test:local
+    restart: "no"
+    entrypoint: [go, run, ./cmd/devcert]
+    command: [--output=/out]
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./workload-tls/generated:/out
+
+  secure-canary-seed-a:
+    <<: *secure-canary-seed
+    command:
+      - psql
+      - --host=cell-a-db
+      - --username=spyglass_migrator
+      - --dbname=spyglass
+      - --set=ON_ERROR_STOP=1
+      - --set=account_id=99000000-0000-4000-8000-000000000001
+      - --file=/opt/spyglass/seed/cell-canary.sql
+    environment:
+      PGPASSWORD: ${SPYGLASS_CELL_A_DATABASE_PASSWORD:?set SPYGLASS_CELL_A_DATABASE_PASSWORD}
+    depends_on:
+      cell-a-roles: {condition: service_completed_successfully}
+
+  secure-canary-seed-b:
+    <<: *secure-canary-seed
+    command:
+      - psql
+      - --host=cell-b-db
+      - --username=spyglass_migrator
+      - --dbname=spyglass
+      - --set=ON_ERROR_STOP=1
+      - --set=account_id=99000000-0000-4000-8000-000000000001
+      - --file=/opt/spyglass/seed/cell-canary.sql
+    environment:
+      PGPASSWORD: ${SPYGLASS_CELL_B_DATABASE_PASSWORD:?set SPYGLASS_CELL_B_DATABASE_PASSWORD}
+    depends_on:
+      cell-b-roles: {condition: service_completed_successfully}
+
+  admission-api:
+    environment:
+      <<: *secure-restore-gate
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api
+    expose: ["8443"]
+    volumes:
+      - ./workload-tls/generated/admission-api:/var/run/secrets/spyglass/workload:ro
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://admission-api:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  app-api-a:
+    environment:
+      <<: *secure-restore-gate
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router
+    expose: ["8443"]
+    volumes:
+      - ./workload-tls/generated/app-api-a:/var/run/secrets/spyglass/workload:ro
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://app-api-a:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+      secure-canary-seed-a: {condition: service_completed_successfully}
+
+  app-api-b:
+    environment:
+      <<: *secure-restore-gate
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router
+    expose: ["8443"]
+    volumes:
+      - ./workload-tls/generated/app-api-b:/var/run/secrets/spyglass/workload:ro
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://app-api-b:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+      secure-canary-seed-b: {condition: service_completed_successfully}
+
+  app-router:
+    environment:
+      <<: *secure-restore-gate
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+    volumes:
+      - ./workload-tls/generated/app-router:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  route-canary-cell-a:
+    <<: *route-canary
+    environment:
+      <<: *route-canary-environment
+      SPYGLASS_ROUTE_CANARY_TARGET: cell
+      SPYGLASS_ROUTE_CANARY_ORIGIN: https://app-api-a:8443
+      SPYGLASS_CELL_ID: cell-us-east-01
+    volumes:
+      - ./workload-tls/generated/app-router:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      app-api-a: {condition: service_healthy}
+
+  route-canary-cell-b:
+    <<: *route-canary
+    environment:
+      <<: *route-canary-environment
+      SPYGLASS_ROUTE_CANARY_TARGET: cell
+      SPYGLASS_ROUTE_CANARY_ORIGIN: https://app-api-b:8443
+      SPYGLASS_CELL_ID: cell-us-west-01
+    volumes:
+      - ./workload-tls/generated/app-router:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      app-api-b: {condition: service_healthy}
+
+  route-canary-admission-a:
+    <<: *route-canary
+    environment:
+      <<: *route-canary-environment
+      SPYGLASS_ROUTE_CANARY_TARGET: admission
+      SPYGLASS_ROUTE_CANARY_ORIGIN: https://admission-api:8443
+      SPYGLASS_CELL_ID: cell-us-east-01
+    volumes:
+      - ./workload-tls/generated/app-api-a:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      admission-api: {condition: service_healthy}
