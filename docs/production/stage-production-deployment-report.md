@@ -150,10 +150,10 @@ The implementation must provide these documented operations through Compose and/
 
 The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 
-The last read-only check also confirmed that `/opt/spyglass-stage` does not yet exist, and DNS did not return addresses for `stage.infiniteocean.net` or `app.stage.infiniteocean.net`. Before first deployment, the owner/environment work is therefore explicit:
+The reviewed revision `63070480fefd8b5909229aefd8223e8eb4091acf` is prepared as a clean detached checkout at `/opt/spyglass-stage/releases/63070480fefd8b5909229aefd8223e8eb4091acf`; `/opt/spyglass-stage/secrets` exists, is empty, is owned by the deployment user and is mode 700. No container or live edge configuration was changed. DNS still does not return addresses for `stage.infiniteocean.net` or `app.stage.infiniteocean.net`. Before first deployment, the owner/environment work is therefore explicit:
 
 - create both DNS records and confirm firewall/certificate monitoring policy;
-- create the reserved `spyglass-stage` deployment/secrets paths with reviewed ownership;
+- populate the prepared secrets path and select/activate the reviewed checkout only after verification;
 - backup destination hooks and disk/certificate monitoring;
 - issue stage workload certificates and populate the mode-600 environment file.
 
