@@ -30,10 +30,10 @@ chmod 600 "$env_file"
 docker network create "$network" >/dev/null
 
 release_file="$repository_root/deploy/releases/0.2.5-rc.2.env"
-"$stack_dir/verify-stage.sh" "$release_file" "$env_file"
+bash "$stack_dir/verify-stage.sh" "$release_file" "$env_file"
 
 printf '\nSPYGLASS_APPLICATION_IMAGE=ghcr.io/tinfoyle/spyglass-engine@sha256:%064d\n' 1 >>"$env_file"
-if "$stack_dir/verify-stage.sh" "$release_file" "$env_file" >/dev/null 2>&1; then
+if bash "$stack_dir/verify-stage.sh" "$release_file" "$env_file" >/dev/null 2>&1; then
   echo 'stage verifier accepted a secret-file image override' >&2
   exit 1
 fi

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 overlay_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"$overlay_dir/generate-linode-cells.sh" --check
+bash "$overlay_dir/generate-linode-cells.sh" --check
 temporary="$(mktemp -d)"
 trap 'rm -rf -- "$temporary"' EXIT
 for environment in linode-preproduction linode-production; do
