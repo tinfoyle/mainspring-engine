@@ -79,13 +79,14 @@ Exit: repeated approval/execution performs at most one effect, and ambiguous acc
 
 Exit: every customer-visible use case has one canonical application implementation, stable generated contracts and equivalent HTTP/MCP outcomes.
 
-### Slice 6 — staging certification and cutover
+### Slice 6 — staging, Linode pre-production and cutover
 
-- Apply migrations through constrained roles in connected staging.
+- Apply migrations through constrained roles in Docker-based connected staging.
 - Run multi-Account isolation, representative query/load, queue crash recovery, runner compromise and provider degradation exercises.
 - Rehearse Work/Agent/Attention/action dead-letter and unknown-action runbooks.
 - Migrate a synthetic and then internal Account from prototype fixtures; reconcile numbers, hierarchy, state, assignments, provenance, active capacity, Attention and action history.
-- Canary by Account cohort with rollback to the retained artifact and compatible schema.
+- Repeat Kubernetes-specific NetworkPolicy, workload identity, runner isolation, autoscaling and failure-injection certification in a non-customer Linode namespace before production traffic.
+- Canary by Account cohort with rollback to the retained artifacts and compatible schema.
 
 ## Phase 3 definition of done
 

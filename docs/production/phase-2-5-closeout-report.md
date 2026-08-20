@@ -44,12 +44,12 @@ The pre-existing `website/` worktree changes are line-ending-only and are outsid
 
 ### Gate 1 — create connected staging
 
-Implement the staging path in [stage-production-deployment-report.md](stage-production-deployment-report.md). This is first because it unlocks live-provider, managed-database, accessibility, observability, load, failure and restore evidence.
+Implement the local and staging paths in [stage-production-deployment-report.md](stage-production-deployment-report.md): Docker Compose inside `ubunturojo`, followed by the Docker-based Hostinger VPS reached through the `infiniteocean` SSH target. This is first because it unlocks live-provider, accessibility, observability, load, failure and restore evidence. Kubernetes-specific evidence is collected later in a non-customer Linode pre-production/canary environment before production traffic.
 
 Exit evidence:
 
-- One exact signed image digest is deployed through a checked-in overlay.
-- One global and two cell databases use migrated, non-owner, non-`BYPASSRLS` runtime roles.
+- Exact signed application and website image digests are deployed through checked-in Compose definitions.
+- One global and two cell PostgreSQL databases use migrated, non-owner, non-`BYPASSRLS` runtime roles.
 - TLS SMTP, Stripe test mode, workload certificates, route keys, ingress, exact egress, monitoring and paging are connected.
 - Website -> verification -> free Account -> owner enrollment -> Checkout -> signed projection -> paid access succeeds.
 - Wrong origin, wrong Account, stale placement, duplicate delivery, restart and provider outage cases are repeatable.

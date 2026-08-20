@@ -9,7 +9,7 @@ Current audit and execution reports:
 
 - [Phase 2.5 closeout report](phase-2-5-closeout-report.md)
 - [Phase 3 report — Work and Attention](phase-3-report.md)
-- [Stage and production deployment report](stage-production-deployment-report.md)
+- [Local, stage and production deployment report](stage-production-deployment-report.md)
 
 ## 1. Purpose
 
