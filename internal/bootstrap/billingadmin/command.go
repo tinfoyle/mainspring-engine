@@ -50,7 +50,7 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 			return err
 		}
 		for _, record := range records {
-			logger.Info("Spyglass billing failure", "audit_batch_id", batch, "kind", record.Kind, "target_id", record.TargetID, "account_id", record.AccountID, "mode", record.Mode, "state", record.State, "attempt_count", record.AttemptCount, "last_error_code", record.LastErrorCode)
+			logger.Info("Spyglass billing failure", "audit_batch_id", batch, "kind", record.Kind, "target_id", record.TargetID, "account_id", record.AccountID, "mode", record.Mode, "state", record.State, "attempt_count", record.AttemptCount, "last_error_code", record.LastErrorCode, "explanation_code", record.ExplanationCode, "explanation", record.Explanation)
 		}
 		logger.Info("Spyglass billing inspection complete", "audit_batch_id", batch, "mode", config.Mode, "count", len(records))
 		return nil

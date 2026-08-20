@@ -58,6 +58,7 @@ type ProviderSubscription struct {
 	CurrentPeriodStart time.Time
 	CurrentPeriodEnd   time.Time
 	CancelAt           *time.Time
+	CollectionPaused   bool
 	ObjectVersion      string
 	AccountID          ids.AccountID
 	OfferCode          string

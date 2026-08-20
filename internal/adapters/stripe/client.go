@@ -125,7 +125,7 @@ func (c *Client) RetrieveSubscription(ctx context.Context, subscriptionID string
 	if err := c.request(ctx, http.MethodGet, path, nil, "", &response); err != nil {
 		return billing.ProviderSubscription{}, err
 	}
-	result := billing.ProviderSubscription{ID: response.ID, Mode: c.mode, CustomerID: response.Customer, State: response.Status, CancelAt: unixPointer(response.CancelAt), AccountID: ids.AccountID(response.Metadata.AccountID), OfferCode: response.Metadata.OfferCode}
+	result := billing.ProviderSubscription{ID: response.ID, Mode: c.mode, CustomerID: response.Customer, State: response.Status, CancelAt: unixPointer(response.CancelAt), CollectionPaused: response.PauseCollection != nil, AccountID: ids.AccountID(response.Metadata.AccountID), OfferCode: response.Metadata.OfferCode}
 	result.OfferVersion, _ = strconv.ParseUint(response.Metadata.OfferVersion, 10, 64)
 	for _, item := range response.Items.Data {
 		if item.Price.ID != "" {
@@ -158,6 +158,7 @@ type subscriptionResponse struct {
 	CurrentPeriodStart int64  `json:"current_period_start"`
 	CurrentPeriodEnd   int64  `json:"current_period_end"`
 	CancelAt           int64  `json:"cancel_at"`
+	PauseCollection    any    `json:"pause_collection"`
 	Metadata           struct {
 		AccountID    string `json:"spyglass_account_id"`
 		OfferCode    string `json:"spyglass_offer_code"`

@@ -39,11 +39,15 @@ Do not place Price IDs in public Catalog JSON. Price changes require a new Catal
 
 | Stripe subscription state | Spyglass subscription grants |
 |---|---|
-| `active`, `trialing` | Plan package modes and limits |
+| `active`, `trialing` | Plan package modes and limits; a configured `pause_collection` reduces them to read-only |
 | `past_due` | Read-only package grants during remediation |
 | `incomplete`, `incomplete_expired`, `paused`, `unpaid`, `canceled` | No subscription grants; other grant sources still apply |
 
+Cancellation scheduled at period end keeps the current state-derived grant until Stripe reports the effective state change. Recovery to `active` or `trialing` restores it. Upgrades, downgrades and prorations resolve the current Price to an immutable Offer mapping and replace that Subscription's grants; Spyglass performs no monetary or proration calculation. Invoice, refund and dispute events only invalidate the projection, and tax/invoice presentation never grants access independently.
+
 Each recognized event triggers retrieval of the current Stripe Subscription. This makes delayed and out-of-order delivery converge on current state. The transaction locks the Account entitlement version, upserts the Subscription while rejecting cross-Account conflicts, replaces only that Subscription's grants, and re-evaluates every active grant source. Historical Offer/Catalog mappings still determine the purchased grant values, while the current effective Catalog supplies dependency and limit-policy semantics for the new Account snapshot; a delayed event therefore cannot roll newer free-plan policy backward. A snapshot is published only when effective access changed.
+
+Projection and reconciliation persist safe classified failures. `subscription_mapping_mismatch` means provider metadata conflicts with the immutable local Account/Offer/Catalog association; `subscription_unmapped` means no published Offer/Price mapping resolves the current subscription. Generic provider or transactional failures retain `projection_failed` or `refresh_failed`. `billing-admin inspect` expands these codes into bounded operator guidance without exposing webhook payloads, Price IDs or secrets.
 
 ## Worker and operator boundaries
 
@@ -81,7 +85,7 @@ Replay requires `SPYGLASS_STRIPE_EVENT_ID=evt_...`; the database accepts only a 
 
 1. Run migrations against disposable PostgreSQL and verify the restore procedure.
 2. Create test-mode Product, recurring Prices, portal configuration, and version-pinned webhook endpoint.
-3. Exercise Checkout completion, duplicate and delayed delivery, failed payment, remediation, cancellation-at-period-end, cancellation, and reactivation.
+3. Exercise Checkout completion, trial, current-Price upgrade/downgrade, duplicate and delayed delivery, failed payment/read-only remediation, collection pause, cancellation-at-period-end, cancellation, recovery, invoice, refund and dispute invalidation.
 4. Confirm the Checkout return page remains `processing` until projection completes.
 5. Compare local Subscriptions and snapshots with Stripe through the reconciliation queue.
 6. Rotate the test webhook secret and verify overlap/retirement before live rollout.

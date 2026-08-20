@@ -26,6 +26,7 @@ var (
 
 type Record struct {
 	Kind, TargetID, AccountID, Mode, State, LastErrorCode string
+	ExplanationCode, Explanation                          string
 	AttemptCount                                          int
 	NextAttemptAt                                         *time.Time
 	CreatedAt                                             time.Time
@@ -63,6 +64,9 @@ func (s *Service) Inspect(ctx context.Context, limit int, actor, reason, environ
 		return nil, "", err
 	}
 	records, err := s.store.Inspect(ctx, limit, change)
+	for index := range records {
+		records[index] = explain(records[index])
+	}
 	return records, change.BatchID, err
 }
 
@@ -75,7 +79,7 @@ func (s *Service) ReplayEvent(ctx context.Context, eventID, actor, reason, envir
 		return Record{}, "", err
 	}
 	record, err := s.store.ReplayEvent(ctx, eventID, change)
-	return record, change.BatchID, err
+	return explain(record), change.BatchID, err
 }
 
 func (s *Service) QueueRefresh(ctx context.Context, subscriptionID, actor, reason, environment, mode string) (Record, string, error) {
@@ -87,7 +91,28 @@ func (s *Service) QueueRefresh(ctx context.Context, subscriptionID, actor, reaso
 		return Record{}, "", err
 	}
 	record, err := s.store.QueueRefresh(ctx, subscriptionID, change)
-	return record, change.BatchID, err
+	return explain(record), change.BatchID, err
+}
+
+func explain(record Record) Record {
+	switch record.LastErrorCode {
+	case "subscription_mapping_mismatch":
+		record.ExplanationCode = "mapping_conflict"
+		record.Explanation = "Provider subscription metadata conflicts with the immutable local account, offer, or catalog mapping; correct the mapping before replaying."
+	case "subscription_unmapped":
+		record.ExplanationCode = "mapping_missing"
+		record.Explanation = "The current provider subscription does not resolve to a published local offer and price mapping."
+	case "projection_failed":
+		record.ExplanationCode = "projection_retryable"
+		record.Explanation = "The verified event could not be projected from current provider state; inspect provider availability and the projection worker."
+	case "refresh_failed":
+		record.ExplanationCode = "refresh_retryable"
+		record.Explanation = "The current provider subscription could not be retrieved or projected; inspect provider availability and reconciliation logs."
+	default:
+		record.ExplanationCode = "queued_or_healthy"
+		record.Explanation = "No classified mapping failure is recorded; use the state and attempt count to determine whether work is queued or healthy."
+	}
+	return record
 }
 
 func (s *Service) change(actor, reason, environment, mode string) (Change, error) {

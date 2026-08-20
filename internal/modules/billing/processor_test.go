@@ -13,6 +13,7 @@ type queue struct {
 	processed bool
 	failed    bool
 	next      time.Time
+	code      string
 }
 
 func (q *queue) Claim(context.Context, time.Time, time.Duration) (WorkItem, bool, error) {
@@ -23,10 +24,25 @@ func (q *queue) MarkProcessed(context.Context, string, time.Time) error {
 	q.processed = true
 	return nil
 }
-func (q *queue) MarkFailed(_ context.Context, _ string, _ time.Time, next time.Time, _ string) error {
+func (q *queue) MarkFailed(_ context.Context, _ string, _ time.Time, next time.Time, code string) error {
 	q.failed = true
 	q.next = next
+	q.code = code
 	return nil
+}
+
+func TestProcessorClassifiesMappingFailures(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		code string
+	}{{ErrSubscriptionMismatch, "subscription_mapping_mismatch"}, {ErrUnmappedSubscription, "subscription_unmapped"}} {
+		q := &queue{item: WorkItem{Entry: InboxEntry{ProviderEventID: "evt_1", AttemptCount: 1}}, found: true}
+		p, _ := NewProcessor(q, handler{err: test.err}, processorClock{time.Now()}, time.Minute)
+		_, _ = p.ProcessOne(context.Background())
+		if q.code != test.code {
+			t.Fatalf("error %v classified as %q, want %q", test.err, q.code, test.code)
+		}
+	}
 }
 
 type handler struct{ err error }

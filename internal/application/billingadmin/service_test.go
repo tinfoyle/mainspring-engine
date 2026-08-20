@@ -5,11 +5,26 @@ import (
 	"testing"
 )
 
-type storeStub struct{ action, target string }
+type storeStub struct {
+	action, target string
+	record         Record
+}
 
 func (s *storeStub) Inspect(context.Context, int, Change) ([]Record, error) {
 	s.action = "inspect"
+	if s.record.TargetID != "" {
+		return []Record{s.record}, nil
+	}
 	return []Record{{Kind: "event", TargetID: "evt_1"}}, nil
+}
+
+func TestBillingAdminExplainsSafeFailureClasses(t *testing.T) {
+	store := &storeStub{record: Record{Kind: "event", TargetID: "evt_1", LastErrorCode: "subscription_mapping_mismatch"}}
+	service, _ := NewService(store, generator{})
+	records, _, err := service.Inspect(context.Background(), 1, "operator@example.com", "Inspect mapping failure", "staging", "test")
+	if err != nil || len(records) != 1 || records[0].ExplanationCode != "mapping_conflict" || records[0].Explanation == "" {
+		t.Fatalf("records=%+v err=%v", records, err)
+	}
 }
 func (s *storeStub) ReplayEvent(_ context.Context, target string, _ Change) (Record, error) {
 	s.action, s.target = "replay-event", target

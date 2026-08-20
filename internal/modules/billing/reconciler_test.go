@@ -11,6 +11,7 @@ type reconciliationQueue struct {
 	id                       string
 	found, completed, failed bool
 	next                     time.Time
+	code                     string
 }
 
 func (q *reconciliationQueue) ClaimReconciliation(context.Context, time.Time, time.Duration) (string, bool, error) {
@@ -22,10 +23,20 @@ func (q *reconciliationQueue) CompleteReconciliation(context.Context, string, ti
 	q.completed = true
 	return nil
 }
-func (q *reconciliationQueue) FailReconciliation(_ context.Context, _ string, next time.Time, _ string) error {
+func (q *reconciliationQueue) FailReconciliation(_ context.Context, _ string, next time.Time, code string) error {
 	q.failed = true
 	q.next = next
+	q.code = code
 	return nil
+}
+
+func TestReconcilerClassifiesMappingFailure(t *testing.T) {
+	queue := &reconciliationQueue{id: "sub_1", found: true}
+	reconciler, _ := NewReconciler(queue, &refresher{err: ErrSubscriptionMismatch}, projectionClock{time.Now()}, time.Minute)
+	_, _ = reconciler.ProcessOne(context.Background())
+	if queue.code != "subscription_mapping_mismatch" {
+		t.Fatalf("code=%q", queue.code)
+	}
 }
 
 type refresher struct {

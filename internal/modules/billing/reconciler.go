@@ -37,7 +37,7 @@ func (r *Reconciler) ProcessOne(ctx context.Context) (bool, error) {
 		return found, err
 	}
 	if err := r.refresh.Refresh(ctx, id); err != nil {
-		if markErr := r.queue.FailReconciliation(ctx, id, now.Add(5*time.Minute), "refresh_failed"); markErr != nil {
+		if markErr := r.queue.FailReconciliation(ctx, id, now.Add(5*time.Minute), billingFailureCode(err, "refresh_failed")); markErr != nil {
 			return true, errors.Join(err, markErr)
 		}
 		return true, err

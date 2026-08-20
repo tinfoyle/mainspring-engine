@@ -83,6 +83,45 @@ func TestProjectionMakesPastDuePackagesReadOnly(t *testing.T) {
 	}
 }
 
+func TestSubscriptionStatePolicy(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name, state string
+		paused      bool
+		wantGrant   bool
+		wantMode    catalog.PackageMode
+	}{
+		{"active", "active", false, true, catalog.ModeEnabled},
+		{"trial", "trialing", false, true, catalog.ModeEnabled},
+		{"scheduled cancellation", "active", false, true, catalog.ModeEnabled},
+		{"past due", "past_due", false, true, catalog.ModeReadOnly},
+		{"collection paused", "active", true, true, catalog.ModeReadOnly},
+		{"incomplete", "incomplete", false, false, ""},
+		{"expired incomplete", "incomplete_expired", false, false, ""},
+		{"unpaid", "unpaid", false, false, ""},
+		{"canceled", "canceled", false, false, ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			subscription := ProviderSubscription{ID: "sub_1", State: test.state, CollectionPaused: test.paused, CurrentPeriodStart: now.Add(-time.Hour)}
+			if test.name == "scheduled cancellation" {
+				cancelAt := now.Add(time.Hour)
+				subscription.CancelAt = &cancelAt
+			}
+			grants := subscriptionGrants(subscription, testMapping(), &projectionIDs{}, now)
+			if !test.wantGrant {
+				if len(grants) != 0 {
+					t.Fatalf("unexpected grants: %+v", grants)
+				}
+				return
+			}
+			if len(grants) != 1 || grants[0].Mode != test.wantMode {
+				t.Fatalf("grants=%+v want mode=%q", grants, test.wantMode)
+			}
+		})
+	}
+}
+
 const testProjectionAccount ids.AccountID = "55555555-5555-4555-8555-555555555555"
 
 type projectionClock struct{ now time.Time }

@@ -320,14 +320,16 @@ Webhook secrets rotate independently by environment. Test/sandbox and live event
 
 ### Billing versus access state
 
-Subscription state is input to access policy, not a direct boolean.
+Subscription state is input to access policy, not a direct boolean. The accepted initial policy is deterministic:
 
-- `active`/eligible trial can grant subscribed packages.
-- `incomplete` does not grant paid packages unless an explicit trial/free grant exists.
-- `past_due` follows a configurable grace policy and shows billing remediation.
-- `unpaid` or ended subscription removes paid grants at the policy effective time.
-- Cancellation at period end retains grants through the paid period.
-- Refund, dispute, pause, or manual invoice states have explicit reviewed policies.
+- `active` and `trialing` grant the mapped plan modes and limits.
+- `past_due` enters immediate read-only remediation: reads, export and release/reconciliation continue, while new mutations, schedules and runs stop.
+- Stripe `pause_collection` on an otherwise active/trialing subscription uses the same read-only remediation policy. A subscription whose actual status is `paused` grants no paid packages.
+- `incomplete`, `incomplete_expired`, `unpaid`, `paused` and `canceled` grant no paid packages; independent free, promotion or support grants still evaluate normally.
+- Cancellation scheduled at period end retains the current grant until Stripe changes the current subscription state. Recovery to `active` or `trialing` restores the mapped grant on refresh.
+- Upgrade, downgrade and proration are provider billing operations. Projection resolves the current Price to one immutable published Offer and atomically replaces that subscription's grants; Spyglass does not calculate money or prorations.
+- Invoice, refund and dispute webhooks are invalidation signals, never direct entitlement commands. Current subscription state remains authoritative; a future dispute-specific safety suspension requires its own reviewed grant source and tests.
+- Tax calculation, invoice presentation, credits and manual collection never independently grant access.
 
 Access checks read the local EntitlementSnapshot, never call Stripe synchronously. A reconciler periodically compares Stripe Customer/subscription state with local projections and produces operator-visible mismatches.
 

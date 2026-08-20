@@ -45,12 +45,23 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 	}
 	if err := p.handler.Project(ctx, item); err != nil {
 		next := now.Add(retryDelay(item.Entry.AttemptCount))
-		if markErr := p.queue.MarkFailed(ctx, item.Entry.ProviderEventID, now, next, "projection_failed"); markErr != nil {
+		if markErr := p.queue.MarkFailed(ctx, item.Entry.ProviderEventID, now, next, billingFailureCode(err, "projection_failed")); markErr != nil {
 			return true, errors.Join(err, markErr)
 		}
 		return true, err
 	}
 	return true, p.queue.MarkProcessed(ctx, item.Entry.ProviderEventID, now)
+}
+
+func billingFailureCode(err error, fallback string) string {
+	switch {
+	case errors.Is(err, ErrSubscriptionMismatch):
+		return "subscription_mapping_mismatch"
+	case errors.Is(err, ErrUnmappedSubscription):
+		return "subscription_unmapped"
+	default:
+		return fallback
+	}
 }
 
 func retryDelay(attempt int) time.Duration {

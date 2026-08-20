@@ -48,3 +48,16 @@ func TestRetrieveSubscriptionTranslatesCurrentItemPeriods(t *testing.T) {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
+
+func TestRetrieveSubscriptionIdentifiesPausedCollection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"sub_1","customer":"cus_1","status":"active","pause_collection":{"behavior":"void"},"items":{"data":[]}}`))
+	}))
+	defer server.Close()
+	client, _ := New("sk_test_not_a_real_secret", DefaultAPIVersion, server.Client())
+	client.baseURL = server.URL
+	result, err := client.RetrieveSubscription(context.Background(), "sub_1")
+	if err != nil || !result.CollectionPaused {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}

@@ -134,7 +134,7 @@ func subscriptionGrants(subscription ProviderSubscription, mapping MappedOffer, 
 		if !ok {
 			continue
 		}
-		if subscription.State == "past_due" {
+		if subscription.State == "past_due" || subscription.CollectionPaused {
 			mode = catalog.ModeReadOnly
 		}
 		limits := make(map[catalog.LimitCode]int64, len(definition.DefaultLimits))
