@@ -1,118 +1,203 @@
-# Phase 2.5 closeout report
+# Phase 2.5 realignment plan
 
-- Audit date: 2026-08-20
-- Audited revision: `b195fae07b264ea4a609e424d6664f0b776eb6a4`
-- Purpose: finish Phase 2 without confusing this bridge with backlog item P2.5 (the entitlement engine)
-- Verdict: **the codebase is ready to enter connected staging, but Phase 2 is not complete**
+- Plan date: 2026-08-20
+- Application baseline: `b195fae07b264ea4a609e424d6664f0b776eb6a4`
+- Repository: `main`, direct commits permitted
+- Purpose: realign the cut-short Phase 2 rewrite with the final container-first form before final application construction
+- Exit state: **a coherent platform foundation, reproducible local Docker environment, connected Hostinger Docker stage, and production-ready LKE deployment skeleton**
 
-## Executive finding
+## Program phase model
 
-Phase 2's core architecture is implemented: system-wide identity, Account and Membership boundaries, Catalog publication, local entitlement snapshots, Stripe projection, forced-RLS cell storage, signed global-to-cell routing, pooled workload references, release-image automation, and strong repository tests all exist.
+| Phase | Meaning |
+|---|---|
+| Phase 1 | The runnable Mainspring prototype preserved under `prototype/`; it is the behavioral reference, not production architecture. |
+| Phase 2 | The production Spyglass rewrite completed so far: identity, Accounts, Catalog, entitlements, billing boundaries, global/cell routing, Work and Agent foundations, migrations, release image and Kubernetes reference. The run ended before the platform and deployment form were complete. |
+| Phase 2.5 | This realignment phase. Finish interrupted platform foundations, remove preview-specific architecture, make Docker the local/stage execution model, and prepare the final LKE form. |
+| Phase 3 | The complete remaining application construction, prototype parity, production hardening, LKE deployment and launch. Production does not ship with deferred application phases or unpublished substitute scope. |
 
-The remaining work falls into two classes:
+“P2.5 entitlement engine” in the historical delivery plan is a work-package identifier inside the old Phase 2 structure. It is not this program-level Phase 2.5.
 
-1. **Missing product behavior:** durable Account movement, complete downgrade/data-lifecycle behavior, compromised-credential operations, billing mismatch explanations, and external-store erasure.
-2. **Missing target-environment evidence:** live Stripe and SMTP, real WebAuthn devices, applied Kubernetes and managed PostgreSQL isolation, load/failure/restore exercises, observability paging, accessibility certification, and signed-artifact rollback.
+## Phase 2.5 objectives
 
-Local contracts that advance a placement generation between two test cells are not a durable Account-move implementation. Review-only Kubernetes manifests and a green local suite are not deployment evidence.
+1. Make the repository's default development and integration path run in Docker from `ubunturojo`.
+2. Replace the Cloudflare/OpenAI preview website runtime with a standard container runtime.
+3. Create one shared Compose topology with local and Hostinger stage overrides.
+4. Publish immutable application and website images to GHCR.
+5. Make workload behavior explicit across Docker stage and Kubernetes production, including runner execution.
+6. Finish the Phase 2 platform capabilities that Phase 3 must safely build upon.
+7. Produce renderable, policy-tested vanilla LKE overlays before cluster credentials are needed.
+8. Bring connected Hostinger staging online and leave Phase 3 with no architectural rework debt.
 
-## Evidence reviewed
+## Non-negotiable final-form decisions
 
-- The Phase 2 handoff and the ordered backlog in [delivery-plan.md](delivery-plan.md).
-- The launch gates in [production-readiness-audit.md](production-readiness-audit.md).
-- Production code, migrations, the 62-operation OpenAPI document, CI workflows, release image, Kubernetes reference, and operating runbooks.
-- `ubunturojo` WSL verification: `go test ./...`, `go vet ./...`, `go run ./cmd/apicontract -check`, and `deploy/kubernetes/reference/verify.sh` passed.
-- The recorded hosted website/CI result at the audited revision. The local WSL Node runtime is 18, below the site's declared Node 22.13+ requirement, so the website suite was not rerun locally.
+- Public website and private application are separate origins and separate images.
+- The public website is a normal Node container; `.openai/hosting.json`, the Sites plugin and `chatgpt.site` are not release inputs.
+- The Go application remains one multi-mode image selected by process arguments.
+- PostgreSQL is containerized in every environment: three local/stage services and containerized production clusters on LKE.
+- Local and stage use Docker Compose. Production uses vanilla Linode Kubernetes Engine.
+- GHCR is the registry; deployment uses immutable digests, never mutable tags.
+- Direct commits to `main` are acceptable; release publication still requires an immutable tag/version and recorded digest.
+- All application phases must be complete before production release.
+- Environment backup execution is owned by the project owner after the application deployments exist; application/deployment code must expose restore checkpoints and documented backup hooks.
 
-The pre-existing `website/` worktree changes are line-ending-only and are outside this report.
+## Workstream A — canonical plans and configuration
 
-## Closeout inventory
+1. Consolidate the historical Phase 3-8 backlog into the new final Phase 3 plan.
+2. Update the older delivery/readiness documents so they no longer imply that incomplete packages may be deferred for production.
+3. Create a machine-readable inventory of every process mode, port, database role, environment value, health endpoint and dependency.
+4. Create one environment schema with local, stage and production validation; unknown or missing production values fail closed.
+5. Remove preview-hosting language and generated line-ending churn from the website in a dedicated, reviewed change.
 
-| Area | Implemented baseline | Work required for Phase 2 closure |
-|---|---|---|
-| P2.1 Website | Public routes, Catalog proxy, GET-only signup handoff, DOM/axe regression gates, anonymous staging probe | Consent/event taxonomy; deployed-origin proof; private-route browser axe; contrast, zoom/reflow, keyboard, screen-reader and supported-device evidence; legal/privacy/support/status ownership |
-| P2.2 Identity | Password/passkey auth, recovery codes, session controls, owner enrollment, verified contact change, rotation tooling | Compromised-credential response; passkey rename; cleanup/retention jobs and metrics; live SMTP; real-device WebAuthn; reviewed factor-loss and attestation policies |
-| P2.3 Accounts | Membership lifecycle, ownership transfer, closure, four-eyes database erasure and signed restore replay | Account export; signed external-store erasure directives, acknowledgements and attestations; post-retention physical deletion rehearsal |
-| P2.4 Catalog | Immutable publication, governed offers and Stripe mappings, contract generation | Finish package/surface inventory; decide publication policy; publish a sanitized OpenAPI artifact; certify the staged Catalog |
-| P2.5 Entitlements | Deterministic snapshots, modes, limits, shared admission boundary | Complete and test a package-by-transport downgrade matrix, including schedules, workers, runners, exports, retention, restoration and Agent tools |
-| P2.6 Billing | Checkout/Portal boundaries, signed webhook inbox, projection, replay, refresh and reconciliation | Real Stripe test-mode journey; human-readable mismatch explanations; approved failure, grace, cancellation, refund/dispute and recovery policy |
-| P2.7 Global/cell | Signed routing, generation fencing, forced RLS, constrained roles, two-cell contracts | Managed database application; ingress and sustained admission failure injection; route-key and CA rollover in staging; load/fairness proof |
-| P2.8 Kubernetes | Security-reviewed shared workload reference, HPAs/PDBs/policies, release image workflow | Deployable staging and production overlays; exact egress; managed secrets/certificates; RuntimeClass; metrics adapter/monitors/alerts; connection caps; applied-cluster tests |
-| P2.9 Placement | Directory states, generation rejection, test-only generation switch | Durable copy/change-capture/reconcile/switch/rollback/retire workflow with operator controls and recovery evidence |
+Exit evidence: documentation, runtime configuration validation and deployment manifests describe the same process/dependency graph.
 
-## Required work order
+## Workstream B — containerize the website
 
-### Gate 1 — create connected staging
+Migrate `website/` from the Cloudflare/Vinext preview runtime to standard Next.js on Node 22:
 
-Implement the local and staging paths in [stage-production-deployment-report.md](stage-production-deployment-report.md): Docker Compose inside `ubunturojo`, followed by the Docker-based Hostinger VPS reached through the `infiniteocean` SSH target. This is first because it unlocks live-provider, accessibility, observability, load, failure and restore evidence. Kubernetes-specific evidence is collected later in a non-customer Linode pre-production/canary environment before production traffic.
+- use a production standalone build and non-root runtime image;
+- replace the Cloudflare Worker Catalog proxy with a server-side route handler;
+- preserve security headers, exact-origin validation, bounded response handling and cache policy;
+- replace Cloudflare image bindings with normal static/image behavior;
+- move the private-app handoff and Catalog upstream to validated runtime configuration so one image can be promoted unchanged;
+- add `/health/live` and `/health/ready` endpoints;
+- exclude source, preview metadata, Wrangler state and credentials from the runtime image;
+- run build, rendered-route, accessibility, lint and dependency checks inside the image pipeline.
 
-Exit evidence:
+Exit evidence: one website digest runs unchanged in local, stage and production configuration.
 
-- Exact signed application and website image digests are deployed through checked-in Compose definitions.
-- One global and two cell PostgreSQL databases use migrated, non-owner, non-`BYPASSRLS` runtime roles.
-- TLS SMTP, Stripe test mode, workload certificates, route keys, ingress, exact egress, monitoring and paging are connected.
-- Website -> verification -> free Account -> owner enrollment -> Checkout -> signed projection -> paid access succeeds.
-- Wrong origin, wrong Account, stale placement, duplicate delivery, restart and provider outage cases are repeatable.
+## Workstream C — local Docker parity environment
 
-### Gate 2 — implement durable Account movement
+Add a shared Compose stack under `deploy/docker/spyglass/` with local overrides. It must include:
 
-Add a Placement application boundary and persistence model; the current `internal/modules/placement/model.go` and test generation switch are insufficient.
+- Caddy edge proxy;
+- public website;
+- global, cell A and cell B PostgreSQL 17 services with separate volumes;
+- one-shot global/cell migration jobs;
+- `account-api`, `app-router`, one `app-api` per cell and private `admission-api`;
+- billing, notification, entitlement, Account lifecycle, route-receipt and Work reconciliation workers;
+- optional Agent/runner/model profiles until their tests need them;
+- local SMTP capture and optional local observability services;
+- workload-specific environment files, networks, database users and health checks.
 
-Required implementation:
+Add containerized verification commands for:
 
-1. A globally durable move record with source/destination cell, source/target generation, phase, lease, attempts, checkpoints, rollback deadline, actor/reason and immutable events.
-2. Capacity/health validation and a drain/freeze policy that explicitly defines allowed reads and writes.
-3. Account-scoped initial copy adapters for rows and every enabled external store.
-4. Change capture with a durable high-water mark; no in-memory delta buffer.
-5. Reconciliation manifests for row counts/digests, objects, search state, workflows, entitlements and usage reservations.
-6. A compare-and-swap placement-generation switch committed with audit evidence.
-7. Destination resume and a retained, fenced source through a declared rollback window.
-8. Rollback as a new generation switch, followed by verified source retirement only after policy permits it.
-9. A resumable worker plus bounded inspect/pause/resume/rollback operator commands using signed, exact-scope authorization.
-10. Integration tests for every crash boundary, stale workers, duplicate commands, source/destination outage, global outage, database failover and cross-Account attacks.
+- uncached Go tests and race tests;
+- PostgreSQL integration tests with `SPYGLASS_POSTGRES_TEST_URL` set;
+- website build/test/lint/audit under Node 22;
+- OpenAPI compatibility and generation checks;
+- migration, two-cell routing, stale-placement and wrong-Account certification;
+- Compose health and exact-origin smoke journeys.
 
-Restore, export, erasure, cell evacuation and dedicated enterprise placement must reuse the same Account identity and placement-generation boundary.
+The normal shutdown path preserves volumes. A separately named reset command may delete only the verified Spyglass local Compose project and its volumes.
 
-### Gate 3 — close package downgrade and data lifecycle
+Exit evidence: a clean checkout in `ubunturojo` reaches a healthy two-cell local system through documented Docker commands without using host Go or Node runtimes.
 
-Create a version-controlled matrix whose rows are every published package/capability and whose columns are HTTP, private UI, MCP, schedules, workers, runners and Agent tools. For each cell define:
+## Workstream D — Docker-stage runner execution
 
-- mutation cutoff and read-only behavior;
-- in-flight/background behavior;
-- export availability;
-- retention start/duration;
-- restoration after re-entitlement;
-- failed-payment, grace, cancellation and safety-suspension behavior.
+The current runner controller is Kubernetes-only. Phase 2.5 must add an explicit stage strategy rather than pretending the Kubernetes adapter works under Compose.
 
-Turn the matrix into table-driven application, transport and asynchronous-boundary tests. Then complete external-store export/erasure directives, acknowledgement retries, attestations and a restore-then-delete rehearsal.
+Implement a stage-only Docker runner launcher behind a narrow authenticated service boundary:
 
-### Gate 4 — complete live customer and provider journeys
+- only the launcher service receives Docker Engine authority;
+- `runner-controller` calls a bounded launch/get/cancel/reconcile API and never mounts the Docker socket;
+- launched runners use immutable digests, read-only filesystems, no database/provider credentials, bounded CPU/memory/time and an isolated network path to the broker only;
+- operation identity, encrypted exchange, one-use capability and result semantics remain identical to Kubernetes;
+- the Docker launcher is impossible to select in production configuration;
+- stage failure tests cover uncertain create, duplicate launch, cancellation, launcher restart and orphan cleanup.
 
-- Add compromised-credential response, passkey rename, durable cleanup and metrics.
-- Exercise registration, verification, recovery, invitations and contact change through real TLS SMTP.
-- Exercise passkey enrollment, login, step-up, recovery and replacement on the supported device/browser matrix.
-- Exercise the full Stripe sequence in [staging-certification.md](staging-certification.md), including mismatch explanation, replay and refresh.
-- Exercise multi-Account switching, ownership transfer, closure, export and restoration.
-- Complete public/private accessibility and responsive certification against the exact artifact.
+LKE remains the authoritative production runner isolation environment; Docker staging proves application semantics and recovery.
 
-### Gate 5 — prove pooled operations and release recovery
+## Workstream E — finish interrupted Phase 2 foundations
 
-- Run many-small-Account, one-hot-Account and deterministic Work write/replay certification.
-- Inject queue backlog, pod/node/zone loss, database failover, provider degradation, saturation and stale-cache faults.
-- Rehearse Work/Agent dead-letter recovery using constrained staging roles.
-- Connect the Collector, authenticated scrapes, dashboards, remaining billing/isolation/database/restore signals and paging.
-- Complete a burn-in, one game day, clean-environment release, restored-environment release, and rollback between two retained signed digests.
+### Durable Account movement
 
-## Scope control
+Implement the full resumable move workflow, not a test-only generation change:
 
-Phase 3 foundations do not have to block Phase 2 closure. Incomplete Work, Agents, Knowledge, Finance or Marketing capabilities must remain unpublished, preview-only or unavailable in entitlements and public claims. A production launch may expose only capabilities that pass the exact-artifact gates; hiding navigation alone is not sufficient.
+1. durable globally owned move record, lease, phase, attempts and immutable events;
+2. destination capacity validation and source drain/freeze policy;
+3. initial Account-scoped copy for rows and enabled external stores;
+4. durable change capture and high-water mark;
+5. reconciliation of rows, objects, search state, workflows, entitlements and usage;
+6. compare-and-swap placement-generation switch;
+7. destination resume and source rollback window;
+8. rollback through another generation switch;
+9. verified source retirement after policy permits;
+10. inspect/pause/resume/rollback operator commands and crash-boundary tests.
 
-## Phase 2 completion rule
+### Commercial and lifecycle completion
 
-Phase 2 is complete only when:
+- Finish the package-by-transport downgrade/read-only/export/retention/restoration matrix.
+- Enforce it through HTTP, UI, MCP, schedules, workers, runners and Agent tools.
+- Add compromised-credential response, passkey rename and scheduled identity cleanup/metrics.
+- Add billing mismatch explanations and complete Stripe test-mode policy journeys.
+- Complete external-store export/erasure directives, acknowledgements and attestations.
+- Finish Catalog/package/surface inventory and sanitized API publication policy.
 
-- every P2.1-P2.9 acceptance criterion is implemented or explicitly removed from launch scope;
-- all P0 launch blockers in [production-readiness-audit.md](production-readiness-audit.md) have current evidence from the exact staged release artifact and target environment;
-- Account movement and rollback have been exercised, not merely simulated by changing a generation;
-- package downgrade/data-lifecycle rules are enforced at every synchronous and asynchronous boundary; and
-- the retained release can be promoted or rolled back without rebuilding it.
+Exit evidence: all commercial/platform foundations are complete enough that Phase 3 adds product capabilities without revisiting identity, Account, entitlement, billing, placement or lifecycle architecture.
+
+## Workstream F — Hostinger connected staging
+
+Use the `infiniteocean` SSH target and the stage Compose override to deploy:
+
+- `stage.infiniteocean.net` for the public website;
+- `app.stage.infiniteocean.net` for the private application;
+- GHCR application and website images pinned by digest;
+- containerized global/cell PostgreSQL with persistent storage;
+- TLS, Stripe test mode, TLS SMTP, non-production provider credentials and content-safe telemetry;
+- off-host backup hooks and restore checkpoint records for the owner-managed backup phase.
+
+Run real email/passkey/Stripe journeys, two-cell isolation, container/database restart, provider outage, accessibility, load/fairness and restore fencing tests. Hostinger does not certify Kubernetes-only controls.
+
+Exit evidence: an exact release pair is repeatably deployable and rollbackable on the VPS without copying a developer worktree or plaintext secrets.
+
+## Workstream G — LKE production skeleton
+
+Before the kubeconfig is furnished, create and CI-render:
+
+- `linode-preproduction` and `linode-production` Kustomize overlays;
+- ingress-nginx, cert-manager, metrics-server, observability and SOPS/age secret integration assumptions;
+- CloudNativePG-based global, cell A and cell B database resources with configurable replica counts and LKE block storage;
+- NetworkPolicies, service accounts, Pod security, disruption budgets, topology spread and connection caps;
+- dedicated runner namespace/node policy and a required sandbox RuntimeClass contract;
+- application and website digest injection;
+- restore checkpoint, migration, Catalog and release-record jobs.
+
+Cluster-specific values remain placeholders until a read-only kubeconfig audit confirms actual CNI, storage, ingress and node capabilities. Backups are configured by the project owner after the database/application topology is applied; the overlay must leave explicit backup/restore extension points.
+
+Exit evidence: both overlays render and pass repository policy checks without credentials or mutable images.
+
+## Phase 2.5 execution order
+
+1. **P2.5.0 — plan normalization:** align the three phase/deployment documents and mark older backlog semantics for consolidation.
+2. **P2.5.1 — website final runtime:** migrate and publish the container-ready website locally.
+3. **P2.5.2 — local parity Compose:** databases, migrations, minimum request path, containerized test runner and health gates.
+4. **P2.5.3 — full shared process topology:** workers, two cells, TLS/workload configuration and observability.
+5. **P2.5.4 — Docker runner launcher:** stage-only execution and recovery parity.
+6. **P2.5.5 — platform closeout:** Account movement, downgrade/lifecycle, identity and billing gaps.
+7. **P2.5.6 — Hostinger stage:** digest deployment, provider connections, certification and rollback.
+8. **P2.5.7 — LKE skeleton:** production overlays, controller contracts and policy verification.
+
+## Start-ready first slice
+
+Phase 2.5 begins with P2.5.1. The bounded first implementation slice is:
+
+1. remove Sites/Cloudflare build coupling from the website;
+2. add a standard Node 22 standalone production build;
+3. add the website Dockerfile, health endpoints and runtime-origin configuration;
+4. run the complete website suite inside Docker from `ubunturojo`;
+5. add a minimal Compose path containing edge, website and the development Spyglass process only as a visual/request smoke gate;
+6. preserve the current public pages, Catalog fallback and private signup handoff behavior.
+
+The next slice expands that Compose path to persistent global/two-cell PostgreSQL and production process modes.
+
+## Phase 2.5 completion rule
+
+Phase 2.5 is complete only when:
+
+- a clean checkout builds and tests entirely through Docker in `ubunturojo`;
+- local and Hostinger stage use the same application topology and immutable GHCR images;
+- the website has no preview-host dependency;
+- durable Account movement and commercial/lifecycle foundations are accepted;
+- connected stage journeys and rollback are repeatable;
+- LKE overlays render and enforce the intended final boundaries; and
+- Phase 3 can concentrate on completing the application rather than changing platform or deployment architecture.

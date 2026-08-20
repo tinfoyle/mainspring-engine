@@ -2,13 +2,13 @@
 
 - Status: Working production charter
 - Prototype baseline: `8024f8d`
-- Last updated: 2026-08-18
+- Last updated: 2026-08-20
 - Accepted decisions: [Architecture decision index](decisions/README.md)
 
 Current audit and execution reports:
 
-- [Phase 2.5 closeout report](phase-2-5-closeout-report.md)
-- [Phase 3 report — Work and Attention](phase-3-report.md)
+- [Phase 2.5 realignment plan](phase-2-5-closeout-report.md)
+- [Phase 3 final construction plan](phase-3-report.md)
 - [Local, stage and production deployment report](stage-production-deployment-report.md)
 
 ## 1. Purpose

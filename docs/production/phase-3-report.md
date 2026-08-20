@@ -1,102 +1,178 @@
-# Phase 3 report — Work and Attention
+# Phase 3 final construction plan
 
-- Audit date: 2026-08-20
-- Audited revision: `b195fae07b264ea4a609e424d6664f0b776eb6a4`
-- Source of truth: Phase 3 in [delivery-plan.md](delivery-plan.md)
-- Verdict: **P3.1 and P3.2 are advanced, P3.5 has a security foundation, and P3.3, P3.4 and most P3.6 remain**
+- Plan date: 2026-08-20
+- Starts after: [Phase 2.5 realignment](phase-2-5-closeout-report.md)
+- Purpose: complete every remaining application capability, migrate validated prototype behavior, certify the final LKE deployment and release the complete product
+- Production rule: **all construction phases and advertised packages must be complete before production release**
 
-## Current implementation
+## Phase 3 scope
 
-| Work package | Status | Repository finding |
-|---|---|---|
-| P3.1 Work domain | Mostly implemented | Typed values, construction, state/role matrix, depth, assignment values, provenance values and optimistic versions exist. Persona-backed assignment, assignment editing and provenance attachment remain. |
-| P3.2 Persistence and queries | Mostly implemented | Forced-RLS schema, Account-local numbering, stable queue cursors, child query, summaries, events, routed commands, capacity reconciliation and dead-letter tooling exist. Persona foreign keys, provenance/conversation links, representative query plans, pagination properties and concurrency stress remain. |
-| P3.3 Agent-work dispatcher | Not implemented as a Work boundary | Agent Run dispatch and generic runner control exist, but there is no Work-owned claim/start-run/link/heartbeat/release/resume/reconcile state machine. The Agent dispatch queue is not a substitute. |
-| P3.4 Attention domain | Not implemented | No production Attention package, persistence, routes or UI exists for `InformationRequest`, `WorkReview` or `ConsequentialApproval`. Placeholder “Your Turn” copy is not a domain boundary. |
-| P3.5 Action ledger | Partial | Forced-RLS authorization, action ledger, attempts, execute/reconcile separation and unknown-outcome handling exist. Attention-owned approvals, a real consequential adapter, failed retry policy, manual resolution, redacted views and operator/customer surfaces remain. |
-| P3.6 Transport migration | Partial | Seven routed Work HTTP operations and a private server-rendered/JavaScript Work surface exist. There is no production MCP implementation, no Attention HTTP contract, no HTTP/MCP parity suite, and no private React Work/Your Turn slice. |
+Phase 3 consolidates the historical Phase 3-8 backlog into one final body of work. It is not limited to Work and Attention. It includes:
 
-The OpenAPI document currently contains 62 operations. Production source contains only a comment mentioning MCP; MCP tools still live in the prototype. The delivery plan's React requirement therefore needs either implementation or an explicit architecture decision changing the target.
+1. Work and Attention.
+2. Knowledge and Baseline.
+3. Agent workspace and durable execution.
+4. Scheduling, Finance, Marketing and integrations.
+5. HTTP, MCP and private React product surfaces.
+6. Prototype data/behavior migration and retirement.
+7. Production hardening, Linode deployment, canary and release.
 
-## Required delivery sequence
+No incomplete package is hidden to justify production launch. Feature flags and unpublished Catalog entries remain useful during development, but the production release gate requires the full intended application.
 
-### Slice 1 — finish the Work vertical slice
+## Starting position after Phase 2
 
-- Add Persona ownership/foreign keys and safe Persona assignment policy.
-- Add assignment-editing UI with expected-version handling and accessible announcements.
-- Add provenance-attachment and conversation-link commands, immutable events and authorization tests.
-- Preserve create/edit drafts across navigation and replace prompt-like reason handling with an accessible dialog.
-- Add representative-cardinality `EXPLAIN (ANALYZE, BUFFERS)` fixtures, stable-pagination property tests, and concurrent assignment/completion stress.
-- Characterize prototype Work data and define Account-by-Account migration, capacity reconciliation and rollback checks.
+The repository already contains strong foundations:
 
-Exit: P3.1/P3.2 acceptance tests pass without relying on prototype runtime code.
+- typed Work lifecycle, forced-RLS persistence, routed HTTP commands/queries and a private Work surface;
+- Boardrooms, immutable Persona versions, Conversations, Agent Runs, dispatch/projection queues and encrypted runner exchange;
+- package admission, action authorization/ledger foundations and content-safe observability;
+- generated OpenAPI contracts and compatibility enforcement.
 
-### Slice 2 — implement typed Attention
+The foundations do not yet constitute the full product. In particular:
 
-Create `internal/modules/attention`, an application service and cell persistence for three separate aggregates:
+- the Work-owned Agent dispatcher is absent;
+- the Attention domain is absent;
+- Knowledge/Baseline production modules are absent;
+- Agent orchestration is limited to one ordered Persona pass;
+- production MCP is absent;
+- Finance, Marketing and most integrations remain prototype-only or unimplemented;
+- the private application is not yet the final React product surface;
+- no complete prototype migration/cutover has occurred.
 
-1. `InformationRequest`: explicit fact requirements, Account scope, eligible answers, expiration/cancellation and exact parent resumption.
-2. `WorkReview`: reviewed Work/version, decision, reviewer authority, evidence and reopen/resume semantics.
-3. `ConsequentialApproval`: canonical payload bytes, hash/version, capability, proposer, policy version, evidence, approver separation, expiry and cancellation.
+## P3.1 — Work and Attention
 
-All tables require immutable `account_id`, composite Account-scoped relationships, forced RLS, optimistic versions and immutable events. Answering one fact may complete only eligible requests; changing a proposal must invalidate its approval.
+### Finish Work
 
-Exit: domain matrices, PostgreSQL isolation/concurrency contracts and redacted query DTOs pass for every aggregate.
+- Add Persona foreign keys and Persona assignment policy.
+- Add assignment editing, provenance attachment and conversation-link commands.
+- Add representative query-plan, pagination property and concurrency stress tests.
+- Preserve drafts and provide accessible reason/command interactions.
+- Characterize and migrate prototype Work data with capacity reconciliation.
 
-### Slice 3 — connect Work to Agent execution durably
+### Implement typed Attention
 
-Implement a Work-owned dispatcher distinct from the existing Agent invocation dispatcher:
+Create separate Account-scoped aggregates:
 
-- claim with owner, lease, expiry and heartbeat;
-- start one immutable Agent Run with a deterministic operation identity;
-- link Work and Run transactionally or through a reconciled outbox;
-- release, resume and reconcile commands;
-- capacity accounting based on active executions;
-- event wakeup plus jittered periodic recovery;
-- crash tests before Run creation, after creation, after link, during heartbeat loss and after completion.
+- `InformationRequest` for explicit fact requirements and exact parent resumption;
+- `WorkReview` for version-bound review decisions;
+- `ConsequentialApproval` for canonical payload, policy, evidence, expiry and cancellation.
 
-Exit: every crash point converges to one active linked Run or one safely requeued Work item, with no duplicate customer-visible effect.
+Add forced-RLS persistence, optimistic versions, immutable events, queries, redacted DTOs and authorization matrices. Answering shared information may complete only eligible requests; altering a proposal invalidates its approval.
 
-### Slice 4 — finish consequential actions
+### Connect Work to Agent execution
 
-- Make `ConsequentialApproval` the owner of the existing runner authorization projection.
-- Add an executor registry and at least one sandbox/test provider adapter with real idempotency and side-effect-free reconciliation.
-- Define explicit retry rules for definite failure versus unknown outcome.
-- Add dual-control manual resolution for high-risk/unknown actions.
-- Add redacted customer/operator views, immutable audit history, alerting and a recovery runbook.
-- Test timeout after provider acceptance, duplicate approval/execute, cancellation races, lease expiry and reconciliation after restart.
+Implement a Work-owned claim/start/link/heartbeat/release/resume/reconcile state machine. Every crash point must converge to one linked active Run or one safely requeued Work item. Existing Agent dispatch and runner capacity are reused but do not replace this boundary.
 
-Exit: repeated approval/execution performs at most one effect, and ambiguous acceptance remains `unknown` until reconciled or manually resolved.
+### Finish consequential actions
 
-### Slice 5 — complete transport and product parity
+- Make Attention the owner of approval projections consumed by the action ledger.
+- Add the executor registry, definite-failure retry policy, unknown reconciliation and dual-controlled manual resolution.
+- Add at least one real consequential adapter with idempotency and side-effect-free lookup.
+- Add redacted customer/operator views, alerting and recovery runbooks.
 
-- Publish Attention queue/detail/answer/review/approve/cancel/action-status HTTP operations through the same commands and queries.
-- Implement production MCP tools for Work and Attention over those same application boundaries.
-- Add HTTP/MCP authorization and outcome parity tests.
-- Build the private React Work and Your Turn slices, or accept and document a replacement architecture before claiming P3.6 complete.
-- Add compatibility fixtures against prototype behavior without importing or executing prototype code in production.
-- Extend accessibility certification to dynamic status announcements, dialogs, error recovery and streamed Agent/Attention updates.
+Exit: Work, Your Turn and approved external actions are complete through domain, persistence, HTTP, MCP and UI.
 
-Exit: every customer-visible use case has one canonical application implementation, stable generated contracts and equivalent HTTP/MCP outcomes.
+## P3.2 — Knowledge and Baseline
 
-### Slice 6 — staging, Linode pre-production and cutover
+- Implement source-attributed facts, claims, evidence, revisions, scope and confidence.
+- Implement document upload, malware/type/size checks, extraction, chunking, indexing, retention and deletion.
+- Implement Account-scoped retrieval, citation validation and bounded result contracts.
+- Implement the Baseline interview/state machine, evidence decisions, readiness, renewal and reassessment.
+- Implement evidence-source selection and plan generation without allowing unsupported Agent output to become authoritative fact.
+- Migrate and reconcile prototype knowledge/documents/baselines with object, index and citation checks.
 
-- Apply migrations through constrained roles in Docker-based connected staging.
-- Run multi-Account isolation, representative query/load, queue crash recovery, runner compromise and provider degradation exercises.
-- Rehearse Work/Agent/Attention/action dead-letter and unknown-action runbooks.
-- Migrate a synthetic and then internal Account from prototype fixtures; reconcile numbers, hierarchy, state, assignments, provenance, active capacity, Attention and action history.
-- Repeat Kubernetes-specific NetworkPolicy, workload identity, runner isolation, autoscaling and failure-injection certification in a non-customer Linode namespace before production traffic.
-- Canary by Account cohort with rollback to the retained artifacts and compatible schema.
+Exit: source-attributed business memory and baseline claims are complete and production-certifiable.
 
-## Phase 3 definition of done
+## P3.3 — Workspace and Agent execution
 
-Phase 3 is complete when:
+- Complete workspace/Boardroom configuration and immutable Persona/version lifecycle.
+- Implement multi-turn orchestration, manager synthesis, delegation, resumable owner questions and structured recovery.
+- Implement deterministic context assembly from Work, Knowledge, Baseline and Conversation watermarks.
+- Complete provider-neutral invocation contracts, budget/cost/token enforcement and model fallback policy.
+- Complete bounded sequential tool execution, tool-output validation, citation binding and result publication.
+- Add schedules, attachments and governed consequential proposals.
+- Add workflow/replay durability where long-lived orchestration requires it.
+- Complete dispatch/projection dead-letter, retention and operator recovery paths.
 
-- all P3.1-P3.6 acceptance statements in [delivery-plan.md](delivery-plan.md) pass;
-- Work, Attention, Agent-linked execution and external actions survive every documented crash boundary;
-- HTTP and MCP share authorization, commands, queries, errors and audit behavior;
-- private product surfaces are accessible and recover drafts/state after session, network and concurrency failures;
-- representative cell data meets query, connection, latency and fairness budgets; and
-- staging/canary evidence is tied to the exact signed artifact and published Work entitlement.
+Exit: Agent behavior is durable, replay-safe, Account-isolated and recoverable across every crash/provider boundary.
 
-Knowledge/Baseline, Workspace orchestration, Finance, Marketing and other packages remain later phases. Existing Agent foundations reduce Phase 3 implementation cost but do not change the Phase 3 acceptance boundary.
+## P3.4 — Scheduling, business packages and integrations
+
+Complete every intended launch package rather than leaving preview shells:
+
+- Scheduling: durable definitions, time zones, missed-run policy, leases, pause/resume and idempotent dispatch.
+- Finance: governed records, summaries, reconciliations, evidence and approved external effects.
+- Marketing: campaign/asset/workflow capabilities defined by final product requirements.
+- Email: inbound/outbound boundaries, threading, credentials, retries and approval rules.
+- Google Drive and document sources: scoped credentials, sync cursors, revocation and deletion.
+- Web research: safe retrieval, source attribution, policy and failure handling.
+- Integrations package: connector health, capability grants, provider degradation and credential lifecycle.
+
+Every package receives Catalog features, entitlement/downgrade behavior, HTTP/MCP/UI surfaces, schedules/workers/tools, observability, retention and acceptance tests.
+
+Exit: the Catalog, website claims and application capabilities reconcile exactly.
+
+## P3.5 — Final transports and product surface
+
+- Implement one canonical application boundary per use case.
+- Publish complete generated HTTP contracts and sanitized OpenAPI artifacts.
+- Implement production MCP tools over the same commands/queries and prove HTTP/MCP outcome parity.
+- Build the private feature-organized React application for Account, Work, Your Turn, Knowledge, Baseline, Agents, Finance, Marketing, integrations, billing and security.
+- Add reliable streaming/event replay, optimistic concurrency, draft preservation and session/network recovery.
+- Complete keyboard, screen-reader, contrast, zoom/reflow, forced-colors, reduced-motion and supported-device behavior.
+- Remove prototype compatibility adapters only after migration evidence and rollback windows close.
+
+Exit: no production use case depends on prototype runtime code, manually duplicated models or transport-specific authorization.
+
+## P3.6 — Data migration and operational completion
+
+- Inventory and characterize every retained prototype route, MCP tool, workflow, schedule, table and external object.
+- Build Account-cohort migration tools with checksums, row/object/index counts and rollback checkpoints.
+- Reconcile Membership, placement, entitlements, Work, Knowledge, Baseline, Agents, schedules, actions and provider references.
+- Complete Account export, erasure, restore replay and cell movement across every enabled store.
+- Complete dashboards, alerts, runbooks, capacity limits, security/privacy review and support procedures.
+- Run clean-environment, restored-environment, load/fairness, provider-degradation, game-day and soak suites.
+
+Backup scheduling/storage is configured by the project owner per environment after the application/database topology is present. Phase 3 must supply consistent snapshots, restore checkpoints, replay tooling and documented hooks so that configuration is verifiable.
+
+Exit: one synthetic and one internal Account complete migration, operation, backup/restore verification and rollback without prototype dependencies.
+
+## P3.7 — Linode production certification and release
+
+1. Apply the reviewed LKE controllers and overlays.
+2. Deploy the exact Hostinger-certified application and website digests to a non-customer Linode environment.
+3. Apply production migrations and containerized PostgreSQL clusters.
+4. Run NetworkPolicy, workload identity, admission, RuntimeClass, HPA, pod/node loss, database failover, key/CA rollover and runner-compromise tests.
+5. Complete real provider, accessibility, isolation, load, restore and full-product journeys.
+6. Obtain engineering/product/security/operations approval; in this one-person project the approvals are explicit recorded owner decisions, not implied by a successful command.
+7. Deploy internal Accounts, then a bounded customer canary, then general availability after the observation window.
+8. Retain and rehearse rollback for both application and website digests plus compatible schema/Catalog/configuration.
+
+## Dependency order
+
+```text
+Phase 2.5 platform/deployment final form
+  -> Work + Attention
+  -> Knowledge + Baseline
+  -> complete Agent workspace/execution
+  -> Scheduling + Finance + Marketing + integrations
+  -> final HTTP/MCP/React surfaces
+  -> prototype migration + operational completion
+  -> LKE certification + production release
+```
+
+Some implementation can proceed in parallel, but no downstream package may invent a second identity, Account, entitlement, placement, action or execution boundary.
+
+## Phase 3 completion rule
+
+Phase 3—and therefore application construction—is complete only when:
+
+- every prototype capability marked `retain` or `replace` maps to a production use case and acceptance test;
+- Work, Attention, Knowledge, Baseline, Agents, Scheduling, Finance, Marketing and integrations are complete;
+- HTTP, MCP, schedules, workers, runners and UI share canonical authorization and entitlement outcomes;
+- all production data is Account-isolated, movable, exportable, restorable and erasable;
+- the final React application and public site pass the complete accessibility/device matrix;
+- containerized PostgreSQL and all application workloads pass local, Hostinger and LKE certification appropriate to each environment;
+- production backup/restore configuration has recorded owner verification;
+- the exact signed artifact pair passes migration, load, resilience, security/privacy, canary and rollback gates; and
+- no production process imports, executes or depends on the prototype or preview-hosting runtime.
