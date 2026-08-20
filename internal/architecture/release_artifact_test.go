@@ -34,7 +34,12 @@ func TestReleaseImageContract(t *testing.T) {
 		t.Fatal("Docker context is not allowlist-only")
 	}
 
-	workflow := readReleaseFile(t, filepath.Join(root, ".github", "workflows", "release-image.yml"))
+	checkReleaseWorkflow(t, readReleaseFile(t, filepath.Join(root, ".github", "workflows", "release-image.yml")))
+	checkReleaseWorkflow(t, readReleaseFile(t, filepath.Join(root, ".github", "workflows", "release-website-image.yml")))
+}
+
+func checkReleaseWorkflow(t *testing.T, workflow string) {
+	t.Helper()
 	for _, required := range []string{"linux/amd64,linux/arm64", "provenance: mode=max", "sbom: true", "subject-digest:", "push-to-registry: true", "cosign sign --yes", "environment: release", "refusing to overwrite existing image tag"} {
 		if !strings.Contains(workflow, required) {
 			t.Fatalf("release workflow is missing %q", required)

@@ -8,3 +8,52 @@ data:
   broker_origin: https://runner-broker.spyglass-production.svc.cluster.local
   tool_origin: http://app-router.spyglass-production.svc.cluster.local
   model_origin: https://model-gateway.spyglass-production.svc.cluster.local
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-global-runtime, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENV: production
+  SPYGLASS_ENVIRONMENT: production
+  SPYGLASS_PUBLIC_ORIGIN: https://www.infiniteocean.net
+  SPYGLASS_APP_ORIGIN: https://app.infiniteocean.net
+  SPYGLASS_PASSKEY_RP_ID: app.infiniteocean.net
+  SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-cell-reference-runtime, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENV: production
+  SPYGLASS_ENVIRONMENT: production
+  SPYGLASS_CELL_ID: cell-us-east-01
+  SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-work-reconciler-restore-checkpoints, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENV: production
+  SPYGLASS_ENVIRONMENT: production
+  SPYGLASS_CELL_ID: cell-us-east-01
+  SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+  SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-website-runtime, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENVIRONMENT: production
+  SPYGLASS_ACCOUNT_API_ORIGIN: http://account-api.spyglass-production.svc.cluster.local
+  SPYGLASS_APP_ORIGIN: https://app.infiniteocean.net
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-observability-runtime, namespace: spyglass-reference}
+data:
+  environment: production
+  backendEndpoint: https://observability.invalid/v1/traces

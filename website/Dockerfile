@@ -18,6 +18,16 @@ FROM source AS build
 RUN npm run build
 
 FROM ${NODE_IMAGE} AS runtime
+ARG VERSION=development
+ARG REVISION=unknown
+ARG CREATED=unknown
+LABEL org.opencontainers.image.title="Infinite Ocean website" \
+      org.opencontainers.image.description="Public Infinite Ocean and Spyglass website" \
+      org.opencontainers.image.source="https://github.com/tinfoyle/mainspring-engine" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.licenses="Proprietary"
 WORKDIR /app
 ENV HOSTNAME=0.0.0.0 \
     NEXT_TELEMETRY_DISABLED=1 \

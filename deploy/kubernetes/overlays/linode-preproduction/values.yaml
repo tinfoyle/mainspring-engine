@@ -8,3 +8,52 @@ data:
   broker_origin: https://runner-broker.spyglass-preproduction.svc.cluster.local
   tool_origin: http://app-router.spyglass-preproduction.svc.cluster.local
   model_origin: https://model-gateway.spyglass-preproduction.svc.cluster.local
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-global-runtime, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENV: preproduction
+  SPYGLASS_ENVIRONMENT: preproduction
+  SPYGLASS_PUBLIC_ORIGIN: https://preproduction.infiniteocean.net
+  SPYGLASS_APP_ORIGIN: https://app.preproduction.infiniteocean.net
+  SPYGLASS_PASSKEY_RP_ID: app.preproduction.infiniteocean.net
+  SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-cell-reference-runtime, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENV: preproduction
+  SPYGLASS_ENVIRONMENT: preproduction
+  SPYGLASS_CELL_ID: cell-us-east-01
+  SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-work-reconciler-restore-checkpoints, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENV: preproduction
+  SPYGLASS_ENVIRONMENT: preproduction
+  SPYGLASS_CELL_ID: cell-us-east-01
+  SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+  SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-website-runtime, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENVIRONMENT: preproduction
+  SPYGLASS_ACCOUNT_API_ORIGIN: http://account-api.spyglass-preproduction.svc.cluster.local
+  SPYGLASS_APP_ORIGIN: https://app.preproduction.infiniteocean.net
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-observability-runtime, namespace: spyglass-reference}
+data:
+  environment: preproduction
+  backendEndpoint: https://observability.invalid/v1/traces

@@ -4,6 +4,7 @@
 !.github/
 !.github/workflows/
 !.github/workflows/release-image.yml
+!.github/workflows/release-website-image.yml
 !go.mod
 !go.sum
 !cmd/

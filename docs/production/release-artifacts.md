@@ -1,6 +1,6 @@
 # Release artifacts and provenance
 
-Status: executable image build and release workflow; registry publication, environment admission, and rollback evidence require a reviewed release run
+Status: executable application and website image builds/release workflows; registry publication, environment admission, and rollback evidence require a reviewed release run
 
 Spyglass uses one shared, multi-mode application image for Account API, routers, cell APIs, private brokers, workers, runner execution, migrations, and one-shot operator commands. Runtime arguments choose the workload class. Kubernetes ServiceAccounts, NetworkPolicies, mounted credentials, database roles, and workload certificates—not separate per-customer builds—bound each process's authority. Ordinary Accounts never create an image, Deployment, namespace, or long-running container.
 
@@ -31,6 +31,8 @@ ghcr.io/tinfoyle/spyglass-engine@sha256:<manifest-digest>
 ```
 
 Copy that exact reference into the reviewed environment overlay and the staging certification input. Never reconstruct a digest from a tag after review.
+
+`.github/workflows/release-website-image.yml` applies the same overwrite refusal, AMD64/ARM64 build, SBOM, maximal provenance, GitHub attestation and keyless Cosign policy to `ghcr.io/tinfoyle/infinite-ocean-website`. It is triggered by a reviewed `website-v*` tag or release-environment dispatch. Application and website artifacts from one release candidate must record the same source revision, but retain independent manifest digests because they are distinct images.
 
 ## Verification and promotion
 
