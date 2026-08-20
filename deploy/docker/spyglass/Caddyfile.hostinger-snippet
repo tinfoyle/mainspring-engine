@@ -1,0 +1,9 @@
+# Merge these sites into /opt/infiniteocean/caddy/Caddyfile on the Hostinger
+# VPS. The existing host Caddy remains the only owner of ports 80/443 and ACME.
+stage.infiniteocean.net {
+  reverse_proxy spyglass-stage-edge:80
+}
+
+app.stage.infiniteocean.net {
+  reverse_proxy spyglass-stage-edge:80
+}

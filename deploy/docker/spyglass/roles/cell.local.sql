@@ -18,11 +18,16 @@ BEGIN
 END
 $$;
 
-ALTER ROLE spyglass_app_api PASSWORD 'spyglass-app-api-local-only';
-ALTER ROLE spyglass_route_receipt_worker PASSWORD 'spyglass-route-receipt-worker-local-only';
-ALTER ROLE spyglass_work_reconciler PASSWORD 'spyglass-work-reconciler-local-only';
-ALTER ROLE spyglass_agent_dispatch_worker PASSWORD 'spyglass-agent-dispatch-worker-local-only';
-ALTER ROLE spyglass_agent_projection_worker PASSWORD 'spyglass-agent-projection-worker-local-only';
+\getenv app_api_password SPYGLASS_APP_API_DATABASE_PASSWORD
+\getenv route_receipt_password SPYGLASS_ROUTE_RECEIPT_WORKER_DATABASE_PASSWORD
+\getenv work_reconciler_password SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD
+\getenv agent_dispatch_password SPYGLASS_AGENT_DISPATCH_WORKER_DATABASE_PASSWORD
+\getenv agent_projection_password SPYGLASS_AGENT_PROJECTION_WORKER_DATABASE_PASSWORD
+SELECT format('ALTER ROLE spyglass_app_api PASSWORD %L', :'app_api_password') \gexec
+SELECT format('ALTER ROLE spyglass_route_receipt_worker PASSWORD %L', :'route_receipt_password') \gexec
+SELECT format('ALTER ROLE spyglass_work_reconciler PASSWORD %L', :'work_reconciler_password') \gexec
+SELECT format('ALTER ROLE spyglass_agent_dispatch_worker PASSWORD %L', :'agent_dispatch_password') \gexec
+SELECT format('ALTER ROLE spyglass_agent_projection_worker PASSWORD %L', :'agent_projection_password') \gexec
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_app_api, spyglass_route_receipt_worker,
   spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_agent_projection_worker;

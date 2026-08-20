@@ -36,7 +36,7 @@ for service in "${worker_services[@]}"; do
 done
 worker_statuses="$(docker inspect -f '{{(index .NetworkSettings.Networks "spyglass-local_application").IPAddress}}' "${worker_ids[@]}" | \
   xargs -I{} curl --fail --silent --show-error http://{}:8081/health/status)"
-jq -s -e 'length == 12 and all(.[]; (.failures // 0) == 0)' <<<"$worker_statuses" >/dev/null
+jq -s -e --argjson expected "${#worker_services[@]}" 'length == $expected and all(.[]; (.failures // 0) == 0)' <<<"$worker_statuses" >/dev/null
 
 cell_count="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \

@@ -30,15 +30,24 @@ BEGIN
 END
 $$;
 
-ALTER ROLE spyglass_account_api PASSWORD 'spyglass-account-api-local-only';
-ALTER ROLE spyglass_app_router PASSWORD 'spyglass-app-router-local-only';
-ALTER ROLE spyglass_admission_api PASSWORD 'spyglass-admission-local-only';
-ALTER ROLE spyglass_billing_worker PASSWORD 'spyglass-billing-worker-local-only';
-ALTER ROLE spyglass_notification_worker PASSWORD 'spyglass-notification-worker-local-only';
-ALTER ROLE spyglass_entitlement_worker PASSWORD 'spyglass-entitlement-worker-local-only';
-ALTER ROLE spyglass_account_lifecycle_worker PASSWORD 'spyglass-account-lifecycle-worker-local-only';
-ALTER ROLE spyglass_identity_maintenance_worker PASSWORD 'spyglass-identity-maintenance-worker-local-only';
-ALTER ROLE spyglass_work_reconciler PASSWORD 'spyglass-work-reconciler-local-only';
+\getenv account_api_password SPYGLASS_ACCOUNT_API_DATABASE_PASSWORD
+\getenv app_router_password SPYGLASS_APP_ROUTER_DATABASE_PASSWORD
+\getenv admission_password SPYGLASS_ADMISSION_DATABASE_PASSWORD
+\getenv billing_password SPYGLASS_BILLING_WORKER_DATABASE_PASSWORD
+\getenv notification_password SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD
+\getenv entitlement_password SPYGLASS_ENTITLEMENT_WORKER_DATABASE_PASSWORD
+\getenv lifecycle_password SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD
+\getenv identity_maintenance_password SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD
+\getenv work_reconciler_password SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD
+SELECT format('ALTER ROLE spyglass_account_api PASSWORD %L', :'account_api_password') \gexec
+SELECT format('ALTER ROLE spyglass_app_router PASSWORD %L', :'app_router_password') \gexec
+SELECT format('ALTER ROLE spyglass_admission_api PASSWORD %L', :'admission_password') \gexec
+SELECT format('ALTER ROLE spyglass_billing_worker PASSWORD %L', :'billing_password') \gexec
+SELECT format('ALTER ROLE spyglass_notification_worker PASSWORD %L', :'notification_password') \gexec
+SELECT format('ALTER ROLE spyglass_entitlement_worker PASSWORD %L', :'entitlement_password') \gexec
+SELECT format('ALTER ROLE spyglass_account_lifecycle_worker PASSWORD %L', :'lifecycle_password') \gexec
+SELECT format('ALTER ROLE spyglass_identity_maintenance_worker PASSWORD %L', :'identity_maintenance_password') \gexec
+SELECT format('ALTER ROLE spyglass_work_reconciler PASSWORD %L', :'work_reconciler_password') \gexec
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,

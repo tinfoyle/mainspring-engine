@@ -1,0 +1,169 @@
+x-global-restore: &global-restore
+  SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+  SPYGLASS_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+
+x-cell-restore: &cell-restore
+  SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+  SPYGLASS_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+
+services:
+  edge:
+    volumes:
+      - ./Caddyfile.stage:/etc/caddy/Caddyfile:ro
+    networks:
+      edge:
+      application:
+      host-edge:
+        aliases: [spyglass-stage-edge]
+    logging: &stage-logging
+      driver: json-file
+      options: {max-size: 10m, max-file: "5"}
+
+  global-db:
+    logging: *stage-logging
+  cell-a-db:
+    logging: *stage-logging
+  cell-b-db:
+    logging: *stage-logging
+
+  global-roles:
+    image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    restart: "no"
+    command: [psql, --host=global-db, --username=spyglass_migrator, --dbname=spyglass, --set=ON_ERROR_STOP=1, --file=/opt/spyglass/roles/global.sql]
+    environment:
+      PGPASSWORD: ${SPYGLASS_GLOBAL_DATABASE_PASSWORD:?set SPYGLASS_GLOBAL_DATABASE_PASSWORD}
+      SPYGLASS_ACCOUNT_API_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_API_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_APP_ROUTER_DATABASE_PASSWORD: ${SPYGLASS_APP_ROUTER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_ADMISSION_DATABASE_PASSWORD: ${SPYGLASS_ADMISSION_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_BILLING_WORKER_DATABASE_PASSWORD: ${SPYGLASS_BILLING_WORKER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD: ${SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_ENTITLEMENT_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ENTITLEMENT_WORKER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD: ${SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD: ${SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD:?set role password}
+    volumes: [./roles/global.local.sql:/opt/spyglass/roles/global.sql:ro]
+    depends_on: {global-migrate: {condition: service_completed_successfully}}
+    networks: [database]
+
+  cell-a-roles: &cell-roles
+    image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    restart: "no"
+    command: [psql, --host=cell-a-db, --username=spyglass_migrator, --dbname=spyglass, --set=ON_ERROR_STOP=1, --file=/opt/spyglass/roles/cell.sql]
+    environment: &cell-role-environment
+      PGPASSWORD: ${SPYGLASS_CELL_A_DATABASE_PASSWORD:?set SPYGLASS_CELL_A_DATABASE_PASSWORD}
+      SPYGLASS_APP_API_DATABASE_PASSWORD: ${SPYGLASS_APP_API_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_ROUTE_RECEIPT_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ROUTE_RECEIPT_WORKER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD: ${SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_AGENT_DISPATCH_WORKER_DATABASE_PASSWORD: ${SPYGLASS_AGENT_DISPATCH_WORKER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_AGENT_PROJECTION_WORKER_DATABASE_PASSWORD: ${SPYGLASS_AGENT_PROJECTION_WORKER_DATABASE_PASSWORD:?set role password}
+    volumes: [./roles/cell.local.sql:/opt/spyglass/roles/cell.sql:ro]
+    depends_on: {cell-a-migrate: {condition: service_completed_successfully}}
+    networks: [database]
+
+  cell-b-roles:
+    <<: *cell-roles
+    command: [psql, --host=cell-b-db, --username=spyglass_migrator, --dbname=spyglass, --set=ON_ERROR_STOP=1, --file=/opt/spyglass/roles/cell.sql]
+    environment:
+      <<: *cell-role-environment
+      PGPASSWORD: ${SPYGLASS_CELL_B_DATABASE_PASSWORD:?set SPYGLASS_CELL_B_DATABASE_PASSWORD}
+    depends_on: {cell-b-migrate: {condition: service_completed_successfully}}
+
+  account-api:
+    environment: *global-restore
+    depends_on: {global-roles: {condition: service_completed_successfully}}
+  admission-api:
+    environment:
+      <<: *global-restore
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api
+    volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/admission-api:/var/run/secrets/spyglass/workload:ro"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://admission-api:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+    depends_on: {global-roles: {condition: service_completed_successfully}}
+  app-router:
+    environment:
+      <<: *global-restore
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+    volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/app-router:/var/run/secrets/spyglass/workload:ro"]
+    depends_on: {global-roles: {condition: service_completed_successfully}}
+  app-api-a:
+    environment:
+      <<: *cell-restore
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router
+    volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/app-api-a:/var/run/secrets/spyglass/workload:ro"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://app-api-a:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+    depends_on: {cell-a-roles: {condition: service_completed_successfully}}
+  app-api-b:
+    environment:
+      <<: *cell-restore
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router
+    volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/app-api-b:/var/run/secrets/spyglass/workload:ro"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://app-api-b:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+    depends_on: {cell-b-roles: {condition: service_completed_successfully}}
+  billing-worker:
+    environment: *global-restore
+    depends_on: {global-roles: {condition: service_completed_successfully}}
+  notification-worker:
+    environment: *global-restore
+    depends_on: {global-roles: {condition: service_completed_successfully}}
+  entitlement-worker:
+    environment: *global-restore
+    depends_on: {global-roles: {condition: service_completed_successfully}}
+  account-lifecycle-worker:
+    environment: *global-restore
+    depends_on: {global-roles: {condition: service_completed_successfully}}
+  identity-maintenance-worker:
+    environment: *global-restore
+    depends_on: {global-roles: {condition: service_completed_successfully}}
+  work-reconciler-a:
+    environment:
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+    depends_on: {global-roles: {condition: service_completed_successfully}, cell-a-roles: {condition: service_completed_successfully}}
+  work-reconciler-b:
+    environment:
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+    depends_on: {global-roles: {condition: service_completed_successfully}, cell-b-roles: {condition: service_completed_successfully}}
+  route-receipt-worker-a:
+    environment: *cell-restore
+    depends_on: {cell-a-roles: {condition: service_completed_successfully}}
+  route-receipt-worker-b:
+    environment: *cell-restore
+    depends_on: {cell-b-roles: {condition: service_completed_successfully}}
+  agent-dispatch-worker-a:
+    environment: *cell-restore
+    depends_on: {cell-a-roles: {condition: service_completed_successfully}}
+  agent-dispatch-worker-b:
+    environment: *cell-restore
+    depends_on: {cell-b-roles: {condition: service_completed_successfully}}
+  agent-projection-worker-a:
+    environment: *cell-restore
+    depends_on: {cell-a-roles: {condition: service_completed_successfully}}
+  agent-projection-worker-b:
+    environment: *cell-restore
+    depends_on: {cell-b-roles: {condition: service_completed_successfully}}
+
+networks:
+  host-edge:
+    external: true
+    name: ${SPYGLASS_HOST_EDGE_NETWORK:-infiniteocean_public}

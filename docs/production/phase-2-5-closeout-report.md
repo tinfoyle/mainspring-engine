@@ -16,7 +16,8 @@
 | P2.5.3 shared process topology | Complete | All implemented global and per-cell workers run with health/status gates and constrained roles; TLS Mailpit capture, the complete machine-readable process inventory, a 17-target Prometheus profile, and a separate non-development TLS 1.3 topology with exact-identity route canaries are verified. |
 | P2.5.4 Docker runner launcher | Complete | A stage-only, mTLS and bearer-authenticated launcher owns the Docker socket; controller and broker have disjoint authority; deterministic constrained containers survive ambiguous creation and launcher restart; cancellation and bounded orphan cleanup are certified against the ubunturojo Docker daemon. |
 | P2.5.5 platform closeout | In progress | The durable PostgreSQL Account-movement foundation, operator process and crash/queue/reconciliation tests are executable. Commercial/lifecycle, identity and billing closeout remains before this slice is accepted. |
-| P2.5.6–P2.5.7 | Not started | Connected Hostinger stage and LKE overlays follow platform closeout in that order. |
+| P2.5.6 Hostinger stage | In progress | Read-only VPS inventory is complete. The digest-only, TLS-workload, split-role `spyglass-stage` override, fail-closed verifier/deployer and coexistence contract for the existing Infinite Ocean Caddy edge are revision-controlled. DNS, secret issuance, first release digests and connected journeys remain. |
+| P2.5.7 LKE skeleton | Not started | Renderable Linode pre-production/production overlays follow the stage artifact gate; applied cluster work waits for kubeconfig. |
 
 The local implementation and tests run only through Docker commands issued inside `ubunturojo`. No Unity, OpenAI Sites, Cloudflare deployment, or alternate hosted preview is part of this execution path.
 

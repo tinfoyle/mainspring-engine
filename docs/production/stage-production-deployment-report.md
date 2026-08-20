@@ -134,14 +134,14 @@ The implementation must provide these documented operations through Compose and/
 
 ## Hostinger Docker staging
 
-### VPS facts to verify before first deployment
+### Verified VPS baseline and remaining checks
 
-The SSH alias is configured but connectivity and capacity are not yet certified. The first remote task is read-only inventory:
+The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 
-- OS/kernel/architecture, CPU, memory, disk and filesystem;
-- Docker/Compose versions and daemon configuration;
-- open ports, firewall, DNS and reverse proxy state;
-- existing containers/networks/volumes and available project names;
+Before first deployment, finish the remaining read-only/owner inventory:
+
+- firewall policy, DNS records and certificate monitoring;
+- existing volume retention and the reserved `spyglass-stage` project/directory ownership;
 - backup destination hooks and disk/certificate monitoring;
 - SSH user privileges and deployment-directory ownership.
 
