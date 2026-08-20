@@ -2,6 +2,8 @@
 
 Spyglass has one application boundary for starting package-owned work: `usageadmission.Service`. HTTP handlers, MCP tools, schedules, workflow dispatchers, background jobs, and agent tools must call the owning feature use case, which calls this service before creating the durable resource or dispatching work. No surface interprets plan names, navigation state, Stripe state, or raw Catalog JSON as authorization.
 
+The complete inventory and post-admission downgrade rules are maintained in [Package surface and lifecycle](package-surface-lifecycle.md). Surfaces that do not yet exist are recorded as absent rather than treated as implicitly enforced.
+
 ## Governed limit definitions
 
 Every new Catalog draft explicitly defines each package default limit:

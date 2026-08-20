@@ -257,6 +257,8 @@ UI hiding alone is never enforcement. A non-entitled call returns a stable `pack
 
 ### Downgrade behavior
 
+The normative boundary-by-boundary rules and current executable inventory are in [Package surface and lifecycle](package-surface-lifecycle.md).
+
 Package loss is not immediate data deletion.
 
 1. At the effective downgrade time, new mutations and new background work stop.

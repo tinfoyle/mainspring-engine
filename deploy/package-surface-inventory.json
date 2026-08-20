@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "code": "work",
+      "executable": true,
+      "boundaries": ["browser", "http", "admission-broker", "agent-tool", "reconciliation-worker"]
+    },
+    {
+      "code": "agents",
+      "executable": true,
+      "boundaries": ["browser", "http", "dispatch-worker", "runner", "result-projection-worker"]
+    },
+    {"code": "knowledge", "executable": false, "boundaries": []},
+    {"code": "finance", "executable": false, "boundaries": []},
+    {"code": "marketing", "executable": false, "boundaries": []},
+    {"code": "integrations", "executable": false, "boundaries": []}
+  ],
+  "absent_surface_kinds": [
+    "production-mcp",
+    "customer-schedule",
+    "connector-runtime",
+    "customer-export-api",
+    "object-store",
+    "search-vector-store",
+    "analytics-export-store"
+  ],
+  "enabled_external_account_stores": []
+}

@@ -142,7 +142,7 @@ Current evidence: [Account movement operations](account-movement.md) documents t
 
 ### Commercial and lifecycle completion
 
-- Finish the package-by-transport downgrade/read-only/export/retention/restoration matrix.
+- Maintain the accepted [package-by-surface lifecycle matrix](package-surface-lifecycle.md), including explicit absent-state gates for MCP, schedules, connectors and external stores that Phase 3 has not introduced.
 - Enforce it through HTTP, UI, MCP, schedules, workers, runners and Agent tools.
 - Certify scheduled identity-retention thresholds under stage load. The restore-gated least-privilege worker, bounded pruning, content-free metrics/status, passkey rename and atomic compromised-credential/all-session response are implemented.
 - Add billing mismatch explanations and complete Stripe test-mode policy journeys.
