@@ -29,7 +29,9 @@ import (
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
+	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/catalogadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/entitlementrollout"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
@@ -632,6 +634,104 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil || len(otherSecurityHistory) != 0 {
 		t.Fatalf("cross-user security history = %+v, %v", otherSecurityHistory, err)
 	}
+	for {
+		worked, err := notificationProcessor.ProcessOne(ctx)
+		if err != nil {
+			t.Fatalf("drain pre-contact notifications: %v", err)
+		}
+		if !worked {
+			break
+		}
+	}
+	contactRepository := postgresadapter.NewContactChangeRepository(pool)
+	contactUser, err := contactRepository.User(ctx, provisioned.User.ID)
+	if err != nil {
+		t.Fatalf("load contact identity: %v", err)
+	}
+	contactSession, err := sessionService.IssueForClientWithMethod(ctx, contactUser.ID, contactUser.SecurityVersion, "Contact change browser", sessions.AuthenticationMethodPasskey)
+	if err != nil {
+		t.Fatalf("issue contact-change session: %v", err)
+	}
+	parallelSession, err := sessionService.IssueForClientWithMethod(ctx, contactUser.ID, contactUser.SecurityVersion, "Parallel contact session", sessions.AuthenticationMethodPasskey)
+	if err != nil {
+		t.Fatalf("issue parallel contact session: %v", err)
+	}
+	contactNow := now.Add(2 * time.Minute)
+	contactService, err := contactchange.NewService(contactRepository, queuedSender, ids.RandomGenerator{}, fixedClock{now: contactNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contactOutboxBefore, contactEventsBefore, membershipsBefore int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM identity_notification_outbox WHERE kind='contact_change'`).Scan(&contactOutboxBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_security_events WHERE user_id=$1`, contactUser.ID).Scan(&contactEventsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM memberships WHERE user_id=$1`, contactUser.ID).Scan(&membershipsBefore); err != nil {
+		t.Fatal(err)
+	}
+	pendingContact, err := contactService.Begin(ctx, contactchange.BeginCommand{Session: contactSession.Session, NewEmail: " NEW-OWNER@example.com "})
+	if err != nil || pendingContact.NewEmail != "new-owner@example.com" || pendingContact.ExpiresAt != contactNow.Add(30*time.Minute) {
+		t.Fatalf("begin persistent contact change = %+v, %v", pendingContact, err)
+	}
+	var pendingRows, contactOutboxAfterRequest int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM primary_email_change_challenges WHERE id=$1 AND user_id=$2 AND old_email='owner@example.com' AND new_email='new-owner@example.com' AND consumed_at IS NULL AND octet_length(token_hash)=32`, pendingContact.ID, contactUser.ID).Scan(&pendingRows); err != nil || pendingRows != 1 {
+		t.Fatalf("hashed pending contact challenge: rows=%d err=%v", pendingRows, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM identity_notification_outbox WHERE kind='contact_change'`).Scan(&contactOutboxAfterRequest); err != nil || contactOutboxAfterRequest != contactOutboxBefore+2 {
+		t.Fatalf("request notification count = %d, %v; want %d", contactOutboxAfterRequest, err, contactOutboxBefore+2)
+	}
+	if oldIdentity, err := authenticationRepository.LocalIdentity(ctx, "owner@example.com"); err != nil || oldIdentity.User.ID != contactUser.ID {
+		t.Fatalf("old login changed before mailbox verification: %+v, %v", oldIdentity.User, err)
+	}
+	if _, err := authenticationRepository.LocalIdentity(ctx, "new-owner@example.com"); !errors.Is(err, authentication.ErrIdentityNotFound) {
+		t.Fatalf("new login existed before mailbox verification: %v", err)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		if worked, err := notificationProcessor.ProcessOne(ctx); err != nil || !worked {
+			t.Fatalf("deliver contact request notification %d: worked=%v err=%v", attempt+1, worked, err)
+		}
+	}
+	verificationToken := ""
+	for _, message := range notificationDelivery.contactChanges {
+		if message.Action == contactchange.ActionVerifyNew && message.NewEmail == "new-owner@example.com" {
+			verificationToken = message.Token
+		}
+	}
+	if verificationToken == "" {
+		t.Fatalf("new-mailbox verification was not delivered: %+v", notificationDelivery.contactChanges)
+	}
+	completedContact, err := contactService.Complete(ctx, contactchange.CompleteCommand{Token: verificationToken})
+	if err != nil || completedContact.OldEmail != "owner@example.com" || completedContact.NewEmail != "new-owner@example.com" || completedContact.SecurityVersion != contactUser.SecurityVersion+1 {
+		t.Fatalf("complete persistent contact change = %+v, %v", completedContact, err)
+	}
+	if _, err := contactService.Complete(ctx, contactchange.CompleteCommand{Token: verificationToken}); !errors.Is(err, contactchange.ErrConsumed) {
+		t.Fatalf("persistent contact token replay = %v", err)
+	}
+	if _, err := sessionService.Authenticate(ctx, contactSession.Token); !errors.Is(err, sessions.ErrInvalidSession) {
+		t.Fatalf("contact session survived verified change: %v", err)
+	}
+	if _, err := sessionService.Authenticate(ctx, parallelSession.Token); !errors.Is(err, sessions.ErrInvalidSession) {
+		t.Fatalf("parallel session survived verified change: %v", err)
+	}
+	if _, err := authenticationRepository.LocalIdentity(ctx, "owner@example.com"); !errors.Is(err, authentication.ErrIdentityNotFound) {
+		t.Fatalf("old login survived verified change: %v", err)
+	}
+	newIdentity, err := authenticationRepository.LocalIdentity(ctx, "new-owner@example.com")
+	if err != nil || newIdentity.User.ID != contactUser.ID || newIdentity.User.PrimaryEmail != "new-owner@example.com" || newIdentity.User.SecurityVersion != contactUser.SecurityVersion+1 {
+		t.Fatalf("new persistent login identity = %+v, %v", newIdentity.User, err)
+	}
+	var contactOutboxAfterComplete, contactEventsAfter, membershipsAfter int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM identity_notification_outbox WHERE kind='contact_change'`).Scan(&contactOutboxAfterComplete); err != nil || contactOutboxAfterComplete != contactOutboxBefore+4 {
+		t.Fatalf("completion notification count = %d, %v; want %d", contactOutboxAfterComplete, err, contactOutboxBefore+4)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM user_security_events WHERE user_id=$1`, contactUser.ID).Scan(&contactEventsAfter); err != nil || contactEventsAfter != contactEventsBefore+2 {
+		t.Fatalf("contact security events = %d, %v; want %d", contactEventsAfter, err, contactEventsBefore+2)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM memberships WHERE user_id=$1`, contactUser.ID).Scan(&membershipsAfter); err != nil || membershipsAfter != membershipsBefore {
+		t.Fatalf("contact change altered Account memberships: before=%d after=%d err=%v", membershipsBefore, membershipsAfter, err)
+	}
 	passkeyCipher, err := passkeys.NewCipher(bytes.Repeat([]byte{0x72}, 32), 1)
 	if err != nil {
 		t.Fatal(err)
@@ -777,7 +877,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 54 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 55 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)
@@ -1480,10 +1580,11 @@ func (sender *captureRecovery) SendRecovery(_ context.Context, message recovery.
 }
 
 type captureNotifications struct {
-	verification registration.VerificationMessage
-	invitation   invitations.Message
-	recovery     recovery.Message
-	ownership    accountmembers.OwnershipTransferNotice
+	verification   registration.VerificationMessage
+	invitation     invitations.Message
+	recovery       recovery.Message
+	ownership      accountmembers.OwnershipTransferNotice
+	contactChanges []contactchange.Message
 }
 
 func (sender *captureNotifications) SendVerification(_ context.Context, message registration.VerificationMessage) error {
@@ -1500,6 +1601,10 @@ func (sender *captureNotifications) SendRecovery(_ context.Context, message reco
 }
 func (sender *captureNotifications) SendOwnershipTransfer(_ context.Context, message accountmembers.OwnershipTransferNotice) error {
 	sender.ownership = message
+	return nil
+}
+func (sender *captureNotifications) SendContactChange(_ context.Context, message contactchange.Message) error {
+	sender.contactChanges = append(sender.contactChanges, message)
 	return nil
 }
 

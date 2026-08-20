@@ -25,6 +25,8 @@ export const apiRoutes = [
   { service: "account-api", method: "POST", path: "/api/v1/accounts/{accountID}/invitations", operationId: "createInvitation", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions", operationId: "suspendMembership", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/accounts/{accountID}/ownership-transfers", operationId: "transferOwnership", authentication: "sessionCookie", contract: "typed" },
+  { service: "account-api", method: "POST", path: "/api/v1/contact-change-requests", operationId: "beginContactChange", authentication: "sessionCookie", contract: "typed" },
+  { service: "account-api", method: "POST", path: "/api/v1/contact-change-verifications", operationId: "completeContactChange", authentication: "public", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/invitations/accept", operationId: "acceptInvitation", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/passkey-login/challenges", operationId: "beginPasskeyLogin", authentication: "public", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/passkey-login/challenges/{ceremonyID}/complete", operationId: "completePasskeyLogin", authentication: "public", contract: "typed" },

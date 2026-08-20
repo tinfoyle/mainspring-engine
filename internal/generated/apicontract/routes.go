@@ -29,6 +29,8 @@ var Routes = [...]Route{
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/invitations", OperationID: "createInvitation", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions", OperationID: "suspendMembership", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/ownership-transfers", OperationID: "transferOwnership", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "POST", Path: "/api/v1/contact-change-requests", OperationID: "beginContactChange", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "POST", Path: "/api/v1/contact-change-verifications", OperationID: "completeContactChange", Authentication: "public", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/invitations/accept", OperationID: "acceptInvitation", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/passkey-login/challenges", OperationID: "beginPasskeyLogin", Authentication: "public", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/passkey-login/challenges/{ceremonyID}/complete", OperationID: "completePasskeyLogin", Authentication: "public", Contract: "typed"},

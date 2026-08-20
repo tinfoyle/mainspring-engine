@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
+	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
@@ -50,6 +51,7 @@ type delivery struct {
 	invitation   invitations.Message
 	recovery     recovery.Message
 	ownership    accountmembers.OwnershipTransferNotice
+	contact      contactchange.Message
 	err          error
 	ownershipErr map[string]error
 }
@@ -71,6 +73,10 @@ func (d *delivery) SendOwnershipTransfer(_ context.Context, message accountmembe
 	if d.ownershipErr != nil && d.ownershipErr[message.Email] != nil {
 		return d.ownershipErr[message.Email]
 	}
+	return d.err
+}
+func (d *delivery) SendContactChange(_ context.Context, message contactchange.Message) error {
+	d.contact = message
 	return d.err
 }
 
@@ -144,6 +150,25 @@ func TestOwnershipTransferPreparationEncryptsAndDeliversOneRecipient(t *testing.
 	worked, err := processor.ProcessOne(context.Background())
 	if err != nil || !worked || delivery.ownership != message || queue.delivered != prepared.ID {
 		t.Fatalf("ownership delivery=%+v worked=%v delivered=%q err=%v", delivery.ownership, worked, queue.delivered, err)
+	}
+}
+
+func TestContactChangePreparationEncryptsAndDelivers(t *testing.T) {
+	envelopeCipher, _ := notifications.NewCipher(bytes.Repeat([]byte{0x29}, 32), 1)
+	queue := &fakeQueue{}
+	now := time.Date(2026, 8, 20, 19, 0, 0, 0, time.UTC)
+	sender, _ := notifications.NewQueuedSender(queue, envelopeCipher, generator{"unused"}, clock{now})
+	message := contactchange.Message{Action: contactchange.ActionVerifyNew, Email: "new@example.com", DisplayName: "Owner", OldEmail: "old@example.com", NewEmail: "new@example.com", Token: "private-token", ExpiresAt: now.Add(time.Hour)}
+	prepared, err := sender.PrepareContactChange("29000000-0000-4000-8000-000000000001", message)
+	if err != nil || bytes.Contains(prepared.Ciphertext, []byte(message.Email)) || bytes.Contains(prepared.Ciphertext, []byte(message.Token)) {
+		t.Fatalf("prepared contact envelope=%+v err=%v", prepared, err)
+	}
+	queue.entries = append(queue.entries, notifications.Entry{ID: prepared.ID, Kind: notifications.KindContactChange, Ciphertext: prepared.Ciphertext, Nonce: prepared.Nonce, KeyVersion: prepared.KeyVersion, CreatedAt: prepared.CreatedAt})
+	delivery := &delivery{}
+	processor, _ := notifications.NewProcessor(queue, envelopeCipher, delivery, clock{now}, time.Minute)
+	worked, err := processor.ProcessOne(context.Background())
+	if err != nil || !worked || delivery.contact.Action != message.Action || delivery.contact.Token != message.Token || queue.delivered != prepared.ID {
+		t.Fatalf("contact delivery=%+v worked=%v delivered=%q err=%v", delivery.contact, worked, queue.delivered, err)
 	}
 }
 

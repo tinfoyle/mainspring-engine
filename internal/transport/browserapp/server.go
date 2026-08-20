@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
@@ -42,6 +43,9 @@ type InvitationTokenSource interface {
 type RecoveryTokenSource interface {
 	Latest() (recovery.Message, bool)
 }
+type ContactChangeTokenSource interface {
+	LatestVerification(ids.UserID) (contactchange.Message, bool)
+}
 
 type Config struct {
 	SessionCookieName       string
@@ -52,24 +56,26 @@ type Config struct {
 }
 
 type Server struct {
-	registrations      *registration.Service
-	authentication     *authentication.Service
-	sessions           *sessions.Service
-	accounts           *accountaccess.Service
-	accountLifecycle   *accountlifecycle.Service
-	members            *accountmembers.Service
-	invitations        *invitations.Service
-	catalog            func() catalog.PublishedCatalog
-	verificationTokens VerificationTokenSource
-	invitationTokens   InvitationTokenSource
-	config             Config
-	logger             *slog.Logger
-	templates          *template.Template
-	commercial         *commercialaccess.Service
-	recovery           *recovery.Service
-	recoveryTokens     RecoveryTokenSource
-	passkeys           *passkeys.Service
-	recoveryCodes      *recoverycodes.Service
+	registrations       *registration.Service
+	authentication      *authentication.Service
+	sessions            *sessions.Service
+	accounts            *accountaccess.Service
+	accountLifecycle    *accountlifecycle.Service
+	members             *accountmembers.Service
+	invitations         *invitations.Service
+	catalog             func() catalog.PublishedCatalog
+	verificationTokens  VerificationTokenSource
+	invitationTokens    InvitationTokenSource
+	config              Config
+	logger              *slog.Logger
+	templates           *template.Template
+	commercial          *commercialaccess.Service
+	recovery            *recovery.Service
+	recoveryTokens      RecoveryTokenSource
+	passkeys            *passkeys.Service
+	recoveryCodes       *recoverycodes.Service
+	contactChanges      *contactchange.Service
+	contactChangeTokens ContactChangeTokenSource
 }
 
 type Option func(*Server)
@@ -99,6 +105,13 @@ func WithPasskeys(service *passkeys.Service) Option {
 
 func WithRecoveryCodes(service *recoverycodes.Service) Option {
 	return func(server *Server) { server.recoveryCodes = service }
+}
+
+func WithContactChanges(service *contactchange.Service, tokens ContactChangeTokenSource) Option {
+	return func(server *Server) {
+		server.contactChanges = service
+		server.contactChangeTokens = tokens
+	}
 }
 
 func New(registrations *registration.Service, authenticationService *authentication.Service, sessionService *sessions.Service, accountService *accountaccess.Service, invitationService *invitations.Service, catalogSource func() catalog.PublishedCatalog, verificationTokens VerificationTokenSource, invitationTokens InvitationTokenSource, config Config, logger *slog.Logger, options ...Option) (*Server, error) {
@@ -151,11 +164,14 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /signup", s.signup)
 	mux.HandleFunc("GET /verify", s.verifyPage)
 	mux.HandleFunc("POST /verify", s.verify)
+	mux.HandleFunc("GET /contact-change/verify", s.contactChangeVerificationPage)
+	mux.HandleFunc("POST /contact-change/verify", s.completeContactChange)
 	mux.HandleFunc("GET /app", s.app)
 	mux.HandleFunc("GET /app/work", s.workPage)
 	mux.HandleFunc("GET /app/agents", s.agentsPage)
 	mux.HandleFunc("GET /app/security", s.securityPage)
 	mux.HandleFunc("POST /app/security/reauthenticate", s.reauthenticate)
+	mux.HandleFunc("POST /app/security/contact-change", s.beginContactChange)
 	mux.HandleFunc("POST /app/security/recovery-codes", s.rotateRecoveryCodes)
 	mux.HandleFunc("POST /app/security/recovery-codes/consume", s.consumeRecoveryCode)
 	mux.HandleFunc("POST /app/security/sessions/revoke", s.revokeSession)
@@ -284,6 +300,7 @@ func (s *Server) passkeyScript(w http.ResponseWriter, _ *http.Request) {
 
 type pageData struct {
 	Title, Page, Error, Notice, Email, Name, AccountName, Token, ReturnTo, DevelopmentToken, OfferCode string
+	CurrentEmail, NewEmail                                                                             string
 	Choices                                                                                            []accountaccess.Choice
 	Selected                                                                                           *accountaccess.Choice
 	Catalog                                                                                            catalog.PublishedCatalog
@@ -304,6 +321,7 @@ type pageData struct {
 	RecoveryCodeStatus                                                                                 recoverycodes.Status
 	RecoveryCodes                                                                                      []string
 	RecoveryCodesConfigured                                                                            bool
+	ContactChangesConfigured                                                                           bool
 	OwnerEnrollmentRequired                                                                            bool
 	WorkMode                                                                                           catalog.PackageMode
 	WorkAvailable, WorkReadOnly                                                                        bool
@@ -863,7 +881,7 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.URL.Query().Get("status") {
 	case "confirmed":
-		data.Notice = "Password confirmed for identity settings. Use a passkey to unlock Membership, invitation, and billing changes."
+		data.Notice = "Password confirmed for factor recovery. Use a passkey to unlock verified-email, Membership, invitation, and billing changes."
 	case "passkey_confirmed":
 		data.Notice = "Passkey confirmed. Privileged Account actions are unlocked for 10 minutes."
 	case "passkey_added":
@@ -877,7 +895,7 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 	case "reauth_required":
 		data.Notice = "Confirm your password before continuing with a sensitive action."
 	case "strong_reauth_required":
-		data.Notice = "Confirm with a passkey before managing Memberships, inviting people, or changing billing. If this is your first passkey, confirm your password and add one below."
+		data.Notice = "Confirm with a passkey before changing the identity email, managing Memberships, inviting people, or changing billing. If this is your first passkey, confirm your password and add one below."
 	}
 	s.render(w, http.StatusOK, "security", data)
 }
@@ -891,7 +909,14 @@ func (s *Server) securityPageData(r *http.Request, authenticated sessions.Authen
 	if err != nil {
 		return pageData{}, err
 	}
-	data := pageData{Title: "Identity security", ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil}
+	data := pageData{Title: "Identity security", ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil, ContactChangesConfigured: s.contactChanges != nil}
+	if s.contactChanges != nil {
+		user, loadErr := s.contactChanges.Current(r.Context(), authenticated.Session.UserID)
+		if loadErr != nil {
+			return pageData{}, loadErr
+		}
+		data.CurrentEmail = user.PrimaryEmail
+	}
 	if s.passkeys != nil {
 		data.Passkeys, err = s.passkeys.Credentials(r.Context(), authenticated.Session.UserID)
 		if err != nil {
@@ -941,12 +966,110 @@ func securityEventViews(events []sessions.SecurityEvent) []securityEventView {
 		case sessions.EventRecoveryCodeConsumed:
 			view.Label = "Recovery code used"
 			view.Detail = "Replacement-passkey enrollment unlocked for this session"
+		case sessions.EventPrimaryEmailChangeRequested:
+			view.Label = "Email change requested"
+			view.Detail = "The current email remains active until the new mailbox is verified"
+		case sessions.EventPrimaryEmailChanged:
+			view.Label = "Identity email changed"
+			view.Detail = "Every existing session was revoked"
 		default:
 			view.Label = "Security setting changed"
 		}
 		result = append(result, view)
 	}
 	return result
+}
+
+func (s *Server) beginContactChange(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.contactChanges == nil {
+		http.Error(w, "Verified contact change is temporarily unavailable.", http.StatusServiceUnavailable)
+		return
+	}
+	if !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Contact change request was not accepted.", http.StatusForbidden)
+		return
+	}
+	newEmail := r.FormValue("new_email")
+	result, err := s.contactChanges.Begin(r.Context(), contactchange.BeginCommand{Session: authenticated.Session, NewEmail: newEmail})
+	if errors.Is(err, strongauth.ErrRequired) {
+		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		data, loadErr := s.securityPageData(r, authenticated)
+		if loadErr != nil {
+			http.Error(w, "Security settings could not be loaded.", http.StatusServiceUnavailable)
+			return
+		}
+		data.NewEmail = newEmail
+		switch {
+		case errors.Is(err, contactchange.ErrSameEmail):
+			data.Error = "Enter an email different from the current identity email."
+		case errors.Is(err, contactchange.ErrEmailExists):
+			data.Error = "That email is not available for this identity."
+		default:
+			data.Error = "The email change could not be started. Check the address and try again."
+		}
+		s.render(w, http.StatusBadRequest, "security", data)
+		return
+	}
+	data, err := s.securityPageData(r, authenticated)
+	if err != nil {
+		http.Error(w, "Security settings could not be loaded.", http.StatusServiceUnavailable)
+		return
+	}
+	data.NewEmail = result.NewEmail
+	data.Notice = "Check the new mailbox to verify the change. Your current email remains active until confirmation."
+	if s.config.ExposeDevelopmentTokens && s.contactChangeTokens != nil {
+		if message, ok := s.contactChangeTokens.LatestVerification(authenticated.Session.UserID); ok && message.NewEmail == result.NewEmail {
+			data.DevelopmentToken = message.Token
+		}
+	}
+	s.render(w, http.StatusAccepted, "security", data)
+}
+
+func (s *Server) contactChangeVerificationPage(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	data := pageData{Title: "Verify new email", Token: token}
+	if strings.TrimSpace(token) == "" {
+		data.Error = "This email verification link is incomplete."
+	}
+	s.render(w, http.StatusOK, "contact-verify", data)
+}
+
+func (s *Server) completeContactChange(w http.ResponseWriter, r *http.Request) {
+	if s.contactChanges == nil {
+		s.render(w, http.StatusServiceUnavailable, "contact-verify", pageData{Title: "Verify new email", Error: "Verified contact change is temporarily unavailable."})
+		return
+	}
+	if !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		s.render(w, http.StatusForbidden, "contact-verify", pageData{Title: "Verify new email", Error: "This email verification request could not be verified."})
+		return
+	}
+	token := r.FormValue("token")
+	_, err := s.contactChanges.Complete(r.Context(), contactchange.CompleteCommand{Token: token})
+	if err != nil {
+		message := "This email verification link is invalid."
+		status := http.StatusBadRequest
+		switch {
+		case errors.Is(err, contactchange.ErrExpired):
+			message, status = "This email verification link has expired. Sign in and start a new request.", http.StatusGone
+		case errors.Is(err, contactchange.ErrConsumed):
+			message, status = "This email verification link has already been used.", http.StatusConflict
+		case errors.Is(err, contactchange.ErrStaleIdentity), errors.Is(err, contactchange.ErrEmailExists):
+			message, status = "The identity changed after this request began. Sign in and start again.", http.StatusConflict
+		case errors.Is(err, contactchange.ErrNotFound):
+			status = http.StatusNotFound
+		}
+		s.render(w, status, "contact-verify", pageData{Title: "Verify new email", Error: message, Token: token})
+		return
+	}
+	s.clearCookies(w)
+	http.Redirect(w, r, "/login?status=email_changed", http.StatusSeeOther)
 }
 
 func (s *Server) rotateRecoveryCodes(w http.ResponseWriter, r *http.Request) {
@@ -1189,6 +1312,8 @@ func loginNotice(status string) string {
 		return "You have been signed out."
 	case "password_reset":
 		return "Password updated. Sign in again on every device."
+	case "email_changed":
+		return "Identity email verified and changed. Every previous session was signed out; sign in with the new email."
 	}
 	return ""
 }
@@ -1254,7 +1379,7 @@ func closureNotice(status string) string {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "same-origin")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		if !strings.HasPrefix(r.URL.Path, "/assets/") {

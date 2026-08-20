@@ -142,6 +142,8 @@ func TestIdentitySecurityOperationsRemainTyped(t *testing.T) {
 	want := map[string]bool{
 		"beginRecovery":                   false,
 		"completeRecovery":                false,
+		"beginContactChange":              false,
+		"completeContactChange":           false,
 		"beginPasskeyLogin":               false,
 		"completePasskeyLogin":            false,
 		"listPasskeys":                    false,
@@ -189,8 +191,8 @@ func TestEveryCustomerOperationRemainsTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 60 {
-		t.Fatalf("customer operation count = %d, want 60", len(routes))
+	if len(routes) != 62 {
+		t.Fatalf("customer operation count = %d, want 62", len(routes))
 	}
 	for _, route := range routes {
 		if route.Contract != "typed" {

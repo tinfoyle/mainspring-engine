@@ -93,12 +93,16 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	securityBody, _ := io.ReadAll(security.Body)
 	security.Body.Close()
-	if security.StatusCode != http.StatusOK || !bytes.Contains(securityBody, []byte("Where you are signed in")) || !bytes.Contains(securityBody, []byte("Current session")) || !bytes.Contains(securityBody, []byte("Signed in with password")) || !bytes.Contains(securityBody, []byte("Last confirmed with password")) || !bytes.Contains(securityBody, []byte("Recent identity activity")) || !bytes.Contains(securityBody, []byte("Signed in")) || !bytes.Contains(securityBody, []byte("Phishing-resistant sign-in")) || !bytes.Contains(securityBody, []byte("Add passkey")) || !bytes.Contains(securityBody, []byte("Know the last-resort path")) || !bytes.Contains(securityBody, []byte("support cannot view or recreate recovery codes")) {
+	if security.StatusCode != http.StatusOK || !bytes.Contains(securityBody, []byte("Where you are signed in")) || !bytes.Contains(securityBody, []byte("Current session")) || !bytes.Contains(securityBody, []byte("Signed in with password")) || !bytes.Contains(securityBody, []byte("Last confirmed with password")) || !bytes.Contains(securityBody, []byte("Recent identity activity")) || !bytes.Contains(securityBody, []byte("Signed in")) || !bytes.Contains(securityBody, []byte("Phishing-resistant sign-in")) || !bytes.Contains(securityBody, []byte("Add passkey")) || !bytes.Contains(securityBody, []byte("Know the last-resort path")) || !bytes.Contains(securityBody, []byte("support cannot view or recreate recovery codes")) || !bytes.Contains(securityBody, []byte("Your current login is <strong>avery@example.com</strong>")) || !bytes.Contains(securityBody, []byte("Changing it requires a recent passkey confirmation")) {
 		t.Fatalf("security center: %d %s", security.StatusCode, securityBody)
 	}
 	confirmed := postForm(t, client, server.URL+"/app/security/reauthenticate", url.Values{"password": {"correct horse battery staple"}})
-	if confirmed.status != http.StatusOK || !bytes.Contains(confirmed.body, []byte("Password confirmed for identity settings")) || !bytes.Contains(confirmed.body, []byte("Use a passkey to unlock Membership, invitation, and billing changes")) {
+	if confirmed.status != http.StatusOK || !bytes.Contains(confirmed.body, []byte("Password confirmed for factor recovery")) || !bytes.Contains(confirmed.body, []byte("Use a passkey to unlock verified-email, Membership, invitation, and billing changes")) {
 		t.Fatalf("password confirmation: %d %s", confirmed.status, confirmed.body)
+	}
+	passwordOnlyContact := postForm(t, client, server.URL+"/app/security/contact-change", url.Values{"new_email": {"new-avery@example.com"}})
+	if passwordOnlyContact.status != http.StatusOK || !bytes.Contains(passwordOnlyContact.body, []byte("Confirm with a passkey before changing the identity email")) || !bytes.Contains(passwordOnlyContact.body, []byte("avery@example.com")) {
+		t.Fatalf("browser verified-contact strong-auth gate: %d %s", passwordOnlyContact.status, passwordOnlyContact.body)
 	}
 	accountMatch := regexp.MustCompile(`<option value="([0-9a-f-]+)"`).FindSubmatch(signedIn.body)
 	if len(accountMatch) != 2 {
@@ -150,6 +154,32 @@ func TestPrivateBrowserAssetsRequireReleaseRevalidation(t *testing.T) {
 		if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != asset.contentType || response.Header.Get("Cache-Control") != "no-cache" {
 			t.Errorf("asset %s response = %d, content type %q, cache %q", asset.path, response.StatusCode, response.Header.Get("Content-Type"), response.Header.Get("Cache-Control"))
 		}
+	}
+}
+
+func TestContactVerificationPageIsDisplayOnlyAndMutationRequiresExactOrigin(t *testing.T) {
+	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	defer server.Close()
+	token := strings.Repeat("a", 43)
+	page, err := http.Get(server.URL + "/contact-change/verify?token=" + token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if page.StatusCode != http.StatusOK || page.Header.Get("Referrer-Policy") != "no-referrer" || !bytes.Contains(body, []byte(`method="post" action="/contact-change/verify"`)) || !bytes.Contains(body, []byte(`name="token" value="`+token+`"`)) || len(page.Cookies()) != 0 {
+		t.Fatalf("contact verification display: %d cookies=%#v body=%s", page.StatusCode, page.Cookies(), body)
+	}
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/contact-change/verify", strings.NewReader(url.Values{"token": {token}}.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deniedBody, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != http.StatusForbidden || !bytes.Contains(deniedBody, []byte("could not be verified")) {
+		t.Fatalf("originless contact verification mutation: %d %s", response.StatusCode, deniedBody)
 	}
 }
 

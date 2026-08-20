@@ -32,6 +32,7 @@ Required invariants:
 - Membership role/lifecycle/removal changes, self-service Account leave, ownership transfer, invitation creation, Stripe Checkout creation, and Stripe Customer Portal creation require an active authorized role plus user-verified cryptographic proof no older than ten minutes. Password proof cannot satisfy that privileged-operation policy.
 - Every active Owner Membership is additionally gated by a system-wide owner-readiness policy: the User must have at least one passkey and an active recovery-code set with at least one unused code. The gate is enforced by the shared Account authorizer for reads and mutations, not only by the browser. Identity and recovery endpoints remain available so an unready owner can enroll or recover.
 - Owner readiness is derived from durable factor state on every authorization decision. It is not copied into the Membership, session, or Account cookie. Consuming the last recovery code immediately makes the owner unready until a new set is generated; losing or deleting the last passkey has the same effect.
+- A primary-email change requires recent user-verified passkey assurance and proof from the new mailbox. The old email remains the only login until that proof succeeds; completion changes the User and local authentication identifier together, advances `security_version`, revokes every session, and leaves Account Memberships and package access untouched.
 
 ## 2. Code ownership
 
@@ -42,7 +43,9 @@ Required invariants:
 | Security-posture use case and port | `internal/application/securityposture` | Derive safe User-level factor counts and the owner-readiness decision |
 | Account authorization policy | `internal/modules/access` | Apply active Membership, Account, role, package, and mandatory Owner factor gates together |
 | Privileged assurance policy | `internal/application/strongauth` | One typed, transport-independent rule for actor binding, assurance class, and ten-minute freshness |
+| Verified-contact use case and ports | `internal/application/contactchange` | New-mailbox proof, normalization, single-use lifetime, stale-identity fencing, completion notices |
 | Durable adapter | `internal/adapters/postgres/passkeys.go` | Encrypted records, scoped atomic ceremony consumption, credential counter CAS, security events |
+| Verified-contact adapter | `internal/adapters/postgres/contact_change.go` | Serializable challenge creation/completion, login-identifier update, session revocation, atomic encrypted outbox and security events |
 | Recovery adapter | `internal/adapters/postgres/recovery_codes.go` | Hashed code sets, atomic single-use consumption, grant expiry, rotation invalidation, security events |
 | Security-posture adapter | `internal/adapters/postgres/security_posture.go` | Aggregate passkey and unused-code state without exposing credential material |
 | Development adapter | `internal/adapters/memory/passkeys.go` | Same application port for local journeys and transport tests |
@@ -93,6 +96,15 @@ The customer-visible boundary is deliberately explicit: Infinite Ocean support c
 3. Successful cryptographic validation and counter update mark the existing session recently reauthenticated.
 4. The timestamp unlocks privileged Account mutations for ten minutes; it grants no new Account role.
 
+### Verified primary-email change
+
+1. An authenticated User confirms with a passkey, then submits a normalized new email through an exact-Origin mutation. Password-only, stale, future-dated, or cross-User assurance is rejected.
+2. Spyglass stores one 30-minute pending challenge per User and new address. Only the SHA-256 token hash is durable. The current mailbox receives a security alert while the new mailbox receives the single-use verification link; both encrypted outbox rows and the request security event commit with the challenge.
+3. The old primary email and local login identifier remain authoritative while the request is pending. Starting another request consumes the prior pending request without changing the User.
+4. Verification serializes the challenge and User, rechecks active/verified state, original email, security version, and global email uniqueness, and prepares completion notices before mutation.
+5. One transaction updates `users.primary_email`, the local `authentication_identities.identifier`, `email_verified_at`, and `security_version`; revokes every User session; consumes the challenge; records `primary_email_changed`; and queues notices to both old and new mailboxes. A stale, raced, expired, or replayed token cannot partially change identity state.
+6. The User signs in again with the new email. Immutable User ID, Account Memberships, roles, placements, entitlements, and billing state do not move or duplicate.
+
 ### Customer-owner enrollment and recovery
 
 1. Free registration still creates the Account and Owner Membership atomically without contacting Stripe. The new User can authenticate and reach global identity/security functions, but cannot enter or operate the owned Account yet.
@@ -107,7 +119,7 @@ The session keeps `authentication_method` separate from `reauthentication_method
 
 Active-session API responses expose the two methods and their derived assurance classifications. `strongauth.Require` consumes the session, expected actor, trusted clock, and fixed ten-minute window. Invitation and commercial services call it after Account-role authorization and before persistence or provider calls, so alternate transports cannot bypass the rule. A password confirmation performed after a passkey assertion deliberately replaces the recent assurance and requires another passkey assertion for these operations.
 
-The current privileged set is Membership role/lifecycle/removal changes, self-service Account leave, ownership transfer, invitation creation, Checkout creation, and Customer Portal creation. Invitation acceptance, Account selection, Membership/billing reads, password recovery, and first passkey enrollment are not made impossible by this rule. Recovery replaces the password and revokes all sessions; the User signs in with the new password, enrolls a user-verified passkey, and that enrollment establishes the required recent assurance.
+The current privileged set is verified primary-email change, Membership role/lifecycle/removal changes, self-service Account leave, ownership transfer, invitation creation, Checkout creation, and Customer Portal creation. Invitation acceptance, Account selection, Membership/billing reads, password recovery, and first passkey enrollment are not made impossible by this rule. Recovery replaces the password and revokes all sessions; the User signs in with the new password, enrolls a user-verified passkey, and that enrollment establishes the required recent assurance.
 
 ## 4. HTTP surface
 
@@ -124,13 +136,15 @@ GET    /api/v1/recovery-codes
 POST   /api/v1/recovery-codes
 POST   /api/v1/recovery-codes/consume
 GET    /api/v1/security-posture
+POST   /api/v1/contact-change-requests
+POST   /api/v1/contact-change-verifications
 ```
 
 Cookie-authenticated mutations require the configured exact application Origin. Passkey payloads have a dedicated 256 KiB ceiling to accommodate attestation objects while remaining bounded. Errors never reveal whether an anonymous credential ID, user handle, or User exists.
 
 ## 5. Persistence and scaling
 
-`passkey_users` is keyed by global User ID and stores the opaque WebAuthn handle. `passkey_credentials` stores the globally unique credential ID, encrypted credential blob, key version, duplicated sign counter for atomic fencing, name, and use timestamps. `passkey_ceremonies` stores encrypted WebAuthn session data and an explicit kind/User/session scope. `user_recovery_code_sets` and `user_recovery_codes` store one active version and its one-way hashes; `passkey_recovery_grants` binds a short-lived grant to a live User session.
+`passkey_users` is keyed by global User ID and stores the opaque WebAuthn handle. `passkey_credentials` stores the globally unique credential ID, encrypted credential blob, key version, duplicated sign counter for atomic fencing, name, and use timestamps. `passkey_ceremonies` stores encrypted WebAuthn session data and an explicit kind/User/session scope. `user_recovery_code_sets` and `user_recovery_codes` store one active version and its one-way hashes; `passkey_recovery_grants` binds a short-lived grant to a live User session. `primary_email_change_challenges` stores the old/new normalized addresses, initiating security version, 32-byte token hash, expiry, and consumption state; notification bodies and the raw verification token live only in encrypted outbox envelopes.
 
 All state required between begin and complete requests is durable. A request may begin on one account-api replica and complete on another without session affinity. Ceremony consumption is one SQL update guarded by kind, User, session, expiry, and `consumed_at IS NULL`. Creation opportunistically removes a bounded batch of expired ceremonies so ordinary traffic does not create unbounded expired state.
 
@@ -166,6 +180,7 @@ Automated evidence covers:
 - platform-administrator Ed25519 authorization bound to phishing-resistant assurance, exact action/environment/reason/scope, ten-minute lifetime, and explicit incident/two-approver break-glass evidence before database composition;
 - HTTP response contracts containing no Account identity and browser presentation on login and identity security pages.
 - customer-visible factor-loss steps and the no-support-bypass boundary, including a template contract proving code replacement remains reachable while unavailable passkeys are still registered.
+- verified-contact denial without passkey assurance, normalized same-address rejection, old-login continuity before proof, new-login activation only after proof, challenge replay rejection, all-session revocation, security-version fencing, Account-membership preservation, encrypted old/new mailbox notices, PostgreSQL atomicity, and browser/OpenAPI contracts.
 
 ## 8. Remaining identity work
 
@@ -174,5 +189,5 @@ Passkeys are now a production authentication and strong-reauthentication option,
 1. Complete product/security/legal review of the executable customer-visible factor-loss copy and decide whether a delayed, multi-party support-assisted exception will ever exist. The current policy is fail-closed with no support bypass. Platform-administrator signed authorization and dual-approved break glass are executable; the external workforce identity plane remains the enrollment and approval authority. Self-service recovery codes deliberately cannot authorize Account or operator actions.
 2. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
 3. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
-4. Add verified contact-method change, passkey rename, compromised-credential response, and customer-visible notification delivery.
+4. Add passkey rename and compromised-credential response; complete live SMTP delivery certification for registration, recovery, invitations, ownership, and verified-contact notices.
 5. Run real-browser WebAuthn journeys across supported desktop/mobile platforms and accessibility tooling before release promotion.

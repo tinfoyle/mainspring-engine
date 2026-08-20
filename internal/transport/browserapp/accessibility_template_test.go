@@ -23,12 +23,14 @@ func TestPrivateBrowserTemplatesHaveAccessiblePageFrames(t *testing.T) {
 	accountID := ids.AccountID("01J00000000000000000000000")
 	choice := accountaccess.Choice{AccountID: accountID, DisplayName: "Northstar Studio"}
 	richSecurity := pageData{
-		Title:                   "Identity security",
-		PasskeysConfigured:      true,
-		RecoveryCodesConfigured: true,
-		Passkeys:                []passkeys.CredentialSummary{{ID: "credential", Name: "Office passkey"}},
-		RecoveryCodeStatus:      recoverycodes.Status{Configured: true, Version: 2, Remaining: 8},
-		RecoveryCodes:           []string{"AAAA-BBBB", "CCCC-DDDD"},
+		Title:                    "Identity security",
+		PasskeysConfigured:       true,
+		RecoveryCodesConfigured:  true,
+		ContactChangesConfigured: true,
+		CurrentEmail:             "owner@example.com",
+		Passkeys:                 []passkeys.CredentialSummary{{ID: "credential", Name: "Office passkey"}},
+		RecoveryCodeStatus:       recoverycodes.Status{Configured: true, Version: 2, Remaining: 8},
+		RecoveryCodes:            []string{"AAAA-BBBB", "CCCC-DDDD"},
 	}
 	tests := []struct {
 		name, page string
@@ -40,6 +42,7 @@ func TestPrivateBrowserTemplatesHaveAccessiblePageFrames(t *testing.T) {
 		{name: "reset password", page: "reset", data: pageData{Title: "Set a new password", Token: "token"}},
 		{name: "signup", page: "signup", data: pageData{Title: "Create your Account"}},
 		{name: "verify", page: "verify", data: pageData{Title: "Choose your password", Token: "token"}},
+		{name: "verify contact change", page: "contact-verify", data: pageData{Title: "Verify new email", Token: "token"}},
 		{name: "accept invitation", page: "accept", data: pageData{Title: "Join Account", Token: "token"}},
 		{name: "identity security", page: "security", data: richSecurity},
 		{name: "empty Account shell", page: "app", data: pageData{Title: "Spyglass", Page: "app"}, currentNav: true},

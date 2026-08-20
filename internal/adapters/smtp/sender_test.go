@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
+	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 )
 
 func TestNewRequiresExactHTTPSOriginAndCompleteCredentials(t *testing.T) {
@@ -37,6 +38,39 @@ func TestOwnershipTransferContentIsRoleSpecificAndEscaped(t *testing.T) {
 	}
 	if _, _, _, err := ownershipTransferContent("https://app.infiniteocean.net", accountmembers.OwnershipTransferNotice{}); err == nil {
 		t.Fatal("invalid ownership recipient role accepted")
+	}
+}
+
+func TestContactChangeContentIsActionSpecificEscapedAndDoesNotLeakToken(t *testing.T) {
+	now := time.Date(2026, 8, 20, 15, 0, 0, 0, time.UTC)
+	token := "mailbox-token+with/specials"
+	tests := []struct {
+		action       contactchange.Action
+		expect       string
+		expectToken  bool
+		expectLogout bool
+	}{
+		{action: contactchange.ActionVerifyNew, expect: "/contact-change/verify?token=mailbox-token%2Bwith%2Fspecials", expectToken: true},
+		{action: contactchange.ActionRequested, expect: "/app/security", expectLogout: false},
+		{action: contactchange.ActionCompleted, expect: "Every existing session was signed out", expectLogout: true},
+	}
+	for _, test := range tests {
+		message := contactchange.Message{Action: test.action, Email: "new@example.com", DisplayName: "Avery <Owner>", OldEmail: "old&contact@example.com", NewEmail: "new<contact@example.com", Token: token, ExpiresAt: now.Add(30 * time.Minute), OccurredAt: now}
+		subject, plain, htmlBody, err := contactChangeContent("https://app.infiniteocean.net", message)
+		if err != nil || subject == "" || !strings.Contains(plain, test.expect) || !strings.Contains(htmlBody, "Avery &lt;Owner&gt;") || strings.Contains(htmlBody, "new<contact@example.com") {
+			t.Fatalf("action=%s subject=%q plain=%q html=%q err=%v", test.action, subject, plain, htmlBody, err)
+		}
+		encodedToken := "mailbox-token%2Bwith%2Fspecials"
+		containsToken := strings.Contains(plain, encodedToken) && strings.Contains(htmlBody, encodedToken)
+		if containsToken != test.expectToken || (!test.expectToken && (strings.Contains(plain, token) || strings.Contains(htmlBody, token))) {
+			t.Fatalf("action=%s token handling is unsafe: plain=%q html=%q", test.action, plain, htmlBody)
+		}
+		if test.expectLogout && !strings.Contains(plain, "signed out") {
+			t.Fatalf("action=%s omitted session revocation notice: %q", test.action, plain)
+		}
+	}
+	if _, _, _, err := contactChangeContent("https://app.infiniteocean.net", contactchange.Message{}); err == nil {
+		t.Fatal("invalid contact-change action accepted")
 	}
 }
 

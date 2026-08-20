@@ -13,6 +13,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
+	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
@@ -54,6 +55,11 @@ func Handler(logger *slog.Logger) http.Handler {
 	service := registration.NewService(store, verification, store, func() catalog.PublishedCatalog { return publishedCatalog }, ids.RandomGenerator{}, clock, passwords)
 	sessionStore := memory.NewSessionStore()
 	sessionService, err := sessions.NewService(sessionStore, ids.RandomGenerator{}, clock, 24*time.Hour, time.Hour, 15*time.Minute)
+	if err != nil {
+		panic(err)
+	}
+	contactChangeSink := &memory.ContactChangeSink{}
+	contactChangeService, err := contactchange.NewService(memory.NewContactChangeRepository(store, sessionStore), contactChangeSink, ids.RandomGenerator{}, clock)
 	if err != nil {
 		panic(err)
 	}
@@ -105,7 +111,7 @@ func Handler(logger *slog.Logger) http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	options := []httpapi.Option{httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Name: "spyglass_development_session"}), httpapi.WithAccountAccess(accountAccess), httpapi.WithAccountLifecycle(accountLifecycle), httpapi.WithAccountMembers(memberService), httpapi.WithInvitations(invitationService, invitationSink, true), httpapi.WithRecovery(recoveryService, recoverySink, true), httpapi.WithPasskeys(passkeyService), httpapi.WithRecoveryCodes(recoveryCodeService), httpapi.WithSecurityPosture(securityPosture)}
+	options := []httpapi.Option{httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Name: "spyglass_development_session"}), httpapi.WithAccountAccess(accountAccess), httpapi.WithAccountLifecycle(accountLifecycle), httpapi.WithAccountMembers(memberService), httpapi.WithInvitations(invitationService, invitationSink, true), httpapi.WithRecovery(recoveryService, recoverySink, true), httpapi.WithPasskeys(passkeyService), httpapi.WithRecoveryCodes(recoveryCodeService), httpapi.WithSecurityPosture(securityPosture), httpapi.WithContactChanges(contactChangeService, contactChangeSink, true)}
 	if secret := os.Getenv("SPYGLASS_STRIPE_WEBHOOK_SECRET"); secret != "" {
 		verifier, err := billing.NewSignatureVerifier(secret, 5*time.Minute, clock)
 		if err != nil {
@@ -118,7 +124,7 @@ func Handler(logger *slog.Logger) http.Handler {
 		options = append(options, httpapi.WithBillingWebhook(webhook))
 	}
 	apiHandler := httpapi.NewServer(service, store.Catalog, verification, true, logger, options...).Handler()
-	browser, err := browserapp.New(service, authenticationService, sessionService, accountAccess, invitationService, store.Catalog, verification, invitationSink, browserapp.Config{SessionCookieName: "spyglass_development_session", AccountCookieName: "spyglass_development_account", TrustedOrigins: []string{"http://localhost:8080"}, ExposeDevelopmentTokens: true}, logger, browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, recoverySink), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService))
+	browser, err := browserapp.New(service, authenticationService, sessionService, accountAccess, invitationService, store.Catalog, verification, invitationSink, browserapp.Config{SessionCookieName: "spyglass_development_session", AccountCookieName: "spyglass_development_account", TrustedOrigins: []string{"http://localhost:8080"}, ExposeDevelopmentTokens: true}, logger, browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, recoverySink), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService), browserapp.WithContactChanges(contactChangeService, contactChangeSink))
 	if err != nil {
 		panic(err)
 	}

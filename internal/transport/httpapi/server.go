@@ -14,6 +14,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
@@ -54,6 +55,9 @@ type Server struct {
 	passkeys              *passkeys.Service
 	recoveryCodes         *recoverycodes.Service
 	securityPosture       *securityposture.Service
+	contactChanges        *contactchange.Service
+	contactChangeTokens   ContactChangeTokenSource
+	exposeContactToken    bool
 }
 
 type SessionCookie struct {
@@ -76,6 +80,10 @@ type InvitationTokenSource interface {
 
 type RecoveryTokenSource interface {
 	Latest() (recovery.Message, bool)
+}
+
+type ContactChangeTokenSource interface {
+	LatestVerification(ids.UserID) (contactchange.Message, bool)
 }
 
 type Option func(*Server)
@@ -147,6 +155,14 @@ func WithSecurityPosture(service *securityposture.Service) Option {
 	return func(server *Server) { server.securityPosture = service }
 }
 
+func WithContactChanges(service *contactchange.Service, tokens ContactChangeTokenSource, exposeDevelopmentToken bool) Option {
+	return func(server *Server) {
+		server.contactChanges = service
+		server.contactChangeTokens = tokens
+		server.exposeContactToken = exposeDevelopmentToken
+	}
+}
+
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
 	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
 	for _, option := range options {
@@ -164,6 +180,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/registrations/verify", s.completeRegistration)
 	mux.HandleFunc("POST /api/v1/recovery-challenges", s.beginRecovery)
 	mux.HandleFunc("POST /api/v1/recovery-challenges/complete", s.completeRecovery)
+	mux.HandleFunc("POST /api/v1/contact-change-requests", s.beginContactChange)
+	mux.HandleFunc("POST /api/v1/contact-change-verifications", s.completeContactChange)
 	mux.HandleFunc("POST /api/v1/sessions", s.login)
 	mux.HandleFunc("POST /api/v1/passkey-login/challenges", s.beginPasskeyLogin)
 	mux.HandleFunc("POST /api/v1/passkey-login/challenges/{ceremonyID}/complete", s.completePasskeyLogin)
@@ -202,6 +220,86 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
+}
+
+func (s *Server) beginContactChange(w http.ResponseWriter, r *http.Request) {
+	if s.contactChanges == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "contact_change_unconfigured", "verified contact change is not configured")
+		return
+	}
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		NewEmail string `json:"new_email"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := s.contactChanges.Begin(r.Context(), contactchange.BeginCommand{Session: authenticated.Session, NewEmail: input.NewEmail})
+	if err != nil {
+		s.writeContactChangeError(w, err)
+		return
+	}
+	response := map[string]any{"contact_change_id": result.ID, "new_email": result.NewEmail, "expires_at": result.ExpiresAt, "status": "verification_required"}
+	if s.exposeContactToken && s.contactChangeTokens != nil {
+		if message, ok := s.contactChangeTokens.LatestVerification(authenticated.Session.UserID); ok && message.NewEmail == result.NewEmail {
+			response["development_verification_token"] = message.Token
+		}
+	}
+	writeJSON(w, http.StatusAccepted, response)
+}
+
+func (s *Server) completeContactChange(w http.ResponseWriter, r *http.Request) {
+	if s.contactChanges == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "contact_change_unconfigured", "verified contact change is not configured")
+		return
+	}
+	var input struct {
+		Token string `json:"token"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if strings.TrimSpace(input.Token) == "" {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "token is required")
+		return
+	}
+	result, err := s.contactChanges.Complete(r.Context(), contactchange.CompleteCommand{Token: input.Token})
+	if err != nil {
+		s.writeContactChangeError(w, err)
+		return
+	}
+	s.clearIdentityCookies(w)
+	writeJSON(w, http.StatusOK, map[string]any{"status": "email_changed", "new_email": result.NewEmail, "changed_at": result.ChangedAt, "sessions_revoked": true})
+}
+
+func (s *Server) writeContactChangeError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, strongauth.ErrRequired):
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before changing the identity email")
+	case errors.Is(err, contactchange.ErrSameEmail):
+		writeProblem(w, http.StatusBadRequest, "contact_change_same_email", "the new email must differ from the current email")
+	case errors.Is(err, contactchange.ErrEmailExists):
+		writeProblem(w, http.StatusConflict, "contact_change_conflict", "the new email is unavailable")
+	case errors.Is(err, contactchange.ErrExpired):
+		writeProblem(w, http.StatusGone, "contact_change_expired", "the verification link has expired")
+	case errors.Is(err, contactchange.ErrConsumed):
+		writeProblem(w, http.StatusConflict, "contact_change_consumed", "the verification link has already been used")
+	case errors.Is(err, contactchange.ErrNotFound):
+		writeProblem(w, http.StatusNotFound, "contact_change_not_found", "the verification link is invalid")
+	case errors.Is(err, contactchange.ErrStaleIdentity), errors.Is(err, contactchange.ErrInvalidUser):
+		writeProblem(w, http.StatusConflict, "contact_change_stale", "the identity changed; start a new email change request")
+	default:
+		writeProblem(w, http.StatusBadRequest, "contact_change_invalid", "the email change could not be completed")
+	}
 }
 
 func (s *Server) securityPostureStatus(w http.ResponseWriter, r *http.Request) {
@@ -1251,6 +1349,11 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string, expires t
 
 func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{Name: s.cookie.Name, Value: "", Path: "/", Domain: s.cookie.Domain, HttpOnly: true, Secure: s.cookie.Secure, SameSite: http.SameSiteLaxMode, Expires: time.Unix(1, 0), MaxAge: -1})
+}
+
+func (s *Server) clearIdentityCookies(w http.ResponseWriter) {
+	s.clearSessionCookie(w)
+	http.SetCookie(w, &http.Cookie{Name: s.cookie.AccountName, Value: "", Path: "/", Domain: s.cookie.Domain, HttpOnly: true, Secure: s.cookie.Secure, SameSite: http.SameSiteLaxMode, Expires: time.Unix(1, 0), MaxAge: -1})
 }
 
 func (s *Server) stripeWebhook(w http.ResponseWriter, r *http.Request) {

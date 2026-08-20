@@ -574,6 +574,120 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	}
 }
 
+func TestVerifiedContactChangeHTTPJourney(t *testing.T) {
+	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	defer server.Close()
+
+	begin := postJSON(t, server.URL+"/api/v1/registrations", `{"email":"old-contact@example.com","display_name":"Casey Morgan","account_name":"Beacon Works","region":"us-east"}`)
+	var accepted map[string]any
+	if err := json.Unmarshal(begin.Body, &accepted); err != nil || begin.StatusCode != http.StatusAccepted {
+		t.Fatalf("begin identity registration: %d %s err=%v", begin.StatusCode, begin.Body, err)
+	}
+	verificationToken, _ := accepted["development_verification_token"].(string)
+	complete := postJSON(t, server.URL+"/api/v1/registrations/verify", `{"token":"`+verificationToken+`","password":"contact change password"}`)
+	var provisioned struct {
+		Account struct {
+			ID string `json:"id"`
+		} `json:"account"`
+	}
+	if err := json.Unmarshal(complete.Body, &provisioned); err != nil || complete.StatusCode != http.StatusCreated || provisioned.Account.ID == "" {
+		t.Fatalf("complete identity registration: %d %s err=%v", complete.StatusCode, complete.Body, err)
+	}
+
+	login := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"old-contact@example.com","password":"contact change password"}`)
+	cookies := (&http.Response{Header: login.Header}).Cookies()
+	if login.StatusCode != http.StatusCreated || len(cookies) != 1 {
+		t.Fatalf("initial login: %d %s cookies=%#v", login.StatusCode, login.Body, cookies)
+	}
+	withoutPasskey := postJSONCookie(t, server.URL+"/api/v1/contact-change-requests", `{"new_email":"new-contact@example.com"}`, cookies[0])
+	if withoutPasskey.StatusCode != http.StatusForbidden || !bytes.Contains(withoutPasskey.Body, []byte(`"code":"strong_reauthentication_required"`)) {
+		t.Fatalf("password-only contact change: %d %s", withoutPasskey.StatusCode, withoutPasskey.Body)
+	}
+
+	passwordConfirmation := postJSONCookie(t, server.URL+"/api/v1/session/reauthenticate", `{"password":"contact change password"}`, cookies[0])
+	if passwordConfirmation.StatusCode != http.StatusNoContent {
+		t.Fatalf("password confirmation: %d %s", passwordConfirmation.StatusCode, passwordConfirmation.Body)
+	}
+	registration := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations", `{}`, cookies[0])
+	var ceremony struct {
+		CeremonyID string `json:"ceremony_id"`
+		PublicKey  struct {
+			PublicKey struct {
+				Challenge string `json:"challenge"`
+			} `json:"publicKey"`
+		} `json:"public_key"`
+	}
+	if err := json.Unmarshal(registration.Body, &ceremony); err != nil || registration.StatusCode != http.StatusCreated || ceremony.CeremonyID == "" || ceremony.PublicKey.PublicKey.Challenge == "" {
+		t.Fatalf("passkey registration ceremony: %d %s err=%v", registration.StatusCode, registration.Body, err)
+	}
+	credential := registrationCredential(t, ceremony.PublicKey.PublicKey.Challenge)
+	enrolled := postJSONCookie(t, server.URL+"/api/v1/passkey-registrations/"+ceremony.CeremonyID+"/complete", `{"name":"Contact confirmation passkey","credential":`+credential+`}`, cookies[0])
+	if enrolled.StatusCode != http.StatusCreated {
+		t.Fatalf("passkey enrollment: %d %s", enrolled.StatusCode, enrolled.Body)
+	}
+
+	sameEmail := postJSONCookie(t, server.URL+"/api/v1/contact-change-requests", `{"new_email":" OLD-CONTACT@example.com "}`, cookies[0])
+	if sameEmail.StatusCode != http.StatusBadRequest || !bytes.Contains(sameEmail.Body, []byte(`"code":"contact_change_same_email"`)) {
+		t.Fatalf("same normalized contact: %d %s", sameEmail.StatusCode, sameEmail.Body)
+	}
+	requested := postJSONCookie(t, server.URL+"/api/v1/contact-change-requests", `{"new_email":" NEW-CONTACT@example.com "}`, cookies[0])
+	var pending struct {
+		ID        string `json:"contact_change_id"`
+		NewEmail  string `json:"new_email"`
+		Token     string `json:"development_verification_token"`
+		Status    string `json:"status"`
+		ExpiresAt string `json:"expires_at"`
+	}
+	if err := json.Unmarshal(requested.Body, &pending); err != nil || requested.StatusCode != http.StatusAccepted || pending.ID == "" || pending.NewEmail != "new-contact@example.com" || pending.Token == "" || pending.Status != "verification_required" || pending.ExpiresAt == "" {
+		t.Fatalf("contact change request: %d %s err=%v", requested.StatusCode, requested.Body, err)
+	}
+
+	oldStillWorks := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"old-contact@example.com","password":"contact change password"}`)
+	oldStillWorksCookies := (&http.Response{Header: oldStillWorks.Header}).Cookies()
+	if oldStillWorks.StatusCode != http.StatusCreated || len(oldStillWorksCookies) != 1 {
+		t.Fatalf("old login before verification: %d %s", oldStillWorks.StatusCode, oldStillWorks.Body)
+	}
+	newTooSoon := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"new-contact@example.com","password":"contact change password"}`)
+	if newTooSoon.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("new login before verification: %d %s", newTooSoon.StatusCode, newTooSoon.Body)
+	}
+
+	changed := postJSON(t, server.URL+"/api/v1/contact-change-verifications", `{"token":"`+pending.Token+`"}`)
+	if changed.StatusCode != http.StatusOK || !bytes.Contains(changed.Body, []byte(`"status":"email_changed"`)) || !bytes.Contains(changed.Body, []byte(`"new_email":"new-contact@example.com"`)) || !bytes.Contains(changed.Body, []byte(`"sessions_revoked":true`)) {
+		t.Fatalf("complete contact change: %d %s", changed.StatusCode, changed.Body)
+	}
+	if expiredCookies := (&http.Response{Header: changed.Header}).Cookies(); len(expiredCookies) != 2 || expiredCookies[0].MaxAge >= 0 || expiredCookies[1].MaxAge >= 0 {
+		t.Fatalf("identity cookies were not expired: %#v", expiredCookies)
+	}
+	replay := postJSON(t, server.URL+"/api/v1/contact-change-verifications", `{"token":"`+pending.Token+`"}`)
+	if replay.StatusCode != http.StatusConflict || !bytes.Contains(replay.Body, []byte(`"code":"contact_change_consumed"`)) {
+		t.Fatalf("contact token replay: %d %s", replay.StatusCode, replay.Body)
+	}
+	for _, staleCookie := range []*http.Cookie{cookies[0], oldStillWorksCookies[0]} {
+		stale := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/sessions", "", staleCookie)
+		if stale.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("pre-change session retained access: %d %s", stale.StatusCode, stale.Body)
+		}
+	}
+	oldAfterChange := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"old-contact@example.com","password":"contact change password"}`)
+	if oldAfterChange.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("old login after verification: %d %s", oldAfterChange.StatusCode, oldAfterChange.Body)
+	}
+	newLogin := postJSON(t, server.URL+"/api/v1/sessions", `{"email":"new-contact@example.com","password":"contact change password"}`)
+	newCookies := (&http.Response{Header: newLogin.Header}).Cookies()
+	if newLogin.StatusCode != http.StatusCreated || len(newCookies) != 1 {
+		t.Fatalf("new login after verification: %d %s", newLogin.StatusCode, newLogin.Body)
+	}
+	accounts := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/session/accounts", "", newCookies[0])
+	if accounts.StatusCode != http.StatusOK || !bytes.Contains(accounts.Body, []byte(provisioned.Account.ID)) {
+		t.Fatalf("Account memberships survived contact change: %d %s", accounts.StatusCode, accounts.Body)
+	}
+	events := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/security-events", "", newCookies[0])
+	if events.StatusCode != http.StatusOK || !bytes.Contains(events.Body, []byte(`"type":"primary_email_change_requested"`)) || !bytes.Contains(events.Body, []byte(`"type":"primary_email_changed"`)) {
+		t.Fatalf("contact security events: %d %s", events.StatusCode, events.Body)
+	}
+}
+
 func postJSONCookie(t *testing.T, url, body string, cookie *http.Cookie) response {
 	return requestJSONCookie(t, http.MethodPost, url, body, cookie)
 }

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
+	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -100,6 +101,37 @@ func (s *Sender) SendOwnershipTransfer(ctx context.Context, message accountmembe
 		return err
 	}
 	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func (s *Sender) SendContactChange(ctx context.Context, message contactchange.Message) error {
+	subject, plain, htmlBody, err := contactChangeContent(s.origin, message)
+	if err != nil {
+		return err
+	}
+	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func contactChangeContent(origin string, message contactchange.Message) (string, string, string, error) {
+	var subject, plain, htmlBody string
+	switch message.Action {
+	case contactchange.ActionVerifyNew:
+		link := origin + "/contact-change/verify?token=" + url.QueryEscape(message.Token)
+		subject = "Verify your new Infinite Ocean email"
+		plain = fmt.Sprintf("Hello %s,\r\n\r\nConfirm %s as the new email for your Infinite Ocean identity:\r\n%s\r\n\r\nThis single-use link expires at %s. Your current login remains unchanged until confirmation.\r\n", message.DisplayName, message.NewEmail, link, message.ExpiresAt.UTC().Format(time.RFC1123))
+		htmlBody = fmt.Sprintf("<p>Hello %s,</p><p>Confirm <strong>%s</strong> as the new email for your Infinite Ocean identity.</p><p><a href=\"%s\">Verify new email</a></p><p>This single-use link expires at %s. Your current login remains unchanged until confirmation.</p>", html.EscapeString(message.DisplayName), html.EscapeString(message.NewEmail), html.EscapeString(link), html.EscapeString(message.ExpiresAt.UTC().Format(time.RFC1123)))
+	case contactchange.ActionRequested:
+		link := origin + "/app/security"
+		subject = "Infinite Ocean email change requested"
+		plain = fmt.Sprintf("Hello %s,\r\n\r\nA request was made to change your Infinite Ocean identity email from %s to %s at %s. No change has been made yet.\r\n\r\nIf this was not you, review and revoke sessions now:\r\n%s\r\n", message.DisplayName, message.OldEmail, message.NewEmail, message.OccurredAt.UTC().Format(time.RFC1123), link)
+		htmlBody = fmt.Sprintf("<p>Hello %s,</p><p>A request was made to change your Infinite Ocean identity email from <strong>%s</strong> to <strong>%s</strong> at %s. No change has been made yet.</p><p>If this was not you, <a href=\"%s\">review and revoke sessions now</a>.</p>", html.EscapeString(message.DisplayName), html.EscapeString(message.OldEmail), html.EscapeString(message.NewEmail), html.EscapeString(message.OccurredAt.UTC().Format(time.RFC1123)), html.EscapeString(link))
+	case contactchange.ActionCompleted:
+		subject = "Infinite Ocean identity email changed"
+		plain = fmt.Sprintf("Hello %s,\r\n\r\nYour Infinite Ocean identity email changed from %s to %s at %s. Every existing session was signed out. Sign in again with the new email.\r\n", message.DisplayName, message.OldEmail, message.NewEmail, message.OccurredAt.UTC().Format(time.RFC1123))
+		htmlBody = fmt.Sprintf("<p>Hello %s,</p><p>Your Infinite Ocean identity email changed from <strong>%s</strong> to <strong>%s</strong> at %s.</p><p>Every existing session was signed out. Sign in again with the new email.</p>", html.EscapeString(message.DisplayName), html.EscapeString(message.OldEmail), html.EscapeString(message.NewEmail), html.EscapeString(message.OccurredAt.UTC().Format(time.RFC1123)))
+	default:
+		return "", "", "", errors.New("contact change notification action is invalid")
+	}
+	return subject, plain, htmlBody, nil
 }
 
 func ownershipTransferContent(origin string, message accountmembers.OwnershipTransferNotice) (string, string, string, error) {
@@ -197,3 +229,4 @@ var _ registration.VerificationSender = (*Sender)(nil)
 var _ invitations.Sender = (*Sender)(nil)
 var _ recovery.Sender = (*Sender)(nil)
 var _ accountmembers.OwnershipTransferSender = (*Sender)(nil)
+var _ contactchange.Sender = (*Sender)(nil)

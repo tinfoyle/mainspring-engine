@@ -291,6 +291,10 @@ export type AuthenticationAssurance = "single_factor" | "user_verified_cryptogra
 
 export type AuthenticationMethod = "password" | "passkey";
 
+export interface BeginContactChangeRequest {
+  readonly "new_email": string;
+}
+
 export interface BeginRecoveryRequest {
   readonly "email": string;
 }
@@ -380,6 +384,10 @@ export interface ChangeMembershipStateRequest {
   readonly "reason": string;
 }
 
+export interface CompleteContactChangeRequest {
+  readonly "token": string;
+}
+
 export interface CompletePasskeyLoginRequest {
   readonly "client_label"?: string;
   readonly "credential": WebAuthnAssertionCredential;
@@ -406,6 +414,21 @@ export interface CompleteRegistrationRequest {
 
 export interface ConsumeRecoveryCodeRequest {
   readonly "code": string;
+}
+
+export interface ContactChangeAccepted {
+  readonly "contact_change_id": string;
+  readonly "development_verification_token"?: string;
+  readonly "expires_at": string;
+  readonly "new_email": string;
+  readonly "status": "verification_required";
+}
+
+export interface ContactChangeCompleted {
+  readonly "changed_at": string;
+  readonly "new_email": string;
+  readonly "sessions_revoked": boolean;
+  readonly "status": "email_changed";
 }
 
 export interface CreateAgentBoardroomRequest {
@@ -637,7 +660,7 @@ export interface SecurityEvent {
   readonly "type": SecurityEventType;
 }
 
-export type SecurityEventType = "session_created" | "session_reauthenticated" | "session_revoked" | "sessions_revoked" | "credential_recovered" | "passkey_added" | "passkey_removed" | "passkey_authenticated" | "passkey_reauthenticated" | "passkey_clone_warning" | "recovery_codes_rotated" | "recovery_code_consumed";
+export type SecurityEventType = "session_created" | "session_reauthenticated" | "session_revoked" | "sessions_revoked" | "credential_recovered" | "passkey_added" | "passkey_removed" | "passkey_authenticated" | "passkey_reauthenticated" | "passkey_clone_warning" | "recovery_codes_rotated" | "recovery_code_consumed" | "primary_email_change_requested" | "primary_email_changed";
 
 export interface SecurityEvents {
   readonly "events": ReadonlyArray<SecurityEvent>;
@@ -843,6 +866,7 @@ export interface ApiSchemas {
   readonly AssignableMembershipRole: AssignableMembershipRole;
   readonly AuthenticationAssurance: AuthenticationAssurance;
   readonly AuthenticationMethod: AuthenticationMethod;
+  readonly BeginContactChangeRequest: BeginContactChangeRequest;
   readonly BeginRecoveryRequest: BeginRecoveryRequest;
   readonly BeginRegistrationRequest: BeginRegistrationRequest;
   readonly BillingStatus: BillingStatus;
@@ -857,12 +881,15 @@ export interface ApiSchemas {
   readonly ChangeAccountClosureRequest: ChangeAccountClosureRequest;
   readonly ChangeMembershipRoleRequest: ChangeMembershipRoleRequest;
   readonly ChangeMembershipStateRequest: ChangeMembershipStateRequest;
+  readonly CompleteContactChangeRequest: CompleteContactChangeRequest;
   readonly CompletePasskeyLoginRequest: CompletePasskeyLoginRequest;
   readonly CompletePasskeyReauthenticationRequest: CompletePasskeyReauthenticationRequest;
   readonly CompletePasskeyRegistrationRequest: CompletePasskeyRegistrationRequest;
   readonly CompleteRecoveryRequest: CompleteRecoveryRequest;
   readonly CompleteRegistrationRequest: CompleteRegistrationRequest;
   readonly ConsumeRecoveryCodeRequest: ConsumeRecoveryCodeRequest;
+  readonly ContactChangeAccepted: ContactChangeAccepted;
+  readonly ContactChangeCompleted: ContactChangeCompleted;
   readonly CreateAgentBoardroomRequest: CreateAgentBoardroomRequest;
   readonly CreateCheckoutSessionRequest: CreateCheckoutSessionRequest;
   readonly CreateInvitationRequest: CreateInvitationRequest;

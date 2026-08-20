@@ -78,18 +78,20 @@ type Repository interface {
 type SecurityEventType string
 
 const (
-	EventSessionCreated         SecurityEventType = "session_created"
-	EventSessionReauthenticated SecurityEventType = "session_reauthenticated"
-	EventSessionRevoked         SecurityEventType = "session_revoked"
-	EventSessionsRevoked        SecurityEventType = "sessions_revoked"
-	EventCredentialRecovered    SecurityEventType = "credential_recovered"
-	EventPasskeyAdded           SecurityEventType = "passkey_added"
-	EventPasskeyRemoved         SecurityEventType = "passkey_removed"
-	EventPasskeyAuthenticated   SecurityEventType = "passkey_authenticated"
-	EventPasskeyReauthenticated SecurityEventType = "passkey_reauthenticated"
-	EventPasskeyCloneWarning    SecurityEventType = "passkey_clone_warning"
-	EventRecoveryCodesRotated   SecurityEventType = "recovery_codes_rotated"
-	EventRecoveryCodeConsumed   SecurityEventType = "recovery_code_consumed"
+	EventSessionCreated              SecurityEventType = "session_created"
+	EventSessionReauthenticated      SecurityEventType = "session_reauthenticated"
+	EventSessionRevoked              SecurityEventType = "session_revoked"
+	EventSessionsRevoked             SecurityEventType = "sessions_revoked"
+	EventCredentialRecovered         SecurityEventType = "credential_recovered"
+	EventPasskeyAdded                SecurityEventType = "passkey_added"
+	EventPasskeyRemoved              SecurityEventType = "passkey_removed"
+	EventPasskeyAuthenticated        SecurityEventType = "passkey_authenticated"
+	EventPasskeyReauthenticated      SecurityEventType = "passkey_reauthenticated"
+	EventPasskeyCloneWarning         SecurityEventType = "passkey_clone_warning"
+	EventRecoveryCodesRotated        SecurityEventType = "recovery_codes_rotated"
+	EventRecoveryCodeConsumed        SecurityEventType = "recovery_code_consumed"
+	EventPrimaryEmailChangeRequested SecurityEventType = "primary_email_change_requested"
+	EventPrimaryEmailChanged         SecurityEventType = "primary_email_changed"
 )
 
 type SecurityEvent struct {
