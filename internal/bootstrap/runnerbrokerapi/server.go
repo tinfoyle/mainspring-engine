@@ -46,8 +46,11 @@ type Server struct {
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, error) {
-	if config.CellDatabaseURL == "" || config.BrokerAudience == "" || config.Namespace == "" || config.RunnerServiceAccount == "" || config.ToolRouterOrigin == "" || config.ModelGatewayOrigin == "" || config.ToolIssuer == "" || config.ToolSigningKeyID == "" || logger == nil {
+	if config.CellDatabaseURL == "" || config.BrokerAudience == "" || config.ToolRouterOrigin == "" || config.ModelGatewayOrigin == "" || config.ToolIssuer == "" || config.ToolSigningKeyID == "" || logger == nil {
 		return nil, errors.New("runner broker configuration is required")
+	}
+	if config.IdentityVerifier == nil && (config.Namespace == "" || config.RunnerServiceAccount == "") {
+		return nil, errors.New("Kubernetes runner broker identity configuration is required")
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.CellDatabaseURL)
 	if err != nil {

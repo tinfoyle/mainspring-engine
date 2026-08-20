@@ -36,6 +36,7 @@ spec:
           ports: [{name: https, containerPort: 8443}]
           env:
             - {name: SPYGLASS_HTTP_ADDRESS, value: ":8443"}
+            - {name: SPYGLASS_RUNNER_SUBSTRATE, value: "kubernetes"}
             - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "10"}
             - {name: SPYGLASS_RUNNER_NAMESPACE, value: "spyglass-runners-reference"}
             - {name: SPYGLASS_RUNNER_SERVICE_ACCOUNT, value: "runner"}

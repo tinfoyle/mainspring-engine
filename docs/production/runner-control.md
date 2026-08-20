@@ -1,16 +1,16 @@
 # Fair Runner Control Plane
 
-- Status: Kubernetes lifecycle, compiled Work executor, encrypted exchange, and terminal payload destruction executable; manifests and applied evidence pending
+- Status: Kubernetes and Docker-stage lifecycle adapters executable; live Docker recovery gate complete; applied Hostinger/LKE evidence pending
 - Product: Infinite Ocean: Spyglass
 - Parent: [Pooled Kubernetes and Cell Architecture](kubernetes-topology.md)
 
 ## Decision
 
-Spyglass runs bounded asynchronous invocations in a shared cell fleet. It does not keep an application container alive for each customer. An admitted invocation becomes one durable, identifier-only queue record; a cell runner controller fairly selects it and eventually creates one hardened, ephemeral Kubernetes Job.
+Spyglass runs bounded asynchronous invocations in a shared cell fleet. It does not keep an application container alive for each customer. An admitted invocation becomes one durable, identifier-only queue record; a cell runner controller fairly selects it and eventually creates one hardened, ephemeral runner: a Docker container on Hostinger stage or a Kubernetes Job on LKE.
 
 The scheduling policy is independent of Kubernetes. PostgreSQL owns durable admission, Account fairness, concurrency, launch leases, retries, and terminal state. A launcher adapter owns idempotent interaction with the cluster. This keeps business policy testable without a cluster and permits another execution substrate without rewriting admission semantics.
 
-The `spyglass runner-controller` process performs durable fair claims, idempotent Kubernetes Job creation, due-time terminal inspection, exact foreground cancellation, exact capacity release, and bounded terminal-envelope destruction. The review reference deploys it separately from the broker and binds its exact Job lifecycle verbs only into a dedicated runner namespace. Environment-specific Kubernetes API egress, sandbox RuntimeClass, certificate/secret delivery, a verified digest-pinned runner image, and applied policy evidence must still be supplied and proven together before promotion.
+The `spyglass runner-controller` process performs durable fair claims, idempotent launch, due-time terminal inspection, exact cancellation, exact capacity release, and bounded terminal-envelope destruction. `SPYGLASS_RUNNER_SUBSTRATE` is mandatory: `docker-stage` is accepted only in `stage`/`local-secure`, while `kubernetes` selects the production adapter. The Docker launcher is a separate mTLS service with the only Docker socket mount; the controller gets lifecycle authority and the broker gets identity-verification authority through distinct credentials. The Kubernetes reference deploys controller and broker separately and binds exact Job lifecycle verbs only into a dedicated runner namespace. Environment-specific Kubernetes API egress, sandbox RuntimeClass, certificate/secret delivery, a verified digest-pinned runner image, and applied policy evidence must still be supplied and proven together before promotion.
 
 ## Control record and payload boundary
 
@@ -137,6 +137,20 @@ Runner control is part of cell Account erasure policy from its first migration:
 
 The original erasure functions remain under internal names because applied migrations are immutable. Production grants assign both the public wrapper and internal implementation to the same `NOLOGIN NOBYPASSRLS` erasure function role; only the public wrapper is executable by the short-lived operator role.
 
+## Docker-stage adapter contract
+
+The Docker launcher contract preserves the same durable state machine without granting Docker Engine authority to ordinary application processes:
+
+- deterministic names and immutable launch-contract labels make ambiguous create and launcher restart reconcilable;
+- stage accepts only a digest-pinned runner image; the mutable `:local` fixture is gated to `local-secure` certification;
+- each invocation receives a random identity token and broker CA through two read-only mounts, no environment variables, no database/provider credentials and no Docker socket;
+- the container runs as UID/GID 65532 with a read-only root, all capabilities dropped, no-new-privileges, bounded CPU/memory/PIDs/tmpfs/deadline, no restart policy and an isolated runner network;
+- controller lifecycle and broker verification endpoints require exact workload identities plus different bearer credentials;
+- identity verification binds the token digest to the running container's immutable invocation/profile/contract labels; and
+- cancellation and deadline cleanup remove only launcher-managed, exactly identified containers and their bounded identity directory.
+
+`deploy/docker/spyglass/verify-docker-runner.sh` proves live duplicate launch, identity verification, launcher restart, cancellation and cleanup against the ubunturojo Docker daemon; unit contracts cover uncertain creation and expired orphan cleanup. Hostinger stage must repeat this gate with its real immutable runner digest and native Unix filesystem.
+
 ## Kubernetes adapter contract
 
 The executable adapter enforces these rules:
@@ -178,3 +192,4 @@ Event-driven scaling should use ready count and oldest-ready age. Controller rep
 - Account erasure blocks unfinished runs and removes all terminal control records.
 - Applied-cluster tests prove RBAC, NetworkPolicy, pod hardening, cancellation, node loss, API timeout, controller rollout, queue-driven scale-up, and cleanup.
 - A many-small-Accounts plus one-hot-Account load test meets the admitted-start SLO without database or Kubernetes API saturation.
+- The Docker-stage gate proves duplicate launch, identity rejection, cancellation, launcher restart and orphan cleanup without exposing the socket to controller, broker, or runner.

@@ -31,6 +31,7 @@ spec:
           ports: [{name: health, containerPort: 8081}]
           env:
             - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+            - {name: SPYGLASS_RUNNER_SUBSTRATE, value: "kubernetes"}
             - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "4"}
             - {name: SPYGLASS_RUNNER_CONTROL_POLL_INTERVAL, value: "1s"}
             - {name: SPYGLASS_RUNNER_CONTROL_LEASE, value: "30s"}

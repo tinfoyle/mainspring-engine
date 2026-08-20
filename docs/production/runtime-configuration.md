@@ -2,7 +2,7 @@
 
 - Status: executable Phase 2 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 The revision-controlled machine contract is [`deploy/spyglass-process-inventory.json`](../../deploy/spyglass-process-inventory.json). Its verification script compares the complete mode set to the binary switch and fails local verification when they drift.
 
@@ -255,6 +255,7 @@ Every reconciler replica periodically deletes at most the configured batch of co
 | Environment variable | Requirement |
 |---|---|
 | `SPYGLASS_CELL_DATABASE_URL` | Required controller credential with `SELECT/UPDATE` only on the two identifier-only runner-control tables |
+| `SPYGLASS_RUNNER_SUBSTRATE` | Required exact selector: `kubernetes` in production/LKE or `docker-stage` only in stage/local-secure |
 | `SPYGLASS_CELL_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `4` |
 | `SPYGLASS_RUNNER_CONTROL_POLL_INTERVAL` | Optional duration from `100ms` through `1m`; defaults to `1s` |
 | `SPYGLASS_RUNNER_CONTROL_LEASE` | Optional launch lease from `1s` through `30m`; defaults to `2m` |
@@ -263,28 +264,34 @@ Every reconciler replica periodically deletes at most the configured batch of co
 | `SPYGLASS_RUNNER_PAYLOAD_CLEANUP_INTERVAL` | Optional encrypted terminal-payload cleanup interval from `1m` through `24h`; defaults to `1h` |
 | `SPYGLASS_RUNNER_PAYLOAD_RETENTION` | Optional encrypted request/result recovery window from `1h` through `720h`; defaults to `24h` |
 | `SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH` | Optional SKIP-LOCKED cleanup batch from 1 through 1000; defaults to `500` |
-| `SPYGLASS_RUNNER_NAMESPACE` | Required exact Kubernetes namespace DNS label |
+| `SPYGLASS_RUNNER_NAMESPACE` | Kubernetes only: required exact namespace DNS label |
 | `SPYGLASS_RUNNER_IMAGE` | Required immutable image reference ending in `@sha256:` plus exactly 64 lowercase hexadecimal characters |
-| `SPYGLASS_RUNNER_SERVICE_ACCOUNT` | Required runner-pod service account; it has no RBAC, automatic API token mounting is disabled, and only a Pod-bound broker-audience token is projected explicitly |
-| `SPYGLASS_RUNNER_RUNTIME_CLASS` | Required sandbox RuntimeClass DNS label; the environment must test its isolation and PID behavior |
+| `SPYGLASS_RUNNER_SERVICE_ACCOUNT` | Kubernetes only: required runner-pod service account; it has no RBAC, automatic API token mounting is disabled, and only a Pod-bound broker-audience token is projected explicitly |
+| `SPYGLASS_RUNNER_RUNTIME_CLASS` | Kubernetes only: required sandbox RuntimeClass DNS label; the environment must test its isolation and PID behavior |
 | `SPYGLASS_RUNNER_BROKER_URL` | Required HTTPS broker origin/path with no embedded credentials, query, or fragment |
-| `SPYGLASS_RUNNER_BROKER_CA_CONFIG_MAP` | Required namespace-local immutable ConfigMap name containing only the broker trust bundle at key `ca.crt`; its name is included in the Job contract |
+| `SPYGLASS_RUNNER_BROKER_CA_CONFIG_MAP` | Kubernetes only: required namespace-local immutable ConfigMap name containing only the broker trust bundle at key `ca.crt`; its name is included in the Job contract |
+| `SPYGLASS_DOCKER_LAUNCHER_ORIGIN` | Docker stage only: exact private HTTPS launcher origin |
+| `SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN` | Docker stage only: controller-specific bearer secret, distinct from broker verification authority |
+| `SPYGLASS_WORKLOAD_CERT_FILE` / `SPYGLASS_WORKLOAD_KEY_FILE` / `SPYGLASS_WORKLOAD_CA_FILE` | Docker stage only: controller mTLS client material for the launcher |
 | `SPYGLASS_RUNNER_ACTIVE_DEADLINE` | Optional whole-second Job deadline from `30s` through `24h`; defaults to `15m` |
 | `SPYGLASS_RUNNER_JOB_RETENTION` | Optional whole-second completed-Job TTL from `1m` through `168h`; defaults to `1h` |
 | `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
 | `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
 
-The controller uses its in-cluster projected service-account token and CA only to create, get, and exactly delete Jobs. Its database role cannot insert work or request cancellation; the separate producer role has no table grants and executes only bounded configure, atomic encrypted-provision, and cancel functions. The controller additionally receives execute-only terminal-payload cleanup authority. Cleanup locks a bounded identifier-only terminal batch, enters each Account's RLS scope internally, and overwrites encrypted request/result envelopes with fixed sentinels after the recovery window while preserving hashes, action state, and capability audit. Ambiguous create results retain their Account slot under `launch_uncertain` until the exact Job or its exact absence is observed. Runner Jobs receive no database credential and set `automountServiceAccountToken: false`; they explicitly project only a short-lived token for the exact configured broker URL. The three compiled resource profiles (`agent-small`, `agent-medium`, and `agent-large`) are deployment policy rather than invocation input.
+On Kubernetes the controller uses its in-cluster projected service-account token and CA only to create, get, and exactly delete Jobs. On stage it uses mTLS plus the controller-only bearer secret to call the narrow launcher and never receives the Docker socket. Its database role cannot insert work or request cancellation; the separate producer role has no table grants and executes only bounded configure, atomic encrypted-provision, and cancel functions. The controller additionally receives execute-only terminal-payload cleanup authority. Cleanup locks a bounded identifier-only terminal batch, enters each Account's RLS scope internally, and overwrites encrypted request/result envelopes with fixed sentinels after the recovery window while preserving hashes, action state, and capability audit. Ambiguous create results retain their Account slot under `launch_uncertain` until the exact workload or its exact absence is observed. Runners receive no database credential. The three compiled resource profiles (`agent-small`, `agent-medium`, and `agent-large`) are deployment policy rather than invocation input.
 
 ## Runner broker values
 
 | Environment variable | Requirement |
 |---|---|
 | `SPYGLASS_CELL_DATABASE_URL` | Required broker credential with execute-only claim/result functions and no direct table grants |
+| `SPYGLASS_RUNNER_SUBSTRATE` | Required exact selector: `kubernetes` in production/LKE or `docker-stage` only in stage/local-secure |
 | `SPYGLASS_CELL_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `10` for the broker process |
 | `SPYGLASS_RUNNER_BROKER_URL` | Exact HTTPS URL used both as projected-token audience and runner client origin |
-| `SPYGLASS_RUNNER_NAMESPACE` | Exact namespace whose runner Pods and Jobs the online verifier accepts |
-| `SPYGLASS_RUNNER_SERVICE_ACCOUNT` | Exact no-RBAC ServiceAccount used by runner Pods |
+| `SPYGLASS_RUNNER_NAMESPACE` | Kubernetes only: exact namespace whose runner Pods and Jobs the online verifier accepts |
+| `SPYGLASS_RUNNER_SERVICE_ACCOUNT` | Kubernetes only: exact no-RBAC ServiceAccount used by runner Pods |
+| `SPYGLASS_DOCKER_LAUNCHER_ORIGIN` | Docker stage only: exact private HTTPS launcher origin |
+| `SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN` | Docker stage only: broker-specific identity-verification secret, distinct from controller authority |
 | `SPYGLASS_RUNNER_ENCRYPTION_KEYS` | Required comma-separated `positive-version=base64-32-byte-key` keyring; runtime secret, never database configuration |
 | `SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION` | Required positive version present in the keyring; all new envelopes use it |
 | `SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES` | Optional positive result-request limit through 2 MiB; defaults to 2 MiB while the application envelope remains capped at 1 MiB |
@@ -298,7 +305,29 @@ The controller uses its in-cluster projected service-account token and CA only t
 | `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
 | `SPYGLASS_HTTP_ADDRESS` | Optional broker HTTPS address; defaults to `:8443` |
 
-The broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. Its database role has execute-only exchange, capability-audit, and action begin/complete authority with no direct table grants. A separate future Attention projection role receives only authorization-record/cancel execute authority; it cannot begin or settle an action. The broker reaches model-gateway with its rotating workload certificate; it has no provider key. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
+On Kubernetes the broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. On Docker stage the broker's mTLS identity plus broker-only bearer secret permits only token-to-running-container identity verification through the launcher. Its database role has execute-only exchange, capability-audit, and action begin/complete authority with no direct table grants. A separate future Attention projection role receives only authorization-record/cancel execute authority; it cannot begin or settle an action. The broker reaches model-gateway with its rotating workload certificate; it has no provider key. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
+
+## Docker runner launcher values
+
+This mode is rejected unless `SPYGLASS_ENVIRONMENT=stage` and `SPYGLASS_RUNNER_SUBSTRATE=docker-stage`; `local-secure` is accepted only by the checked-in certification fixture. Production/LKE cannot select it.
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_RUNNER_IMAGE` | Required digest-pinned runner image; mutable `:local` is accepted only in `local-secure` |
+| `SPYGLASS_DOCKER_RUNNER_NETWORK` | Required fixed Docker network name for isolated runner egress |
+| `SPYGLASS_RUNNER_BROKER_URL` | Required exact private HTTPS broker URL passed as a fixed launcher argument |
+| `SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY` | Required absolute bounded host path for per-invocation token and CA material |
+| `SPYGLASS_DOCKER_RUNNER_BROKER_CA_FILE` | Required absolute path to the runner broker CA |
+| `SPYGLASS_DOCKER_ENGINE_SOCKET` | Optional absolute Docker socket path; defaults to `/var/run/docker.sock` |
+| `SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN` / `SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN` | Required distinct bearer secrets for lifecycle and identity-verification authority |
+| `SPYGLASS_DOCKER_RUNNER_CLEANUP_INTERVAL` | Optional expired-runner sweep interval from `10s` through `1h`; defaults to `1m` |
+| `SPYGLASS_DOCKER_RUNNER_CLEANUP_BATCH` | Optional bounded cleanup batch from 1 through 1000; defaults to `100` |
+| `SPYGLASS_RUNNER_ACTIVE_DEADLINE` / `SPYGLASS_RUNNER_JOB_RETENTION` | Same bounded execution and terminal retention policy used by the controller |
+| `SPYGLASS_WORKLOAD_CERT_FILE` / `SPYGLASS_WORKLOAD_KEY_FILE` / `SPYGLASS_WORKLOAD_CA_FILE` | Required TLS 1.3 server material |
+| `SPYGLASS_WORKLOAD_CLIENT_IDENTITIES` | Exact controller and broker SPIFFE client identities; no wildcard identities |
+| `SPYGLASS_HTTP_ADDRESS` | Optional HTTPS listen address; defaults to `:8443` |
+
+Only this service receives Docker Engine authority. Launched containers have immutable contract labels, no environment/provider/database credentials, two read-only identity mounts, non-root execution, read-only root, all capabilities dropped, no-new-privileges, bounded CPU/memory/PIDs/tmpfs/deadline, no restart policy and the fixed isolated network. Stage uses native Unix permission enforcement for identity files.
 
 Do not deploy the runner fleet until the Agents serving/dispatch workloads and any provider-specific consequential adapters are protected by a tested environment NetworkPolicy. Routed Agent serving, encrypted dispatch, the bounded `agent.turn.execute` and `work.summary.snapshot` executors, read-only `work.summary.read` and `agents.model.turn` handlers, lease-fenced result projection worker, and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology places ephemeral Jobs and their permissionless ServiceAccount in a dedicated runner namespace, includes namespace-scoped Job lifecycle and TokenReview/Pod/Job observer RBAC, and permits only the internal runner→broker→gateway/tool paths. An environment must still supply and validate its cluster API egress CIDR, sandbox RuntimeClass, digest-pinned runner artifact, database/provider egress, certificate/secret controllers, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, Pod-bound content-free audit, and projection retention fencing are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
 
@@ -407,6 +436,7 @@ spyglass route-canary
 spyglass route-receipt-worker
 spyglass runner-controller
 spyglass runner-broker
+spyglass docker-runner-launcher
 spyglass model-gateway
 spyglass agent-dispatch-worker
 spyglass agent-projection-worker

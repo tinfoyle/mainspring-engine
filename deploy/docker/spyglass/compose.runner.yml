@@ -1,0 +1,86 @@
+services:
+  runner-fixture:
+    profiles: [runner-build]
+    build:
+      context: ./runner-fixture
+      dockerfile: Dockerfile
+    image: spyglass-runner-fixture:local
+
+  docker-runner-launcher:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+      args:
+        VERSION: phase2.5-local
+        REVISION: local
+        CREATED: local
+    image: spyglass-application:local
+    command: [docker-runner-launcher]
+    user: "0:0"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SPYGLASS_ENVIRONMENT: local-secure
+      SPYGLASS_RUNNER_SUBSTRATE: docker-stage
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_RUNNER_IMAGE: spyglass-runner-fixture:local
+      SPYGLASS_DOCKER_RUNNER_NETWORK: spyglass-local-runner-egress
+      SPYGLASS_RUNNER_BROKER_URL: https://runner-broker:8443
+      SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY: ${SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY:?set SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY}
+      SPYGLASS_DOCKER_RUNNER_BROKER_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_DOCKER_ENGINE_SOCKET: /var/run/docker.sock
+      SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN: local-controller-token-000000000000000000000000000000000000
+      SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN: local-broker-token-000000000000000000000000000000000000000
+      SPYGLASS_DOCKER_RUNNER_CLEANUP_INTERVAL: 10s
+      SPYGLASS_DOCKER_RUNNER_CLEANUP_BATCH: "100"
+      SPYGLASS_RUNNER_ACTIVE_DEADLINE: 5m
+      SPYGLASS_RUNNER_JOB_RETENTION: 1h
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/runner-controller,spiffe://infiniteocean.net/spyglass/workloads/runner-broker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./workload-tls/generated/docker-runner-launcher:/var/run/secrets/spyglass/workload:ro
+      - ${SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY}:${SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY}
+    expose: ["8443"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://docker-runner-launcher:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+    networks: [application, runner-egress]
+
+  docker-launcher-test:
+    profiles: [runner-test]
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+      target: test-runtime
+    image: spyglass-go-test:local
+    entrypoint: [go, test, -count=1, -run=TestDockerLauncherIntegration, ./internal/adapters/dockerlauncherhttp]
+    environment:
+      SPYGLASS_DOCKER_LAUNCHER_INTEGRATION: "1"
+      SPYGLASS_DOCKER_LAUNCHER_ORIGIN: https://docker-runner-launcher:8443
+      SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN: local-controller-token-000000000000000000000000000000000000
+      SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN: local-broker-token-000000000000000000000000000000000000000
+      SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY: /runner-identities
+      SPYGLASS_DOCKER_LAUNCHER_INTEGRATION_PHASE: ${SPYGLASS_DOCKER_LAUNCHER_INTEGRATION_PHASE:-ensure}
+    volumes:
+      - ./workload-tls/generated/runner-controller:/runner-controller:ro
+      - ./workload-tls/generated/runner-broker:/runner-broker:ro
+      - ${SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY}:/runner-identities:ro
+    networks: [application]
+
+networks:
+  runner-egress:
+    name: spyglass-local-runner-egress
+    internal: true

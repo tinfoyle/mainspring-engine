@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerengine"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerlauncherhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/runnerbrokerhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
@@ -33,6 +35,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeretention"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneragents"
+	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercontrol"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerexecution"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerwork"
@@ -66,6 +69,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/operatorauth"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/restoregate"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/workloadidentity"
+	"github.com/tinfoyle/spyglass-engine/internal/transport/dockerlauncherapi"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -129,6 +133,8 @@ func main() {
 		err = runWorkReconciler(ctx, logger)
 	case "runner-controller":
 		err = runRunnerController(ctx, logger)
+	case "docker-runner-launcher":
+		err = runDockerRunnerLauncher(ctx, logger)
 	case "runner-broker":
 		err = runRunnerBroker(ctx, logger)
 	case "model-gateway":
@@ -156,7 +162,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1198,19 +1204,116 @@ func runRunnerController(ctx context.Context, logger *slog.Logger) error {
 	if err != nil || pruneBatch > runnercontrol.MaximumPruneBatch {
 		return errors.New("SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH must be between 1 and 1000")
 	}
-	namespace, err := requiredEnv("SPYGLASS_RUNNER_NAMESPACE")
+	substrate, err := requiredEnv("SPYGLASS_RUNNER_SUBSTRATE")
 	if err != nil {
 		return err
+	}
+	var launcher runnercontrol.Launcher
+	var kubernetesConfig kubernetes.Config
+	switch substrate {
+	case "kubernetes":
+		namespace, requiredErr := requiredEnv("SPYGLASS_RUNNER_NAMESPACE")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		image, requiredErr := requiredEnv("SPYGLASS_RUNNER_IMAGE")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		serviceAccount, requiredErr := requiredEnv("SPYGLASS_RUNNER_SERVICE_ACCOUNT")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		runtimeClass, requiredErr := requiredEnv("SPYGLASS_RUNNER_RUNTIME_CLASS")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		brokerURL, requiredErr := requiredEnv("SPYGLASS_RUNNER_BROKER_URL")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		brokerCAConfigMap, requiredErr := requiredEnv("SPYGLASS_RUNNER_BROKER_CA_CONFIG_MAP")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		deadline, durationErr := durationEnv("SPYGLASS_RUNNER_ACTIVE_DEADLINE", 15*time.Minute)
+		if durationErr != nil || deadline < 30*time.Second || deadline > 24*time.Hour || deadline%time.Second != 0 {
+			return errors.New("SPYGLASS_RUNNER_ACTIVE_DEADLINE must be whole seconds between 30s and 24h")
+		}
+		retention, durationErr := durationEnv("SPYGLASS_RUNNER_JOB_RETENTION", time.Hour)
+		if durationErr != nil || retention < time.Minute || retention > 7*24*time.Hour || retention%time.Second != 0 {
+			return errors.New("SPYGLASS_RUNNER_JOB_RETENTION must be whole seconds between 1m and 168h")
+		}
+		kubernetesConfig = kubernetes.Config{Namespace: namespace, RunnerImage: image, RunnerServiceAccount: serviceAccount, RunnerRuntimeClass: runtimeClass, BrokerURL: brokerURL, RunnerBrokerCAConfigMap: brokerCAConfigMap, Profiles: kubernetesRunnerProfiles(), ActiveDeadlineSeconds: int64(deadline / time.Second), TTLSecondsAfterFinished: int64(retention / time.Second)}
+	case "docker-stage":
+		if !dockerStageEnvironment() {
+			return errors.New("docker-stage runner substrate requires stage or local-secure verification environment")
+		}
+		origin, requiredErr := requiredEnv("SPYGLASS_DOCKER_LAUNCHER_ORIGIN")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		token, requiredErr := requiredEnv("SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		transport, transportErr := workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+		if transportErr != nil {
+			return transportErr
+		}
+		defer transport.CloseIdleConnections()
+		launcher, err = dockerlauncherhttp.New(dockerlauncherhttp.Config{Origin: origin, Token: token, HTTPClient: &http.Client{Transport: observability.TracingFromContext(ctx).Transport(transport), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}})
+		if err != nil {
+			return err
+		}
+	default:
+		return errors.New("SPYGLASS_RUNNER_SUBSTRATE must be kubernetes or docker-stage")
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := runnercontroller.New(startup, runnercontroller.Config{
+		CellDatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease,
+		MaxAttempts: int(maxAttempts), InspectionBatch: int(inspectionBatch), CleanupInterval: cleanupInterval,
+		PayloadRetention: payloadRetention, PruneBatch: int(pruneBatch),
+		Kubernetes: kubernetesConfig, Launcher: launcher,
+	}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "runner-controller", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
+}
+
+func kubernetesRunnerProfiles() map[string]kubernetes.ResourceProfile {
+	return map[string]kubernetes.ResourceProfile{
+		"agent-small":  {CPURequest: "250m", CPULimit: "1", MemoryRequest: "256Mi", MemoryLimit: "1Gi", EphemeralStorageLimit: "1Gi"},
+		"agent-medium": {CPURequest: "500m", CPULimit: "2", MemoryRequest: "512Mi", MemoryLimit: "2Gi", EphemeralStorageLimit: "2Gi"},
+		"agent-large":  {CPURequest: "1", CPULimit: "4", MemoryRequest: "1Gi", MemoryLimit: "4Gi", EphemeralStorageLimit: "4Gi"},
+	}
+}
+
+func dockerRunnerProfiles() map[string]dockerengine.ResourceProfile {
+	return map[string]dockerengine.ResourceProfile{
+		"agent-small":  {NanoCPUs: 1_000_000_000, MemoryBytes: 1 << 30, PidsLimit: 128, WorkTmpfsBytes: 1 << 30},
+		"agent-medium": {NanoCPUs: 2_000_000_000, MemoryBytes: 2 << 30, PidsLimit: 256, WorkTmpfsBytes: 2 << 30},
+		"agent-large":  {NanoCPUs: 4_000_000_000, MemoryBytes: 4 << 30, PidsLimit: 512, WorkTmpfsBytes: 4 << 30},
+	}
+}
+
+func dockerStageEnvironment() bool {
+	environment := os.Getenv("SPYGLASS_ENVIRONMENT")
+	return environment == "stage" || environment == "local-secure"
+}
+
+func runDockerRunnerLauncher(ctx context.Context, logger *slog.Logger) error {
+	if !dockerStageEnvironment() || os.Getenv("SPYGLASS_RUNNER_SUBSTRATE") != "docker-stage" {
+		return errors.New("docker-runner-launcher requires stage/local-secure environment and docker-stage substrate")
 	}
 	image, err := requiredEnv("SPYGLASS_RUNNER_IMAGE")
 	if err != nil {
 		return err
 	}
-	serviceAccount, err := requiredEnv("SPYGLASS_RUNNER_SERVICE_ACCOUNT")
-	if err != nil {
-		return err
-	}
-	runtimeClass, err := requiredEnv("SPYGLASS_RUNNER_RUNTIME_CLASS")
+	network, err := requiredEnv("SPYGLASS_DOCKER_RUNNER_NETWORK")
 	if err != nil {
 		return err
 	}
@@ -1218,7 +1321,19 @@ func runRunnerController(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	brokerCAConfigMap, err := requiredEnv("SPYGLASS_RUNNER_BROKER_CA_CONFIG_MAP")
+	identityDirectory, err := requiredEnv("SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY")
+	if err != nil {
+		return err
+	}
+	brokerCAFile, err := requiredEnv("SPYGLASS_DOCKER_RUNNER_BROKER_CA_FILE")
+	if err != nil {
+		return err
+	}
+	controllerToken, err := requiredEnv("SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN")
+	if err != nil {
+		return err
+	}
+	brokerToken, err := requiredEnv("SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN")
 	if err != nil {
 		return err
 	}
@@ -1230,24 +1345,56 @@ func runRunnerController(ctx context.Context, logger *slog.Logger) error {
 	if err != nil || retention < time.Minute || retention > 7*24*time.Hour || retention%time.Second != 0 {
 		return errors.New("SPYGLASS_RUNNER_JOB_RETENTION must be whole seconds between 1m and 168h")
 	}
-	profiles := map[string]kubernetes.ResourceProfile{
-		"agent-small":  {CPURequest: "250m", CPULimit: "1", MemoryRequest: "256Mi", MemoryLimit: "1Gi", EphemeralStorageLimit: "1Gi"},
-		"agent-medium": {CPURequest: "500m", CPULimit: "2", MemoryRequest: "512Mi", MemoryLimit: "2Gi", EphemeralStorageLimit: "2Gi"},
-		"agent-large":  {CPURequest: "1", CPULimit: "4", MemoryRequest: "1Gi", MemoryLimit: "4Gi", EphemeralStorageLimit: "4Gi"},
+	cleanupInterval, err := durationEnv("SPYGLASS_DOCKER_RUNNER_CLEANUP_INTERVAL", time.Minute)
+	if err != nil || cleanupInterval < 10*time.Second || cleanupInterval > time.Hour {
+		return errors.New("SPYGLASS_DOCKER_RUNNER_CLEANUP_INTERVAL must be between 10s and 1h")
 	}
-	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	worker, err := runnercontroller.New(startup, runnercontroller.Config{
-		CellDatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease,
-		MaxAttempts: int(maxAttempts), InspectionBatch: int(inspectionBatch), CleanupInterval: cleanupInterval,
-		PayloadRetention: payloadRetention, PruneBatch: int(pruneBatch),
-		Kubernetes: kubernetes.Config{Namespace: namespace, RunnerImage: image, RunnerServiceAccount: serviceAccount, RunnerRuntimeClass: runtimeClass, BrokerURL: brokerURL, RunnerBrokerCAConfigMap: brokerCAConfigMap, Profiles: profiles, ActiveDeadlineSeconds: int64(deadline / time.Second), TTLSecondsAfterFinished: int64(retention / time.Second)},
-	}, logger)
+	cleanupBatch, err := int32Env("SPYGLASS_DOCKER_RUNNER_CLEANUP_BATCH", 100)
+	if err != nil || cleanupBatch > 1000 {
+		return errors.New("SPYGLASS_DOCKER_RUNNER_CLEANUP_BATCH must be between 1 and 1000")
+	}
+	launcher, err := dockerengine.New(dockerengine.Config{
+		SocketPath: os.Getenv("SPYGLASS_DOCKER_ENGINE_SOCKET"), RunnerImage: image, Network: network,
+		BrokerURL: brokerURL, IdentityDirectory: identityDirectory, BrokerCAFile: brokerCAFile,
+		Profiles: dockerRunnerProfiles(), ActiveDeadline: deadline, Retention: retention,
+		AllowLocalImage:                  os.Getenv("SPYGLASS_ENVIRONMENT") == "local-secure",
+		AllowPermissionlessIdentityFiles: os.Getenv("SPYGLASS_ENVIRONMENT") == "local-secure",
+	})
 	if err != nil {
 		return err
 	}
-	defer worker.Close()
-	return serveWorker(ctx, "runner-controller", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
+	server, err := dockerlauncherapi.New(launcher, dockerlauncherapi.Config{ControllerToken: controllerToken, BrokerToken: brokerToken}, logger)
+	if err != nil {
+		return err
+	}
+	serverTLS, err := workloadidentity.NewServerConfig(workloadTLSFilesEnv())
+	if err != nil {
+		return err
+	}
+	secured, err := workloadidentity.RequireClientIdentity(server.Handler(), csvEnv("SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"), logger)
+	if err != nil {
+		return err
+	}
+	go runDockerRunnerCleanup(ctx, launcher, cleanupInterval, int(cleanupBatch), logger)
+	return serveHTTPS(ctx, "docker-runner-launcher", httpAddress(":8443"), secured, serverTLS, logger)
+}
+
+func runDockerRunnerCleanup(ctx context.Context, launcher *dockerengine.RunnerContainers, interval time.Duration, batch int, logger *slog.Logger) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			removed, err := launcher.CleanupExpired(ctx, now.UTC(), batch)
+			if err != nil {
+				logger.Error("Clean expired Docker runners", "error", err)
+			} else if removed > 0 {
+				logger.Info("Cleaned expired Docker runners", "count", removed)
+			}
+		}
+	}
 }
 
 func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
@@ -1265,13 +1412,45 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	namespace, err := requiredEnv("SPYGLASS_RUNNER_NAMESPACE")
+	substrate, err := requiredEnv("SPYGLASS_RUNNER_SUBSTRATE")
 	if err != nil {
 		return err
 	}
-	runnerServiceAccount, err := requiredEnv("SPYGLASS_RUNNER_SERVICE_ACCOUNT")
-	if err != nil {
-		return err
+	var namespace, runnerServiceAccount string
+	var identityVerifier runnerbroker.IdentityVerifier
+	switch substrate {
+	case "kubernetes":
+		namespace, err = requiredEnv("SPYGLASS_RUNNER_NAMESPACE")
+		if err != nil {
+			return err
+		}
+		runnerServiceAccount, err = requiredEnv("SPYGLASS_RUNNER_SERVICE_ACCOUNT")
+		if err != nil {
+			return err
+		}
+	case "docker-stage":
+		if !dockerStageEnvironment() {
+			return errors.New("docker-stage runner substrate requires stage or local-secure verification environment")
+		}
+		origin, requiredErr := requiredEnv("SPYGLASS_DOCKER_LAUNCHER_ORIGIN")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		token, requiredErr := requiredEnv("SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		launcherTransport, transportErr := workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+		if transportErr != nil {
+			return transportErr
+		}
+		defer launcherTransport.CloseIdleConnections()
+		identityVerifier, err = dockerlauncherhttp.New(dockerlauncherhttp.Config{Origin: origin, Token: token, HTTPClient: &http.Client{Transport: observability.TracingFromContext(ctx).Transport(launcherTransport), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}})
+		if err != nil {
+			return err
+		}
+	default:
+		return errors.New("SPYGLASS_RUNNER_SUBSTRATE must be kubernetes or docker-stage")
 	}
 	keys, activeVersion, err := versionedEncryptionKeysEnv("SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION")
 	if err != nil {
@@ -1335,6 +1514,7 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 	server, err := runnerbrokerbootstrap.New(startup, runnerbrokerbootstrap.Config{
 		CellDatabaseURL: databaseURL, BrokerAudience: brokerAudience, Namespace: namespace,
 		RunnerServiceAccount: runnerServiceAccount, EncryptionKeys: keys, ActiveKeyVersion: activeVersion,
+		IdentityVerifier: identityVerifier,
 		MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, ToolRouterOrigin: toolRouterOrigin,
 		ToolIssuer: toolIssuer, ToolSigningKeyID: toolSigningKeyID, ToolSigningKey: toolSigningKey,
 		ToolLifetime: toolLifetime, ToolTransport: toolTransport, ModelGatewayOrigin: modelGatewayOrigin,

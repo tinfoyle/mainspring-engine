@@ -22,6 +22,7 @@ type Config struct {
 	PayloadRetention                         time.Duration
 	MaxAttempts, InspectionBatch, PruneBatch int
 	Kubernetes                               kubernetes.Config
+	Launcher                                 runnercontrol.Launcher
 }
 
 type Status struct {
@@ -93,10 +94,13 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	launcher, err := kubernetes.NewInClusterRunnerJobs(config.Kubernetes)
-	if err != nil {
-		pool.Close()
-		return nil, err
+	launcher := config.Launcher
+	if launcher == nil {
+		launcher, err = kubernetes.NewInClusterRunnerJobs(config.Kubernetes)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
 	}
 	queue, err := postgres.NewRunnerControlQueue(pool, ids.RandomGenerator{})
 	if err != nil {

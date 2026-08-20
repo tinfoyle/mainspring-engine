@@ -1,7 +1,8 @@
 COMPOSE = docker compose --project-name spyglass-local --env-file env/local.env --file compose.yml --file compose.local.yml
 TLS_COMPOSE = docker compose --project-name spyglass-local-tls --env-file env/local.env --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml
+RUNNER_COMPOSE = docker compose --project-name spyglass-local-runner --env-file env/local.env --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml --file compose.runner.yml
 
-.PHONY: build test up verify verify-observability verify-workload-tls down down-workload-tls reset
+.PHONY: build test up verify verify-observability verify-workload-tls verify-docker-runner down down-workload-tls down-docker-runner reset
 
 build:
 	$(COMPOSE) build global-migrate website
@@ -21,11 +22,17 @@ verify-observability: up
 verify-workload-tls:
 	bash verify-workload-tls.sh
 
+verify-docker-runner:
+	bash verify-docker-runner.sh
+
 down:
 	$(COMPOSE) down --remove-orphans
 
 down-workload-tls:
 	$(TLS_COMPOSE) down --remove-orphans
+
+down-docker-runner:
+	SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY="$(CURDIR)/workload-tls/runner-identities" $(RUNNER_COMPOSE) down --remove-orphans
 
 reset:
 	@test "$(CONFIRM)" = "spyglass-local" || (echo "set CONFIRM=spyglass-local to remove local containers and volumes" >&2; exit 1)

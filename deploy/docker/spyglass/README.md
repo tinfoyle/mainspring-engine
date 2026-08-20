@@ -16,6 +16,14 @@ make verify-workload-tls
 
 That gate generates a short-lived local workload CA and exact SPIFFE identities inside the Go test container, serves both cell APIs and admission-api with TLS 1.3, seeds only a dedicated canary Account namespace, and runs the release binary's route canary across app-router identity → cell A, app-router identity → cell B, and cell-A app-api identity → admission-api. Generated keys are ignored and are recreated on every verification. The secure project uses alternate loopback edge and Mailpit ports so it can run alongside the ordinary stack; `make down-workload-tls` stops it while preserving its database volumes.
 
+The separate Docker-runner gate exercises the Hostinger execution strategy against the ubunturojo Docker daemon:
+
+```bash
+make verify-docker-runner
+```
+
+Only `docker-runner-launcher` receives `/var/run/docker.sock`. The controller and broker use distinct mTLS identities and bearer credentials for lifecycle and identity-verification authority. The gate launches one deterministic non-root, read-only, capability-free fixture on an isolated internal network; verifies its one-invocation token; restarts the launcher; reconciles the same invocation without creating a duplicate; cancels it; and verifies container and identity cleanup. The mutable fixture image and Windows-bind-mount permission accommodation are accepted only by `SPYGLASS_ENVIRONMENT=local-secure`; a real stage launcher requires a digest-pinned image and Unix permission enforcement. Use `make down-docker-runner` to stop this isolated verification project.
+
 `make test` uses a disposable PostgreSQL container and pinned Go build image. It runs the uncached Go suite (including PostgreSQL integration tests), race suite, vet, formatting check, OpenAPI generation/registration check, and the website build/render/accessibility/lint/audit gate without host Go or Node installations.
 
 At `app.infiniteocean.localhost`, global/private routes go to account-api while cell-owned Work and Agent API families go through app-router. Browsers never reach a cell API directly.
