@@ -6,12 +6,14 @@ Run these commands from `deploy/docker/spyglass` inside the `ubunturojo` WSL dis
 make verify
 ```
 
-This builds and tests the standalone website image, builds the multi-mode Spyglass application image, starts the minimal edge/website/development-application topology, and exercises the public/private local origins through Caddy on port `8088`.
+The default persistent stack includes Caddy, the website, the global database, two cell databases, one-shot migrations, local global seed data, account-api, admission-api, two app-api processes, and app-router. The verification builds and tests the standalone website image, builds the multi-mode Spyglass application image, waits for every persistent dependency, and exercises the public/private origins through Caddy's local CA on HTTPS port `8444` (`8088` is the HTTP redirect listener).
 
-Use `make down` to stop the stack while preserving state. The destructive reset is deliberately explicit:
+At `app.infiniteocean.localhost`, global/private routes go to account-api while cell-owned Work and Agent API families go through app-router. Browsers never reach a cell API directly.
+
+`env/local.env` contains intentionally public, local-only credentials and deterministic keys. It must never be copied to stage or production. Environment-specific secret files are supplied separately.
+
+Use `make down` to stop the stack while preserving all three database volumes. The destructive reset is deliberately explicit:
 
 ```bash
 make reset CONFIRM=spyglass-local
 ```
-
-The next Phase 2.5 slice replaces the development application service with persistent global and two-cell PostgreSQL-backed process modes.

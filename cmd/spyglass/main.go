@@ -80,6 +80,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		if err := runHealthcheck(os.Args[2:]); err != nil {
+			logger.Error("Spyglass healthcheck failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	release := buildinfo.Current()
 	logger.Info("Spyglass process starting", "version", release.Version, "revision", release.Revision, "built_at", release.BuiltAt)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

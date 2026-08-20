@@ -1,6 +1,0 @@
-SPYGLASS_ACCOUNT_API_ORIGIN=http://application:8080
-SPYGLASS_APP_ORIGIN=http://app.infiniteocean.localhost:8088
-SPYGLASS_APPLICATION_IMAGE=spyglass-application:local
-SPYGLASS_ENVIRONMENT=local
-SPYGLASS_LOCAL_EDGE_PORT=8088
-SPYGLASS_WEBSITE_IMAGE=infinite-ocean-website:local

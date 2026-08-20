@@ -2,6 +2,7 @@ services:
   edge:
     ports:
       - "127.0.0.1:${SPYGLASS_LOCAL_EDGE_PORT:-8088}:80"
+      - "127.0.0.1:${SPYGLASS_LOCAL_TLS_PORT:-8444}:443"
     volumes:
       - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
 
@@ -11,8 +12,8 @@ services:
       dockerfile: Dockerfile
     image: infinite-ocean-website:local
 
-  application:
-    build:
+  global-migrate:
+    build: &application-build
       context: ../../..
       dockerfile: Dockerfile
       args:
@@ -21,8 +22,29 @@ services:
         CREATED: local
     image: spyglass-application:local
 
+  cell-a-migrate:
+    image: spyglass-application:local
+
+  cell-b-migrate:
+    image: spyglass-application:local
+
+  account-api:
+    image: spyglass-application:local
+
+  admission-api:
+    image: spyglass-application:local
+
+  app-api-a:
+    image: spyglass-application:local
+
+  app-api-b:
+    image: spyglass-application:local
+
+  app-router:
+    image: spyglass-application:local
+
   website-test:
-    profiles: ["test"]
+    profiles: [test]
     build:
       context: ../../../website
       dockerfile: Dockerfile

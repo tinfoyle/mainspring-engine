@@ -1,40 +1,306 @@
+x-application: &application
+  image: ${SPYGLASS_APPLICATION_IMAGE:-spyglass-application:local}
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  networks:
+    - application
+
+x-postgres: &postgres
+  image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+  restart: unless-stopped
+  shm_size: 256mb
+  networks:
+    - database
+
 services:
   edge:
     image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     restart: unless-stopped
     depends_on:
-      application:
-        condition: service_started
-      website:
-        condition: service_healthy
+      account-api: {condition: service_healthy}
+      app-router: {condition: service_healthy}
+      website: {condition: service_healthy}
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
     networks:
       - edge
+      - application
 
   website:
     image: ${SPYGLASS_WEBSITE_IMAGE:-infinite-ocean-website:local}
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     environment:
-      SPYGLASS_ACCOUNT_API_ORIGIN: ${SPYGLASS_ACCOUNT_API_ORIGIN:-http://application:8080}
-      SPYGLASS_APP_ORIGIN: ${SPYGLASS_APP_ORIGIN:-http://app.infiniteocean.localhost:8088}
-      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:-local}
-    expose:
-      - "3000"
+      SPYGLASS_ACCOUNT_API_ORIGIN: http://account-api:8080
+      SPYGLASS_APP_ORIGIN: ${SPYGLASS_APP_ORIGIN:?set SPYGLASS_APP_ORIGIN}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+    expose: ["3000"]
     networks:
-      - edge
       - application
 
-  application:
-    image: ${SPYGLASS_APPLICATION_IMAGE:-spyglass-application:local}
-    restart: unless-stopped
+  global-db:
+    <<: *postgres
     environment:
-      SPYGLASS_ENV: development
-    expose:
-      - "8080"
+      POSTGRES_DB: spyglass
+      POSTGRES_USER: spyglass_migrator
+      POSTGRES_PASSWORD: ${SPYGLASS_GLOBAL_DATABASE_PASSWORD:?set SPYGLASS_GLOBAL_DATABASE_PASSWORD}
+    volumes:
+      - global-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U spyglass_migrator -d spyglass"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  cell-a-db:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: spyglass
+      POSTGRES_USER: spyglass_migrator
+      POSTGRES_PASSWORD: ${SPYGLASS_CELL_A_DATABASE_PASSWORD:?set SPYGLASS_CELL_A_DATABASE_PASSWORD}
+    volumes:
+      - cell-a-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U spyglass_migrator -d spyglass"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  cell-b-db:
+    <<: *postgres
+    environment:
+      POSTGRES_DB: spyglass
+      POSTGRES_USER: spyglass_migrator
+      POSTGRES_PASSWORD: ${SPYGLASS_CELL_B_DATABASE_PASSWORD:?set SPYGLASS_CELL_B_DATABASE_PASSWORD}
+    volumes:
+      - cell-b-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U spyglass_migrator -d spyglass"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  global-migrate:
+    <<: *application
+    restart: "no"
+    command: [migrate]
+    environment:
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_GLOBAL_MIGRATION_DATABASE_URL:?set SPYGLASS_GLOBAL_MIGRATION_DATABASE_URL}
+      SPYGLASS_MIGRATION_TARGET: global
+    depends_on:
+      global-db: {condition: service_healthy}
     networks:
-      - edge
+      - database
+
+  cell-a-migrate:
+    <<: *application
+    restart: "no"
+    command: [migrate]
+    environment:
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_CELL_A_MIGRATION_DATABASE_URL:?set SPYGLASS_CELL_A_MIGRATION_DATABASE_URL}
+      SPYGLASS_MIGRATION_TARGET: cell
+    depends_on:
+      cell-a-db: {condition: service_healthy}
+    networks:
+      - database
+
+  cell-b-migrate:
+    <<: *application
+    restart: "no"
+    command: [migrate]
+    environment:
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_CELL_B_MIGRATION_DATABASE_URL:?set SPYGLASS_CELL_B_MIGRATION_DATABASE_URL}
+      SPYGLASS_MIGRATION_TARGET: cell
+    depends_on:
+      cell-b-db: {condition: service_healthy}
+    networks:
+      - database
+
+  global-seed:
+    image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    restart: "no"
+    command:
+      - psql
+      - --host=global-db
+      - --username=spyglass_migrator
+      - --dbname=spyglass
+      - --set=ON_ERROR_STOP=1
+      - --file=/opt/spyglass/seed/global.sql
+    environment:
+      PGPASSWORD: ${SPYGLASS_GLOBAL_DATABASE_PASSWORD:?set SPYGLASS_GLOBAL_DATABASE_PASSWORD}
+    volumes:
+      - ./seed/global.sql:/opt/spyglass/seed/global.sql:ro
+    depends_on:
+      global-migrate: {condition: service_completed_successfully}
+    networks:
+      - database
+
+  account-api:
+    <<: *application
+    command: [account-api]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8080
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_ACCOUNT_API_DATABASE_URL:?set SPYGLASS_ACCOUNT_API_DATABASE_URL}
+      SPYGLASS_STRIPE_WEBHOOK_SECRET: ${SPYGLASS_STRIPE_WEBHOOK_SECRET:?set SPYGLASS_STRIPE_WEBHOOK_SECRET}
+      SPYGLASS_STRIPE_SECRET_KEY: ${SPYGLASS_STRIPE_SECRET_KEY:?set SPYGLASS_STRIPE_SECRET_KEY}
+      SPYGLASS_STRIPE_MODE: ${SPYGLASS_STRIPE_MODE:?set SPYGLASS_STRIPE_MODE}
+      SPYGLASS_APP_ORIGIN: ${SPYGLASS_APP_ORIGIN:?set SPYGLASS_APP_ORIGIN}
+      SPYGLASS_PUBLIC_ORIGIN: ${SPYGLASS_PUBLIC_ORIGIN:?set SPYGLASS_PUBLIC_ORIGIN}
+      SPYGLASS_PASSKEY_RP_ID: ${SPYGLASS_PASSKEY_RP_ID:?set SPYGLASS_PASSKEY_RP_ID}
+      SPYGLASS_NOTIFICATION_ENCRYPTION_KEY: ${SPYGLASS_NOTIFICATION_ENCRYPTION_KEY:?set SPYGLASS_NOTIFICATION_ENCRYPTION_KEY}
+      SPYGLASS_NETWORK_ACTOR_KEY: ${SPYGLASS_NETWORK_ACTOR_KEY:?set SPYGLASS_NETWORK_ACTOR_KEY}
+      SPYGLASS_PASSKEY_ENCRYPTION_KEYS: ${SPYGLASS_PASSKEY_ENCRYPTION_KEYS:?set SPYGLASS_PASSKEY_ENCRYPTION_KEYS}
+      SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION: ${SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION:?set SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION}
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      global-seed: {condition: service_completed_successfully}
+    networks:
       - application
+      - database
+
+  admission-api:
+    <<: *application
+    command: [admission-api]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8080
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_ADMISSION_DATABASE_URL:?set SPYGLASS_ADMISSION_DATABASE_URL}
+      SPYGLASS_ROUTE_ISSUER: ${SPYGLASS_ROUTE_ISSUER:?set SPYGLASS_ROUTE_ISSUER}
+      SPYGLASS_ROUTE_VERIFY_KEYS: ${SPYGLASS_ROUTE_VERIFY_KEYS:?set SPYGLASS_ROUTE_VERIFY_KEYS}
+      SPYGLASS_ADMISSION_CELL_IDS: ${SPYGLASS_ADMISSION_CELL_IDS:?set SPYGLASS_ADMISSION_CELL_IDS}
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      global-seed: {condition: service_completed_successfully}
+    networks:
+      - application
+      - database
+
+  app-api-a:
+    <<: *application
+    command: [app-api]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8080
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_CELL_A_APP_API_DATABASE_URL:?set SPYGLASS_CELL_A_APP_API_DATABASE_URL}
+      SPYGLASS_CELL_ID: cell-us-east-01
+      SPYGLASS_ROUTE_ISSUER: ${SPYGLASS_ROUTE_ISSUER:?set SPYGLASS_ROUTE_ISSUER}
+      SPYGLASS_ROUTE_VERIFY_KEYS: ${SPYGLASS_ROUTE_VERIFY_KEYS:?set SPYGLASS_ROUTE_VERIFY_KEYS}
+      SPYGLASS_WORK_ADMISSION_ORIGIN: http://admission-api:8080
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      cell-a-migrate: {condition: service_completed_successfully}
+      admission-api: {condition: service_healthy}
+    networks:
+      - application
+      - database
+
+  app-api-b:
+    <<: *application
+    command: [app-api]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8080
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_CELL_B_APP_API_DATABASE_URL:?set SPYGLASS_CELL_B_APP_API_DATABASE_URL}
+      SPYGLASS_CELL_ID: cell-us-west-01
+      SPYGLASS_ROUTE_ISSUER: ${SPYGLASS_ROUTE_ISSUER:?set SPYGLASS_ROUTE_ISSUER}
+      SPYGLASS_ROUTE_VERIFY_KEYS: ${SPYGLASS_ROUTE_VERIFY_KEYS:?set SPYGLASS_ROUTE_VERIFY_KEYS}
+      SPYGLASS_WORK_ADMISSION_ORIGIN: http://admission-api:8080
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      cell-b-migrate: {condition: service_completed_successfully}
+      admission-api: {condition: service_healthy}
+    networks:
+      - application
+      - database
+
+  app-router:
+    <<: *application
+    command: [app-router]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8080
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_APP_ROUTER_DATABASE_URL:?set SPYGLASS_APP_ROUTER_DATABASE_URL}
+      SPYGLASS_ROUTE_ISSUER: ${SPYGLASS_ROUTE_ISSUER:?set SPYGLASS_ROUTE_ISSUER}
+      SPYGLASS_ROUTE_SIGNING_KEY_ID: ${SPYGLASS_ROUTE_SIGNING_KEY_ID:?set SPYGLASS_ROUTE_SIGNING_KEY_ID}
+      SPYGLASS_ROUTE_SIGNING_KEY: ${SPYGLASS_ROUTE_SIGNING_KEY:?set SPYGLASS_ROUTE_SIGNING_KEY}
+      SPYGLASS_TOOL_CONTEXT_ISSUER: ${SPYGLASS_TOOL_CONTEXT_ISSUER:?set SPYGLASS_TOOL_CONTEXT_ISSUER}
+      SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS: ${SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS:?set SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS}
+      SPYGLASS_APP_ORIGIN: ${SPYGLASS_APP_ORIGIN:?set SPYGLASS_APP_ORIGIN}
+      SPYGLASS_DIRECTORY_CACHE_TTL: 5s
+      SPYGLASS_DIRECTORY_CACHE_CAPACITY: "1000"
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      global-seed: {condition: service_completed_successfully}
+      app-api-a: {condition: service_healthy}
+      app-api-b: {condition: service_healthy}
+    networks:
+      - application
+      - database
 
 networks:
   edge:
   application:
     internal: true
+  database:
+    internal: true
+
+volumes:
+  caddy-data:
+  caddy-config:
+  global-db:
+  cell-a-db:
+  cell-b-db:

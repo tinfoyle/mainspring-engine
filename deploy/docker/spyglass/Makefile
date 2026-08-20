@@ -1,9 +1,9 @@
-COMPOSE = docker compose --project-name spyglass-local --file compose.yml --file compose.local.yml
+COMPOSE = docker compose --project-name spyglass-local --env-file env/local.env --file compose.yml --file compose.local.yml
 
 .PHONY: build test up verify down reset
 
 build:
-	$(COMPOSE) build application website
+	$(COMPOSE) build global-migrate website
 
 test:
 	$(COMPOSE) --profile test build website-test

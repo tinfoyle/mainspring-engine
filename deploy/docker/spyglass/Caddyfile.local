@@ -1,12 +1,19 @@
 {
   admin off
-  auto_https off
 }
 
-http://web.infiniteocean.localhost {
+web.infiniteocean.localhost {
+  tls internal
   reverse_proxy website:3000
 }
 
-http://app.infiniteocean.localhost {
-  reverse_proxy application:8080
+app.infiniteocean.localhost {
+  tls internal
+  @cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?)$
+  handle @cell_api {
+    reverse_proxy app-router:8080
+  }
+  handle {
+    reverse_proxy account-api:8080
+  }
 }
