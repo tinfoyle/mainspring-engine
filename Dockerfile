@@ -21,6 +21,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     -ldflags="-s -w -buildid= -X github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo.Version=${VERSION} -X github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo.Revision=${REVISION} -X github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo.BuiltAt=${CREATED}" \
     -o /out/spyglass ./cmd/spyglass
 
+FROM build AS test-runtime
+
+RUN apk add --no-cache gcc musl-dev
+COPY Dockerfile .dockerignore ./
+COPY .github/workflows/release-image.yml ./.github/workflows/release-image.yml
+COPY api ./api
+COPY website/lib/generated ./website/lib/generated
+
 FROM scratch
 
 ARG VERSION=development

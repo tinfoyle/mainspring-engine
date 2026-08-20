@@ -12,7 +12,7 @@ FROM dependencies AS source
 COPY . .
 
 FROM source AS test
-RUN npm test && npm run lint
+RUN npm test && npm run lint && npm audit --audit-level=high
 
 FROM source AS build
 RUN npm run build

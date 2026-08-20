@@ -358,17 +358,19 @@ func runWindow(ctx context.Context, duration time.Duration, rate, concurrency in
 		}()
 	}
 	interval := time.Second / time.Duration(rate)
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	started := time.Now()
 	target := int(duration/time.Second) * rate
 	scheduled := 0
 schedule:
 	for scheduled < target {
-		if scheduled > 0 {
+		due := started.Add(time.Duration(scheduled) * interval)
+		if wait := time.Until(due); wait > 0 {
+			timer := time.NewTimer(wait)
 			select {
 			case <-window.Done():
+				timer.Stop()
 				break schedule
-			case <-ticker.C:
+			case <-timer.C:
 			}
 		}
 		select {

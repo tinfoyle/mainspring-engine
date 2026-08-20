@@ -6,7 +6,7 @@ build:
 	$(COMPOSE) build global-migrate website
 
 test:
-	$(COMPOSE) --profile test build website-test
+	bash test-local.sh
 
 up:
 	$(COMPOSE) up --detach --build --wait

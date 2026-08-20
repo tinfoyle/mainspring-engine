@@ -1,4 +1,9 @@
 *
+!Dockerfile
+!.dockerignore
+!.github/
+!.github/workflows/
+!.github/workflows/release-image.yml
 !go.mod
 !go.sum
 !cmd/
@@ -7,3 +12,9 @@
 !internal/**
 !migrations/
 !migrations/**
+!api/
+!api/**
+!website/
+!website/lib/
+!website/lib/generated/
+!website/lib/generated/**

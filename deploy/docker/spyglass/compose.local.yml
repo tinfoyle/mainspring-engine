@@ -50,3 +50,41 @@ services:
       dockerfile: Dockerfile
       target: test
     image: infinite-ocean-website:test
+
+  test-db:
+    profiles: [test]
+    image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    environment:
+      POSTGRES_PASSWORD: spyglass-test-only
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    networks:
+      - database
+
+  go-test:
+    profiles: [test]
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+      target: test-runtime
+    image: spyglass-go-test:local
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        go test -count=1 ./...
+        go test -count=1 -race ./...
+        go vet ./...
+        test -z "$$(gofmt -l cmd internal migrations)"
+        go run ./cmd/apicontract -check
+    environment:
+      SPYGLASS_POSTGRES_TEST_URL: postgres://postgres:spyglass-test-only@test-db:5432/postgres?sslmode=disable
+    depends_on:
+      test-db: {condition: service_healthy}
+    networks:
+      - database
