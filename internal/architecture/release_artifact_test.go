@@ -40,13 +40,16 @@ func TestReleaseImageContract(t *testing.T) {
 
 func checkReleaseWorkflow(t *testing.T, workflow string) {
 	t.Helper()
-	for _, required := range []string{"linux/amd64,linux/arm64", "provenance: mode=max", "sbom: true", "subject-digest:", "push-to-registry: true", "cosign sign --yes", "environment: release", "refusing to overwrite existing image tag"} {
+	for _, required := range []string{"linux/amd64,linux/arm64", "provenance: mode=max", "sbom: true", "id-token: write", "cosign sign --yes", "environment: release", "refusing to overwrite existing image tag"} {
 		if !strings.Contains(workflow, required) {
 			t.Fatalf("release workflow is missing %q", required)
 		}
 	}
 	if strings.Contains(workflow, ":latest") {
 		t.Fatal("release workflow publishes a mutable latest tag")
+	}
+	if strings.Contains(workflow, "actions/attest@") {
+		t.Fatal("release workflow uses GitHub artifact attestations, which are unavailable to this user-owned private repository")
 	}
 	action := regexp.MustCompile(`uses:\s+[^\s@]+@([^\s]+)`)
 	matches := action.FindAllStringSubmatch(workflow, -1)

@@ -22,7 +22,7 @@ Pull requests build the image, assert the non-root user, execute the version pro
 
 ## Publishing
 
-`.github/workflows/release-image.yml` runs for reviewed `spyglass-v*` tags or a manually approved `release` environment dispatch. It publishes only version and full-revision tags to `ghcr.io/tinfoyle/spyglass-engine`, never `latest`, and fails if either tag already exists rather than overwriting release history. BuildKit produces a Linux AMD64/ARM64 manifest, maximal provenance, and an attached SBOM. The workflow then creates GitHub/Sigstore provenance for the immutable manifest digest and applies a keyless Cosign signature to that digest.
+`.github/workflows/release-image.yml` runs for reviewed `spyglass-v*` tags or a manually approved `release` environment dispatch. It publishes only version and full-revision tags to `ghcr.io/tinfoyle/spyglass-engine`, never `latest`, and fails if either tag already exists rather than overwriting release history. BuildKit produces a Linux AMD64/ARM64 manifest with maximal provenance and an attached SBOM. The workflow applies a keyless Sigstore Cosign signature to that immutable manifest digest. The signature covers the index that carries the BuildKit provenance and SBOM descriptors.
 
 The workflow summary is the handoff value:
 
@@ -32,18 +32,18 @@ ghcr.io/tinfoyle/spyglass-engine@sha256:<manifest-digest>
 
 Copy that exact reference into the reviewed environment overlay and the staging certification input. Never reconstruct a digest from a tag after review.
 
-`.github/workflows/release-website-image.yml` applies the same overwrite refusal, AMD64/ARM64 build, SBOM, maximal provenance, GitHub attestation and keyless Cosign policy to `ghcr.io/tinfoyle/infinite-ocean-website`. It is triggered by a reviewed `website-v*` tag or release-environment dispatch. Application and website artifacts from one release candidate must record the same source revision, but retain independent manifest digests because they are distinct images.
+`.github/workflows/release-website-image.yml` applies the same overwrite refusal, AMD64/ARM64 build, attached SBOM, maximal BuildKit provenance and keyless Cosign policy to `ghcr.io/tinfoyle/infinite-ocean-website`. It is triggered by a reviewed `website-v*` tag or release-environment dispatch. Application and website artifacts from one release candidate must record the same source revision, but retain independent manifest digests because they are distinct images.
 
 ## Verification and promotion
 
 Before promotion:
 
 ```text
-gh attestation verify oci://ghcr.io/tinfoyle/spyglass-engine@sha256:<digest> -R tinfoyle/mainspring-engine
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github.com/tinfoyle/mainspring-engine/.github/workflows/release-image.yml@refs/(tags/spyglass-v[0-9][0-9A-Za-z.-]*|heads/main)$' \
   ghcr.io/tinfoyle/spyglass-engine@sha256:<digest>
+docker buildx imagetools inspect ghcr.io/tinfoyle/spyglass-engine@sha256:<digest>
 ```
 
 Also inspect the SBOM/provenance predicate, confirm the Git revision and workflow identity, scan the immutable digest with the environment's admission scanner, and execute `spyglass version`. Admission policy should allow only reviewed digests with the expected workflow identity and current vulnerability-policy result. A valid signature proves origin, not safety or approval.
@@ -52,4 +52,4 @@ Promotion reuses the same digest through staging, internal canary, customer cana
 
 ## Remaining release evidence
 
-The first successful release run must archive the manifest digest, GitHub attestation URL, Cosign verification output, SBOM identity, vulnerability and secret-scan results, environment overlay digest, migration set, Catalog version, and `staging-cert` record. Cluster admission enforcement and a staged rollback using two real digests remain launch gates.
+The first successful release run must archive the manifest digest, Cosign verification output, BuildKit provenance/SBOM identity, vulnerability and secret-scan results, environment overlay digest, migration set, Catalog version, and `staging-cert` record. Cluster admission enforcement and a staged rollback using two real digests remain launch gates.

@@ -39,7 +39,7 @@ Cross-cell Account movement uses the same short-lived `account-move-admin` image
 
 ### Application image
 
-The existing root `Dockerfile` remains the shared Go image. Process arguments select Account API, router, cell API, workers, brokers, migrations and short-lived operator jobs. The release workflow already publishes AMD64/ARM64 GHCR images with SBOM, provenance, attestation and Cosign signature.
+The existing root `Dockerfile` remains the shared Go image. Process arguments select Account API, router, cell API, workers, brokers, migrations and short-lived operator jobs. The release workflow publishes AMD64/ARM64 GHCR images with attached BuildKit SBOM/provenance and a keyless Cosign signature.
 
 Required improvements:
 
@@ -57,7 +57,7 @@ Phase 2.5 replaces the preview-specific Vinext/Cloudflare runtime with a standal
 - runtime-injected, exact HTTPS application and Catalog origins;
 - server-side Catalog proxy, security headers and health endpoints;
 - no `.openai/hosting.json`, Wrangler state or Cloudflare bindings;
-- matching SBOM, provenance, attestation, signing and retention policy.
+- matching attached SBOM, BuildKit provenance, keyless signing and retention policy.
 
 The same website digest must move through local validation, Hostinger stage and LKE production configuration without rebuilding.
 
