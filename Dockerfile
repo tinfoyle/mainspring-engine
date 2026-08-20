@@ -27,6 +27,7 @@ RUN apk add --no-cache gcc musl-dev
 COPY Dockerfile .dockerignore ./
 COPY .github/workflows/release-image.yml ./.github/workflows/release-image.yml
 COPY .github/workflows/release-website-image.yml ./.github/workflows/release-website-image.yml
+COPY .github/workflows/verify.yml ./.github/workflows/verify.yml
 COPY api ./api
 COPY deploy/package-surface-inventory.json ./deploy/package-surface-inventory.json
 COPY website/lib/generated ./website/lib/generated

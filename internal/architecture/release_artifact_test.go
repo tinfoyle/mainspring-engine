@@ -38,6 +38,20 @@ func TestReleaseImageContract(t *testing.T) {
 	checkReleaseWorkflow(t, readReleaseFile(t, filepath.Join(root, ".github", "workflows", "release-website-image.yml")))
 }
 
+func TestVerificationWorkflowContract(t *testing.T) {
+	workflow := readReleaseFile(t, filepath.Join("..", "..", ".github", "workflows", "verify.yml"))
+	checkPinnedActions(t, workflow)
+	for _, required := range []string{
+		"postgres:17.11-alpine3.24@sha256:",
+		"bash deploy/kubernetes/overlays/verify.sh",
+		"bash deploy/docker/spyglass/test-stage-contract.sh",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("verification workflow is missing %q", required)
+		}
+	}
+}
+
 func checkReleaseWorkflow(t *testing.T, workflow string) {
 	t.Helper()
 	for _, required := range []string{"linux/amd64,linux/arm64", "provenance: mode=max", "sbom: true", "id-token: write", "cosign sign --yes", "environment: release", "refusing to overwrite existing image tag"} {
@@ -51,6 +65,11 @@ func checkReleaseWorkflow(t *testing.T, workflow string) {
 	if strings.Contains(workflow, "actions/attest@") {
 		t.Fatal("release workflow uses GitHub artifact attestations, which are unavailable to this user-owned private repository")
 	}
+	checkPinnedActions(t, workflow)
+}
+
+func checkPinnedActions(t *testing.T, workflow string) {
+	t.Helper()
 	action := regexp.MustCompile(`uses:\s+[^\s@]+@([^\s]+)`)
 	matches := action.FindAllStringSubmatch(workflow, -1)
 	if len(matches) == 0 {

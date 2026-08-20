@@ -27,11 +27,12 @@ The repository already contains strong foundations:
 - Boardrooms, immutable Persona versions, Conversations, Agent Runs, dispatch/projection queues and encrypted runner exchange;
 - package admission, action authorization/ledger foundations and content-safe observability;
 - generated OpenAPI contracts and compatibility enforcement.
-- global passkey incident response and restore-gated bounded identity retention with content-free operational metrics.
+- global passkey incident response and restore-gated bounded identity retention with content-free operational metrics;
+- an immutable signed application/website release pair, repeatable Hostinger deployment contract and CI-rendered two-cell Linode overlays.
 
 The foundations do not yet constitute the full product. In particular:
 
-- the Work-owned Agent dispatcher is absent;
+- the Work-to-Agent claim/heartbeat/reconcile bridge is absent even though the lower-level Agent dispatch queue/worker exists;
 - the Attention domain is absent;
 - Knowledge/Baseline production modules are absent;
 - Agent orchestration is limited to one ordered Persona pass;
@@ -39,6 +40,8 @@ The foundations do not yet constitute the full product. In particular:
 - Finance, Marketing and most integrations remain prototype-only or unimplemented;
 - the private application is not yet the final React product surface;
 - no complete prototype migration/cutover has occurred.
+
+Phase 3 begins only after the Hostinger slice in Phase 2.5 is connected and certified. The LKE kubeconfig is first needed in P3.7: its initial use is a read-only cluster inventory, followed by explicit replacement of every fail-closed storage/CNI/API/add-on/secret/runtime placeholder before any apply.
 
 ## P3.1 — Work and Attention
 

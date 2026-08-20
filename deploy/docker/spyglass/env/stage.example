@@ -1,6 +1,5 @@
 # Copy to a root-readable file outside the checkout and replace every REPLACE value.
-SPYGLASS_APPLICATION_IMAGE=ghcr.io/tinfoyle/spyglass-engine@sha256:REPLACE64
-SPYGLASS_WEBSITE_IMAGE=ghcr.io/tinfoyle/infinite-ocean-website@sha256:REPLACE64
+# Image digests come from a reviewed deploy/releases/<version>.env file.
 SPYGLASS_ENVIRONMENT=stage
 SPYGLASS_PROCESS_ENV=stage
 SPYGLASS_PUBLIC_ORIGIN=https://stage.infiniteocean.net

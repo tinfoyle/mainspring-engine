@@ -34,6 +34,8 @@ Copy that exact reference into the reviewed environment overlay and the staging 
 
 `.github/workflows/release-website-image.yml` applies the same overwrite refusal, AMD64/ARM64 build, attached SBOM, maximal BuildKit provenance and keyless Cosign policy to `ghcr.io/tinfoyle/infinite-ocean-website`. It is triggered by a reviewed `website-v*` tag or release-environment dispatch. Application and website artifacts from one release candidate must record the same source revision, but retain independent manifest digests because they are distinct images.
 
+The first successful pair is recorded in `deploy/releases/0.2.5-rc.2.env`: application digest `sha256:213a90c40198339ab92a48242310186a6cf9c0e29217ea32575e510631093add` and website digest `sha256:dfd0cf0480f7eff767db367b2ff8f4ccfa5c13ae3d96c66596185194e536f134`, both built from `5ce697933661e5b6d467804ad3608666f9c2dddd`. Both release workflows completed signing, both indexes expose AMD64/ARM64 plus attached SPDX/SLSA manifests, and an authenticated digest pull verified application build identity and website readiness.
+
 ## Verification and promotion
 
 Before promotion:
@@ -52,4 +54,4 @@ Promotion reuses the same digest through staging, internal canary, customer cana
 
 ## Remaining release evidence
 
-The first successful release run must archive the manifest digest, Cosign verification output, BuildKit provenance/SBOM identity, vulnerability and secret-scan results, environment overlay digest, migration set, Catalog version, and `staging-cert` record. Cluster admission enforcement and a staged rollback using two real digests remain launch gates.
+The RC.2 digest pair and workflow signing results are recorded. Before promotion, archive independent Cosign verification output, BuildKit provenance/SBOM identity, vulnerability and secret-scan results, environment overlay digest, migration set, Catalog version, and `staging-cert` record. Cluster admission enforcement and a staged rollback using two retained compatible pairs remain launch gates.

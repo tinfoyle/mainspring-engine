@@ -1,7 +1,7 @@
 # Phase 2.5 realignment plan
 
 - Plan date: 2026-08-20
-- Application baseline: `b195fae07b264ea4a609e424d6664f0b776eb6a4`
+- Phase 2 application baseline: `b195fae07b264ea4a609e424d6664f0b776eb6a4`
 - Repository: `main`, direct commits permitted
 - Purpose: realign the cut-short Phase 2 rewrite with the final container-first form before final application construction
 - Exit state: **a coherent platform foundation, reproducible local Docker environment, connected Hostinger Docker stage, and production-ready LKE deployment skeleton**
@@ -15,11 +15,13 @@
 | P2.5.2 local parity Compose | Complete | Persistent global/cell A/cell B PostgreSQL, migrations, two active cells, serving APIs/router, separate runtime roles, containerized Go/race/PostgreSQL/OpenAPI/website tests, and HTTPS smoke verification. |
 | P2.5.3 shared process topology | Complete | All implemented global and per-cell workers run with health/status gates and constrained roles; TLS Mailpit capture, the complete machine-readable process inventory, a 17-target Prometheus profile, and a separate non-development TLS 1.3 topology with exact-identity route canaries are verified. |
 | P2.5.4 Docker runner launcher | Complete | A stage-only, mTLS and bearer-authenticated launcher owns the Docker socket; controller and broker have disjoint authority; deterministic constrained containers survive ambiguous creation and launcher restart; cancellation and bounded orphan cleanup are certified against the ubunturojo Docker daemon. |
-| P2.5.5 platform closeout | In progress | The durable PostgreSQL Account-movement foundation, operator process and crash/queue/reconciliation tests are executable. Commercial/lifecycle, identity and billing closeout remains before this slice is accepted. |
-| P2.5.6 Hostinger stage | In progress | Read-only VPS inventory is complete. The digest-only, TLS-workload, split-role `spyglass-stage` override, fail-closed verifier/deployer and coexistence contract for the existing Infinite Ocean Caddy edge are revision-controlled. DNS, secret issuance, first release digests and connected journeys remain. |
-| P2.5.7 LKE skeleton | In progress | Both digest-shaped overlays now render with the complete reference topology, website/ingress/certificates and three CloudNativePG clusters. Kubeconfig inventory must resolve namespace placement, real storage/CNI/controllers and sandbox RuntimeClass before the skeleton can be accepted or applied. |
+| P2.5.5 platform closeout | Complete | Durable Account movement, package/surface lifecycle policy, explicit absent-surface gates, billing mismatch explanations, bounded identity retention and the empty external-store handler inventory are implemented and tested. Stripe, retention-load and provider journeys are connected-stage evidence in P2.5.6, not missing architecture. |
+| P2.5.6 Hostinger stage | In progress | VPS inventory, digest-only Compose, release/secret separation, TLS-workload boundaries and coexistence with the existing Infinite Ocean Caddy edge are revision-controlled. RC.2 supplies the first signed digest pair. As last observed, both stage DNS names and `/opt/spyglass-stage` are absent; stage secrets/certificates, edge-owner integration, deployment and connected journeys remain. |
+| P2.5.7 LKE skeleton | Complete | Both CI-verified overlays render two cell workload sets, three CloudNativePG clusters, website/ingress/certificate resources, database/provider/observability/API NetworkPolicies, disruption/scaling controls and suspended migration/Catalog/release jobs using the recorded RC.2 digests. Kubeconfig-dependent CNI/storage/API CIDR/add-on, SOPS recipient and sandbox RuntimeClass values remain explicit Phase 3 apply-time gates. |
 
 The local implementation and tests run only through Docker commands issued inside `ubunturojo`. No Unity, OpenAI Sites, Cloudflare deployment, or alternate hosted preview is part of this execution path.
+
+The first successful paired publication is `spyglass-v0.2.5-rc.2` plus `website-v0.2.5-rc.2`, both built from `5ce697933661e5b6d467804ad3608666f9c2dddd`. Their manifest digests are recorded in `deploy/releases/0.2.5-rc.2.env`, consumed by the Hostinger verifier, and pinned into both Linode overlays.
 
 ## Program phase model
 
@@ -144,11 +146,11 @@ Current evidence: [Account movement operations](account-movement.md) documents t
 ### Commercial and lifecycle completion
 
 - Maintain the accepted [package-by-surface lifecycle matrix](package-surface-lifecycle.md), including explicit absent-state gates for MCP, schedules, connectors and external stores that Phase 3 has not introduced.
-- Enforce it through HTTP, UI, MCP, schedules, workers, runners and Agent tools.
-- Certify scheduled identity-retention thresholds under stage load. The restore-gated least-privilege worker, bounded pruning, content-free metrics/status, passkey rename and atomic compromised-credential/all-session response are implemented.
-- Add billing mismatch explanations and complete Stripe test-mode policy journeys.
-- Complete external-store export/erasure directives, acknowledgements and attestations.
-- Finish Catalog/package/surface inventory and sanitized API publication policy.
+- Enforce it through every implemented HTTP, UI, worker, runner and Agent boundary; Phase 3 must register MCP, schedule and connector surfaces before enabling them.
+- Keep scheduled identity-retention thresholds as a connected stage-load certification. The restore-gated least-privilege worker, bounded pruning, content-free metrics/status, passkey rename and atomic compromised-credential/all-session response are implemented.
+- Preserve the implemented billing mismatch explanations and complete Stripe test-mode policy journeys on connected stage.
+- Treat the explicit zero-enabled-external-store inventory as the Phase 2.5 acceptance state. Phase 3 cannot enable an external store until movement, export, erasure, acknowledgement, attestation and restore handlers are registered.
+- Maintain the completed Catalog/package/surface inventory and sanitized API publication policy as Phase 3 adds surfaces.
 
 Exit evidence: all commercial/platform foundations are complete enough that Phase 3 adds product capabilities without revisiting identity, Account, entitlement, billing, placement or lifecycle architecture.
 
@@ -179,7 +181,7 @@ Before the kubeconfig is furnished, create and CI-render:
 - application and website digest injection;
 - restore checkpoint, migration, Catalog and release-record jobs.
 
-Cluster-specific values remain placeholders until a read-only kubeconfig audit confirms actual CNI, storage, ingress and node capabilities. Backups are configured by the project owner after the database/application topology is applied; the overlay must leave explicit backup/restore extension points.
+Cluster-specific values remain fail-closed placeholders until a read-only kubeconfig audit confirms actual CNI, storage, Kubernetes API endpoint, ingress and node/runtime capabilities. SOPS/age recipients and encrypted Secret payloads are created only after the owner selects the production recipient. Backups are configured by the project owner after the database/application topology is applied; the overlay leaves explicit backup/restore checkpoints and job boundaries.
 
 Exit evidence: both overlays render and pass repository policy checks without credentials or mutable images.
 
@@ -205,7 +207,7 @@ Phase 2.5 began with the following bounded P2.5.1 slice, which is now complete:
 5. add a minimal Compose path containing edge, website and the development Spyglass process only as a visual/request smoke gate;
 6. preserve the current public pages, Catalog fallback and private signup handoff behavior.
 
-P2.5.2 subsequently expanded that path to persistent global/two-cell PostgreSQL and production process modes. P2.5.3 completed the implemented worker topology, constrained runtime roles, TLS SMTP capture, local metrics profile, and secure-local workload-identity certification. P2.5.4 added the explicit Docker-stage runner substrate and proved create ambiguity, duplicate launch, identity verification, launcher restart, cancellation, and cleanup through a live Docker Engine integration gate. P2.5.5 is now in progress: its Account-movement foundation is executable, while commercial/lifecycle, identity and billing closeout remains.
+P2.5.2 subsequently expanded that path to persistent global/two-cell PostgreSQL and production process modes. P2.5.3 completed the implemented worker topology, constrained runtime roles, TLS SMTP capture, local metrics profile, and secure-local workload-identity certification. P2.5.4 added the explicit Docker-stage runner substrate and proved create ambiguity, duplicate launch, identity verification, launcher restart, cancellation, and cleanup through a live Docker Engine integration gate. P2.5.5 then closed Account movement, lifecycle/surface inventory, billing explanation and identity-retention architecture. P2.5.7 completed the credential-free LKE skeleton. P2.5.6 connected Hostinger staging is the only unfinished Phase 2.5 slice.
 
 ## Phase 2.5 completion rule
 

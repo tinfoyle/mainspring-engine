@@ -1,7 +1,7 @@
 # Local, stage and production deployment report
 
 - Plan date: 2026-08-20
-- Application baseline: `b195fae07b264ea4a609e424d6664f0b776eb6a4`
+- Phase 2 application baseline: `b195fae07b264ea4a609e424d6664f0b776eb6a4`
 - Registry: GitHub Container Registry (GHCR)
 - Source workflow: direct commits to `main`; immutable release tags and digests for deployment
 - Environment sequence: `ubunturojo` Docker -> Hostinger Docker stage -> vanilla Linode Kubernetes Engine production
@@ -41,11 +41,18 @@ Cross-cell Account movement uses the same short-lived `account-move-admin` image
 
 The existing root `Dockerfile` remains the shared Go image. Process arguments select Account API, router, cell API, workers, brokers, migrations and short-lived operator jobs. The release workflow publishes AMD64/ARM64 GHCR images with attached BuildKit SBOM/provenance and a keyless Cosign signature.
 
-Required improvements:
+First reviewed release pair:
 
-- produce the first reviewed release digest;
+| Artifact | Tag | Immutable manifest |
+|---|---|---|
+| Application | `spyglass-v0.2.5-rc.2` | `ghcr.io/tinfoyle/spyglass-engine@sha256:213a90c40198339ab92a48242310186a6cf9c0e29217ea32575e510631093add` |
+| Website | `website-v0.2.5-rc.2` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:dfd0cf0480f7eff767db367b2ff8f4ccfa5c13ae3d96c66596185194e536f134` |
+
+Both were built from `5ce697933661e5b6d467804ad3608666f9c2dddd`, completed their keyless Cosign steps, expose attached per-platform SPDX/SLSA attestations, and passed a local digest pull, application identity check and website readiness check from `ubunturojo`. The exact pair is tracked in `deploy/releases/0.2.5-rc.2.env`.
+
+Remaining artifact work:
+
 - add vulnerability/secret scan evidence to the release record;
-- make environment deployments consume a recorded digest only;
 - retain at least two compatible release digests for rollback.
 
 ### Website image
@@ -70,18 +77,23 @@ deploy/docker/spyglass/
   compose.stage.yml
   Caddyfile.local
   Caddyfile.stage
-  env/local.example
+  deploy-stage.sh
+  verify-stage.sh
+  test-stage-contract.sh
+  env/local.env
   env/stage.example
+deploy/releases/
+  0.2.5-rc.2.env
 deploy/kubernetes/overlays/
+  linode-common/
   linode-preproduction/
   linode-production/
 website/Dockerfile
 website/.dockerignore
 .github/workflows/
+  verify.yml
   release-image.yml
   release-website-image.yml
-  deploy-hostinger-stage.yml
-  promote-linode-production.yml
 docs/production/environments/
   local-docker.md
   hostinger-stage.md
@@ -138,12 +150,12 @@ The implementation must provide these documented operations through Compose and/
 
 The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 
-Before first deployment, finish the remaining read-only/owner inventory:
+The last read-only check also confirmed that `/opt/spyglass-stage` does not yet exist, and DNS did not return addresses for `stage.infiniteocean.net` or `app.stage.infiniteocean.net`. Before first deployment, the owner/environment work is therefore explicit:
 
-- firewall policy, DNS records and certificate monitoring;
-- existing volume retention and the reserved `spyglass-stage` project/directory ownership;
+- create both DNS records and confirm firewall/certificate monitoring policy;
+- create the reserved `spyglass-stage` deployment/secrets paths with reviewed ownership;
 - backup destination hooks and disk/certificate monitoring;
-- SSH user privileges and deployment-directory ownership.
+- issue stage workload certificates and populate the mode-600 environment file.
 
 Do not modify or restart unrelated VPS services during inventory.
 
@@ -153,7 +165,7 @@ The stage override uses the same service graph with production-mode process argu
 
 - application and website images pulled from GHCR by digest;
 - three PostgreSQL containers with private networks and persistent volumes;
-- Caddy ACME TLS for `stage.infiniteocean.net` and `app.stage.infiniteocean.net`;
+- an internal Caddy router on the existing `infiniteocean_public` network; the existing Infinite Ocean Caddy remains the only public 80/443 and ACME owner;
 - Stripe test mode, TLS SMTP and non-production provider credentials;
 - workload-specific secrets/environment files stored outside the repository;
 - resource limits, health checks, log rotation and content-safe telemetry;
@@ -222,18 +234,18 @@ The project owner configures backup destinations, schedules and retention after 
 
 ### LKE overlays
 
-The pre-production and production overlays provide:
+The credential-free pre-production and production overlays currently provide:
 
 - exact application and website digests;
-- namespaces, ServiceAccounts, Pod security and workload-specific SOPS-encrypted Secrets;
-- CloudNativePG clusters and connection configuration;
-- ingress, certificates, trusted proxies and rate limits;
+- isolated application/runner namespaces, ServiceAccounts and restricted Pod security;
+- two complete cell workload sets and three CloudNativePG clusters with connection caps/anti-affinity;
+- ingress and certificate resources;
 - exact NetworkPolicies and provider/database/observability/API egress;
-- custom metrics, monitors, SLOs, alerts and dashboards;
 - resource requests/limits, connection caps, PDBs and topology spread;
-- dedicated runner namespace, permissionless runner ServiceAccount and sandbox RuntimeClass;
-- migration, Catalog, operator, restore-replay and certification Jobs;
-- admission policy verifying approved GHCR identity, signature and digest.
+- dedicated runner namespace and permissionless runner ServiceAccount;
+- suspended, separately credentialed migration/Catalog/release-identity Jobs.
+
+After the kubeconfig and production age recipient are furnished, the Phase 3 cluster inventory must resolve the actual CNI, storage class, API-server CIDR, ingress/add-on namespaces, encrypted workload Secrets, custom-metric adapter, observability backend, sandbox RuntimeClass/node pool and signature/admission controller. Those cluster-bound values are intentionally not fabricated in Phase 2.5.
 
 CI renders and policy-tests both overlays before a deployment credential is used.
 

@@ -4,6 +4,8 @@ Run these commands from `deploy/docker/spyglass` inside the `ubunturojo` WSL dis
 
 The connected Hostinger layout is defined by `compose.stage.yml`; its verified coexistence model and secret/TLS prerequisites are documented in [Hostinger stage](../../../docs/production/environments/hostinger-stage.md). It consumes GHCR digests and deliberately does not bind ports 80/443 because the VPS already has an Infinite Ocean Caddy edge.
 
+Stage deployment takes two inputs: a tracked, non-secret `deploy/releases/<version>.env` binding the application/website digests to their source revision, followed by the mode-600 environment secret file. The verifier rejects image overrides in the secret file.
+
 ```bash
 make verify
 ```

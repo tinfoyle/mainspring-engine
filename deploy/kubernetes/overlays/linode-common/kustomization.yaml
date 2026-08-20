@@ -3,3 +3,9 @@ kind: Kustomization
 resources:
   - ../../reference
   - platform.yaml
+  - platform-policy.yaml
+  - platform-jobs.yaml
+  - cell-a.yaml
+  - cell-b.yaml
+patches:
+  - path: remove-cell-reference.yaml

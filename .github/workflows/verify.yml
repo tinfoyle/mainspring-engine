@@ -15,7 +15,7 @@ jobs:
       SPYGLASS_POSTGRES_TEST_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
         env:
           POSTGRES_PASSWORD: postgres
         ports:
@@ -26,8 +26,8 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: 1.26.6
           cache: true
@@ -45,6 +45,7 @@ jobs:
       - run: test -z "$(gofmt -l cmd internal migrations)"
       - run: kubectl kustomize deploy/kubernetes/reference >/dev/null
       - run: bash deploy/kubernetes/reference/verify.sh
+      - run: bash deploy/kubernetes/overlays/verify.sh
 
   website:
     runs-on: ubuntu-latest
@@ -52,8 +53,8 @@ jobs:
       run:
         working-directory: website
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -66,7 +67,9 @@ jobs:
   container:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify Hostinger stage release contract
+        run: bash deploy/docker/spyglass/test-stage-contract.sh
       - name: Build static scratch image
         env:
           DOCKER_BUILDKIT: "1"

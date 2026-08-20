@@ -44,7 +44,7 @@ spec:
             - {name: SPYGLASS_RUNNER_IMAGE, value: "ghcr.io/tinfoyle/spyglass-engine@sha256:0000000000000000000000000000000000000000000000000000000000000000"}
             - {name: SPYGLASS_RUNNER_SERVICE_ACCOUNT, value: "runner"}
             - {name: SPYGLASS_RUNNER_RUNTIME_CLASS, value: "spyglass-sandboxed"}
-            - {name: SPYGLASS_RUNNER_BROKER_URL, value: "https://runner-broker.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_RUNNER_BROKER_URL, value: "https://runner-broker-cell-reference.spyglass-reference.svc.cluster.local"}
             - {name: SPYGLASS_RUNNER_BROKER_CA_CONFIG_MAP, value: "spyglass-runner-broker-ca"}
             - {name: SPYGLASS_RUNNER_ACTIVE_DEADLINE, value: "15m"}
             - {name: SPYGLASS_RUNNER_JOB_RETENTION, value: "1h"}

@@ -1,0 +1,284 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: public-ingress, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [infinite-ocean-website, account-api, app-router]}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: ingress-nginx}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: ingress-nginx}
+      ports:
+        - {protocol: TCP, port: 3000}
+        - {protocol: TCP, port: 8080}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: website-to-account-api, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: infinite-ocean-website}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: account-api}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: account-api-from-website, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: account-api}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: infinite-ocean-website}
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: global-workloads-to-postgres, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - account-api
+          - account-lifecycle-worker
+          - admission-api
+          - app-router
+          - billing-worker
+          - entitlement-worker
+          - identity-maintenance-worker
+          - notification-worker
+          - work-reconciler
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {cnpg.io/cluster: spyglass-global-postgres}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: global-postgres-from-workloads, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {cnpg.io/cluster: spyglass-global-postgres}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - account-api
+                  - account-lifecycle-worker
+                  - admission-api
+                  - app-router
+                  - billing-worker
+                  - entitlement-worker
+                  - identity-maintenance-worker
+                  - notification-worker
+                  - work-reconciler
+      ports: [{protocol: TCP, port: 5432}]
+    - from:
+        - podSelector:
+            matchLabels: {spyglass.io/database-target: global}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cell-a-workloads-to-postgres, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {spyglass.io/cell: cell-a}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {cnpg.io/cluster: spyglass-cell-a-postgres}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cell-a-postgres-from-workloads, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {cnpg.io/cluster: spyglass-cell-a-postgres}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {spyglass.io/cell: cell-a}
+      ports: [{protocol: TCP, port: 5432}]
+    - from:
+        - podSelector:
+            matchLabels: {spyglass.io/database-target: cell-a}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cell-b-workloads-to-postgres, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {spyglass.io/cell: cell-b}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {cnpg.io/cluster: spyglass-cell-b-postgres}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: cell-b-postgres-from-workloads, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {cnpg.io/cluster: spyglass-cell-b-postgres}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: {spyglass.io/cell: cell-b}
+      ports: [{protocol: TCP, port: 5432}]
+    - from:
+        - podSelector:
+            matchLabels: {spyglass.io/database-target: cell-b}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: postgres-replication, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: cnpg.io/cluster, operator: Exists}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - {key: cnpg.io/cluster, operator: Exists}
+      ports: [{protocol: TCP, port: 5432}]
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: cnpg-system}
+      ports: [{protocol: TCP, port: 8000}]
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+      ports: [{protocol: TCP, port: 9187}]
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions:
+              - {key: cnpg.io/cluster, operator: Exists}
+      ports: [{protocol: TCP, port: 5432}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: monitoring-scrape, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/part-of, operator: In, values: [spyglass]}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: monitoring}
+      ports:
+        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 8081}
+        - {protocol: TCP, port: 8443}
+        - {protocol: TCP, port: 8888}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: provider-https-egress, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [account-api, billing-worker, model-gateway]}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16]
+        - ipBlock:
+            cidr: "::/0"
+            except: ["::1/128", "fc00::/7", "fe80::/10"]
+      ports: [{protocol: TCP, port: 443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: smtp-egress, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: notification-worker}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16]
+        - ipBlock:
+            cidr: "::/0"
+            except: ["::1/128", "fc00::/7", "fe80::/10"]
+      ports: [{protocol: TCP, port: 465}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: observability-backend-egress, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: otel-collector}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16]
+        - ipBlock:
+            cidr: "::/0"
+            except: ["::1/128", "fc00::/7", "fe80::/10"]
+      ports: [{protocol: TCP, port: 443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: runner-control-to-kubernetes-api, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [runner-controller, runner-broker]}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 192.0.2.1/32}
+      ports: [{protocol: TCP, port: 443}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: deployment-jobs-to-postgres, namespace: spyglass-reference}
+spec:
+  podSelector:
+    matchExpressions:
+      - {key: spyglass.io/database-target, operator: Exists}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchExpressions:
+              - {key: cnpg.io/cluster, operator: Exists}
+      ports: [{protocol: TCP, port: 5432}]

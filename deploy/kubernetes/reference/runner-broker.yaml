@@ -40,7 +40,7 @@ spec:
             - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "10"}
             - {name: SPYGLASS_RUNNER_NAMESPACE, value: "spyglass-runners-reference"}
             - {name: SPYGLASS_RUNNER_SERVICE_ACCOUNT, value: "runner"}
-            - {name: SPYGLASS_RUNNER_BROKER_URL, value: "https://runner-broker.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_RUNNER_BROKER_URL, value: "https://runner-broker-cell-reference.spyglass-reference.svc.cluster.local"}
             - {name: SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES, value: "2097152"}
             - {name: SPYGLASS_TOOL_ROUTER_ORIGIN, value: "http://app-router.spyglass-reference.svc.cluster.local"}
             - {name: SPYGLASS_MODEL_GATEWAY_ORIGIN, value: "https://model-gateway.spyglass-reference.svc.cluster.local"}
@@ -72,7 +72,7 @@ spec:
 ---
 apiVersion: v1
 kind: Service
-metadata: {name: runner-broker, namespace: spyglass-reference}
+metadata: {name: runner-broker-cell-reference, namespace: spyglass-reference}
 spec:
   selector: {app.kubernetes.io/name: runner-broker, spyglass.io/cell: reference}
   ports: [{name: https, port: 443, targetPort: https}]

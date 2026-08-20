@@ -22,7 +22,7 @@ Create `/opt/spyglass-stage/secrets/stage.env` with mode `600` from `env/stage.e
 /opt/spyglass-stage/secrets/workload/app-api-b/{ca.crt,tls.crt,tls.key}
 ```
 
-Private keys are mode `400` or `600`. Application and website values are exact GHCR `@sha256:` references. Stripe is test mode. SMTP requires TLS. The deployment refuses `REPLACE`, development mode, mutable images, an absent external edge network, missing workload identities, or a public 80/443 binding.
+Private keys are mode `400` or `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The deployment refuses `REPLACE`, development mode, mutable images, an absent external edge network, missing workload identities, or a public 80/443 binding.
 
 ## Deployment
 
@@ -30,8 +30,9 @@ From a clean checkout on the VPS:
 
 ```bash
 cd deploy/docker/spyglass
-./verify-stage.sh /opt/spyglass-stage/secrets/stage.env
-./deploy-stage.sh /opt/spyglass-stage/secrets/stage.env
+release_file="$(realpath ../../releases/0.2.5-rc.2.env)"
+./verify-stage.sh "$release_file" /opt/spyglass-stage/secrets/stage.env
+./deploy-stage.sh "$release_file" /opt/spyglass-stage/secrets/stage.env
 ```
 
 Before the first `deploy-stage.sh`, merge the reviewed host snippet into `/opt/infiniteocean/caddy/Caddyfile`, run `docker exec infiniteocean-caddy-1 caddy validate --config /etc/caddy/Caddyfile`, and reload the existing Caddy only after validation. DNS for both names must resolve to the VPS. This is an explicit host-owner operation because the file also serves unrelated Infinite Ocean applications.

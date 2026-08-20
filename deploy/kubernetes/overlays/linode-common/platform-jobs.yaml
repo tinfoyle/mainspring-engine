@@ -1,0 +1,173 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: deployment-operator, namespace: spyglass-reference}
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spyglass-global-migration
+  namespace: spyglass-reference
+  labels: {app.kubernetes.io/name: spyglass-migration, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: global}
+spec:
+  suspend: true
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: spyglass-migration, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: global}
+    spec:
+      serviceAccountName: deployment-operator
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [migrate]
+          env: [{name: SPYGLASS_MIGRATION_TARGET, value: global}]
+          envFrom: [{secretRef: {name: spyglass-global-migration-secrets}}]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spyglass-cell-a-migration
+  namespace: spyglass-reference
+  labels: {app.kubernetes.io/name: spyglass-migration, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: cell-a}
+spec:
+  suspend: true
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: spyglass-migration, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: cell-a}
+    spec:
+      serviceAccountName: deployment-operator
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [migrate]
+          env: [{name: SPYGLASS_MIGRATION_TARGET, value: cell}]
+          envFrom: [{secretRef: {name: spyglass-cell-a-migration-secrets}}]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spyglass-cell-b-migration
+  namespace: spyglass-reference
+  labels: {app.kubernetes.io/name: spyglass-migration, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: cell-b}
+spec:
+  suspend: true
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: spyglass-migration, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: cell-b}
+    spec:
+      serviceAccountName: deployment-operator
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [migrate]
+          env: [{name: SPYGLASS_MIGRATION_TARGET, value: cell}]
+          envFrom: [{secretRef: {name: spyglass-cell-b-migration-secrets}}]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spyglass-catalog-publication
+  namespace: spyglass-reference
+  labels: {app.kubernetes.io/name: spyglass-catalog-publication, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: global}
+spec:
+  suspend: true
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: spyglass-catalog-publication, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: global}
+    spec:
+      serviceAccountName: deployment-operator
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      restartPolicy: Never
+      containers:
+        - name: publish
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [catalog-admin, publish]
+          envFrom:
+            - configMapRef: {name: spyglass-global-runtime}
+            - secretRef: {name: spyglass-catalog-publication-secrets}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spyglass-release-identity
+  namespace: spyglass-reference
+  labels: {app.kubernetes.io/name: spyglass-release-identity, app.kubernetes.io/part-of: spyglass}
+spec:
+  suspend: true
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: spyglass-release-identity, app.kubernetes.io/part-of: spyglass}
+    spec:
+      serviceAccountName: deployment-operator
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      restartPolicy: Never
+      containers:
+        - name: release-identity
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [version]
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}

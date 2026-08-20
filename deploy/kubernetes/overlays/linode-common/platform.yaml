@@ -4,6 +4,9 @@ metadata: {name: spyglass-global-postgres, namespace: spyglass-reference}
 spec:
   instances: 2
   primaryUpdateStrategy: unsupervised
+  affinity: {enablePodAntiAffinity: true, podAntiAffinityType: preferred, topologyKey: kubernetes.io/hostname}
+  postgresql:
+    parameters: {max_connections: "200"}
   storage: {size: 40Gi, storageClass: spyglass-lke-block-storage}
   resources:
     requests: {cpu: 250m, memory: 512Mi}
@@ -16,6 +19,9 @@ metadata: {name: spyglass-cell-a-postgres, namespace: spyglass-reference}
 spec:
   instances: 2
   primaryUpdateStrategy: unsupervised
+  affinity: {enablePodAntiAffinity: true, podAntiAffinityType: preferred, topologyKey: kubernetes.io/hostname}
+  postgresql:
+    parameters: {max_connections: "200"}
   storage: {size: 80Gi, storageClass: spyglass-lke-block-storage}
   resources:
     requests: {cpu: 250m, memory: 512Mi}
@@ -28,6 +34,9 @@ metadata: {name: spyglass-cell-b-postgres, namespace: spyglass-reference}
 spec:
   instances: 2
   primaryUpdateStrategy: unsupervised
+  affinity: {enablePodAntiAffinity: true, podAntiAffinityType: preferred, topologyKey: kubernetes.io/hostname}
+  postgresql:
+    parameters: {max_connections: "200"}
   storage: {size: 80Gi, storageClass: spyglass-lke-block-storage}
   resources:
     requests: {cpu: 250m, memory: 512Mi}
@@ -45,6 +54,18 @@ spec:
     spec:
       serviceAccountName: website
       automountServiceAccountToken: false
+      enableServiceLinks: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: infinite-ocean-website}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: infinite-ocean-website}
       containers:
         - name: website
           image: registry.invalid/infinite-ocean/infinite-ocean-website:release-placeholder
@@ -55,12 +76,18 @@ spec:
           resources:
             requests: {cpu: 50m, memory: 96Mi}
             limits: {cpu: 500m, memory: 384Mi}
+          volumeMounts:
+            - {name: next-cache, mountPath: /app/.next/cache}
+            - {name: tmp, mountPath: /tmp}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             capabilities: {drop: [ALL]}
             seccompProfile: {type: RuntimeDefault}
+      volumes:
+        - {name: next-cache, emptyDir: {sizeLimit: 256Mi}}
+        - {name: tmp, emptyDir: {medium: Memory, sizeLimit: 64Mi}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -73,6 +100,29 @@ metadata: {name: infinite-ocean-website, namespace: spyglass-reference}
 spec:
   selector: {app.kubernetes.io/name: infinite-ocean-website}
   ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: infinite-ocean-website, namespace: spyglass-reference}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: infinite-ocean-website}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: infinite-ocean-website, namespace: spyglass-reference}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: infinite-ocean-website}
+  minReplicas: 2
+  maxReplicas: 10
+  behavior:
+    scaleDown: {stabilizationWindowSeconds: 300}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 60}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
