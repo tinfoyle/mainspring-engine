@@ -1,0 +1,143 @@
+// Package identitymaintenanceworker composes the global transient-identity
+// retention worker and its content-free operational status.
+package identitymaintenanceworker
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"sync/atomic"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
+	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+)
+
+type Config struct {
+	DatabaseURL      string
+	MaxDatabaseConns int32
+	Interval         time.Duration
+	Retention        time.Duration
+	PruneBatch       int
+	AlertBacklog     uint64
+}
+
+type Status struct {
+	Total                    uint64 `json:"total_ceremonies"`
+	Eligible                 uint64 `json:"eligible_ceremonies"`
+	OldestEligibleAgeSeconds int64  `json:"oldest_eligible_age_seconds"`
+	Pruned                   int64  `json:"pruned_ceremonies"`
+	Failures                 uint64 `json:"failures"`
+	Alerting                 bool   `json:"alerting"`
+}
+
+type processor interface {
+	Process(context.Context) (int64, error)
+	Stats(context.Context) (identitymaintenance.Stats, error)
+}
+
+type Worker struct {
+	pool         *pgxpool.Pool
+	processor    processor
+	interval     time.Duration
+	retention    time.Duration
+	alertBacklog uint64
+	logger       *slog.Logger
+	pruned       atomic.Int64
+	failures     atomic.Uint64
+}
+
+func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
+	if config.DatabaseURL == "" || logger == nil {
+		return nil, errors.New("identity maintenance database URL and logger are required")
+	}
+	if config.Interval == 0 {
+		config.Interval = time.Hour
+	}
+	if config.Retention == 0 {
+		config.Retention = identitymaintenance.DefaultRetention
+	}
+	if config.PruneBatch == 0 {
+		config.PruneBatch = identitymaintenance.DefaultBatch
+	}
+	if config.AlertBacklog == 0 {
+		config.AlertBacklog = 10000
+	}
+	if config.Interval < time.Minute || config.Interval > 24*time.Hour || config.AlertBacklog > 10000000 {
+		return nil, errors.New("identity maintenance schedule or alert threshold is out of bounds")
+	}
+	if err := identitymaintenance.ValidateBounds(config.Retention, config.PruneBatch); err != nil {
+		return nil, err
+	}
+	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if config.MaxDatabaseConns > 0 {
+		poolConfig.MaxConns = config.MaxDatabaseConns
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, err
+	}
+	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	processor, err := identitymaintenance.NewProcessor(postgres.NewIdentityMaintenanceRepository(pool), registration.SystemClock{}, config.Retention, config.PruneBatch)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return &Worker{pool: pool, processor: processor, interval: config.Interval, retention: config.Retention, alertBacklog: config.AlertBacklog, logger: logger}, nil
+}
+
+func (w *Worker) Run(ctx context.Context) error {
+	w.runOnce(ctx)
+	ticker := time.NewTicker(w.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			w.runOnce(ctx)
+		}
+	}
+}
+
+func (w *Worker) runOnce(ctx context.Context) {
+	count, err := w.processor.Process(ctx)
+	if err != nil {
+		w.failures.Add(1)
+		w.logger.Error("Identity maintenance failed", "error", err)
+		return
+	}
+	w.pruned.Add(count)
+	stats, err := w.processor.Stats(ctx)
+	if err != nil {
+		w.failures.Add(1)
+		w.logger.Error("Identity maintenance stats failed", "error", err)
+		return
+	}
+	if stats.Eligible >= w.alertBacklog || stats.OldestEligibleAge > 2*w.retention {
+		w.logger.Warn("Identity ceremony retention backlog is abnormal", "eligible", stats.Eligible, "oldest_eligible_age_seconds", int64(stats.OldestEligibleAge/time.Second))
+	} else if count > 0 {
+		w.logger.Info("Pruned passkey ceremonies", "count", count)
+	}
+}
+
+func (w *Worker) Ready(ctx context.Context) error { return w.pool.Ping(ctx) }
+
+func (w *Worker) Status(ctx context.Context) (any, error) {
+	stats, err := w.processor.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return Status{Total: stats.Total, Eligible: stats.Eligible, OldestEligibleAgeSeconds: int64(stats.OldestEligibleAge / time.Second), Pruned: w.pruned.Load(), Failures: w.failures.Load(), Alerting: stats.Eligible >= w.alertBacklog || stats.OldestEligibleAge > 2*w.retention}, nil
+}
+
+func (w *Worker) Close() { w.pool.Close() }

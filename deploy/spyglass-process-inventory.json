@@ -143,6 +143,17 @@
       "dependencies": ["global-postgresql"]
     },
     {
+      "mode": "identity-maintenance-worker",
+      "kind": "worker",
+      "scope": "global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.identity-maintenance-worker"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_IDENTITY_MAINTENANCE_INTERVAL", "SPYGLASS_PASSKEY_CEREMONY_RETENTION", "SPYGLASS_IDENTITY_MAINTENANCE_PRUNE_BATCH", "SPYGLASS_IDENTITY_MAINTENANCE_ALERT_BACKLOG", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate"],
+      "dependencies": ["global-postgresql"]
+    },
+    {
       "mode": "work-reconciler",
       "kind": "worker",
       "scope": "cell-and-global",

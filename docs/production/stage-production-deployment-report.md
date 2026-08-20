@@ -102,7 +102,7 @@ The common Compose definition models final process boundaries:
 - global, cell A and cell B PostgreSQL 17 containers with distinct volumes;
 - migration jobs for each database target;
 - Account API, app router, two cell app APIs and private admission API;
-- notification, billing, entitlement, lifecycle, route-receipt and Work reconciliation workers;
+- notification, billing, entitlement, lifecycle, identity-maintenance, route-receipt and Work reconciliation workers;
 - Agent dispatch/projection, runner controller/broker, Docker runner launcher and model gateway under explicit profiles;
 - Mailpit or equivalent SMTP capture;
 - optional Prometheus, Grafana and OpenTelemetry profiles.

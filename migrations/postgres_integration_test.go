@@ -33,6 +33,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/catalogadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/entitlementrollout"
+	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
@@ -824,6 +825,25 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if compromised, err := passkeyRepository.CompromiseCredential(ctx, provisioned.User.ID, storedCredential.ID, now.Add(5*time.Second)); err != nil || compromised {
 		t.Fatalf("repeated compromise = %v, %v", compromised, err)
 	}
+	oldCreated := now.Add(-48 * time.Hour)
+	for index := 0; index < 2; index++ {
+		value := passkeys.Ceremony{ID: ids.RandomGenerator{}.New(), Kind: passkeys.CeremonyLogin, Data: webauthn.SessionData{Challenge: fmt.Sprintf("retained-ceremony-%d", index)}, CreatedAt: oldCreated, ExpiresAt: oldCreated.Add(passkeys.CeremonyTTL)}
+		if err := passkeyRepository.CreateCeremony(ctx, value); err != nil {
+			t.Fatalf("create retained ceremony: %v", err)
+		}
+	}
+	maintenanceRepository := postgresadapter.NewIdentityMaintenanceRepository(pool)
+	maintenanceStats, err := maintenanceRepository.Stats(ctx, now, identitymaintenance.DefaultRetention)
+	if err != nil || maintenanceStats.Eligible != 2 || maintenanceStats.OldestEligibleAge < 47*time.Hour {
+		t.Fatalf("identity maintenance stats = %+v, %v", maintenanceStats, err)
+	}
+	if pruned, err := maintenanceRepository.Prune(ctx, now, identitymaintenance.DefaultRetention, 1); err != nil || pruned != 1 {
+		t.Fatalf("bounded identity maintenance prune = %d, %v", pruned, err)
+	}
+	maintenanceStats, err = maintenanceRepository.Stats(ctx, now, identitymaintenance.DefaultRetention)
+	if err != nil || maintenanceStats.Eligible != 1 {
+		t.Fatalf("identity maintenance stats after prune = %+v, %v", maintenanceStats, err)
+	}
 
 	commercial := postgresadapter.NewCommercialAccessRepository(pool)
 	price, err := commercial.ProviderPrice(ctx, draft.Version, "team-monthly-v1", "stripe", "test")
@@ -919,7 +939,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 58 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 59 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)

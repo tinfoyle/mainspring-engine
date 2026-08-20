@@ -22,7 +22,7 @@ for service in app-router app-api-a app-api-b admission-api; do
     --url=http://127.0.0.1:8080/health/ready
 done
 
-worker_services=(billing-worker notification-worker entitlement-worker account-lifecycle-worker work-reconciler-a work-reconciler-b \
+worker_services=(billing-worker notification-worker entitlement-worker account-lifecycle-worker identity-maintenance-worker work-reconciler-a work-reconciler-b \
   route-receipt-worker-a route-receipt-worker-b agent-dispatch-worker-a \
   agent-dispatch-worker-b agent-projection-worker-a agent-projection-worker-b)
 for service in "${worker_services[@]}"; do

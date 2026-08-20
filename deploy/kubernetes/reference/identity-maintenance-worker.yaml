@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: identity-maintenance-worker, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: identity-maintenance-worker}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: identity-maintenance-worker, app.kubernetes.io/part-of: spyglass}
+    spec:
+      serviceAccountName: identity-maintenance-worker
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: identity-maintenance-worker
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [identity-maintenance-worker]
+          ports: [{name: health, containerPort: 8081}]
+          env:
+            - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+            - {name: SPYGLASS_IDENTITY_MAINTENANCE_INTERVAL, value: "1h"}
+            - {name: SPYGLASS_PASSKEY_CEREMONY_RETENTION, value: "24h"}
+            - {name: SPYGLASS_IDENTITY_MAINTENANCE_PRUNE_BATCH, value: "500"}
+            - {name: SPYGLASS_IDENTITY_MAINTENANCE_ALERT_BACKLOG, value: "10000"}
+          envFrom:
+            - configMapRef: {name: spyglass-global-runtime}
+            - secretRef: {name: spyglass-identity-maintenance-worker-secrets}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}

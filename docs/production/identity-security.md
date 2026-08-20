@@ -152,7 +152,7 @@ Ordinary deletion protects recovery posture and therefore refuses to remove a fi
 
 `passkey_users` is keyed by global User ID and stores the opaque WebAuthn handle. `passkey_credentials` stores the globally unique credential ID, encrypted credential blob, key version, duplicated sign counter for atomic fencing, name, and use timestamps. `passkey_ceremonies` stores encrypted WebAuthn session data and an explicit kind/User/session scope. `user_recovery_code_sets` and `user_recovery_codes` store one active version and its one-way hashes; `passkey_recovery_grants` binds a short-lived grant to a live User session. `primary_email_change_challenges` stores the old/new normalized addresses, initiating security version, 32-byte token hash, expiry, and consumption state; notification bodies and the raw verification token live only in encrypted outbox envelopes.
 
-All state required between begin and complete requests is durable. A request may begin on one account-api replica and complete on another without session affinity. Ceremony consumption is one SQL update guarded by kind, User, session, expiry, and `consumed_at IS NULL`. Creation opportunistically removes a bounded batch of expired ceremonies so ordinary traffic does not create unbounded expired state.
+All state required between begin and complete requests is durable. A request may begin on one account-api replica and complete on another without session affinity. Ceremony consumption is one SQL update guarded by kind, User, session, expiry, and `consumed_at IS NULL`. Creation opportunistically removes a bounded batch of expired ceremonies. The independent `identity-maintenance-worker` also removes at most a configured batch of consumed or expired ceremonies after the retention window. Its status and metrics expose only total/eligible counts, oldest eligible age, prune totals, failures and an alert flag—never User, credential, challenge or ciphertext values.
 
 This design scales with the shared account-api Deployment and global PostgreSQL pool; it creates no User- or Account-specific container.
 
@@ -194,7 +194,7 @@ Automated evidence covers:
 Passkeys are now a production authentication and strong-reauthentication option, but the broader Phase 2 identity program is not complete:
 
 1. Complete product/security/legal review of the executable customer-visible factor-loss copy and decide whether a delayed, multi-party support-assisted exception will ever exist. The current policy is fail-closed with no support bypass. Platform-administrator signed authorization and dual-approved break glass are executable; the external workforce identity plane remains the enrollment and approval authority. Self-service recovery codes deliberately cannot authorize Account or operator actions.
-2. Add scheduled retention metrics and an operator path for abnormal ceremony growth; opportunistic cleanup remains only the first bound.
+2. Certify the scheduled ceremony-retention alert thresholds under stage load. Bounded pruning, aggregate backlog metrics, restore gating, least-privilege execution and the `/health/status` operator inspection path are executable.
 3. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
 4. Complete live SMTP delivery certification for registration, recovery, invitations, ownership, and verified-contact notices.
 5. Run real-browser WebAuthn journeys across supported desktop/mobile platforms and accessibility tooling before release promotion.

@@ -2,7 +2,7 @@
 
 - Status: executable Phase 2.5 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure/movement processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `identity-maintenance-worker`, `work-reconciler`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 The revision-controlled machine contract is [`deploy/spyglass-process-inventory.json`](../../deploy/spyglass-process-inventory.json). Its verification script compares the complete mode set to the binary switch and fails local verification when they drift.
 
@@ -212,6 +212,20 @@ Each Account records the Catalog version last reconciled. A recomputation advanc
 Owners request and cancel closure through the account API using recent passkey assurance and an expected Account version. Requesting atomically changes the Account from `active` to `closing`; ordinary authorization and Account selection then fail immediately. The global lifecycle list deliberately remains available so an active owner can restore a closing Account without first selecting it.
 
 Worker replicas claim due requests with `FOR UPDATE SKIP LOCKED` and expiring leases. Before logical close, each attempt rechecks the locally projected subscription and active Checkout state. A blocker leaves the Account frozen, records an immutable workload event, and reschedules the request. A clear preflight changes the Account to terminal `closed`, records `closed_at`, and schedules `delete_after`. The worker has no Stripe credential, performs no synchronous export or deletion, and must not be granted cell database access. Post-retention physical erasure is a separate reviewed operator workflow.
+
+## Identity maintenance worker values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_DATABASE_URL` | Required global credential with execute-only access to the two identity-maintenance functions |
+| `SPYGLASS_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `3` |
+| `SPYGLASS_IDENTITY_MAINTENANCE_INTERVAL` | Optional schedule from `1m` through `24h`; defaults to `1h` |
+| `SPYGLASS_PASSKEY_CEREMONY_RETENTION` | Optional whole-second retention from `1h` through `720h`; defaults to `24h` |
+| `SPYGLASS_IDENTITY_MAINTENANCE_PRUNE_BATCH` | Optional bounded delete batch from 1 through 5000; defaults to `500` |
+| `SPYGLASS_IDENTITY_MAINTENANCE_ALERT_BACKLOG` | Optional aggregate eligible-row alert threshold through 10,000,000; defaults to `10000` |
+| `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
+
+The worker runs immediately and then on its schedule. Each transaction locks and deletes only the oldest eligible consumed or expired ceremonies, using `SKIP LOCKED` so replicas remain safe. The database functions revalidate all policy bounds and expose only aggregate counts and age. `/health/status` and metrics report total/eligible rows, oldest eligible age, prune count, failure count and alert state. Restore readiness gates maintenance, and the credential cannot read ceremony ciphertext or any User, credential, session or Account table directly.
 
 ## Route receipt worker values
 
@@ -453,6 +467,7 @@ spyglass billing-worker
 spyglass notification-worker
 spyglass entitlement-worker
 spyglass account-lifecycle-worker
+spyglass identity-maintenance-worker
 spyglass work-reconciler
 spyglass work-release-admin <action>
 spyglass account-erasure-admin <action>

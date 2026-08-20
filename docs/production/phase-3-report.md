@@ -19,7 +19,7 @@ Phase 3 consolidates the historical Phase 3-8 backlog into one final body of wor
 
 No incomplete package is hidden to justify production launch. Feature flags and unpublished Catalog entries remain useful during development, but the production release gate requires the full intended application.
 
-## Starting position after Phase 2
+## Starting position after Phase 2.5
 
 The repository already contains strong foundations:
 
@@ -27,6 +27,7 @@ The repository already contains strong foundations:
 - Boardrooms, immutable Persona versions, Conversations, Agent Runs, dispatch/projection queues and encrypted runner exchange;
 - package admission, action authorization/ledger foundations and content-safe observability;
 - generated OpenAPI contracts and compatibility enforcement.
+- global passkey incident response and restore-gated bounded identity retention with content-free operational metrics.
 
 The foundations do not yet constitute the full product. In particular:
 

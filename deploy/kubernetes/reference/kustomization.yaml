@@ -11,6 +11,7 @@ resources:
   - notification-worker.yaml
   - entitlement-worker.yaml
   - account-lifecycle-worker.yaml
+  - identity-maintenance-worker.yaml
   - work-reconciler.yaml
   - route-receipt-worker.yaml
   - agent-dispatch-worker.yaml

@@ -30,6 +30,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	agentqueueapp "github.com/tinfoyle/spyglass-engine/internal/application/agentqueueadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
@@ -56,6 +57,7 @@ import (
 	catalogcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/catalogadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/identitymaintenanceworker"
 	modelgatewaybootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/modelgatewayapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	passkeycommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/passkeyadmin"
@@ -130,6 +132,8 @@ func main() {
 		err = runEntitlementWorker(ctx, logger)
 	case "account-lifecycle-worker":
 		err = runAccountLifecycleWorker(ctx, logger)
+	case "identity-maintenance-worker":
+		err = runIdentityMaintenanceWorker(ctx, logger)
 	case "work-reconciler":
 		err = runWorkReconciler(ctx, logger)
 	case "runner-controller":
@@ -165,7 +169,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1209,6 +1213,52 @@ func runAccountLifecycleWorker(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "account-lifecycle", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
+}
+
+func runIdentityMaintenanceWorker(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 3)
+	if err != nil {
+		return err
+	}
+	interval, err := durationEnv("SPYGLASS_IDENTITY_MAINTENANCE_INTERVAL", time.Hour)
+	if err != nil || interval < time.Minute || interval > 24*time.Hour {
+		return errors.New("SPYGLASS_IDENTITY_MAINTENANCE_INTERVAL must be between 1m and 24h")
+	}
+	retention, err := durationEnv("SPYGLASS_PASSKEY_CEREMONY_RETENTION", identitymaintenance.DefaultRetention)
+	if err != nil {
+		return err
+	}
+	batch, err := int32Env("SPYGLASS_IDENTITY_MAINTENANCE_PRUNE_BATCH", identitymaintenance.DefaultBatch)
+	if err != nil {
+		return err
+	}
+	alertBacklog, err := int32Env("SPYGLASS_IDENTITY_MAINTENANCE_ALERT_BACKLOG", 10000)
+	if err != nil {
+		return err
+	}
+	if alertBacklog > 10000000 {
+		return errors.New("SPYGLASS_IDENTITY_MAINTENANCE_ALERT_BACKLOG must be at most 10000000")
+	}
+	if err := identitymaintenance.ValidateBounds(retention, int(batch)); err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := identitymaintenanceworker.New(startup, identitymaintenanceworker.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, Interval: interval, Retention: retention, PruneBatch: int(batch), AlertBacklog: uint64(alertBacklog)}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "identity-maintenance", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
 func runWorkReconciler(ctx context.Context, logger *slog.Logger) error {

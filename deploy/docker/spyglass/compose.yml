@@ -362,6 +362,22 @@ services:
       global-seed: {condition: service_completed_successfully}
     networks: [application, database]
 
+  identity-maintenance-worker:
+    <<: *worker
+    command: [identity-maintenance-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_URL:?set SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_URL}
+      SPYGLASS_IDENTITY_MAINTENANCE_INTERVAL: ${SPYGLASS_IDENTITY_MAINTENANCE_INTERVAL:-1h}
+      SPYGLASS_PASSKEY_CEREMONY_RETENTION: ${SPYGLASS_PASSKEY_CEREMONY_RETENTION:-24h}
+      SPYGLASS_IDENTITY_MAINTENANCE_PRUNE_BATCH: ${SPYGLASS_IDENTITY_MAINTENANCE_PRUNE_BATCH:-500}
+      SPYGLASS_IDENTITY_MAINTENANCE_ALERT_BACKLOG: ${SPYGLASS_IDENTITY_MAINTENANCE_ALERT_BACKLOG:-10000}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      global-seed: {condition: service_completed_successfully}
+    networks: [application, database]
+
   work-reconciler-a:
     <<: *worker
     command: [work-reconciler]

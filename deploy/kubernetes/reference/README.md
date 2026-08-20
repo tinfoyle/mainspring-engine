@@ -67,7 +67,7 @@ Before an environment overlay may use these resources it must add:
   `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
   `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,
   `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`,
-  `spyglass-entitlement-worker-secrets`, `spyglass-account-lifecycle-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`,
+  `spyglass-entitlement-worker-secrets`, `spyglass-account-lifecycle-worker-secrets`, `spyglass-identity-maintenance-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`,
   `spyglass-work-reconciler-secrets`, `spyglass-agent-dispatch-worker-cell-reference-secrets`,
   `spyglass-agent-projection-worker-cell-reference-secrets`,
   `spyglass-runner-controller-cell-reference-secrets`,

@@ -158,6 +158,10 @@ services:
     depends_on:
       global-roles: {condition: service_completed_successfully}
 
+  identity-maintenance-worker:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+
   work-reconciler-a:
     depends_on:
       global-roles: {condition: service_completed_successfully}

@@ -21,6 +21,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_account_lifecycle_worker') THEN
     CREATE ROLE spyglass_account_lifecycle_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_identity_maintenance_worker') THEN
+    CREATE ROLE spyglass_identity_maintenance_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_work_reconciler') THEN
     CREATE ROLE spyglass_work_reconciler LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
@@ -34,23 +37,27 @@ ALTER ROLE spyglass_billing_worker PASSWORD 'spyglass-billing-worker-local-only'
 ALTER ROLE spyglass_notification_worker PASSWORD 'spyglass-notification-worker-local-only';
 ALTER ROLE spyglass_entitlement_worker PASSWORD 'spyglass-entitlement-worker-local-only';
 ALTER ROLE spyglass_account_lifecycle_worker PASSWORD 'spyglass-account-lifecycle-worker-local-only';
+ALTER ROLE spyglass_identity_maintenance_worker PASSWORD 'spyglass-identity-maintenance-worker-local-only';
 ALTER ROLE spyglass_work_reconciler PASSWORD 'spyglass-work-reconciler-local-only';
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
-  spyglass_account_lifecycle_worker, spyglass_work_reconciler;
+  spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_work_reconciler;
 GRANT USAGE ON SCHEMA public TO spyglass_account_api, spyglass_app_router, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
-  spyglass_account_lifecycle_worker, spyglass_work_reconciler;
+  spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_work_reconciler;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
+  spyglass_identity_maintenance_worker,
   spyglass_work_reconciler;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
+  spyglass_identity_maintenance_worker,
   spyglass_work_reconciler;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
+  spyglass_identity_maintenance_worker,
   spyglass_work_reconciler;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO spyglass_account_api;
@@ -69,7 +76,7 @@ GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid) TO spy
 
 GRANT SELECT ON account_erasure_restore_ledger TO spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
-  spyglass_work_reconciler;
+  spyglass_identity_maintenance_worker, spyglass_work_reconciler;
 
 GRANT SELECT, UPDATE ON billing_event_inbox TO spyglass_billing_worker;
 GRANT SELECT ON billing_profiles, offer_provider_prices, catalog_publications TO spyglass_billing_worker;
@@ -89,6 +96,10 @@ GRANT SELECT, INSERT, DELETE ON entitlement_grants TO spyglass_entitlement_worke
 GRANT SELECT, UPDATE ON account_closure_requests, accounts TO spyglass_account_lifecycle_worker;
 GRANT SELECT ON memberships, subscriptions, billing_checkout_attempts TO spyglass_account_lifecycle_worker;
 GRANT INSERT ON account_lifecycle_events TO spyglass_account_lifecycle_worker;
+
+GRANT EXECUTE ON FUNCTION spyglass_prune_passkey_ceremonies(timestamptz,bigint,integer),
+  spyglass_passkey_ceremony_retention_stats(timestamptz,bigint)
+  TO spyglass_identity_maintenance_worker;
 
 GRANT SELECT ON accounts TO spyglass_work_reconciler;
 GRANT SELECT, UPDATE ON entitlement_usage_counters, entitlement_usage_reservations
