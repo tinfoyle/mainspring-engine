@@ -131,6 +131,28 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 }
 
+func TestPrivateBrowserAssetsRequireReleaseRevalidation(t *testing.T) {
+	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	defer server.Close()
+	for _, asset := range []struct {
+		path, contentType string
+	}{
+		{path: "/assets/spyglass.css", contentType: "text/css; charset=utf-8"},
+		{path: "/assets/work.js", contentType: "text/javascript; charset=utf-8"},
+		{path: "/assets/agents.js", contentType: "text/javascript; charset=utf-8"},
+		{path: "/assets/passkeys.js", contentType: "text/javascript; charset=utf-8"},
+	} {
+		response, err := http.Get(server.URL + asset.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != asset.contentType || response.Header.Get("Cache-Control") != "no-cache" {
+			t.Errorf("asset %s response = %d, content type %q, cache %q", asset.path, response.StatusCode, response.Header.Get("Content-Type"), response.Header.Get("Cache-Control"))
+		}
+	}
+}
+
 func TestPublishedOfferIntentSurvivesSecureSignupJourney(t *testing.T) {
 	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	defer server.Close()

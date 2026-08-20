@@ -28,8 +28,8 @@ func TestAgentsTemplateExposesRoutedBoardroomWorkspaceForAvailablePackage(t *tes
 	}
 	body := rendered.String()
 	for _, expected := range []string{
-		`src="/assets/agents.js"`,
-		`class="active" href="/app/agents"`,
+		`src="/assets/agents.js?v=2"`,
+		`class="active" aria-current="page" href="/app/agents"`,
 		`data-account-id="01J00000000000000000000000"`,
 		`data-read-only="false"`,
 		`id="agents-room-list"`,

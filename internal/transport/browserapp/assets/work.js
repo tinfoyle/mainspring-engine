@@ -126,6 +126,7 @@
     card.type = "button";
     card.dataset.workItemId = item.id;
     card.setAttribute("aria-label", `Open work item ${item.number}: ${item.title}`);
+    card.setAttribute("aria-pressed", "false");
 
     const signal = node("i", `work-signal state-${item.state}`);
     signal.setAttribute("aria-hidden", "true");
@@ -273,8 +274,12 @@
   async function loadDetail(itemID, card) {
     if (detailRequest) detailRequest.abort();
     detailRequest = new AbortController();
-    for (const current of list.querySelectorAll(".work-card.selected")) current.classList.remove("selected");
-    if (card) card.classList.add("selected");
+    for (const current of list.querySelectorAll(".work-card")) {
+      const selected = current === card;
+      current.classList.toggle("selected", selected);
+      current.setAttribute("aria-pressed", String(selected));
+    }
+    detail.setAttribute("aria-busy", "true");
     detail.replaceChildren(node("div", "work-detail-empty", "Loading work detail…"));
     try {
       const [item, childPage] = await Promise.all([
@@ -287,6 +292,8 @@
       const failed = node("div", "work-detail-empty");
       failed.append(node("p", "eyebrow", "WORK DETAIL"), node("h2", "", "Detail unavailable"), node("p", "", error.message));
       detail.replaceChildren(failed);
+    } finally {
+      detail.setAttribute("aria-busy", "false");
     }
   }
 
@@ -301,6 +308,7 @@
       createDialog.close();
       createError.hidden = true;
     };
+    createDialog.addEventListener("close", () => createOpen.focus());
     createOpen.addEventListener("click", () => {
       createError.hidden = true;
       createDialog.showModal();

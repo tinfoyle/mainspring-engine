@@ -242,7 +242,7 @@ func (s *Server) styles(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(raw)
 	if extra, err := assets.ReadFile("assets/shell.css"); err == nil {
 		_, _ = w.Write(extra)
@@ -256,7 +256,7 @@ func (s *Server) workScript(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(raw)
 }
 
@@ -267,7 +267,7 @@ func (s *Server) agentScript(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(raw)
 }
 
@@ -278,7 +278,7 @@ func (s *Server) passkeyScript(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(raw)
 }
 

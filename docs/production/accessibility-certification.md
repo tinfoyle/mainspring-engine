@@ -19,6 +19,8 @@ The jsdom gate explicitly excludes axe's `color-contrast` rule because jsdom has
 
 Reusable page structure lives in the public site's `MarketingPage` frame. New marketing routes must use that frame or provide equivalent route-contract coverage. Illustrations must either expose one concise image alternative or remain absent from the accessibility tree; they must not contain inert controls that create false keyboard stops.
 
+The private server-rendered application has a separate Go DOM contract over 19 representative states spanning identity, owner enrollment, security, the Account overview, Work, Agents, and lifecycle. It requires a first-body skip link, one focusable main landmark, one level-one heading, ordered headings, unique IDs, valid ARIA references, named navigation landmarks and controls, labeled form fields, exactly one current private navigation item, and no `autofocus`. Interaction contracts additionally preserve Work dialog focus, expose Work selection/loading state, and honor reduced-motion preferences in Agents. This gate exercises locked, read-only, empty, and writable package modes, but it is not a substitute for private-route axe or assistive-technology testing.
+
 ## Required customer journeys
 
 Certify both the successful path and its validation, denial, empty, loading, and recoverable-failure states:
@@ -77,7 +79,7 @@ Any code, image, stylesheet, content, browser-support, package publication, or t
 
 ## Remaining work
 
-1. Add real-browser automation for focus order, skip-link movement, responsive overflow, mobile navigation state, and browser-computed contrast once the controlled browser runner is available.
-2. Extend the same rendered-structure and axe gate to the private server-rendered application routes, including each error and entitlement mode.
+1. Turn the controlled local-browser checks for signup, verification, login, owner enrollment, locked Work, responsive overflow, and target size into a repeatable exact-artifact release job; extend it through focus order, skip-link movement, zoom/reflow, and browser-computed contrast.
+2. Add real-browser axe coverage to the private application and expand its rendered-state fixtures through validation, denial, conflict, capacity, loading, and recoverable-failure states. The 19-state structural gate already covers the principal identity, Account, Work, Agents, security, and lifecycle layouts.
 3. Perform the complete assistive-technology/device matrix against connected staging with real TLS email, passkeys, Stripe test mode, and provider-failure injection.
 4. Archive the exact-artifact evidence, close defects, and rerun affected rows before canary promotion.

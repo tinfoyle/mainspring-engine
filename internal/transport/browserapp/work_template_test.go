@@ -30,8 +30,8 @@ func TestWorkTemplateExposesRoutedQueueOnlyForAvailablePackage(t *testing.T) {
 	}
 	body := rendered.String()
 	for _, expected := range []string{
-		`src="/assets/work.js"`,
-		`class="active" href="/app/work"`,
+		`src="/assets/work.js?v=2"`,
+		`class="active" aria-current="page" href="/app/work"`,
 		`data-account-id="01J00000000000000000000000"`,
 		`id="work-filters"`,
 		`id="work-detail"`,

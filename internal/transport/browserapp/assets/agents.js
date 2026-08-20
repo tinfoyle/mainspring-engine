@@ -46,6 +46,7 @@
   let loadGeneration = 0;
   let recoverableRun = null;
   const pendingOperations = new Map();
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   function node(tag, className, text) {
     const value = document.createElement(tag);
@@ -275,7 +276,7 @@
     newConversation.hidden = false;
     form.elements.prompt.value = "";
     renderPersonaPicker();
-    form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    form.scrollIntoView({ behavior: reducedMotion.matches ? "auto" : "smooth", block: "nearest" });
   }
 
   async function openConversation(item, button) {

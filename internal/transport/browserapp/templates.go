@@ -4,7 +4,7 @@ const pageTemplates = `
 {{define "head"}}
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{.Title}} · Infinite Ocean: Spyglass</title><meta name="description" content="Infinite Ocean: Spyglass business operating system">
-<link rel="stylesheet" href="/assets/spyglass.css">{{if .Script}}<script src="{{.Script}}" defer></script>{{end}}</head><body>
+<link rel="stylesheet" href="/assets/spyglass.css?v=2">{{if .Script}}<script src="{{.Script}}?v=2" defer></script>{{end}}</head><body><a class="skip-link" href="#main-content">Skip to main content</a>
 {{end}}
 
 {{define "brand"}}
@@ -17,48 +17,48 @@ const pageTemplates = `
 {{end}}
 
 {{define "private-sidebar"}}
-  <aside class="sidebar">
+  <aside class="sidebar" aria-label="Spyglass navigation">
     {{template "brand" .}}
     <form class="account-switch" method="post" action="/app/account">
       <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
       <button type="submit">Switch Account</button>
     </form>
-    <nav><p>OPERATE</p><a {{if eq .Page "app"}}class="active"{{end}} href="/app"><i>⌂</i>Overview</a><a {{if eq .Page "work"}}class="active"{{end}} href="/app/work"><i>✓</i>Work</a><a {{if eq .Page "agents"}}class="active"{{end}} href="/app/agents"><i>◌</i>Agents</a><a href="/app#knowledge"><i>◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i>≋</i>Finance</a><a href="/app#marketing"><i>↗</i>Marketing</a><a href="/app#billing"><i>$</i>Billing</a><a href="/app#settings"><i>⚙</i>Account</a><a {{if eq .Page "closures"}}class="active"{{end}} href="/app/account-closures"><i>○</i>Lifecycle</a><a href="/app/security"><i>◇</i>Security</a></nav>
-    <form method="post" action="/logout"><button class="logout">Sign out</button></form>
+    <nav aria-label="Primary navigation"><p>OPERATE</p><a {{if eq .Page "app"}}class="active" aria-current="page"{{end}} href="/app"><i aria-hidden="true">⌂</i>Overview</a><a {{if eq .Page "work"}}class="active" aria-current="page"{{end}} href="/app/work"><i aria-hidden="true">✓</i>Work</a><a {{if eq .Page "agents"}}class="active" aria-current="page"{{end}} href="/app/agents"><i aria-hidden="true">◌</i>Agents</a><a href="/app#knowledge"><i aria-hidden="true">◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i aria-hidden="true">≋</i>Finance</a><a href="/app#marketing"><i aria-hidden="true">↗</i>Marketing</a><a href="/app#billing"><i aria-hidden="true">$</i>Billing</a><a href="/app#settings"><i aria-hidden="true">⚙</i>Account</a><a {{if eq .Page "closures"}}class="active" aria-current="page"{{end}} href="/app/account-closures"><i aria-hidden="true">○</i>Lifecycle</a><a href="/app/security"><i aria-hidden="true">◇</i>Security</a></nav>
+    <form method="post" action="/logout"><button class="logout" type="submit">Sign out</button></form>
   </aside>
 {{end}}
 
 {{define "private-topbar"}}
-<header class="topbar"><div><strong>{{if .Selected}}{{.Selected.DisplayName}}{{else}}No Account selected{{end}}</strong><small>Infinite Ocean: Spyglass</small></div><span class="live"><i></i>Account services ready</span></header>
+<header class="topbar"><div><strong>{{if .Selected}}{{.Selected.DisplayName}}{{else}}No Account selected{{end}}</strong><small>Infinite Ocean: Spyglass</small></div><span class="live"><i aria-hidden="true"></i>Account services ready</span></header>
 {{end}}
 
 {{define "login"}}
-{{template "head" .}}<main class="auth"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">WELCOME BACK</p><h1>Find the signal.<br><em>Move the business.</em></h1><p>Sign in once, then choose the Spyglass Account where you want to work.</p></div><footer>One identity · Explicit Account access · Package-aware</footer></section><section class="auth-panel"><form method="post" action="/login"><p class="eyebrow">SECURE ACCESS</p><h2>Sign in to Spyglass</h2>{{template "alert" .}}<input type="hidden" name="return_to" value="{{.ReturnTo}}"><label>Email address<input type="email" name="email" value="{{.Email}}" autocomplete="email" required autofocus></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><p class="form-note"><a href="/forgot-password">Forgot your password?</a></p><button type="submit">Sign in <span>→</span></button>{{if .PasskeysConfigured}}<div class="auth-divider"><span>or</span></div><button class="passkey-button secondary" id="passkey-login" type="button" data-return-to="{{.ReturnTo}}">Sign in with a passkey <span>◇</span></button><p class="passkey-status" id="passkey-status" role="status"></p>{{end}}<p class="form-note">New to Infinite Ocean? <a href="/signup">Create a free Account</a>.</p></form></section></main></body></html>
+{{template "head" .}}<main class="auth" id="main-content" tabindex="-1"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">WELCOME BACK</p><h1>Find the signal.<br><em>Move the business.</em></h1><p>Sign in once, then choose the Spyglass Account where you want to work.</p></div><footer>One identity · Explicit Account access · Package-aware</footer></section><section class="auth-panel"><form method="post" action="/login"><p class="eyebrow">SECURE ACCESS</p><h2>Sign in to Spyglass</h2>{{template "alert" .}}<input type="hidden" name="return_to" value="{{.ReturnTo}}"><label>Email address<input type="email" name="email" value="{{.Email}}" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><p class="form-note"><a href="/forgot-password">Forgot your password?</a></p><button type="submit">Sign in <span>→</span></button>{{if .PasskeysConfigured}}<div class="auth-divider"><span>or</span></div><button class="passkey-button secondary" id="passkey-login" type="button" data-return-to="{{.ReturnTo}}">Sign in with a passkey <span>◇</span></button><p class="passkey-status" id="passkey-status" role="status"></p>{{end}}<p class="form-note">New to Infinite Ocean? <a href="/signup">Create a free Account</a>.</p></form></section></main></body></html>
 {{end}}
 
 {{define "forgot"}}
-{{template "head" .}}<main class="auth"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">IDENTITY RECOVERY</p><h1>Restore access.<br><em>Keep every Account.</em></h1><p>Your Infinite Ocean identity spans Spyglass Accounts. Recover the identity once; no Account data or Membership is recreated.</p></div><footer>Single-use link · 30-minute expiry · Every session revoked</footer></section><section class="auth-panel"><form method="post" action="/forgot-password"><p class="eyebrow">RECOVERY LINK</p><h2>Find your identity</h2>{{template "alert" .}}{{if .DevelopmentToken}}<div class="dev-link"><strong>Development recovery</strong><a href="/reset-password?token={{.DevelopmentToken}}">Set a new password</a></div>{{else}}<label>Email address<input type="email" name="email" value="{{.Email}}" autocomplete="email" required autofocus></label><button type="submit">Send recovery link <span>→</span></button>{{end}}<p class="form-note"><a href="/login">Return to sign in</a>.</p></form></section></main></body></html>
+{{template "head" .}}<main class="auth" id="main-content" tabindex="-1"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">IDENTITY RECOVERY</p><h1>Restore access.<br><em>Keep every Account.</em></h1><p>Your Infinite Ocean identity spans Spyglass Accounts. Recover the identity once; no Account data or Membership is recreated.</p></div><footer>Single-use link · 30-minute expiry · Every session revoked</footer></section><section class="auth-panel"><form method="post" action="/forgot-password"><p class="eyebrow">RECOVERY LINK</p><h2>Find your identity</h2>{{template "alert" .}}{{if .DevelopmentToken}}<div class="dev-link"><strong>Development recovery</strong><a href="/reset-password?token={{.DevelopmentToken}}">Set a new password</a></div>{{else}}<label>Email address<input type="email" name="email" value="{{.Email}}" autocomplete="email" required></label><button type="submit">Send recovery link <span>→</span></button>{{end}}<p class="form-note"><a href="/login">Return to sign in</a>.</p></form></section></main></body></html>
 {{end}}
 
 {{define "reset"}}
-{{template "head" .}}<main class="auth"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">SECURE THE IDENTITY</p><h1>Set a new key<br><em>to the view ahead.</em></h1><p>Completing recovery invalidates the link, changes the password, and signs the identity out everywhere.</p></div><footer>Argon2id credential · Security version advanced · Sessions revoked</footer></section><section class="auth-panel"><form method="post" action="/reset-password"><p class="eyebrow">NEW PASSWORD</p><h2>Reset your password</h2>{{template "alert" .}}<input type="hidden" name="token" value="{{.Token}}"><label>New password<input type="password" name="password" autocomplete="new-password" minlength="12" required><small>Use at least 12 characters.</small></label><button type="submit">Update password <span>→</span></button><p class="form-note"><a href="/login">Return to sign in</a>.</p></form></section></main></body></html>
+{{template "head" .}}<main class="auth" id="main-content" tabindex="-1"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">SECURE THE IDENTITY</p><h1>Set a new key<br><em>to the view ahead.</em></h1><p>Completing recovery invalidates the link, changes the password, and signs the identity out everywhere.</p></div><footer>Argon2id credential · Security version advanced · Sessions revoked</footer></section><section class="auth-panel"><form method="post" action="/reset-password"><p class="eyebrow">NEW PASSWORD</p><h2>Reset your password</h2>{{template "alert" .}}<input type="hidden" name="token" value="{{.Token}}"><label>New password<input type="password" name="password" autocomplete="new-password" minlength="12" aria-describedby="password-requirements" required><small id="password-requirements">Use at least 12 characters.</small></label><button type="submit">Update password <span>→</span></button><p class="form-note"><a href="/login">Return to sign in</a>.</p></form></section></main></body></html>
 {{end}}
 
 {{define "signup"}}
-{{template "head" .}}<main class="auth"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">START WITH CLARITY</p><h1>Your first clear<br><em>view is free.</em></h1><p>Create a system-wide identity and a real Spyglass Account. Payment information is optional.</p></div><footer>Free plan · No customer container · Upgrade by package</footer></section><section class="auth-panel"><form method="post" action="/signup"><p class="eyebrow">INFINITE OCEAN IDENTITY</p><h2>Create your Account</h2>{{template "alert" .}}{{if .DevelopmentToken}}<div class="dev-link"><strong>Development verification</strong><a href="/verify?token={{.DevelopmentToken}}{{if .OfferCode}}&offer={{.OfferCode}}{{end}}">Continue to password setup</a></div>{{else}}<label>Your name<input name="name" value="{{.Name}}" autocomplete="name" required></label><label>Work email<input type="email" name="email" value="{{.Email}}" autocomplete="email" required></label><label>Business name<input name="account_name" value="{{.AccountName}}" autocomplete="organization" required></label><input type="hidden" name="region" value="us-east">{{if .OfferCode}}<input type="hidden" name="offer_code" value="{{.OfferCode}}">{{end}}<button type="submit">Continue securely <span>→</span></button>{{end}}<p class="form-note">Already registered? <a href="/login">Sign in</a>.</p></form></section></main></body></html>
+{{template "head" .}}<main class="auth" id="main-content" tabindex="-1"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">START WITH CLARITY</p><h1>Your first clear<br><em>view is free.</em></h1><p>Create a system-wide identity and a real Spyglass Account. Payment information is optional.</p></div><footer>Free plan · No customer container · Upgrade by package</footer></section><section class="auth-panel"><form method="post" action="/signup"><p class="eyebrow">INFINITE OCEAN IDENTITY</p><h2>Create your Account</h2>{{template "alert" .}}{{if .DevelopmentToken}}<div class="dev-link"><strong>Development verification</strong><a href="/verify?token={{.DevelopmentToken}}{{if .OfferCode}}&offer={{.OfferCode}}{{end}}">Continue to password setup</a></div>{{else}}<label>Your name<input name="name" value="{{.Name}}" autocomplete="name" required></label><label>Work email<input type="email" name="email" value="{{.Email}}" autocomplete="email" required></label><label>Business name<input name="account_name" value="{{.AccountName}}" autocomplete="organization" required></label><input type="hidden" name="region" value="us-east">{{if .OfferCode}}<input type="hidden" name="offer_code" value="{{.OfferCode}}">{{end}}<button type="submit">Continue securely <span>→</span></button>{{end}}<p class="form-note">Already registered? <a href="/login">Sign in</a>.</p></form></section></main></body></html>
 {{end}}
 
 {{define "verify"}}
-{{template "head" .}}<main class="auth"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">IDENTITY VERIFIED</p><h1>Secure the<br><em>view ahead.</em></h1><p>Your password protects your Infinite Ocean identity across every Account you are invited to join.</p></div><footer>12+ characters · Rotating sessions · Account isolation</footer></section><section class="auth-panel"><form method="post" action="/verify"><p class="eyebrow">FINAL STEP</p><h2>Choose your password</h2>{{template "alert" .}}<input type="hidden" name="token" value="{{.Token}}">{{if .OfferCode}}<input type="hidden" name="offer_code" value="{{.OfferCode}}">{{end}}<label>Password<input type="password" name="password" autocomplete="new-password" minlength="12" required><small>Use at least 12 characters.</small></label><button type="submit">Create identity and Account <span>→</span></button></form></section></main></body></html>
+{{template "head" .}}<main class="auth" id="main-content" tabindex="-1"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">IDENTITY VERIFIED</p><h1>Secure the<br><em>view ahead.</em></h1><p>Your password protects your Infinite Ocean identity across every Account you are invited to join.</p></div><footer>12+ characters · Rotating sessions · Account isolation</footer></section><section class="auth-panel"><form method="post" action="/verify"><p class="eyebrow">FINAL STEP</p><h2>Choose your password</h2>{{template "alert" .}}<input type="hidden" name="token" value="{{.Token}}">{{if .OfferCode}}<input type="hidden" name="offer_code" value="{{.OfferCode}}">{{end}}<label>Password<input type="password" name="password" autocomplete="new-password" minlength="12" aria-describedby="password-requirements" required><small id="password-requirements">Use at least 12 characters.</small></label><button type="submit">Create identity and Account <span>→</span></button></form></section></main></body></html>
 {{end}}
 
 {{define "accept"}}
-{{template "head" .}}<main class="auth"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">YOU'RE INVITED</p><h1>Bring another<br><em>Account into view.</em></h1><p>The Membership will be added to your existing Infinite Ocean identity.</p></div></section><section class="auth-panel"><form method="post" action="/invitations/accept"><p class="eyebrow">ACCOUNT MEMBERSHIP</p><h2>Accept invitation</h2>{{template "alert" .}}<input type="hidden" name="token" value="{{.Token}}"><button type="submit">Join this Account <span>→</span></button><p class="form-note"><a href="/app">Return to Spyglass</a></p></form></section></main></body></html>
+{{template "head" .}}<main class="auth" id="main-content" tabindex="-1"><section class="auth-story">{{template "brand" .}}<div><p class="eyebrow">YOU'RE INVITED</p><h1>Bring another<br><em>Account into view.</em></h1><p>The Membership will be added to your existing Infinite Ocean identity.</p></div></section><section class="auth-panel"><form method="post" action="/invitations/accept"><p class="eyebrow">ACCOUNT MEMBERSHIP</p><h2>Accept invitation</h2>{{template "alert" .}}<input type="hidden" name="token" value="{{.Token}}"><button type="submit">Join this Account <span>→</span></button><p class="form-note"><a href="/app">Return to Spyglass</a></p></form></section></main></body></html>
 {{end}}
 
 {{define "security"}}
 {{template "head" .}}
-<main class="security-layout">
+<main class="security-layout" id="main-content" tabindex="-1">
   <header>{{template "brand" .}}<a href="/app">Return to Spyglass</a></header>
   <section class="security-hero"><p class="eyebrow">INFINITE OCEAN IDENTITY</p><h1>Security follows<br><em>you, not an Account.</em></h1><p>Review every active Spyglass session, manage passkeys, or confirm your identity before a sensitive change.</p></section>
   <div class="security-grid">
@@ -66,7 +66,7 @@ const pageTemplates = `
     <section class="security-card"><div class="security-card-head"><div><p class="eyebrow">ACTIVE SESSIONS</p><h2>Where you are signed in</h2></div><form method="post" action="/app/security/sessions/revoke-all"><button class="danger" type="submit">Sign out everywhere</button></form></div><div class="session-list">{{range .ActiveSessions}}<article><div><strong>{{.ClientLabel}}</strong>{{if .Current}}<em>Current session</em>{{end}}<small>Signed in with {{.AuthenticationMethod}} · Last confirmed with {{.ReauthenticationMethod}}</small><small>Last used {{.LastSeenAt.Format "Jan 2, 2006 at 15:04 UTC"}} · Expires {{.ExpiresAt.Format "Jan 2, 2006"}}</small></div><form method="post" action="/app/security/sessions/revoke"><input type="hidden" name="session_id" value="{{.ID}}"><button type="submit">{{if .Current}}Sign out{{else}}Revoke{{end}}</button></form></article>{{else}}<p>No active sessions.</p>{{end}}</div></section>
     <section class="security-card factor-loss-policy"><p class="eyebrow">FACTOR-LOSS POLICY</p><h2>Know the last-resort path</h2><ol><li><b>1</b><span><strong>Recover the password if needed</strong><small>The email recovery link changes the password and signs every session out.</small></span></li><li><b>2</b><span><strong>Use one saved recovery code</strong><small>It unlocks replacement-passkey enrollment only for this User and session, for 10 minutes.</small></span></li><li><b>3</b><span><strong>Add a passkey and replace the code set</strong><small>Owner authority stays closed until a passkey and at least one unused code both exist.</small></span></li></ol><p class="factor-loss-warning"><strong>Infinite Ocean support cannot view or recreate recovery codes, impersonate a passkey, or mark an owner ready.</strong> If every authenticator and every saved code are unavailable, self-service owner recovery is not possible and Account authority remains locked.</p></section>
     {{if .PasskeysConfigured}}<section class="security-card security-passkeys"><div class="security-card-head"><div><p class="eyebrow">PASSKEYS</p><h2>Phishing-resistant sign-in</h2></div></div><p>Passkeys belong to your Infinite Ocean identity and work across every Spyglass Account you can access. Confirm with an existing passkey before adding another. If every passkey is lost, confirm your password and use one saved recovery code.</p><div class="passkey-list">{{range .Passkeys}}<article><div><strong>{{.Name}}</strong><small>Added {{.CreatedAt.Format "Jan 2, 2006"}}{{if .LastUsedAt}} · Last used {{.LastUsedAt.Format "Jan 2, 2006"}}{{end}}{{if .BackedUp}} · Synced{{end}}</small></div><button class="passkey-remove" type="button" data-credential-id="{{.ID}}">Remove</button></article>{{else}}<p>No passkeys have been added.</p>{{end}}</div><div class="passkey-enroll"><label>Passkey name<input id="passkey-name" maxlength="80" value="My passkey" autocomplete="off"></label><button id="passkey-register" type="button">Add passkey</button></div></section>{{end}}
-    {{if .RecoveryCodesConfigured}}<section class="security-card"><div class="security-card-head"><div><p class="eyebrow">FACTOR RECOVERY</p><h2>One-time recovery codes</h2></div></div>{{if .RecoveryCodeStatus.Configured}}<p><strong>{{.RecoveryCodeStatus.Remaining}} of 10</strong> codes remain from set {{.RecoveryCodeStatus.Version}}. Creating a new set immediately revokes every previous code.</p>{{else}}<p>Create recovery codes after enrolling your first passkey. They are the only self-service path for replacing every lost passkey.</p>{{end}}{{if or .Passkeys .RecoveryCodeStatus.Configured}}<form method="post" action="/app/security/recovery-codes"><button type="submit">{{if .RecoveryCodeStatus.Configured}}Replace recovery codes{{else}}Create recovery codes{{end}}</button></form>{{else}}<p><strong>Add a passkey first.</strong> Recovery-code sets can only be created after passkey verification.</p>{{end}}{{if .RecoveryCodeStatus.Configured}}<details class="lost-passkey"><summary>Lost access to every passkey?</summary><p>Confirm your password above, then spend one saved code to unlock a replacement passkey on this session. This works even while the lost credentials still appear in your passkey list.</p><form method="post" action="/app/security/recovery-codes/consume"><label>Saved recovery code<input name="code" autocomplete="one-time-code" required></label><button class="secondary" type="submit">Unlock replacement passkey</button></form></details>{{end}}{{if .RecoveryCodes}}<div class="recovery-code-list" aria-label="New recovery codes">{{range .RecoveryCodes}}<code>{{.}}</code>{{end}}</div><p><strong>Save these now.</strong> Spyglass stores only one-way hashes and cannot display this set again.</p>{{end}}</section>{{end}}
+    {{if .RecoveryCodesConfigured}}<section class="security-card"><div class="security-card-head"><div><p class="eyebrow">FACTOR RECOVERY</p><h2>One-time recovery codes</h2></div></div>{{if .RecoveryCodeStatus.Configured}}<p><strong>{{.RecoveryCodeStatus.Remaining}} of 10</strong> codes remain from set {{.RecoveryCodeStatus.Version}}. Creating a new set immediately revokes every previous code.</p>{{else}}<p>Create recovery codes after enrolling your first passkey. They are the only self-service path for replacing every lost passkey.</p>{{end}}{{if or .Passkeys .RecoveryCodeStatus.Configured}}<form method="post" action="/app/security/recovery-codes"><button type="submit">{{if .RecoveryCodeStatus.Configured}}Replace recovery codes{{else}}Create recovery codes{{end}}</button></form>{{else}}<p><strong>Add a passkey first.</strong> Recovery-code sets can only be created after passkey verification.</p>{{end}}{{if .RecoveryCodeStatus.Configured}}<details class="lost-passkey"><summary>Lost access to every passkey?</summary><p>Confirm your password above, then spend one saved code to unlock a replacement passkey on this session. This works even while the lost credentials still appear in your passkey list.</p><form method="post" action="/app/security/recovery-codes/consume"><label>Saved recovery code<input name="code" autocomplete="one-time-code" required></label><button class="secondary" type="submit">Unlock replacement passkey</button></form></details>{{end}}{{if .RecoveryCodes}}<div class="recovery-code-list" role="list" aria-label="New recovery codes">{{range .RecoveryCodes}}<code role="listitem">{{.}}</code>{{end}}</div><p><strong>Save these now.</strong> Spyglass stores only one-way hashes and cannot display this set again.</p>{{end}}</section>{{end}}
     <section class="security-card security-events"><p class="eyebrow">SECURITY HISTORY</p><h2>Recent identity activity</h2><div class="event-list">{{range .SecurityEvents}}<article><i aria-hidden="true"></i><div><strong>{{.Label}}</strong><small>{{.Detail}}</small></div><time>{{.OccurredAt.Format "Jan 2, 2006 at 15:04 UTC"}}</time></article>{{else}}<p>No security events have been recorded.</p>{{end}}</div></section>
   </div>
 </main></body></html>
@@ -76,14 +76,14 @@ const pageTemplates = `
 {{template "head" .}}
 <div class="app-shell">
   {{template "private-sidebar" .}}
-  <main class="workspace">
+  <main class="workspace" id="main-content" tabindex="-1">
     {{template "private-topbar" .}}
     <div class="content">
       {{template "alert" .}}
       {{if .DevelopmentToken}}<div class="dev-link"><strong>Development invitation link</strong><a href="/invitations/accept?token={{.DevelopmentToken}}">Open invitation</a></div>{{end}}
       {{if .Selected}}
       {{if .OwnerEnrollmentRequired}}<section class="owner-security-gate"><div><p class="eyebrow">OWNER IDENTITY SETUP</p><h1>Secure the helm<br><em>before taking command.</em></h1><p>Ownership carries Membership, billing, and lifecycle authority. Add a phishing-resistant passkey, then save a set of one-time recovery codes. Until both are ready, Spyglass keeps this Account in preview and rejects every Account authorization boundary.</p></div><ol><li><b>01</b><span><strong>Add a passkey</strong><small>Proves user presence and verification for privileged actions.</small></span></li><li><b>02</b><span><strong>Save recovery codes</strong><small>Preserves a governed path if every passkey is lost.</small></span></li></ol><a class="button" href="/app/security">Secure owner identity</a></section>{{end}}
-      <section class="hero-panel"><div><p class="eyebrow">ACCOUNT OVERVIEW</p>{{if .OwnerEnrollmentRequired}}<h1>Your Account exists.<br><em>Owner setup comes next.</em></h1><p>Placement and package previews are available, but Account data and operations remain closed until owner identity setup is complete.</p>{{else}}<h1>Your Account is ready.<br><em>The operating surface comes next.</em></h1><p>Identity, Membership, placement, package access, and the local entitlement snapshot are active for this Account.</p>{{end}}</div><div class="horizon" aria-hidden="true"><i></i><b></b></div></section>
+      <section class="hero-panel"><div><p class="eyebrow">ACCOUNT OVERVIEW</p>{{if .OwnerEnrollmentRequired}}<h2 class="account-state-heading">Your Account exists.<br><em>Owner setup comes next.</em></h2><p>Placement and package previews are available, but Account data and operations remain closed until owner identity setup is complete.</p>{{else}}<h1>Your Account is ready.<br><em>The operating surface comes next.</em></h1><p>Identity, Membership, placement, package access, and the local entitlement snapshot are active for this Account.</p>{{end}}</div><div class="horizon" aria-hidden="true"><i></i><b></b></div></section>
       <section class="metrics">
         <article><small>ACCOUNT TYPE</small><strong>{{.Selected.AccountType}}</strong><span class="green">{{.BillingState}}</span></article>
         <article><small>PACKAGE ACCESS</small><strong>{{len .PackageModes}}</strong><span>Effective packages</span></article>
@@ -126,7 +126,7 @@ const pageTemplates = `
 {{template "head" .}}
 <div class="app-shell">
   {{template "private-sidebar" .}}
-  <main class="workspace">
+  <main class="workspace" id="main-content" tabindex="-1">
     {{template "private-topbar" .}}
     <div class="content work-content">
       {{template "alert" .}}
@@ -137,7 +137,7 @@ const pageTemplates = `
       {{else}}
       <section class="work-heading"><div><p class="eyebrow">WORK</p><h1>What is moving,<br><em>what needs attention.</em></h1><p>One Account-scoped queue for human commitments, agent activity, and operational follow-through.</p></div><div class="work-heading-actions"><span class="work-mode">{{if .WorkReadOnly}}READ-ONLY ACCESS{{else}}PACKAGE ENABLED{{end}}</span>{{if not .WorkReadOnly}}<button class="work-new" id="work-create-open" type="button">＋ New work</button>{{end}}</div></section>
       <section class="work-app" id="work-app" data-account-id="{{.Selected.AccountID}}" data-read-only="{{.WorkReadOnly}}" aria-busy="true">
-        <div class="work-summary" aria-label="Work summary">
+        <div class="work-summary" role="region" aria-label="Work summary">
           <article><small>ACTIVE</small><strong data-summary="active">—</strong><span>Open commitments</span></article>
           <article><small>IN PROGRESS</small><strong data-summary="in_progress">—</strong><span>Moving now</span></article>
           <article><small>WAITING</small><strong data-summary="waiting">—</strong><span>Needs a signal</span></article>
@@ -154,7 +154,7 @@ const pageTemplates = `
               <button type="submit">Apply</button>
             </form>
             <div class="work-status" id="work-status" role="status">Loading Account work…</div>
-            <div class="work-list" id="work-list"></div>
+            <div class="work-list" id="work-list" role="region" aria-label="Work items"></div>
             <button class="work-more" id="work-more" type="button" hidden>Load more</button>
           </section>
           <aside class="work-detail panel" id="work-detail" aria-live="polite">
@@ -162,7 +162,7 @@ const pageTemplates = `
           </aside>
         </div>
       </section>
-      {{if not .WorkReadOnly}}<dialog class="work-dialog" id="work-create-dialog"><form id="work-create-form"><header><div><p class="eyebrow">NEW WORK</p><h2>Create a clear next step</h2></div><button id="work-create-close" type="button" aria-label="Close">×</button></header><label>Title<input name="title" maxlength="240" required placeholder="What needs to happen?"></label><label>Description<textarea name="description" maxlength="20000" rows="5" placeholder="Add the outcome, context, and definition of done."></textarea></label><div class="work-form-grid"><label>Type<select name="kind"><option value="ticket">Ticket</option><option value="todo">To-do</option></select></label><label>Priority<select name="priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></label><label>Responsibility<select name="responsibility"><option value="shared">Shared</option><option value="user">Assign to me</option></select></label></div><p class="work-form-error" id="work-create-error" role="alert" hidden></p><footer><button class="secondary" id="work-create-cancel" type="button">Cancel</button><button class="primary" type="submit">Create work</button></footer></form></dialog>{{end}}
+      {{if not .WorkReadOnly}}<dialog class="work-dialog" id="work-create-dialog" aria-labelledby="work-create-title"><form id="work-create-form"><header><div><p class="eyebrow">NEW WORK</p><h2 id="work-create-title">Create a clear next step</h2></div><button id="work-create-close" type="button" aria-label="Close">×</button></header><label>Title<input name="title" maxlength="240" required placeholder="What needs to happen?"></label><label>Description<textarea name="description" maxlength="20000" rows="5" placeholder="Add the outcome, context, and definition of done."></textarea></label><div class="work-form-grid"><label>Type<select name="kind"><option value="ticket">Ticket</option><option value="todo">To-do</option></select></label><label>Priority<select name="priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></label><label>Responsibility<select name="responsibility"><option value="shared">Shared</option><option value="user">Assign to me</option></select></label></div><p class="work-form-error" id="work-create-error" role="alert" hidden></p><footer><button class="secondary" id="work-create-cancel" type="button">Cancel</button><button class="primary" type="submit">Create work</button></footer></form></dialog>{{end}}
       {{end}}
     </div>
   </main>
@@ -173,7 +173,7 @@ const pageTemplates = `
 {{template "head" .}}
 <div class="app-shell">
   {{template "private-sidebar" .}}
-  <main class="workspace">
+  <main class="workspace" id="main-content" tabindex="-1">
     {{template "private-topbar" .}}
     <div class="content agents-content">
       {{template "alert" .}}
@@ -192,7 +192,7 @@ const pageTemplates = `
         <section class="agents-stage">
           <section class="agents-roster panel">
             <header><div><p class="eyebrow">CURRENT BOARDROOM</p><h2 id="agents-room-name">Select a Boardroom</h2><p id="agents-room-purpose">Choose an operating room to inspect its team and conversations.</p></div><span id="agents-room-policy"></span></header>
-            <div id="agents-personas" class="agents-personas" aria-label="Boardroom Personas"></div>
+            <div id="agents-personas" class="agents-personas" role="region" aria-label="Boardroom Personas"></div>
           </section>
           {{if not .AgentsReadOnly}}<form class="agents-composer panel" id="agents-run-form" hidden>
             <header><div><p class="eyebrow" id="agents-compose-label">NEW CONVERSATION</p><h2 id="agents-compose-title">Convene this Boardroom</h2></div><button class="agents-new-conversation" id="agents-new-conversation" type="button" hidden>New conversation</button></header>
@@ -205,7 +205,7 @@ const pageTemplates = `
           <section class="agents-conversations panel">
             <header><div><p class="eyebrow">CONVERSATIONS</p><h2>Decision history</h2></div><span id="agents-conversation-count">Select a room</span></header>
             <div id="agents-conversation-status" class="agents-status" role="status">No Boardroom selected.</div>
-            <div id="agents-conversation-list"></div>
+            <div id="agents-conversation-list" role="region" aria-label="Boardroom conversations"></div>
             <button id="agents-more-conversations" class="agents-more" type="button" hidden>Load more conversations</button>
           </section>
           <section class="agents-transcript panel" id="agents-transcript" hidden>
@@ -217,7 +217,7 @@ const pageTemplates = `
               <p id="agents-recovery-error" class="agents-form-error" role="alert" hidden></p>
               <footer><button type="submit" name="action" value="retry_failed">Retry failed turns</button><button class="secondary" type="submit" name="action" value="accept_failure">Accept failure</button></footer>
             </form>{{end}}
-            <div id="agents-message-list"></div>
+            <div id="agents-message-list" role="log" aria-label="Conversation messages"></div>
             <button id="agents-more-messages" class="agents-more" type="button" hidden>Load later messages</button>
           </section>
         </section>
@@ -232,7 +232,7 @@ const pageTemplates = `
 {{template "head" .}}
 <div class="app-shell">
   {{template "private-sidebar" .}}
-  <main class="workspace">
+  <main class="workspace" id="main-content" tabindex="-1">
     {{template "private-topbar" .}}
     <div class="content lifecycle-content">
       {{template "alert" .}}
