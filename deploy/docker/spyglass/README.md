@@ -14,6 +14,8 @@ At `app.infiniteocean.localhost`, global/private routes go to account-api while 
 
 `env/local.env` contains intentionally public, local-only credentials and deterministic keys. It must never be copied to stage or production. Environment-specific secret files are supplied separately.
 
+The local role jobs are idempotent and give each serving process a non-superuser, non-owner, non-`BYPASSRLS` login. Migration credentials remain separate. The checked-in role passwords are local-only fixtures, not secret templates.
+
 Use `make down` to stop the stack while preserving all three database volumes. The destructive reset is deliberately explicit:
 
 ```bash

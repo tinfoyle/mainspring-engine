@@ -4,7 +4,8 @@ set -euo pipefail
 tls_port="${SPYGLASS_LOCAL_TLS_PORT:-8444}"
 public_origin="https://web.infiniteocean.localhost:${tls_port}"
 app_origin="https://app.infiniteocean.localhost:${tls_port}"
-compose=(docker compose --project-name spyglass-local --env-file env/local.env --file compose.yml --file compose.local.yml)
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+compose=(docker compose --project-name spyglass-local --env-file "$script_dir/env/local.env" --file "$script_dir/compose.yml" --file "$script_dir/compose.local.yml")
 root_ca=/tmp/spyglass-local-caddy-root.crt
 "${compose[@]}" cp edge:/data/caddy/pki/authorities/local/root.crt "$root_ca" >/dev/null
 curl_common=(--fail --silent --show-error --cacert "$root_ca")
@@ -22,6 +23,11 @@ cell_count="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
   --command="SELECT count(*) FROM cells WHERE state='active' AND route_origin IS NOT NULL")"
 test "$cell_count" = "2"
+
+runtime_role_count="$("${compose[@]}" exec --no-TTY global-db psql \
+  --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+  --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_account_api','spyglass_app_router','spyglass_admission_api') AND NOT rolsuper AND NOT rolbypassrls")"
+test "$runtime_role_count" = "3"
 
 curl "${curl_common[@]}" --dump-header /tmp/spyglass-local-website-headers.txt \
   --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \

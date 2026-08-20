@@ -22,26 +22,72 @@ services:
         CREATED: local
     image: spyglass-application:local
 
+  global-roles:
+    image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    restart: "no"
+    command: [psql, --host=global-db, --username=spyglass_migrator, --dbname=spyglass, --set=ON_ERROR_STOP=1, --file=/opt/spyglass/roles/global.sql]
+    environment:
+      PGPASSWORD: ${SPYGLASS_GLOBAL_DATABASE_PASSWORD}
+    volumes:
+      - ./roles/global.local.sql:/opt/spyglass/roles/global.sql:ro
+    depends_on:
+      global-migrate: {condition: service_completed_successfully}
+    networks: [database]
+
   cell-a-migrate:
     image: spyglass-application:local
+
+  cell-a-roles:
+    image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    restart: "no"
+    command: [psql, --host=cell-a-db, --username=spyglass_migrator, --dbname=spyglass, --set=ON_ERROR_STOP=1, --file=/opt/spyglass/roles/cell.sql]
+    environment:
+      PGPASSWORD: ${SPYGLASS_CELL_A_DATABASE_PASSWORD}
+    volumes:
+      - ./roles/cell.local.sql:/opt/spyglass/roles/cell.sql:ro
+    depends_on:
+      cell-a-migrate: {condition: service_completed_successfully}
+    networks: [database]
 
   cell-b-migrate:
     image: spyglass-application:local
 
+  cell-b-roles:
+    image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    restart: "no"
+    command: [psql, --host=cell-b-db, --username=spyglass_migrator, --dbname=spyglass, --set=ON_ERROR_STOP=1, --file=/opt/spyglass/roles/cell.sql]
+    environment:
+      PGPASSWORD: ${SPYGLASS_CELL_B_DATABASE_PASSWORD}
+    volumes:
+      - ./roles/cell.local.sql:/opt/spyglass/roles/cell.sql:ro
+    depends_on:
+      cell-b-migrate: {condition: service_completed_successfully}
+    networks: [database]
+
   account-api:
     image: spyglass-application:local
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
 
   admission-api:
     image: spyglass-application:local
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
 
   app-api-a:
     image: spyglass-application:local
+    depends_on:
+      cell-a-roles: {condition: service_completed_successfully}
 
   app-api-b:
     image: spyglass-application:local
+    depends_on:
+      cell-b-roles: {condition: service_completed_successfully}
 
   app-router:
     image: spyglass-application:local
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
 
   website-test:
     profiles: [test]
