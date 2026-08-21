@@ -309,6 +309,13 @@ func (r *AttentionRepository) UpdateApproval(ctx context.Context, item domain.Co
 		canceledKind, canceledID = item.CanceledBy.Kind, item.CanceledBy.ID
 	}
 	err = r.cell.WithAccountTx(ctx, item.AccountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		existing, err := scanApproval(tx.QueryRow(ctx, approvalSelect+` WHERE account_id=$1 AND id=$2 FOR UPDATE`, item.AccountID, item.ID))
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && existing.Version != expected) {
+			return attentionapp.ErrConflict
+		}
+		if err != nil {
+			return err
+		}
 		result, err := tx.Exec(ctx, `UPDATE spyglass.attention_consequential_approvals SET state=$3,decision=$4,decision_reason=$5,
 			decided_by_user_id=$6,decided_at=$7,canceled_by_kind=$8,canceled_by_id=$9,cancel_reason=$10,canceled_at=$11,
 			invalidated_at=$12,expired_at=$13,version=$14,updated_at=$15 WHERE account_id=$1 AND id=$2 AND version=$16`, item.AccountID, item.ID,
@@ -324,12 +331,35 @@ func (r *AttentionRepository) UpdateApproval(ctx context.Context, item domain.Co
 		if eventType == "" {
 			return attentionapp.ErrCorrupt
 		}
-		return r.insertEvent(ctx, tx, "consequential_approval", string(item.ID), eventType, expected, item.Version, mutation, map[string]any{"state": item.State, "capability": item.Capability, "hash_version": item.HashVersion, "policy_version": item.PolicyVersion})
+		if err := r.insertEvent(ctx, tx, "consequential_approval", string(item.ID), eventType, expected, item.Version, mutation, map[string]any{"state": item.State, "capability": item.Capability, "hash_version": item.HashVersion, "policy_version": item.PolicyVersion}); err != nil {
+			return err
+		}
+		return syncApprovalProjection(ctx, tx, existing, item)
 	})
 	if err != nil {
 		return domain.ConsequentialApproval{}, classifyAttentionError(err)
 	}
 	return item, nil
+}
+
+func syncApprovalProjection(ctx context.Context, tx pgx.Tx, previous, current domain.ConsequentialApproval) error {
+	if previous.State == domain.ConsequentialApprovalOpen && current.State == domain.ConsequentialApprovalApproved {
+		authorization, err := current.Authorization(current.Decision.DecidedAt)
+		if err != nil {
+			return attentionapp.ErrCorrupt
+		}
+		var created bool
+		return tx.QueryRow(ctx, `SELECT public.spyglass_record_runner_action_authorization($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10,$11,$12,$13,$14)`,
+			authorization.AccountID, authorization.OperationID, authorization.InvocationID, authorization.ApprovalID, authorization.Capability,
+			authorization.InputSHA256[:], authorization.HashVersion, authorization.EvidenceSHA256[:], authorization.Proposer.Kind,
+			authorization.Proposer.ID, authorization.ApprovedBy, authorization.PolicyVersion, authorization.ApprovedAt, authorization.ExpiresAt).Scan(&created)
+	}
+	if previous.State == domain.ConsequentialApprovalApproved && current.State == domain.ConsequentialApprovalInvalidated {
+		var changed bool
+		return tx.QueryRow(ctx, `SELECT public.spyglass_cancel_runner_action_authorization($1,$2,$3,$4)`,
+			current.AccountID, current.OperationID, current.ID, current.UpdatedAt).Scan(&changed)
+	}
+	return nil
 }
 
 func (r *AttentionRepository) insertEvent(ctx context.Context, tx pgx.Tx, aggregateKind, aggregateID, eventType string, fromVersion, toVersion uint64, mutation attentionapp.Mutation, payload map[string]any) error {
@@ -513,6 +543,8 @@ func classifyAttentionError(err error) error {
 		case "23503", "23514", "22023", "42501":
 			return fmt.Errorf("%w: %s", attentionapp.ErrConstraint, pgErr.ConstraintName)
 		case "40001", "40P01":
+			return attentionapp.ErrConflict
+		case "P2001", "P2004", "P2005":
 			return attentionapp.ErrConflict
 		}
 	}

@@ -1,6 +1,7 @@
 package migrations_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -304,6 +305,14 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	if err != nil || updatedApproval.State != attentiondomain.ConsequentialApprovalApproved {
 		t.Fatalf("update approval=%+v err=%v", updatedApproval, err)
 	}
+	var projectedState, projectedApprovalID, projectedCapability string
+	var projectedInput, projectedEvidence []byte
+	if err := owner.QueryRow(ctx, `SELECT state,approval_id,capability,input_sha256,evidence_sha256 FROM spyglass.runner_action_authorizations WHERE account_id=$1 AND operation_id=$2`,
+		accountID, operationID).Scan(&projectedState, &projectedApprovalID, &projectedCapability, &projectedInput, &projectedEvidence); err != nil ||
+		projectedState != "approved" || projectedApprovalID != approvalID || projectedCapability != approval.Capability ||
+		!bytes.Equal(projectedInput, approval.InputSHA256[:]) || !bytes.Equal(projectedEvidence, approval.EvidenceSHA256[:]) {
+		t.Fatalf("approval projection state=%q approval=%q capability=%q input=%x evidence=%x err=%v", projectedState, projectedApprovalID, projectedCapability, projectedInput, projectedEvidence, err)
+	}
 	authorization, err := updatedApproval.Authorization(now.Add(8 * time.Minute))
 	if err != nil || authorization.OperationID != operationID || authorization.InputSHA256 != approval.InputSHA256 {
 		t.Fatalf("approval authorization=%+v err=%v", authorization, err)
@@ -311,6 +320,65 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	approvalPage, err := repository.ListApprovals(ctx, accountID, attentionapp.ApprovalListQuery{State: attentiondomain.ConsequentialApprovalApproved, WorkItemID: workItemID, Limit: 10})
 	if err != nil || len(approvalPage.Items) != 1 || approvalPage.Items[0].ID != createdApproval.ID {
 		t.Fatalf("approval page=%+v err=%v", approvalPage, err)
+	}
+	invalidatedApproval, err := updatedApproval.ReconcileProposal(attentiondomain.ReconcileApprovalCommand{
+		CanonicalPayload: json.RawMessage(`{"to":"changed@example.com","subject":"Private result"}`),
+		EvidenceSHA256:   updatedApproval.EvidenceSHA256, PolicyVersion: updatedApproval.PolicyVersion,
+		ExpectedVersion: updatedApproval.Version, At: now.Add(8 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.UpdateApproval(ctx, invalidatedApproval, updatedApproval.Version, attentionapp.Mutation{
+		Actor: reviewer, ReasonCode: "proposal_changed", CorrelationID: "attention-repository-approval-invalidate", At: invalidatedApproval.UpdatedAt,
+	}); err != nil {
+		t.Fatalf("invalidate approval: %v", err)
+	}
+	var projectedCanceledAt *time.Time
+	if err := owner.QueryRow(ctx, `SELECT state,canceled_at FROM spyglass.runner_action_authorizations WHERE account_id=$1 AND operation_id=$2`,
+		accountID, operationID).Scan(&projectedState, &projectedCanceledAt); err != nil || projectedState != "canceled" || projectedCanceledAt == nil || !projectedCanceledAt.Equal(invalidatedApproval.UpdatedAt) {
+		t.Fatalf("invalidated projection state=%q canceled_at=%v err=%v", projectedState, projectedCanceledAt, err)
+	}
+	conflictApprovalID, _ := ids.Derive(string(workItemID), "attention-projection-conflict-approval")
+	conflictOperationID, _ := ids.Derive(string(workItemID), "attention-projection-conflict-operation")
+	conflictApproval, err := attentiondomain.NewConsequentialApproval(attentiondomain.ConsequentialApprovalDraft{
+		ID: ids.ConsequentialApprovalID(conflictApprovalID), AccountID: accountID, OperationID: conflictOperationID, InvocationID: invocationID,
+		WorkItemID: workItemID, Capability: "email.send", CanonicalPayload: json.RawMessage(`{"to":"projection-conflict@example.com"}`),
+		EvidenceSHA256: sha256.Sum256([]byte("projection conflict evidence")), Proposer: requestedBy, PolicyVersion: 3,
+		RequireIndependentReview: true, ExpiresAt: now.Add(25 * time.Minute),
+	}, now.Add(10*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictApproval, err = repository.CreateApproval(ctx, conflictApproval, attentionapp.Mutation{
+		Actor: requestedBy, CorrelationID: "attention-projection-conflict-create", At: conflictApproval.CreatedAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreignApprovalID, _ := ids.Derive(string(workItemID), "attention-projection-foreign-approval")
+	var projectionCreated bool
+	if err := owner.QueryRow(ctx, `SELECT public.spyglass_record_runner_action_authorization($1,$2,$3,$4,$5,$6,$7::smallint,$8,$9,$10,$11,$12,$13,$14)`,
+		accountID, conflictOperationID, invocationID, foreignApprovalID, conflictApproval.Capability, conflictApproval.InputSHA256[:], conflictApproval.HashVersion,
+		conflictApproval.EvidenceSHA256[:], conflictApproval.Proposer.Kind, conflictApproval.Proposer.ID, reviewerID, conflictApproval.PolicyVersion,
+		now.Add(11*time.Minute), conflictApproval.ExpiresAt).Scan(&projectionCreated); err != nil || !projectionCreated {
+		t.Fatalf("seed conflicting projection created=%v err=%v", projectionCreated, err)
+	}
+	conflictDecision, err := conflictApproval.Decide(attentiondomain.DecideApprovalCommand{
+		Decision: attentiondomain.DecisionApprove, Reason: "attempt a conflicting projection", Role: accounts.RoleOwner,
+		Actor: reviewer, ExpectedVersion: conflictApproval.Version, At: now.Add(11 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.UpdateApproval(ctx, conflictDecision, conflictApproval.Version, attentionapp.Mutation{
+		Actor: reviewer, ReasonCode: "approval_decided", CorrelationID: "attention-projection-conflict-decide", At: conflictDecision.UpdatedAt,
+	}); !errors.Is(err, attentionapp.ErrConflict) {
+		t.Fatalf("conflicting projection update error=%v", err)
+	}
+	rolledBackApproval, err := repository.GetApproval(ctx, accountID, conflictApproval.ID)
+	if err != nil || rolledBackApproval.State != attentiondomain.ConsequentialApprovalOpen || rolledBackApproval.Version != 1 {
+		t.Fatalf("projection rollback approval=%+v err=%v", rolledBackApproval, err)
 	}
 
 	concurrentTargetID, _ := ids.Derive(string(workItemID), "attention-concurrent-target")
@@ -376,10 +444,10 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	if err := owner.QueryRow(ctx, `SELECT count(*),coalesce(string_agg(redacted_payload::text||reason,' '),'') FROM spyglass.attention_events WHERE account_id=$1`, accountID).Scan(&eventCount, &eventText); err != nil {
 		t.Fatal(err)
 	}
-	if eventCount != 18 {
-		t.Fatalf("repository event count=%d want 18", eventCount)
+	if eventCount != 20 {
+		t.Fatalf("repository event count=%d want 20", eventCount)
 	}
-	for _, secret := range []string{information.Question, shared.Question, blocker.Question, factID, "sensitive@example.com", "Private result", decidedReview.Decision.Reason, decidedApproval.Decision.Reason} {
+	for _, secret := range []string{information.Question, shared.Question, blocker.Question, factID, "sensitive@example.com", "changed@example.com", "projection-conflict@example.com", "Private result", decidedReview.Decision.Reason, decidedApproval.Decision.Reason} {
 		if strings.Contains(eventText, secret) {
 			t.Fatalf("Attention event leaked sensitive content %q in %q", secret, eventText)
 		}
