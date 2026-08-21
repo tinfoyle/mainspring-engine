@@ -299,6 +299,28 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 	if len(parts) == 3 && parts[0] == "agent-runs" && ids.Validate(parts[1]) == nil && parts[2] == "resolutions" {
 		return access.Requirement{Package: catalog.PackageAgents, Mutation: true}, method == http.MethodPost
 	}
+	if len(parts) >= 2 && parts[0] == "attention" {
+		packageCode := catalog.PackageWork
+		switch parts[1] {
+		case "information-requests", "work-reviews":
+		case "approvals":
+			packageCode = catalog.PackageAgents
+		default:
+			return access.Requirement{}, false
+		}
+		if len(parts) == 2 {
+			return access.Requirement{Package: packageCode, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
+		}
+		if len(parts) == 3 && ids.Validate(parts[2]) == nil {
+			return access.Requirement{Package: packageCode}, method == http.MethodGet
+		}
+		if len(parts) == 4 && ids.Validate(parts[2]) == nil {
+			action := parts[3]
+			allowedAction := (parts[1] == "information-requests" && (action == "answers" || action == "cancellations")) ||
+				(parts[1] != "information-requests" && (action == "decisions" || action == "cancellations"))
+			return access.Requirement{Package: packageCode, Mutation: true}, method == http.MethodPost && allowedAction
+		}
+	}
 	return access.Requirement{}, false
 }
 

@@ -158,6 +158,43 @@ func TestAgentRouteAllowlistMatchesCellSurface(t *testing.T) {
 	}
 }
 
+func TestAttentionRouteAllowlistMatchesCellSurface(t *testing.T) {
+	tests := []struct {
+		method, resource string
+		packageCode      catalog.PackageCode
+		mutation         bool
+		allowed          bool
+	}{
+		{http.MethodGet, "attention/information-requests", catalog.PackageWork, false, true},
+		{http.MethodPost, "attention/information-requests", catalog.PackageWork, true, true},
+		{http.MethodGet, "attention/information-requests/" + routerRequest, catalog.PackageWork, false, true},
+		{http.MethodPost, "attention/information-requests/" + routerRequest + "/answers", catalog.PackageWork, true, true},
+		{http.MethodPost, "attention/information-requests/" + routerRequest + "/cancellations", catalog.PackageWork, true, true},
+		{http.MethodGet, "attention/work-reviews", catalog.PackageWork, false, true},
+		{http.MethodPost, "attention/work-reviews/" + routerRequest + "/decisions", catalog.PackageWork, true, true},
+		{http.MethodGet, "attention/approvals", catalog.PackageAgents, false, true},
+		{http.MethodPost, "attention/approvals", catalog.PackageAgents, true, true},
+		{http.MethodPost, "attention/approvals/" + routerRequest + "/cancellations", catalog.PackageAgents, true, true},
+		{http.MethodDelete, "attention/information-requests", "", false, false},
+		{http.MethodGet, "attention/information-requests/not-a-uuid", "", false, false},
+		{http.MethodPost, "attention/information-requests/" + routerRequest + "/decisions", "", false, false},
+		{http.MethodPost, "attention/work-reviews/" + routerRequest + "/answers", "", false, false},
+		{http.MethodGet, "attention/approvals/" + routerRequest + "/decisions", "", false, false},
+		{http.MethodPost, "attention/unknown", "", false, false},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.resource, func(t *testing.T) {
+			requirement, allowed := routeRequirement(test.method, test.resource)
+			if allowed != test.allowed {
+				t.Fatalf("allowed=%t want %t requirement=%+v", allowed, test.allowed, requirement)
+			}
+			if test.allowed && (requirement.Package != test.packageCode || requirement.Mutation != test.mutation) {
+				t.Fatalf("requirement=%+v", requirement)
+			}
+		})
+	}
+}
+
 func TestWorkMutationCarriesOnlyAuthorizedPackageAccess(t *testing.T) {
 	clock := fixedClock{time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)}
 	key := []byte("0123456789abcdef0123456789abcdef")

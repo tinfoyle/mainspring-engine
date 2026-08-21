@@ -13,7 +13,6 @@ import (
 	"strings"
 	"sync/atomic"
 
-	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
@@ -34,7 +33,7 @@ type Server struct {
 	work      WorkQueries
 	commands  WorkCommands
 	agents    AgentService
-	attention *attentionapp.Service
+	attention AttentionService
 	counters  routeCounters
 }
 
@@ -66,7 +65,7 @@ func WithAgents(service AgentService) Option {
 	return func(server *Server) { server.agents = service }
 }
 
-func WithAttention(service *attentionapp.Service) Option {
+func WithAttention(service AttentionService) Option {
 	return func(server *Server) { server.attention = service }
 }
 
@@ -103,6 +102,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-conversations/{conversationID}/messages", s.agentMessages)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-runs/{runID}", s.agentRun)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-runs/{runID}/resolutions", s.agentRunResolve)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/information-requests", s.attentionInformationList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/information-requests", s.attentionInformationCreate)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/information-requests/{requestID}", s.attentionInformationGet)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/information-requests/{requestID}/answers", s.attentionInformationAnswer)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/information-requests/{requestID}/cancellations", s.attentionInformationCancel)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/work-reviews", s.attentionReviewList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/work-reviews", s.attentionReviewCreate)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/work-reviews/{reviewID}", s.attentionReviewGet)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/work-reviews/{reviewID}/decisions", s.attentionReviewDecide)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/work-reviews/{reviewID}/cancellations", s.attentionReviewCancel)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/approvals", s.attentionApprovalList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/approvals", s.attentionApprovalCreate)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/approvals/{approvalID}", s.attentionApprovalGet)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/approvals/{approvalID}/decisions", s.attentionApprovalDecide)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/approvals/{approvalID}/cancellations", s.attentionApprovalCancel)
 	return s.recover(s.securityHeaders(mux))
 }
 

@@ -280,6 +280,70 @@ export interface AgentToolGrantInput {
   readonly "name": string;
 }
 
+export interface AnswerInformationRequestInput {
+  readonly "fact_id": string;
+  readonly "fact_version": number;
+  readonly "requirement": InformationRequirement;
+}
+
+export interface Approval {
+  readonly "canceled_at"?: string;
+  readonly "canceled_by"?: AttentionActor;
+  readonly "capability": string;
+  readonly "created_at": string;
+  readonly "decision"?: ApprovalDecision;
+  readonly "evidence_sha256": string;
+  readonly "expired_at"?: string;
+  readonly "expires_at": string;
+  readonly "hash_version": number;
+  readonly "id": string;
+  readonly "input_sha256": string;
+  readonly "invalidated_at"?: string;
+  readonly "invocation_id": string;
+  readonly "operation_id": string;
+  readonly "payload": Readonly<Record<string, unknown>>;
+  readonly "policy_version": number;
+  readonly "proposer": AttentionActor;
+  readonly "reason"?: string;
+  readonly "require_independent_review": boolean;
+  readonly "state": ApprovalState;
+  readonly "updated_at": string;
+  readonly "version": number;
+  readonly "work_item_id"?: string;
+}
+
+export interface ApprovalDecision {
+  readonly "decided_at": string;
+  readonly "decided_by": string;
+  readonly "decision": ApprovalDecisionValue;
+  readonly "reason": string;
+}
+
+export type ApprovalDecisionValue = "approve" | "reject";
+
+export interface ApprovalPage {
+  readonly "items": ReadonlyArray<ApprovalSummary>;
+  readonly "next_cursor"?: string;
+}
+
+export type ApprovalState = "open" | "approved" | "rejected" | "canceled" | "invalidated" | "expired";
+
+export interface ApprovalSummary {
+  readonly "capability": string;
+  readonly "created_at": string;
+  readonly "decision"?: ApprovalDecisionValue;
+  readonly "expires_at": string;
+  readonly "id": string;
+  readonly "invocation_id": string;
+  readonly "operation_id": string;
+  readonly "policy_version": number;
+  readonly "proposer": AttentionActor;
+  readonly "state": ApprovalState;
+  readonly "updated_at": string;
+  readonly "version": number;
+  readonly "work_item_id"?: string;
+}
+
 export interface AssignWorkRequest {
   readonly "assignment": WorkAssignmentInput;
   readonly "reason"?: string;
@@ -291,6 +355,15 @@ export interface AttachWorkProvenanceRequest {
   readonly "kind": WorkProvenanceLinkKind;
   readonly "reason"?: string;
   readonly "reference_id": string;
+}
+
+export interface AttentionActor {
+  readonly "id": string;
+  readonly "kind": "user" | "workload";
+}
+
+export interface AttentionReasonRequest {
+  readonly "reason": string;
 }
 
 export type AuthenticationAssurance = "single_factor" | "user_verified_cryptographic";
@@ -442,8 +515,26 @@ export interface CreateAgentBoardroomRequest {
   readonly "purpose": string;
 }
 
+export interface CreateApprovalRequest {
+  readonly "capability": string;
+  readonly "evidence_sha256": string;
+  readonly "expires_at": string;
+  readonly "invocation_id": string;
+  readonly "operation_id": string;
+  readonly "payload": Readonly<Record<string, unknown>>;
+  readonly "policy_version": number;
+  readonly "require_independent_review": boolean;
+  readonly "work_item_id"?: string;
+}
+
 export interface CreateCheckoutSessionRequest {
   readonly "offer_code": string;
+}
+
+export interface CreateInformationRequestInput {
+  readonly "parent_work_item_id": string;
+  readonly "question": string;
+  readonly "requirement": InformationRequirement;
 }
 
 export interface CreateInvitationRequest {
@@ -460,6 +551,24 @@ export interface CreateWorkRequest {
   readonly "priority": WorkPriority;
   readonly "reason"?: string;
   readonly "title": string;
+}
+
+export interface CreateWorkReviewRequest {
+  readonly "proposal_sha256": string;
+  readonly "question": string;
+  readonly "reviewer_id": string;
+  readonly "work_item_id": string;
+  readonly "work_version": number;
+}
+
+export interface DecideApprovalRequest {
+  readonly "decision": ApprovalDecisionValue;
+  readonly "reason": string;
+}
+
+export interface DecideWorkReviewRequest {
+  readonly "decision": WorkReviewDecisionValue;
+  readonly "reason": string;
 }
 
 export type EntitlementGrantSource = "free_plan" | "subscription" | "trial" | "promotion" | "support_override" | "grandfathered";
@@ -486,6 +595,61 @@ export interface HostedBillingSession {
   readonly "session_id": string;
   readonly "url": string;
 }
+
+export interface InformationAnswer {
+  readonly "answered_at": string;
+  readonly "answered_by": AttentionActor;
+  readonly "fact_id": string;
+  readonly "fact_version": number;
+}
+
+export interface InformationCompletion {
+  readonly "answered": ReadonlyArray<InformationRequest>;
+  readonly "resumable_parent_ids": ReadonlyArray<string>;
+}
+
+export interface InformationRequest {
+  readonly "answer"?: InformationAnswer;
+  readonly "canceled_by"?: AttentionActor;
+  readonly "created_at": string;
+  readonly "id": string;
+  readonly "parent_work_item_id": string;
+  readonly "question": string;
+  readonly "reason"?: string;
+  readonly "requested_by": AttentionActor;
+  readonly "requirement": InformationRequirement;
+  readonly "state": InformationRequestState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface InformationRequestPage {
+  readonly "items": ReadonlyArray<InformationRequestSummary>;
+  readonly "next_cursor"?: string;
+}
+
+export type InformationRequestState = "open" | "answered" | "canceled";
+
+export interface InformationRequestSummary {
+  readonly "answered_at"?: string;
+  readonly "created_at": string;
+  readonly "id": string;
+  readonly "parent_work_item_id": string;
+  readonly "question": string;
+  readonly "requested_by": AttentionActor;
+  readonly "requirement": InformationRequirement;
+  readonly "state": InformationRequestState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface InformationRequirement {
+  readonly "key": string;
+  readonly "scope": InformationScope;
+  readonly "scope_id"?: string;
+}
+
+export type InformationScope = "account" | "work_item" | "conversation";
 
 export interface InvitationAcceptance {
   readonly "membership": AcceptedMembership;
@@ -832,6 +996,54 @@ export type WorkProvenanceLinkKind = "baseline_requirement" | "schedule" | "run"
 
 export type WorkResponsibility = "user" | "persona" | "shared" | "external";
 
+export interface WorkReview {
+  readonly "cancel_reason"?: string;
+  readonly "canceled_by"?: AttentionActor;
+  readonly "created_at": string;
+  readonly "decision"?: WorkReviewDecision;
+  readonly "id": string;
+  readonly "invalidated_at"?: string;
+  readonly "proposal_sha256": string;
+  readonly "question": string;
+  readonly "requested_by": AttentionActor;
+  readonly "reviewer_id": string;
+  readonly "state": WorkReviewState;
+  readonly "updated_at": string;
+  readonly "version": number;
+  readonly "work_item_id": string;
+  readonly "work_version": number;
+}
+
+export interface WorkReviewDecision {
+  readonly "decided_at": string;
+  readonly "decided_by": AttentionActor;
+  readonly "decision": WorkReviewDecisionValue;
+  readonly "reason": string;
+}
+
+export type WorkReviewDecisionValue = "approve" | "request_changes";
+
+export interface WorkReviewPage {
+  readonly "items": ReadonlyArray<WorkReviewSummary>;
+  readonly "next_cursor"?: string;
+}
+
+export type WorkReviewState = "open" | "approved" | "changes_requested" | "canceled" | "invalidated";
+
+export interface WorkReviewSummary {
+  readonly "created_at": string;
+  readonly "decision"?: WorkReviewDecisionValue;
+  readonly "id": string;
+  readonly "question": string;
+  readonly "requested_by": AttentionActor;
+  readonly "reviewer_id": string;
+  readonly "state": WorkReviewState;
+  readonly "updated_at": string;
+  readonly "version": number;
+  readonly "work_item_id": string;
+  readonly "work_version": number;
+}
+
 export type WorkState = "open" | "in_progress" | "waiting" | "done" | "canceled";
 
 export interface WorkSummary {
@@ -880,9 +1092,18 @@ export interface ApiSchemas {
   readonly AgentRunTurn: AgentRunTurn;
   readonly AgentToolGrant: AgentToolGrant;
   readonly AgentToolGrantInput: AgentToolGrantInput;
+  readonly AnswerInformationRequestInput: AnswerInformationRequestInput;
+  readonly Approval: Approval;
+  readonly ApprovalDecision: ApprovalDecision;
+  readonly ApprovalDecisionValue: ApprovalDecisionValue;
+  readonly ApprovalPage: ApprovalPage;
+  readonly ApprovalState: ApprovalState;
+  readonly ApprovalSummary: ApprovalSummary;
   readonly AssignWorkRequest: AssignWorkRequest;
   readonly AssignableMembershipRole: AssignableMembershipRole;
   readonly AttachWorkProvenanceRequest: AttachWorkProvenanceRequest;
+  readonly AttentionActor: AttentionActor;
+  readonly AttentionReasonRequest: AttentionReasonRequest;
   readonly AuthenticationAssurance: AuthenticationAssurance;
   readonly AuthenticationMethod: AuthenticationMethod;
   readonly BeginContactChangeRequest: BeginContactChangeRequest;
@@ -910,13 +1131,26 @@ export interface ApiSchemas {
   readonly ContactChangeAccepted: ContactChangeAccepted;
   readonly ContactChangeCompleted: ContactChangeCompleted;
   readonly CreateAgentBoardroomRequest: CreateAgentBoardroomRequest;
+  readonly CreateApprovalRequest: CreateApprovalRequest;
   readonly CreateCheckoutSessionRequest: CreateCheckoutSessionRequest;
+  readonly CreateInformationRequestInput: CreateInformationRequestInput;
   readonly CreateInvitationRequest: CreateInvitationRequest;
   readonly CreateWorkRequest: CreateWorkRequest;
+  readonly CreateWorkReviewRequest: CreateWorkReviewRequest;
+  readonly DecideApprovalRequest: DecideApprovalRequest;
+  readonly DecideWorkReviewRequest: DecideWorkReviewRequest;
   readonly EntitlementGrantSource: EntitlementGrantSource;
   readonly EntitlementPackageAccess: EntitlementPackageAccess;
   readonly EntitlementSnapshot: EntitlementSnapshot;
   readonly HostedBillingSession: HostedBillingSession;
+  readonly InformationAnswer: InformationAnswer;
+  readonly InformationCompletion: InformationCompletion;
+  readonly InformationRequest: InformationRequest;
+  readonly InformationRequestPage: InformationRequestPage;
+  readonly InformationRequestState: InformationRequestState;
+  readonly InformationRequestSummary: InformationRequestSummary;
+  readonly InformationRequirement: InformationRequirement;
+  readonly InformationScope: InformationScope;
   readonly InvitationAcceptance: InvitationAcceptance;
   readonly InvitationCreated: InvitationCreated;
   readonly LimitPolicy: LimitPolicy;
@@ -973,6 +1207,12 @@ export interface ApiSchemas {
   readonly WorkProvenance: WorkProvenance;
   readonly WorkProvenanceLinkKind: WorkProvenanceLinkKind;
   readonly WorkResponsibility: WorkResponsibility;
+  readonly WorkReview: WorkReview;
+  readonly WorkReviewDecision: WorkReviewDecision;
+  readonly WorkReviewDecisionValue: WorkReviewDecisionValue;
+  readonly WorkReviewPage: WorkReviewPage;
+  readonly WorkReviewState: WorkReviewState;
+  readonly WorkReviewSummary: WorkReviewSummary;
   readonly WorkState: WorkState;
   readonly WorkSummary: WorkSummary;
 }

@@ -1,6 +1,6 @@
 # Attention module
 
-- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized routed runtime, Work resumption and runner authorization projection implemented; transports and product surface pending
+- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized routed runtime, Work resumption, runner authorization projection and customer HTTP/OpenAPI surface implemented; MCP and product surface pending
 - Phase: 3.1
 - Owns: human information requests, Work review decisions and consequential approvals
 - Does not own: Work lifecycle persistence, Knowledge facts, Agent invocation or provider execution
@@ -65,10 +65,12 @@ The routed cell runtime now composes Attention without giving `app-api` a global
 
 An approval decision and its execute-only runner projection now share the same cell transaction. The projection records the exact operation/invocation, approval, capability, input hash/version, evidence digest, proposer, approving User, policy version, decision time and expiry through the existing security-definer function. Invalidating an approved proposal cancels that exact projection before commit; expiry remains enforced by the identical persisted deadline. A binding conflict or an action that already entered execution aborts the Attention transition and its event, so the customer-visible aggregate cannot claim authority that the runner rejected. PostgreSQL tests prove create, cancellation and conflict rollback without exposing direct ledger-table access.
 
+The routed customer HTTP surface now publishes queue, detail, create, decision and cancellation routes for all three aggregates. Every mutation requires a route-bound UUID idempotency key; versioned item mutations additionally require a weak `If-Match` ETag. Exact router allowlists bind Information and Work review to the Work package and consequential approval to Agents. Queue DTOs remain deliberately redacted, while authorization-sensitive detail DTOs expose only the fields needed to answer or decide. The OpenAPI source describes all 15 operations with typed bodies, headers, cursors, lifecycle enums and detail/queue distinctions, and regenerates the committed Go route registry plus TypeScript client contracts. Transport tests prove signed-authority propagation, cross-command idempotency binding, queue redaction, detail ETags, malformed precondition handling and conflict classification.
+
 ## Remaining delivery order
 
-1. Publish redacted HTTP and generated OpenAPI contracts, then add MCP parity over the same services.
+1. Add MCP parity over the same Attention application services and prove HTTP/MCP outcome equivalence.
 2. Build the private Your Turn queue/detail/decision surface with draft, concurrency, keyboard, live-announcement and session-recovery behavior.
 3. Prove concurrent review/approval decisions and the remaining action-ledger execution/recovery cases; reviewer lookup, Work resumption/replay, approval projection/invalidation/conflict rollback, shared-information concurrency/replay, repository isolation/redaction, forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
 
-The typed kernel, schema, repositories, routed application composition, Work resumption execution and runner authorization projection are complete. No customer transport, MCP or UI completion is implied by that checkpoint.
+The typed kernel, schema, repositories, routed application composition, Work resumption execution, runner authorization projection and customer HTTP/OpenAPI surface are complete. No MCP or UI completion is implied by that checkpoint.
