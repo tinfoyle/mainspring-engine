@@ -1,11 +1,12 @@
 # Merge these sites into /opt/infiniteocean/caddy/Caddyfile on the Hostinger
 # VPS. The existing host Caddy remains the only owner of ports 80/443 and ACME.
+# The host's existing security_headers snippet must include HSTS.
 stage.infiniteocean.net {
-  header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+  import security_headers
   reverse_proxy spyglass-stage-edge:80
 }
 
 app.stage.infiniteocean.net {
-  header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+  import security_headers
   reverse_proxy spyglass-stage-edge:80
 }
