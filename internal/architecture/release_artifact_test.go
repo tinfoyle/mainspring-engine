@@ -45,6 +45,9 @@ func TestVerificationWorkflowContract(t *testing.T) {
 		"postgres:17.11-alpine3.24@sha256:",
 		"bash deploy/kubernetes/overlays/verify.sh",
 		"bash deploy/docker/spyglass/test-stage-contract.sh",
+		"aquasec/trivy@sha256:",
+		"--scanners vuln,secret",
+		"--severity HIGH,CRITICAL",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Fatalf("verification workflow is missing %q", required)
@@ -54,7 +57,7 @@ func TestVerificationWorkflowContract(t *testing.T) {
 
 func checkReleaseWorkflow(t *testing.T, workflow string) {
 	t.Helper()
-	for _, required := range []string{"linux/amd64,linux/arm64", "provenance: mode=max", "sbom: true", "id-token: write", "cosign sign --yes", "environment: release", "refusing to overwrite existing image tag"} {
+	for _, required := range []string{"linux/amd64,linux/arm64", "provenance: mode=max", "sbom: true", "id-token: write", "cosign sign --yes", "environment: release", "refusing to overwrite existing image tag", "aquasec/trivy@sha256:", "--scanners vuln,secret", "--severity HIGH,CRITICAL", "--exit-code 1"} {
 		if !strings.Contains(workflow, required) {
 			t.Fatalf("release workflow is missing %q", required)
 		}
