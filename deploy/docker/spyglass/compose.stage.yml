@@ -76,6 +76,7 @@ services:
     environment: *global-restore
     depends_on: {global-roles: {condition: service_completed_successfully}}
   admission-api:
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
     environment:
       <<: *global-restore
       SPYGLASS_HTTP_ADDRESS: :8443
@@ -88,6 +89,7 @@ services:
       test: [CMD, /spyglass, healthcheck, --url=https://admission-api:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
     depends_on: {global-roles: {condition: service_completed_successfully}}
   app-router:
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
     environment:
       <<: *global-restore
       SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
@@ -96,6 +98,7 @@ services:
     volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/app-router:/var/run/secrets/spyglass/workload:ro"]
     depends_on: {global-roles: {condition: service_completed_successfully}}
   app-api-a:
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
     environment:
       <<: *cell-restore
       SPYGLASS_HTTP_ADDRESS: :8443
@@ -108,6 +111,7 @@ services:
       test: [CMD, /spyglass, healthcheck, --url=https://app-api-a:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
     depends_on: {cell-a-roles: {condition: service_completed_successfully}}
   app-api-b:
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
     environment:
       <<: *cell-restore
       SPYGLASS_HTTP_ADDRESS: :8443

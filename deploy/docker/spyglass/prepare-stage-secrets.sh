@@ -15,6 +15,7 @@ fail() {
 [[ "$edge_network" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] || fail "edge network name is invalid"
 test -f "$provider_file" || fail "provider file is missing"
 case "$(stat -c %a "$provider_file")" in 400|600) ;; *) fail "provider file must be mode 400 or 600";; esac
+secrets_gid="$(stat -c %g "$provider_file")"
 command -v openssl >/dev/null || fail "openssl is required"
 
 provider_value() {
@@ -107,6 +108,7 @@ SPYGLASS_CELL_B_ROUTE_ORIGIN=https://app-api-b:8443
 SPYGLASS_WORK_ADMISSION_ORIGIN=https://admission-api:8443
 SPYGLASS_HOST_EDGE_NETWORK=$edge_network
 SPYGLASS_STAGE_SECRETS_DIRECTORY=$target
+SPYGLASS_STAGE_SECRETS_GID=$secrets_gid
 SPYGLASS_GLOBAL_DATABASE_PASSWORD=$global_database_password
 SPYGLASS_CELL_A_DATABASE_PASSWORD=$cell_a_database_password
 SPYGLASS_CELL_B_DATABASE_PASSWORD=$cell_b_database_password
@@ -247,8 +249,12 @@ issue model-gateway model-gateway 'spiffe://infiniteocean.net/spyglass/workloads
 rm -f -- "$work"/*.csr "$work"/*.cnf
 mkdir -p "$work/runner-identities-a" "$work/runner-identities-b"
 rm -f -- "$ca_dir/ca.key" "$ca_dir/ca.srl"
+chgrp -R "$secrets_gid" "$work/workload" "$work/runner-identities-a" "$work/runner-identities-b"
+find "$work/workload" -mindepth 1 -maxdepth 1 -type d -exec chmod 750 {} +
+find "$work/workload" -mindepth 2 -maxdepth 2 -type f -name tls.key -exec chmod 640 {} +
+chmod 770 "$work/runner-identities-a" "$work/runner-identities-b"
 chmod 600 "$work/stage.env"
-chmod 700 "$work" "$ca_dir" "$work/workload" "$work/runner-identities-a" "$work/runner-identities-b"
+chmod 700 "$work" "$ca_dir" "$work/workload"
 if [[ -d "$target" ]]; then
   rmdir "$target"
 fi

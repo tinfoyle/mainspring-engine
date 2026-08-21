@@ -43,7 +43,9 @@ test "$(value SPYGLASS_STRIPE_MODE)" = test || { echo "stage must use Stripe tes
 [[ "$(value SPYGLASS_STRIPE_SECRET_KEY)" =~ ^sk_test_ ]] || { echo "stage Stripe key must be a test key" >&2; exit 1; }
 
 secret_dir="$(value SPYGLASS_STAGE_SECRETS_DIRECTORY)"
+secrets_gid="$(value SPYGLASS_STAGE_SECRETS_GID)"
 test "${secret_dir#/}" != "$secret_dir" || { echo "stage secrets directory must be absolute" >&2; exit 1; }
+[[ "$secrets_gid" =~ ^[0-9]+$ ]] || { echo "stage secrets group must be numeric" >&2; exit 1; }
 test -s "$secret_dir/workload-ca/ca.crt" || { echo "stage workload CA is missing" >&2; exit 1; }
 test ! -e "$secret_dir/workload-ca/ca.key" || { echo "stage workload CA private key must not remain in deployable secrets" >&2; exit 1; }
 
@@ -89,7 +91,9 @@ for workload in admission-api app-router app-api-a app-api-b tool-router runner-
   for file in ca.crt tls.crt tls.key; do
     test -s "$secret_dir/workload/$workload/$file" || { echo "missing workload identity: $workload/$file" >&2; exit 1; }
   done
-  case "$(stat -c %a "$secret_dir/workload/$workload/tls.key")" in 400|600) ;; *) echo "$workload private key must be mode 400 or 600" >&2; exit 1;; esac
+  test "$(stat -c %a "$secret_dir/workload/$workload")" = 750 || { echo "$workload identity directory must be mode 750" >&2; exit 1; }
+  test "$(stat -c %a "$secret_dir/workload/$workload/tls.key")" = 640 || { echo "$workload private key must be mode 640" >&2; exit 1; }
+  test "$(stat -c %g "$secret_dir/workload/$workload/tls.key")" = "$secrets_gid" || { echo "$workload private key group is incorrect" >&2; exit 1; }
   cmp -s "$secret_dir/workload-ca/ca.crt" "$secret_dir/workload/$workload/ca.crt" || { echo "$workload trust bundle does not match the stage CA" >&2; exit 1; }
   openssl verify -CAfile "$secret_dir/workload/$workload/ca.crt" "$secret_dir/workload/$workload/tls.crt" >/dev/null || { echo "$workload certificate chain is invalid" >&2; exit 1; }
   openssl x509 -checkend 604800 -noout -in "$secret_dir/workload/$workload/tls.crt" >/dev/null || { echo "$workload certificate expires within seven days" >&2; exit 1; }
@@ -110,6 +114,8 @@ for workload in admission-api app-router app-api-a app-api-b tool-router runner-
 done
 for identity_dir in runner-identities-a runner-identities-b; do
   test -d "$secret_dir/$identity_dir" || { echo "missing runner identity directory: $identity_dir" >&2; exit 1; }
+  test "$(stat -c %a "$secret_dir/$identity_dir")" = 770 || { echo "$identity_dir must be mode 770" >&2; exit 1; }
+  test "$(stat -c %g "$secret_dir/$identity_dir")" = "$secrets_gid" || { echo "$identity_dir group is incorrect" >&2; exit 1; }
 done
 
 network="$(value SPYGLASS_HOST_EDGE_NETWORK)"
@@ -117,11 +123,11 @@ docker network inspect "$network" >/dev/null
 rendered="$(mktemp)"
 trap 'rm -f "$rendered"' EXIT
 docker compose --project-name spyglass-stage --env-file "$release_file" --env-file "$env_file" --file "$stack_dir/compose.yml" --file "$stack_dir/compose.stage.yml" --file "$stack_dir/compose.stage-runner.yml" config --format json >"$rendered"
-python3 - "$rendered" "$network" "$(release_value SPYGLASS_APPLICATION_IMAGE)" "$(release_value SPYGLASS_WEBSITE_IMAGE)" <<'PY'
+python3 - "$rendered" "$network" "$(release_value SPYGLASS_APPLICATION_IMAGE)" "$(release_value SPYGLASS_WEBSITE_IMAGE)" "$secrets_gid" <<'PY'
 import json
 import sys
 
-path, edge_network, application_image, website_image = sys.argv[1:]
+path, edge_network, application_image, website_image, secrets_gid = sys.argv[1:]
 with open(path, encoding="utf-8") as source:
     config = json.load(source)
 services = config["services"]
@@ -140,6 +146,10 @@ for name, service in services.items():
     for port in service.get("ports", []):
         if str(port.get("published", "")) in {"80", "443"}:
             raise SystemExit(f"{name} attempts to publish public port {port['published']}")
+for name in ("global-db", "cell-a-db", "cell-b-db"):
+    health_test = " ".join(str(part) for part in services[name].get("healthcheck", {}).get("test", []))
+    if "pg_isready -h 127.0.0.1" not in health_test:
+        raise SystemExit(f"{name} healthcheck can pass against the temporary initdb server")
 socket_holders = set()
 for name, service in services.items():
     for volume in service.get("volumes", []):
@@ -172,6 +182,14 @@ for suffix in ("a", "b"):
     expected = {f"runner-broker-{suffix}", f"docker-runner-launcher-{suffix}"}
     if members != expected:
         raise SystemExit(f"{network_name} membership is invalid: {sorted(members)}")
+secret_consumers = {
+    "admission-api", "app-router", "app-api-a", "app-api-b", "tool-router",
+    "runner-controller-a", "runner-controller-b", "runner-broker-a", "runner-broker-b",
+    "docker-runner-launcher-a", "docker-runner-launcher-b", "model-gateway",
+}
+for name in secret_consumers:
+    if secrets_gid not in {str(group) for group in services[name].get("group_add", [])}:
+        raise SystemExit(f"{name} does not receive the stage secrets group")
 if config["networks"]["host-edge"].get("name") != edge_network:
     raise SystemExit("stage host edge network does not match the reviewed secret file")
 PY

@@ -72,7 +72,7 @@ services:
     volumes:
       - global-db:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U spyglass_migrator -d spyglass"]
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U spyglass_migrator -d spyglass"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -87,7 +87,7 @@ services:
     volumes:
       - cell-a-db:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U spyglass_migrator -d spyglass"]
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U spyglass_migrator -d spyglass"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -102,7 +102,7 @@ services:
     volumes:
       - cell-b-db:/var/lib/postgresql/data
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U spyglass_migrator -d spyglass"]
+      test: [CMD-SHELL, "pg_isready -h 127.0.0.1 -U spyglass_migrator -d spyglass"]
       interval: 2s
       timeout: 5s
       retries: 30

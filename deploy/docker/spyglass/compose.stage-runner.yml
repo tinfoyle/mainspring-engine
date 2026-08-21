@@ -1,6 +1,7 @@
 x-stage-runner: &stage-runner
   image: ${SPYGLASS_APPLICATION_IMAGE:?set SPYGLASS_APPLICATION_IMAGE from the release file}
   restart: unless-stopped
+  group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
   read_only: true
   tmpfs:
     - /tmp:size=16m,mode=1777
