@@ -1,6 +1,6 @@
 # Attention module
 
-- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized routed runtime, Work resumption, runner authorization projection and customer HTTP/OpenAPI surface implemented; MCP and product surface pending
+- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized routed runtime, Work resumption, runner authorization projection, customer HTTP/OpenAPI and MCP tool adapter implemented; MCP production composition and product surface pending
 - Phase: 3.1
 - Owns: human information requests, Work review decisions and consequential approvals
 - Does not own: Work lifecycle persistence, Knowledge facts, Agent invocation or provider execution
@@ -67,10 +67,12 @@ An approval decision and its execute-only runner projection now share the same c
 
 The routed customer HTTP surface now publishes queue, detail, create, decision and cancellation routes for all three aggregates. Every mutation requires a route-bound UUID idempotency key; versioned item mutations additionally require a weak `If-Match` ETag. Exact router allowlists bind Information and Work review to the Work package and consequential approval to Agents. Queue DTOs remain deliberately redacted, while authorization-sensitive detail DTOs expose only the fields needed to answer or decide. The OpenAPI source describes all 15 operations with typed bodies, headers, cursors, lifecycle enums and detail/queue distinctions, and regenerates the committed Go route registry plus TypeScript client contracts. Transport tests prove signed-authority propagation, cross-command idempotency binding, queue redaction, detail ETags, malformed precondition handling and conflict classification.
 
+The MCP adapter publishes equivalent typed tools over the same application service using the official stateless Streamable HTTP implementation. It performs Bearer-only authentication before discovery, repeats exact Account/package/mutation authorization per call, emits structured and compatibility text results, preserves queue/detail redaction and maps failures to the same stable Attention codes. Consequential proposal input remains raw through the protocol boundary so canonical JSON number lexemes are preserved. The production token issuer and global Account-to-cell routing composition are not yet implemented, so the deployment inventory still declares production MCP absent. See [MCP transport](mcp-transport.md).
+
 ## Remaining delivery order
 
-1. Add MCP parity over the same Attention application services and prove HTTP/MCP outcome equivalence.
+1. Compose the production MCP token, Account authorization and signed cell-routing gateway around the completed Attention tool adapter; then register and deploy the surface.
 2. Build the private Your Turn queue/detail/decision surface with draft, concurrency, keyboard, live-announcement and session-recovery behavior.
 3. Prove concurrent review/approval decisions and the remaining action-ledger execution/recovery cases; reviewer lookup, Work resumption/replay, approval projection/invalidation/conflict rollback, shared-information concurrency/replay, repository isolation/redaction, forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
 
-The typed kernel, schema, repositories, routed application composition, Work resumption execution, runner authorization projection and customer HTTP/OpenAPI surface are complete. No MCP or UI completion is implied by that checkpoint.
+The typed kernel, schema, repositories, routed application composition, Work resumption execution, runner authorization projection, customer HTTP/OpenAPI surface and MCP Attention tool adapter are complete. No production MCP deployment or UI completion is implied by that checkpoint.
