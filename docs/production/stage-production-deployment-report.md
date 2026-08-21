@@ -41,19 +41,19 @@ Cross-cell Account movement uses the same short-lived `account-move-admin` image
 
 The existing root `Dockerfile` remains the shared Go image. Process arguments select Account API, router, cell API, workers, brokers, migrations and short-lived operator jobs. The release workflow publishes AMD64/ARM64 GHCR images with attached BuildKit SBOM/provenance and a keyless Cosign signature.
 
-First reviewed release pair:
+Current reviewed stage-candidate pair:
 
 | Artifact | Tag | Immutable manifest |
 |---|---|---|
-| Application | `spyglass-v0.2.5-rc.2` | `ghcr.io/tinfoyle/spyglass-engine@sha256:213a90c40198339ab92a48242310186a6cf9c0e29217ea32575e510631093add` |
-| Website | `website-v0.2.5-rc.2` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:dfd0cf0480f7eff767db367b2ff8f4ccfa5c13ae3d96c66596185194e536f134` |
+| Application | `spyglass-v0.2.5-rc.3` | `ghcr.io/tinfoyle/spyglass-engine@sha256:fec4024a815472c95d74f08c7dcf41b75452cc80028b8e012f53d5b85fb9469d` |
+| Website | `website-v0.2.5-rc.3` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:abbfc3d7753299c6f81b07b6bf18019bd6e3e8cb7b160705c51162d624754a08` |
 
-Both were built from `5ce697933661e5b6d467804ad3608666f9c2dddd`, completed their keyless Cosign steps, expose attached per-platform SPDX/SLSA attestations, and passed a local digest pull, application identity check and website readiness check from `ubunturojo`. The exact pair is tracked in `deploy/releases/0.2.5-rc.2.env`.
+Both were built from `90fa6730e94b94b3432561afd63a1fd9a6b4fba0`, completed their keyless Cosign steps, expose attached per-platform SPDX/SLSA attestations, and passed an authenticated digest pull, application identity/tool-router fail-closed check and website readiness check from `ubunturojo`. The exact pair is tracked in `deploy/releases/0.2.5-rc.3.env`. RC.2 is retained as the first successful signed publication and rollback-history candidate.
 
 Remaining artifact work:
 
 - add vulnerability/secret scan evidence to the release record;
-- retain at least two compatible release digests for rollback.
+- certify RC.2/RC.3 schema, Catalog and configuration compatibility through an actual stage rollback rehearsal.
 
 ### Website image
 
@@ -87,6 +87,7 @@ deploy/docker/spyglass/
   env/stage.providers.example
 deploy/releases/
   0.2.5-rc.2.env
+  0.2.5-rc.3.env
 deploy/kubernetes/overlays/
   linode-common/
   linode-preproduction/
@@ -153,7 +154,7 @@ The implementation must provide these documented operations through Compose and/
 
 The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 
-The reviewed revision `d853100af3807665f16161d5bb72ad4860fc30da` is prepared as a clean detached checkout at `/opt/spyglass-stage/releases/d853100af3807665f16161d5bb72ad4860fc30da`; `/opt/spyglass-stage/secrets` exists, is empty, is owned by the deployment user and is mode 700. No container or live edge configuration was changed. DNS still does not return addresses for `stage.infiniteocean.net` or `app.stage.infiniteocean.net`. Before first deployment, the owner/environment work is therefore explicit:
+The RC.3 source revision `90fa6730e94b94b3432561afd63a1fd9a6b4fba0` is prepared as a clean detached checkout at `/opt/spyglass-stage/releases/90fa6730e94b94b3432561afd63a1fd9a6b4fba0`; `/opt/spyglass-stage/secrets` exists, is empty, is owned by the deployment user and is mode 700. No `current` link, container or live edge configuration was changed. DNS still does not return addresses for `stage.infiniteocean.net` or `app.stage.infiniteocean.net`. Before first deployment, the owner/environment work is therefore explicit:
 
 - create both DNS records and confirm firewall/certificate monitoring policy;
 - create a mode-600 provider-input file outside the checkout, generate the non-overwritable stage environment and workload certificates with `prepare-stage-secrets.sh`, and select/activate the reviewed checkout only after verification;

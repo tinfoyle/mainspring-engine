@@ -36,6 +36,8 @@ Copy that exact reference into the reviewed environment overlay and the staging 
 
 The first successful pair is recorded in `deploy/releases/0.2.5-rc.2.env`: application digest `sha256:213a90c40198339ab92a48242310186a6cf9c0e29217ea32575e510631093add` and website digest `sha256:dfd0cf0480f7eff767db367b2ff8f4ccfa5c13ae3d96c66596185194e536f134`, both built from `5ce697933661e5b6d467804ad3608666f9c2dddd`. Both release workflows completed signing, both indexes expose AMD64/ARM64 plus attached SPDX/SLSA manifests, and an authenticated digest pull verified application build identity and website readiness.
 
+The current stage candidate is recorded in `deploy/releases/0.2.5-rc.3.env`: application digest `sha256:fec4024a815472c95d74f08c7dcf41b75452cc80028b8e012f53d5b85fb9469d` and website digest `sha256:abbfc3d7753299c6f81b07b6bf18019bd6e3e8cb7b160705c51162d624754a08`, both built from `90fa6730e94b94b3432561afd63a1fd9a6b4fba0`. Both multi-architecture workflows completed their BuildKit SBOM/provenance and keyless signing steps. An authenticated `ubunturojo` digest pull verified the application build identity and `tool-router` fail-closed mode plus website readiness. The first website attempt stalled in BuildKit without publishing a tag; it was canceled after forty minutes and the successful second attempt passed the workflow's overwrite guard before publication.
+
 ## Verification and promotion
 
 Before promotion:
@@ -54,4 +56,4 @@ Promotion reuses the same digest through staging, internal canary, customer cana
 
 ## Remaining release evidence
 
-The RC.2 digest pair and workflow signing results are recorded. Before promotion, archive independent Cosign verification output, BuildKit provenance/SBOM identity, vulnerability and secret-scan results, environment overlay digest, migration set, Catalog version, and `staging-cert` record. Cluster admission enforcement and a staged rollback using two retained compatible pairs remain launch gates.
+The RC.2 and RC.3 digest pairs and workflow signing results are recorded. Before promotion, archive independent Cosign verification output, BuildKit provenance/SBOM identity, vulnerability and secret-scan results, environment overlay digest, migration set, Catalog version, and `staging-cert` record. Cluster admission enforcement and a staged rollback proving the two retained pairs are operationally compatible remain launch gates.

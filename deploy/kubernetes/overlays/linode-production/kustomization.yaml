@@ -6,10 +6,10 @@ resources:
 images:
   - name: registry.invalid/infinite-ocean/spyglass-engine
     newName: ghcr.io/tinfoyle/spyglass-engine
-    digest: sha256:213a90c40198339ab92a48242310186a6cf9c0e29217ea32575e510631093add
+    digest: sha256:fec4024a815472c95d74f08c7dcf41b75452cc80028b8e012f53d5b85fb9469d
   - name: registry.invalid/infinite-ocean/infinite-ocean-website
     newName: ghcr.io/tinfoyle/infinite-ocean-website
-    digest: sha256:dfd0cf0480f7eff767db367b2ff8f4ccfa5c13ae3d96c66596185194e536f134
+    digest: sha256:abbfc3d7753299c6f81b07b6bf18019bd6e3e8cb7b160705c51162d624754a08
 patches:
   - path: environment-patch.yaml
   - target: {group: rbac.authorization.k8s.io, version: v1, kind: ClusterRole, name: spyglass-reference-runner-token-reviewer}

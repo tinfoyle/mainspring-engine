@@ -5,7 +5,7 @@ data:
   application_namespace: spyglass-production
   runner_namespace: spyglass-runners-production
   kubernetes_api_cidr: 192.0.2.1/32
-  application_image: ghcr.io/tinfoyle/spyglass-engine@sha256:213a90c40198339ab92a48242310186a6cf9c0e29217ea32575e510631093add
+  application_image: ghcr.io/tinfoyle/spyglass-engine@sha256:fec4024a815472c95d74f08c7dcf41b75452cc80028b8e012f53d5b85fb9469d
   admission_origin: https://admission-api.spyglass-production.svc.cluster.local
   broker_a_origin: https://runner-broker-cell-a.spyglass-production.svc.cluster.local
   broker_b_origin: https://runner-broker-cell-b.spyglass-production.svc.cluster.local

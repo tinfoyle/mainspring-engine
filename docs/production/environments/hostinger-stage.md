@@ -11,7 +11,7 @@ The read-only inventory found Ubuntu kernel 7.0 on x86-64, 2 vCPU, 7.7 GiB RAM, 
 
 The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the two stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs and the Account-scoped Work/Agent families without exposing any container port on the host.
 
-Preparation placed a clean detached checkout of `d853100af3807665f16161d5bb72ad4860fc30da` at `/opt/spyglass-stage/releases/d853100af3807665f16161d5bb72ad4860fc30da` and created `/opt/spyglass-stage/secrets` as an empty mode-700 directory owned by the deployment user. It did not create a `current` link, start containers or modify the existing Caddy. DNS for both stage origins is still absent.
+Preparation placed a clean detached checkout of `90fa6730e94b94b3432561afd63a1fd9a6b4fba0` at `/opt/spyglass-stage/releases/90fa6730e94b94b3432561afd63a1fd9a6b4fba0` and created `/opt/spyglass-stage/secrets` as an empty mode-700 directory owned by the deployment user. Older inactive prepared checkouts remain release history. It did not create a `current` link, start containers or modify the existing Caddy. DNS for both stage origins is still absent.
 
 ## Files kept outside Git
 
@@ -21,7 +21,7 @@ Copy `env/stage.providers.example` to a mode-600 provider input outside both Git
 install -d -m 700 /opt/spyglass-stage/provider-input /opt/spyglass-stage/secrets
 install -m 600 env/stage.providers.example /opt/spyglass-stage/provider-input/stage.providers.env
 # Edit the provider input without printing it to logs.
-secret_set=/opt/spyglass-stage/secrets/2026-08-20-01
+secret_set=/opt/spyglass-stage/secrets/2026-08-21-01
 ./prepare-stage-secrets.sh \
   /opt/spyglass-stage/provider-input/stage.providers.env \
   "$secret_set" \
@@ -48,8 +48,8 @@ From a clean checkout on the VPS:
 
 ```bash
 cd deploy/docker/spyglass
-release_file="$(realpath ../../releases/0.2.5-rc.2.env)"
-secret_set=/opt/spyglass-stage/secrets/2026-08-20-01
+release_file="$(realpath ../../releases/0.2.5-rc.3.env)"
+secret_set=/opt/spyglass-stage/secrets/2026-08-21-01
 ./verify-stage.sh "$release_file" "$secret_set/stage.env"
 ./deploy-stage.sh "$release_file" "$secret_set/stage.env"
 ```
