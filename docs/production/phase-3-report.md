@@ -41,7 +41,7 @@ The foundations do not yet constitute the full product. In particular:
 - the private application is not yet the final React product surface;
 - no complete prototype migration/cutover has occurred.
 
-Phase 3 begins only after the Hostinger slice in Phase 2.5 is connected and certified. The LKE kubeconfig is first needed in P3.7: its initial use is a read-only cluster inventory, followed by explicit replacement of every fail-closed storage/CNI/API/add-on/secret/runtime placeholder before any apply.
+Phase 3 begins only after the Hostinger slice in Phase 2.5 is connected and certified. DNS, shared-edge routing, protected provider input, implicit-TLS SMTP reachability and admitted-image pulls are prepared; the remaining entry gate is real Stripe test/OpenAI input, immutable secret generation, RC.5 activation, connected certification and the RC.5-to-RC.4-to-RC.5 rollback rehearsal. The LKE kubeconfig is first needed in P3.7: its initial use is a read-only cluster inventory, followed by explicit replacement of every fail-closed storage/CNI/API/add-on/secret/runtime placeholder before any apply.
 
 ## P3.1 — Work and Attention
 
