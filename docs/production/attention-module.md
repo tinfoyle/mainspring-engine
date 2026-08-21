@@ -1,6 +1,6 @@
 # Attention module
 
-- Status: typed aggregate kernel, forced-RLS cell foundation and classified PostgreSQL repositories implemented; application services, transports and product surface pending
+- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories and package-authorized application boundary implemented; runner projection, transports and product surface pending
 - Phase: 3.1
 - Owns: human information requests, Work review decisions and consequential approvals
 - Does not own: Work lifecycle persistence, Knowledge facts, Agent invocation or provider execution
@@ -57,12 +57,16 @@ Migration `cell/000028_attention_foundation.sql` creates separate aggregate tabl
 
 The PostgreSQL repository boundary now restores every loaded row through the typed kernel, classifies not-found/conflict/constraint/corruption outcomes, makes identical creates idempotent, applies expected-version writes and appends content-safe events in the same Account-scoped transaction. Queue reads use bounded stable `(updated_at,id)` keyset cursors and typed state/object filters. Disposable-PostgreSQL tests exercise create/replay/get/update/list for all three aggregates, stale writes, cross-Account reads, restored decision records, approval authorization and the absence of questions, fact identifiers, canonical payload content and human decision reasons from event data.
 
+The application boundary repeats package admission (`work` for information/reviews and `agents` for consequential approvals), derives the domain actor from authenticated authority, applies the narrower role/object matrix and requires assigned reviewers to resolve as active participating Account members. Queue projections omit fact identifiers, proposal/evidence digests, canonical action payloads and human decision reasons; full approval detail is limited to Owner/Administrator decision roles.
+
+Shared fact completion is one serializable cell transaction. It locks the target request, selects at most 500 open requests with the exact same key and scope that existed by the answer timestamp, applies the domain eligibility rule to every row and appends each redacted event atomically. Its explicit resumption plan contains only affected parent Work items currently in `waiting` with no remaining open information request. Exact replay is safe, and a concurrent serialization loser returns the classified conflict required for retry; tests prove concurrent submissions converge without duplicate completion events.
+
 ## Remaining delivery order
 
-1. Implement package-authorized application command/query services, including exact eligible-request completion and exact parent-resumption planning.
+1. Wire the reviewer-directory port and application services into the routed cell runtime, then consume each explicit parent-resumption plan through the Work-owned transition boundary.
 2. Project approved/canceled `ConsequentialApproval` state into the existing execute-only runner authorization functions in the same durable command boundary.
 3. Publish redacted HTTP and generated OpenAPI contracts, then add MCP parity over the same services.
 4. Build the private Your Turn queue/detail/decision surface with draft, concurrency, keyboard, live-announcement and session-recovery behavior.
-5. Prove concurrent decisions, proposal invalidation, expiry and action-ledger integration in disposable PostgreSQL; repository replay/conflict/isolation/redaction, forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
+5. Prove concurrent review/approval decisions, proposal invalidation, expiry and action-ledger integration in disposable PostgreSQL; shared-information concurrency/replay, repository isolation/redaction, forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
 
-The typed kernel, schema, repositories and their authorization/isolation/lifecycle tests are complete. No application-service, projection, transport or UI completion is implied by that checkpoint.
+The typed kernel, schema, repositories and transport-neutral application services are complete. No runtime wiring, Work resumption execution, runner projection, transport or UI completion is implied by that checkpoint.

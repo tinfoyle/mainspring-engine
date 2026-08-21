@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -16,12 +17,13 @@ import (
 const MaxPageSize = 100
 
 var (
-	ErrInvalidCommand = errors.New("attention command is invalid")
-	ErrNotFound       = errors.New("attention aggregate not found")
-	ErrConflict       = errors.New("attention aggregate version conflict")
-	ErrConstraint     = errors.New("attention aggregate constraint failed")
-	ErrCorrupt        = errors.New("attention persistence is corrupt")
-	reasonCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,99}$`)
+	ErrInvalidCommand     = errors.New("attention command is invalid")
+	ErrNotFound           = errors.New("attention aggregate not found")
+	ErrConflict           = errors.New("attention aggregate version conflict")
+	ErrConstraint         = errors.New("attention aggregate constraint failed")
+	ErrCorrupt            = errors.New("attention persistence is corrupt")
+	ErrCompletionTooLarge = errors.New("attention information completion exceeds the synchronous bound")
+	reasonCodePattern     = regexp.MustCompile(`^[a-z][a-z0-9_]{0,99}$`)
 )
 
 type Mutation struct {
@@ -86,10 +88,25 @@ type ApprovalCursor struct {
 	ID        ids.ConsequentialApprovalID
 }
 
+type CompleteInformationCommand struct {
+	TargetID        ids.InformationRequestID
+	Fact            domain.FactReference
+	Role            accounts.MembershipRole
+	Actor           domain.Actor
+	ExpectedVersion uint64
+	Mutation        Mutation
+}
+
+type InformationCompletion struct {
+	Answered         []domain.InformationRequest
+	ResumableParents []ids.WorkItemID
+}
+
 type Repository interface {
 	CreateInformation(context.Context, domain.InformationRequest, Mutation) (domain.InformationRequest, error)
 	GetInformation(context.Context, ids.AccountID, ids.InformationRequestID) (domain.InformationRequest, error)
 	UpdateInformation(context.Context, domain.InformationRequest, uint64, Mutation) (domain.InformationRequest, error)
+	CompleteEligibleInformation(context.Context, ids.AccountID, CompleteInformationCommand) (InformationCompletion, error)
 	ListInformation(context.Context, ids.AccountID, InformationListQuery) (InformationPage, error)
 
 	CreateWorkReview(context.Context, domain.WorkReview, Mutation) (domain.WorkReview, error)

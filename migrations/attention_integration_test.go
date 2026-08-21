@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -157,22 +158,54 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	if _, err := repository.GetInformation(ctx, otherAccountID, created.ID); !errors.Is(err, attentionapp.ErrNotFound) {
 		t.Fatalf("cross-Account information read error=%v", err)
 	}
-	factID, _ := ids.Derive(string(workItemID), "attention-repository-fact")
-	answered, err := created.Answer(attentiondomain.AnswerInformationCommand{
-		Fact: attentiondomain.FactReference{ID: factID, Version: 1, Requirement: created.Requirement}, Role: accounts.RoleMember,
-		Actor: reviewer, ExpectedVersion: created.Version, At: now.Add(2 * time.Minute),
-	})
+	sharedID, _ := ids.Derive(string(workItemID), "attention-repository-information-shared")
+	shared, err := attentiondomain.NewInformationRequest(attentiondomain.InformationRequestDraft{
+		ID: ids.InformationRequestID(sharedID), AccountID: accountID, ParentWorkItemID: workItemID, Requirement: created.Requirement,
+		Question: "Which verified tax identifier should this workflow share?", RequestedBy: requestedBy,
+	}, created.CreatedAt)
 	if err != nil {
 		t.Fatal(err)
 	}
-	updatedInformation, err := repository.UpdateInformation(ctx, answered, created.Version, attentionapp.Mutation{
-		Actor: reviewer, ReasonCode: "information_supplied", CorrelationID: "attention-repository-answer", At: answered.UpdatedAt,
-	})
-	if err != nil || updatedInformation.State != attentiondomain.InformationRequestAnswered || updatedInformation.AnswerRecord == nil {
-		t.Fatalf("update information=%+v err=%v", updatedInformation, err)
+	if _, err := repository.CreateInformation(ctx, shared, attentionapp.Mutation{Actor: requestedBy, CorrelationID: "attention-repository-shared-create", At: shared.CreatedAt}); err != nil {
+		t.Fatalf("create shared information: %v", err)
 	}
-	if _, err := repository.UpdateInformation(ctx, answered, created.Version, attentionapp.Mutation{
-		Actor: reviewer, ReasonCode: "stale_retry", CorrelationID: "attention-repository-stale", At: answered.UpdatedAt,
+	blockerID, _ := ids.Derive(string(workItemID), "attention-repository-information-blocker")
+	blocker, err := attentiondomain.NewInformationRequest(attentiondomain.InformationRequestDraft{
+		ID: ids.InformationRequestID(blockerID), AccountID: accountID, ParentWorkItemID: workItemID,
+		Requirement: attentiondomain.FactRequirement{Key: "company.billing_contact", Scope: attentiondomain.InformationScopeAccount},
+		Question:    "Who is the verified billing contact?", RequestedBy: requestedBy,
+	}, created.CreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker, err = repository.CreateInformation(ctx, blocker, attentionapp.Mutation{Actor: requestedBy, CorrelationID: "attention-repository-blocker-create", At: blocker.CreatedAt})
+	if err != nil {
+		t.Fatalf("create blocker: %v", err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.work_items SET state='waiting',version=version+1,updated_at=$3 WHERE account_id=$1 AND id=$2`, accountID, workItemID, now.Add(time.Minute)); err != nil {
+		t.Fatalf("set Attention parent waiting: %v", err)
+	}
+	factID, _ := ids.Derive(string(workItemID), "attention-repository-fact")
+	completionCommand := attentionapp.CompleteInformationCommand{
+		TargetID: created.ID, Fact: attentiondomain.FactReference{ID: factID, Version: 1, Requirement: created.Requirement},
+		Role: accounts.RoleMember, Actor: reviewer, ExpectedVersion: created.Version,
+		Mutation: attentionapp.Mutation{Actor: reviewer, ReasonCode: "information_supplied", CorrelationID: "attention-repository-answer", At: now.Add(2 * time.Minute)},
+	}
+	completion, err := repository.CompleteEligibleInformation(ctx, accountID, completionCommand)
+	if err != nil || len(completion.Answered) != 2 || len(completion.ResumableParents) != 0 {
+		t.Fatalf("blocked information completion=%+v err=%v", completion, err)
+	}
+	var updatedInformation attentiondomain.InformationRequest
+	for _, item := range completion.Answered {
+		if item.ID == created.ID {
+			updatedInformation = item
+		}
+	}
+	if updatedInformation.State != attentiondomain.InformationRequestAnswered || updatedInformation.AnswerRecord == nil {
+		t.Fatalf("completed target=%+v", updatedInformation)
+	}
+	if _, err := repository.UpdateInformation(ctx, updatedInformation, created.Version, attentionapp.Mutation{
+		Actor: reviewer, ReasonCode: "stale_retry", CorrelationID: "attention-repository-stale", At: updatedInformation.UpdatedAt,
 	}); !errors.Is(err, attentionapp.ErrConflict) {
 		t.Fatalf("stale information update error=%v", err)
 	}
@@ -180,13 +213,44 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	if err != nil || loadedInformation.AnswerRecord == nil || loadedInformation.AnswerRecord.Fact.ID != factID {
 		t.Fatalf("loaded information=%+v err=%v", loadedInformation, err)
 	}
+	canceledBlocker, err := blocker.Cancel(attentiondomain.CancelInformationCommand{
+		Role: accounts.RoleOwner, Actor: reviewer, Reason: "the parent no longer needs this field", ExpectedVersion: blocker.Version, At: now.Add(3 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.UpdateInformation(ctx, canceledBlocker, blocker.Version, attentionapp.Mutation{
+		Actor: reviewer, ReasonCode: "requirement_withdrawn", CorrelationID: "attention-repository-blocker-cancel", At: canceledBlocker.UpdatedAt,
+	}); err != nil {
+		t.Fatalf("cancel blocker: %v", err)
+	}
+	seededInformationID, _ := ids.Derive(string(workItemID), "attention-information")
+	seededInformation, err := repository.GetInformation(ctx, accountID, ids.InformationRequestID(seededInformationID))
+	if err != nil {
+		t.Fatalf("load seeded blocker: %v", err)
+	}
+	canceledSeeded, err := seededInformation.Cancel(attentiondomain.CancelInformationCommand{
+		Role: accounts.RoleOwner, Actor: reviewer, Reason: "the fixture requirement is no longer needed", ExpectedVersion: seededInformation.Version, At: now.Add(3 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.UpdateInformation(ctx, canceledSeeded, seededInformation.Version, attentionapp.Mutation{
+		Actor: reviewer, ReasonCode: "requirement_withdrawn", CorrelationID: "attention-repository-seeded-cancel", At: canceledSeeded.UpdatedAt,
+	}); err != nil {
+		t.Fatalf("cancel seeded blocker: %v", err)
+	}
+	replayedCompletion, err := repository.CompleteEligibleInformation(ctx, accountID, completionCommand)
+	if err != nil || len(replayedCompletion.Answered) != 1 || len(replayedCompletion.ResumableParents) != 1 || replayedCompletion.ResumableParents[0] != workItemID {
+		t.Fatalf("replayed information completion=%+v err=%v", replayedCompletion, err)
+	}
 
 	reviewID, _ := ids.Derive(string(workItemID), "attention-repository-review")
 	review, err := attentiondomain.NewWorkReview(attentiondomain.WorkReviewDraft{
 		ID: ids.WorkReviewID(reviewID), AccountID: accountID, WorkItemID: workItemID, WorkVersion: 1,
 		ProposalSHA256: sha256.Sum256([]byte("repository review proposal")), Question: "Is this result ready to deliver?",
 		RequestedBy: requestedBy, ReviewerID: reviewerID,
-	}, now.Add(3*time.Minute))
+	}, now.Add(4*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +260,7 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	}
 	decidedReview, err := createdReview.Decide(attentiondomain.DecideWorkReviewCommand{
 		Decision: attentiondomain.ReviewApprove, Reason: "verified against the requested result", Role: accounts.RoleMember,
-		Actor: reviewer, ExpectedVersion: createdReview.Version, At: now.Add(4 * time.Minute),
+		Actor: reviewer, ExpectedVersion: createdReview.Version, At: now.Add(5 * time.Minute),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +283,7 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 		WorkItemID: workItemID, Capability: "email.send", CanonicalPayload: json.RawMessage(`{"to":"sensitive@example.com","subject":"Private result"}`),
 		EvidenceSHA256: sha256.Sum256([]byte("repository approval evidence")), Proposer: requestedBy, PolicyVersion: 2,
 		RequireIndependentReview: true, ExpiresAt: now.Add(25 * time.Minute),
-	}, now.Add(5*time.Minute))
+	}, now.Add(6*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +293,7 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	}
 	decidedApproval, err := createdApproval.Decide(attentiondomain.DecideApprovalCommand{
 		Decision: attentiondomain.DecisionApprove, Reason: "exact action and evidence are authorized", Role: accounts.RoleOwner,
-		Actor: reviewer, ExpectedVersion: createdApproval.Version, At: now.Add(6 * time.Minute),
+		Actor: reviewer, ExpectedVersion: createdApproval.Version, At: now.Add(7 * time.Minute),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +304,7 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	if err != nil || updatedApproval.State != attentiondomain.ConsequentialApprovalApproved {
 		t.Fatalf("update approval=%+v err=%v", updatedApproval, err)
 	}
-	authorization, err := updatedApproval.Authorization(now.Add(7 * time.Minute))
+	authorization, err := updatedApproval.Authorization(now.Add(8 * time.Minute))
 	if err != nil || authorization.OperationID != operationID || authorization.InputSHA256 != approval.InputSHA256 {
 		t.Fatalf("approval authorization=%+v err=%v", authorization, err)
 	}
@@ -249,15 +313,73 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 		t.Fatalf("approval page=%+v err=%v", approvalPage, err)
 	}
 
+	concurrentTargetID, _ := ids.Derive(string(workItemID), "attention-concurrent-target")
+	concurrentSharedID, _ := ids.Derive(string(workItemID), "attention-concurrent-shared")
+	concurrentRequirement := attentiondomain.FactRequirement{Key: "company.registration_state", Scope: attentiondomain.InformationScopeAccount}
+	for index, requestID := range []string{concurrentTargetID, concurrentSharedID} {
+		request, err := attentiondomain.NewInformationRequest(attentiondomain.InformationRequestDraft{
+			ID: ids.InformationRequestID(requestID), AccountID: accountID, ParentWorkItemID: workItemID, Requirement: concurrentRequirement,
+			Question: "Which jurisdiction owns the registration?", RequestedBy: requestedBy,
+		}, now.Add(8*time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repository.CreateInformation(ctx, request, attentionapp.Mutation{
+			Actor: requestedBy, CorrelationID: "attention-concurrent-create-" + string(rune('a'+index)), At: request.CreatedAt,
+		}); err != nil {
+			t.Fatalf("create concurrent information %d: %v", index, err)
+		}
+	}
+	concurrentFactID, _ := ids.Derive(string(workItemID), "attention-concurrent-fact")
+	concurrentCommand := attentionapp.CompleteInformationCommand{
+		TargetID: ids.InformationRequestID(concurrentTargetID),
+		Fact:     attentiondomain.FactReference{ID: concurrentFactID, Version: 1, Requirement: concurrentRequirement},
+		Role:     accounts.RoleMember, Actor: reviewer, ExpectedVersion: 1,
+		Mutation: attentionapp.Mutation{Actor: reviewer, ReasonCode: "information_supplied", CorrelationID: "attention-concurrent-answer", At: now.Add(9 * time.Minute)},
+	}
+	var wait sync.WaitGroup
+	results := make([]attentionapp.InformationCompletion, 2)
+	errorsByCall := make([]error, 2)
+	for index := range results {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			results[index], errorsByCall[index] = repository.CompleteEligibleInformation(ctx, accountID, concurrentCommand)
+		}(index)
+	}
+	wait.Wait()
+	successes := 0
+	for index, completionErr := range errorsByCall {
+		if completionErr == nil {
+			successes++
+			continue
+		}
+		if !errors.Is(completionErr, attentionapp.ErrConflict) {
+			t.Fatalf("concurrent completion %d error=%v", index, completionErr)
+		}
+		results[index], errorsByCall[index] = repository.CompleteEligibleInformation(ctx, accountID, concurrentCommand)
+		if errorsByCall[index] != nil {
+			t.Fatalf("concurrent completion retry %d error=%v", index, errorsByCall[index])
+		}
+	}
+	if successes == 0 {
+		t.Fatal("all concurrent completions conflicted")
+	}
+	for index, result := range results {
+		if len(result.ResumableParents) != 1 || result.ResumableParents[0] != workItemID {
+			t.Fatalf("concurrent completion %d result=%+v", index, result)
+		}
+	}
+
 	var eventCount int
 	var eventText string
 	if err := owner.QueryRow(ctx, `SELECT count(*),coalesce(string_agg(redacted_payload::text||reason,' '),'') FROM spyglass.attention_events WHERE account_id=$1`, accountID).Scan(&eventCount, &eventText); err != nil {
 		t.Fatal(err)
 	}
-	if eventCount != 9 {
-		t.Fatalf("repository event count=%d want 9", eventCount)
+	if eventCount != 18 {
+		t.Fatalf("repository event count=%d want 18", eventCount)
 	}
-	for _, secret := range []string{information.Question, factID, "sensitive@example.com", "Private result", decidedReview.Decision.Reason, decidedApproval.Decision.Reason} {
+	for _, secret := range []string{information.Question, shared.Question, blocker.Question, factID, "sensitive@example.com", "Private result", decidedReview.Decision.Reason, decidedApproval.Decision.Reason} {
 		if strings.Contains(eventText, secret) {
 			t.Fatalf("Attention event leaked sensitive content %q in %q", secret, eventText)
 		}

@@ -109,26 +109,30 @@ func (r *AttentionRepository) UpdateInformation(ctx context.Context, item domain
 		canceledKind, canceledID = item.CanceledBy.Kind, item.CanceledBy.ID
 	}
 	err = r.cell.WithAccountTx(ctx, item.AccountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
-		result, err := tx.Exec(ctx, `UPDATE spyglass.attention_information_requests SET state=$3,fact_id=$4,fact_version=$5,
-			answered_by_kind=$6,answered_by_id=$7,answered_at=$8,canceled_by_kind=$9,canceled_by_id=$10,reason=$11,version=$12,updated_at=$13
-			WHERE account_id=$1 AND id=$2 AND version=$14`, item.AccountID, item.ID, item.State, factID, factVersion, answeredKind, answeredID, answeredAt,
-			canceledKind, canceledID, item.Reason, item.Version, item.UpdatedAt, expected)
-		if err != nil {
-			return err
-		}
-		if result.RowsAffected() != 1 {
-			return attentionapp.ErrConflict
-		}
-		eventType := "information_answered"
-		if item.State == domain.InformationRequestCanceled {
-			eventType = "information_canceled"
-		}
-		return r.insertEvent(ctx, tx, "information_request", string(item.ID), eventType, expected, item.Version, mutation, map[string]any{"state": item.State})
+		return r.updateInformationTx(ctx, tx, item, expected, mutation, factID, factVersion, answeredKind, answeredID, answeredAt, canceledKind, canceledID)
 	})
 	if err != nil {
 		return domain.InformationRequest{}, classifyAttentionError(err)
 	}
 	return item, nil
+}
+
+func (r *AttentionRepository) updateInformationTx(ctx context.Context, tx pgx.Tx, item domain.InformationRequest, expected uint64, mutation attentionapp.Mutation, factID, factVersion, answeredKind, answeredID, answeredAt, canceledKind, canceledID any) error {
+	result, err := tx.Exec(ctx, `UPDATE spyglass.attention_information_requests SET state=$3,fact_id=$4,fact_version=$5,
+		answered_by_kind=$6,answered_by_id=$7,answered_at=$8,canceled_by_kind=$9,canceled_by_id=$10,reason=$11,version=$12,updated_at=$13
+		WHERE account_id=$1 AND id=$2 AND version=$14`, item.AccountID, item.ID, item.State, factID, factVersion, answeredKind, answeredID, answeredAt,
+		canceledKind, canceledID, item.Reason, item.Version, item.UpdatedAt, expected)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return attentionapp.ErrConflict
+	}
+	eventType := "information_answered"
+	if item.State == domain.InformationRequestCanceled {
+		eventType = "information_canceled"
+	}
+	return r.insertEvent(ctx, tx, "information_request", string(item.ID), eventType, expected, item.Version, mutation, map[string]any{"state": item.State})
 }
 
 const reviewSelect = `SELECT account_id,id,work_item_id,work_version,proposal_sha256,question,requested_by_kind,requested_by_id,
@@ -498,7 +502,7 @@ func coalesceString(value any) string {
 }
 
 func classifyAttentionError(err error) error {
-	if err == nil || errors.Is(err, attentionapp.ErrNotFound) || errors.Is(err, attentionapp.ErrConflict) || errors.Is(err, attentionapp.ErrConstraint) || errors.Is(err, attentionapp.ErrCorrupt) {
+	if err == nil || errors.Is(err, attentionapp.ErrNotFound) || errors.Is(err, attentionapp.ErrConflict) || errors.Is(err, attentionapp.ErrConstraint) || errors.Is(err, attentionapp.ErrCorrupt) || errors.Is(err, attentionapp.ErrCompletionTooLarge) {
 		return err
 	}
 	var pgErr *pgconn.PgError
