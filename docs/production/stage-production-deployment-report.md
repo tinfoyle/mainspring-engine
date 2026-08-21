@@ -27,7 +27,7 @@
 
 | Environment | Public website | Private application |
 |---|---|---|
-| Local | `http://web.infiniteocean.localhost` | `http://app.infiniteocean.localhost` |
+| Local | `https://web.infiniteocean.localhost:8444` | `https://app.infiniteocean.localhost:8444` |
 | Stage | `https://stage.infiniteocean.net` | `https://app.stage.infiniteocean.net` |
 | Production | `https://www.infiniteocean.net` | `https://app.infiniteocean.net` |
 
