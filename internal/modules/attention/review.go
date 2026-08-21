@@ -23,6 +23,10 @@ const (
 	ReviewRequestChanges WorkReviewDecision = "request_changes"
 )
 
+func (state WorkReviewState) Valid() bool {
+	return state == WorkReviewOpen || state == WorkReviewApproved || state == WorkReviewChangesRequested || state == WorkReviewCanceled || state == WorkReviewInvalidated
+}
+
 type ReviewDecisionRecord struct {
 	Decision  WorkReviewDecision
 	Reason    string

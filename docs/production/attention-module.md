@@ -1,6 +1,6 @@
 # Attention module
 
-- Status: typed aggregate kernel and forced-RLS cell foundation implemented; repository/application services, transports and product surface pending
+- Status: typed aggregate kernel, forced-RLS cell foundation and classified PostgreSQL repositories implemented; application services, transports and product surface pending
 - Phase: 3.1
 - Owns: human information requests, Work review decisions and consequential approvals
 - Does not own: Work lifecycle persistence, Knowledge facts, Agent invocation or provider execution
@@ -55,13 +55,14 @@ The aggregate contains customer-visible questions and canonical action input, bu
 
 Migration `cell/000028_attention_foundation.sql` creates separate aggregate tables plus one polymorphic redacted event table with exact aggregate/event foreign-key shapes. Every table has forced RLS, an Account-local primary key, queue/detail indexes and the Account movement write fence. Events reject direct update/delete; aggregate-parent cascades remain available for governed Account lifecycle. Cascade deletion records exact per-table tombstone counts, so Work/Agent deletion order cannot silently omit Attention from erasure evidence. The movement copier discovers the new deterministic tables and their dependency order through the existing schema contract.
 
+The PostgreSQL repository boundary now restores every loaded row through the typed kernel, classifies not-found/conflict/constraint/corruption outcomes, makes identical creates idempotent, applies expected-version writes and appends content-safe events in the same Account-scoped transaction. Queue reads use bounded stable `(updated_at,id)` keyset cursors and typed state/object filters. Disposable-PostgreSQL tests exercise create/replay/get/update/list for all three aggregates, stale writes, cross-Account reads, restored decision records, approval authorization and the absence of questions, fact identifiers, canonical payload content and human decision reasons from event data.
+
 ## Remaining delivery order
 
-1. Implement classified PostgreSQL repositories that restore every row through the typed kernel, apply expected-version updates and append redacted events in the same transaction.
-2. Implement package-authorized application command/query services, including exact eligible-request completion and exact parent-resumption planning.
-3. Project approved/canceled `ConsequentialApproval` state into the existing execute-only runner authorization functions in the same durable command boundary.
-4. Publish redacted HTTP and generated OpenAPI contracts, then add MCP parity over the same services.
-5. Build the private Your Turn queue/detail/decision surface with draft, concurrency, keyboard, live-announcement and session-recovery behavior.
-6. Prove concurrent decisions, proposal invalidation, expiry and action-ledger integration in disposable PostgreSQL; forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
+1. Implement package-authorized application command/query services, including exact eligible-request completion and exact parent-resumption planning.
+2. Project approved/canceled `ConsequentialApproval` state into the existing execute-only runner authorization functions in the same durable command boundary.
+3. Publish redacted HTTP and generated OpenAPI contracts, then add MCP parity over the same services.
+4. Build the private Your Turn queue/detail/decision surface with draft, concurrency, keyboard, live-announcement and session-recovery behavior.
+5. Prove concurrent decisions, proposal invalidation, expiry and action-ledger integration in disposable PostgreSQL; repository replay/conflict/isolation/redaction, forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
 
-The typed kernel, schema and their authorization/isolation/lifecycle tests are complete. No repository, projection, transport or UI completion is implied by that checkpoint.
+The typed kernel, schema, repositories and their authorization/isolation/lifecycle tests are complete. No application-service, projection, transport or UI completion is implied by that checkpoint.

@@ -21,6 +21,10 @@ const (
 	InformationRequestCanceled InformationRequestState = "canceled"
 )
 
+func (state InformationRequestState) Valid() bool {
+	return state == InformationRequestOpen || state == InformationRequestAnswered || state == InformationRequestCanceled
+}
+
 type FactRequirement struct {
 	Key     string
 	Scope   InformationScope

@@ -20,6 +20,10 @@ const (
 	CanonicalPayloadHashVersion  = uint16(1)
 )
 
+func (state ConsequentialApprovalState) Valid() bool {
+	return state == ConsequentialApprovalOpen || state == ConsequentialApprovalApproved || state == ConsequentialApprovalRejected || state == ConsequentialApprovalCanceled || state == ConsequentialApprovalInvalidated || state == ConsequentialApprovalExpired
+}
+
 var (
 	factKeyPattern    = regexp.MustCompile(`^[a-z][a-z0-9._:/-]{0,127}$`)
 	capabilityPattern = regexp.MustCompile(`^[a-z][a-z0-9.:/-]{0,127}$`)

@@ -3,6 +3,8 @@ package migrations_test
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -11,6 +13,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
+	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
@@ -99,6 +106,161 @@ func TestAttentionPersistenceIsAccountIsolatedBoundedAndImmutable(t *testing.T) 
 		JOIN pg_namespace namespace_row ON namespace_row.oid=table_row.relnamespace
 		WHERE namespace_row.nspname='spyglass' AND table_row.relname LIKE 'attention_%' AND trigger_row.tgname='account_namespace_write_fence' AND NOT trigger_row.tgisinternal`).Scan(&fencedTables); err != nil || fencedTables != 4 {
 		t.Fatalf("Attention movement write fences=%d err=%v", fencedTables, err)
+	}
+	exerciseAttentionRepository(t, ctx, owner, ids.AccountID(accountA), ids.AccountID(accountB),
+		ids.WorkItemID("21000000-0000-4000-8000-000000000001"),
+		ids.AgentInvocationID("61000000-0000-4000-8000-000000000001"), now)
+}
+
+func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpool.Pool, accountID, otherAccountID ids.AccountID, workItemID ids.WorkItemID, invocationID ids.AgentInvocationID, now time.Time) {
+	t.Helper()
+	cell, err := database.NewCellPool(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := postgresadapter.NewAttentionRepository(cell, ids.RandomGenerator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestedBy := attentiondomain.Actor{Kind: attentiondomain.ActorWorkload, ID: "attention-repository"}
+	reviewerID := ids.UserID("81000000-0000-4000-8000-000000000008")
+	reviewer := attentiondomain.Actor{Kind: attentiondomain.ActorUser, ID: string(reviewerID)}
+
+	informationID, _ := ids.Derive(string(workItemID), "attention-repository-information")
+	information, err := attentiondomain.NewInformationRequest(attentiondomain.InformationRequestDraft{
+		ID: ids.InformationRequestID(informationID), AccountID: accountID, ParentWorkItemID: workItemID,
+		Requirement: attentiondomain.FactRequirement{Key: "company.tax_id", Scope: attentiondomain.InformationScopeAccount},
+		Question:    "What is the verified tax identifier?", RequestedBy: requestedBy,
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	createMutation := attentionapp.Mutation{Actor: requestedBy, CorrelationID: "attention-repository-create", At: information.CreatedAt}
+	created, err := repository.CreateInformation(ctx, information, createMutation)
+	if err != nil || created.ID != information.ID {
+		t.Fatalf("create information=%+v err=%v", created, err)
+	}
+	replayed, err := repository.CreateInformation(ctx, information, createMutation)
+	if err != nil || replayed.ID != created.ID || replayed.Version != created.Version {
+		t.Fatalf("replay information=%+v err=%v", replayed, err)
+	}
+	firstPage, err := repository.ListInformation(ctx, accountID, attentionapp.InformationListQuery{Limit: 1})
+	if err != nil || len(firstPage.Items) != 1 || firstPage.NextCursor == nil || firstPage.Items[0].ID != created.ID {
+		t.Fatalf("first information page=%+v err=%v", firstPage, err)
+	}
+	secondPage, err := repository.ListInformation(ctx, accountID, attentionapp.InformationListQuery{
+		AfterUpdatedAt: &firstPage.NextCursor.UpdatedAt, AfterID: firstPage.NextCursor.ID, Limit: 1,
+	})
+	if err != nil || len(secondPage.Items) != 1 || secondPage.Items[0].ID == created.ID || secondPage.NextCursor != nil {
+		t.Fatalf("second information page=%+v err=%v", secondPage, err)
+	}
+	if _, err := repository.GetInformation(ctx, otherAccountID, created.ID); !errors.Is(err, attentionapp.ErrNotFound) {
+		t.Fatalf("cross-Account information read error=%v", err)
+	}
+	factID, _ := ids.Derive(string(workItemID), "attention-repository-fact")
+	answered, err := created.Answer(attentiondomain.AnswerInformationCommand{
+		Fact: attentiondomain.FactReference{ID: factID, Version: 1, Requirement: created.Requirement}, Role: accounts.RoleMember,
+		Actor: reviewer, ExpectedVersion: created.Version, At: now.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedInformation, err := repository.UpdateInformation(ctx, answered, created.Version, attentionapp.Mutation{
+		Actor: reviewer, ReasonCode: "information_supplied", CorrelationID: "attention-repository-answer", At: answered.UpdatedAt,
+	})
+	if err != nil || updatedInformation.State != attentiondomain.InformationRequestAnswered || updatedInformation.AnswerRecord == nil {
+		t.Fatalf("update information=%+v err=%v", updatedInformation, err)
+	}
+	if _, err := repository.UpdateInformation(ctx, answered, created.Version, attentionapp.Mutation{
+		Actor: reviewer, ReasonCode: "stale_retry", CorrelationID: "attention-repository-stale", At: answered.UpdatedAt,
+	}); !errors.Is(err, attentionapp.ErrConflict) {
+		t.Fatalf("stale information update error=%v", err)
+	}
+	loadedInformation, err := repository.GetInformation(ctx, accountID, created.ID)
+	if err != nil || loadedInformation.AnswerRecord == nil || loadedInformation.AnswerRecord.Fact.ID != factID {
+		t.Fatalf("loaded information=%+v err=%v", loadedInformation, err)
+	}
+
+	reviewID, _ := ids.Derive(string(workItemID), "attention-repository-review")
+	review, err := attentiondomain.NewWorkReview(attentiondomain.WorkReviewDraft{
+		ID: ids.WorkReviewID(reviewID), AccountID: accountID, WorkItemID: workItemID, WorkVersion: 1,
+		ProposalSHA256: sha256.Sum256([]byte("repository review proposal")), Question: "Is this result ready to deliver?",
+		RequestedBy: requestedBy, ReviewerID: reviewerID,
+	}, now.Add(3*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdReview, err := repository.CreateWorkReview(ctx, review, attentionapp.Mutation{Actor: requestedBy, CorrelationID: "attention-repository-review-create", At: review.CreatedAt})
+	if err != nil {
+		t.Fatalf("create review: %v", err)
+	}
+	decidedReview, err := createdReview.Decide(attentiondomain.DecideWorkReviewCommand{
+		Decision: attentiondomain.ReviewApprove, Reason: "verified against the requested result", Role: accounts.RoleMember,
+		Actor: reviewer, ExpectedVersion: createdReview.Version, At: now.Add(4 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedReview, err := repository.UpdateWorkReview(ctx, decidedReview, createdReview.Version, attentionapp.Mutation{
+		Actor: reviewer, ReasonCode: "review_completed", CorrelationID: "attention-repository-review-decide", At: decidedReview.UpdatedAt,
+	})
+	if err != nil || updatedReview.State != attentiondomain.WorkReviewApproved {
+		t.Fatalf("update review=%+v err=%v", updatedReview, err)
+	}
+	reviewPage, err := repository.ListWorkReviews(ctx, accountID, attentionapp.WorkReviewListQuery{State: attentiondomain.WorkReviewApproved, ReviewerID: reviewerID, Limit: 10})
+	if err != nil || len(reviewPage.Items) != 1 || reviewPage.Items[0].ID != createdReview.ID {
+		t.Fatalf("review page=%+v err=%v", reviewPage, err)
+	}
+
+	approvalID, _ := ids.Derive(string(workItemID), "attention-repository-approval")
+	operationID, _ := ids.Derive(string(workItemID), "attention-repository-operation")
+	approval, err := attentiondomain.NewConsequentialApproval(attentiondomain.ConsequentialApprovalDraft{
+		ID: ids.ConsequentialApprovalID(approvalID), AccountID: accountID, OperationID: operationID, InvocationID: invocationID,
+		WorkItemID: workItemID, Capability: "email.send", CanonicalPayload: json.RawMessage(`{"to":"sensitive@example.com","subject":"Private result"}`),
+		EvidenceSHA256: sha256.Sum256([]byte("repository approval evidence")), Proposer: requestedBy, PolicyVersion: 2,
+		RequireIndependentReview: true, ExpiresAt: now.Add(25 * time.Minute),
+	}, now.Add(5*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdApproval, err := repository.CreateApproval(ctx, approval, attentionapp.Mutation{Actor: requestedBy, CorrelationID: "attention-repository-approval-create", At: approval.CreatedAt})
+	if err != nil {
+		t.Fatalf("create approval: %v", err)
+	}
+	decidedApproval, err := createdApproval.Decide(attentiondomain.DecideApprovalCommand{
+		Decision: attentiondomain.DecisionApprove, Reason: "exact action and evidence are authorized", Role: accounts.RoleOwner,
+		Actor: reviewer, ExpectedVersion: createdApproval.Version, At: now.Add(6 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedApproval, err := repository.UpdateApproval(ctx, decidedApproval, createdApproval.Version, attentionapp.Mutation{
+		Actor: reviewer, ReasonCode: "approval_granted", CorrelationID: "attention-repository-approval-decide", At: decidedApproval.UpdatedAt,
+	})
+	if err != nil || updatedApproval.State != attentiondomain.ConsequentialApprovalApproved {
+		t.Fatalf("update approval=%+v err=%v", updatedApproval, err)
+	}
+	authorization, err := updatedApproval.Authorization(now.Add(7 * time.Minute))
+	if err != nil || authorization.OperationID != operationID || authorization.InputSHA256 != approval.InputSHA256 {
+		t.Fatalf("approval authorization=%+v err=%v", authorization, err)
+	}
+	approvalPage, err := repository.ListApprovals(ctx, accountID, attentionapp.ApprovalListQuery{State: attentiondomain.ConsequentialApprovalApproved, WorkItemID: workItemID, Limit: 10})
+	if err != nil || len(approvalPage.Items) != 1 || approvalPage.Items[0].ID != createdApproval.ID {
+		t.Fatalf("approval page=%+v err=%v", approvalPage, err)
+	}
+
+	var eventCount int
+	var eventText string
+	if err := owner.QueryRow(ctx, `SELECT count(*),coalesce(string_agg(redacted_payload::text||reason,' '),'') FROM spyglass.attention_events WHERE account_id=$1`, accountID).Scan(&eventCount, &eventText); err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != 9 {
+		t.Fatalf("repository event count=%d want 9", eventCount)
+	}
+	for _, secret := range []string{information.Question, factID, "sensitive@example.com", "Private result", decidedReview.Decision.Reason, decidedApproval.Decision.Reason} {
+		if strings.Contains(eventText, secret) {
+			t.Fatalf("Attention event leaked sensitive content %q in %q", secret, eventText)
+		}
 	}
 }
 
