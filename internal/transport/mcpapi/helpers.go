@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -45,6 +46,26 @@ func attentionError(err error) error {
 		return safeError(string(denied.Code))
 	default:
 		return safeError("attention_unavailable")
+	}
+}
+
+func actionRecoveryError(err error) error {
+	var denied *access.DeniedError
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, actionrecovery.ErrInvalid):
+		return safeError("invalid_action_recovery")
+	case errors.Is(err, actionrecovery.ErrNotFound):
+		return safeError("action_not_found")
+	case errors.Is(err, actionrecovery.ErrConflict):
+		return safeError("action_recovery_conflict")
+	case errors.Is(err, actionrecovery.ErrConstraint):
+		return safeError("action_recovery_rejected")
+	case errors.As(err, &denied):
+		return safeError(string(denied.Code))
+	default:
+		return safeError("action_recovery_unavailable")
 	}
 }
 
@@ -147,6 +168,19 @@ func approvalView(item attentiondomain.ConsequentialApproval) approvalOutput {
 
 func approvalSummaryView(item attentionapp.ApprovalSummary) approvalSummaryOutput {
 	return approvalSummaryOutput{ID: item.ID, WorkItemID: item.WorkItemID, OperationID: item.OperationID, InvocationID: item.InvocationID, Capability: item.Capability, Proposer: actorView(item.Proposer), PolicyVersion: item.PolicyVersion, ExpiresAt: item.ExpiresAt, State: item.State, Decision: item.Decision, Version: item.Version, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
+}
+
+func actionSummaryView(item actionrecovery.Summary) actionSummaryOutput {
+	return actionSummaryOutput{OperationID: item.OperationID, ApprovalID: item.ApprovalID, InvocationID: item.InvocationID, Capability: item.Capability, ExecutorID: item.ExecutorID, ExecutorVersion: item.ExecutorVersion, PolicyVersion: item.PolicyVersion, State: item.State, AttemptCount: item.AttemptCount, LastErrorCode: item.LastErrorCode, NextAttemptAt: item.NextAttemptAt, CompletedAt: item.CompletedAt, StartedAt: item.StartedAt, UpdatedAt: item.UpdatedAt}
+}
+
+func actionDetailView(item actionrecovery.Detail) actionDetailOutput {
+	output := actionDetailOutput{actionSummaryOutput: actionSummaryView(item.Summary)}
+	if item.Resolution != nil {
+		resolution := item.Resolution
+		output.Resolution = &actionResolutionOutput{ID: resolution.ID, OperationID: resolution.OperationID, RequestedOutcome: resolution.RequestedOutcome, ReasonSHA256: hex.EncodeToString(resolution.ReasonSHA256[:]), RequestedByUserID: resolution.RequestedByUserID, RequestedAt: resolution.RequestedAt, State: resolution.State, ConfirmedByUserID: resolution.ConfirmedByUserID, ConfirmedAt: resolution.ConfirmedAt}
+	}
+	return output
 }
 
 func operationID(value string) (string, error) {

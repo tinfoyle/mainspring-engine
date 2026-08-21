@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
@@ -34,6 +36,7 @@ type Server struct {
 	commands  WorkCommands
 	agents    AgentService
 	attention AttentionService
+	actions   ActionRecoveryService
 	counters  routeCounters
 }
 
@@ -67,6 +70,17 @@ func WithAgents(service AgentService) Option {
 
 func WithAttention(service AttentionService) Option {
 	return func(server *Server) { server.attention = service }
+}
+
+type ActionRecoveryService interface {
+	List(context.Context, access.Actor, ids.AccountID, actionrecovery.ListQuery) (actionrecovery.Page, error)
+	Get(context.Context, access.Actor, ids.AccountID, string) (actionrecovery.Detail, error)
+	Request(context.Context, actionrecovery.RequestCommand) (actionrecovery.Detail, error)
+	Confirm(context.Context, actionrecovery.ConfirmCommand) (actionrecovery.Detail, error)
+}
+
+func WithActionRecovery(service ActionRecoveryService) Option {
+	return func(server *Server) { server.actions = service }
 }
 
 func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
@@ -117,6 +131,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/approvals/{approvalID}", s.attentionApprovalGet)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/approvals/{approvalID}/decisions", s.attentionApprovalDecide)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/approvals/{approvalID}/cancellations", s.attentionApprovalCancel)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/actions", s.actionRecoveryList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/actions/{operationID}", s.actionRecoveryGet)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/actions/{operationID}/resolution-requests", s.actionRecoveryRequest)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/actions/{operationID}/resolutions/{resolutionID}/confirmations", s.actionRecoveryConfirm)
 	return s.recover(s.securityHeaders(mux))
 }
 

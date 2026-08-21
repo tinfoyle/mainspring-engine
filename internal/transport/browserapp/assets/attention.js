@@ -28,6 +28,7 @@
     information: "Information",
     review: "Work review",
     approval: "Consequential approval",
+    action: "Action recovery",
     open: "Open",
     approve: "Approve",
     request_changes: "Request changes",
@@ -127,8 +128,31 @@
     return response.json();
   }
 
+  async function mutateActionJSON(url, payload) {
+    const body = payload === undefined ? undefined : JSON.stringify(payload);
+    const fingerprint = `${url} ${body || "no-body"}`;
+    let operationID = pendingOperations.get(fingerprint);
+    if (!operationID) {
+      operationID = crypto.randomUUID();
+      pendingOperations.set(fingerprint, operationID);
+    }
+    const headers = { Accept: "application/json", "Idempotency-Key": operationID };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const response = await fetch(url, { method: "POST", credentials: "same-origin", headers, body });
+    if (!response.ok) {
+      let problem = {};
+      try { problem = await response.json(); } catch (_) { /* retain safe fallback */ }
+      const error = new Error(problem.detail || "Spyglass could not save this recovery decision.");
+      error.status = response.status;
+      error.code = problem.code || "action_recovery_unavailable";
+      throw error;
+    }
+    pendingOperations.delete(fingerprint);
+    return response.json();
+  }
+
   function endpoint(kind, id) {
-    const collection = kind === "information" ? "information-requests" : kind === "review" ? "work-reviews" : "approvals";
+    const collection = kind === "information" ? "information-requests" : kind === "review" ? "work-reviews" : kind === "action" ? "actions" : "approvals";
     return `${baseURL}/${collection}${id ? `/${encodeURIComponent(id)}` : ""}`;
   }
 
@@ -141,7 +165,8 @@
   function context(item) {
     if (item._kind === "information") return `Work ${item.parent_work_item_id}`;
     if (item._kind === "review") return `Work ${item.work_item_id} · version ${item.work_version}`;
-    return item.work_item_id ? `Work ${item.work_item_id}` : `Invocation ${item.invocation_id}`;
+    if (item._kind === "approval") return item.work_item_id ? `Work ${item.work_item_id}` : `Invocation ${item.invocation_id}`;
+    return `${item.executor_id} v${item.executor_version} · attempt ${item.attempt_count}`;
   }
 
   function card(item) {
@@ -151,7 +176,7 @@
     button.dataset.attentionKind = item._kind;
     button.setAttribute("aria-pressed", String(selected && selected.id === item.id && selected._kind === item._kind));
     button.setAttribute("aria-label", `Open ${label(item._kind)}: ${summary(item)}`);
-    const marker = node("i", "attention-marker", item._kind === "information" ? "?" : item._kind === "review" ? "✓" : "!");
+    const marker = node("i", "attention-marker", item._kind === "information" ? "?" : item._kind === "review" ? "✓" : item._kind === "action" ? "↻" : "!");
     marker.setAttribute("aria-hidden", "true");
     const body = node("span", "attention-card-body");
     body.append(node("small", "attention-kind", label(item._kind)), node("strong", "", summary(item)), node("span", "", context(item)), node("time", "", `Updated ${dateLabel(item.updated_at)}`));
@@ -167,7 +192,7 @@
     status.hidden = visible.length > 0;
     status.classList.remove("error");
     status.textContent = visible.length ? "" : "Nothing in this view needs your attention.";
-    for (const kind of ["information", "review", "approval"]) {
+    for (const kind of ["information", "review", "approval", "action"]) {
       const target = root.querySelector(`[data-attention-summary="${kind}"]`);
       if (target) target.textContent = String(items.filter((item) => item._kind === kind).length);
     }
@@ -186,10 +211,14 @@
       sources.push(["information", `${endpoint("information")}?state=open&limit=100`]);
       sources.push(["review", `${endpoint("review")}?state=open&reviewer_id=${encodeURIComponent(userID)}&limit=100`]);
     }
-    if (approvalsAvailable) sources.push(["approval", `${endpoint("approval")}?state=open&limit=100`]);
+    if (approvalsAvailable) {
+      sources.push(["approval", `${endpoint("approval")}?state=open&limit=100`]);
+      sources.push(["action", `${endpoint("action")}?state=unknown&limit=100`]);
+      sources.push(["action", `${endpoint("action")}?state=manual_resolution&limit=100`]);
+    }
     try {
       const results = await Promise.all(sources.map(async ([kind, url]) => ({ kind, page: await getJSON(url, queueRequest.signal) })));
-      items = results.flatMap(({ kind, page }) => (page.items || []).map((item) => ({ ...item, _kind: kind })))
+      items = results.flatMap(({ kind, page }) => (page.items || []).map((item) => ({ ...item, id: kind === "action" ? item.operation_id : item.id, _kind: kind })))
         .sort((left, right) => String(left.updated_at).localeCompare(String(right.updated_at)));
       renderQueue();
       if (announceResult) announce(`Your Turn refreshed. ${items.length} open ${items.length === 1 ? "item" : "items"}.`);
@@ -273,6 +302,90 @@
     return form;
   }
 
+  function actionResolutionForm(item) {
+    const form = node("form", "attention-decision-form");
+    form.dataset.kind = "action";
+    form.append(node("h3", "", "Request a manual outcome"));
+    const fieldset = node("fieldset");
+    fieldset.append(node("legend", "", "Observed provider outcome"));
+    for (const [value, text] of [["succeeded", "Succeeded"], ["failed", "Failed"]]) {
+      const input = node("input");
+      input.type = "radio";
+      input.name = "outcome";
+      input.value = value;
+      input.required = true;
+      const choice = node("label", "attention-choice", text);
+      choice.prepend(input);
+      fieldset.append(choice);
+    }
+    const reason = node("textarea");
+    reason.name = "reason";
+    reason.minLength = 3;
+    reason.maxLength = 1000;
+    reason.rows = 4;
+    reason.required = true;
+    reason.setAttribute("aria-describedby", "attention-draft-note");
+    const reasonLabel = node("label", "", "Evidence-based reason (stored as a digest here)");
+    reasonLabel.append(reason);
+    const submit = node("button", "primary", "Request resolution");
+    submit.type = "submit";
+    form.append(fieldset, reasonLabel, draftNote(), formError(), submit);
+    restoreDraft("action", item.id, form);
+    form.addEventListener("input", () => saveDraft("action", item.id, form));
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      saveDraft("action", item.id, form);
+      const errorView = form.querySelector(".work-form-error");
+      const submitButton = form.querySelector('button[type="submit"]');
+      errorView.hidden = true;
+      submitButton.disabled = true;
+      const values = new FormData(form);
+      try {
+        const updated = await mutateActionJSON(`${endpoint("action", item.id)}/resolution-requests`, { outcome: String(values.get("outcome") || ""), reason: String(values.get("reason") || "").trim() });
+        clearDraft("action", item.id);
+        announce("Manual resolution requested. A different eligible operator must confirm it.");
+        await loadQueue();
+        renderDetail({ ...updated, id: updated.operation_id, _kind: "action" });
+      } catch (error) {
+        errorView.textContent = error.message;
+        errorView.hidden = false;
+      } finally {
+        submitButton.disabled = false;
+      }
+    });
+    return form;
+  }
+
+  function actionConfirmation(item) {
+    const section = node("section", "attention-decision-form");
+    section.append(node("h3", "", "Independent confirmation required"));
+    if (item.resolution.requested_by_user_id === userID) {
+      section.append(node("p", "attention-read-only", "A different eligible Owner or Administrator must confirm this outcome."));
+      return section;
+    }
+    const button = node("button", "primary", `Confirm ${label(item.resolution.requested_outcome)}`);
+    button.type = "button";
+    const errorView = formError();
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      errorView.hidden = true;
+      try {
+        const updated = await mutateActionJSON(`${endpoint("action", item.id)}/resolutions/${encodeURIComponent(item.resolution.id)}/confirmations`);
+        announce("Manual action outcome confirmed.");
+        await loadQueue();
+        renderDetail({ ...updated, id: updated.operation_id, _kind: "action" });
+      } catch (error) {
+        errorView.textContent = error.message;
+        errorView.hidden = false;
+      } finally {
+        button.disabled = false;
+      }
+    });
+    section.append(errorView, button);
+    return section;
+  }
+
   function draftNote() {
     return node("p", "work-draft-note", "This decision draft stays in this browser tab until it is accepted.");
   }
@@ -331,8 +444,11 @@
       facts.append(detailField("Required fact", item.requirement.key), detailField("Scope", `${label(item.requirement.scope)}${item.requirement.scope_id ? ` · ${item.requirement.scope_id}` : ""}`), detailField("Parent Work", item.parent_work_item_id), detailField("Requested", dateLabel(item.created_at)));
     } else if (item._kind === "review") {
       facts.append(detailField("Work item", item.work_item_id), detailField("Work version", String(item.work_version)), detailField("Proposal SHA-256", item.proposal_sha256, "attention-digest"), detailField("Requested", dateLabel(item.created_at)));
-    } else {
+    } else if (item._kind === "approval") {
       facts.append(detailField("Capability", item.capability), detailField("Operation", item.operation_id), detailField("Invocation", item.invocation_id), detailField("Evidence SHA-256", item.evidence_sha256, "attention-digest"), detailField("Policy version", String(item.policy_version)), detailField("Expires", dateLabel(item.expires_at)));
+    } else {
+      facts.append(detailField("Capability", item.capability), detailField("Operation", item.operation_id), detailField("Approval", item.approval_id), detailField("Invocation", item.invocation_id), detailField("Executor", `${item.executor_id} v${item.executor_version}`), detailField("Frozen policy", String(item.policy_version)), detailField("Attempts", String(item.attempt_count)), detailField("Stable error", item.last_error_code || "None"), detailField("Started", dateLabel(item.started_at)), detailField("Updated", dateLabel(item.updated_at)));
+      if (item.resolution) facts.append(detailField("Requested outcome", label(item.resolution.requested_outcome)), detailField("Reason SHA-256", item.resolution.reason_sha256, "attention-digest"), detailField("Requested by", item.resolution.requested_by_user_id), detailField("Resolution state", label(item.resolution.state)));
     }
     const children = [header, facts];
     if (item._kind === "approval") {
@@ -340,7 +456,10 @@
       payload.append(node("h3", "", "Exact proposed payload"), node("pre", "", JSON.stringify(item.payload, null, 2)));
       children.push(payload);
     }
-    const writable = item._kind === "approval" ? !agentsReadOnly : !workReadOnly;
+    const writable = item._kind === "approval" || item._kind === "action" ? !agentsReadOnly : !workReadOnly;
+    if (item._kind === "action" && item.state === "unknown" && writable) children.push(actionResolutionForm(item));
+    if (item._kind === "action" && item.state === "manual_resolution" && item.resolution?.state === "pending" && writable) children.push(actionConfirmation(item));
+    if (item._kind === "action" && (item.state === "unknown" || item.state === "manual_resolution") && !writable) children.push(node("p", "attention-read-only", "The Agents package is read-only. You can inspect recovery status but cannot submit a resolution."));
     if (item.state === "open" && writable) children.push(item._kind === "information" ? informationForm(item) : decisionForm(item));
     if (item.state === "open" && !writable) children.push(node("p", "attention-read-only", "This package is read-only. You can inspect the item but cannot submit a decision."));
     detail.replaceChildren(...children);

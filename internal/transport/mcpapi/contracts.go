@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
@@ -27,6 +28,13 @@ type AttentionService interface {
 	CancelApproval(context.Context, attentionapp.CancelApprovalCommand) (attentiondomain.ConsequentialApproval, error)
 	GetApproval(context.Context, access.Actor, ids.AccountID, ids.ConsequentialApprovalID) (attentiondomain.ConsequentialApproval, error)
 	ListApprovals(context.Context, access.Actor, ids.AccountID, attentionapp.ApprovalListQuery) (attentionapp.ApprovalSummaryPage, error)
+}
+
+type ActionRecoveryService interface {
+	List(context.Context, access.Actor, ids.AccountID, actionrecovery.ListQuery) (actionrecovery.Page, error)
+	Get(context.Context, access.Actor, ids.AccountID, string) (actionrecovery.Detail, error)
+	Request(context.Context, actionrecovery.RequestCommand) (actionrecovery.Detail, error)
+	Confirm(context.Context, actionrecovery.ConfirmCommand) (actionrecovery.Detail, error)
 }
 
 type requirementInput struct {
@@ -191,4 +199,43 @@ type approvalSummaryOutput struct {
 type approvalPageOutput struct {
 	Items      []approvalSummaryOutput `json:"items"`
 	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
+type actionSummaryOutput struct {
+	OperationID     string               `json:"operation_id"`
+	ApprovalID      string               `json:"approval_id"`
+	InvocationID    string               `json:"invocation_id"`
+	Capability      string               `json:"capability"`
+	ExecutorID      string               `json:"executor_id"`
+	ExecutorVersion uint64               `json:"executor_version"`
+	PolicyVersion   uint64               `json:"policy_version"`
+	State           actionrecovery.State `json:"state"`
+	AttemptCount    uint32               `json:"attempt_count"`
+	LastErrorCode   string               `json:"last_error_code,omitempty"`
+	NextAttemptAt   *time.Time           `json:"next_attempt_at,omitempty"`
+	CompletedAt     *time.Time           `json:"completed_at,omitempty"`
+	StartedAt       time.Time            `json:"started_at"`
+	UpdatedAt       time.Time            `json:"updated_at"`
+}
+
+type actionResolutionOutput struct {
+	ID                string               `json:"id"`
+	OperationID       string               `json:"operation_id"`
+	RequestedOutcome  actionrecovery.State `json:"requested_outcome"`
+	ReasonSHA256      string               `json:"reason_sha256"`
+	RequestedByUserID ids.UserID           `json:"requested_by_user_id"`
+	RequestedAt       time.Time            `json:"requested_at"`
+	State             string               `json:"state"`
+	ConfirmedByUserID ids.UserID           `json:"confirmed_by_user_id,omitempty"`
+	ConfirmedAt       *time.Time           `json:"confirmed_at,omitempty"`
+}
+
+type actionDetailOutput struct {
+	actionSummaryOutput
+	Resolution *actionResolutionOutput `json:"resolution,omitempty"`
+}
+
+type actionPageOutput struct {
+	Items      []actionSummaryOutput `json:"items"`
+	NextCursor string                `json:"next_cursor,omitempty"`
 }

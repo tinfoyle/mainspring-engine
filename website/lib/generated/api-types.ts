@@ -65,6 +65,64 @@ export interface AccountSelected {
   readonly "account_context": SelectedAccountContext;
 }
 
+export interface ActionRecoveryDetail {
+  readonly "approval_id": string;
+  readonly "attempt_count": number;
+  readonly "capability": string;
+  readonly "completed_at"?: string;
+  readonly "executor_id": string;
+  readonly "executor_version": number;
+  readonly "invocation_id": string;
+  readonly "last_error_code"?: string;
+  readonly "next_attempt_at"?: string;
+  readonly "operation_id": string;
+  readonly "policy_version": number;
+  readonly "resolution"?: ActionResolution;
+  readonly "started_at": string;
+  readonly "state": ActionRecoveryState;
+  readonly "updated_at": string;
+}
+
+export interface ActionRecoveryPage {
+  readonly "items": ReadonlyArray<ActionRecoverySummary>;
+  readonly "next_cursor"?: string;
+}
+
+export type ActionRecoveryState = "executing" | "reconciling" | "retry_wait" | "succeeded" | "failed" | "unknown" | "manual_resolution";
+
+export interface ActionRecoverySummary {
+  readonly "approval_id": string;
+  readonly "attempt_count": number;
+  readonly "capability": string;
+  readonly "completed_at"?: string;
+  readonly "executor_id": string;
+  readonly "executor_version": number;
+  readonly "invocation_id": string;
+  readonly "last_error_code"?: string;
+  readonly "next_attempt_at"?: string;
+  readonly "operation_id": string;
+  readonly "policy_version": number;
+  readonly "started_at": string;
+  readonly "state": ActionRecoveryState;
+  readonly "updated_at": string;
+}
+
+export interface ActionResolution {
+  readonly "confirmed_at"?: string;
+  readonly "confirmed_by_user_id"?: string;
+  readonly "id": string;
+  readonly "operation_id": string;
+  readonly "reason_sha256": string;
+  readonly "requested_at": string;
+  readonly "requested_by_user_id": string;
+  readonly "requested_outcome": ActionResolutionOutcome;
+  readonly "state": ActionResolutionState;
+}
+
+export type ActionResolutionOutcome = "succeeded" | "failed";
+
+export type ActionResolutionState = "pending" | "applied";
+
 export interface ActiveSession {
   readonly "authenticated_at": string;
   readonly "authentication_assurance": AuthenticationAssurance;
@@ -828,6 +886,11 @@ export interface RenamePasskeyRequest {
   readonly "name": string;
 }
 
+export interface RequestActionResolutionRequest {
+  readonly "outcome": ActionResolutionOutcome;
+  readonly "reason": string;
+}
+
 export interface ResolveAgentRunRequest {
   readonly "action": AgentRunResolutionAction;
   readonly "note": string;
@@ -1063,6 +1126,13 @@ export interface ApiSchemas {
   readonly AccountClosures: AccountClosures;
   readonly AccountContext: AccountContext;
   readonly AccountSelected: AccountSelected;
+  readonly ActionRecoveryDetail: ActionRecoveryDetail;
+  readonly ActionRecoveryPage: ActionRecoveryPage;
+  readonly ActionRecoveryState: ActionRecoveryState;
+  readonly ActionRecoverySummary: ActionRecoverySummary;
+  readonly ActionResolution: ActionResolution;
+  readonly ActionResolutionOutcome: ActionResolutionOutcome;
+  readonly ActionResolutionState: ActionResolutionState;
   readonly ActiveSession: ActiveSession;
   readonly ActiveSessions: ActiveSessions;
   readonly AgentBoardroom: AgentBoardroom;
@@ -1178,6 +1248,7 @@ export interface ApiSchemas {
   readonly RegistrationAccepted: RegistrationAccepted;
   readonly RegistrationCompleted: RegistrationCompleted;
   readonly RenamePasskeyRequest: RenamePasskeyRequest;
+  readonly RequestActionResolutionRequest: RequestActionResolutionRequest;
   readonly ResolveAgentRunRequest: ResolveAgentRunRequest;
   readonly SecurityEvent: SecurityEvent;
   readonly SecurityEventType: SecurityEventType;

@@ -52,8 +52,8 @@ func TestRunnerActionLedgerExecutesOnceAndReconcilesUncertainRetries(t *testing.
 		GRANT EXECUTE ON FUNCTION public.spyglass_complete_runner_action_v2(uuid,uuid,uuid,uuid,text,bytea,text,uuid,timestamptz,text,text,timestamptz) TO `+actionRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_record_runner_action_authorization(uuid,uuid,uuid,uuid,text,bytea,smallint,bytea,text,text,uuid,bigint,timestamptz,timestamptz) TO `+approvalRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_cancel_runner_action_authorization(uuid,uuid,uuid,timestamptz) TO `+approvalRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_request_runner_action_resolution(uuid,uuid,uuid,text,bytea,uuid,timestamptz) TO `+resolutionRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_confirm_runner_action_resolution(uuid,uuid,uuid,uuid,timestamptz) TO `+resolutionRole); err != nil {
+		GRANT EXECUTE ON FUNCTION public.spyglass_request_runner_action_resolution_v2(uuid,uuid,uuid,text,bytea,uuid,timestamptz) TO `+resolutionRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_confirm_runner_action_resolution_v2(uuid,uuid,uuid,uuid,timestamptz) TO `+resolutionRole); err != nil {
 		t.Fatal(err)
 	}
 	actionPool := openPool(t, ctx, databaseURL, func(ctx context.Context, connection *pgx.Conn) error {
@@ -268,21 +268,25 @@ func TestRunnerActionLedgerExecutesOnceAndReconcilesUncertainRetries(t *testing.
 	reason := sha256.Sum256([]byte("operator inspected provider record and evidence"))
 	var changed bool
 	requestedAt := now.Add(12 * time.Second)
-	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_request_runner_action_resolution($1,$2,$3,'succeeded',$4,$5,$6)`,
+	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_request_runner_action_resolution_v2($1,$2,$3,'succeeded',$4,$5,$6)`,
 		accountA, manualOperation, resolutionID, reason[:], requesterID, requestedAt).Scan(&changed); err != nil || !changed {
 		t.Fatalf("manual resolution request changed=%v err=%v", changed, err)
 	}
-	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_confirm_runner_action_resolution($1,$2,$3,$4,$5)`,
+	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_request_runner_action_resolution_v2($1,$2,$3,'succeeded',$4,$5,$6)`,
+		accountA, manualOperation, resolutionID, reason[:], requesterID, requestedAt.Add(time.Second)).Scan(&changed); err != nil || changed {
+		t.Fatalf("manual resolution request replay changed=%v err=%v", changed, err)
+	}
+	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_confirm_runner_action_resolution_v2($1,$2,$3,$4,$5)`,
 		accountA, manualOperation, resolutionID, requesterID, now.Add(13*time.Second)).Scan(&changed); err == nil {
 		t.Fatal("manual resolution accepted the requesting operator as confirmer")
 	}
 	confirmedAt := now.Add(14 * time.Second)
-	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_confirm_runner_action_resolution($1,$2,$3,$4,$5)`,
+	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_confirm_runner_action_resolution_v2($1,$2,$3,$4,$5)`,
 		accountA, manualOperation, resolutionID, confirmerID, confirmedAt).Scan(&changed); err != nil || !changed {
 		t.Fatalf("manual resolution confirmation changed=%v err=%v", changed, err)
 	}
-	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_confirm_runner_action_resolution($1,$2,$3,$4,$5)`,
-		accountA, manualOperation, resolutionID, confirmerID, confirmedAt).Scan(&changed); err != nil || changed {
+	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_confirm_runner_action_resolution_v2($1,$2,$3,$4,$5)`,
+		accountA, manualOperation, resolutionID, confirmerID, confirmedAt.Add(time.Second)).Scan(&changed); err != nil || changed {
 		t.Fatalf("manual resolution replay changed=%v err=%v", changed, err)
 	}
 	var manualState, resolutionState string

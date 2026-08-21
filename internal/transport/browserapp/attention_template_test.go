@@ -39,6 +39,7 @@ func TestYourTurnTemplatePublishesOnePackageAwareDecisionQueue(t *testing.T) {
 		`data-attention-filter="information"`,
 		`data-attention-filter="review"`,
 		`data-attention-filter="approval"`,
+		`data-attention-filter="action"`,
 		`id="attention-detail" tabindex="-1"`,
 	} {
 		if !strings.Contains(body, expected) {
@@ -61,7 +62,7 @@ func TestYourTurnTemplateOmitsApprovalQueueWithoutApprovalRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := rendered.String()
-	if strings.Contains(body, `data-attention-filter="approval"`) || !strings.Contains(body, `data-approvals-available="false"`) {
+	if strings.Contains(body, `data-attention-filter="approval"`) || strings.Contains(body, `data-attention-filter="action"`) || !strings.Contains(body, `data-approvals-available="false"`) {
 		t.Fatalf("non-approver received approval queue contract: %s", body)
 	}
 }
@@ -84,6 +85,12 @@ func TestYourTurnScriptPreservesDraftConcurrencyAndAccessibleKeyboardContract(t 
 		`announce(`,
 		`requirement: item.requirement`,
 		`reviewer_id=${encodeURIComponent(userID)}`,
+		`?state=unknown&limit=100`,
+		`?state=manual_resolution&limit=100`,
+		`/resolution-requests`,
+		`/confirmations`,
+		`item.resolution.requested_by_user_id === userID`,
+		`Reason SHA-256`,
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("Your Turn client is missing browser contract %q", expected)

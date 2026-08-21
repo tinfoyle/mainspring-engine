@@ -303,12 +303,15 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 		packageCode := catalog.PackageWork
 		switch parts[1] {
 		case "information-requests", "work-reviews":
-		case "approvals":
+		case "approvals", "actions":
 			packageCode = catalog.PackageAgents
 		default:
 			return access.Requirement{}, false
 		}
 		if len(parts) == 2 {
+			if parts[1] == "actions" {
+				return access.Requirement{Package: packageCode}, method == http.MethodGet
+			}
 			return access.Requirement{Package: packageCode, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
 		}
 		if len(parts) == 3 && ids.Validate(parts[2]) == nil {
@@ -316,9 +319,15 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 		}
 		if len(parts) == 4 && ids.Validate(parts[2]) == nil {
 			action := parts[3]
+			if parts[1] == "actions" {
+				return access.Requirement{Package: packageCode, Mutation: true}, method == http.MethodPost && action == "resolution-requests"
+			}
 			allowedAction := (parts[1] == "information-requests" && (action == "answers" || action == "cancellations")) ||
 				(parts[1] != "information-requests" && (action == "decisions" || action == "cancellations"))
 			return access.Requirement{Package: packageCode, Mutation: true}, method == http.MethodPost && allowedAction
+		}
+		if len(parts) == 6 && parts[1] == "actions" && ids.Validate(parts[2]) == nil && parts[3] == "resolutions" && ids.Validate(parts[4]) == nil && parts[5] == "confirmations" {
+			return access.Requirement{Package: packageCode, Mutation: true}, method == http.MethodPost
 		}
 	}
 	return access.Requirement{}, false

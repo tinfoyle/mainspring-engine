@@ -35,6 +35,7 @@ type Config struct {
 type Server struct {
 	authority        Authority
 	attention        AttentionService
+	actions          ActionRecoveryService
 	logger           *slog.Logger
 	version          string
 	maxBody          int64
@@ -43,9 +44,21 @@ type Server struct {
 	schemaCache      *mcp.SchemaCache
 }
 
+type Option func(*Server) error
+
+func WithActionRecovery(service ActionRecoveryService) Option {
+	return func(server *Server) error {
+		if service == nil {
+			return errors.New("MCP action recovery service is required")
+		}
+		server.actions = service
+		return nil
+	}
+}
+
 type principalContextKey struct{}
 
-func New(authority Authority, attention AttentionService, logger *slog.Logger, config Config) (*Server, error) {
+func New(authority Authority, attention AttentionService, logger *slog.Logger, config Config, options ...Option) (*Server, error) {
 	if authority == nil || attention == nil || logger == nil {
 		return nil, errors.New("MCP authority, Attention service, and logger are required")
 	}
@@ -70,10 +83,19 @@ func New(authority Authority, attention AttentionService, logger *slog.Logger, c
 		}
 		origins[origin.String()] = struct{}{}
 	}
-	return &Server{
+	server := &Server{
 		authority: authority, attention: attention, logger: logger, version: strings.TrimSpace(config.Version),
 		maxBody: config.MaxBody, origins: origins, resourceMetadata: metadata.String(), schemaCache: mcp.NewSchemaCache(),
-	}, nil
+	}
+	for _, option := range options {
+		if option == nil {
+			return nil, errors.New("MCP option is required")
+		}
+		if err := option(server); err != nil {
+			return nil, err
+		}
+	}
+	return server, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -98,6 +120,9 @@ func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 	s.registerInformation(server, actor)
 	s.registerReviews(server, actor)
 	s.registerApprovals(server, actor)
+	if s.actions != nil {
+		s.registerActionRecovery(server, actor)
+	}
 	return server
 }
 

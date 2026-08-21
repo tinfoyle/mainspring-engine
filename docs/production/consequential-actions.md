@@ -1,6 +1,6 @@
 # Consequential action execution
 
-Status: versioned executor/retry registry, definite-failure retry, unknown reconciliation, dual-controlled resolution, first Stripe adapter and content-free operational signals implemented; authorized customer/operator action views remain
+Status: versioned executor/retry registry, definite-failure retry, unknown reconciliation, dual-controlled resolution, first Stripe adapter, content-free operational signals and authorized redacted HTTP/MCP/Your Turn recovery surfaces implemented
 
 Attention owns the human approval aggregate and projects only an exact execute-only authorization. The runner action boundary consumes that projection; it never infers approval from an inbox state or accepts approval fields from a runner.
 
@@ -21,4 +21,6 @@ The Stripe key exists only in the runner-broker process. Runner Jobs receive no 
 
 The broker exposes numeric-only `runner-action` status metrics for executing, reconciling, retry-wait, unknown, manual-resolution, failed, succeeded and oldest-overdue-retry state. Sustained overdue retry or unresolved uncertainty pages the platform owner and links to the dual-control recovery procedure. Account erasure counts manual-resolution records through their ledger cascade, and Account movement applies the ordinary namespace write fence.
 
-The next construction step is the authorized, redacted customer and operator view/command surface. Until that is present, manual-resolution functions are persistence primitives covered by database tests, not an instruction to mutate tables or call SQL interactively.
+Owner and Administrator recovery queries now expose only operation/approval/invocation identifiers, capability, frozen executor/policy versions, state, attempts, stable error codes and timestamps. The routed HTTP API, optional MCP adapter composition and private Your Turn queue all reuse one application service and never return approved payloads, provider responses or human evidence text. Manual-resolution requests return only the evidence SHA-256 digest; confirmation requires a different eligible User and is replay-safe even when a routed retry receives a fresh server timestamp. Direct table mutation and interactive SQL remain prohibited.
+
+Applied stage execution and final product-journey certification remain release evidence. Production MCP exposure still depends on the separately tracked token and Account-to-cell routing gateway.

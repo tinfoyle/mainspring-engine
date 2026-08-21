@@ -200,6 +200,7 @@ const pageTemplates = `
           <article><small>INFORMATION</small><strong data-attention-summary="information">—</strong><span>Facts requested</span></article>
           <article><small>REVIEWS</small><strong data-attention-summary="review">—</strong><span>Work decisions</span></article>
           <article><small>APPROVALS</small><strong data-attention-summary="approval">—</strong><span>Consequential actions</span></article>
+          <article><small>RECOVERY</small><strong data-attention-summary="action">—</strong><span>Action outcomes</span></article>
         </div>
         <div class="attention-layout">
           <section class="attention-queue panel" aria-labelledby="attention-queue-title">
@@ -207,13 +208,13 @@ const pageTemplates = `
             <div class="attention-tabs" role="group" aria-label="Filter Your Turn queue">
               <button type="button" data-attention-filter="all" aria-pressed="true">All</button>
               {{if .WorkAvailable}}<button type="button" data-attention-filter="information" aria-pressed="false">Information</button><button type="button" data-attention-filter="review" aria-pressed="false">Reviews</button>{{end}}
-              {{if .ApprovalsAvailable}}<button type="button" data-attention-filter="approval" aria-pressed="false">Approvals</button>{{end}}
+              {{if .ApprovalsAvailable}}<button type="button" data-attention-filter="approval" aria-pressed="false">Approvals</button><button type="button" data-attention-filter="action" aria-pressed="false">Recovery</button>{{end}}
             </div>
             <div class="attention-status" id="attention-status" role="status">Loading Your Turn…</div>
             <div class="attention-list" id="attention-list" role="region" aria-label="Items waiting for your attention"></div>
           </section>
           <aside class="attention-detail panel" id="attention-detail" tabindex="-1" aria-live="polite">
-            <div class="attention-detail-empty"><p class="eyebrow">DECISION DETAIL</p><h2>Select an item</h2><p>Choose a queue item to inspect the exact question, proposal version, or consequential payload before acting.</p></div>
+            <div class="attention-detail-empty"><p class="eyebrow">DECISION DETAIL</p><h2>Select an item</h2><p>Choose a queue item to inspect the exact question, proposal version, consequential payload, or redacted recovery status before acting.</p></div>
           </aside>
         </div>
       </section>
