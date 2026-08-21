@@ -143,6 +143,7 @@ func TestPrivateBrowserAssetsRequireReleaseRevalidation(t *testing.T) {
 	}{
 		{path: "/assets/spyglass.css", contentType: "text/css; charset=utf-8"},
 		{path: "/assets/work.js", contentType: "text/javascript; charset=utf-8"},
+		{path: "/assets/attention.js", contentType: "text/javascript; charset=utf-8"},
 		{path: "/assets/agents.js", contentType: "text/javascript; charset=utf-8"},
 		{path: "/assets/passkeys.js", contentType: "text/javascript; charset=utf-8"},
 	} {

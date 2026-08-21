@@ -152,6 +152,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/app", http.StatusSeeOther) })
 	mux.HandleFunc("GET /assets/spyglass.css", s.styles)
 	mux.HandleFunc("GET /assets/work.js", s.workScript)
+	mux.HandleFunc("GET /assets/attention.js", s.attentionScript)
 	mux.HandleFunc("GET /assets/agents.js", s.agentScript)
 	mux.HandleFunc("GET /assets/passkeys.js", s.passkeyScript)
 	mux.HandleFunc("GET /login", s.loginPage)
@@ -168,6 +169,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /contact-change/verify", s.completeContactChange)
 	mux.HandleFunc("GET /app", s.app)
 	mux.HandleFunc("GET /app/work", s.workPage)
+	mux.HandleFunc("GET /app/your-turn", s.yourTurnPage)
 	mux.HandleFunc("GET /app/agents", s.agentsPage)
 	mux.HandleFunc("GET /app/security", s.securityPage)
 	mux.HandleFunc("POST /app/security/reauthenticate", s.reauthenticate)
@@ -276,6 +278,17 @@ func (s *Server) workScript(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(raw)
 }
 
+func (s *Server) attentionScript(w http.ResponseWriter, _ *http.Request) {
+	raw, err := assets.ReadFile("assets/attention.js")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(raw)
+}
+
 func (s *Server) agentScript(w http.ResponseWriter, _ *http.Request) {
 	raw, err := assets.ReadFile("assets/agents.js")
 	if err != nil {
@@ -301,6 +314,7 @@ func (s *Server) passkeyScript(w http.ResponseWriter, _ *http.Request) {
 type pageData struct {
 	Title, Page, Error, Notice, Email, Name, AccountName, Token, ReturnTo, DevelopmentToken, OfferCode string
 	CurrentEmail, NewEmail                                                                             string
+	ActorUserID                                                                                        ids.UserID
 	Choices                                                                                            []accountaccess.Choice
 	Selected                                                                                           *accountaccess.Choice
 	Catalog                                                                                            catalog.PublishedCatalog
@@ -327,6 +341,7 @@ type pageData struct {
 	WorkAvailable, WorkReadOnly                                                                        bool
 	AgentsMode                                                                                         catalog.PackageMode
 	AgentsAvailable, AgentsReadOnly                                                                    bool
+	AttentionAvailable, ApprovalsAvailable                                                             bool
 	Script                                                                                             string
 }
 
@@ -611,6 +626,18 @@ func (s *Server) workPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "work", data)
 }
 
+func (s *Server) yourTurnPage(w http.ResponseWriter, r *http.Request) {
+	data, _, ok := s.appPageData(w, r)
+	if !ok {
+		return
+	}
+	data.Title = "Your Turn"
+	if data.AttentionAvailable {
+		data.Script = "/assets/attention.js"
+	}
+	s.render(w, http.StatusOK, "your-turn", data)
+}
+
 func (s *Server) agentsPage(w http.ResponseWriter, r *http.Request) {
 	data, _, ok := s.appPageData(w, r)
 	if !ok {
@@ -642,10 +669,12 @@ func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, 
 	}
 	workMode := modes[catalog.PackageWork]
 	agentsMode := modes[catalog.PackageAgents]
+	canApprove := selected != nil && (selected.Role == accounts.RoleOwner || selected.Role == accounts.RoleAdministrator)
 	data := pageData{
 		Title:                   "Spyglass",
 		Choices:                 choices,
 		Selected:                selected,
+		ActorUserID:             authenticated.Session.UserID,
 		Catalog:                 s.catalog(),
 		PackageModes:            modes,
 		CanInvite:               selected != nil && !selected.OwnerEnrollmentRequired && (selected.Role == accounts.RoleOwner || selected.Role == accounts.RoleAdministrator),
@@ -656,6 +685,8 @@ func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, 
 		AgentsMode:              agentsMode,
 		AgentsAvailable:         agentsMode == catalog.ModeEnabled || agentsMode == catalog.ModeReadOnly,
 		AgentsReadOnly:          agentsMode == catalog.ModeReadOnly,
+		ApprovalsAvailable:      canApprove && (agentsMode == catalog.ModeEnabled || agentsMode == catalog.ModeReadOnly),
+		AttentionAvailable:      workMode == catalog.ModeEnabled || workMode == catalog.ModeReadOnly || (canApprove && (agentsMode == catalog.ModeEnabled || agentsMode == catalog.ModeReadOnly)),
 	}
 	return data, authenticated, true
 }

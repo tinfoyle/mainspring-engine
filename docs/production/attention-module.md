@@ -1,6 +1,6 @@
 # Attention module
 
-- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized routed runtime, Work resumption, runner authorization projection, customer HTTP/OpenAPI and MCP tool adapter implemented; MCP production composition and product surface pending
+- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized routed runtime, Work resumption, runner authorization projection, customer HTTP/OpenAPI, MCP tool adapter and private Your Turn surface implemented; MCP production composition, applied accessibility certification and final React consolidation pending
 - Phase: 3.1
 - Owns: human information requests, Work review decisions and consequential approvals
 - Does not own: Work lifecycle persistence, Knowledge facts, Agent invocation or provider execution
@@ -69,10 +69,12 @@ The routed customer HTTP surface now publishes queue, detail, create, decision a
 
 The MCP adapter publishes equivalent typed tools over the same application service using the official stateless Streamable HTTP implementation. It performs Bearer-only authentication before discovery, repeats exact Account/package/mutation authorization per call, emits structured and compatibility text results, preserves queue/detail redaction and maps failures to the same stable Attention codes. Consequential proposal input remains raw through the protocol boundary so canonical JSON number lexemes are preserved. The production token issuer and global Account-to-cell routing composition are not yet implemented, so the deployment inventory still declares production MCP absent. See [MCP transport](mcp-transport.md).
 
+The private Your Turn surface combines the three open Attention queues without creating a second application boundary. Information and Work-review reads use Work authority, consequential approvals use Agents authority, and approval controls are omitted unless the selected Membership is Owner or Administrator. Work reviews are queried for the signed-in User rather than displaying another reviewer's assignment. Exact detail is loaded only after selection; approval queue cards remain payload-free. Each decision uses the aggregate version and a stable retry operation, preserves its draft in Account/item-scoped tab storage, reloads changed detail without discarding the draft, exposes Arrow-key queue movement and announces command outcomes through a polite live region. Read-only package modes retain inspection but remove mutation forms.
+
 ## Remaining delivery order
 
 1. Compose the production MCP token, Account authorization and signed cell-routing gateway around the completed Attention tool adapter; then register and deploy the surface.
-2. Build the private Your Turn queue/detail/decision surface with draft, concurrency, keyboard, live-announcement and session-recovery behavior.
+2. Run applied private-route browser and assistive-technology certification for Your Turn, then carry the verified behavior into the final React product surface without changing the HTTP/MCP authorization outcome.
 3. Prove concurrent review/approval decisions and the remaining action-ledger execution/recovery cases; reviewer lookup, Work resumption/replay, approval projection/invalidation/conflict rollback, shared-information concurrency/replay, repository isolation/redaction, forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
 
-The typed kernel, schema, repositories, routed application composition, Work resumption execution, runner authorization projection, customer HTTP/OpenAPI surface and MCP Attention tool adapter are complete. No production MCP deployment or UI completion is implied by that checkpoint.
+The typed kernel, schema, repositories, routed application composition, Work resumption execution, runner authorization projection, customer HTTP/OpenAPI surface, MCP Attention tool adapter and private Your Turn behavior are complete. No production MCP deployment, applied browser/assistive-technology certification or final React completion is implied by that checkpoint.
