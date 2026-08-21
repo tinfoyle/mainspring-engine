@@ -52,6 +52,10 @@ replacements:
         fieldPaths: ["spec.template.spec.containers.[name=app-api].env.[name=SPYGLASS_WORK_ADMISSION_ORIGIN].value"]
       - select: {group: apps, version: v1, kind: Deployment, name: app-api-cell-b}
         fieldPaths: ["spec.template.spec.containers.[name=app-api].env.[name=SPYGLASS_WORK_ADMISSION_ORIGIN].value"]
+      - select: {group: apps, version: v1, kind: Deployment, name: agent-dispatch-worker-cell-a}
+        fieldPaths: ["spec.template.spec.containers.[name=worker].env.[name=SPYGLASS_WORK_ADMISSION_ORIGIN].value"]
+      - select: {group: apps, version: v1, kind: Deployment, name: agent-dispatch-worker-cell-b}
+        fieldPaths: ["spec.template.spec.containers.[name=worker].env.[name=SPYGLASS_WORK_ADMISSION_ORIGIN].value"]
   - source: {kind: ConfigMap, name: spyglass-environment-values, fieldPath: data.broker_a_origin}
     targets:
       - select: {group: apps, version: v1, kind: Deployment, name: runner-broker-cell-a}

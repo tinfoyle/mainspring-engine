@@ -24,6 +24,15 @@ type Files struct {
 	TrustBundle string
 }
 
+type clientIdentityContextKey struct{}
+
+// ClientIdentityFromContext returns the exact verified SPIFFE URI admitted by
+// RequireClientIdentity. It is absent for public health and development HTTP.
+func ClientIdentityFromContext(ctx context.Context) (string, bool) {
+	identity, ok := ctx.Value(clientIdentityContextKey{}).(string)
+	return identity, ok && identity != ""
+}
+
 // NewClientTransport returns a pooled transport that reloads its certificate,
 // private key, and trust bundle for each new TLS connection. Existing safe
 // connections may drain naturally during credential rotation.
@@ -107,7 +116,8 @@ func RequireClientIdentity(next http.Handler, identities []string, logger *slog.
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !verifiedIdentity(r.TLS, allowed) {
+		identity, verified := verifiedIdentity(r.TLS, allowed)
+		if !verified {
 			reason := "missing_or_unverified_certificate"
 			if r.TLS != nil && len(r.TLS.VerifiedChains) > 0 && len(r.TLS.PeerCertificates) > 0 {
 				reason = "unexpected_identity"
@@ -119,7 +129,7 @@ func RequireClientIdentity(next http.Handler, identities []string, logger *slog.
 			_, _ = w.Write([]byte(`{"status":403,"code":"workload_identity_denied"}`))
 			return
 		}
-		next.ServeHTTP(w, r)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), clientIdentityContextKey{}, identity)))
 	}), nil
 }
 
@@ -187,14 +197,14 @@ func normalizeIdentity(raw string) (string, error) {
 	return identity.String(), nil
 }
 
-func verifiedIdentity(state *tls.ConnectionState, allowed map[string]struct{}) bool {
+func verifiedIdentity(state *tls.ConnectionState, allowed map[string]struct{}) (string, bool) {
 	if state == nil || len(state.VerifiedChains) == 0 || len(state.PeerCertificates) == 0 {
-		return false
+		return "", false
 	}
 	for _, identity := range state.PeerCertificates[0].URIs {
 		if _, ok := allowed[identity.String()]; ok {
-			return true
+			return identity.String(), true
 		}
 	}
-	return false
+	return "", false
 }

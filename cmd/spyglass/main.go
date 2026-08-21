@@ -1777,6 +1777,7 @@ func runAgentProjectionWorker(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runAgentDispatchWorker(ctx context.Context, logger *slog.Logger) error {
+	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
 	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
 	if err != nil {
 		return err
@@ -1786,6 +1787,22 @@ func runAgentDispatchWorker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer restoreGate.Close()
+	cellID, err := requiredEnv("SPYGLASS_CELL_ID")
+	if err != nil {
+		return err
+	}
+	admissionOrigin, err := requiredEnv("SPYGLASS_WORK_ADMISSION_ORIGIN")
+	if err != nil {
+		return err
+	}
+	var admissionTransport http.RoundTripper
+	if !developmentMode {
+		admissionTransport, err = workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+		if err != nil {
+			return err
+		}
+	}
+	admissionTransport = observability.TracingFromContext(ctx).Transport(admissionTransport)
 	keys, activeVersion, err := versionedEncryptionKeysEnv("SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION")
 	if err != nil {
 		return err
@@ -1809,7 +1826,9 @@ func runAgentDispatchWorker(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	worker, err := agentdispatchworker.New(startup, agentdispatchworker.Config{
-		CellDatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease,
+		CellDatabaseURL: databaseURL, CellID: ids.CellID(cellID), AdmissionOrigin: admissionOrigin,
+		AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode,
+		MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease,
 		MaxAttempts: int(maxAttempts), EncryptionKeys: keys, ActiveKeyVersion: activeVersion,
 	}, logger)
 	if err != nil {

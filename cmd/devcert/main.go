@@ -67,6 +67,8 @@ func generate(output string, now time.Time) error {
 		{name: "app-api-a", dnsNames: []string{"app-api-a"}, uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}},
 		{name: "app-api-b", dnsNames: []string{"app-api-b"}, uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}},
 		{name: "admission-api", dnsNames: []string{"admission-api"}, uri: "spiffe://infiniteocean.net/spyglass/workloads/admission-api", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},
+		{name: "agent-dispatch-worker-a", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
+		{name: "agent-dispatch-worker-b", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "docker-runner-launcher", dnsNames: []string{"docker-runner-launcher"}, uri: "spiffe://infiniteocean.net/spyglass/workloads/docker-runner-launcher", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},
 		{name: "runner-controller", uri: "spiffe://infiniteocean.net/spyglass/workloads/runner-controller", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "runner-broker", uri: "spiffe://infiniteocean.net/spyglass/workloads/runner-broker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},

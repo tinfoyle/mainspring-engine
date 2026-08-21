@@ -3,17 +3,24 @@ package admissionapi
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/workloadidentity"
 )
 
 const (
@@ -141,6 +148,54 @@ func TestRouteCanaryVerifiesOnlyDedicatedWorkloadProofWithoutUsage(t *testing.T)
 	}
 }
 
+func TestWorkAgentAuthorizationResolvesCurrentGlobalAuthority(t *testing.T) {
+	cellID := ids.CellID("cell-us-east-01")
+	authorizer := &testAgentAuthorizer{result: access.AccountContext{AccountID: testAccount, CellID: cellID, EntitlementVersion: 9,
+		Role: accounts.RoleMember, PackageAccess: &entitlements.PackageAccess{Code: catalog.PackageAgents, Mode: catalog.ModeEnabled,
+			Limits: map[catalog.LimitCode]int64{"concurrent_runs": 3}}}}
+	server, err := New(&testUsage{}, map[ids.CellID]Verifier{cellID: testVerifier{}}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody,
+		WithAgentExecutionAuthorizer(authorizer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(workAgentAuthorizationRequest{CellID: cellID, AccountID: testAccount, UserID: testActor, ExecutionID: testOperation})
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/agents/work-executions:authorize", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || authorizer.actor.UserID != testActor || authorizer.requirement.Package != catalog.PackageAgents || !authorizer.requirement.Mutation ||
+		!bytes.Contains(response.Body.Bytes(), []byte(`"maximum_concurrent_runs":3`)) {
+		t.Fatalf("status=%d actor=%+v requirement=%+v body=%s", response.Code, authorizer.actor, authorizer.requirement, response.Body.String())
+	}
+}
+
+func TestWorkAgentAuthorizationBindsVerifiedIdentityToCell(t *testing.T) {
+	cellA, cellB := ids.CellID("cell-us-east-01"), ids.CellID("cell-us-west-01")
+	authorizer := &testAgentAuthorizer{result: access.AccountContext{AccountID: testAccount, CellID: cellB, EntitlementVersion: 9,
+		PackageAccess: &entitlements.PackageAccess{Code: catalog.PackageAgents, Mode: catalog.ModeEnabled, Limits: map[catalog.LimitCode]int64{"concurrent_runs": 2}}}}
+	server, err := New(&testUsage{}, map[ids.CellID]Verifier{cellA: testVerifier{}, cellB: testVerifier{}}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody,
+		WithAgentExecutionAuthorizer(authorizer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker"
+	secured, err := workloadidentity.RequireClientIdentity(server.Handler(), []string{identity}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(workAgentAuthorizationRequest{CellID: cellB, AccountID: testAccount, UserID: testActor, ExecutionID: testOperation})
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/agents/work-executions:authorize", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	identityURI, _ := url.Parse(identity)
+	certificate := &x509.Certificate{URIs: []*url.URL{identityURI}}
+	request.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{certificate}, VerifiedChains: [][]*x509.Certificate{{certificate}}}
+	response := httptest.NewRecorder()
+	secured.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || authorizer.calls != 0 {
+		t.Fatalf("status=%d authorization calls=%d body=%s", response.Code, authorizer.calls, response.Body.String())
+	}
+}
+
 type testVerifier struct{ claims routecontext.Claims }
 
 func (v testVerifier) Verify(string, routecontext.Binding) (routecontext.Claims, error) {
@@ -148,6 +203,20 @@ func (v testVerifier) Verify(string, routecontext.Binding) (routecontext.Claims,
 }
 
 type testUsage struct{ calls int }
+
+type testAgentAuthorizer struct {
+	calls       int
+	actor       access.Actor
+	requirement access.Requirement
+	result      access.AccountContext
+	err         error
+}
+
+func (a *testAgentAuthorizer) Authorize(_ context.Context, actor access.Actor, _ ids.AccountID, requirement access.Requirement) (access.AccountContext, error) {
+	a.calls++
+	a.actor, a.requirement = actor, requirement
+	return a.result, a.err
+}
 
 func (u *testUsage) Reserve(context.Context, usageadmission.ReserveCommand) (usageadmission.Reservation, error) {
 	u.calls++

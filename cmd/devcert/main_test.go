@@ -26,6 +26,8 @@ func TestGenerateCreatesBoundedWorkloadIdentities(t *testing.T) {
 		{name: "app-api-a", dnsName: "app-api-a", identity: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api"},
 		{name: "app-api-b", dnsName: "app-api-b", identity: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api"},
 		{name: "admission-api", dnsName: "admission-api", identity: "spiffe://infiniteocean.net/spyglass/workloads/admission-api"},
+		{name: "agent-dispatch-worker-a", identity: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker"},
+		{name: "agent-dispatch-worker-b", identity: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker"},
 		{name: "docker-runner-launcher", dnsName: "docker-runner-launcher", identity: "spiffe://infiniteocean.net/spyglass/workloads/docker-runner-launcher"},
 		{name: "runner-controller", identity: "spiffe://infiniteocean.net/spyglass/workloads/runner-controller"},
 		{name: "runner-broker", identity: "spiffe://infiniteocean.net/spyglass/workloads/runner-broker"},

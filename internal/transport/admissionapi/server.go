@@ -18,6 +18,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/workloadidentity"
 )
 
 const DefaultMaxBody = int64(64 << 10)
@@ -35,18 +36,27 @@ type ReviewerDirectory interface {
 	ActiveRole(context.Context, ids.AccountID, ids.UserID) (accounts.MembershipRole, bool, error)
 }
 
+type AgentExecutionAuthorizer interface {
+	Authorize(context.Context, access.Actor, ids.AccountID, access.Requirement) (access.AccountContext, error)
+}
+
 type Server struct {
 	usage     Usage
 	verifiers map[ids.CellID]Verifier
 	logger    *slog.Logger
 	maxBody   int64
 	reviewers ReviewerDirectory
+	agents    AgentExecutionAuthorizer
 }
 
 type Option func(*Server)
 
 func WithReviewerDirectory(directory ReviewerDirectory) Option {
 	return func(server *Server) { server.reviewers = directory }
+}
+
+func WithAgentExecutionAuthorizer(authorizer AgentExecutionAuthorizer) Option {
+	return func(server *Server) { server.agents = authorizer }
 }
 
 func New(usage Usage, verifiers map[ids.CellID]Verifier, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
@@ -73,7 +83,82 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /internal/v1/work/capacity/reserve", s.reserve)
 	mux.HandleFunc("POST /internal/v1/work/capacity/release", s.release)
 	mux.HandleFunc("POST /internal/v1/attention/reviewers:resolve", s.resolveReviewer)
+	mux.HandleFunc("POST /internal/v1/agents/work-executions:authorize", s.authorizeWorkAgentExecution)
 	return s.recover(s.securityHeaders(mux))
+}
+
+type workAgentAuthorizationRequest struct {
+	CellID      ids.CellID    `json:"cell_id"`
+	AccountID   ids.AccountID `json:"account_id"`
+	UserID      ids.UserID    `json:"user_id"`
+	ExecutionID string        `json:"execution_id"`
+}
+
+type workAgentAuthorizationResponse struct {
+	CellID                ids.CellID    `json:"cell_id"`
+	AccountID             ids.AccountID `json:"account_id"`
+	UserID                ids.UserID    `json:"user_id"`
+	ExecutionID           string        `json:"execution_id"`
+	EntitlementVersion    uint64        `json:"entitlement_version"`
+	MaximumConcurrentRuns int64         `json:"maximum_concurrent_runs"`
+}
+
+// authorizeWorkAgentExecution is workload-only. The outer admission server
+// authenticates the caller with mTLS; this handler resolves fresh global
+// Membership, placement, package mode, and limit state without accepting or
+// replaying a browser credential.
+func (s *Server) authorizeWorkAgentExecution(w http.ResponseWriter, r *http.Request) {
+	if s.agents == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "agent_authorization_unavailable", "Agent authorization is temporarily unavailable")
+		return
+	}
+	if mediaType := strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]); mediaType != "application/json" {
+		writeProblem(w, http.StatusUnsupportedMediaType, "json_required", "Agent authorization requires application/json")
+		return
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxBody))
+	decoder.DisallowUnknownFields()
+	var request workAgentAuthorizationRequest
+	if err := decoder.Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_authorization", "the Agent authorization request is invalid")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_authorization", "the Agent authorization request is invalid")
+		return
+	}
+	if _, exists := s.verifiers[request.CellID]; !exists || ids.Validate(string(request.AccountID)) != nil ||
+		ids.Validate(string(request.UserID)) != nil || ids.Validate(request.ExecutionID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_authorization", "the Agent authorization request is invalid")
+		return
+	}
+	if identity, verified := workloadidentity.ClientIdentityFromContext(r.Context()); verified {
+		expected := "spiffe://infiniteocean.net/spyglass/cells/" + string(request.CellID) + "/agent-dispatch-worker"
+		if identity != expected {
+			writeProblem(w, http.StatusForbidden, "agent_workload_scope_denied", "the workload identity cannot authorize executions for this cell")
+			return
+		}
+	}
+	accountContext, err := s.agents.Authorize(r.Context(), access.Actor{UserID: request.UserID}, request.AccountID,
+		access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator, accounts.RoleMember}, Package: catalog.PackageAgents, Mutation: true})
+	if err != nil {
+		var denied *access.DeniedError
+		if errors.As(err, &denied) {
+			writeProblem(w, http.StatusForbidden, string(denied.Code), "the initiating User can no longer execute Agents for this Account")
+			return
+		}
+		s.logger.Error("Work Agent authorization failed", "error", err)
+		writeProblem(w, http.StatusServiceUnavailable, "agent_authorization_unavailable", "Agent authorization is temporarily unavailable")
+		return
+	}
+	maximum, exists := accountContext.PackageAccess.Limits[catalog.LimitCode("concurrent_runs")]
+	if accountContext.CellID != request.CellID || accountContext.AccountID != request.AccountID || accountContext.EntitlementVersion == 0 || !exists || maximum < 1 {
+		writeProblem(w, http.StatusForbidden, "agent_authorization_stale", "the Account placement or Agent entitlement changed")
+		return
+	}
+	writeJSON(w, http.StatusOK, workAgentAuthorizationResponse{CellID: request.CellID, AccountID: request.AccountID,
+		UserID: request.UserID, ExecutionID: request.ExecutionID, EntitlementVersion: accountContext.EntitlementVersion,
+		MaximumConcurrentRuns: maximum})
 }
 
 type reviewerRequest struct {

@@ -15,7 +15,7 @@ for canary in route-canary-cell-a route-canary-cell-b route-canary-admission-a; 
   "${compose[@]}" run --rm --no-deps "$canary"
 done
 
-for service in app-api-a app-api-b admission-api; do
+for service in app-api-a app-api-b admission-api agent-dispatch-worker-a agent-dispatch-worker-b; do
   test "$("${compose[@]}" ps --format json "$service" | jq -r '.Health')" = "healthy"
 done
 

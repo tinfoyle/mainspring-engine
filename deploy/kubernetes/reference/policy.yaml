@@ -38,7 +38,8 @@ kind: NetworkPolicy
 metadata: {name: cell-api-from-app-router, namespace: spyglass-reference}
 spec:
   podSelector:
-    matchLabels: {app.kubernetes.io/name: app-api}
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [app-api, agent-dispatch-worker]}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -70,7 +71,8 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels: {app.kubernetes.io/name: app-api}
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [app-api, agent-dispatch-worker]}
       ports: [{protocol: TCP, port: 8080}]
 ---
 apiVersion: networking.k8s.io/v1

@@ -193,9 +193,9 @@
       "port": 8081,
       "health": "/health/live,/health/ready,/health/status,/metrics",
       "database_roles": ["cell.agent-dispatch-worker"],
-      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_AGENT_DISPATCH_POLL_INTERVAL", "SPYGLASS_AGENT_DISPATCH_LEASE", "SPYGLASS_AGENT_DISPATCH_MAX_ATTEMPTS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
-      "configuration_profiles": ["traced", "cell_restore_gate"],
-      "dependencies": ["cell-postgresql"]
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_CELL_ID", "SPYGLASS_WORK_ADMISSION_ORIGIN", "SPYGLASS_WORKLOAD_CERT_FILE", "SPYGLASS_WORKLOAD_KEY_FILE", "SPYGLASS_WORKLOAD_CA_FILE", "SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_AGENT_DISPATCH_POLL_INTERVAL", "SPYGLASS_AGENT_DISPATCH_LEASE", "SPYGLASS_AGENT_DISPATCH_MAX_ATTEMPTS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "cell_restore_gate", "workload_mtls_client"],
+      "dependencies": ["cell-postgresql", "admission-api"]
     },
     {
       "mode": "agent-projection-worker",

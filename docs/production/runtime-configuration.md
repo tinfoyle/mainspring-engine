@@ -352,6 +352,9 @@ Do not deploy the runner fleet until the Agents serving/dispatch workloads and a
 | Environment variable | Requirement |
 |---|---|
 | `SPYGLASS_CELL_DATABASE_URL` | Required constrained cell dispatch credential |
+| `SPYGLASS_CELL_ID` | Required cell audience; must match current global Account placement during Work-to-Agent authorization |
+| `SPYGLASS_WORK_ADMISSION_ORIGIN` | Required private admission API origin used for current Work-to-Agent Membership, placement, package and Run-limit authorization |
+| `SPYGLASS_WORKLOAD_CERT_FILE` / `SPYGLASS_WORKLOAD_KEY_FILE` / `SPYGLASS_WORKLOAD_CA_FILE` | Required TLS 1.3 client material outside development; the certificate carries the exact cell Agent-dispatch SPIFFE identity |
 | `SPYGLASS_CELL_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `5` |
 | `SPYGLASS_RUNNER_ENCRYPTION_KEYS` | Same versioned runtime keyring mounted into the broker; never stored in PostgreSQL |
 | `SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION` | Positive active key version present in the keyring |
@@ -361,7 +364,7 @@ Do not deploy the runner fleet until the Agents serving/dispatch workloads and a
 | `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
 | `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
 
-The dispatcher role receives `USAGE` on `public,spyglass`; `SELECT` on `agent_invocation_execution_plans`, `agent_invocations`, `agent_persona_versions`, `agent_user_messages`, and `agent_messages` (all forced through the transaction-local Account RLS context); and `EXECUTE` only on the four dispatch functions plus `spyglass_provision_runner_invocation`. It receives no direct dispatch-queue, runner-queue, or runner-exchange table privileges and no Agent mutation authority.
+The dispatcher role receives `USAGE` on `public,spyglass`; `SELECT` on immutable Agent planning data; and `EXECUTE` only on the dispatch/provision functions plus the Work execution claim, exact leased-intent load, heartbeat, failure, stats and atomic start/link functions. It receives no direct Work-execution, dispatch, runner-queue, or runner-exchange table privileges and no direct Work or Agent mutation authority. The composed worker reports both lower-level dispatch and Work execution queue fields through its content-free status endpoint.
 
 ```sql
 GRANT USAGE ON SCHEMA public,spyglass TO spyglass_agent_dispatcher;
@@ -373,6 +376,11 @@ GRANT EXECUTE ON FUNCTION public.spyglass_complete_agent_dispatch(uuid,uuid,uuid
 GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_dispatch(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer) TO spyglass_agent_dispatcher;
 GRANT EXECUTE ON FUNCTION public.spyglass_agent_dispatch_stats(timestamptz) TO spyglass_agent_dispatcher;
 GRANT EXECUTE ON FUNCTION public.spyglass_provision_runner_invocation(uuid,uuid,text,timestamptz,bytea,bytea,integer,bytea,timestamptz) TO spyglass_agent_dispatcher;
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_work_agent_execution(uuid,timestamptz,integer) TO spyglass_agent_dispatcher;
+GRANT EXECUTE ON FUNCTION public.spyglass_load_work_agent_execution(uuid,uuid,uuid,uuid) TO spyglass_agent_dispatcher;
+GRANT EXECUTE ON FUNCTION public.spyglass_heartbeat_work_agent_execution(uuid,uuid,uuid,timestamptz,integer) TO spyglass_agent_dispatcher;
+-- The matching fail, stats, and atomic start/link functions are granted with
+-- their exact signatures by the revision-controlled cell role script.
 ```
 
 ## Agent result projection worker values

@@ -84,7 +84,13 @@ func (r *WorkRepository) Create(ctx context.Context, draft workdomain.Draft, mut
 		if err != nil {
 			return err
 		}
-		return r.insertEvent(ctx, tx, created, 0, mutation)
+		if err := r.insertEvent(ctx, tx, created, 0, mutation); err != nil {
+			return err
+		}
+		if created.Assignment.Responsibility == workdomain.ResponsibilityPersona {
+			return r.syncAgentExecutionIntent(ctx, tx, created, mutation)
+		}
+		return nil
 	})
 	if err != nil {
 		return workdomain.Item{}, classifyWorkError(err)
@@ -136,7 +142,13 @@ func (r *WorkRepository) Update(ctx context.Context, item workdomain.Item, expec
 		if result.RowsAffected() != 1 {
 			return workapp.ErrConflict
 		}
-		return r.insertEvent(ctx, tx, item, expectedVersion, mutation)
+		if err := r.insertEvent(ctx, tx, item, expectedVersion, mutation); err != nil {
+			return err
+		}
+		if mutation.Kind == workapp.MutationAssigned {
+			return r.syncAgentExecutionIntent(ctx, tx, item, mutation)
+		}
+		return nil
 	})
 	if err != nil {
 		return workdomain.Item{}, classifyWorkError(err)
@@ -210,6 +222,66 @@ func validateWorkAssignment(ctx context.Context, tx pgx.Tx, accountID ids.Accoun
 		return workapp.ErrConstraint
 	}
 	return nil
+}
+
+// syncAgentExecutionIntent is part of the Work write transaction. Reassignment
+// first makes every unstarted lease ineligible, then freezes the exact Persona
+// version and Work input that one deterministic Run may consume. Agent-linked
+// Work is historical and cannot silently acquire a second Run.
+func (r *WorkRepository) syncAgentExecutionIntent(ctx context.Context, tx pgx.Tx, item workdomain.Item, mutation workapp.Mutation) error {
+	if _, err := tx.Exec(ctx, `UPDATE spyglass.work_agent_execution_queue SET
+		state='dead_letter',lease_id=NULL,lease_expires_at=NULL,last_error_code='work_reassigned',updated_at=$3
+		WHERE account_id=$1 AND work_item_id=$2 AND state IN ('pending','leased','retry')`, item.AccountID, item.ID, mutation.At.UTC()); err != nil {
+		return err
+	}
+	if item.Assignment.Responsibility != workdomain.ResponsibilityPersona || item.Provenance.RunID != "" || item.Provenance.ConversationID != "" || item.State.Terminal() {
+		return nil
+	}
+	if mutation.Actor.Kind != workdomain.ActorUser || ids.Validate(mutation.Actor.ID) != nil {
+		return workapp.ErrConstraint
+	}
+	executionRaw, err := ids.Derive(string(item.ID), fmt.Sprintf("agent-execution/%d", item.Version))
+	if err != nil {
+		return workapp.ErrCorrupt
+	}
+	runRaw, err := ids.Derive(executionRaw, "run")
+	if err != nil {
+		return workapp.ErrCorrupt
+	}
+	conversationRaw, err := ids.Derive(executionRaw, "conversation")
+	if err != nil {
+		return workapp.ErrCorrupt
+	}
+	var personaVersionID ids.PersonaVersionID
+	var boardroomID ids.BoardroomID
+	var boardroomVersion uint64
+	err = tx.QueryRow(ctx, `SELECT v.id,p.boardroom_id,b.version
+		FROM spyglass.agent_personas p JOIN spyglass.agent_persona_versions v
+		  ON v.account_id=p.account_id AND v.persona_id=p.id AND v.version=p.latest_version
+		JOIN spyglass.agent_boardrooms b ON b.account_id=p.account_id AND b.id=p.boardroom_id
+		WHERE p.account_id=$1 AND p.id=$2 AND p.state='active' AND b.state='active' FOR SHARE OF p,v,b`,
+		item.AccountID, item.Assignment.PersonaID).Scan(&personaVersionID, &boardroomID, &boardroomVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return workapp.ErrConstraint
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO spyglass.work_agent_executions
+		(account_id,execution_id,work_item_id,work_version,initiating_user_id,persona_id,persona_version_id,boardroom_id,boardroom_version,
+		 planned_run_id,planned_conversation_id,title,description,queued_at,updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14)
+		ON CONFLICT (account_id,execution_id) DO NOTHING`, item.AccountID, executionRaw, item.ID, item.Version,
+		mutation.Actor.ID, item.Assignment.PersonaID, personaVersionID, boardroomID, boardroomVersion, runRaw, conversationRaw,
+		item.Title, item.Description, mutation.At.UTC())
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO spyglass.work_agent_execution_queue
+		(account_id,execution_id,work_item_id,state,next_attempt_at,queued_at,updated_at)
+		VALUES ($1,$2,$3,'pending',$4,$4,$4) ON CONFLICT (account_id,execution_id) DO NOTHING`,
+		item.AccountID, executionRaw, item.ID, mutation.At.UTC())
+	return err
 }
 
 func (r *WorkRepository) MarkCapacityReleased(ctx context.Context, accountID ids.AccountID, itemID ids.WorkItemID, reservationID string, at time.Time) error {

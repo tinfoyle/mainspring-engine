@@ -83,7 +83,7 @@ services:
       SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
       SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
       SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
-      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker
     volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/admission-api:/var/run/secrets/spyglass/workload:ro"]
     healthcheck:
       test: [CMD, /spyglass, healthcheck, --url=https://admission-api:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
@@ -159,11 +159,23 @@ services:
     environment: *cell-restore
     depends_on: {cell-b-roles: {condition: service_completed_successfully}}
   agent-dispatch-worker-a:
-    environment: *cell-restore
-    depends_on: {cell-a-roles: {condition: service_completed_successfully}}
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
+    environment:
+      <<: *cell-restore
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+    volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/agent-dispatch-worker-a:/var/run/secrets/spyglass/workload:ro"]
+    depends_on: {cell-a-roles: {condition: service_completed_successfully}, admission-api: {condition: service_healthy}}
   agent-dispatch-worker-b:
-    environment: *cell-restore
-    depends_on: {cell-b-roles: {condition: service_completed_successfully}}
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
+    environment:
+      <<: *cell-restore
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+    volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/agent-dispatch-worker-b:/var/run/secrets/spyglass/workload:ro"]
+    depends_on: {cell-b-roles: {condition: service_completed_successfully}, admission-api: {condition: service_healthy}}
   agent-projection-worker-a:
     environment: *cell-restore
     depends_on: {cell-a-roles: {condition: service_completed_successfully}}

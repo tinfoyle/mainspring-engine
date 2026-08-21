@@ -38,7 +38,7 @@ spec:
       interval: 30s
       rules:
         - alert: SpyglassRunnableQueueStalled
-          expr: max by (worker) (spyglass_worker_status{field=~"oldest_(ready|pending)_age_seconds"}) > 300
+          expr: max by (worker) (spyglass_worker_status{field=~"(oldest_(ready|pending)|work_oldest_ready)_age_seconds"}) > 300
           for: 10m
           labels: {severity: page, owner: platform-on-call}
           annotations:
@@ -54,7 +54,7 @@ spec:
             description: Route receipt retention work has a sustained oldest-due age of {{ $value | humanizeDuration }}.
             runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#runnable-queue-stall
         - alert: SpyglassQueueDeadLetterPresent
-          expr: max by (worker) (spyglass_worker_status{field="dead_letter"}) > 0
+          expr: max by (worker) (spyglass_worker_status{field=~"(dead_letter|work_dead_letter)"}) > 0
           for: 5m
           labels: {severity: page, owner: platform-on-call}
           annotations:

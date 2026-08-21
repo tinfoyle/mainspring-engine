@@ -34,6 +34,8 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 		t.Fatal(err)
 	}
 	coveredTables := map[string]bool{"account_namespaces": true, "account_audit_events": true, "work_item_number_counters": true, "work_items": true, "work_item_events": true, "route_context_receipts": true, "work_capacity_release_queue": true, "route_context_receipt_cleanup_queue": true, "work_capacity_release_operator_events": true, "runner_account_scheduling": true, "runner_invocation_queue": true, "runner_invocation_exchanges": true, "runner_capability_events": true, "runner_action_authorizations": true, "runner_action_ledger": true, "runner_action_attempts": true, "agent_boardrooms": true, "agent_personas": true, "agent_persona_versions": true, "agent_conversations": true, "agent_runs": true, "agent_run_plan_turns": true, "agent_invocations": true, "agent_messages": true, "agent_result_projection_queue": true, "agent_user_messages": true, "agent_invocation_execution_plans": true, "agent_dispatch_queue": true, "agent_queue_operator_events": true, "agent_run_resolutions": true, "attention_information_requests": true, "attention_work_reviews": true, "attention_consequential_approvals": true, "attention_events": true, "account_move_checkpoints": true}
+	coveredTables["work_agent_executions"] = true
+	coveredTables["work_agent_execution_queue"] = true
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
 	if err != nil {
 		t.Fatal(err)

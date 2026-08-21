@@ -238,6 +238,8 @@ issue tool-router tool-router 'spiffe://infiniteocean.net/spyglass/workloads/app
 issue app-api-a app-api-a 'spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api' serverAuth,clientAuth
 issue app-api-b app-api-b 'spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api' serverAuth,clientAuth
 issue admission-api admission-api 'spiffe://infiniteocean.net/spyglass/workloads/admission-api' serverAuth
+issue agent-dispatch-worker-a '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker' clientAuth
+issue agent-dispatch-worker-b '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker' clientAuth
 issue runner-controller-a '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-controller' clientAuth
 issue runner-controller-b '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-controller' clientAuth
 issue runner-broker-a runner-broker-a 'spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-broker' serverAuth,clientAuth

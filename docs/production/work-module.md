@@ -1,6 +1,6 @@
 # Work module production design
 
-Status: domain, command/query application boundaries, cell schema, PostgreSQL adapter, signed read/command transport, Persona assignment and additive provenance/Conversation commands, internal global admission broker, queue/detail/create/lifecycle browser surface, and durable capacity-release reconciler implemented.
+Status: domain, command/query application boundaries, cell schema, PostgreSQL adapter, signed read/command transport, Persona assignment and additive provenance/Conversation commands, internal global admission broker, queue/detail/create/lifecycle browser surface, durable capacity-release reconciler, and Work-owned Persona execution bridge implemented.
 
 ## Purpose
 
@@ -106,6 +106,8 @@ The cell migration adds:
 - `work_item_events`: append-only created, transitioned, assigned, provenance-attached, and Conversation-linked facts with actor, versions, correlation, reason, and identifier-free redacted payload.
 - `work_capacity_release_queue`: identifier-only leased technical outbox, retry/dead-letter state, and completion checkpoint; it contains no title, description, assignment, provenance, or other customer content.
 - `work_capacity_release_operator_events`: immutable inspection/requeue evidence retained independently from technical-job cleanup.
+- `work_agent_executions`: forced-RLS immutable Persona/Work input plus deterministic Run/Conversation and linked-state checkpoints.
+- `work_agent_execution_queue`: identifier-only technical lease/retry state with no customer text and no direct worker table grant; intent, queue, supersession and Work assignment commit together.
 
 Queue pagination orders by `(updated_at DESC, id DESC)` and carries both values in the cursor. Filters are bounded to known states/kinds plus a 200-character search term. Direct children use `(account_id, parent_id, created_at, id)` rather than loading an arbitrary queue page and filtering in memory. The summary returns active, in-progress, waiting, urgent-active, and done counts from one Account-predicated query.
 

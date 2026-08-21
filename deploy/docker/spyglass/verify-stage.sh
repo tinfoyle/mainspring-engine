@@ -54,6 +54,8 @@ dns[admission-api]=admission-api
 dns[app-router]=''
 dns[app-api-a]=app-api-a
 dns[app-api-b]=app-api-b
+dns[agent-dispatch-worker-a]=''
+dns[agent-dispatch-worker-b]=''
 dns[tool-router]=tool-router
 dns[runner-controller-a]=''
 dns[runner-controller-b]=''
@@ -66,6 +68,8 @@ uri[admission-api]='spiffe://infiniteocean.net/spyglass/workloads/admission-api'
 uri[app-router]='spiffe://infiniteocean.net/spyglass/workloads/app-router'
 uri[app-api-a]='spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api'
 uri[app-api-b]='spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api'
+uri[agent-dispatch-worker-a]='spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker'
+uri[agent-dispatch-worker-b]='spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker'
 uri[tool-router]='spiffe://infiniteocean.net/spyglass/workloads/app-router'
 uri[runner-controller-a]='spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-controller'
 uri[runner-controller-b]='spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-controller'
@@ -78,6 +82,8 @@ usage[admission-api]=server
 usage[app-router]=client
 usage[app-api-a]=both
 usage[app-api-b]=both
+usage[agent-dispatch-worker-a]=client
+usage[agent-dispatch-worker-b]=client
 usage[tool-router]=both
 usage[runner-controller-a]=client
 usage[runner-controller-b]=client
@@ -87,7 +93,7 @@ usage[docker-runner-launcher-a]=server
 usage[docker-runner-launcher-b]=server
 usage[model-gateway]=server
 
-for workload in admission-api app-router app-api-a app-api-b tool-router runner-controller-a runner-controller-b runner-broker-a runner-broker-b docker-runner-launcher-a docker-runner-launcher-b model-gateway; do
+for workload in admission-api app-router app-api-a app-api-b agent-dispatch-worker-a agent-dispatch-worker-b tool-router runner-controller-a runner-controller-b runner-broker-a runner-broker-b docker-runner-launcher-a docker-runner-launcher-b model-gateway; do
   for file in ca.crt tls.crt tls.key; do
     test -s "$secret_dir/workload/$workload/$file" || { echo "missing workload identity: $workload/$file" >&2; exit 1; }
   done

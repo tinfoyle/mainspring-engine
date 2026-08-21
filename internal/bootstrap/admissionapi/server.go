@@ -89,7 +89,8 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		maxBody = admissiontransport.DefaultMaxBody
 	}
 	transport, err := admissiontransport.New(usage, verifiers, logger, maxBody,
-		admissiontransport.WithReviewerDirectory(postgres.NewAttentionReviewerDirectory(pool)))
+		admissiontransport.WithReviewerDirectory(postgres.NewAttentionReviewerDirectory(pool)),
+		admissiontransport.WithAgentExecutionAuthorizer(authorizer))
 	if err != nil {
 		pool.Close()
 		return nil, err

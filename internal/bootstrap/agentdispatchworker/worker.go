@@ -5,39 +5,56 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/admissionhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
+	workagent "github.com/tinfoyle/spyglass-engine/internal/application/workagentexecution"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
 
 type Config struct {
-	CellDatabaseURL  string
-	MaxDatabaseConns int32
-	PollInterval     time.Duration
-	Lease            time.Duration
-	MaxAttempts      int
-	EncryptionKeys   map[int][]byte
-	ActiveKeyVersion int
+	CellDatabaseURL    string
+	CellID             ids.CellID
+	AdmissionOrigin    string
+	AdmissionTransport http.RoundTripper
+	AllowHTTPAdmission bool
+	MaxDatabaseConns   int32
+	PollInterval       time.Duration
+	Lease              time.Duration
+	MaxAttempts        int
+	EncryptionKeys     map[int][]byte
+	ActiveKeyVersion   int
 }
 
 type Status struct {
-	Pending               uint64 `json:"pending"`
-	Ready                 uint64 `json:"ready"`
-	Leased                uint64 `json:"leased"`
-	Retrying              uint64 `json:"retrying"`
-	Provisioned           uint64 `json:"provisioned"`
-	DeadLetter            uint64 `json:"dead_letter"`
-	OldestReadyAgeSeconds int64  `json:"oldest_ready_age_seconds"`
-	Processed             uint64 `json:"processed"`
-	Failures              uint64 `json:"failures"`
+	Pending                   uint64 `json:"pending"`
+	Ready                     uint64 `json:"ready"`
+	Leased                    uint64 `json:"leased"`
+	Retrying                  uint64 `json:"retrying"`
+	Provisioned               uint64 `json:"provisioned"`
+	DeadLetter                uint64 `json:"dead_letter"`
+	OldestReadyAgeSeconds     int64  `json:"oldest_ready_age_seconds"`
+	Processed                 uint64 `json:"processed"`
+	Failures                  uint64 `json:"failures"`
+	WorkPending               uint64 `json:"work_pending"`
+	WorkReady                 uint64 `json:"work_ready"`
+	WorkLeased                uint64 `json:"work_leased"`
+	WorkRetrying              uint64 `json:"work_retrying"`
+	WorkLinked                uint64 `json:"work_linked"`
+	WorkDeadLetter            uint64 `json:"work_dead_letter"`
+	WorkOldestReadyAgeSeconds int64  `json:"work_oldest_ready_age_seconds"`
+	WorkProcessed             uint64 `json:"work_processed"`
+	WorkFailures              uint64 `json:"work_failures"`
 }
 
 type processor interface {
@@ -45,17 +62,25 @@ type processor interface {
 	Stats(context.Context) (agentdispatch.Stats, error)
 }
 
+type workProcessor interface {
+	ProcessOne(context.Context) (workagent.Result, error)
+	Stats(context.Context) (workagent.Stats, error)
+}
+
 type Worker struct {
-	pool      *pgxpool.Pool
-	processor processor
-	poll      time.Duration
-	logger    *slog.Logger
-	processed atomic.Uint64
-	failures  atomic.Uint64
+	pool          *pgxpool.Pool
+	processor     processor
+	workProcessor workProcessor
+	poll          time.Duration
+	logger        *slog.Logger
+	processed     atomic.Uint64
+	failures      atomic.Uint64
+	workProcessed atomic.Uint64
+	workFailures  atomic.Uint64
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
-	if config.CellDatabaseURL == "" || logger == nil {
+	if config.CellDatabaseURL == "" || config.AdmissionOrigin == "" || !routecontext.ValidCellID(config.CellID) || logger == nil {
 		return nil, errors.New("agent dispatch worker database URL and logger are required")
 	}
 	if config.PollInterval == 0 {
@@ -114,10 +139,37 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	return &Worker{pool: pool, processor: application, poll: config.PollInterval, logger: logger}, nil
+	workQueue, err := postgres.NewWorkAgentExecutionRepository(pool, cell)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	authorizer, err := admissionhttp.NewWorkAgentAuthorizer(config.AdmissionOrigin, config.CellID, config.AllowHTTPAdmission, config.AdmissionTransport)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	workApplication, err := workagent.New(workQueue, authorizer, registration.SystemClock{}, ids.RandomGenerator{}, config.Lease, config.MaxAttempts)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return &Worker{pool: pool, processor: application, workProcessor: workApplication, poll: config.PollInterval, logger: logger}, nil
 }
 
 func (w *Worker) Run(ctx context.Context) error {
+	errorsChannel := make(chan error, 2)
+	go func() { errorsChannel <- w.runDispatch(ctx) }()
+	go func() { errorsChannel <- w.runWork(ctx) }()
+	select {
+	case <-ctx.Done():
+		return nil
+	case err := <-errorsChannel:
+		return err
+	}
+}
+
+func (w *Worker) runDispatch(ctx context.Context) error {
 	for {
 		result, err := w.processor.ProcessOne(ctx)
 		if ctx.Err() != nil {
@@ -129,6 +181,40 @@ func (w *Worker) Run(ctx context.Context) error {
 		if err != nil {
 			w.failures.Add(1)
 			w.logFailure(ctx, err)
+		}
+		if result.Worked {
+			continue
+		}
+		timer := time.NewTimer(w.poll)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil
+		case <-timer.C:
+		}
+	}
+}
+
+func (w *Worker) runWork(ctx context.Context) error {
+	for {
+		result, err := w.workProcessor.ProcessOne(ctx)
+		if ctx.Err() != nil {
+			return nil
+		}
+		if result.Worked {
+			w.workProcessed.Add(1)
+		}
+		if err != nil {
+			w.workFailures.Add(1)
+			stats, statsErr := w.workProcessor.Stats(ctx)
+			if statsErr != nil {
+				w.logger.Error("Work Agent execution failed", "error", err, "stats_error", statsErr)
+			} else {
+				w.logger.Error("Work Agent execution failed", "error", err, "ready", stats.Ready, "leased", stats.Leased,
+					"retrying", stats.Retrying, "dead_letter", stats.DeadLetter, "oldest_ready_age_seconds", int64(stats.OldestReadyAge/time.Second))
+			}
 		}
 		if result.Worked {
 			continue
@@ -161,8 +247,14 @@ func (w *Worker) Status(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	workStats, err := w.workProcessor.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return Status{Pending: stats.Pending, Ready: stats.Ready, Leased: stats.Leased, Retrying: stats.Retrying,
 		Provisioned: stats.Provisioned, DeadLetter: stats.DeadLetter, OldestReadyAgeSeconds: int64(stats.OldestReadyAge / time.Second),
-		Processed: w.processed.Load(), Failures: w.failures.Load()}, nil
+		Processed: w.processed.Load(), Failures: w.failures.Load(), WorkPending: workStats.Pending, WorkReady: workStats.Ready,
+		WorkLeased: workStats.Leased, WorkRetrying: workStats.Retrying, WorkLinked: workStats.Linked, WorkDeadLetter: workStats.DeadLetter,
+		WorkOldestReadyAgeSeconds: int64(workStats.OldestReadyAge / time.Second), WorkProcessed: w.workProcessed.Load(), WorkFailures: w.workFailures.Load()}, nil
 }
 func (w *Worker) Close() { w.pool.Close() }

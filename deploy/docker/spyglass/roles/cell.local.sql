@@ -74,6 +74,18 @@ GRANT SELECT ON spyglass.account_namespaces TO spyglass_work_reconciler;
 GRANT SELECT ON spyglass.agent_invocation_execution_plans, spyglass.agent_invocations,
   spyglass.agent_persona_versions, spyglass.agent_user_messages, spyglass.agent_messages
   TO spyglass_agent_dispatch_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_work_agent_execution(uuid,timestamptz,integer)
+  TO spyglass_agent_dispatch_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_heartbeat_work_agent_execution(uuid,uuid,uuid,timestamptz,integer)
+  TO spyglass_agent_dispatch_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_load_work_agent_execution(uuid,uuid,uuid,uuid)
+  TO spyglass_agent_dispatch_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_start_link_work_agent_execution(uuid,uuid,uuid,bigint,bigint,bytea,uuid,uuid,uuid,text,uuid[],uuid[],timestamptz,timestamptz)
+  TO spyglass_agent_dispatch_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_fail_work_agent_execution(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer)
+  TO spyglass_agent_dispatch_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_work_agent_execution_stats(timestamptz)
+  TO spyglass_agent_dispatch_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_dispatch(uuid,timestamptz,integer)
   TO spyglass_agent_dispatch_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_complete_agent_dispatch(uuid,uuid,uuid,bytea,timestamptz)

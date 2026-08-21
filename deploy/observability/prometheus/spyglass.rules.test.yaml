@@ -64,6 +64,31 @@ tests:
               description: agent-dispatch reports 1 dead-lettered records.
               runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#queue-dead-letter
 
+  - name: work-agent-execution-queue-uses-the-shared-worker-alerts
+    interval: 1m
+    input_series:
+      - series: 'spyglass_worker_status{worker="agent-dispatch",field="work_oldest_ready_age_seconds"}'
+        values: '600x30'
+      - series: 'spyglass_worker_status{worker="agent-dispatch",field="work_dead_letter"}'
+        values: '1x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SpyglassRunnableQueueStalled
+        exp_alerts:
+          - exp_labels: {worker: agent-dispatch, severity: page, owner: platform-on-call}
+            exp_annotations:
+              summary: Spyglass runnable work has remained queued for more than five minutes
+              description: agent-dispatch has a sustained oldest runnable age of 10m 0s.
+              runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#runnable-queue-stall
+      - eval_time: 10m
+        alertname: SpyglassQueueDeadLetterPresent
+        exp_alerts:
+          - exp_labels: {worker: agent-dispatch, severity: page, owner: platform-on-call}
+            exp_annotations:
+              summary: Spyglass queue contains dead-lettered work
+              description: agent-dispatch reports 1 dead-lettered records.
+              runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#queue-dead-letter
+
   - name: collector-export-loss-pages-and-absence-pages-separately
     interval: 1m
     input_series:

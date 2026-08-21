@@ -32,7 +32,13 @@ func TestMutualTLSRequiresExactWorkloadIdentity(t *testing.T) {
 	routerFiles := fixture.issue(t, "router", routerIdentity, false)
 	wrongFiles := fixture.issue(t, "wrong", wrongIdentity, false)
 
-	handler, err := RequireClientIdentity(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }), []string{routerIdentity}, discardLogger())
+	handler, err := RequireClientIdentity(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		identity, ok := ClientIdentityFromContext(r.Context())
+		if !ok || identity != routerIdentity {
+			t.Errorf("verified identity=%q present=%t", identity, ok)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}), []string{routerIdentity}, discardLogger())
 	if err != nil {
 		t.Fatal(err)
 	}

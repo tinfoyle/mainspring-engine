@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
+	workagent "github.com/tinfoyle/spyglass-engine/internal/application/workagentexecution"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -119,6 +120,27 @@ func TestClientRejectsNonOriginAdmissionTargets(t *testing.T) {
 				t.Fatal("expected unsafe admission target to fail closed")
 			}
 		})
+	}
+}
+
+func TestWorkAgentAuthorizerUsesWorkloadRequestWithoutRouteProof(t *testing.T) {
+	cellID := ids.CellID("cell-us-east-01")
+	executionID := "70000000-0000-4000-8000-000000000007"
+	calls := 0
+	authorizer, err := NewWorkAgentAuthorizer("https://admission.test", cellID, false, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		if request.URL.Path != "/internal/v1/agents/work-executions:authorize" || request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
+			t.Fatalf("request path=%q authorization=%q cookie=%q", request.URL.Path, request.Header.Get("Authorization"), request.Header.Get("Cookie"))
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"cell_id":"cell-us-east-01","account_id":"` + admissionAccount + `","user_id":"` + admissionUser + `","execution_id":"` + executionID + `","entitlement_version":9,"maximum_concurrent_runs":3}`))}, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := authorizer.Authorize(context.Background(), workagent.Snapshot{ExecutionID: executionID, AccountID: admissionAccount, UserID: admissionUser})
+	if err != nil || result.EntitlementVersion != 9 || result.MaximumConcurrentRun != 3 || calls != 1 {
+		t.Fatalf("authorization=%+v calls=%d err=%v", result, calls, err)
 	}
 }
 

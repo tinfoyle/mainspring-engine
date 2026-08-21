@@ -29,7 +29,7 @@ spec:
             - {name: SPYGLASS_WORKLOAD_CERT_FILE, value: "/var/run/secrets/spyglass/workload/tls.crt"}
             - {name: SPYGLASS_WORKLOAD_KEY_FILE, value: "/var/run/secrets/spyglass/workload/tls.key"}
             - {name: SPYGLASS_WORKLOAD_CA_FILE, value: "/var/run/secrets/spyglass/workload/ca.crt"}
-            - {name: SPYGLASS_WORKLOAD_CLIENT_IDENTITIES, value: "spiffe://infiniteocean.net/spyglass/cells/reference/app-api"}
+            - {name: SPYGLASS_WORKLOAD_CLIENT_IDENTITIES, value: "spiffe://infiniteocean.net/spyglass/cells/reference/app-api,spiffe://infiniteocean.net/spyglass/cells/reference/agent-dispatch-worker"}
           envFrom:
             - configMapRef: {name: spyglass-global-runtime}
             - secretRef: {name: spyglass-admission-api-secrets}

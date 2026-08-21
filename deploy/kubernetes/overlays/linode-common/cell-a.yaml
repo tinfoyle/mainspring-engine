@@ -255,12 +255,18 @@ spec:
             - {name: SPYGLASS_AGENT_DISPATCH_POLL_INTERVAL, value: "1s"}
             - {name: SPYGLASS_AGENT_DISPATCH_LEASE, value: "30s"}
             - {name: SPYGLASS_AGENT_DISPATCH_MAX_ATTEMPTS, value: "12"}
+            - {name: SPYGLASS_WORK_ADMISSION_ORIGIN, value: "https://admission-api.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_WORKLOAD_CERT_FILE, value: "/var/run/secrets/spyglass/workload/tls.crt"}
+            - {name: SPYGLASS_WORKLOAD_KEY_FILE, value: "/var/run/secrets/spyglass/workload/tls.key"}
+            - {name: SPYGLASS_WORKLOAD_CA_FILE, value: "/var/run/secrets/spyglass/workload/ca.crt"}
           envFrom:
             - configMapRef: {name: spyglass-cell-a-runtime}
             - secretRef: {name: spyglass-agent-dispatch-worker-cell-a-secrets}
           resources:
             requests: {cpu: 100m, memory: 128Mi}
             limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: workload-tls, mountPath: /var/run/secrets/spyglass/workload, readOnly: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -270,6 +276,9 @@ spec:
           readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
           startupProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 2, failureThreshold: 30}
           livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}
+      volumes:
+        - name: workload-tls
+          secret: {secretName: spyglass-agent-dispatch-worker-cell-a-workload-tls}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
