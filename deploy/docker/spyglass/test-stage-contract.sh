@@ -29,6 +29,10 @@ chmod 600 "$provider_file"
 
 secret_dir="$temporary/secrets"
 bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$secret_dir" "$network"
+# OpenSSL timestamps certificates to whole seconds. Give the verifier a full
+# clock tick so fast local filesystems cannot observe a just-issued certificate
+# as not-yet-valid.
+sleep 1
 env_file="$secret_dir/stage.env"
 if bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$secret_dir" "$network" >/dev/null 2>&1; then
   echo 'stage secret preparation overwrote an initialized target' >&2
