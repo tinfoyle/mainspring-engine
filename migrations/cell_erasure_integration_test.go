@@ -33,7 +33,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	if _, err := migrations.Apply(ctx, owner, migrations.Cell); err != nil {
 		t.Fatal(err)
 	}
-	coveredTables := map[string]bool{"account_namespaces": true, "account_audit_events": true, "work_item_number_counters": true, "work_items": true, "work_item_events": true, "route_context_receipts": true, "work_capacity_release_queue": true, "route_context_receipt_cleanup_queue": true, "work_capacity_release_operator_events": true, "runner_account_scheduling": true, "runner_invocation_queue": true, "runner_invocation_exchanges": true, "runner_capability_events": true, "runner_action_authorizations": true, "runner_action_ledger": true, "runner_action_attempts": true, "agent_boardrooms": true, "agent_personas": true, "agent_persona_versions": true, "agent_conversations": true, "agent_runs": true, "agent_run_plan_turns": true, "agent_invocations": true, "agent_messages": true, "agent_result_projection_queue": true, "agent_user_messages": true, "agent_invocation_execution_plans": true, "agent_dispatch_queue": true, "agent_queue_operator_events": true, "agent_run_resolutions": true, "account_move_checkpoints": true}
+	coveredTables := map[string]bool{"account_namespaces": true, "account_audit_events": true, "work_item_number_counters": true, "work_items": true, "work_item_events": true, "route_context_receipts": true, "work_capacity_release_queue": true, "route_context_receipt_cleanup_queue": true, "work_capacity_release_operator_events": true, "runner_account_scheduling": true, "runner_invocation_queue": true, "runner_invocation_exchanges": true, "runner_capability_events": true, "runner_action_authorizations": true, "runner_action_ledger": true, "runner_action_attempts": true, "agent_boardrooms": true, "agent_personas": true, "agent_persona_versions": true, "agent_conversations": true, "agent_runs": true, "agent_run_plan_turns": true, "agent_invocations": true, "agent_messages": true, "agent_result_projection_queue": true, "agent_user_messages": true, "agent_invocation_execution_plans": true, "agent_dispatch_queue": true, "agent_queue_operator_events": true, "agent_run_resolutions": true, "attention_information_requests": true, "attention_work_reviews": true, "attention_consequential_approvals": true, "attention_events": true, "account_move_checkpoints": true}
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +154,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedCounts := map[string]int64{"account_move_checkpoints": 1, "route_context_receipts": 1, "route_context_receipt_cleanup_queue": 1, "work_capacity_release_queue": 2, "work_item_events": 2, "work_items": 2, "work_item_number_counters": 1, "account_audit_events": 1, "work_capacity_release_operator_events": 1, "runner_invocation_queue": 1, "runner_account_scheduling": 1, "runner_invocation_exchanges": 1, "runner_capability_events": 1, "account_namespaces": 1, "agent_boardrooms": 1, "agent_personas": 1, "agent_persona_versions": 1, "agent_conversations": 1, "agent_runs": 1, "agent_run_plan_turns": 1, "agent_invocations": 1, "agent_messages": 1, "agent_result_projection_queue": 1, "agent_user_messages": 1, "agent_invocation_execution_plans": 1, "agent_dispatch_queue": 1, "agent_queue_operator_events": 1, "agent_run_resolutions": 1}
+	expectedCounts := map[string]int64{"account_move_checkpoints": 1, "route_context_receipts": 1, "route_context_receipt_cleanup_queue": 1, "work_capacity_release_queue": 2, "work_item_events": 2, "work_items": 2, "work_item_number_counters": 1, "account_audit_events": 1, "work_capacity_release_operator_events": 1, "runner_invocation_queue": 1, "runner_account_scheduling": 1, "runner_invocation_exchanges": 1, "runner_capability_events": 1, "account_namespaces": 1, "agent_boardrooms": 1, "agent_personas": 1, "agent_persona_versions": 1, "agent_conversations": 1, "agent_runs": 1, "agent_run_plan_turns": 1, "agent_invocations": 1, "agent_messages": 1, "agent_result_projection_queue": 1, "agent_user_messages": 1, "agent_invocation_execution_plans": 1, "agent_dispatch_queue": 1, "agent_queue_operator_events": 1, "agent_run_resolutions": 1, "attention_information_requests": 1, "attention_work_reviews": 1, "attention_consequential_approvals": 1, "attention_events": 4}
 	for name, expected := range expectedCounts {
 		if tombstone.RowCounts[name] != expected {
 			t.Fatalf("row count %s=%d want=%d; all=%v", name, tombstone.RowCounts[name], expected, tombstone.RowCounts)
@@ -312,6 +312,38 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 			t.Fatal(err)
 		}
 	}
+	informationID := strings.Replace(rootID, "000000000001", "000000000301", 1)
+	reviewID := strings.Replace(rootID, "000000000001", "000000000302", 1)
+	approvalID := strings.Replace(invocationID, "000000000051", "000000000091", 1)
+	operationID := strings.Replace(invocationID, "000000000051", "000000000081", 1)
+	reviewerUserID := strings.Replace(rootID, "000000000001", "000000000111", 1)
+	approvalPayloadDigest := sha256.Sum256([]byte(`{"message":"approved"}`))
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.attention_information_requests
+		(account_id,id,parent_work_item_id,fact_key,scope_kind,question,requested_by_kind,requested_by_id,state,version,created_at,updated_at)
+		VALUES ($1,$3,$2,'company.legal_name','account','What is the registered company name?','workload','baseline-coordinator','open',1,$9,$9);
+		INSERT INTO spyglass.attention_work_reviews
+		(account_id,id,work_item_id,work_version,proposal_sha256,question,requested_by_kind,requested_by_id,reviewer_user_id,state,version,created_at,updated_at)
+		VALUES ($1,$4,$2,1,decode(repeat('55',32),'hex'),'Is this result ready?','workload','agent-reviewer',$8,'open',1,$9,$9);
+		INSERT INTO spyglass.attention_consequential_approvals
+		(account_id,id,operation_id,invocation_id,work_item_id,capability,canonical_payload,input_sha256,hash_version,evidence_sha256,
+		 proposer_kind,proposer_id,policy_version,require_independent_review,expires_at,state,decision,decision_reason,decided_by_user_id,decided_at,version,created_at,updated_at)
+		VALUES ($1,$5,$6,$7,$2,'email.send',convert_to('{"message":"approved"}','UTF8'),$10,1,decode(repeat('ee',32),'hex'),
+		 'workload','runner-test',1,true,$9::timestamptz+interval '30 minutes','approved','approve','approved for erasure fixture',$8,$9,2,$9,$9);
+		INSERT INTO spyglass.attention_events
+		(account_id,id,aggregate_kind,information_request_id,event_type,from_version,to_version,actor_kind,actor_id,reason,correlation_id,redacted_payload,occurred_at)
+		VALUES ($1,replace($3::text,'301','311')::uuid,'information_request',$3,'information_requested',0,1,'workload','baseline-coordinator','','erasure-fixture','{"state":"open"}',$9);
+		INSERT INTO spyglass.attention_events
+		(account_id,id,aggregate_kind,work_review_id,event_type,from_version,to_version,actor_kind,actor_id,reason,correlation_id,redacted_payload,occurred_at)
+		VALUES ($1,replace($4::text,'302','312')::uuid,'work_review',$4,'review_requested',0,1,'workload','agent-reviewer','','erasure-fixture','{"state":"open"}',$9);
+		INSERT INTO spyglass.attention_events
+		(account_id,id,aggregate_kind,consequential_approval_id,event_type,from_version,to_version,actor_kind,actor_id,reason,correlation_id,redacted_payload,occurred_at)
+		VALUES ($1,replace($5::text,'091','313')::uuid,'consequential_approval',$5,'approval_requested',0,1,'workload','runner-test','','erasure-fixture','{"state":"open"}',$9);
+		INSERT INTO spyglass.attention_events
+		(account_id,id,aggregate_kind,consequential_approval_id,event_type,from_version,to_version,actor_kind,actor_id,reason,correlation_id,redacted_payload,occurred_at)
+		VALUES ($1,replace($5::text,'091','314')::uuid,'consequential_approval',$5,'approval_decided',1,2,'user',$8,'approved for erasure fixture','erasure-fixture','{"state":"approved"}',$9)`,
+		pgx.QueryExecModeSimpleProtocol, accountID, rootID, informationID, reviewID, approvalID, operationID, invocationID, reviewerUserID, now, approvalPayloadDigest[:]); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.account_audit_events(account_id,id,event_type,actor_kind,actor_id,correlation_id,redacted_payload,occurred_at) VALUES ($1,$2,'test','user','test-actor','test-correlation','{}',$3)`, accountID, strings.Replace(rootID, "000000000001", "000000000021", 1), now); err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +367,7 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 
 func assertCellAccountRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, accountID ids.AccountID, expected int) {
 	t.Helper()
-	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions"} {
+	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions", "attention_information_requests", "attention_work_reviews", "attention_consequential_approvals", "attention_events"} {
 		var count int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.`+table+` WHERE account_id=$1`, accountID).Scan(&count); err != nil || (expected == 0 && count != 0) || (expected == 1 && count == 0) {
 			t.Fatalf("table %s Account %s rows=%d expected-presence=%d err=%v", table, accountID, count, expected, err)

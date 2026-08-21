@@ -364,7 +364,7 @@ Acceptance:
 
 ### P3.4 Attention domain
 
-Implementation checkpoint: separate typed `InformationRequest`, `WorkReview`, and `ConsequentialApproval` kernels now enforce Account/object identifiers, optimistic versions, exact fact eligibility, assigned-reviewer decisions, proposal invalidation, canonical duplicate-key-free JSON, evidence/policy binding, bounded expiry, optional independent review and the exact action-authorization projection shape. Table-driven tests cover the role/object matrix and invalid state restoration. Forced-RLS repositories/events, services/queries, runner projection, HTTP/MCP and Your Turn UI remain. See [Attention module](attention-module.md).
+Implementation checkpoint: separate typed `InformationRequest`, `WorkReview`, and `ConsequentialApproval` kernels now enforce Account/object identifiers, optimistic versions, exact fact eligibility, assigned-reviewer decisions, proposal invalidation, canonical duplicate-key-free JSON, evidence/policy binding, bounded expiry, optional independent review and the exact action-authorization projection shape. The cell foundation adds four forced-RLS tables with composite parent references, query indexes, immutable redacted event shapes, movement write fences and exact cascade-safe erasure accounting. Table and PostgreSQL tests cover the role/object matrix, invalid restoration, RLS, cross-Account constraints, immutability, movement participation and erasure/restore. Classified repositories, services/queries, runner projection, HTTP/MCP and Your Turn UI remain. See [Attention module](attention-module.md).
 
 - Separate `InformationRequest`, `WorkReview`, and `ConsequentialApproval` aggregates.
 - Link information questions to explicit fact requirements with scope.

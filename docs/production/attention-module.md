@@ -1,6 +1,6 @@
 # Attention module
 
-- Status: typed aggregate kernel implemented; persistence, application services, transports and product surface pending
+- Status: typed aggregate kernel and forced-RLS cell foundation implemented; repository/application services, transports and product surface pending
 - Phase: 3.1
 - Owns: human information requests, Work review decisions and consequential approvals
 - Does not own: Work lifecycle persistence, Knowledge facts, Agent invocation or provider execution
@@ -53,13 +53,15 @@ The aggregate contains customer-visible questions and canonical action input, bu
 - detail DTOs expose proposal content only to an authorized decision use case;
 - logs, metrics, traces and action-ledger views carry digests and stable error codes, not questions, answers, email bodies, recipients or evidence content.
 
+Migration `cell/000028_attention_foundation.sql` creates separate aggregate tables plus one polymorphic redacted event table with exact aggregate/event foreign-key shapes. Every table has forced RLS, an Account-local primary key, queue/detail indexes and the Account movement write fence. Events reject direct update/delete; aggregate-parent cascades remain available for governed Account lifecycle. Cascade deletion records exact per-table tombstone counts, so Work/Agent deletion order cannot silently omit Attention from erasure evidence. The movement copier discovers the new deterministic tables and their dependency order through the existing schema contract.
+
 ## Remaining delivery order
 
-1. Add forced-RLS cell tables, composite Account/Work/Conversation/Run references, optimistic updates and immutable redacted events for all three aggregates.
+1. Implement classified PostgreSQL repositories that restore every row through the typed kernel, apply expected-version updates and append redacted events in the same transaction.
 2. Implement package-authorized application command/query services, including exact eligible-request completion and exact parent-resumption planning.
 3. Project approved/canceled `ConsequentialApproval` state into the existing execute-only runner authorization functions in the same durable command boundary.
 4. Publish redacted HTTP and generated OpenAPI contracts, then add MCP parity over the same services.
 5. Build the private Your Turn queue/detail/decision surface with draft, concurrency, keyboard, live-announcement and session-recovery behavior.
-6. Prove RLS isolation, concurrent decisions, proposal invalidation, expiry, Account movement/erasure and action-ledger integration in disposable PostgreSQL.
+6. Prove concurrent decisions, proposal invalidation, expiry and action-ledger integration in disposable PostgreSQL; forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
 
-The typed kernel and table-driven authorization/invalidation tests are complete. None of the remaining persistence, projection, transport or UI work is implied by that checkpoint.
+The typed kernel, schema and their authorization/isolation/lifecycle tests are complete. No repository, projection, transport or UI completion is implied by that checkpoint.
