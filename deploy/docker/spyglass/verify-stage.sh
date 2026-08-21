@@ -190,6 +190,10 @@ secret_consumers = {
 for name in secret_consumers:
     if secrets_gid not in {str(group) for group in services[name].get("group_add", [])}:
         raise SystemExit(f"{name} does not receive the stage secrets group")
+for name in ("tool-router", "runner-controller-a", "runner-controller-b", "runner-broker-a", "runner-broker-b"):
+    environment = services[name].get("environment", {})
+    if "SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE" not in environment or "SPYGLASS_ERASURE_CHECKPOINT_ROOT" not in environment:
+        raise SystemExit(f"{name} does not carry its database restore checkpoint")
 if config["networks"]["host-edge"].get("name") != edge_network:
     raise SystemExit("stage host edge network does not match the reviewed secret file")
 PY
