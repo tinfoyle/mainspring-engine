@@ -49,7 +49,7 @@ func TestGenerateCreatesBoundedWorkloadIdentities(t *testing.T) {
 				if readErr != nil || !roots.AppendCertsFromPEM(caPEM) {
 					t.Fatal("load generated CA")
 				}
-				if _, verifyErr := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: test.dnsName, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); verifyErr != nil {
+				if _, verifyErr := certificate.Verify(x509.VerifyOptions{Roots: roots, DNSName: test.dnsName, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, CurrentTime: now}); verifyErr != nil {
 					t.Fatal(verifyErr)
 				}
 			}
