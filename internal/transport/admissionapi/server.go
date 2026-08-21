@@ -14,6 +14,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -30,14 +31,25 @@ type Verifier interface {
 	Verify(string, routecontext.Binding) (routecontext.Claims, error)
 }
 
+type ReviewerDirectory interface {
+	ActiveRole(context.Context, ids.AccountID, ids.UserID) (accounts.MembershipRole, bool, error)
+}
+
 type Server struct {
 	usage     Usage
 	verifiers map[ids.CellID]Verifier
 	logger    *slog.Logger
 	maxBody   int64
+	reviewers ReviewerDirectory
 }
 
-func New(usage Usage, verifiers map[ids.CellID]Verifier, logger *slog.Logger, maxBody int64) (*Server, error) {
+type Option func(*Server)
+
+func WithReviewerDirectory(directory ReviewerDirectory) Option {
+	return func(server *Server) { server.reviewers = directory }
+}
+
+func New(usage Usage, verifiers map[ids.CellID]Verifier, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
 	if usage == nil || len(verifiers) == 0 || logger == nil || maxBody <= 0 || maxBody > 1<<20 {
 		return nil, errors.New("admission API dependencies and bounded body size are required")
 	}
@@ -48,7 +60,11 @@ func New(usage Usage, verifiers map[ids.CellID]Verifier, logger *slog.Logger, ma
 		}
 		copyVerifiers[cellID] = verifier
 	}
-	return &Server{usage: usage, verifiers: copyVerifiers, logger: logger, maxBody: maxBody}, nil
+	server := &Server{usage: usage, verifiers: copyVerifiers, logger: logger, maxBody: maxBody}
+	for _, option := range options {
+		option(server)
+	}
+	return server, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -56,7 +72,71 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /internal/v1/route-canary", s.routeCanary)
 	mux.HandleFunc("POST /internal/v1/work/capacity/reserve", s.reserve)
 	mux.HandleFunc("POST /internal/v1/work/capacity/release", s.release)
+	mux.HandleFunc("POST /internal/v1/attention/reviewers:resolve", s.resolveReviewer)
 	return s.recover(s.securityHeaders(mux))
+}
+
+type reviewerRequest struct {
+	CellID       ids.CellID           `json:"cell_id"`
+	UserID       ids.UserID           `json:"user_id"`
+	RouteContext string               `json:"route_context"`
+	Binding      routecontext.Binding `json:"binding"`
+}
+
+type reviewerResponse struct {
+	UserID ids.UserID              `json:"user_id"`
+	Active bool                    `json:"active"`
+	Role   accounts.MembershipRole `json:"role,omitempty"`
+}
+
+func (s *Server) resolveReviewer(w http.ResponseWriter, r *http.Request) {
+	if s.reviewers == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "reviewer_directory_unavailable", "reviewer eligibility is temporarily unavailable")
+		return
+	}
+	if mediaType := strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]); mediaType != "application/json" {
+		writeProblem(w, http.StatusUnsupportedMediaType, "json_required", "reviewer lookup requires application/json")
+		return
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxBody))
+	decoder.DisallowUnknownFields()
+	var request reviewerRequest
+	if err := decoder.Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_reviewer_request", "the reviewer lookup is invalid")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeProblem(w, http.StatusBadRequest, "invalid_reviewer_request", "the reviewer lookup is invalid")
+		return
+	}
+	verifier, exists := s.verifiers[request.CellID]
+	if !exists || ids.Validate(string(request.UserID)) != nil || request.RouteContext == "" {
+		writeProblem(w, http.StatusUnauthorized, "invalid_route_proof", "the routed operation proof is invalid")
+		return
+	}
+	claims, err := verifier.Verify(request.RouteContext, request.Binding)
+	if err != nil {
+		writeProblem(w, http.StatusUnauthorized, "invalid_route_proof", "the routed operation proof is invalid")
+		return
+	}
+	if claims.Authority.CellID != request.CellID || claims.Authority.ActorKind != "user" ||
+		claims.Authority.PackageAccess == nil || claims.Authority.PackageAccess.Code != string(catalog.PackageWork) ||
+		claims.Authority.PackageAccess.Mode != string(catalog.ModeEnabled) || !reviewCreationBinding(claims) {
+		writeProblem(w, http.StatusForbidden, "reviewer_scope_denied", "the routed operation cannot resolve a Work reviewer")
+		return
+	}
+	role, active, err := s.reviewers.ActiveRole(r.Context(), claims.Authority.AccountID, request.UserID)
+	if err != nil {
+		s.logger.Error("Attention reviewer lookup failed", "error", err)
+		writeProblem(w, http.StatusServiceUnavailable, "reviewer_directory_unavailable", "reviewer eligibility is temporarily unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, reviewerResponse{UserID: request.UserID, Active: active, Role: role})
+}
+
+func reviewCreationBinding(claims routecontext.Claims) bool {
+	return claims.Binding.Method == http.MethodPost && claims.Authority.OperationID != "" &&
+		claims.Binding.Target == "/api/v1/accounts/"+string(claims.Authority.AccountID)+"/attention/work-reviews"
 }
 
 type routeCanaryRequest struct {

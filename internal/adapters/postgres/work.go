@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -141,6 +142,47 @@ func (r *WorkRepository) Update(ctx context.Context, item workdomain.Item, expec
 		return workdomain.Item{}, classifyWorkError(err)
 	}
 	return item, nil
+}
+
+func (r *WorkRepository) ResumeAttentionParents(ctx context.Context, accountID ids.AccountID, parentIDs []ids.WorkItemID, role accounts.MembershipRole, actor workdomain.Actor, correlationID string, at time.Time) ([]workdomain.Item, error) {
+	resumed := make([]workdomain.Item, 0, len(parentIDs))
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		for _, parentID := range parentIDs {
+			item, err := scanWorkItem(tx.QueryRow(ctx, workSelect+` WHERE account_id=$1 AND id=$2 FOR UPDATE`, accountID, parentID))
+			if errors.Is(err, pgx.ErrNoRows) {
+				return workapp.ErrNotFound
+			}
+			if err != nil {
+				return err
+			}
+			if item.State != workdomain.StateWaiting {
+				continue
+			}
+			updated, err := item.Transition(workdomain.TransitionCommand{To: workdomain.StateInProgress, Role: role, Actor: actor, ExpectedVersion: item.Version, At: at})
+			if err != nil {
+				return err
+			}
+			result, err := tx.Exec(ctx, `UPDATE spyglass.work_items SET state=$3,completed_at=NULL,version=$4,updated_at=$5
+				WHERE account_id=$1 AND id=$2 AND version=$6`, accountID, parentID, updated.State, updated.Version, updated.UpdatedAt, item.Version)
+			if err != nil {
+				return err
+			}
+			if result.RowsAffected() != 1 {
+				return workapp.ErrConflict
+			}
+			if err := r.insertEvent(ctx, tx, updated, item.Version, workapp.Mutation{
+				Kind: workapp.MutationTransitioned, Actor: actor, CorrelationID: correlationID, At: at,
+			}); err != nil {
+				return err
+			}
+			resumed = append(resumed, updated)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, classifyWorkError(err)
+	}
+	return resumed, nil
 }
 
 // validateWorkAssignment is the persistence-side Persona assignment policy.

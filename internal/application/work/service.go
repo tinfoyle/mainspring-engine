@@ -4,6 +4,7 @@ package work
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -44,6 +45,7 @@ type Repository interface {
 	Create(context.Context, workdomain.Draft, Mutation) (workdomain.Item, error)
 	Get(context.Context, ids.AccountID, ids.WorkItemID) (workdomain.Item, error)
 	Update(context.Context, workdomain.Item, uint64, Mutation) (workdomain.Item, error)
+	ResumeAttentionParents(context.Context, ids.AccountID, []ids.WorkItemID, accounts.MembershipRole, workdomain.Actor, string, time.Time) ([]workdomain.Item, error)
 	MarkCapacityReleased(context.Context, ids.AccountID, ids.WorkItemID, string, time.Time) error
 	List(context.Context, ids.AccountID, ListQuery) (Page, error)
 	Children(context.Context, ids.AccountID, ids.WorkItemID, int) ([]workdomain.Item, error)
@@ -175,6 +177,42 @@ type TransitionCommand struct {
 	RequestID       string
 	Reason          string
 	CorrelationID   string
+}
+
+type ResumeAttentionCommand struct {
+	Actor         access.Actor
+	AccountID     ids.AccountID
+	ParentIDs     []ids.WorkItemID
+	CorrelationID string
+}
+
+// ResumeAttentionParents consumes an identifier-only Attention plan through
+// the Work-owned transition boundary. The repository applies the bounded set
+// atomically so an exact answer retry can safely finish an interrupted resume.
+func (s *Service) ResumeAttentionParents(ctx context.Context, command ResumeAttentionCommand) ([]workdomain.Item, error) {
+	if !command.Actor.Valid() || ids.Validate(string(command.AccountID)) != nil || len(command.ParentIDs) == 0 || len(command.ParentIDs) > 500 || strings.TrimSpace(command.CorrelationID) == "" {
+		return nil, ErrInvalidCommand
+	}
+	unique := make(map[ids.WorkItemID]struct{}, len(command.ParentIDs))
+	for _, parentID := range command.ParentIDs {
+		if ids.Validate(string(parentID)) != nil {
+			return nil, ErrInvalidCommand
+		}
+		unique[parentID] = struct{}{}
+	}
+	parents := make([]ids.WorkItemID, 0, len(unique))
+	for parentID := range unique {
+		parents = append(parents, parentID)
+	}
+	sort.Slice(parents, func(left, right int) bool { return parents[left] < parents[right] })
+	accountContext, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Package: PackageCode, Mutation: true})
+	if err != nil {
+		return nil, err
+	}
+	if !canManage(accountContext.Role) {
+		return nil, &access.DeniedError{Code: access.DenialRole, Package: PackageCode}
+	}
+	return s.repository.ResumeAttentionParents(ctx, command.AccountID, parents, accountContext.Role, domainActor(command.Actor), strings.TrimSpace(command.CorrelationID), s.clock.Now().UTC())
 }
 
 func (s *Service) Transition(ctx context.Context, command TransitionCommand) (workdomain.Item, error) {

@@ -73,6 +73,31 @@ func TestWorkMutationBindingIsAnExactAllowlist(t *testing.T) {
 	}
 }
 
+func TestReviewCreationBindingIsAnExactAllowlist(t *testing.T) {
+	base := "/api/v1/accounts/" + testAccount + "/attention/work-reviews"
+	for _, test := range []struct {
+		name    string
+		method  string
+		target  string
+		account ids.AccountID
+		op      string
+		allowed bool
+	}{
+		{name: "create", method: http.MethodPost, target: base, account: testAccount, op: testOperation, allowed: true},
+		{name: "read", method: http.MethodGet, target: base, account: testAccount, op: testOperation},
+		{name: "missing operation", method: http.MethodPost, target: base, account: testAccount},
+		{name: "detail", method: http.MethodPost, target: base + "/" + testItem, account: testAccount, op: testOperation},
+		{name: "other account", method: http.MethodPost, target: base, account: testOtherOp, op: testOperation},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			claims := routecontext.Claims{Authority: routecontext.Authority{AccountID: test.account, OperationID: test.op}, Binding: routecontext.Binding{Method: test.method, Target: test.target}}
+			if got := reviewCreationBinding(claims); got != test.allowed {
+				t.Fatalf("allowed=%t want=%t", got, test.allowed)
+			}
+		})
+	}
+}
+
 func TestRouteCanaryVerifiesOnlyDedicatedWorkloadProofWithoutUsage(t *testing.T) {
 	cellID := ids.CellID("cell-us-east-01")
 	binding, err := routecontext.Bind(http.MethodGet, "/api/v1/accounts/"+testAccount+"/context", nil)

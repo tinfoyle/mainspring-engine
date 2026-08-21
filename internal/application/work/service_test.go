@@ -157,6 +157,22 @@ func TestReopenRetainsCapacityWhenCellOutcomeIsAmbiguous(t *testing.T) {
 	}
 }
 
+func TestAttentionResumptionAuthorizesDeduplicatesAndOrdersParents(t *testing.T) {
+	now := time.Date(2026, 8, 21, 16, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{}
+	service, _ := NewService(fakeAuthorizer{role: accounts.RoleMember}, &fakeCapacity{}, repository, fakeClock{now})
+	first := ids.WorkItemID("30000000-0000-4000-8000-000000000003")
+	second := ids.WorkItemID("40000000-0000-4000-8000-000000000004")
+	_, err := service.ResumeAttentionParents(context.Background(), ResumeAttentionCommand{
+		Actor: access.Actor{UserID: ids.UserID(testUser)}, AccountID: ids.AccountID(testAccount),
+		ParentIDs: []ids.WorkItemID{second, first, second}, CorrelationID: "attention-answer-test",
+	})
+	if err != nil || len(repository.resumedParents) != 2 || repository.resumedParents[0] != first || repository.resumedParents[1] != second ||
+		repository.resumeRole != accounts.RoleMember || repository.resumeActor.ID != testUser || repository.resumeCorrelation != "attention-answer-test" {
+		t.Fatalf("parents=%v role=%q actor=%+v correlation=%q err=%v", repository.resumedParents, repository.resumeRole, repository.resumeActor, repository.resumeCorrelation, err)
+	}
+}
+
 func TestViewerCannotCreateWork(t *testing.T) {
 	capacity := &fakeCapacity{}
 	service, _ := NewService(fakeAuthorizer{role: accounts.RoleViewer}, capacity, &fakeRepository{}, fakeClock{time.Now()})
@@ -234,6 +250,10 @@ func (f *fakeCapacity) Release(_ context.Context, command usageadmission.Release
 type fakeRepository struct {
 	item                workdomain.Item
 	mutation            Mutation
+	resumedParents      []ids.WorkItemID
+	resumeRole          accounts.MembershipRole
+	resumeActor         workdomain.Actor
+	resumeCorrelation   string
 	createErr           error
 	updateErr           error
 	releasedReservation string
@@ -254,6 +274,10 @@ func (f *fakeRepository) Get(_ context.Context, _ ids.AccountID, _ ids.WorkItemI
 func (f *fakeRepository) Update(_ context.Context, item workdomain.Item, _ uint64, mutation Mutation) (workdomain.Item, error) {
 	f.item, f.mutation = item, mutation
 	return item, f.updateErr
+}
+func (f *fakeRepository) ResumeAttentionParents(_ context.Context, _ ids.AccountID, parentIDs []ids.WorkItemID, role accounts.MembershipRole, actor workdomain.Actor, correlationID string, _ time.Time) ([]workdomain.Item, error) {
+	f.resumedParents, f.resumeRole, f.resumeActor, f.resumeCorrelation = parentIDs, role, actor, correlationID
+	return []workdomain.Item{f.item}, f.updateErr
 }
 func (f *fakeRepository) MarkCapacityReleased(_ context.Context, _ ids.AccountID, _ ids.WorkItemID, requestID string, _ time.Time) error {
 	f.releasedReservation = requestID

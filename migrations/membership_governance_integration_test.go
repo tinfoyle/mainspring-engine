@@ -61,9 +61,13 @@ func TestPostgresMembershipGovernancePreservesOwnershipAndAudit(t *testing.T) {
 	}
 	noticePreparer := &ownershipNoticePreparer{}
 	repository := postgresadapter.NewAccountMemberRepositoryWithOwnershipNotifications(pool, noticePreparer)
+	reviewerDirectory := postgresadapter.NewAttentionReviewerDirectory(pool)
 	members, err := repository.List(ctx, accountID)
 	if err != nil || len(members) != 3 || members[0].Role != accounts.RoleOwner || members[0].Email != "owner@example.com" {
 		t.Fatalf("initial roster=%+v err=%v", members, err)
+	}
+	if role, active, err := reviewerDirectory.ActiveRole(ctx, accountID, targetUserID); err != nil || !active || role != accounts.RoleMember {
+		t.Fatalf("active reviewer role=%q active=%t err=%v", role, active, err)
 	}
 
 	changed, err := repository.ChangeRole(ctx, accountmembers.ChangeRoleMutation{EventID: "a6000000-0000-4000-8000-000000000006", ActorUserID: ownerUserID, ExpectedActorRole: accounts.RoleOwner, AccountID: accountID, TargetMembershipID: targetMembershipID, ExpectedVersion: 1, Role: accounts.RoleAdministrator, Reason: "Prepare ownership successor", At: now.Add(time.Minute)})
@@ -80,6 +84,9 @@ func TestPostgresMembershipGovernancePreservesOwnershipAndAudit(t *testing.T) {
 	if _, err := repository.Current(ctx, accountID, targetUserID); !errors.Is(err, accountmembers.ErrMembershipNotFound) {
 		t.Fatalf("suspended current Membership error=%v", err)
 	}
+	if role, active, err := reviewerDirectory.ActiveRole(ctx, accountID, targetUserID); err != nil || active || role != "" {
+		t.Fatalf("suspended reviewer role=%q active=%t err=%v", role, active, err)
+	}
 	members, err = repository.List(ctx, accountID)
 	suspendedVisible := false
 	for _, member := range members {
@@ -94,6 +101,9 @@ func TestPostgresMembershipGovernancePreservesOwnershipAndAudit(t *testing.T) {
 	reactivated, err := repository.ChangeState(ctx, accountmembers.StateMutation{EventID: "a7300000-0000-4000-8000-000000000019", Action: accountmembers.StateActionReactivate, ActorUserID: ownerUserID, ExpectedActorRole: accounts.RoleOwner, AccountID: accountID, TargetMembershipID: targetMembershipID, ExpectedVersion: 3, Reason: "Access review completed", At: now.Add(3 * time.Minute)})
 	if err != nil || reactivated.State != accounts.MembershipActive || reactivated.Role != accounts.RoleAdministrator || reactivated.Version != 4 {
 		t.Fatalf("reactivate=%+v err=%v", reactivated, err)
+	}
+	if role, active, err := reviewerDirectory.ActiveRole(ctx, accountID, targetUserID); err != nil || !active || role != accounts.RoleAdministrator {
+		t.Fatalf("reactivated reviewer role=%q active=%t err=%v", role, active, err)
 	}
 	noticePreparer.fail = true
 	if _, err := repository.TransferOwnership(ctx, accountmembers.TransferMutation{EventID: "a7400000-0000-4000-8000-000000000020", PreviousOwnerNoticeID: "a7500000-0000-4000-8000-000000000021", NewOwnerNoticeID: "a7600000-0000-4000-8000-000000000022", ActorUserID: ownerUserID, AccountID: accountID, TargetMembershipID: targetMembershipID, ExpectedActorVersion: 1, ExpectedTargetVersion: 4, Reason: "Notification preparation must be atomic", At: now.Add(4 * time.Minute)}); err == nil {

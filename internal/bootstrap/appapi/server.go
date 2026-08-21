@@ -13,6 +13,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/admissionhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	agentapp "github.com/tinfoyle/spyglass-engine/internal/application/agents"
+	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
@@ -111,7 +112,17 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService))
+	attentionRepository, err := postgres.NewAttentionRepository(cellPool, ids.RandomGenerator{})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	attentionService, err := attentionapp.NewService(routeaccess.NewAuthorizer(), capacity, attentionRepository, clock, attentionapp.WithWorkResumer(workCommands))
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService))
 	if err != nil {
 		pool.Close()
 		return nil, err

@@ -13,6 +13,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -142,6 +143,9 @@ func (r *queryRepository) Get(context.Context, ids.AccountID, ids.WorkItemID) (w
 }
 func (r *queryRepository) Update(context.Context, workdomain.Item, uint64, workapp.Mutation) (workdomain.Item, error) {
 	return workdomain.Item{}, nil
+}
+func (r *queryRepository) ResumeAttentionParents(context.Context, ids.AccountID, []ids.WorkItemID, accounts.MembershipRole, workdomain.Actor, string, time.Time) ([]workdomain.Item, error) {
+	return nil, nil
 }
 func (r *queryRepository) MarkCapacityReleased(context.Context, ids.AccountID, ids.WorkItemID, string, time.Time) error {
 	return nil

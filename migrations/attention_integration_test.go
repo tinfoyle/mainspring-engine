@@ -19,6 +19,7 @@ import (
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
@@ -242,8 +243,25 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 		t.Fatalf("cancel seeded blocker: %v", err)
 	}
 	replayedCompletion, err := repository.CompleteEligibleInformation(ctx, accountID, completionCommand)
-	if err != nil || len(replayedCompletion.Answered) != 1 || len(replayedCompletion.ResumableParents) != 1 || replayedCompletion.ResumableParents[0] != workItemID {
+	if err != nil || len(replayedCompletion.Answered) != 2 || len(replayedCompletion.ResumableParents) != 1 || replayedCompletion.ResumableParents[0] != workItemID {
 		t.Fatalf("replayed information completion=%+v err=%v", replayedCompletion, err)
+	}
+	workRepository, err := postgresadapter.NewWorkRepository(cell, ids.RandomGenerator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := workRepository.ResumeAttentionParents(ctx, accountID, replayedCompletion.ResumableParents, accounts.RoleMember,
+		workdomain.Actor{Kind: workdomain.ActorUser, ID: string(reviewerID)}, "attention-repository-resume", now.Add(3*time.Minute+30*time.Second))
+	if err != nil || len(resumed) != 1 || resumed[0].ID != workItemID || resumed[0].State != workdomain.StateInProgress {
+		t.Fatalf("Attention parent resumption=%+v err=%v", resumed, err)
+	}
+	postResumeReplay, err := repository.CompleteEligibleInformation(ctx, accountID, completionCommand)
+	if err != nil || len(postResumeReplay.Answered) != 2 || len(postResumeReplay.ResumableParents) != 0 {
+		t.Fatalf("post-resumption replay=%+v err=%v", postResumeReplay, err)
+	}
+	var resumeEvents int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.work_item_events WHERE account_id=$1 AND work_item_id=$2 AND correlation_id='attention-repository-resume'`, accountID, workItemID).Scan(&resumeEvents); err != nil || resumeEvents != 1 {
+		t.Fatalf("Attention parent resume events=%d err=%v", resumeEvents, err)
 	}
 
 	reviewID, _ := ids.Derive(string(workItemID), "attention-repository-review")
@@ -379,6 +397,9 @@ func exerciseAttentionRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	rolledBackApproval, err := repository.GetApproval(ctx, accountID, conflictApproval.ID)
 	if err != nil || rolledBackApproval.State != attentiondomain.ConsequentialApprovalOpen || rolledBackApproval.Version != 1 {
 		t.Fatalf("projection rollback approval=%+v err=%v", rolledBackApproval, err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.work_items SET state='waiting',version=version+1,updated_at=$3 WHERE account_id=$1 AND id=$2`, accountID, workItemID, now.Add(8*time.Minute)); err != nil {
+		t.Fatalf("reset Attention parent waiting: %v", err)
 	}
 
 	concurrentTargetID, _ := ids.Derive(string(workItemID), "attention-concurrent-target")

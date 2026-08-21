@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
@@ -27,13 +28,14 @@ type Acceptor interface {
 }
 
 type Server struct {
-	acceptor Acceptor
-	logger   *slog.Logger
-	maxBody  int64
-	work     WorkQueries
-	commands WorkCommands
-	agents   AgentService
-	counters routeCounters
+	acceptor  Acceptor
+	logger    *slog.Logger
+	maxBody   int64
+	work      WorkQueries
+	commands  WorkCommands
+	agents    AgentService
+	attention *attentionapp.Service
+	counters  routeCounters
 }
 
 type RouteStats struct {
@@ -62,6 +64,10 @@ func WithWorkCommands(commands WorkCommands) Option {
 
 func WithAgents(service AgentService) Option {
 	return func(server *Server) { server.agents = service }
+}
+
+func WithAttention(service *attentionapp.Service) Option {
+	return func(server *Server) { server.attention = service }
 }
 
 func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {

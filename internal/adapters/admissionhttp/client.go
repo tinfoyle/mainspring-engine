@@ -14,8 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -86,6 +88,73 @@ type capacityResponse struct {
 	Maximum      int64                           `json:"maximum"`
 	ExpiresAt    *time.Time                      `json:"expires_at,omitempty"`
 	NewlyCreated bool                            `json:"newly_created"`
+}
+
+type reviewerRequest struct {
+	CellID       ids.CellID           `json:"cell_id"`
+	UserID       ids.UserID           `json:"user_id"`
+	RouteContext string               `json:"route_context"`
+	Binding      routecontext.Binding `json:"binding"`
+}
+
+type reviewerResponse struct {
+	UserID ids.UserID              `json:"user_id"`
+	Active bool                    `json:"active"`
+	Role   accounts.MembershipRole `json:"role,omitempty"`
+}
+
+func (c *Client) ActiveRole(ctx context.Context, accountID ids.AccountID, userID ids.UserID) (accounts.MembershipRole, bool, error) {
+	claims, claimsOK := routecontext.FromContext(ctx)
+	proof, proofOK := routecontext.ProofFromContext(ctx)
+	if !claimsOK || !proofOK || claims.Authority.AccountID != accountID || ids.Validate(string(userID)) != nil {
+		return "", false, attentionapp.ErrInvalidCommand
+	}
+	payload, err := json.Marshal(reviewerRequest{CellID: claims.Authority.CellID, UserID: userID, RouteContext: proof.Token, Binding: proof.Binding})
+	if err != nil {
+		return "", false, err
+	}
+	target := *c.origin
+	target.Path = "/internal/v1/attention/reviewers:resolve"
+	request, err := newRequest(ctx, target.String(), payload)
+	if err != nil {
+		return "", false, err
+	}
+	response, err := c.client.Do(request)
+	if err != nil && response == nil && ctx.Err() == nil {
+		c.stats.retryAttempts.Add(1)
+		request, requestErr := newRequest(ctx, target.String(), payload)
+		if requestErr != nil {
+			return "", false, requestErr
+		}
+		response, err = c.client.Do(request)
+		if err == nil {
+			c.stats.retryRecovered.Add(1)
+		}
+	}
+	if err != nil {
+		closeResponse(response)
+		c.stats.requestsFailed.Add(1)
+		return "", false, errors.New("Attention reviewer directory is unavailable")
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBody+1))
+	if err != nil || int64(len(body)) > maxResponseBody || response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", false, errors.New("Attention reviewer directory returned an invalid response")
+	}
+	var value reviewerResponse
+	if err := json.Unmarshal(body, &value); err != nil || value.UserID != userID || (value.Active && !validMembershipRole(value.Role)) || (!value.Active && value.Role != "") {
+		return "", false, errors.New("Attention reviewer directory returned an invalid response")
+	}
+	return value.Role, value.Active, nil
+}
+
+func validMembershipRole(role accounts.MembershipRole) bool {
+	switch role {
+	case accounts.RoleOwner, accounts.RoleAdministrator, accounts.RoleBillingAdmin, accounts.RoleMember, accounts.RoleViewer:
+		return true
+	default:
+		return false
+	}
 }
 
 type problemResponse struct {
@@ -188,3 +257,5 @@ var _ interface {
 	Reserve(context.Context, usageadmission.ReserveCommand) (usageadmission.Reservation, error)
 	Release(context.Context, usageadmission.ReleaseCommand) (usageadmission.Reservation, error)
 } = (*Client)(nil)
+
+var _ attentionapp.ReviewerDirectory = (*Client)(nil)

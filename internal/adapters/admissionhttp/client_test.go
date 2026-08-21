@@ -13,6 +13,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -34,7 +35,9 @@ func TestClientUsesSignedRouteProofForNarrowWorkCapacity(t *testing.T) {
 	signer, _ := routecontext.NewSigner("router", "current", key, 20*time.Second, clock)
 	verifier, _ := routecontext.NewVerifier("router", routecontext.Audience(cellID), map[string][]byte{"current": key}, routecontext.MaximumLifetime, 0, clock)
 	usage := &admissionUsage{result: usageadmission.Reservation{RequestID: admissionOperation, State: usageadmission.ReservationActive, Current: 4, Maximum: 100}}
-	server, err := admissionapi.New(usage, map[ids.CellID]admissionapi.Verifier{cellID: verifier}, slog.New(slog.NewTextHandler(io.Discard, nil)), admissionapi.DefaultMaxBody)
+	reviewers := &admissionReviewers{role: accounts.RoleMember, active: true}
+	server, err := admissionapi.New(usage, map[ids.CellID]admissionapi.Verifier{cellID: verifier}, slog.New(slog.NewTextHandler(io.Discard, nil)), admissionapi.DefaultMaxBody,
+		admissionapi.WithReviewerDirectory(reviewers))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,6 +56,16 @@ func TestClientUsesSignedRouteProofForNarrowWorkCapacity(t *testing.T) {
 	reservation, err := client.Reserve(ctx, usageadmission.ReserveCommand{Actor: access.Actor{UserID: ids.UserID(admissionUser)}, AccountID: ids.AccountID(admissionAccount), PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 1, RequestID: admissionOperation})
 	if err != nil || reservation.State != usageadmission.ReservationActive || reservation.Current != 4 || usage.reserve.AccountID != admissionAccount || usage.reserve.Actor.UserID != admissionUser {
 		t.Fatalf("reservation=%+v command=%+v err=%v", reservation, usage.reserve, err)
+	}
+	reviewerID := ids.UserID("60000000-0000-4000-8000-000000000006")
+	reviewBinding, _ := routecontext.Bind(http.MethodPost, "/api/v1/accounts/"+admissionAccount+"/attention/work-reviews", []byte(`{"reviewer_id":"`+string(reviewerID)+`"}`))
+	reviewToken, _ := signer.Issue(routecontext.Audience(cellID), authority, reviewBinding)
+	reviewClaims, _ := verifier.Verify(reviewToken, reviewBinding)
+	reviewContext := routecontext.WithClaims(context.Background(), reviewClaims)
+	reviewContext = routecontext.WithProof(reviewContext, routecontext.Proof{Token: reviewToken, Binding: reviewBinding})
+	role, active, err := client.ActiveRole(reviewContext, ids.AccountID(admissionAccount), reviewerID)
+	if err != nil || !active || role != accounts.RoleMember || reviewers.accountID != admissionAccount || reviewers.userID != reviewerID {
+		t.Fatalf("reviewer role=%q active=%t lookup=%+v err=%v", role, active, reviewers, err)
 	}
 }
 
@@ -112,6 +125,18 @@ func TestClientRejectsNonOriginAdmissionTargets(t *testing.T) {
 type admissionUsage struct {
 	reserve usageadmission.ReserveCommand
 	result  usageadmission.Reservation
+}
+
+type admissionReviewers struct {
+	accountID ids.AccountID
+	userID    ids.UserID
+	role      accounts.MembershipRole
+	active    bool
+}
+
+func (r *admissionReviewers) ActiveRole(_ context.Context, accountID ids.AccountID, userID ids.UserID) (accounts.MembershipRole, bool, error) {
+	r.accountID, r.userID = accountID, userID
+	return r.role, r.active, nil
 }
 
 func (u *admissionUsage) Reserve(_ context.Context, command usageadmission.ReserveCommand) (usageadmission.Reservation, error) {

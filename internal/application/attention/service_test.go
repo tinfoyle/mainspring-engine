@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -37,7 +39,8 @@ func TestServiceRejectsMissingDependencies(t *testing.T) {
 func TestInformationCommandsAuthorizeWorkAndPreserveExactCompletionPlan(t *testing.T) {
 	authorizer := &attentionAuthorizerStub{role: accounts.RoleMember}
 	repository := &attentionRepositoryStub{}
-	service, err := NewService(authorizer, attentionReviewerStub{role: accounts.RoleMember, found: true}, repository, attentionClock{serviceNow})
+	resumer := &attentionWorkResumerStub{}
+	service, err := NewService(authorizer, attentionReviewerStub{role: accounts.RoleMember, found: true}, repository, attentionClock{serviceNow}, WithWorkResumer(resumer))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +67,9 @@ func TestInformationCommandsAuthorizeWorkAndPreserveExactCompletionPlan(t *testi
 	}
 	if repository.completeCommand.Actor.ID != serviceUser || !repository.completeCommand.Mutation.At.Equal(serviceNow) {
 		t.Fatalf("completion actor/time=%+v", repository.completeCommand)
+	}
+	if len(resumer.command.ParentIDs) != 1 || resumer.command.ParentIDs[0] != created.ParentWorkItemID || resumer.command.Actor != actor || resumer.command.CorrelationID != "information-answer" {
+		t.Fatalf("resumption command=%+v", resumer.command)
 	}
 }
 
@@ -243,6 +249,16 @@ type attentionReviewerStub struct {
 	err   error
 }
 
+type attentionWorkResumerStub struct {
+	command workapp.ResumeAttentionCommand
+	err     error
+}
+
+func (stub *attentionWorkResumerStub) ResumeAttentionParents(_ context.Context, command workapp.ResumeAttentionCommand) ([]workdomain.Item, error) {
+	stub.command = command
+	return nil, stub.err
+}
+
 func (stub attentionReviewerStub) ActiveRole(context.Context, ids.AccountID, ids.UserID) (accounts.MembershipRole, bool, error) {
 	return stub.role, stub.found, stub.err
 }
@@ -327,3 +343,4 @@ func (stub *attentionRepositoryStub) ListApprovals(_ context.Context, _ ids.Acco
 var _ Repository = (*attentionRepositoryStub)(nil)
 var _ Authorizer = (*attentionAuthorizerStub)(nil)
 var _ ReviewerDirectory = attentionReviewerStub{}
+var _ WorkResumer = (*attentionWorkResumerStub)(nil)

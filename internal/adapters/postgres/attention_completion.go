@@ -32,11 +32,11 @@ func (r *AttentionRepository) CompleteEligibleInformation(ctx context.Context, a
 		if err != nil {
 			return err
 		}
-		if target.State == domain.InformationRequestAnswered {
+		replay := target.State == domain.InformationRequestAnswered
+		if replay {
 			if target.Version != command.ExpectedVersion+1 || target.AnswerRecord == nil || target.AnswerRecord.Fact != command.Fact || target.AnswerRecord.AnsweredBy != command.Actor {
 				return attentionapp.ErrConflict
 			}
-			completion.Answered = append(completion.Answered, target)
 		} else if target.State != domain.InformationRequestOpen || target.Version != command.ExpectedVersion {
 			return attentionapp.ErrConflict
 		}
@@ -44,51 +44,15 @@ func (r *AttentionRepository) CompleteEligibleInformation(ctx context.Context, a
 			return domain.ErrRequirementMismatch
 		}
 
-		scopeWork, scopeConversation := informationScopeColumns(target.Requirement)
-		rows, err := tx.Query(ctx, informationSelect+` WHERE account_id=$1 AND state='open' AND fact_key=$2 AND scope_kind=$3
-			AND scope_work_item_id IS NOT DISTINCT FROM $4::uuid AND scope_conversation_id IS NOT DISTINCT FROM $5::uuid
-			AND created_at<=$6 ORDER BY parent_work_item_id,id LIMIT $7 FOR UPDATE`, accountID, target.Requirement.Key, target.Requirement.Scope,
-			scopeWork, scopeConversation, command.Mutation.At.UTC(), maximumInformationCompletion+1)
-		if err != nil {
-			return err
-		}
-		eligible := make([]domain.InformationRequest, 0)
-		for rows.Next() {
-			item, err := scanInformation(rows)
-			if err != nil {
-				rows.Close()
+		parents := make(map[ids.WorkItemID]struct{})
+		if replay {
+			if err := r.restoreInformationCompletionReplay(ctx, tx, target, command, &completion, parents); err != nil {
 				return err
 			}
-			eligible = append(eligible, item)
-			if len(eligible) > maximumInformationCompletion {
-				rows.Close()
-				return attentionapp.ErrCompletionTooLarge
-			}
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return err
-		}
-
-		parents := make(map[ids.WorkItemID]struct{}, len(eligible)+len(completion.Answered))
-		for _, answered := range completion.Answered {
-			parents[answered.ParentWorkItemID] = struct{}{}
-		}
-		for _, item := range eligible {
-			answered, err := item.Answer(domain.AnswerInformationCommand{
-				Fact: command.Fact, Role: command.Role, Actor: command.Actor, ExpectedVersion: item.Version, At: command.Mutation.At,
-			})
-			if err != nil {
+		} else {
+			if err := r.completeOpenInformationCohort(ctx, tx, target, command, &completion, parents); err != nil {
 				return err
 			}
-			if err := r.updateInformationTx(ctx, tx, answered, item.Version, command.Mutation,
-				answered.AnswerRecord.Fact.ID, answered.AnswerRecord.Fact.Version, answered.AnswerRecord.AnsweredBy.Kind,
-				answered.AnswerRecord.AnsweredBy.ID, answered.AnswerRecord.AnsweredAt, nil, nil); err != nil {
-				return err
-			}
-			completion.Answered = append(completion.Answered, answered)
-			parents[answered.ParentWorkItemID] = struct{}{}
 		}
 		if len(completion.Answered) == 0 {
 			return attentionapp.ErrConflict
@@ -124,4 +88,79 @@ func (r *AttentionRepository) CompleteEligibleInformation(ctx context.Context, a
 		return attentionapp.InformationCompletion{}, classifyAttentionError(err)
 	}
 	return completion, nil
+}
+
+func (r *AttentionRepository) restoreInformationCompletionReplay(ctx context.Context, tx pgx.Tx, target domain.InformationRequest, command attentionapp.CompleteInformationCommand, completion *attentionapp.InformationCompletion, parents map[ids.WorkItemID]struct{}) error {
+	answer := target.AnswerRecord
+	scopeWork, scopeConversation := informationScopeColumns(target.Requirement)
+	rows, err := tx.Query(ctx, informationSelect+` WHERE account_id=$1 AND state='answered' AND fact_key=$2 AND scope_kind=$3
+		AND scope_work_item_id IS NOT DISTINCT FROM $4::uuid AND scope_conversation_id IS NOT DISTINCT FROM $5::uuid
+		AND fact_id=$6 AND fact_version=$7 AND answered_by_kind=$8 AND answered_by_id=$9 AND answered_at=$10
+		AND EXISTS (SELECT 1 FROM spyglass.attention_events event WHERE event.account_id=spyglass.attention_information_requests.account_id
+			AND event.information_request_id=spyglass.attention_information_requests.id AND event.event_type='information_answered'
+			AND event.to_version=spyglass.attention_information_requests.version AND event.correlation_id=$11)
+		ORDER BY parent_work_item_id,id LIMIT $12 FOR SHARE`, target.AccountID, target.Requirement.Key, target.Requirement.Scope,
+		scopeWork, scopeConversation, answer.Fact.ID, answer.Fact.Version, answer.AnsweredBy.Kind, answer.AnsweredBy.ID,
+		answer.AnsweredAt, command.Mutation.CorrelationID, maximumInformationCompletion+1)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		item, err := scanInformation(rows)
+		if err != nil {
+			return err
+		}
+		completion.Answered = append(completion.Answered, item)
+		if len(completion.Answered) > maximumInformationCompletion {
+			return attentionapp.ErrCompletionTooLarge
+		}
+		parents[item.ParentWorkItemID] = struct{}{}
+	}
+	return rows.Err()
+}
+
+func (r *AttentionRepository) completeOpenInformationCohort(ctx context.Context, tx pgx.Tx, target domain.InformationRequest, command attentionapp.CompleteInformationCommand, completion *attentionapp.InformationCompletion, parents map[ids.WorkItemID]struct{}) error {
+	scopeWork, scopeConversation := informationScopeColumns(target.Requirement)
+	rows, err := tx.Query(ctx, informationSelect+` WHERE account_id=$1 AND state='open' AND fact_key=$2 AND scope_kind=$3
+		AND scope_work_item_id IS NOT DISTINCT FROM $4::uuid AND scope_conversation_id IS NOT DISTINCT FROM $5::uuid
+		AND created_at<=$6 ORDER BY parent_work_item_id,id LIMIT $7 FOR UPDATE`, target.AccountID, target.Requirement.Key, target.Requirement.Scope,
+		scopeWork, scopeConversation, command.Mutation.At.UTC(), maximumInformationCompletion+1)
+	if err != nil {
+		return err
+	}
+	eligible := make([]domain.InformationRequest, 0)
+	for rows.Next() {
+		item, err := scanInformation(rows)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		eligible = append(eligible, item)
+		if len(eligible) > maximumInformationCompletion {
+			rows.Close()
+			return attentionapp.ErrCompletionTooLarge
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, item := range eligible {
+		answered, err := item.Answer(domain.AnswerInformationCommand{
+			Fact: command.Fact, Role: command.Role, Actor: command.Actor, ExpectedVersion: item.Version, At: command.Mutation.At,
+		})
+		if err != nil {
+			return err
+		}
+		if err := r.updateInformationTx(ctx, tx, answered, item.Version, command.Mutation,
+			answered.AnswerRecord.Fact.ID, answered.AnswerRecord.Fact.Version, answered.AnswerRecord.AnsweredBy.Kind,
+			answered.AnswerRecord.AnsweredBy.ID, answered.AnswerRecord.AnsweredAt, nil, nil); err != nil {
+			return err
+		}
+		completion.Answered = append(completion.Answered, answered)
+		parents[answered.ParentWorkItemID] = struct{}{}
+	}
+	return nil
 }

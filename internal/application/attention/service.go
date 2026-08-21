@@ -10,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -36,18 +38,33 @@ type ReviewerDirectory interface {
 	ActiveRole(context.Context, ids.AccountID, ids.UserID) (accounts.MembershipRole, bool, error)
 }
 
+type WorkResumer interface {
+	ResumeAttentionParents(context.Context, workapp.ResumeAttentionCommand) ([]workdomain.Item, error)
+}
+
 type Service struct {
 	authorizer        Authorizer
 	reviewerDirectory ReviewerDirectory
 	repository        Repository
 	clock             Clock
+	workResumer       WorkResumer
 }
 
-func NewService(authorizer Authorizer, reviewerDirectory ReviewerDirectory, repository Repository, clock Clock) (*Service, error) {
+type Option func(*Service)
+
+func WithWorkResumer(resumer WorkResumer) Option {
+	return func(service *Service) { service.workResumer = resumer }
+}
+
+func NewService(authorizer Authorizer, reviewerDirectory ReviewerDirectory, repository Repository, clock Clock, options ...Option) (*Service, error) {
 	if authorizer == nil || reviewerDirectory == nil || repository == nil || clock == nil {
 		return nil, errors.New("attention service dependencies are required")
 	}
-	return &Service{authorizer: authorizer, reviewerDirectory: reviewerDirectory, repository: repository, clock: clock}, nil
+	service := &Service{authorizer: authorizer, reviewerDirectory: reviewerDirectory, repository: repository, clock: clock}
+	for _, option := range options {
+		option(service)
+	}
+	return service, nil
 }
 
 type CreateInformationCommand struct {
@@ -101,10 +118,18 @@ func (s *Service) AnswerInformation(ctx context.Context, command AnswerInformati
 	}
 	now := s.clock.Now().UTC()
 	actor := domainActor(command.Actor)
-	return s.repository.CompleteEligibleInformation(ctx, command.AccountID, CompleteInformationCommand{
+	completion, err := s.repository.CompleteEligibleInformation(ctx, command.AccountID, CompleteInformationCommand{
 		TargetID: command.RequestID, Fact: command.Fact, Role: accountContext.Role, Actor: actor, ExpectedVersion: command.ExpectedVersion,
 		Mutation: Mutation{Actor: actor, ReasonCode: "information_supplied", CorrelationID: cleanCorrelation(command.CorrelationID), At: now},
 	})
+	if err != nil || len(completion.ResumableParents) == 0 || s.workResumer == nil {
+		return completion, err
+	}
+	_, err = s.workResumer.ResumeAttentionParents(ctx, workapp.ResumeAttentionCommand{
+		Actor: command.Actor, AccountID: command.AccountID, ParentIDs: completion.ResumableParents,
+		CorrelationID: cleanCorrelation(command.CorrelationID),
+	})
+	return completion, err
 }
 
 type CancelInformationCommand struct {

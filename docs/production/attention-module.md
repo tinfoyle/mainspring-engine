@@ -1,6 +1,6 @@
 # Attention module
 
-- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized application boundary and runner authorization projection implemented; transports and product surface pending
+- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized routed runtime, Work resumption and runner authorization projection implemented; transports and product surface pending
 - Phase: 3.1
 - Owns: human information requests, Work review decisions and consequential approvals
 - Does not own: Work lifecycle persistence, Knowledge facts, Agent invocation or provider execution
@@ -61,13 +61,14 @@ The application boundary repeats package admission (`work` for information/revie
 
 Shared fact completion is one serializable cell transaction. It locks the target request, selects at most 500 open requests with the exact same key and scope that existed by the answer timestamp, applies the domain eligibility rule to every row and appends each redacted event atomically. Its explicit resumption plan contains only affected parent Work items currently in `waiting` with no remaining open information request. Exact replay is safe, and a concurrent serialization loser returns the classified conflict required for retry; tests prove concurrent submissions converge without duplicate completion events.
 
+The routed cell runtime now composes Attention without giving `app-api` a global database credential. Reviewer assignment uses the existing private admission broker: the cell forwards the short-lived signed request proof, the broker accepts only the exact Work-review creation binding, and a read-only global adapter returns only active Membership role eligibility. After information completion, the application service passes the identifier-only parent plan to the Work-owned boundary. Work locks the bounded, sorted set in one Account transaction, applies only `waiting -> in_progress` transitions through its domain state machine and appends ordinary Work events. A retry reconstructs the original answer cohort from its redacted correlation events, so it can finish a rolled-back resumption without widening the cohort; a committed resumption replays as no remaining work.
+
 An approval decision and its execute-only runner projection now share the same cell transaction. The projection records the exact operation/invocation, approval, capability, input hash/version, evidence digest, proposer, approving User, policy version, decision time and expiry through the existing security-definer function. Invalidating an approved proposal cancels that exact projection before commit; expiry remains enforced by the identical persisted deadline. A binding conflict or an action that already entered execution aborts the Attention transition and its event, so the customer-visible aggregate cannot claim authority that the runner rejected. PostgreSQL tests prove create, cancellation and conflict rollback without exposing direct ledger-table access.
 
 ## Remaining delivery order
 
-1. Wire the reviewer-directory port and application services into the routed cell runtime, then consume each explicit parent-resumption plan through the Work-owned transition boundary.
-2. Publish redacted HTTP and generated OpenAPI contracts, then add MCP parity over the same services.
-3. Build the private Your Turn queue/detail/decision surface with draft, concurrency, keyboard, live-announcement and session-recovery behavior.
-4. Prove concurrent review/approval decisions and the remaining action-ledger execution/recovery cases; approval projection/invalidation/conflict rollback, shared-information concurrency/replay, repository isolation/redaction, forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
+1. Publish redacted HTTP and generated OpenAPI contracts, then add MCP parity over the same services.
+2. Build the private Your Turn queue/detail/decision surface with draft, concurrency, keyboard, live-announcement and session-recovery behavior.
+3. Prove concurrent review/approval decisions and the remaining action-ledger execution/recovery cases; reviewer lookup, Work resumption/replay, approval projection/invalidation/conflict rollback, shared-information concurrency/replay, repository isolation/redaction, forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
 
-The typed kernel, schema, repositories, transport-neutral application services and runner authorization projection are complete. No runtime wiring, Work resumption execution, transport or UI completion is implied by that checkpoint.
+The typed kernel, schema, repositories, routed application composition, Work resumption execution and runner authorization projection are complete. No customer transport, MCP or UI completion is implied by that checkpoint.
