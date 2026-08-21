@@ -1,6 +1,7 @@
 # Local, stage and production deployment report
 
 - Plan date: 2026-08-20
+- Stage activation date: 2026-08-21
 - Phase 2 application baseline: `b195fae07b264ea4a609e424d6664f0b776eb6a4`
 - Registry: GitHub Container Registry (GHCR)
 - Source workflow: direct commits to `main`; immutable release tags and digests for deployment
@@ -41,7 +42,7 @@ Cross-cell Account movement uses the same short-lived `account-move-admin` image
 
 The existing root `Dockerfile` remains the shared Go image. Process arguments select Account API, router, cell API, workers, brokers, migrations and short-lived operator jobs. The release workflow publishes AMD64/ARM64 GHCR images with attached BuildKit SBOM/provenance and a keyless Cosign signature.
 
-Current reviewed stage-candidate pair:
+Current active Phase 2.5 platform pair:
 
 | Artifact | Tag | Immutable manifest |
 |---|---|---|
@@ -50,11 +51,9 @@ Current reviewed stage-candidate pair:
 
 Both were built from `4bd276c6f96f6e9c4feef811864403c5fa36a1bb`, completed their keyless Cosign steps, expose attached per-platform SPDX/SLSA attestations, and independently passed exact-workflow Cosign verification plus Trivy 0.74.0 scans with zero high, critical or secret findings on AMD64 and ARM64. The application identity/tool-router fail-closed check, non-root website runtime, absence of npm/Corepack/Yarn and website readiness also passed from `ubunturojo`. The exact pair is tracked in `deploy/releases/0.2.5-rc.5.env`.
 
-RC.2 predates the admission gate. RC.3 is signed but its website image failed the later independent scan with 5 critical and 48 high findings per platform. Both remain immutable history and neither is an approved rollback target. Admitted RC.4 is retained as the RC.5 rollback pair. `git diff --name-only spyglass-v0.2.5-rc.4..spyglass-v0.2.5-rc.5` contains no application, website, migration or Catalog code; environment execution must still prove the rollback.
+RC.2 predates the admission gate. RC.3 is signed but its website image failed the later independent scan with 5 critical and 48 high findings per platform. Both remain immutable history and neither is an approved rollback target. Admitted RC.4 is retained as the RC.5 rollback pair. `git diff --name-only spyglass-v0.2.5-rc.4..spyglass-v0.2.5-rc.5` contains no application, website, migration or Catalog code; the connected environment rehearsal confirmed the expected compatibility.
 
-Remaining artifact work:
-
-- certify RC.5-to-RC.4 schema, Catalog and configuration compatibility through an actual stage rollback rehearsal.
+The actual connected-stage RC.5 -> RC.4 -> RC.5 rehearsal completed successfully against retained PostgreSQL volumes. RC.4 and the restored RC.5 each passed the same 11-check exact-origin/Catalog boundary certificate. RC.5 remains active. Phase 3 will publish a new final-product pair; RC.5 is not predeclared as the production release.
 
 ### Website image
 
@@ -79,6 +78,8 @@ deploy/docker/spyglass/
   compose.stage-runner.yml
   Caddyfile.local
   Caddyfile.stage
+  Caddyfile.hostinger-snippet
+  Caddyfile.hostinger-security-headers
   deploy-stage.sh
   verify-stage.sh
   test-stage-contract.sh
@@ -153,16 +154,13 @@ The implementation must provide these documented operations through Compose and/
 
 ## Hostinger Docker staging
 
-### Verified VPS baseline and remaining checks
+### Verified VPS baseline and active state
 
 The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 
-The admitted RC.5 release-record revision `14c39aceff34a4ebf2c90955979d50422ee9628c` is prepared as a clean detached checkout at `/opt/spyglass-stage/releases/14c39aceff34a4ebf2c90955979d50422ee9628c`. The RC.3 checkout remains inactive historical evidence and is not admissible after the website scan finding. `/opt/spyglass-stage/secrets` exists, is empty, is owned by the deployment user and is mode 700. No `current` link or Spyglass container exists yet. On 2026-08-21 both stage names resolved to the VPS public address, the reviewed routes were added to the shared Caddy with validation/reload and a timestamped backup, and HTTPS reached those routes (returning the expected `502` until `spyglass-stage-edge` starts). `/opt/spyglass-stage/provider-input/stage.providers.env` now exists at mode 600; the host's existing SMTP values were copied without disclosure, Stalwart implicit TLS was published on port 465, and the admitted RC.5 images were pulled by exact digest. Before first deployment, the remaining owner/environment work is therefore explicit:
+On 2026-08-21 both stage names resolved to the VPS public address and the shared Caddy routes were activated with the repository's shared security-header policy, including HSTS. The active clean checkout is `/opt/spyglass-stage/releases/d127a4c7159b20329412b55436e0db4a98e0dfeb`; `/opt/spyglass-stage/current` selects it atomically. The immutable RC.5 images are deployed, 31 long-running containers are present, all 30 healthchecked workloads are healthy, the internal edge is running, and the global/cell A/cell B PostgreSQL services retain their volumes.
 
-- supply the Stripe test webhook/key and non-production OpenAI key in the protected provider-input file, generate the non-overwritable stage environment and workload certificates with `prepare-stage-secrets.sh`, and select/activate the reviewed checkout only after verification;
-- backup destination hooks and disk/certificate monitoring.
-
-Do not modify or restart unrelated VPS services during inventory.
+The provider input remains mode 600 outside Git. Generated secret set `/opt/spyglass-stage/secrets/2026-08-21-02` passes its mode, identity, certificate and restore-checkpoint verifier. Stripe sandbox access and webhook endpoint `we_1U6uGAPokWCfkh4CBSN0SjNI`, non-production OpenAI access, Stalwart implicit TLS and model-gateway health all passed the content-free provider certificate. RC.4 rollback and RC.5 restoration completed without database restoration. Owner-managed backup destinations/schedules and external disk/certificate alerting remain environment operations, as agreed; they are not application-construction blockers.
 
 ### Stage topology
 
@@ -189,20 +187,28 @@ The two stage-only launchers own Docker Engine authority behind narrow mTLS and 
 5. Run global and cell migrations using separate one-shot credentials.
 6. Start internal services and workers; require readiness.
 7. Update router, Account API, website and edge only after internal health passes.
-8. Publish the reviewed stage Catalog and Stripe mappings through short-lived operator containers.
-9. Run exact-origin and connected customer/provider certification.
+8. Publish the reviewed stage Catalog and Stripe mappings through short-lived operator containers once the Phase 3 Catalog is acceptance-ready.
+9. Run exact-origin certification for every platform release and connected customer/provider certification for the Phase 3 product release.
 10. Archive the release record and content-free evidence outside Git.
 
 Deployments use an explicit Compose project name and `docker compose up -d --wait` or an equivalent health-gated sequence. They never copy a developer worktree or plaintext secrets.
 
 ### Stage evidence
 
-Hostinger stage proves:
+The completed Phase 2.5 Hostinger gate proves:
 
 - public/private origin separation;
-- identity, passkey, Account, Catalog, entitlement and Stripe journeys;
-- real SMTP and provider behavior;
-- two-cell routing and database isolation;
+- immutable image deployment, Catalog publication at the anonymous boundary and database-preserving release rollback;
+- Stripe sandbox/webhook, non-production OpenAI, SMTP TLS and model-gateway readiness;
+- process topology, isolated cell runner networks and persistent database placement;
+- interruption-free application replica recovery;
+- clean-checkout activation with secrets kept outside Git;
+
+The final Phase 3 Hostinger release gate additionally proves:
+
+- identity, passkey, Account, Catalog, entitlement and Stripe customer journeys;
+- real email delivery and provider behavior through final product surfaces;
+- Account-level two-cell routing and database isolation;
 - container/database restart and durable queue recovery;
 - stage Docker runner execution/reconciliation;
 - accessibility/device journeys;
@@ -259,7 +265,7 @@ CI renders and policy-tests both overlays before a deployment credential is used
 
 ## Promotion and production release
 
-1. Complete every Phase 2.5 exit criterion.
+1. Preserve the completed Phase 2.5 platform baseline and its evidence.
 2. Complete every Phase 3 application, migration and operational criterion.
 3. Produce and Hostinger-certify the exact application and website digest pair.
 4. Deploy the same pair to a non-customer Linode pre-production namespace.

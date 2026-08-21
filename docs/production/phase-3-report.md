@@ -1,7 +1,8 @@
 # Phase 3 final construction plan
 
 - Plan date: 2026-08-20
-- Starts after: [Phase 2.5 realignment](phase-2-5-closeout-report.md)
+- Entry date: 2026-08-21
+- Starts after: completed [Phase 2.5 realignment](phase-2-5-closeout-report.md)
 - Purpose: complete every remaining application capability, migrate validated prototype behavior, certify the final LKE deployment and release the complete product
 - Production rule: **all construction phases and advertised packages must be complete before production release**
 
@@ -28,7 +29,8 @@ The repository already contains strong foundations:
 - package admission, action authorization/ledger foundations and content-safe observability;
 - generated OpenAPI contracts and compatibility enforcement.
 - global passkey incident response and restore-gated bounded identity retention with content-free operational metrics;
-- two independently signed, attested and vulnerability-admitted application/website pairs (RC.5 candidate and source-compatible RC.4 rollback), a repeatable Hostinger deployment contract with isolated per-cell Docker runner paths and provider egress, and CI-rendered two-cell Linode overlays with a dedicated workload-mTLS tool router.
+- two independently signed, attested and vulnerability-admitted application/website pairs (active RC.5 platform baseline and source-compatible RC.4 rollback), a live repeatable Hostinger deployment with isolated per-cell Docker runner paths and provider egress, and CI-rendered two-cell Linode overlays with a dedicated workload-mTLS tool router;
+- a successful RC.5 -> RC.4 -> RC.5 connected-stage rollback, two 11-check anonymous boundary certificates, interruption-free single-replica recovery, and live Stripe sandbox/webhook, non-production OpenAI and SMTP TLS readiness.
 
 The foundations do not yet constitute the full product. In particular:
 
@@ -41,7 +43,19 @@ The foundations do not yet constitute the full product. In particular:
 - the private application is not yet the final React product surface;
 - no complete prototype migration/cutover has occurred.
 
-Phase 3 begins only after the Hostinger slice in Phase 2.5 is connected and certified. DNS, shared-edge routing, protected provider input, implicit-TLS SMTP reachability and admitted-image pulls are prepared; the remaining entry gate is real Stripe test/OpenAI input, immutable secret generation, RC.5 activation, connected certification and the RC.5-to-RC.4-to-RC.5 rollback rehearsal. The LKE kubeconfig is first needed in P3.7: its initial use is a read-only cluster inventory, followed by explicit replacement of every fail-closed storage/CNI/API/add-on/secret/runtime placeholder before any apply.
+The Hostinger Phase 2.5 entry gate is complete. Stage is intentionally pristine: there are no users, Accounts, provider-price mappings, billing profiles or subscriptions. This prevents temporary Catalog/customer state from being mistaken for final-product release evidence. Phase 3 must publish reviewed stage mappings through the signed `catalog-admin` boundary and then run real email/passkey/Stripe journeys against the product capabilities being accepted. The LKE kubeconfig is first needed in P3.7: its initial use is a read-only cluster inventory, followed by explicit replacement of every fail-closed storage/CNI/API/add-on/secret/runtime placeholder before any apply.
+
+## P3.0 — establish the Phase 3 acceptance baseline
+
+Before feature construction fans out:
+
+1. Treat RC.5 as the platform baseline, not as the final product release candidate.
+2. Define the final launch Catalog and obtain exact-scope operator authorization for its stage Stripe price mappings; do not mutate protected Catalog tables directly.
+3. Create revocable synthetic stage identities and mailboxes, with no customer data, for repeatable email, WebAuthn/passkey, Membership, billing and recovery journeys.
+4. Add a revision-controlled certification driver that records content-free results while keeping session material, WebAuthn keys, provider payloads and identifiers outside Git.
+5. Run the relevant customer journey after each package/surface becomes acceptance-ready, then rerun the complete matrix against the final immutable application/website pair.
+
+Exit: Phase 3 has safe fixtures and evidence formats without treating unfinished product behavior as a release gate.
 
 ## P3.1 — Work and Attention
 
@@ -144,7 +158,7 @@ Exit: one synthetic and one internal Account complete migration, operation, back
 ## P3.7 — Linode production certification and release
 
 1. Apply the reviewed LKE controllers and overlays.
-2. Deploy the exact Hostinger-certified application and website digests to a non-customer Linode environment.
+2. Hostinger-certify the final Phase 3 application and website digests, then deploy that exact pair to a non-customer Linode environment.
 3. Apply production migrations and containerized PostgreSQL clusters.
 4. Run NetworkPolicy, workload identity, admission, RuntimeClass, HPA, pod/node loss, database failover, key/CA rollover and runner-compromise tests.
 5. Complete real provider, accessibility, isolation, load, restore and full-product journeys.

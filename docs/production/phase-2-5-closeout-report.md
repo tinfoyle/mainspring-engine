@@ -1,29 +1,30 @@
-# Phase 2.5 realignment plan
+# Phase 2.5 closeout report
 
 - Plan date: 2026-08-20
+- Completion date: 2026-08-21
 - Phase 2 application baseline: `b195fae07b264ea4a609e424d6664f0b776eb6a4`
 - Repository: `main`, direct commits permitted
 - Purpose: realign the cut-short Phase 2 rewrite with the final container-first form before final application construction
-- Exit state: **a coherent platform foundation, reproducible local Docker environment, connected Hostinger Docker stage, and production-ready LKE deployment skeleton**
+- Exit state: **achieved — a coherent platform foundation, reproducible local Docker environment, connected Hostinger Docker stage, and production-ready LKE deployment skeleton**
 
 ## Execution ledger
 
-| Slice | Status on 2026-08-20 | Revision-controlled evidence |
+| Slice | Final status | Revision-controlled evidence |
 |---|---|---|
 | P2.5.0 plan normalization | Complete | This report, [Phase 3](phase-3-report.md), and [deployment](stage-production-deployment-report.md) use the same phase model, environments, origins, GHCR policy, and production-release gate. |
 | P2.5.1 website final runtime | Complete | Standard Next.js standalone Node image, runtime origins, server-side Catalog proxy, health endpoints, security headers, and container-only website gate. |
 | P2.5.2 local parity Compose | Complete | Persistent global/cell A/cell B PostgreSQL, migrations, two active cells, serving APIs/router, separate runtime roles, containerized Go/race/PostgreSQL/OpenAPI/website tests, and HTTPS smoke verification. |
 | P2.5.3 shared process topology | Complete | All implemented global and per-cell workers run with health/status gates and constrained roles; TLS Mailpit capture, the complete machine-readable process inventory, a 17-target Prometheus profile, a dedicated workload-mTLS tool router, and a separate non-development TLS 1.3 topology with exact-identity route canaries are verified. |
 | P2.5.4 Docker runner launcher | Complete | A stage-only, mTLS and bearer-authenticated launcher owns the Docker socket; controller and broker have disjoint authority; deterministic constrained containers survive ambiguous creation and launcher restart; cancellation and bounded orphan cleanup are certified against the ubunturojo Docker daemon. |
-| P2.5.5 platform closeout | Complete | Durable Account movement, package/surface lifecycle policy, explicit absent-surface gates, billing mismatch explanations, bounded identity retention and the empty external-store handler inventory are implemented and tested. Stripe, retention-load and provider journeys are connected-stage evidence in P2.5.6, not missing architecture. |
-| P2.5.6 Hostinger stage | In progress | VPS inventory, digest-only Compose, release/secret separation, generated TLS workload identities, two isolated cell runner paths, least-authority provider egress and coexistence with the existing Infinite Ocean Caddy edge are revision-controlled and contract-tested. The matched RC.5 application/website pair contains the final `tool-router` mode and is independently signed, attested and clean under the two-platform admission policy; admitted RC.4 is retained as its source-compatible rollback pair. A clean RC.5 release-record checkout at `14c39aceff34a4ebf2c90955979d50422ee9628c` is prepared on the VPS but remains inactive. Both stage names now resolve to the VPS, the reviewed shared-Caddy routes are live, the protected provider-input file exists, existing SMTP values were copied without disclosure, implicit-TLS SMTP is published on port 465, and both admitted images are pre-pulled by digest. Real Stripe test and non-production OpenAI values, generated stage secrets, activation, connected journeys and rollback rehearsal remain. |
+| P2.5.5 platform closeout | Complete | Durable Account movement, package/surface lifecycle policy, explicit absent-surface gates, billing mismatch explanations, bounded identity retention and the empty external-store handler inventory are implemented and tested. Provider connectivity is live-stage evidence in P2.5.6; customer Stripe and retention-load journeys are final-product evidence in Phase 3, not missing platform architecture. |
+| P2.5.6 Hostinger stage | Complete | RC.5 is active from a clean checkout, with 31 long-running containers, three persistent PostgreSQL services, generated workload identities, isolated cell runner paths and the shared Infinite Ocean Caddy edge. Stripe sandbox, the enabled webhook, non-production OpenAI, implicit-TLS SMTP and model-gateway readiness are certified without recording credentials. RC.5 -> admitted RC.4 -> RC.5 completed successfully against the retained databases; both release legs passed the 11-check anonymous boundary certificate, and a single application replica restart served 30/30 public requests without interruption. |
 | P2.5.7 LKE skeleton | Complete | Both CI-verified overlays render two cell workload sets, three CloudNativePG clusters, website/ingress/certificate resources, database/provider/observability/API NetworkPolicies, disruption/scaling controls and suspended migration/Catalog/release jobs using the admitted RC.5 digests. Kubeconfig-dependent CNI/storage/API CIDR/add-on, SOPS recipient and sandbox RuntimeClass values remain explicit Phase 3 apply-time gates. |
 
 The local implementation and tests run only through Docker commands issued inside `ubunturojo`. No Unity, OpenAI Sites, Cloudflare deployment, or alternate hosted preview is part of this execution path.
 
 The first successful paired publication is `spyglass-v0.2.5-rc.2` plus `website-v0.2.5-rc.2`, both built from `5ce697933661e5b6d467804ad3608666f9c2dddd`. Its manifest digests remain recorded as immutable history, but RC.2 predates the enforced release-admission scan and is not an approved rollback target.
 
-RC.3 remains signed historical evidence, but its website image failed the subsequent independent Trivy scan with 5 critical and 48 high findings per platform and cannot be promoted or used for rollback. RC.4 is the first admitted pair and is retained in `deploy/releases/0.2.5-rc.4.env`. The current candidate is the matched `spyglass-v0.2.5-rc.5` plus `website-v0.2.5-rc.5` pair built from `4bd276c6f96f6e9c4feef811864403c5fa36a1bb`. Its exact manifests are tracked in `deploy/releases/0.2.5-rc.5.env`, pinned into both Linode overlays, bound to per-platform SPDX/SLSA records, independently Cosign-verified and clean under the zero-high/critical/secret admission gate. The source delta from RC.4 to RC.5 changes only release records, environment digest references and documentation—no application, website, migration or Catalog code—so RC.4 is the prepared rollback pair; actual connected-stage rollback remains required.
+RC.3 remains signed historical evidence, but its website image failed the subsequent independent Trivy scan with 5 critical and 48 high findings per platform and cannot be promoted or used for rollback. RC.4 is the first admitted pair and is retained in `deploy/releases/0.2.5-rc.4.env`. The active platform candidate is the matched `spyglass-v0.2.5-rc.5` plus `website-v0.2.5-rc.5` pair built from `4bd276c6f96f6e9c4feef811864403c5fa36a1bb`. Its exact manifests are tracked in `deploy/releases/0.2.5-rc.5.env`, pinned into both Linode overlays, bound to per-platform SPDX/SLSA records, independently Cosign-verified and clean under the zero-high/critical/secret admission gate. The source delta from RC.4 to RC.5 changes only release records, environment digest references and documentation—no application, website, migration or Catalog code—and the connected-stage rollback rehearsal confirmed their compatibility.
 
 ## Program phase model
 
@@ -149,8 +150,8 @@ Current evidence: [Account movement operations](account-movement.md) documents t
 
 - Maintain the accepted [package-by-surface lifecycle matrix](package-surface-lifecycle.md), including explicit absent-state gates for MCP, schedules, connectors and external stores that Phase 3 has not introduced.
 - Enforce it through every implemented HTTP, UI, worker, runner and Agent boundary; Phase 3 must register MCP, schedule and connector surfaces before enabling them.
-- Keep scheduled identity-retention thresholds as a connected stage-load certification. The restore-gated least-privilege worker, bounded pruning, content-free metrics/status, passkey rename and atomic compromised-credential/all-session response are implemented.
-- Preserve the implemented billing mismatch explanations and complete Stripe test-mode policy journeys on connected stage.
+- Keep scheduled identity-retention thresholds as a Phase 3 connected stage-load certification. The restore-gated least-privilege worker, bounded pruning, content-free metrics/status, passkey rename and atomic compromised-credential/all-session response are implemented.
+- Preserve the implemented billing mismatch explanations. Phase 2.5 proves Stripe sandbox/webhook readiness; Phase 3 completes test-mode policy journeys through the final Catalog and product surfaces.
 - Treat the explicit zero-enabled-external-store inventory as the Phase 2.5 acceptance state. Phase 3 cannot enable an external store until movement, export, erasure, acknowledgement, attestation and restore handlers are registered.
 - Maintain the completed Catalog/package/surface inventory and sanitized API publication policy as Phase 3 adds surfaces.
 
@@ -167,9 +168,22 @@ Use the `infiniteocean` SSH target and the stage Compose override to deploy:
 - TLS, Stripe test mode, TLS SMTP, non-production provider credentials and content-safe telemetry;
 - off-host backup hooks and restore checkpoint records for the owner-managed backup phase.
 
-Run real email/passkey/Stripe journeys, two-cell isolation, container/database restart, provider outage, accessibility, load/fairness and restore fencing tests. Hostinger does not certify Kubernetes-only controls.
+Phase 2.5 certifies the connected platform boundary: exact origins, provider credentials and TLS, immutable releases, container health/recovery and database-preserving rollback. The final customer email/passkey/Stripe journeys, two-cell product isolation, accessibility/device matrix, product load/fairness, provider degradation and restore fencing require the completed Phase 3 Catalog and product surfaces and are therefore Phase 3 release evidence. Hostinger does not certify Kubernetes-only controls.
 
-Exit evidence: an exact release pair is repeatably deployable and rollbackable on the VPS without copying a developer worktree or plaintext secrets.
+Exit evidence: an exact release pair is repeatably deployable and rollbackable on the VPS without copying a developer worktree or plaintext secrets; live provider readiness is proven without creating customer or billing records.
+
+## Connected Hostinger closure evidence
+
+The active `/opt/spyglass-stage/current` link selects clean checkout `d127a4c7159b20329412b55436e0db4a98e0dfeb`; the deployed application remains the immutable RC.5 pair. The generated secret set is `/opt/spyglass-stage/secrets/2026-08-21-02`. Operational evidence is mode 600 outside Git, while its content-free identity is recorded here:
+
+| Evidence | Result | SHA-256 |
+|---|---|---|
+| RC.4 anonymous boundary | 11/11 checks passed during rollback | `b36353fec16fd5220cd2094a6f4e70374ef3d6914ccc2930ee608e7f8f877b92` |
+| RC.5 anonymous boundary after restoration | 11/11 checks passed | `83d680e9a215ed47cb943d32157ac817c91e35fa6ab64dae604f61e041af1d3f` |
+| RC.5 application replica restart | 30/30 HTTP 200; restarted replica healthy | `8201f58712c0752aa42c5faeb5a09308aa34eb87f1593835f4130a95f4ec95cf` |
+| RC.5 provider readiness | Stripe sandbox/webhook, OpenAI, SMTP TLS and model gateway passed | `73a53bcbd690685565fad59c6da7aa43e216bbf72e927c183d5a057c45ee529d` |
+
+The stage database was deliberately left with zero users, Accounts, active provider-price mappings, billing profiles and subscriptions. Creating the final signed Catalog mappings and synthetic/customer journeys before Phase 3 would certify a temporary product surface and weaken the operator-authorization boundary. Those records and tests are created through the Phase 3 release process instead.
 
 ## Workstream G — LKE production skeleton
 
@@ -209,7 +223,7 @@ Phase 2.5 began with the following bounded P2.5.1 slice, which is now complete:
 5. add a minimal Compose path containing edge, website and the development Spyglass process only as a visual/request smoke gate;
 6. preserve the current public pages, Catalog fallback and private signup handoff behavior.
 
-P2.5.2 subsequently expanded that path to persistent global/two-cell PostgreSQL and production process modes. P2.5.3 completed the implemented worker topology, constrained runtime roles, TLS SMTP capture, local metrics profile, and secure-local workload-identity certification. P2.5.4 added the explicit Docker-stage runner substrate and proved create ambiguity, duplicate launch, identity verification, launcher restart, cancellation, and cleanup through a live Docker Engine integration gate. P2.5.5 then closed Account movement, lifecycle/surface inventory, billing explanation and identity-retention architecture. P2.5.7 completed the credential-free LKE skeleton. P2.5.6 connected Hostinger staging is the only unfinished Phase 2.5 slice.
+P2.5.2 subsequently expanded that path to persistent global/two-cell PostgreSQL and production process modes. P2.5.3 completed the implemented worker topology, constrained runtime roles, TLS SMTP capture, local metrics profile, and secure-local workload-identity certification. P2.5.4 added the explicit Docker-stage runner substrate and proved create ambiguity, duplicate launch, identity verification, launcher restart, cancellation, and cleanup through a live Docker Engine integration gate. P2.5.5 then closed Account movement, lifecycle/surface inventory, billing explanation and identity-retention architecture. P2.5.7 completed the credential-free LKE skeleton. P2.5.6 then activated and certified connected Hostinger staging, completing Phase 2.5.
 
 ## Phase 2.5 completion rule
 
@@ -219,6 +233,8 @@ Phase 2.5 is complete only when:
 - local and Hostinger stage use the same application topology and immutable GHCR images;
 - the website has no preview-host dependency;
 - durable Account movement and commercial/lifecycle foundations are accepted;
-- connected stage journeys and rollback are repeatable;
+- connected platform certification and database-preserving stage rollback are repeatable;
 - LKE overlays render and enforce the intended final boundaries; and
 - Phase 3 can concentrate on completing the application rather than changing platform or deployment architecture.
+
+All seven conditions are satisfied as of 2026-08-21. Full customer/provider/product certification remains a Phase 3 production-release condition, not deferred Phase 2.5 work.
