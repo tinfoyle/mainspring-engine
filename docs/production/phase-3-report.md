@@ -67,7 +67,7 @@ Exit: Phase 3 has safe fixtures and evidence formats without treating unfinished
 - Preserve drafts and provide accessible reason/command interactions.
 - Characterize and migrate prototype Work data with capacity reconciliation.
 
-Implementation checkpoint (2026-08-21): the composite Account/Persona foreign key, active published Persona assignment policy, routed Persona assignment input, additive provenance and Conversation-link commands, Account-scoped Conversation/Run foreign keys, typed redacted mutation events, generated client contracts, erasure-safe deferred integrity behavior, representative query-plan fixtures, tie-heavy pagination properties and concurrent completion/assignment stress are complete. Assignment editing UI, draft/accessibility work and prototype migration remain.
+Implementation checkpoint (2026-08-21): the composite Account/Persona foreign key, active published Persona assignment policy, routed Persona assignment input, additive provenance and Conversation-link commands, Account-scoped Conversation/Run foreign keys, typed redacted mutation events, generated client contracts, erasure-safe deferred integrity behavior, representative query-plan fixtures, tie-heavy pagination properties, concurrent completion/assignment stress, assignment editing, explicit reason dialogs, tab-scoped create drafts and accessible command announcements are complete. Applied private-route browser/assistive-technology certification and prototype migration remain.
 
 ### Implement typed Attention
 

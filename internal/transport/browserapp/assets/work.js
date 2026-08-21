@@ -17,11 +17,22 @@
   const createDialog = document.getElementById("work-create-dialog");
   const createForm = document.getElementById("work-create-form");
   const createError = document.getElementById("work-create-error");
+  const commandStatus = document.getElementById("work-command-status");
+  const transitionDialog = document.getElementById("work-transition-dialog");
+  const transitionForm = document.getElementById("work-transition-form");
+  const transitionError = document.getElementById("work-transition-error");
+  const assignmentDialog = document.getElementById("work-assignment-dialog");
+  const assignmentForm = document.getElementById("work-assignment-form");
+  const assignmentError = document.getElementById("work-assignment-error");
+  const draftKey = `spyglass.work.create.v1.${accountID}`;
   const pendingOperations = new Map();
+  const personas = new Map();
   let nextCursor = "";
   let loadedCount = 0;
   let listRequest;
   let detailRequest;
+  let transitionCommand;
+  let assignmentCommand;
 
   const labels = {
     todo: "To-do",
@@ -65,6 +76,68 @@
     return `Due ${new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date)}`;
   }
 
+  function announce(message) {
+    if (!commandStatus) return;
+    commandStatus.textContent = "";
+    window.setTimeout(() => { commandStatus.textContent = message; }, 0);
+  }
+
+  function assignmentLabel(assignment) {
+    if (!assignment) return "Unknown";
+    if (assignment.responsibility === "persona") return personas.get(assignment.persona_id) || "Agent";
+    if (assignment.responsibility === "external") return assignment.external_ref || "External";
+    if (assignment.responsibility === "user") return "Assigned to you";
+    return label(assignment.responsibility);
+  }
+
+  function assignmentPayload(values) {
+    const responsibility = String(values.get("responsibility") || "");
+    const assignment = { responsibility };
+    if (responsibility === "persona") assignment.persona_id = String(values.get("persona_id") || "");
+    if (responsibility === "external") assignment.external_ref = String(values.get("external_ref") || "").trim();
+    return assignment;
+  }
+
+  function syncAssignmentFields(formElement, prefix) {
+    if (!formElement) return;
+    const responsibility = String(new FormData(formElement).get("responsibility") || "shared");
+    for (const kind of ["external", "persona"]) {
+      const field = document.getElementById(`${prefix}-${kind}-field`);
+      if (!field) continue;
+      const input = field.querySelector("input,select");
+      const active = responsibility === kind;
+      field.hidden = !active;
+      input.disabled = !active;
+      input.required = active;
+    }
+  }
+
+  function saveCreateDraft() {
+    if (!createForm) return;
+    const values = new FormData(createForm);
+    const draft = {};
+    for (const name of ["title", "description", "kind", "priority", "responsibility", "external_ref", "persona_id"]) {
+      draft[name] = String(values.get(name) || "");
+    }
+    try { window.sessionStorage.setItem(draftKey, JSON.stringify(draft)); } catch (_) { /* browser storage can be unavailable */ }
+  }
+
+  function restoreCreateDraft() {
+    if (!createForm) return;
+    let draft;
+    try { draft = JSON.parse(window.sessionStorage.getItem(draftKey) || "null"); } catch (_) { return; }
+    if (!draft || typeof draft !== "object") return;
+    for (const name of ["title", "description", "kind", "priority", "responsibility", "external_ref", "persona_id"]) {
+      const control = createForm.elements.namedItem(name);
+      if (control && typeof draft[name] === "string") control.value = draft[name];
+    }
+    syncAssignmentFields(createForm, "work-create");
+  }
+
+  function clearCreateDraft() {
+    try { window.sessionStorage.removeItem(draftKey); } catch (_) { /* browser storage can be unavailable */ }
+  }
+
   async function getJSON(url, signal) {
     const response = await fetch(url, {
       credentials: "same-origin",
@@ -84,6 +157,39 @@
       throw error;
     }
     return response.json();
+  }
+
+  async function loadPersonas() {
+    if (readOnly || !createForm) return;
+    try {
+      const boardrooms = await getJSON(`/api/v1/accounts/${encodeURIComponent(accountID)}/agent-boardrooms`);
+      const pages = await Promise.all((boardrooms.items || []).filter((room) => room.state === "active").map((room) =>
+        getJSON(`/api/v1/accounts/${encodeURIComponent(accountID)}/agent-boardrooms/${encodeURIComponent(room.id)}/personas`)
+      ));
+      for (const page of pages) {
+        for (const persona of page.items || []) {
+          if (persona.state === "active") personas.set(persona.id, `${persona.name} · ${persona.role}`);
+        }
+      }
+      for (const selectID of ["work-create-persona", "work-assignment-persona"]) {
+        const select = document.getElementById(selectID);
+        if (!select) continue;
+        select.replaceChildren(...[...personas].sort((left, right) => left[1].localeCompare(right[1])).map(([id, name]) => {
+          const option = node("option", "", name);
+          option.value = id;
+          return option;
+        }));
+      }
+      for (const selectID of ["work-create-responsibility", "work-assignment-responsibility"]) {
+        const option = document.getElementById(selectID)?.querySelector('option[value="persona"]');
+        if (!option) continue;
+        option.disabled = personas.size === 0;
+        option.textContent = personas.size === 0 ? "Agent (no active Persona)" : "Agent Persona";
+      }
+      restoreCreateDraft();
+    } catch (_) {
+      // Work remains usable when the Account has no readable Agents package.
+    }
   }
 
   async function mutateJSON(url, method, payload, version) {
@@ -211,7 +317,7 @@
     const facts = node("dl", "work-detail-facts");
     facts.append(
       detailRow("Priority", label(item.priority)),
-      detailRow("Responsibility", label(item.assignment && item.assignment.responsibility)),
+      detailRow("Responsibility", assignmentLabel(item.assignment)),
       detailRow("Origin", label(item.provenance && item.provenance.source)),
       detailRow("Due", dateLabel(item.due_at).replace(/^Due /, "")),
       detailRow("Updated", new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.updated_at)))
@@ -231,43 +337,61 @@
 
   function workActions(item, children) {
     const section = node("section", "work-actions");
-    const message = node("p", "work-action-message");
-    message.hidden = true;
     const transitions = {
       open: [["in_progress", "Start"], ["canceled", "Cancel"]],
       in_progress: [["waiting", "Mark waiting"], ["done", "Complete"], ["canceled", "Cancel"]],
       waiting: [["in_progress", "Resume"], ["canceled", "Cancel"]],
       done: [["open", "Reopen"]],
     }[item.state] || [];
-    section.append(node("strong", "", "Move this work"));
+
+    const assignmentGroup = node("div", "work-action-group");
+    assignmentGroup.append(node("strong", "", "Responsibility"));
+    const assignmentControls = node("div", "work-action-controls");
+    const assignmentButton = node("button", "secondary", "Edit assignment");
+    assignmentButton.type = "button";
+    assignmentButton.addEventListener("click", () => {
+      assignmentCommand = { item, children, focus: assignmentButton };
+      assignmentForm.reset();
+      assignmentForm.elements.responsibility.value = item.assignment.responsibility;
+      assignmentForm.elements.external_ref.value = item.assignment.external_ref || "";
+      if (item.assignment.persona_id) {
+        const select = assignmentForm.elements.persona_id;
+        if (![...select.options].some((option) => option.value === item.assignment.persona_id)) {
+          const current = node("option", "", "Current Agent assignment (not available for a new assignment)");
+          current.value = item.assignment.persona_id;
+          current.disabled = true;
+          select.append(current);
+        }
+        select.value = item.assignment.persona_id;
+      }
+      syncAssignmentFields(assignmentForm, "work-assignment");
+      assignmentError.hidden = true;
+      assignmentDialog.showModal();
+      assignmentForm.elements.responsibility.focus();
+    });
+    assignmentControls.append(assignmentButton);
+    assignmentGroup.append(assignmentControls);
+
+    const transitionGroup = node("div", "work-action-group");
+    transitionGroup.append(node("strong", "", "Move this work"));
     const controls = node("div", "work-action-controls");
     for (const [state, text] of transitions) {
       const button = node("button", state === "done" ? "primary" : "secondary", text);
       button.type = "button";
-      button.addEventListener("click", async () => {
-        let reason = "";
-        if (["waiting", "canceled", "open"].includes(state)) {
-          reason = String(window.prompt(state === "open" ? "Why is this work reopening?" : "Add the operational reason:") || "").trim();
-          if (!reason) return;
-        }
-        for (const control of controls.querySelectorAll("button")) control.disabled = true;
-        message.hidden = true;
-        try {
-          const updated = await mutateJSON(`${baseURL}/${encodeURIComponent(item.id)}/transitions`, "POST", { to: state, ...(reason ? { reason } : {}) }, item.version);
-          renderDetail(updated, children);
-          loadSummary();
-          loadList(false);
-        } catch (error) {
-          message.textContent = error.status === 412 ? "This item changed. Reloading the current version…" : error.message;
-          message.hidden = false;
-          if (error.status === 412) setTimeout(() => loadDetail(item.id), 350);
-          for (const control of controls.querySelectorAll("button")) control.disabled = false;
-        }
+      button.addEventListener("click", () => {
+        transitionCommand = { item, children, focus: button, state, text };
+        transitionForm.reset();
+        transitionError.hidden = true;
+        document.getElementById("work-transition-title").textContent = `${text} work`;
+        document.getElementById("work-transition-context").textContent = `#${String(item.number).padStart(4, "0")} · ${item.title}`;
+        transitionDialog.showModal();
+        transitionForm.elements.reason.focus();
       });
       controls.append(button);
     }
     if (transitions.length === 0) controls.append(node("span", "", "No further lifecycle action is available."));
-    section.append(controls, message);
+    transitionGroup.append(controls);
+    section.append(assignmentGroup, transitionGroup);
     return section;
   }
 
@@ -316,6 +440,12 @@
     });
     document.getElementById("work-create-close").addEventListener("click", closeCreate);
     document.getElementById("work-create-cancel").addEventListener("click", closeCreate);
+    createForm.elements.responsibility.addEventListener("change", () => {
+      syncAssignmentFields(createForm, "work-create");
+      saveCreateDraft();
+    });
+    createForm.addEventListener("input", saveCreateDraft);
+    createForm.addEventListener("change", saveCreateDraft);
     createForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const values = new FormData(createForm);
@@ -325,19 +455,103 @@
         title: String(values.get("title") || "").trim(),
         description: String(values.get("description") || "").trim(),
         priority: String(values.get("priority")),
-        assignment: { responsibility: String(values.get("responsibility")) },
+        assignment: assignmentPayload(values),
       };
       submit.disabled = true;
       createError.hidden = true;
       try {
         const item = await mutateJSON(baseURL, "POST", payload);
+        clearCreateDraft();
         createForm.reset();
+        syncAssignmentFields(createForm, "work-create");
         closeCreate();
+        announce(`Created work item ${item.number}: ${item.title}.`);
         await Promise.all([loadSummary(), loadList(false)]);
         loadDetail(item.id);
       } catch (error) {
         createError.textContent = error.message;
         createError.hidden = false;
+        announce(`Work creation failed. ${error.message}`);
+      } finally {
+        submit.disabled = false;
+      }
+    });
+    restoreCreateDraft();
+    loadPersonas();
+  }
+  if (transitionDialog && transitionForm) {
+    const closeTransition = () => transitionDialog.close();
+    document.getElementById("work-transition-close").addEventListener("click", closeTransition);
+    document.getElementById("work-transition-cancel").addEventListener("click", closeTransition);
+    transitionDialog.addEventListener("close", () => {
+      if (transitionCommand?.focus?.isConnected) transitionCommand.focus.focus();
+      transitionCommand = undefined;
+      transitionError.hidden = true;
+    });
+    transitionForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!transitionCommand) return;
+      const command = transitionCommand;
+      const submit = transitionForm.querySelector('button[type="submit"]');
+      const reason = String(new FormData(transitionForm).get("reason") || "").trim();
+      submit.disabled = true;
+      transitionError.hidden = true;
+      try {
+        const updated = await mutateJSON(`${baseURL}/${encodeURIComponent(command.item.id)}/transitions`, "POST", { to: command.state, reason }, command.item.version);
+        transitionDialog.close();
+        renderDetail(updated, command.children);
+        detail.focus();
+        announce(`${command.text} succeeded for work item ${updated.number}.`);
+        loadSummary();
+        loadList(false);
+      } catch (error) {
+        const message = error.status === 412 ? "This item changed. Reloading the current version…" : error.message;
+        transitionError.textContent = message;
+        transitionError.hidden = false;
+        announce(`Work state change failed. ${message}`);
+        if (error.status === 412) {
+          transitionDialog.close();
+          window.setTimeout(() => loadDetail(command.item.id), 350);
+        }
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  }
+  if (assignmentDialog && assignmentForm) {
+    const closeAssignment = () => assignmentDialog.close();
+    document.getElementById("work-assignment-close").addEventListener("click", closeAssignment);
+    document.getElementById("work-assignment-cancel").addEventListener("click", closeAssignment);
+    assignmentForm.elements.responsibility.addEventListener("change", () => syncAssignmentFields(assignmentForm, "work-assignment"));
+    assignmentDialog.addEventListener("close", () => {
+      if (assignmentCommand?.focus?.isConnected) assignmentCommand.focus.focus();
+      assignmentCommand = undefined;
+      assignmentError.hidden = true;
+    });
+    assignmentForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!assignmentCommand) return;
+      const command = assignmentCommand;
+      const values = new FormData(assignmentForm);
+      const submit = assignmentForm.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      assignmentError.hidden = true;
+      try {
+        const updated = await mutateJSON(`${baseURL}/${encodeURIComponent(command.item.id)}/assignment`, "PATCH", { assignment: assignmentPayload(values), reason: String(values.get("reason") || "").trim() }, command.item.version);
+        assignmentDialog.close();
+        renderDetail(updated, command.children);
+        detail.focus();
+        announce(`Assignment updated for work item ${updated.number}.`);
+        loadList(false);
+      } catch (error) {
+        const message = error.status === 412 ? "This item changed. Reloading the current version…" : error.message;
+        assignmentError.textContent = message;
+        assignmentError.hidden = false;
+        announce(`Work assignment failed. ${message}`);
+        if (error.status === 412) {
+          assignmentDialog.close();
+          window.setTimeout(() => loadDetail(command.item.id), 350);
+        }
       } finally {
         submit.disabled = false;
       }

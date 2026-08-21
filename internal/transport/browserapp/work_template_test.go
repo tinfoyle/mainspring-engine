@@ -37,6 +37,11 @@ func TestWorkTemplateExposesRoutedQueueOnlyForAvailablePackage(t *testing.T) {
 		`id="work-detail"`,
 		`id="work-create-dialog"`,
 		`id="work-create-form"`,
+		`id="work-transition-dialog"`,
+		`id="work-assignment-dialog"`,
+		`id="work-command-status" role="status" aria-live="polite"`,
+		`id="work-draft-note"`,
+		`id="work-create-persona"`,
 		`data-read-only="false"`,
 		`data-summary="urgent"`,
 	} {
@@ -58,7 +63,34 @@ func TestWorkTemplateKeepsMutationControlsOutOfReadOnlyAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := rendered.String()
-	if !strings.Contains(body, `data-read-only="true"`) || strings.Contains(body, `id="work-create-dialog"`) || strings.Contains(body, `id="work-create-open"`) {
+	if !strings.Contains(body, `data-read-only="true"`) || strings.Contains(body, `id="work-create-dialog"`) || strings.Contains(body, `id="work-transition-dialog"`) || strings.Contains(body, `id="work-assignment-dialog"`) || strings.Contains(body, `id="work-create-open"`) {
 		t.Fatalf("read-only Work mutation surface: %s", body)
+	}
+}
+
+func TestWorkScriptUsesAccountScopedDraftAndAccessibleCommandBoundary(t *testing.T) {
+	raw, err := assets.ReadFile("assets/work.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(raw)
+	for _, expected := range []string{
+		"spyglass.work.create.v1.${accountID}",
+		"window.sessionStorage.setItem(draftKey",
+		"window.sessionStorage.removeItem(draftKey)",
+		`/assignment`,
+		`transitionDialog.showModal()`,
+		`assignmentDialog.showModal()`,
+		`detail.focus()`,
+		`announce(`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("Work client is missing browser contract %q", expected)
+		}
+	}
+	for _, forbidden := range []string{"window.prompt", "localStorage", "innerHTML", "document.cookie", "capacity_reservation", "capacity_released"} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("Work client contains forbidden browser behavior or internal field %q", forbidden)
+		}
 	}
 }

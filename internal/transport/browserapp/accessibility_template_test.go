@@ -87,6 +87,10 @@ func TestPrivateBrowserScriptsPreserveAccessibleInteractionState(t *testing.T) {
 				`detail.setAttribute("aria-busy", "true")`,
 				`detail.setAttribute("aria-busy", "false")`,
 				`createDialog.addEventListener("close", () => createOpen.focus())`,
+				`transitionDialog.addEventListener("close"`,
+				`assignmentDialog.addEventListener("close"`,
+				`detail.focus()`,
+				`announce(`,
 			},
 		},
 		{
