@@ -45,15 +45,17 @@ Current reviewed stage-candidate pair:
 
 | Artifact | Tag | Immutable manifest |
 |---|---|---|
-| Application | `spyglass-v0.2.5-rc.3` | `ghcr.io/tinfoyle/spyglass-engine@sha256:fec4024a815472c95d74f08c7dcf41b75452cc80028b8e012f53d5b85fb9469d` |
-| Website | `website-v0.2.5-rc.3` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:abbfc3d7753299c6f81b07b6bf18019bd6e3e8cb7b160705c51162d624754a08` |
+| Application | `spyglass-v0.2.5-rc.4` | `ghcr.io/tinfoyle/spyglass-engine@sha256:dccb70ddb34b975ada3a96c21ad775b4d2d21b64a2e87fc0f866a8441afc5800` |
+| Website | `website-v0.2.5-rc.4` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:4630890a4f8f277c446c886febc7ae98ce32a04d3153f2aaeb91630e6a6e682d` |
 
-Both were built from `90fa6730e94b94b3432561afd63a1fd9a6b4fba0`, completed their keyless Cosign steps, expose attached per-platform SPDX/SLSA attestations, and passed an authenticated digest pull, application identity/tool-router fail-closed check and website readiness check from `ubunturojo`. The exact pair is tracked in `deploy/releases/0.2.5-rc.3.env`. RC.2 is retained as the first successful signed publication and rollback-history candidate.
+Both were built from `848de07e8d637b0488c18f5967be965bcf8bd773`, completed their keyless Cosign steps, expose attached per-platform SPDX/SLSA attestations, and independently passed exact-workflow Cosign verification plus Trivy 0.74.0 scans with zero high, critical or secret findings on AMD64 and ARM64. The application identity/tool-router fail-closed check, non-root website runtime, absence of npm/Corepack/Yarn and website readiness also passed from `ubunturojo`. The exact pair is tracked in `deploy/releases/0.2.5-rc.4.env`.
+
+RC.2 predates the admission gate. RC.3 is signed but its website image failed the later independent scan with 5 critical and 48 high findings per platform. Both remain immutable history and neither is an approved rollback target.
 
 Remaining artifact work:
 
-- add vulnerability/secret scan evidence to the release record;
-- certify RC.2/RC.3 schema, Catalog and configuration compatibility through an actual stage rollback rehearsal.
+- publish a later admitted pair that retains RC.4 as its compatible rollback target;
+- certify schema, Catalog and configuration compatibility through an actual stage rollback rehearsal.
 
 ### Website image
 
@@ -88,6 +90,7 @@ deploy/docker/spyglass/
 deploy/releases/
   0.2.5-rc.2.env
   0.2.5-rc.3.env
+  0.2.5-rc.4.env
 deploy/kubernetes/overlays/
   linode-common/
   linode-preproduction/
@@ -154,7 +157,7 @@ The implementation must provide these documented operations through Compose and/
 
 The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 
-The RC.3 release-record revision `ac7bb50821033bebd843397b9e2126c1e63ae54d` is prepared as a clean detached checkout at `/opt/spyglass-stage/releases/ac7bb50821033bebd843397b9e2126c1e63ae54d`; `/opt/spyglass-stage/secrets` exists, is empty, is owned by the deployment user and is mode 700. No `current` link, container or live edge configuration was changed. DNS still does not return addresses for `stage.infiniteocean.net` or `app.stage.infiniteocean.net`. Before first deployment, the owner/environment work is therefore explicit:
+The RC.3 release-record revision `ac7bb50821033bebd843397b9e2126c1e63ae54d` remains an inactive historical checkout at `/opt/spyglass-stage/releases/ac7bb50821033bebd843397b9e2126c1e63ae54d`; it is not admissible after the website scan finding. `/opt/spyglass-stage/secrets` exists, is empty, is owned by the deployment user and is mode 700. No `current` link, container or live edge configuration was changed. DNS still does not return addresses for `stage.infiniteocean.net` or `app.stage.infiniteocean.net`. Before first deployment, the owner/environment work is therefore explicit:
 
 - create both DNS records and confirm firewall/certificate monitoring policy;
 - create a mode-600 provider-input file outside the checkout, generate the non-overwritable stage environment and workload certificates with `prepare-stage-secrets.sh`, and select/activate the reviewed checkout only after verification;

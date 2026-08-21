@@ -11,7 +11,7 @@ The read-only inventory found Ubuntu kernel 7.0 on x86-64, 2 vCPU, 7.7 GiB RAM, 
 
 The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the two stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs and the Account-scoped Work/Agent families without exposing any container port on the host.
 
-Preparation placed the clean detached RC.3 release-record checkout `ac7bb50821033bebd843397b9e2126c1e63ae54d` at `/opt/spyglass-stage/releases/ac7bb50821033bebd843397b9e2126c1e63ae54d` and created `/opt/spyglass-stage/secrets` as an empty mode-700 directory owned by the deployment user. Older inactive prepared checkouts remain release history. It did not create a `current` link, start containers or modify the existing Caddy. DNS for both stage origins is still absent.
+Preparation placed the clean detached RC.3 release-record checkout `ac7bb50821033bebd843397b9e2126c1e63ae54d` at `/opt/spyglass-stage/releases/ac7bb50821033bebd843397b9e2126c1e63ae54d` and created `/opt/spyglass-stage/secrets` as an empty mode-700 directory owned by the deployment user. RC.3 is now inactive, rejected release history because its website image failed the later admission scan; do not select it for deployment. No `current` link was created, no container was started and the existing Caddy was not modified. DNS for both stage origins is still absent.
 
 ## Files kept outside Git
 
@@ -48,7 +48,7 @@ From a clean checkout on the VPS:
 
 ```bash
 cd deploy/docker/spyglass
-release_file="$(realpath ../../releases/0.2.5-rc.3.env)"
+release_file="$(realpath ../../releases/0.2.5-rc.4.env)"
 secret_set=/opt/spyglass-stage/secrets/2026-08-21-01
 ./verify-stage.sh "$release_file" "$secret_set/stage.env"
 ./deploy-stage.sh "$release_file" "$secret_set/stage.env"

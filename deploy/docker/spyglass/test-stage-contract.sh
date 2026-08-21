@@ -38,7 +38,7 @@ test ! -e "$secret_dir/workload-ca/ca.key"
 test -z "$(find "$secret_dir" -maxdepth 1 \( -name '*.csr' -o -name '*.cnf' \) -print -quit)"
 docker network create "$network" >/dev/null
 
-release_file="$repository_root/deploy/releases/0.2.5-rc.3.env"
+release_file="$repository_root/deploy/releases/0.2.5-rc.4.env"
 bash "$stack_dir/verify-stage.sh" "$release_file" "$env_file"
 
 printf '\nSPYGLASS_APPLICATION_IMAGE=ghcr.io/tinfoyle/spyglass-engine@sha256:%064d\n' 1 >>"$env_file"
