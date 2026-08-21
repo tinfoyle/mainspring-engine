@@ -11,7 +11,7 @@ The read-only inventory found Ubuntu kernel 7.0 on x86-64, 2 vCPU, 7.7 GiB RAM, 
 
 The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the two stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs and the Account-scoped Work/Agent families without exposing any container port on the host.
 
-Preparation placed a clean detached checkout of `63070480fefd8b5909229aefd8223e8eb4091acf` at `/opt/spyglass-stage/releases/63070480fefd8b5909229aefd8223e8eb4091acf` and created `/opt/spyglass-stage/secrets` as an empty mode-700 directory owned by the deployment user. It did not create a `current` link, start containers or modify the existing Caddy. DNS for both stage origins is still absent.
+Preparation placed a clean detached checkout of `d853100af3807665f16161d5bb72ad4860fc30da` at `/opt/spyglass-stage/releases/d853100af3807665f16161d5bb72ad4860fc30da` and created `/opt/spyglass-stage/secrets` as an empty mode-700 directory owned by the deployment user. It did not create a `current` link, start containers or modify the existing Caddy. DNS for both stage origins is still absent.
 
 ## Files kept outside Git
 
