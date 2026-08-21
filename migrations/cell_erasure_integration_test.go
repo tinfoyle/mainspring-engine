@@ -296,11 +296,12 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		reservation = strings.Replace(reservation, "b2", "b5", 1)
 		reservation = strings.Replace(reservation, "b3", "b6", 1)
 		responsibility := "shared"
-		var assigneePersona any
+		var assigneePersona, conversationRef, runRef any
 		if index == 0 {
 			responsibility, assigneePersona = "persona", personaID
+			conversationRef, runRef = conversationID, runID
 		}
-		if _, err := pool.Exec(ctx, `INSERT INTO spyglass.work_items(account_id,id,number,parent_id,depth,kind,title,description,state,priority,responsibility,assignee_persona_id,source,created_by_actor_kind,created_by_actor_id,completed_at,capacity_reservation_id,capacity_released_at,version,created_at,updated_at) VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,'todo','Erasure test item','content','done','normal',$8,$9,'manual','user','test-actor',$6,$7,$6,1,$6,$6)`, accountID, item.id, index+1, item.parent, item.depth, now, reservation, responsibility, assigneePersona); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO spyglass.work_items(account_id,id,number,parent_id,depth,kind,title,description,state,priority,responsibility,assignee_persona_id,source,created_by_actor_kind,created_by_actor_id,conversation_id,run_id,completed_at,capacity_reservation_id,capacity_released_at,version,created_at,updated_at) VALUES ($1,$2,$3,NULLIF($4,'')::uuid,$5,'todo','Erasure test item','content','done','normal',$8,$9,'manual','user','test-actor',$10,$11,$6,$7,$6,1,$6,$6)`, accountID, item.id, index+1, item.parent, item.depth, now, reservation, responsibility, assigneePersona, conversationRef, runRef); err != nil {
 			t.Fatal(err)
 		}
 		eventID := strings.Replace(item.id, "000000000001", "000000000011", 1)

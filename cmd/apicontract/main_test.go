@@ -89,8 +89,8 @@ func TestCellPackageOperationsRemainTyped(t *testing.T) {
 			t.Errorf("%s %s regressed to %q contract", route.Method, route.Path, route.Contract)
 		}
 	}
-	if accountWork != 8 || agents != 10 {
-		t.Fatalf("typed operation counts Account/Work=%d Agents=%d, want 8 and 10", accountWork, agents)
+	if accountWork != 10 || agents != 10 {
+		t.Fatalf("typed operation counts Account/Work=%d Agents=%d, want 10 and 10", accountWork, agents)
 	}
 }
 
@@ -193,8 +193,8 @@ func TestEveryCustomerOperationRemainsTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 64 {
-		t.Fatalf("customer operation count = %d, want 64", len(routes))
+	if len(routes) != 66 {
+		t.Fatalf("customer operation count = %d, want 66", len(routes))
 	}
 	for _, route := range routes {
 		if route.Contract != "typed" {

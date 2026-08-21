@@ -287,6 +287,12 @@ export interface AssignWorkRequest {
 
 export type AssignableMembershipRole = "administrator" | "billing_admin" | "member" | "viewer";
 
+export interface AttachWorkProvenanceRequest {
+  readonly "kind": WorkProvenanceLinkKind;
+  readonly "reason"?: string;
+  readonly "reference_id": string;
+}
+
 export type AuthenticationAssurance = "single_factor" | "user_verified_cryptographic";
 
 export type AuthenticationMethod = "password" | "passkey";
@@ -496,6 +502,11 @@ export interface LimitPolicy {
   readonly "combine": "replace" | "add" | "maximum" | "minimum";
   readonly "kind": "capacity";
   readonly "reservation_ttl_seconds"?: number;
+}
+
+export interface LinkWorkConversationRequest {
+  readonly "conversation_id": string;
+  readonly "reason"?: string;
 }
 
 export interface LoginRequest {
@@ -817,6 +828,8 @@ export interface WorkProvenance {
   readonly "source": "manual" | "baseline" | "schedule" | "conversation" | "run" | "system";
 }
 
+export type WorkProvenanceLinkKind = "baseline_requirement" | "schedule" | "run";
+
 export type WorkResponsibility = "user" | "persona" | "shared" | "external";
 
 export type WorkState = "open" | "in_progress" | "waiting" | "done" | "canceled";
@@ -869,6 +882,7 @@ export interface ApiSchemas {
   readonly AgentToolGrantInput: AgentToolGrantInput;
   readonly AssignWorkRequest: AssignWorkRequest;
   readonly AssignableMembershipRole: AssignableMembershipRole;
+  readonly AttachWorkProvenanceRequest: AttachWorkProvenanceRequest;
   readonly AuthenticationAssurance: AuthenticationAssurance;
   readonly AuthenticationMethod: AuthenticationMethod;
   readonly BeginContactChangeRequest: BeginContactChangeRequest;
@@ -906,6 +920,7 @@ export interface ApiSchemas {
   readonly InvitationAcceptance: InvitationAcceptance;
   readonly InvitationCreated: InvitationCreated;
   readonly LimitPolicy: LimitPolicy;
+  readonly LinkWorkConversationRequest: LinkWorkConversationRequest;
   readonly LoginRequest: LoginRequest;
   readonly LoginSession: LoginSession;
   readonly Membership: Membership;
@@ -956,6 +971,7 @@ export interface ApiSchemas {
   readonly WorkPage: WorkPage;
   readonly WorkPriority: WorkPriority;
   readonly WorkProvenance: WorkProvenance;
+  readonly WorkProvenanceLinkKind: WorkProvenanceLinkKind;
   readonly WorkResponsibility: WorkResponsibility;
   readonly WorkState: WorkState;
   readonly WorkSummary: WorkSummary;

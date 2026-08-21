@@ -20,6 +20,7 @@ type Priority string
 type Responsibility string
 type Source string
 type ActorKind string
+type ProvenanceLinkKind string
 
 const (
 	KindTodo   Kind = "todo"
@@ -50,6 +51,10 @@ const (
 
 	ActorUser     ActorKind = "user"
 	ActorWorkload ActorKind = "workload"
+
+	ProvenanceBaselineRequirement ProvenanceLinkKind = "baseline_requirement"
+	ProvenanceSchedule            ProvenanceLinkKind = "schedule"
+	ProvenanceRun                 ProvenanceLinkKind = "run"
 )
 
 var (
@@ -57,6 +62,7 @@ var (
 	ErrTransition     = errors.New("work item transition is not allowed")
 	ErrRole           = errors.New("role cannot perform the work transition")
 	ErrReasonRequired = errors.New("work transition reason is required")
+	ErrLinkExists     = errors.New("work provenance link already exists")
 )
 
 type Actor struct {
@@ -259,7 +265,7 @@ func (i Item) Assign(command AssignmentCommand) (Item, error) {
 	if !command.Actor.Valid() || !command.Assignment.Valid() || command.ExpectedVersion != i.Version || command.At.IsZero() || i.State.Terminal() {
 		return Item{}, ErrInvalid
 	}
-	if command.Role != accounts.RoleOwner && command.Role != accounts.RoleAdministrator && command.Role != accounts.RoleMember {
+	if !roleCanEdit(command.Role) {
 		return Item{}, ErrRole
 	}
 	result := i
@@ -267,6 +273,80 @@ func (i Item) Assign(command AssignmentCommand) (Item, error) {
 	result.Version++
 	result.UpdatedAt = command.At.UTC()
 	return result, nil
+}
+
+type ProvenanceLinkCommand struct {
+	Kind            ProvenanceLinkKind
+	ReferenceID     string
+	Role            accounts.MembershipRole
+	Actor           Actor
+	ExpectedVersion uint64
+	At              time.Time
+}
+
+// AttachProvenance adds one immutable reference without changing the Work
+// item's historical creation source or actor.
+func (i Item) AttachProvenance(command ProvenanceLinkCommand) (Item, error) {
+	if !command.Actor.Valid() || ids.Validate(command.ReferenceID) != nil || command.ExpectedVersion != i.Version || command.At.IsZero() {
+		return Item{}, ErrInvalid
+	}
+	if !roleCanEdit(command.Role) {
+		return Item{}, ErrRole
+	}
+	result := i
+	switch command.Kind {
+	case ProvenanceBaselineRequirement:
+		if result.Provenance.BaselineRequirementID != "" {
+			return Item{}, ErrLinkExists
+		}
+		result.Provenance.BaselineRequirementID = command.ReferenceID
+	case ProvenanceSchedule:
+		if result.Provenance.ScheduleID != "" {
+			return Item{}, ErrLinkExists
+		}
+		result.Provenance.ScheduleID = command.ReferenceID
+	case ProvenanceRun:
+		if result.Provenance.RunID != "" {
+			return Item{}, ErrLinkExists
+		}
+		result.Provenance.RunID = command.ReferenceID
+	default:
+		return Item{}, ErrInvalid
+	}
+	result.Version++
+	result.UpdatedAt = command.At.UTC()
+	return result, nil
+}
+
+type ConversationLinkCommand struct {
+	ConversationID  string
+	Role            accounts.MembershipRole
+	Actor           Actor
+	ExpectedVersion uint64
+	At              time.Time
+}
+
+// LinkConversation adds the sole Account-owned Conversation reference. A
+// different Conversation cannot silently replace the historical link.
+func (i Item) LinkConversation(command ConversationLinkCommand) (Item, error) {
+	if !command.Actor.Valid() || ids.Validate(command.ConversationID) != nil || command.ExpectedVersion != i.Version || command.At.IsZero() {
+		return Item{}, ErrInvalid
+	}
+	if !roleCanEdit(command.Role) {
+		return Item{}, ErrRole
+	}
+	if i.Provenance.ConversationID != "" {
+		return Item{}, ErrLinkExists
+	}
+	result := i
+	result.Provenance.ConversationID = command.ConversationID
+	result.Version++
+	result.UpdatedAt = command.At.UTC()
+	return result, nil
+}
+
+func roleCanEdit(role accounts.MembershipRole) bool {
+	return role == accounts.RoleOwner || role == accounts.RoleAdministrator || role == accounts.RoleMember
 }
 
 // WithReopenedCapacity binds a new admission reservation before a completed

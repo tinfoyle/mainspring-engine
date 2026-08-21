@@ -290,13 +290,27 @@ func (r *WorkRepository) Summary(ctx context.Context, accountID ids.AccountID) (
 }
 
 func (r *WorkRepository) insertEvent(ctx context.Context, tx pgx.Tx, item workdomain.Item, fromVersion uint64, mutation workapp.Mutation) error {
-	if mutation.Kind != workapp.MutationCreated && mutation.Kind != workapp.MutationTransitioned && mutation.Kind != workapp.MutationAssigned {
+	switch mutation.Kind {
+	case workapp.MutationProvenance:
+		if mutation.ReferenceKind != string(workdomain.ProvenanceBaselineRequirement) && mutation.ReferenceKind != string(workdomain.ProvenanceSchedule) && mutation.ReferenceKind != string(workdomain.ProvenanceRun) {
+			return workapp.ErrCorrupt
+		}
+	case workapp.MutationConversation:
+		if mutation.ReferenceKind != "conversation" {
+			return workapp.ErrCorrupt
+		}
+	case workapp.MutationCreated, workapp.MutationTransitioned, workapp.MutationAssigned:
+		if mutation.ReferenceKind != "" {
+			return workapp.ErrCorrupt
+		}
+	default:
 		return workapp.ErrCorrupt
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO spyglass.work_item_events
 		(account_id,id,work_item_id,event_type,from_version,to_version,actor_kind,actor_id,reason,correlation_id,redacted_payload,occurred_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,jsonb_build_object('state',$11::text,'responsibility',$12::text),$13)`,
-		item.AccountID, r.ids.New(), item.ID, mutation.Kind, fromVersion, item.Version, mutation.Actor.Kind, mutation.Actor.ID, mutation.Reason, mutation.CorrelationID, item.State, item.Assignment.Responsibility, mutation.At.UTC())
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+			jsonb_strip_nulls(jsonb_build_object('state',$11::text,'responsibility',$12::text,'reference_kind',NULLIF($13,''))),$14)`,
+		item.AccountID, r.ids.New(), item.ID, mutation.Kind, fromVersion, item.Version, mutation.Actor.Kind, mutation.Actor.ID, mutation.Reason, mutation.CorrelationID, item.State, item.Assignment.Responsibility, mutation.ReferenceKind, mutation.At.UTC())
 	return err
 }
 

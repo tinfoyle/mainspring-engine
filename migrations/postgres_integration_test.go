@@ -939,7 +939,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 60 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 61 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)
@@ -1191,6 +1191,24 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	seedWorkPersona(accountB, "53000000-0000-4000-8000-000000000053", otherAccountPersona, "63000000-0000-4000-8000-000000000063", "active", "active", true)
 	seedWorkPersona(accountA, "55000000-0000-4000-8000-000000000055", archivedBoardroomPersona, "65000000-0000-4000-8000-000000000065", "active", "archived", true)
 	seedWorkPersona(accountA, "56000000-0000-4000-8000-000000000056", unpublishedPersona, "66000000-0000-4000-8000-000000000066", "active", "active", false)
+	conversationA, runA := "71000000-0000-4000-8000-000000000071", "81000000-0000-4000-8000-000000000081"
+	conversationB, runB := "72000000-0000-4000-8000-000000000072", "82000000-0000-4000-8000-000000000082"
+	seedWorkConversation := func(accountID ids.AccountID, boardroomID, conversationID, runID string) {
+		t.Helper()
+		if err := cellPool.WithAccountTx(ctx, accountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `
+				INSERT INTO spyglass.agent_conversations(account_id,id,boardroom_id,subject,state,created_by,created_at,updated_at)
+				VALUES ($1,$3,$2,'Work provenance','open',$5,$6,$6);
+				INSERT INTO spyglass.agent_runs(account_id,id,boardroom_id,conversation_id,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at)
+				VALUES ($1,$4,$2,$3,'planned',1,1,decode(repeat('41',32),'hex'),1,$5,$6)`,
+				pgx.QueryExecModeSimpleProtocol, accountID, boardroomID, conversationID, runID, actor.ID, now)
+			return err
+		}); err != nil {
+			t.Fatalf("seed Work Conversation/Run: %v", err)
+		}
+	}
+	seedWorkConversation(accountA, "51000000-0000-4000-8000-000000000051", conversationA, runA)
+	seedWorkConversation(accountB, "53000000-0000-4000-8000-000000000053", conversationB, runB)
 	itemID := ids.WorkItemID("50000000-0000-4000-8000-000000000005")
 	draft, err := workdomain.NewDraft(workdomain.Draft{
 		ID: itemID, AccountID: accountA, Kind: workdomain.KindTicket, Title: "Reconcile month-end close",
@@ -1215,6 +1233,14 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	var foreignKeyError *pgconn.PgError
 	if !errors.As(fkErr, &foreignKeyError) || foreignKeyError.Code != "23503" {
 		t.Fatalf("cross-Account Persona foreign key error = %v", fkErr)
+	}
+	fkErr = cellPool.WithAccountTx(ctx, accountA, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE spyglass.work_items SET conversation_id=$3,run_id=$4 WHERE account_id=$1 AND id=$2`, accountA, itemID, conversationB, runB)
+		return err
+	})
+	foreignKeyError = nil
+	if !errors.As(fkErr, &foreignKeyError) || foreignKeyError.Code != "23503" {
+		t.Fatalf("cross-Account provenance foreign key error = %v", fkErr)
 	}
 	replayed, err := repository.Create(ctx, draft, creation)
 	if err != nil || replayed.ID != created.ID || replayed.Number != created.Number || replayed.Version != created.Version || !replayed.CreatedAt.Equal(created.CreatedAt) || !replayed.UpdatedAt.Equal(created.UpdatedAt) {
@@ -1297,12 +1323,68 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	}); err != nil {
 		t.Fatalf("retire assigned Persona: %v", err)
 	}
-
-	done, err := assigned.Transition(workdomain.TransitionCommand{To: workdomain.StateDone, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: assigned.Version, At: now.Add(4 * time.Minute)})
+	for name, runID := range map[string]string{"missing": "83000000-0000-4000-8000-000000000083", "other_account": runB} {
+		candidate, linkErr := assigned.AttachProvenance(workdomain.ProvenanceLinkCommand{Kind: workdomain.ProvenanceRun, ReferenceID: runID, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: assigned.Version, At: now.Add(4 * time.Minute)})
+		if linkErr != nil {
+			t.Fatal(linkErr)
+		}
+		if _, linkErr = repository.Update(ctx, candidate, assigned.Version, workapp.Mutation{Kind: workapp.MutationProvenance, Actor: actor, Reason: "reject unavailable Run", CorrelationID: "work-run-" + name, ReferenceKind: string(workdomain.ProvenanceRun), At: now.Add(4 * time.Minute)}); !errors.Is(linkErr, workapp.ErrConstraint) {
+			t.Fatalf("%s Run provenance error = %v", name, linkErr)
+		}
+	}
+	provenanceLinked, err := assigned.AttachProvenance(workdomain.ProvenanceLinkCommand{Kind: workdomain.ProvenanceRun, ReferenceID: runA, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: assigned.Version, At: now.Add(4 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	done, err = repository.Update(ctx, done, assigned.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "finish before reconciliation", CorrelationID: "work-release-queue-contract", At: now.Add(4 * time.Minute)})
+	provenanceLinked, err = repository.Update(ctx, provenanceLinked, assigned.Version, workapp.Mutation{Kind: workapp.MutationProvenance, Actor: actor, Reason: "link originating Run", CorrelationID: "work-run-contract", ReferenceKind: string(workdomain.ProvenanceRun), At: now.Add(4 * time.Minute)})
+	if err != nil || provenanceLinked.Provenance.RunID != runA {
+		t.Fatalf("Run provenance = %+v, %v", provenanceLinked.Provenance, err)
+	}
+	for index, link := range []struct {
+		kind workdomain.ProvenanceLinkKind
+		id   string
+	}{{workdomain.ProvenanceBaselineRequirement, "84000000-0000-4000-8000-000000000084"}, {workdomain.ProvenanceSchedule, "85000000-0000-4000-8000-000000000085"}} {
+		candidate, linkErr := provenanceLinked.AttachProvenance(workdomain.ProvenanceLinkCommand{Kind: link.kind, ReferenceID: link.id, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: provenanceLinked.Version, At: now.Add(time.Duration(5+index) * time.Minute)})
+		if linkErr != nil {
+			t.Fatal(linkErr)
+		}
+		provenanceLinked, linkErr = repository.Update(ctx, candidate, provenanceLinked.Version, workapp.Mutation{Kind: workapp.MutationProvenance, Actor: actor, Reason: "attach typed provenance", CorrelationID: "work-provenance-" + string(link.kind), ReferenceKind: string(link.kind), At: now.Add(time.Duration(5+index) * time.Minute)})
+		if linkErr != nil {
+			t.Fatalf("attach %s provenance: %v", link.kind, linkErr)
+		}
+	}
+	for name, conversationID := range map[string]string{"missing": "73000000-0000-4000-8000-000000000073", "other_account": conversationB} {
+		candidate, linkErr := provenanceLinked.LinkConversation(workdomain.ConversationLinkCommand{ConversationID: conversationID, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: provenanceLinked.Version, At: now.Add(7 * time.Minute)})
+		if linkErr != nil {
+			t.Fatal(linkErr)
+		}
+		if _, linkErr = repository.Update(ctx, candidate, provenanceLinked.Version, workapp.Mutation{Kind: workapp.MutationConversation, Actor: actor, Reason: "reject unavailable Conversation", CorrelationID: "work-conversation-" + name, ReferenceKind: "conversation", At: now.Add(7 * time.Minute)}); !errors.Is(linkErr, workapp.ErrConstraint) {
+			t.Fatalf("%s Conversation link error = %v", name, linkErr)
+		}
+	}
+	conversationLinked, err := provenanceLinked.LinkConversation(workdomain.ConversationLinkCommand{ConversationID: conversationA, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: provenanceLinked.Version, At: now.Add(7 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversationLinked, err = repository.Update(ctx, conversationLinked, provenanceLinked.Version, workapp.Mutation{Kind: workapp.MutationConversation, Actor: actor, Reason: "link related Conversation", CorrelationID: "work-conversation-contract", ReferenceKind: "conversation", At: now.Add(7 * time.Minute)})
+	if err != nil || conversationLinked.Provenance.ConversationID != conversationA {
+		t.Fatalf("Conversation provenance = %+v, %v", conversationLinked.Provenance, err)
+	}
+	var typedEvents, leakedReferenceIDs int
+	if err := cellPool.WithAccountTx(ctx, accountA, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT
+			count(*) FILTER (WHERE event_type IN ('provenance_attached','conversation_linked')),
+			count(*) FILTER (WHERE redacted_payload::text LIKE '%' || $3 || '%' OR redacted_payload::text LIKE '%' || $4 || '%')
+			FROM spyglass.work_item_events WHERE account_id=$1 AND work_item_id=$2`, accountA, itemID, runA, conversationA).Scan(&typedEvents, &leakedReferenceIDs)
+	}); err != nil || typedEvents != 4 || leakedReferenceIDs != 0 {
+		t.Fatalf("typed provenance events=%d leaked identifiers=%d err=%v", typedEvents, leakedReferenceIDs, err)
+	}
+
+	done, err := conversationLinked.Transition(workdomain.TransitionCommand{To: workdomain.StateDone, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: conversationLinked.Version, At: now.Add(8 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err = repository.Update(ctx, done, conversationLinked.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "finish before reconciliation", CorrelationID: "work-release-queue-contract", At: now.Add(8 * time.Minute)})
 	if err != nil {
 		t.Fatalf("complete work item: %v", err)
 	}
@@ -1310,20 +1392,20 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, found, err := firstQueue.Claim(ctx, now.Add(4*time.Minute), time.Minute)
+	first, found, err := firstQueue.Claim(ctx, now.Add(8*time.Minute), time.Minute)
 	if err != nil || !found || first.Attempt != 1 {
 		t.Fatalf("first Work release claim = %+v found=%v err=%v", first, found, err)
 	}
-	if _, found, err := firstQueue.Claim(ctx, now.Add(4*time.Minute), time.Minute); err != nil || found {
+	if _, found, err := firstQueue.Claim(ctx, now.Add(8*time.Minute), time.Minute); err != nil || found {
 		t.Fatalf("active lease was concurrently claimable: found=%v err=%v", found, err)
 	}
 	secondQueue, _ := postgresadapter.NewWorkReleaseQueueRepository(rawPool, cellPool, fixedIDGenerator{"70000000-0000-4000-8000-000000000007"})
-	second, found, err := secondQueue.Claim(ctx, now.Add(6*time.Minute), time.Minute)
+	second, found, err := secondQueue.Claim(ctx, now.Add(10*time.Minute), time.Minute)
 	if err != nil || !found || second.Attempt != 2 || second.LeaseID == first.LeaseID {
 		t.Fatalf("reclaimed Work release = %+v found=%v err=%v", second, found, err)
 	}
 
-	reopened, err := done.Transition(workdomain.TransitionCommand{To: workdomain.StateOpen, Role: accounts.RoleOwner, Actor: actor, Reason: "new evidence requires reopening", ExpectedVersion: done.Version, At: now.Add(7 * time.Minute)})
+	reopened, err := done.Transition(workdomain.TransitionCommand{To: workdomain.StateOpen, Role: accounts.RoleOwner, Actor: actor, Reason: "new evidence requires reopening", ExpectedVersion: done.Version, At: now.Add(11 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1332,34 +1414,34 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.Update(ctx, reopened, done.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "new evidence requires reopening", CorrelationID: "work-reopen-contract", At: now.Add(7 * time.Minute)}); err != nil {
+	if _, err := repository.Update(ctx, reopened, done.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "new evidence requires reopening", CorrelationID: "work-reopen-contract", At: now.Add(11 * time.Minute)}); err != nil {
 		t.Fatalf("reopen work item: %v", err)
 	}
-	if err := firstQueue.Complete(ctx, first, now.Add(8*time.Minute)); !errors.Is(err, workreconciliation.ErrLeaseLost) {
+	if err := firstQueue.Complete(ctx, first, now.Add(12*time.Minute)); !errors.Is(err, workreconciliation.ErrLeaseLost) {
 		t.Fatalf("stale release lease completion = %v", err)
 	}
-	if err := secondQueue.Complete(ctx, second, now.Add(8*time.Minute)); err != nil {
+	if err := secondQueue.Complete(ctx, second, now.Add(12*time.Minute)); err != nil {
 		t.Fatalf("complete reclaimed Work release: %v", err)
 	}
 	loaded, err = repository.Get(ctx, accountA, itemID)
 	if err != nil || loaded.State != workdomain.StateOpen || loaded.CapacityReservationID != newReservation || loaded.CapacityReleasedAt != nil {
 		t.Fatalf("old release corrupted reopened Work capacity: item=%+v err=%v", loaded, err)
 	}
-	recanceled, err := loaded.Transition(workdomain.TransitionCommand{To: workdomain.StateCanceled, Role: accounts.RoleOwner, Actor: actor, Reason: "close reopened work", ExpectedVersion: loaded.Version, At: now.Add(9 * time.Minute)})
+	recanceled, err := loaded.Transition(workdomain.TransitionCommand{To: workdomain.StateCanceled, Role: accounts.RoleOwner, Actor: actor, Reason: "close reopened work", ExpectedVersion: loaded.Version, At: now.Add(13 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.Update(ctx, recanceled, loaded.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "close reopened work", CorrelationID: "work-recancel-contract", At: now.Add(9 * time.Minute)}); err != nil {
+	if _, err := repository.Update(ctx, recanceled, loaded.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "close reopened work", CorrelationID: "work-recancel-contract", At: now.Add(13 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repository.MarkCapacityReleased(ctx, accountA, itemID, newReservation, now.Add(10*time.Minute)); err != nil {
+	if err := repository.MarkCapacityReleased(ctx, accountA, itemID, newReservation, now.Add(14*time.Minute)); err != nil {
 		t.Fatalf("synchronous release checkpoint: %v", err)
 	}
 	loaded, err = repository.Get(ctx, accountA, itemID)
 	if err != nil || loaded.CapacityReleasedAt == nil {
 		t.Fatalf("synchronous capacity checkpoint=%+v err=%v", loaded, err)
 	}
-	stats, err := secondQueue.Stats(ctx, now.Add(8*time.Minute))
+	stats, err := secondQueue.Stats(ctx, now.Add(12*time.Minute))
 	if err != nil || stats.Pending != 0 || stats.Processing != 0 || stats.DeadLetter != 0 {
 		t.Fatalf("release queue stats=%+v err=%v", stats, err)
 	}

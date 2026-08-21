@@ -85,6 +85,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/work-items/{itemID}/children", s.workChildren)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/work-items/{itemID}/transitions", s.workTransition)
 	mux.HandleFunc("PATCH /api/v1/accounts/{accountID}/work-items/{itemID}/assignment", s.workAssign)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/work-items/{itemID}/provenance-links", s.workAttachProvenance)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/work-items/{itemID}/conversation-links", s.workLinkConversation)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-boardrooms", s.agentBoardrooms)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-boardrooms", s.agentBoardroomCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/personas", s.agentPersonas)

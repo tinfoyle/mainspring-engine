@@ -23,6 +23,8 @@ type WorkCommands interface {
 	Create(context.Context, workapp.CreateCommand) (workdomain.Item, error)
 	Transition(context.Context, workapp.TransitionCommand) (workdomain.Item, error)
 	Assign(context.Context, workapp.AssignCommand) (workdomain.Item, error)
+	AttachProvenance(context.Context, workapp.AttachProvenanceCommand) (workdomain.Item, error)
+	LinkConversation(context.Context, workapp.LinkConversationCommand) (workdomain.Item, error)
 }
 
 type createWorkRequest struct {
@@ -44,6 +46,17 @@ type transitionWorkRequest struct {
 type assignWorkRequest struct {
 	Assignment workAssignmentRequest `json:"assignment"`
 	Reason     string                `json:"reason,omitempty"`
+}
+
+type attachWorkProvenanceRequest struct {
+	Kind        workdomain.ProvenanceLinkKind `json:"kind"`
+	ReferenceID string                        `json:"reference_id"`
+	Reason      string                        `json:"reason,omitempty"`
+}
+
+type linkWorkConversationRequest struct {
+	ConversationID string `json:"conversation_id"`
+	Reason         string `json:"reason,omitempty"`
 }
 
 type workAssignmentRequest struct {
@@ -127,6 +140,54 @@ func (s *Server) workAssign(w http.ResponseWriter, r *http.Request) {
 	item, err := s.commands.Assign(routecontext.WithClaims(r.Context(), claims), workapp.AssignCommand{Actor: actor, AccountID: accountID, WorkItemID: itemID, Assignment: assignment, ExpectedVersion: version, Reason: request.Reason, CorrelationID: operationID})
 	if err != nil {
 		s.writeWorkCommandError(w, "assign", err)
+		return
+	}
+	writeWorkItem(w, http.StatusOK, item)
+}
+
+func (s *Server) workAttachProvenance(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, operationID, ok := s.workCommandRequest(w, r)
+	if !ok {
+		return
+	}
+	itemID, version, ok := commandTarget(w, r)
+	if !ok {
+		return
+	}
+	var request attachWorkProvenanceRequest
+	if !decodeWorkCommand(w, r, &request) {
+		return
+	}
+	item, err := s.commands.AttachProvenance(routecontext.WithClaims(r.Context(), claims), workapp.AttachProvenanceCommand{
+		Actor: actor, AccountID: accountID, WorkItemID: itemID, Kind: request.Kind, ReferenceID: request.ReferenceID,
+		ExpectedVersion: version, Reason: request.Reason, CorrelationID: operationID,
+	})
+	if err != nil {
+		s.writeWorkCommandError(w, "attach provenance", err)
+		return
+	}
+	writeWorkItem(w, http.StatusOK, item)
+}
+
+func (s *Server) workLinkConversation(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, operationID, ok := s.workCommandRequest(w, r)
+	if !ok {
+		return
+	}
+	itemID, version, ok := commandTarget(w, r)
+	if !ok {
+		return
+	}
+	var request linkWorkConversationRequest
+	if !decodeWorkCommand(w, r, &request) {
+		return
+	}
+	item, err := s.commands.LinkConversation(routecontext.WithClaims(r.Context(), claims), workapp.LinkConversationCommand{
+		Actor: actor, AccountID: accountID, WorkItemID: itemID, ConversationID: request.ConversationID,
+		ExpectedVersion: version, Reason: request.Reason, CorrelationID: operationID,
+	})
+	if err != nil {
+		s.writeWorkCommandError(w, "link conversation", err)
 		return
 	}
 	writeWorkItem(w, http.StatusOK, item)
@@ -252,7 +313,7 @@ func (s *Server) writeWorkCommandError(w http.ResponseWriter, operation string, 
 		writeProblem(w, http.StatusServiceUnavailable, "work_outcome_unknown", "retry the exact Work command with the same Idempotency-Key")
 	case errors.Is(err, workapp.ErrConflict):
 		writeProblem(w, http.StatusPreconditionFailed, "work_version_conflict", "the Work item changed; reload it before retrying")
-	case errors.Is(err, workapp.ErrConstraint), errors.Is(err, workdomain.ErrTransition), errors.Is(err, workdomain.ErrReasonRequired):
+	case errors.Is(err, workapp.ErrConstraint), errors.Is(err, workdomain.ErrTransition), errors.Is(err, workdomain.ErrReasonRequired), errors.Is(err, workdomain.ErrLinkExists):
 		writeProblem(w, http.StatusUnprocessableEntity, "work_command_rejected", "the Work command violates the item lifecycle or relationship rules")
 	case errors.Is(err, workdomain.ErrRole):
 		writeProblem(w, http.StatusForbidden, string(access.DenialRole), "your Account role cannot perform this Work command")

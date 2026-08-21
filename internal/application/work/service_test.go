@@ -166,6 +166,28 @@ func TestViewerCannotCreateWork(t *testing.T) {
 	}
 }
 
+func TestProvenanceAndConversationCommandsAuthorizeAndPersistTypedMutations(t *testing.T) {
+	now := time.Date(2026, 8, 21, 14, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{item: materialized(t, now)}
+	service, _ := NewService(fakeAuthorizer{role: accounts.RoleMember}, &fakeCapacity{}, repository, fakeClock{now.Add(time.Minute)})
+	runID := "40000000-0000-4000-8000-000000000004"
+	linked, err := service.AttachProvenance(context.Background(), AttachProvenanceCommand{
+		Actor: access.Actor{UserID: ids.UserID(testUser)}, AccountID: ids.AccountID(testAccount), WorkItemID: repository.item.ID,
+		Kind: workdomain.ProvenanceRun, ReferenceID: runID, ExpectedVersion: repository.item.Version, Reason: "record the originating run", CorrelationID: "provenance-link-test",
+	})
+	if err != nil || linked.Provenance.RunID != runID || repository.mutation.Kind != MutationProvenance || repository.mutation.ReferenceKind != string(workdomain.ProvenanceRun) {
+		t.Fatalf("provenance item=%+v mutation=%+v err=%v", linked, repository.mutation, err)
+	}
+	conversationID := "50000000-0000-4000-8000-000000000005"
+	linked, err = service.LinkConversation(context.Background(), LinkConversationCommand{
+		Actor: access.Actor{UserID: ids.UserID(testUser)}, AccountID: ids.AccountID(testAccount), WorkItemID: repository.item.ID,
+		ConversationID: conversationID, ExpectedVersion: repository.item.Version, Reason: "preserve the related discussion", CorrelationID: "conversation-link-test",
+	})
+	if err != nil || linked.Provenance.ConversationID != conversationID || repository.mutation.Kind != MutationConversation || repository.mutation.ReferenceKind != "conversation" {
+		t.Fatalf("conversation item=%+v mutation=%+v err=%v", linked, repository.mutation, err)
+	}
+}
+
 func createCommand() CreateCommand {
 	return CreateCommand{Actor: access.Actor{UserID: ids.UserID(testUser)}, AccountID: ids.AccountID(testAccount), RequestID: testRequest, Kind: workdomain.KindTodo, Title: "A valid work item", Priority: workdomain.PriorityNormal, Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared}, Provenance: workdomain.Provenance{Source: workdomain.SourceManual, CreatedBy: workdomain.Actor{Kind: workdomain.ActorUser, ID: testUser}}, CorrelationID: "work-test"}
 }

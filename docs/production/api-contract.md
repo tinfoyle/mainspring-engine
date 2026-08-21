@@ -1,6 +1,6 @@
 # Customer API Contract
 
-Status: all 62 customer-facing operations have typed success contracts; route, owner, authentication, reference, generation, and no-generic-response drift gates are executable
+Status: all 66 customer-facing operations have typed success contracts; route, owner, authentication, reference, generation, and no-generic-response drift gates are executable
 
 [`api/spyglass.openapi.json`](../../api/spyglass.openapi.json) is the OpenAPI 3.1 source of truth for customer-facing JSON routes. It covers the global Account API and cell-owned Work/Agents API as one external surface at `app.infiniteocean.net`; clients never address or select a cell. Private workload APIs, health/metrics endpoints, server-rendered browser forms, and Stripe's provider-side schema are separate contracts.
 

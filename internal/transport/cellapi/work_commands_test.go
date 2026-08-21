@@ -39,6 +39,16 @@ func TestWorkCommandContractsDeriveActorAndConcurrencyAuthority(t *testing.T) {
 	if assigned.Code != http.StatusOK || commands.assign.Assignment.PersonaID != workPersona || commands.assign.ExpectedVersion != 1 {
 		t.Fatalf("assign=%d command=%+v body=%s", assigned.Code, commands.assign, assigned.Body.String())
 	}
+	commands.item.Version = 3
+	provenance := commandRequest(t, server.Handler(), http.MethodPost, "/api/v1/accounts/"+workAccount+"/work-items/"+workItemID+"/provenance-links", `{"kind":"run","reference_id":"`+workPersona+`","reason":"preserve the source run"}`, `W/"2"`)
+	if provenance.Code != http.StatusOK || commands.provenance.Kind != workdomain.ProvenanceRun || commands.provenance.ReferenceID != workPersona || commands.provenance.ExpectedVersion != 2 {
+		t.Fatalf("provenance=%d command=%+v body=%s", provenance.Code, commands.provenance, provenance.Body.String())
+	}
+	commands.item.Version = 4
+	conversation := commandRequest(t, server.Handler(), http.MethodPost, "/api/v1/accounts/"+workAccount+"/work-items/"+workItemID+"/conversation-links", `{"conversation_id":"`+workPersona+`","reason":"preserve the related discussion"}`, `W/"3"`)
+	if conversation.Code != http.StatusOK || commands.conversation.ConversationID != workPersona || commands.conversation.ExpectedVersion != 3 {
+		t.Fatalf("conversation=%d command=%+v body=%s", conversation.Code, commands.conversation, conversation.Body.String())
+	}
 
 	commands.item.Version = 2
 	transitioned := commandRequest(t, server.Handler(), http.MethodPost, "/api/v1/accounts/"+workAccount+"/work-items/"+workItemID+"/transitions", `{"to":"in_progress"}`, `W/"1"`)
@@ -91,11 +101,13 @@ func commandClaims() routecontext.Claims {
 }
 
 type commandService struct {
-	item       workdomain.Item
-	err        error
-	create     workapp.CreateCommand
-	transition workapp.TransitionCommand
-	assign     workapp.AssignCommand
+	item         workdomain.Item
+	err          error
+	create       workapp.CreateCommand
+	transition   workapp.TransitionCommand
+	assign       workapp.AssignCommand
+	provenance   workapp.AttachProvenanceCommand
+	conversation workapp.LinkConversationCommand
 }
 
 func (s *commandService) Create(_ context.Context, command workapp.CreateCommand) (workdomain.Item, error) {
@@ -108,6 +120,14 @@ func (s *commandService) Transition(_ context.Context, command workapp.Transitio
 }
 func (s *commandService) Assign(_ context.Context, command workapp.AssignCommand) (workdomain.Item, error) {
 	s.assign = command
+	return s.item, s.err
+}
+func (s *commandService) AttachProvenance(_ context.Context, command workapp.AttachProvenanceCommand) (workdomain.Item, error) {
+	s.provenance = command
+	return s.item, s.err
+}
+func (s *commandService) LinkConversation(_ context.Context, command workapp.LinkConversationCommand) (workdomain.Item, error) {
+	s.conversation = command
 	return s.item, s.err
 }
 

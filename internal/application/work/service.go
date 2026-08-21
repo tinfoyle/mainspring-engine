@@ -57,6 +57,7 @@ type Mutation struct {
 	Actor         workdomain.Actor
 	Reason        string
 	CorrelationID string
+	ReferenceKind string
 	At            time.Time
 }
 
@@ -66,6 +67,8 @@ const (
 	MutationCreated      MutationKind = "created"
 	MutationTransitioned MutationKind = "transitioned"
 	MutationAssigned     MutationKind = "assigned"
+	MutationProvenance   MutationKind = "provenance_attached"
+	MutationConversation MutationKind = "conversation_linked"
 )
 
 type ListQuery struct {
@@ -265,6 +268,67 @@ func (s *Service) Assign(ctx context.Context, command AssignCommand) (workdomain
 		return workdomain.Item{}, err
 	}
 	return s.repository.Update(ctx, updated, item.Version, Mutation{Kind: MutationAssigned, Actor: domainActor(command.Actor), Reason: strings.TrimSpace(command.Reason), CorrelationID: command.CorrelationID, At: now})
+}
+
+type AttachProvenanceCommand struct {
+	Actor           access.Actor
+	AccountID       ids.AccountID
+	WorkItemID      ids.WorkItemID
+	Kind            workdomain.ProvenanceLinkKind
+	ReferenceID     string
+	ExpectedVersion uint64
+	Reason          string
+	CorrelationID   string
+}
+
+func (s *Service) AttachProvenance(ctx context.Context, command AttachProvenanceCommand) (workdomain.Item, error) {
+	if command.WorkItemID == "" || command.ExpectedVersion == 0 || strings.TrimSpace(command.CorrelationID) == "" || !command.Actor.Valid() {
+		return workdomain.Item{}, ErrInvalidCommand
+	}
+	accountContext, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Package: PackageCode, Mutation: true})
+	if err != nil {
+		return workdomain.Item{}, err
+	}
+	item, err := s.repository.Get(ctx, command.AccountID, command.WorkItemID)
+	if err != nil {
+		return workdomain.Item{}, err
+	}
+	now := s.clock.Now().UTC()
+	updated, err := item.AttachProvenance(workdomain.ProvenanceLinkCommand{Kind: command.Kind, ReferenceID: command.ReferenceID, Role: accountContext.Role, Actor: domainActor(command.Actor), ExpectedVersion: command.ExpectedVersion, At: now})
+	if err != nil {
+		return workdomain.Item{}, err
+	}
+	return s.repository.Update(ctx, updated, item.Version, Mutation{Kind: MutationProvenance, Actor: domainActor(command.Actor), Reason: strings.TrimSpace(command.Reason), CorrelationID: command.CorrelationID, ReferenceKind: string(command.Kind), At: now})
+}
+
+type LinkConversationCommand struct {
+	Actor           access.Actor
+	AccountID       ids.AccountID
+	WorkItemID      ids.WorkItemID
+	ConversationID  string
+	ExpectedVersion uint64
+	Reason          string
+	CorrelationID   string
+}
+
+func (s *Service) LinkConversation(ctx context.Context, command LinkConversationCommand) (workdomain.Item, error) {
+	if command.WorkItemID == "" || command.ExpectedVersion == 0 || strings.TrimSpace(command.CorrelationID) == "" || !command.Actor.Valid() {
+		return workdomain.Item{}, ErrInvalidCommand
+	}
+	accountContext, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Package: PackageCode, Mutation: true})
+	if err != nil {
+		return workdomain.Item{}, err
+	}
+	item, err := s.repository.Get(ctx, command.AccountID, command.WorkItemID)
+	if err != nil {
+		return workdomain.Item{}, err
+	}
+	now := s.clock.Now().UTC()
+	updated, err := item.LinkConversation(workdomain.ConversationLinkCommand{ConversationID: command.ConversationID, Role: accountContext.Role, Actor: domainActor(command.Actor), ExpectedVersion: command.ExpectedVersion, At: now})
+	if err != nil {
+		return workdomain.Item{}, err
+	}
+	return s.repository.Update(ctx, updated, item.Version, Mutation{Kind: MutationConversation, Actor: domainActor(command.Actor), Reason: strings.TrimSpace(command.Reason), CorrelationID: command.CorrelationID, ReferenceKind: "conversation", At: now})
 }
 
 func (s *Service) List(ctx context.Context, actor access.Actor, accountID ids.AccountID, query ListQuery) (Page, error) {

@@ -1,6 +1,6 @@
 # Work module production design
 
-Status: domain, command/query application boundaries, cell schema, PostgreSQL adapter, signed read/command transport, internal global admission broker, queue/detail/create/lifecycle browser surface, and durable capacity-release reconciler implemented.
+Status: domain, command/query application boundaries, cell schema, PostgreSQL adapter, signed read/command transport, Persona assignment and additive provenance/Conversation commands, internal global admission broker, queue/detail/create/lifecycle browser surface, and durable capacity-release reconciler implemented.
 
 ## Purpose
 
@@ -54,7 +54,7 @@ Assignment is exactly one of:
 - `shared`: no individual assignee; the Account queue owns it.
 - `external`: a 2–200 character reference, without pretending the external party is a Spyglass identity.
 
-Creation provenance has one primary source: manual, system, baseline, schedule, conversation, or run. Source-specific creation requires its corresponding UUID. Other provenance links may be added later without rewriting the historical creation source.
+Creation provenance has one primary source: manual, system, baseline, schedule, conversation, or run. Source-specific creation requires its corresponding UUID. Later commands may add one immutable Baseline requirement, Schedule, Run, and Account-owned Conversation reference without rewriting the historical creation source or actor. Conversation and Run links have composite Account foreign keys today; Baseline and Schedule receive equivalent keys when their owning Phase 3 schemas land.
 
 Parent is immutable in the initial release. A new child must reference a visible parent in the same Account and may not exceed depth three. Because a new UUID can only point to an already-persisted parent and parent cannot later move, cycles are impossible through public commands. The database independently verifies parent depth and the composite Account relationship.
 
@@ -76,7 +76,7 @@ Every update uses `WHERE account_id = ? AND id = ? AND version = ?`. The winning
 
 ## Package and capacity admission
 
-All Work reads require the Work package. Create, assign, and transition require Work mutation access. Creation reserves one governed `work.active_items` unit in the global control database using the caller's UUID request as both the idempotency identity and Work item ID. The cell create is idempotent for the exact same draft and rejects reuse with different content.
+All Work reads require the Work package. Create, assign, transition, provenance attachment, and Conversation linking require Work mutation access. Creation reserves one governed `work.active_items` unit in the global control database using the caller's UUID request as both the idempotency identity and Work item ID. The cell create is idempotent for the exact same draft and rejects reuse with different content.
 
 This is intentionally not represented as a distributed transaction:
 
@@ -103,7 +103,7 @@ The cell migration adds:
 
 - `work_item_number_counters`: one locked counter row per Account.
 - `work_items`: the aggregate with composite keys, checks, forced RLS, queue/child/state/assignment indexes, and pending-release index.
-- `work_item_events`: append-only created, transitioned, and assigned facts with actor, versions, correlation, reason, and redacted payload.
+- `work_item_events`: append-only created, transitioned, assigned, provenance-attached, and Conversation-linked facts with actor, versions, correlation, reason, and identifier-free redacted payload.
 - `work_capacity_release_queue`: identifier-only leased technical outbox, retry/dead-letter state, and completion checkpoint; it contains no title, description, assignment, provenance, or other customer content.
 - `work_capacity_release_operator_events`: immutable inspection/requeue evidence retained independently from technical-job cleanup.
 
@@ -121,9 +121,11 @@ GET /api/v1/accounts/{accountID}/work-items/{itemID}/children
 POST /api/v1/accounts/{accountID}/work-items
 POST /api/v1/accounts/{accountID}/work-items/{itemID}/transitions
 PATCH /api/v1/accounts/{accountID}/work-items/{itemID}/assignment
+POST /api/v1/accounts/{accountID}/work-items/{itemID}/provenance-links
+POST /api/v1/accounts/{accountID}/work-items/{itemID}/conversation-links
 ```
 
-List filters accept repeated known `state` and `kind` values, one bounded search term, one page limit, and one opaque versioned cursor. Detail and command responses emit a weak ETag from the aggregate version. Every mutation requires a UUID Idempotency-Key; transition and assignment also require the current weak ETag through `If-Match`. Manual creation derives provenance and actor server-side. Interactive assignment supports shared, self, active published Persona, or external responsibility. Persona references use a composite Account foreign key, and each new Persona assignment is accepted only while its Persona and Boardroom are active and its latest immutable version exists. Explicit response DTOs exclude capacity reservation and release bookkeeping.
+List filters accept repeated known `state` and `kind` values, one bounded search term, one page limit, and one opaque versioned cursor. Detail and command responses emit a weak ETag from the aggregate version. Every mutation requires a UUID Idempotency-Key; every existing-item mutation also requires the current weak ETag through `If-Match`. Manual creation derives provenance and actor server-side. Interactive assignment supports shared, self, active published Persona, or external responsibility. Persona references use a composite Account foreign key, and each new Persona assignment is accepted only while its Persona and Boardroom are active and its latest immutable version exists. Provenance and Conversation links are additive and cannot replace an existing reference. Explicit response DTOs exclude capacity reservation and release bookkeeping.
 
 ## Product surface plan
 
@@ -141,13 +143,12 @@ Enabled Accounts now receive a prototype-informed New Work dialog and lifecycle 
 
 1. Add applied ingress endpoint-removal, managed database, and sustained admission-outage exercises to the directory-routed, workload-authenticated boundary described in [routing-boundary.md](routing-boundary.md). Stateless router handoff, shared cell-replica replay defense, same-cell Service connection recovery, idempotent admission connection recovery, the two-cell placement/move/attack/outage contract, and candidate key/certificate canaries are implemented; admission API remains private.
 2. Add assignment editing, inline reason capture, preserved create drafts across navigation, and accessible command announcements.
-3. Add provenance attachment and conversation-link commands, transactional events, and authorization tests.
-4. Add representative query-plan fixtures, pagination property tests, and concurrent completion/assignment stress; the two-cell cross-Account route attack fixture is implemented.
-5. Characterize and migrate prototype Work data Account by Account; verify numbers, hierarchy, state, assignment, provenance, and active-capacity reconciliation before switching traffic.
-6. Add Attention concepts—human input, review, approval, and external action—as separate aggregates that reference Work rather than expanding Work into another catch-all store.
+3. Add representative query-plan fixtures, pagination property tests, and concurrent completion/assignment stress; the two-cell cross-Account route attack fixture is implemented.
+4. Characterize and migrate prototype Work data Account by Account; verify numbers, hierarchy, state, assignment, provenance, and active-capacity reconciliation before switching traffic.
+5. Add Attention concepts—human input, review, approval, and external action—as separate aggregates that reference Work rather than expanding Work into another catch-all store.
 
 ## Current evidence and limits
 
 Table-driven domain tests cover every state/role pair and reject invalid construction, stale versions, and missing reasons. Application tests cover role denial, fresh versus replayed capacity admission, definitive rollback compensation, ambiguous cell outcomes, payload conflicts, and deferred terminal release. The disposable PostgreSQL 17 contract applies every migration twice, runs the global admission broker and cell repository through different non-owner roles, proves neither can read the other's data, creates Work through the HTTP broker, compensates a rejected parent, proves guessed cross-Account Work IDs are invisible, exercises Account-local summary/list queries, and proves a stale writer loses after a competing transition.
 
-Signed Account-scoped reads and commands now run through app-router and cell app-api over TLS 1.3 workload-authenticated hops. The browser shell renders locked/read-only package states and only exposes creation/lifecycle controls for enabled Work. Transport tests cover header/body binding, workload identity, candidate route-key and overlapping-CA rotation, fresh-proof same-cell connection retry, stable mutation idempotency across that retry, idempotent admission retry, required operation keys, malformed filters and commands, safe DTO fields, cross-Account paths, package authority, assignment spoofing, Persona assignment, ETags, and conflict responses. Repository and migration tests prove the composite Account/Persona foreign key, active published assignment policy, rejection of missing, inactive, unpublished, archived-Boardroom and cross-Account Personas, continued lifecycle updates after later Persona retirement, and exact Account erasure with an assigned Persona. Reconciliation tests prove atomic terminal enqueue, idempotent global release, lease exclusion/reclaim, stale-lease rejection, synchronous checkpoint completion, least-privilege role separation, reopen-before-old-release safety, execute-only audited dead-letter inspection/requeue, and completed-job pruning with audit preservation. The three-database routing contract proves system-wide session continuity across independent routers, shared replay defense across cell API replicas, two-cell physical placement, safe movement through the surviving router, attack denial, two bounded attempts against an unavailable assigned cell, and refusal to guess a fallback cell. Representative-scale query plans, complete command accessibility, managed database/sustained-service failover evidence, and an applied Kubernetes environment remain.
+Signed Account-scoped reads and commands now run through app-router and cell app-api over TLS 1.3 workload-authenticated hops. The browser shell renders locked/read-only package states and only exposes creation/lifecycle controls for enabled Work. Transport tests cover header/body binding, workload identity, candidate route-key and overlapping-CA rotation, fresh-proof same-cell connection retry, stable mutation idempotency across that retry, idempotent admission retry, required operation keys, malformed filters and commands, safe DTO fields, cross-Account paths, package authority, assignment spoofing, Persona assignment, provenance and Conversation linking, ETags, and conflict responses. Repository and migration tests prove the composite Account/Persona/Conversation/Run foreign keys, active published assignment policy, rejection of missing, inactive, unpublished, archived-Boardroom and cross-Account Personas, rejection of missing/cross-Account Conversation and Run links, immutable additive references, identifier-free typed events, continued lifecycle updates after later Persona retirement, and exact Account erasure with assigned and linked Agent data. Reconciliation tests prove atomic terminal enqueue, idempotent global release, lease exclusion/reclaim, stale-lease rejection, synchronous checkpoint completion, least-privilege role separation, reopen-before-old-release safety, execute-only audited dead-letter inspection/requeue, and completed-job pruning with audit preservation. The three-database routing contract proves system-wide session continuity across independent routers, shared replay defense across cell API replicas, two-cell physical placement, safe movement through the surviving router, attack denial, two bounded attempts against an unavailable assigned cell, and refusal to guess a fallback cell. Representative-scale query plans, complete command accessibility, managed database/sustained-service failover evidence, and an applied Kubernetes environment remain.

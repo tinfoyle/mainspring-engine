@@ -67,5 +67,7 @@ var Routes = [...]Route{
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/runs", OperationID: "agentRunStart", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/agent-runs/{runID}/resolutions", OperationID: "agentRunResolve", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/work-items", OperationID: "workCreate", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/work-items/{itemID}/conversation-links", OperationID: "workLinkConversation", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/work-items/{itemID}/provenance-links", OperationID: "workAttachProvenance", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/work-items/{itemID}/transitions", OperationID: "workTransition", Authentication: "sessionCookie", Contract: "typed"},
 }
