@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: tool-router, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  minReadySeconds: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app.kubernetes.io/name: tool-router}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: tool-router, app.kubernetes.io/part-of: spyglass}
+    spec:
+      serviceAccountName: app-router
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: tool-router}
+        - maxSkew: 1
+          minDomains: 2
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: tool-router}
+      containers:
+        - name: tool-router
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [tool-router]
+          ports: [{name: https, containerPort: 8443}]
+          env:
+            - {name: SPYGLASS_HTTP_ADDRESS, value: ":8443"}
+            - {name: SPYGLASS_DIRECTORY_CACHE_TTL, value: "30s"}
+            - {name: SPYGLASS_DIRECTORY_CACHE_CAPACITY, value: "10000"}
+            - {name: SPYGLASS_WORKLOAD_CERT_FILE, value: "/var/run/secrets/spyglass/workload/tls.crt"}
+            - {name: SPYGLASS_WORKLOAD_KEY_FILE, value: "/var/run/secrets/spyglass/workload/tls.key"}
+            - {name: SPYGLASS_WORKLOAD_CA_FILE, value: "/var/run/secrets/spyglass/workload/ca.crt"}
+            - {name: SPYGLASS_WORKLOAD_CLIENT_IDENTITIES, value: "spiffe://infiniteocean.net/spyglass/cells/reference/runner-broker"}
+          envFrom:
+            - configMapRef: {name: spyglass-global-runtime}
+            - secretRef: {name: spyglass-tool-router-secrets}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: workload-tls, mountPath: /var/run/secrets/spyglass/workload, readOnly: true}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: https, scheme: HTTPS}, periodSeconds: 5}
+          startupProbe: {httpGet: {path: /health/live, port: https, scheme: HTTPS}, periodSeconds: 2, failureThreshold: 30}
+          livenessProbe: {httpGet: {path: /health/live, port: https, scheme: HTTPS}, periodSeconds: 15}
+      volumes:
+        - name: workload-tls
+          secret: {secretName: spyglass-tool-router-workload-tls}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: tool-router, namespace: spyglass-reference}
+spec:
+  selector: {app.kubernetes.io/name: tool-router}
+  ports: [{name: https, port: 443, targetPort: https}]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: tool-router, namespace: spyglass-reference}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: tool-router}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: tool-router, namespace: spyglass-reference}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: tool-router}
+  minReplicas: 2
+  maxReplicas: 20
+  behavior:
+    scaleDown: {stabilizationWindowSeconds: 300}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 60}

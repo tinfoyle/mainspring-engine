@@ -9,7 +9,7 @@ data:
   admission_origin: https://admission-api.spyglass-preproduction.svc.cluster.local
   broker_a_origin: https://runner-broker-cell-a.spyglass-preproduction.svc.cluster.local
   broker_b_origin: https://runner-broker-cell-b.spyglass-preproduction.svc.cluster.local
-  tool_origin: http://app-router.spyglass-preproduction.svc.cluster.local
+  tool_origin: https://tool-router.spyglass-preproduction.svc.cluster.local
   model_origin: https://model-gateway.spyglass-preproduction.svc.cluster.local
 ---
 apiVersion: v1

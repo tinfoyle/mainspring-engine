@@ -13,13 +13,23 @@ case "$release_file" in "$repository_root"/deploy/releases/*.env) ;; *) echo "re
 git -C "$repository_root" ls-files --error-unmatch "${release_file#"$repository_root/"}" >/dev/null
 case "$(stat -c %a "$env_file")" in 400|600) ;; *) echo "stage env must be mode 400 or 600" >&2; exit 1;; esac
 
-value() { sed -n "s/^$1=//p" "$env_file"; }
-release_value() { sed -n "s/^$1=//p" "$release_file"; }
+value() {
+  local count
+  count="$(grep -c "^$1=" "$env_file" || true)"
+  test "$count" = 1 || { echo "$1 must occur exactly once in stage env" >&2; exit 1; }
+  sed -n "s/^$1=//p" "$env_file"
+}
+release_value() {
+  local count
+  count="$(grep -c "^$1=" "$release_file" || true)"
+  test "$count" = 1 || { echo "$1 must occur exactly once in release env" >&2; exit 1; }
+  sed -n "s/^$1=//p" "$release_file"
+}
 digest='^ghcr\.io/tinfoyle/[a-z0-9._-]+@sha256:[0-9a-f]{64}$'
 for name in SPYGLASS_APPLICATION_IMAGE SPYGLASS_WEBSITE_IMAGE; do
   candidate="$(release_value "$name")"
   [[ "$candidate" =~ $digest ]] || { echo "$name must be an exact tinfoyle GHCR digest" >&2; exit 1; }
-  test -z "$(value "$name")" || { echo "$name must come only from the reviewed release file" >&2; exit 1; }
+  ! grep -q "^$name=" "$env_file" || { echo "$name must come only from the reviewed release file" >&2; exit 1; }
 done
 [[ "$(release_value SPYGLASS_RELEASE_VERSION)" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "release version is invalid" >&2; exit 1; }
 [[ "$(release_value SPYGLASS_RELEASE_REVISION)" =~ ^[0-9a-f]{40}$ ]] || { echo "release revision is invalid" >&2; exit 1; }
@@ -28,25 +38,141 @@ if grep -Eq '(^|[=:])REPLACE([_A-Z0-9-]*)([[:space:]]|$)' "$release_file" "$env_
   exit 1
 fi
 test "$(value SPYGLASS_PROCESS_ENV)" != development || { echo "stage cannot use development mode" >&2; exit 1; }
+test "$(value SPYGLASS_ENVIRONMENT)" = stage || { echo "stage environment must be stage" >&2; exit 1; }
 test "$(value SPYGLASS_STRIPE_MODE)" = test || { echo "stage must use Stripe test mode" >&2; exit 1; }
+[[ "$(value SPYGLASS_STRIPE_SECRET_KEY)" =~ ^sk_test_ ]] || { echo "stage Stripe key must be a test key" >&2; exit 1; }
 
 secret_dir="$(value SPYGLASS_STAGE_SECRETS_DIRECTORY)"
 test "${secret_dir#/}" != "$secret_dir" || { echo "stage secrets directory must be absolute" >&2; exit 1; }
-for workload in admission-api app-router app-api-a app-api-b; do
+test -s "$secret_dir/workload-ca/ca.crt" || { echo "stage workload CA is missing" >&2; exit 1; }
+test ! -e "$secret_dir/workload-ca/ca.key" || { echo "stage workload CA private key must not remain in deployable secrets" >&2; exit 1; }
+
+declare -A dns uri usage
+dns[admission-api]=admission-api
+dns[app-router]=''
+dns[app-api-a]=app-api-a
+dns[app-api-b]=app-api-b
+dns[tool-router]=tool-router
+dns[runner-controller-a]=''
+dns[runner-controller-b]=''
+dns[runner-broker-a]=runner-broker-a
+dns[runner-broker-b]=runner-broker-b
+dns[docker-runner-launcher-a]=docker-runner-launcher-a
+dns[docker-runner-launcher-b]=docker-runner-launcher-b
+dns[model-gateway]=model-gateway
+uri[admission-api]='spiffe://infiniteocean.net/spyglass/workloads/admission-api'
+uri[app-router]='spiffe://infiniteocean.net/spyglass/workloads/app-router'
+uri[app-api-a]='spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api'
+uri[app-api-b]='spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api'
+uri[tool-router]='spiffe://infiniteocean.net/spyglass/workloads/app-router'
+uri[runner-controller-a]='spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-controller'
+uri[runner-controller-b]='spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-controller'
+uri[runner-broker-a]='spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-broker'
+uri[runner-broker-b]='spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-broker'
+uri[docker-runner-launcher-a]='spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/docker-runner-launcher'
+uri[docker-runner-launcher-b]='spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/docker-runner-launcher'
+uri[model-gateway]='spiffe://infiniteocean.net/spyglass/workloads/model-gateway'
+usage[admission-api]=server
+usage[app-router]=client
+usage[app-api-a]=both
+usage[app-api-b]=both
+usage[tool-router]=both
+usage[runner-controller-a]=client
+usage[runner-controller-b]=client
+usage[runner-broker-a]=both
+usage[runner-broker-b]=both
+usage[docker-runner-launcher-a]=server
+usage[docker-runner-launcher-b]=server
+usage[model-gateway]=server
+
+for workload in admission-api app-router app-api-a app-api-b tool-router runner-controller-a runner-controller-b runner-broker-a runner-broker-b docker-runner-launcher-a docker-runner-launcher-b model-gateway; do
   for file in ca.crt tls.crt tls.key; do
     test -s "$secret_dir/workload/$workload/$file" || { echo "missing workload identity: $workload/$file" >&2; exit 1; }
   done
   case "$(stat -c %a "$secret_dir/workload/$workload/tls.key")" in 400|600) ;; *) echo "$workload private key must be mode 400 or 600" >&2; exit 1;; esac
+  cmp -s "$secret_dir/workload-ca/ca.crt" "$secret_dir/workload/$workload/ca.crt" || { echo "$workload trust bundle does not match the stage CA" >&2; exit 1; }
+  openssl verify -CAfile "$secret_dir/workload/$workload/ca.crt" "$secret_dir/workload/$workload/tls.crt" >/dev/null || { echo "$workload certificate chain is invalid" >&2; exit 1; }
+  openssl x509 -checkend 604800 -noout -in "$secret_dir/workload/$workload/tls.crt" >/dev/null || { echo "$workload certificate expires within seven days" >&2; exit 1; }
+  cert_key="$(openssl x509 -in "$secret_dir/workload/$workload/tls.crt" -pubkey -noout | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
+  private_key="$(openssl pkey -in "$secret_dir/workload/$workload/tls.key" -pubout -outform DER 2>/dev/null | sha256sum | cut -d' ' -f1)"
+  test "$cert_key" = "$private_key" || { echo "$workload certificate and private key do not match" >&2; exit 1; }
+  certificate="$(openssl x509 -in "$secret_dir/workload/$workload/tls.crt" -noout -text)"
+  grep -Fq "URI:${uri[$workload]}" <<<"$certificate" || { echo "$workload certificate has the wrong SPIFFE identity" >&2; exit 1; }
+  if test -n "${dns[$workload]}"; then
+    grep -Fq "DNS:${dns[$workload]}" <<<"$certificate" || { echo "$workload certificate has the wrong DNS identity" >&2; exit 1; }
+    openssl verify -CAfile "$secret_dir/workload/$workload/ca.crt" -verify_hostname "${dns[$workload]}" "$secret_dir/workload/$workload/tls.crt" >/dev/null || { echo "$workload DNS verification failed" >&2; exit 1; }
+  fi
+  case "${usage[$workload]}" in
+    server) grep -Fq 'TLS Web Server Authentication' <<<"$certificate" && ! grep -Fq 'TLS Web Client Authentication' <<<"$certificate" ;;
+    client) grep -Fq 'TLS Web Client Authentication' <<<"$certificate" && ! grep -Fq 'TLS Web Server Authentication' <<<"$certificate" ;;
+    both) grep -Fq 'TLS Web Server Authentication' <<<"$certificate" && grep -Fq 'TLS Web Client Authentication' <<<"$certificate" ;;
+  esac || { echo "$workload certificate has the wrong extended key usage" >&2; exit 1; }
+done
+for identity_dir in runner-identities-a runner-identities-b; do
+  test -d "$secret_dir/$identity_dir" || { echo "missing runner identity directory: $identity_dir" >&2; exit 1; }
 done
 
 network="$(value SPYGLASS_HOST_EDGE_NETWORK)"
 docker network inspect "$network" >/dev/null
 rendered="$(mktemp)"
 trap 'rm -f "$rendered"' EXIT
-docker compose --project-name spyglass-stage --env-file "$release_file" --env-file "$env_file" --file "$stack_dir/compose.yml" --file "$stack_dir/compose.stage.yml" config >"$rendered"
-if grep -Eq 'published: (80|443)$|image: .+:latest([[:space:]]|$)' "$rendered"; then
-  echo "stage render attempts to own public ports or uses a mutable image" >&2
-  exit 1
-fi
-grep -Fq "name: $network" "$rendered"
+docker compose --project-name spyglass-stage --env-file "$release_file" --env-file "$env_file" --file "$stack_dir/compose.yml" --file "$stack_dir/compose.stage.yml" --file "$stack_dir/compose.stage-runner.yml" config --format json >"$rendered"
+python3 - "$rendered" "$network" "$(release_value SPYGLASS_APPLICATION_IMAGE)" "$(release_value SPYGLASS_WEBSITE_IMAGE)" <<'PY'
+import json
+import sys
+
+path, edge_network, application_image, website_image = sys.argv[1:]
+with open(path, encoding="utf-8") as source:
+    config = json.load(source)
+services = config["services"]
+required = {
+    "tool-router", "runner-controller-a", "runner-controller-b",
+    "runner-broker-a", "runner-broker-b", "docker-runner-launcher-a",
+    "docker-runner-launcher-b", "model-gateway",
+}
+missing = sorted(required - services.keys())
+if missing:
+    raise SystemExit(f"stage runner topology is incomplete: {', '.join(missing)}")
+for name, service in services.items():
+    image = service.get("image", "")
+    if "@sha256:" not in image:
+        raise SystemExit(f"{name} does not use an immutable image digest")
+    for port in service.get("ports", []):
+        if str(port.get("published", "")) in {"80", "443"}:
+            raise SystemExit(f"{name} attempts to publish public port {port['published']}")
+socket_holders = set()
+for name, service in services.items():
+    for volume in service.get("volumes", []):
+        if volume.get("source") == "/var/run/docker.sock" or volume.get("target") == "/var/run/docker.sock":
+            socket_holders.add(name)
+if socket_holders != {"docker-runner-launcher-a", "docker-runner-launcher-b"}:
+    raise SystemExit(f"unexpected Docker socket holders: {sorted(socket_holders)}")
+if services["website"]["image"] != website_image:
+    raise SystemExit("website image does not match the release file")
+for name in required:
+    if services[name]["image"] != application_image:
+        raise SystemExit(f"{name} image does not match the application release digest")
+for name in ("runner-broker-a", "runner-broker-b"):
+    if services[name]["environment"].get("SPYGLASS_TOOL_ROUTER_ORIGIN") != "https://tool-router:8443":
+        raise SystemExit(f"{name} does not use the workload-mTLS tool router")
+provider_members = {
+    name for name, service in services.items()
+    if "provider-egress" in service.get("networks", {})
+}
+if provider_members != {"account-api", "billing-worker", "notification-worker", "model-gateway"}:
+    raise SystemExit(f"provider egress membership is not least-authority: {sorted(provider_members)}")
+for suffix in ("a", "b"):
+    network_name = f"runner-{suffix}-egress"
+    if not config["networks"][network_name].get("internal"):
+        raise SystemExit(f"{network_name} must be internal")
+    members = {
+        name for name, service in services.items()
+        if network_name in service.get("networks", {})
+    }
+    expected = {f"runner-broker-{suffix}", f"docker-runner-launcher-{suffix}"}
+    if members != expected:
+        raise SystemExit(f"{network_name} membership is invalid: {sorted(members)}")
+if config["networks"]["host-edge"].get("name") != edge_network:
+    raise SystemExit("stage host edge network does not match the reviewed secret file")
+PY
 echo "stage configuration verified"

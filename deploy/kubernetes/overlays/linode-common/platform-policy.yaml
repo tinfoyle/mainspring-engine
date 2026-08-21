@@ -55,6 +55,7 @@ spec:
           - account-lifecycle-worker
           - admission-api
           - app-router
+          - tool-router
           - billing-worker
           - entitlement-worker
           - identity-maintenance-worker
@@ -85,6 +86,7 @@ spec:
                   - account-lifecycle-worker
                   - admission-api
                   - app-router
+                  - tool-router
                   - billing-worker
                   - entitlement-worker
                   - identity-maintenance-worker

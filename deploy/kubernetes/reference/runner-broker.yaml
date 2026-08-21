@@ -42,7 +42,7 @@ spec:
             - {name: SPYGLASS_RUNNER_SERVICE_ACCOUNT, value: "runner"}
             - {name: SPYGLASS_RUNNER_BROKER_URL, value: "https://runner-broker-cell-reference.spyglass-reference.svc.cluster.local"}
             - {name: SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES, value: "2097152"}
-            - {name: SPYGLASS_TOOL_ROUTER_ORIGIN, value: "http://app-router.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_TOOL_ROUTER_ORIGIN, value: "https://tool-router.spyglass-reference.svc.cluster.local"}
             - {name: SPYGLASS_MODEL_GATEWAY_ORIGIN, value: "https://model-gateway.spyglass-reference.svc.cluster.local"}
             - {name: SPYGLASS_TOOL_CONTEXT_ISSUER, value: "spyglass-runner-broker"}
             - {name: SPYGLASS_TOOL_CONTEXT_TTL, value: "10s"}

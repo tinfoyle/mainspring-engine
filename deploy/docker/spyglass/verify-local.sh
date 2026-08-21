@@ -51,8 +51,8 @@ test "$runtime_role_count" = "8"
 for database in cell-a-db cell-b-db; do
   cell_runtime_role_count="$("${compose[@]}" exec --no-TTY "$database" psql \
     --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
-    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_app_api','spyglass_route_receipt_worker','spyglass_work_reconciler','spyglass_agent_dispatch_worker','spyglass_agent_projection_worker') AND NOT rolsuper AND NOT rolbypassrls")"
-  test "$cell_runtime_role_count" = "5"
+    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_app_api','spyglass_route_receipt_worker','spyglass_work_reconciler','spyglass_agent_dispatch_worker','spyglass_agent_projection_worker','spyglass_runner_controller','spyglass_runner_broker') AND NOT rolsuper AND NOT rolbypassrls")"
+  test "$cell_runtime_role_count" = "7"
 done
 
 assert_role_denied() {
@@ -74,6 +74,9 @@ for database in cell-a-db cell-b-db; do
   assert_role_denied "$database" spyglass_work_reconciler 'SELECT count(*) FROM spyglass.agent_invocations'
   assert_role_denied "$database" spyglass_agent_dispatch_worker 'SELECT count(*) FROM spyglass.work_items'
   assert_role_denied "$database" spyglass_agent_projection_worker 'SELECT count(*) FROM spyglass.work_items'
+  assert_role_denied "$database" spyglass_runner_controller 'SELECT count(*) FROM spyglass.work_items'
+  assert_role_denied "$database" spyglass_runner_controller 'SELECT count(*) FROM spyglass.runner_invocation_exchanges'
+  assert_role_denied "$database" spyglass_runner_broker 'SELECT count(*) FROM spyglass.runner_invocation_exchanges'
 done
 
 curl --fail --silent --show-error "http://127.0.0.1:${mailpit_port}/readyz" >/dev/null

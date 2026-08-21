@@ -15,16 +15,32 @@ Preparation placed a clean detached checkout of `d853100af3807665f16161d5bb72ad4
 
 ## Files kept outside Git
 
-Create `/opt/spyglass-stage/secrets/stage.env` with mode `600` from `env/stage.example`. Generate independent random database-role passwords and cryptographic keys; do not reuse local fixtures. Create these workload identity directories with a shared stage CA and exact DNS/SPIFFE SANs:
+Copy `env/stage.providers.example` to a mode-600 provider input outside both Git and the generated secret set, replace every `REPLACE` value with Stripe test, TLS SMTP and non-production OpenAI values, then create an immutable versioned secret set:
 
-```text
-/opt/spyglass-stage/secrets/workload/admission-api/{ca.crt,tls.crt,tls.key}
-/opt/spyglass-stage/secrets/workload/app-router/{ca.crt,tls.crt,tls.key}
-/opt/spyglass-stage/secrets/workload/app-api-a/{ca.crt,tls.crt,tls.key}
-/opt/spyglass-stage/secrets/workload/app-api-b/{ca.crt,tls.crt,tls.key}
+```bash
+install -d -m 700 /opt/spyglass-stage/provider-input /opt/spyglass-stage/secrets
+install -m 600 env/stage.providers.example /opt/spyglass-stage/provider-input/stage.providers.env
+# Edit the provider input without printing it to logs.
+secret_set=/opt/spyglass-stage/secrets/2026-08-20-01
+./prepare-stage-secrets.sh \
+  /opt/spyglass-stage/provider-input/stage.providers.env \
+  "$secret_set" \
+  infiniteocean_public
 ```
 
-Private keys are mode `400` or `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The deployment refuses `REPLACE`, development mode, mutable images, an absent external edge network, missing workload identities, or a public 80/443 binding.
+`prepare-stage-secrets.sh` reads the provider file as data, generates independent database passwords, per-cell runner encryption/signing keys, disjoint launcher tokens and a mode-600 `stage.env`, and refuses a non-empty target. It creates a temporary stage CA, issues exact DNS/SPIFFE/EKU leaves, then removes the CA private key. A new versioned target is required for rotation; an existing secret set is never edited in place. The generated tree contains:
+
+```text
+<secret-set>/workload-ca/ca.crt
+<secret-set>/workload/{admission-api,app-router,app-api-a,app-api-b,tool-router}/{ca.crt,tls.crt,tls.key}
+<secret-set>/workload/{runner-controller-a,runner-controller-b}/{ca.crt,tls.crt,tls.key}
+<secret-set>/workload/{runner-broker-a,runner-broker-b}/{ca.crt,tls.crt,tls.key}
+<secret-set>/workload/{docker-runner-launcher-a,docker-runner-launcher-b,model-gateway}/{ca.crt,tls.crt,tls.key}
+<secret-set>/{runner-identities-a,runner-identities-b}/
+<secret-set>/stage.env
+```
+
+Private keys are mode `400` or `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The verifier checks certificate chains, key matches, seven-day minimum lifetime, exact DNS/SPIFFE/EKU contracts, immutable images, complete two-cell runner topology, provider-egress membership, internal runner networks, Docker socket ownership and absence of public port bindings.
 
 ## Deployment
 
@@ -33,8 +49,9 @@ From a clean checkout on the VPS:
 ```bash
 cd deploy/docker/spyglass
 release_file="$(realpath ../../releases/0.2.5-rc.2.env)"
-./verify-stage.sh "$release_file" /opt/spyglass-stage/secrets/stage.env
-./deploy-stage.sh "$release_file" /opt/spyglass-stage/secrets/stage.env
+secret_set=/opt/spyglass-stage/secrets/2026-08-20-01
+./verify-stage.sh "$release_file" "$secret_set/stage.env"
+./deploy-stage.sh "$release_file" "$secret_set/stage.env"
 ```
 
 Before the first `deploy-stage.sh`, merge the reviewed host snippet into `/opt/infiniteocean/caddy/Caddyfile`, run `docker exec infiniteocean-caddy-1 caddy validate --config /etc/caddy/Caddyfile`, and reload the existing Caddy only after validation. DNS for both names must resolve to the VPS. This is an explicit host-owner operation because the file also serves unrelated Infinite Ocean applications.

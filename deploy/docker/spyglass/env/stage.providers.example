@@ -1,0 +1,12 @@
+# Copy outside the checkout, set mode 600, and replace every REPLACE value.
+# prepare-stage-secrets.sh reads this as data; it never sources it as shell code.
+SPYGLASS_STRIPE_WEBHOOK_SECRET=whsec_REPLACE
+SPYGLASS_STRIPE_SECRET_KEY=sk_test_REPLACE
+SPYGLASS_SMTP_ADDRESS=mail.infiniteocean.net:465
+SPYGLASS_SMTP_SERVER_NAME=mail.infiniteocean.net
+SPYGLASS_SMTP_USERNAME=REPLACE
+SPYGLASS_SMTP_PASSWORD=REPLACE
+SPYGLASS_SMTP_FROM_ADDRESS=stage@infiniteocean.net
+SPYGLASS_SMTP_FROM_NAME=Infinite Ocean Stage
+SPYGLASS_OPENAI_API_KEY=REPLACE
+SPYGLASS_OPENAI_ORIGIN=https://api.openai.com

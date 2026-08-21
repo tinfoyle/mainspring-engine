@@ -57,6 +57,7 @@ One signed application artifact supports distinct process modes so supply-chain 
 | `website` | Public company/product pages, package discovery, pricing, signup/login entry | Public catalog; no customer business data or payment mutation |
 | `account-api` | Identity, Accounts, Memberships, Catalog, Entitlements, Billing, Account Directory, platform operations | Global control database; no account business-record queries |
 | `app-router` | Authenticate selected Account, resolve its cell, sign route context | Bounded directory cache; no cell data queries |
+| `tool-router` | Authenticate runner brokers with workload mTLS, consume one-use tool context, resolve the cell, sign a least-authority route | Private only; same constrained global router role, no cell data queries |
 | `app-api` | Browser/API/MCP use cases for Accounts assigned to one cell | One cell database, object store, account context; no Kubernetes authority |
 | `admission-api` | Private package-capacity admission for routed cell commands | Narrow global access projection and usage counters/reservations; no cell/business data |
 | `route-receipt-worker` | Bound routed-request replay evidence for one cell | Identifier-only cleanup queue and Account-RLS receipts; no customer Work or global data |

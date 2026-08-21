@@ -4,7 +4,7 @@ These manifests encode Phase 2 workload and security defaults for review. They
 are intentionally not a deployable environment yet: release automation must
 replace `registry.invalid/...:release-placeholder`, inject managed secret
 references and provide environment-specific network/database destinations before promotion. The
-account-api, app-router, cell app-api, private admission-api, per-cell route-receipt
+account-api, app-router, private workload-mTLS tool-router, cell app-api, private admission-api, per-cell route-receipt
 worker, billing-worker, notification-worker, entitlement-worker, Account lifecycle worker, Work reconciler, Agent dispatch/projection workers, runner controller/broker, and model gateway arguments are executable today. The render includes narrow Job/identity RBAC, internal runner/broker/gateway NetworkPolicies, workload-specific service accounts, disruption budgets, and backlog-oriented HPA contracts. It still fails closed as an applied environment until overlays supply the cluster-specific Kubernetes API and managed-service egress, sandbox RuntimeClass, certificates, database roles, provider policy, metrics adapter, and digest-pinned images.
 
 The render also contains a two-replica OpenTelemetry gateway, strict collector-side trace allowlist, initial `PrometheusRule`, and content-free Grafana overview. The third-party Collector image is pinned to an exact official multi-platform digest and its configuration is validated by that exact binary in CI. The base intentionally has no collector backend egress, backend/ingress credential, Prometheus rule selector, authenticated application scrape, dashboard provisioner, or pager route; those remain environment-owned promotion inputs.
@@ -64,7 +64,7 @@ Before an environment overlay may use these resources it must add:
   `spyglass-work-reconciler-restore-checkpoints`,
   `spyglass-observability-runtime`, `spyglass-workload-client-ca`,
   `spyglass-otel-collector-ingress-tls`, `spyglass-otel-collector-backend`,
-  `spyglass-account-api-secrets`, `spyglass-app-router-secrets`,
+  `spyglass-account-api-secrets`, `spyglass-app-router-secrets`, `spyglass-tool-router-secrets`,
   `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,
   `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`,
   `spyglass-entitlement-worker-secrets`, `spyglass-account-lifecycle-worker-secrets`, `spyglass-identity-maintenance-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`,
@@ -96,7 +96,7 @@ Before an environment overlay may use these resources it must add:
 - The runner broker secret carries its constrained cell database credential,
   envelope keyring, and tool-context signing key. The model gateway alone
   receives the OpenAI/provider credential. A certificate controller supplies
-  `spyglass-runner-broker-cell-reference-workload-tls` and
+  `spyglass-runner-broker-cell-reference-workload-tls`, `spyglass-tool-router-workload-tls`, and
   `spyglass-model-gateway-workload-tls`; the broker certificate is also a
   client identity accepted by model-gateway. `spyglass-runner-broker-ca`
   exposes only `ca.crt` to ephemeral Jobs. No private key is mounted into a
@@ -139,8 +139,12 @@ Before an environment overlay may use these resources it must add:
   receives only its cell database credential. Operators populate each cell's
   exact internal HTTPS `route_origin` in the global registry before Account
   placement; route endpoints are no longer copied into every router pod.
+- The tool-router uses the same constrained router database/signing authority in
+  a separate private Deployment. Its TLS server admits only the exact per-cell
+  runner-broker SPIFFE identities before the one-use tool context is consumed;
+  the public ingress never routes to this Service.
 - A certificate controller or secret synchronizer supplies
-  `spyglass-app-router-workload-tls`, the cell-specific
+  `spyglass-app-router-workload-tls`, `spyglass-tool-router-workload-tls`, the cell-specific
   `spyglass-app-api-cell-reference-workload-tls`, and
   `spyglass-admission-api-workload-tls`, each with `tls.crt`, `tls.key`, and
   `ca.crt`. Server certificates contain the exact Service DNS SAN; client

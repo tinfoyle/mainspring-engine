@@ -24,7 +24,8 @@ kind: NetworkPolicy
 metadata: {name: app-router-to-cell-api, namespace: spyglass-reference}
 spec:
   podSelector:
-    matchLabels: {app.kubernetes.io/name: app-router}
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [app-router, tool-router]}
   policyTypes: [Egress]
   egress:
     - to:
@@ -42,7 +43,8 @@ spec:
   ingress:
     - from:
         - podSelector:
-            matchLabels: {app.kubernetes.io/name: app-router}
+            matchExpressions:
+              - {key: app.kubernetes.io/name, operator: In, values: [app-router, tool-router]}
       ports: [{protocol: TCP, port: 8080}]
 ---
 apiVersion: networking.k8s.io/v1
@@ -137,21 +139,21 @@ spec:
   egress:
     - to:
         - podSelector:
-            matchLabels: {app.kubernetes.io/name: app-router}
-      ports: [{protocol: TCP, port: 8080}]
+            matchLabels: {app.kubernetes.io/name: tool-router}
+      ports: [{protocol: TCP, port: 8443}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata: {name: tool-router-from-broker, namespace: spyglass-reference}
 spec:
   podSelector:
-    matchLabels: {app.kubernetes.io/name: app-router}
+    matchLabels: {app.kubernetes.io/name: tool-router}
   policyTypes: [Ingress]
   ingress:
     - from:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: runner-broker}
-      ports: [{protocol: TCP, port: 8080}]
+      ports: [{protocol: TCP, port: 8443}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -1,0 +1,309 @@
+x-stage-runner: &stage-runner
+  image: ${SPYGLASS_APPLICATION_IMAGE:?set SPYGLASS_APPLICATION_IMAGE from the release file}
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  logging: &stage-runner-logging
+    driver: json-file
+    options: {max-size: 10m, max-file: "5"}
+
+x-workload-tls: &workload-tls
+  SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+  SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+  SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+
+services:
+  account-api:
+    networks: [application, database, provider-egress]
+
+  billing-worker:
+    networks: [application, database, provider-egress]
+
+  notification-worker:
+    networks: [application, database, provider-egress]
+
+  tool-router:
+    <<: *stage-runner
+    command: [tool-router]
+    environment:
+      <<: *workload-tls
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_APP_ROUTER_DATABASE_URL:?set SPYGLASS_APP_ROUTER_DATABASE_URL}
+      SPYGLASS_ROUTE_ISSUER: ${SPYGLASS_ROUTE_ISSUER:?set SPYGLASS_ROUTE_ISSUER}
+      SPYGLASS_ROUTE_SIGNING_KEY_ID: ${SPYGLASS_ROUTE_SIGNING_KEY_ID:?set SPYGLASS_ROUTE_SIGNING_KEY_ID}
+      SPYGLASS_ROUTE_SIGNING_KEY: ${SPYGLASS_ROUTE_SIGNING_KEY:?set SPYGLASS_ROUTE_SIGNING_KEY}
+      SPYGLASS_TOOL_CONTEXT_ISSUER: ${SPYGLASS_TOOL_CONTEXT_ISSUER:?set SPYGLASS_TOOL_CONTEXT_ISSUER}
+      SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS: ${SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS:?set SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS}
+      SPYGLASS_APP_ORIGIN: ${SPYGLASS_APP_ORIGIN:?set SPYGLASS_APP_ORIGIN}
+      SPYGLASS_DIRECTORY_CACHE_TTL: 5s
+      SPYGLASS_DIRECTORY_CACHE_CAPACITY: "1000"
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-broker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-broker
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/tool-router:/var/run/secrets/spyglass/workload:ro
+    expose: ["8443"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://tool-router:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+      app-api-a: {condition: service_healthy}
+      app-api-b: {condition: service_healthy}
+    networks: [application, database]
+
+  runner-controller-a:
+    <<: *stage-runner
+    command: [runner-controller]
+    environment:
+      <<: *workload-tls
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_A_RUNNER_CONTROLLER_DATABASE_URL:?set cell A controller database URL}
+      SPYGLASS_CELL_MAX_DATABASE_CONNS: "4"
+      SPYGLASS_RUNNER_SUBSTRATE: docker-stage
+      SPYGLASS_DOCKER_LAUNCHER_ORIGIN: https://docker-runner-launcher-a:8443
+      SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN: ${SPYGLASS_CELL_A_DOCKER_LAUNCHER_CONTROLLER_TOKEN:?set cell A launcher controller token}
+      SPYGLASS_RUNNER_CONTROL_POLL_INTERVAL: 1s
+      SPYGLASS_RUNNER_CONTROL_LEASE: 30s
+      SPYGLASS_RUNNER_CONTROL_MAX_ATTEMPTS: "12"
+      SPYGLASS_RUNNER_INSPECTION_BATCH: "100"
+      SPYGLASS_RUNNER_PAYLOAD_CLEANUP_INTERVAL: 1h
+      SPYGLASS_RUNNER_PAYLOAD_RETENTION: 168h
+      SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH: "500"
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/runner-controller-a:/var/run/secrets/spyglass/workload:ro
+    expose: ["8081"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8081/health/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      cell-a-roles: {condition: service_completed_successfully}
+      docker-runner-launcher-a: {condition: service_healthy}
+    networks: [application, database]
+
+  runner-controller-b:
+    <<: *stage-runner
+    command: [runner-controller]
+    environment:
+      <<: *workload-tls
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_B_RUNNER_CONTROLLER_DATABASE_URL:?set cell B controller database URL}
+      SPYGLASS_CELL_MAX_DATABASE_CONNS: "4"
+      SPYGLASS_RUNNER_SUBSTRATE: docker-stage
+      SPYGLASS_DOCKER_LAUNCHER_ORIGIN: https://docker-runner-launcher-b:8443
+      SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN: ${SPYGLASS_CELL_B_DOCKER_LAUNCHER_CONTROLLER_TOKEN:?set cell B launcher controller token}
+      SPYGLASS_RUNNER_CONTROL_POLL_INTERVAL: 1s
+      SPYGLASS_RUNNER_CONTROL_LEASE: 30s
+      SPYGLASS_RUNNER_CONTROL_MAX_ATTEMPTS: "12"
+      SPYGLASS_RUNNER_INSPECTION_BATCH: "100"
+      SPYGLASS_RUNNER_PAYLOAD_CLEANUP_INTERVAL: 1h
+      SPYGLASS_RUNNER_PAYLOAD_RETENTION: 168h
+      SPYGLASS_RUNNER_PAYLOAD_PRUNE_BATCH: "500"
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/runner-controller-b:/var/run/secrets/spyglass/workload:ro
+    expose: ["8081"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8081/health/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      cell-b-roles: {condition: service_completed_successfully}
+      docker-runner-launcher-b: {condition: service_healthy}
+    networks: [application, database]
+
+  runner-broker-a:
+    <<: *stage-runner
+    command: [runner-broker]
+    environment:
+      <<: *workload-tls
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_A_RUNNER_BROKER_DATABASE_URL:?set cell A broker database URL}
+      SPYGLASS_CELL_MAX_DATABASE_CONNS: "10"
+      SPYGLASS_RUNNER_SUBSTRATE: docker-stage
+      SPYGLASS_RUNNER_BROKER_URL: https://runner-broker-a:8443
+      SPYGLASS_DOCKER_LAUNCHER_ORIGIN: https://docker-runner-launcher-a:8443
+      SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN: ${SPYGLASS_CELL_A_DOCKER_LAUNCHER_BROKER_TOKEN:?set cell A launcher broker token}
+      SPYGLASS_RUNNER_ENCRYPTION_KEYS: ${SPYGLASS_CELL_A_RUNNER_ENCRYPTION_KEYS:?set cell A runner encryption keys}
+      SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION: ${SPYGLASS_CELL_A_RUNNER_ENCRYPTION_ACTIVE_VERSION:?set cell A runner encryption version}
+      SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES: "2097152"
+      SPYGLASS_TOOL_ROUTER_ORIGIN: https://tool-router:8443
+      SPYGLASS_MODEL_GATEWAY_ORIGIN: https://model-gateway:8443
+      SPYGLASS_TOOL_CONTEXT_ISSUER: ${SPYGLASS_TOOL_CONTEXT_ISSUER:?set tool context issuer}
+      SPYGLASS_TOOL_CONTEXT_SIGNING_KEY_ID: ${SPYGLASS_CELL_A_TOOL_CONTEXT_SIGNING_KEY_ID:?set cell A tool key id}
+      SPYGLASS_TOOL_CONTEXT_SIGNING_KEY: ${SPYGLASS_CELL_A_TOOL_CONTEXT_SIGNING_KEY:?set cell A tool signing key}
+      SPYGLASS_TOOL_CONTEXT_TTL: 10s
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/runner-broker-a:/var/run/secrets/spyglass/workload:ro
+    expose: ["8443"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://runner-broker-a:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      cell-a-roles: {condition: service_completed_successfully}
+      docker-runner-launcher-a: {condition: service_healthy}
+      tool-router: {condition: service_healthy}
+      model-gateway: {condition: service_healthy}
+    networks: [application, database, runner-a-egress]
+
+  runner-broker-b:
+    <<: *stage-runner
+    command: [runner-broker]
+    environment:
+      <<: *workload-tls
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_B_RUNNER_BROKER_DATABASE_URL:?set cell B broker database URL}
+      SPYGLASS_CELL_MAX_DATABASE_CONNS: "10"
+      SPYGLASS_RUNNER_SUBSTRATE: docker-stage
+      SPYGLASS_RUNNER_BROKER_URL: https://runner-broker-b:8443
+      SPYGLASS_DOCKER_LAUNCHER_ORIGIN: https://docker-runner-launcher-b:8443
+      SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN: ${SPYGLASS_CELL_B_DOCKER_LAUNCHER_BROKER_TOKEN:?set cell B launcher broker token}
+      SPYGLASS_RUNNER_ENCRYPTION_KEYS: ${SPYGLASS_CELL_B_RUNNER_ENCRYPTION_KEYS:?set cell B runner encryption keys}
+      SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION: ${SPYGLASS_CELL_B_RUNNER_ENCRYPTION_ACTIVE_VERSION:?set cell B runner encryption version}
+      SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES: "2097152"
+      SPYGLASS_TOOL_ROUTER_ORIGIN: https://tool-router:8443
+      SPYGLASS_MODEL_GATEWAY_ORIGIN: https://model-gateway:8443
+      SPYGLASS_TOOL_CONTEXT_ISSUER: ${SPYGLASS_TOOL_CONTEXT_ISSUER:?set tool context issuer}
+      SPYGLASS_TOOL_CONTEXT_SIGNING_KEY_ID: ${SPYGLASS_CELL_B_TOOL_CONTEXT_SIGNING_KEY_ID:?set cell B tool key id}
+      SPYGLASS_TOOL_CONTEXT_SIGNING_KEY: ${SPYGLASS_CELL_B_TOOL_CONTEXT_SIGNING_KEY:?set cell B tool signing key}
+      SPYGLASS_TOOL_CONTEXT_TTL: 10s
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/runner-broker-b:/var/run/secrets/spyglass/workload:ro
+    expose: ["8443"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://runner-broker-b:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      cell-b-roles: {condition: service_completed_successfully}
+      docker-runner-launcher-b: {condition: service_healthy}
+      tool-router: {condition: service_healthy}
+      model-gateway: {condition: service_healthy}
+    networks: [application, database, runner-b-egress]
+
+  docker-runner-launcher-a:
+    <<: *stage-runner
+    command: [docker-runner-launcher]
+    user: "0:0"
+    environment:
+      <<: *workload-tls
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_RUNNER_SUBSTRATE: docker-stage
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_RUNNER_IMAGE: ${SPYGLASS_APPLICATION_IMAGE:?set immutable runner image from release file}
+      SPYGLASS_DOCKER_RUNNER_NETWORK: spyglass-stage-runner-a-egress
+      SPYGLASS_RUNNER_BROKER_URL: https://runner-broker-a:8443
+      SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY: ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-a
+      SPYGLASS_DOCKER_RUNNER_BROKER_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_DOCKER_ENGINE_SOCKET: /var/run/docker.sock
+      SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN: ${SPYGLASS_CELL_A_DOCKER_LAUNCHER_CONTROLLER_TOKEN:?set cell A launcher controller token}
+      SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN: ${SPYGLASS_CELL_A_DOCKER_LAUNCHER_BROKER_TOKEN:?set cell A launcher broker token}
+      SPYGLASS_DOCKER_RUNNER_CLEANUP_INTERVAL: 1m
+      SPYGLASS_DOCKER_RUNNER_CLEANUP_BATCH: "100"
+      SPYGLASS_RUNNER_ACTIVE_DEADLINE: 15m
+      SPYGLASS_RUNNER_JOB_RETENTION: 1h
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-controller,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-broker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/docker-runner-launcher-a:/var/run/secrets/spyglass/workload:ro
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-a:${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-a
+    expose: ["8443"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://docker-runner-launcher-a:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    networks: [application, runner-a-egress]
+
+  docker-runner-launcher-b:
+    <<: *stage-runner
+    command: [docker-runner-launcher]
+    user: "0:0"
+    environment:
+      <<: *workload-tls
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_RUNNER_SUBSTRATE: docker-stage
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_RUNNER_IMAGE: ${SPYGLASS_APPLICATION_IMAGE:?set immutable runner image from release file}
+      SPYGLASS_DOCKER_RUNNER_NETWORK: spyglass-stage-runner-b-egress
+      SPYGLASS_RUNNER_BROKER_URL: https://runner-broker-b:8443
+      SPYGLASS_DOCKER_RUNNER_IDENTITY_DIRECTORY: ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-b
+      SPYGLASS_DOCKER_RUNNER_BROKER_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+      SPYGLASS_DOCKER_ENGINE_SOCKET: /var/run/docker.sock
+      SPYGLASS_DOCKER_LAUNCHER_CONTROLLER_TOKEN: ${SPYGLASS_CELL_B_DOCKER_LAUNCHER_CONTROLLER_TOKEN:?set cell B launcher controller token}
+      SPYGLASS_DOCKER_LAUNCHER_BROKER_TOKEN: ${SPYGLASS_CELL_B_DOCKER_LAUNCHER_BROKER_TOKEN:?set cell B launcher broker token}
+      SPYGLASS_DOCKER_RUNNER_CLEANUP_INTERVAL: 1m
+      SPYGLASS_DOCKER_RUNNER_CLEANUP_BATCH: "100"
+      SPYGLASS_RUNNER_ACTIVE_DEADLINE: 15m
+      SPYGLASS_RUNNER_JOB_RETENTION: 1h
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-controller,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-broker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/docker-runner-launcher-b:/var/run/secrets/spyglass/workload:ro
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-b:${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-b
+    expose: ["8443"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://docker-runner-launcher-b:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    networks: [application, runner-b-egress]
+
+  model-gateway:
+    <<: *stage-runner
+    command: [model-gateway]
+    environment:
+      <<: *workload-tls
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8443
+      SPYGLASS_OPENAI_API_KEY: ${SPYGLASS_OPENAI_API_KEY:?set OpenAI API key}
+      SPYGLASS_OPENAI_ORIGIN: ${SPYGLASS_OPENAI_ORIGIN:?set OpenAI origin}
+      SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES: "262144"
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-broker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-broker
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/model-gateway:/var/run/secrets/spyglass/workload:ro
+    expose: ["8443"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=https://model-gateway:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    networks: [application, provider-egress]
+
+networks:
+  provider-egress:
+    name: spyglass-stage-provider-egress
+  runner-a-egress:
+    name: spyglass-stage-runner-a-egress
+    internal: true
+  runner-b-egress:
+    name: spyglass-stage-runner-b-egress
+    internal: true

@@ -28,7 +28,7 @@ The repository already contains strong foundations:
 - package admission, action authorization/ledger foundations and content-safe observability;
 - generated OpenAPI contracts and compatibility enforcement.
 - global passkey incident response and restore-gated bounded identity retention with content-free operational metrics;
-- an immutable signed application/website release pair, repeatable Hostinger deployment contract and CI-rendered two-cell Linode overlays.
+- an immutable signed application/website release baseline, a repeatable Hostinger deployment contract with isolated per-cell Docker runner paths and provider egress, and CI-rendered two-cell Linode overlays with a dedicated workload-mTLS tool router.
 
 The foundations do not yet constitute the full product. In particular:
 

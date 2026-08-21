@@ -75,13 +75,16 @@ deploy/docker/spyglass/
   compose.yml
   compose.local.yml
   compose.stage.yml
+  compose.stage-runner.yml
   Caddyfile.local
   Caddyfile.stage
   deploy-stage.sh
   verify-stage.sh
   test-stage-contract.sh
+  prepare-stage-secrets.sh
   env/local.env
   env/stage.example
+  env/stage.providers.example
 deploy/releases/
   0.2.5-rc.2.env
 deploy/kubernetes/overlays/
@@ -115,7 +118,7 @@ The common Compose definition models final process boundaries:
 - migration jobs for each database target;
 - Account API, app router, two cell app APIs and private admission API;
 - notification, billing, entitlement, lifecycle, identity-maintenance, route-receipt and Work reconciliation workers;
-- Agent dispatch/projection, runner controller/broker, Docker runner launcher and model gateway under explicit profiles;
+- Agent dispatch/projection in the ordinary local stack, plus a separately certified Docker launcher integration; the complete controller/broker/model/tool-router runner graph is enabled by the Hostinger stage override;
 - Mailpit or equivalent SMTP capture;
 - optional Prometheus, Grafana and OpenTelemetry profiles.
 
@@ -153,9 +156,8 @@ The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`
 The reviewed revision `d853100af3807665f16161d5bb72ad4860fc30da` is prepared as a clean detached checkout at `/opt/spyglass-stage/releases/d853100af3807665f16161d5bb72ad4860fc30da`; `/opt/spyglass-stage/secrets` exists, is empty, is owned by the deployment user and is mode 700. No container or live edge configuration was changed. DNS still does not return addresses for `stage.infiniteocean.net` or `app.stage.infiniteocean.net`. Before first deployment, the owner/environment work is therefore explicit:
 
 - create both DNS records and confirm firewall/certificate monitoring policy;
-- populate the prepared secrets path and select/activate the reviewed checkout only after verification;
-- backup destination hooks and disk/certificate monitoring;
-- issue stage workload certificates and populate the mode-600 environment file.
+- create a mode-600 provider-input file outside the checkout, generate the non-overwritable stage environment and workload certificates with `prepare-stage-secrets.sh`, and select/activate the reviewed checkout only after verification;
+- backup destination hooks and disk/certificate monitoring.
 
 Do not modify or restart unrelated VPS services during inventory.
 
@@ -167,11 +169,13 @@ The stage override uses the same service graph with production-mode process argu
 - three PostgreSQL containers with private networks and persistent volumes;
 - an internal Caddy router on the existing `infiniteocean_public` network; the existing Infinite Ocean Caddy remains the only public 80/443 and ACME owner;
 - Stripe test mode, TLS SMTP and non-production provider credentials;
+- a non-internal provider-egress network attached only to Account API, billing, notification and model-gateway workloads;
 - workload-specific secrets/environment files stored outside the repository;
 - resource limits, health checks, log rotation and content-safe telemetry;
-- Docker runner launcher enabled only for stage Agent/runner certification.
+- one mTLS `tool-router`, model gateway, and independent cell A/cell B runner controller, broker and Docker launcher paths;
+- internal cell-specific runner networks that contain only the respective broker and launcher; dynamically launched runner containers join only that cell network.
 
-The stage-only launcher owns Docker Engine authority behind a narrow authenticated API. The main controller never mounts the Docker socket. This is a trusted stage component and is never used in production.
+The two stage-only launchers own Docker Engine authority behind narrow mTLS and disjoint bearer-authenticated APIs. Controllers and brokers never mount the Docker socket. Each cell has independent database credentials, encryption/signing keys, launcher tokens, certificates and a runner network. This trusted Docker substrate is never selectable in production; LKE uses Kubernetes Jobs and the sandbox RuntimeClass contract.
 
 ### Stage deployment sequence
 
@@ -241,6 +245,7 @@ The credential-free pre-production and production overlays currently provide:
 - two complete cell workload sets and three CloudNativePG clusters with connection caps/anti-affinity;
 - ingress and certificate resources;
 - exact NetworkPolicies and provider/database/observability/API egress;
+- a private TLS 1.3 `tool-router` Deployment and Service that admits only the exact cell runner-broker workload identities before routing a one-use signed tool context;
 - resource requests/limits, connection caps, PDBs and topology spread;
 - dedicated runner namespace and permissionless runner ServiceAccount;
 - suspended, separately credentialed migration/Catalog/release-identity Jobs.

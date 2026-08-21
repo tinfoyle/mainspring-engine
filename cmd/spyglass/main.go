@@ -117,7 +117,9 @@ func main() {
 	case "account-api":
 		err = runAccountAPI(ctx, logger)
 	case "app-router":
-		err = runAppRouter(ctx, logger)
+		err = runAppRouter(ctx, logger, false)
+	case "tool-router":
+		err = runAppRouter(ctx, logger, true)
 	case "app-api":
 		err = runAppAPI(ctx, logger)
 	case "admission-api":
@@ -169,7 +171,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -864,7 +866,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	return serveHTTP(ctx, "account-api", httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 }
 
-func runAppRouter(ctx context.Context, logger *slog.Logger) error {
+func runAppRouter(ctx context.Context, logger *slog.Logger, privateTLS bool) error {
 	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
 	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
 	if err != nil {
@@ -931,7 +933,19 @@ func runAppRouter(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer server.Close()
-	return serveHTTP(ctx, "app-router", httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
+	handler := withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler)
+	if !privateTLS {
+		return serveHTTP(ctx, "app-router", httpAddress(":8080"), handler, logger)
+	}
+	serverTLS, err := workloadidentity.NewServerConfig(workloadTLSFilesEnv())
+	if err != nil {
+		return err
+	}
+	secured, err := workloadidentity.RequireClientIdentity(handler, csvEnv("SPYGLASS_WORKLOAD_CLIENT_IDENTITIES"), logger)
+	if err != nil {
+		return err
+	}
+	return serveHTTPS(ctx, "tool-router", httpAddress(":8443"), secured, serverTLS, logger)
 }
 
 func runAppAPI(ctx context.Context, logger *slog.Logger) error {

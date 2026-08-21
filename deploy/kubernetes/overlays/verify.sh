@@ -22,6 +22,7 @@ for environment in linode-preproduction linode-production; do
   grep -Fq 'name: global-workloads-to-postgres' "$temporary/$environment.yaml"
   grep -Fq 'name: public-ingress' "$temporary/$environment.yaml"
   grep -Fq 'name: runner-control-to-kubernetes-api' "$temporary/$environment.yaml"
+  grep -Fq 'name: tool-router' "$temporary/$environment.yaml"
   for job in spyglass-global-migration spyglass-cell-a-migration spyglass-cell-b-migration spyglass-catalog-publication spyglass-release-identity; do
     grep -Fq "name: $job" "$temporary/$environment.yaml"
   done
@@ -45,6 +46,7 @@ for environment in linode-preproduction linode-production; do
   grep -Fq "name: $runner_namespace" "$temporary/$environment.yaml"
   grep -Fq "name: $rbac_name" "$temporary/$environment.yaml"
   grep -Fq ".${application_namespace}.svc.cluster.local" "$temporary/$environment.yaml"
+  grep -Fq "value: https://tool-router.${application_namespace}.svc.cluster.local" "$temporary/$environment.yaml"
   grep -Fq "value: $runner_namespace" "$temporary/$environment.yaml"
   if grep -Eq 'spyglass-reference|spyglass-runners-reference|cell-reference' "$temporary/$environment.yaml"; then
     echo "$environment retains a reference namespace or internal origin" >&2

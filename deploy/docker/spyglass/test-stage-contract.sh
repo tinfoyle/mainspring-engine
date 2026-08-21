@@ -11,22 +11,31 @@ cleanup() {
 }
 trap cleanup EXIT
 
-secret_dir="$temporary/secrets"
-for workload in admission-api app-router app-api-a app-api-b; do
-  mkdir -p "$secret_dir/workload/$workload"
-  for file in ca.crt tls.crt tls.key; do
-    printf 'stage-contract-fixture\n' >"$secret_dir/workload/$workload/$file"
-  done
-  chmod 600 "$secret_dir/workload/$workload/tls.key"
-done
+provider_file="$temporary/stage.providers.env"
+cp "$stack_dir/env/stage.providers.example" "$provider_file"
+sed -i \
+  -e 's/SPYGLASS_STRIPE_WEBHOOK_SECRET=whsec_REPLACE/SPYGLASS_STRIPE_WEBHOOK_SECRET=whsec_stagecontract/' \
+  -e 's/SPYGLASS_STRIPE_SECRET_KEY=sk_test_REPLACE/SPYGLASS_STRIPE_SECRET_KEY=sk_test_stagecontract/' \
+  -e 's/SPYGLASS_SMTP_ADDRESS=mail.infiniteocean.net:465/SPYGLASS_SMTP_ADDRESS=smtp.test.invalid:587/' \
+  -e 's/SPYGLASS_SMTP_SERVER_NAME=mail.infiniteocean.net/SPYGLASS_SMTP_SERVER_NAME=smtp.test.invalid/' \
+  -e 's/SPYGLASS_SMTP_USERNAME=REPLACE/SPYGLASS_SMTP_USERNAME=stage_contract/' \
+  -e 's/SPYGLASS_SMTP_PASSWORD=REPLACE/SPYGLASS_SMTP_PASSWORD=stage_contract_password/' \
+  -e 's/SPYGLASS_SMTP_FROM_ADDRESS=REPLACE/SPYGLASS_SMTP_FROM_ADDRESS=stage@infiniteocean.net/' \
+  -e 's/SPYGLASS_SMTP_FROM_NAME=REPLACE/SPYGLASS_SMTP_FROM_NAME=Infinite Ocean Stage/' \
+  -e 's/SPYGLASS_OPENAI_API_KEY=REPLACE/SPYGLASS_OPENAI_API_KEY=sk-proj-stagecontract/' \
+  -e 's|SPYGLASS_OPENAI_ORIGIN=https://api.openai.com|SPYGLASS_OPENAI_ORIGIN=https://api.openai.com|' \
+  "$provider_file"
+chmod 600 "$provider_file"
 
-env_file="$temporary/stage.env"
-sed \
-  -e 's/REPLACE/stage_contract/g' \
-  -e "s|SPYGLASS_HOST_EDGE_NETWORK=infiniteocean_public|SPYGLASS_HOST_EDGE_NETWORK=$network|" \
-  -e "s|SPYGLASS_STAGE_SECRETS_DIRECTORY=/opt/spyglass-stage/secrets|SPYGLASS_STAGE_SECRETS_DIRECTORY=$secret_dir|" \
-  "$stack_dir/env/stage.example" >"$env_file"
-chmod 600 "$env_file"
+secret_dir="$temporary/secrets"
+bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$secret_dir" "$network"
+env_file="$secret_dir/stage.env"
+if bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$secret_dir" "$network" >/dev/null 2>&1; then
+  echo 'stage secret preparation overwrote an initialized target' >&2
+  exit 1
+fi
+test ! -e "$secret_dir/workload-ca/ca.key"
+test -z "$(find "$secret_dir" -maxdepth 1 \( -name '*.csr' -o -name '*.cnf' \) -print -quit)"
 docker network create "$network" >/dev/null
 
 release_file="$repository_root/deploy/releases/0.2.5-rc.2.env"

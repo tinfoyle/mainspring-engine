@@ -77,6 +77,17 @@
       "dependencies": ["global-postgresql", "cell-app-api"]
     },
     {
+      "mode": "tool-router",
+      "kind": "private_service",
+      "scope": "global",
+      "port": 8443,
+      "health": "/health/live,/health/ready",
+      "database_roles": ["global.app-router"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_HTTP_ADDRESS", "SPYGLASS_APP_ORIGIN", "SPYGLASS_ROUTE_ISSUER", "SPYGLASS_ROUTE_SIGNING_KEY_ID", "SPYGLASS_ROUTE_SIGNING_KEY", "SPYGLASS_ROUTE_CONTEXT_TTL", "SPYGLASS_TOOL_CONTEXT_ISSUER", "SPYGLASS_TOOL_CONTEXT_VERIFY_KEYS", "SPYGLASS_DIRECTORY_CACHE_TTL", "SPYGLASS_DIRECTORY_CACHE_CAPACITY", "SPYGLASS_SESSION_COOKIE_NAME", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "global_restore_gate", "workload_tls"],
+      "dependencies": ["global-postgresql", "cell-app-api"]
+    },
+    {
       "mode": "app-api",
       "kind": "service",
       "scope": "cell",

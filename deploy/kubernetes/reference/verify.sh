@@ -13,6 +13,7 @@ required_objects=(
   "name: agent-projection-worker-cell-reference"
   "name: runner-controller-cell-reference"
   "name: runner-broker-cell-reference"
+  "name: tool-router"
   "name: model-gateway"
   "name: runner-to-broker"
   "name: broker-to-model-gateway"
@@ -30,6 +31,7 @@ required_objects=(
 for object in "${required_objects[@]}"; do
   grep -Fq "$object" "$rendered"
 done
+grep -Fq 'value: https://tool-router.spyglass-reference.svc.cluster.local' "$rendered"
 
 # The reference deliberately contains no credentials and never floats an
 # image. Environment overlays own Secret material and Spyglass release digests;
