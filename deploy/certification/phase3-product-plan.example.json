@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "profile": "phase3-product",
+  "environment": "staging-example",
+  "revision": "1111111111111111111111111111111111111111",
+  "application_image_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+  "website_image_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+  "website_origin": "https://www.infiniteocean.example",
+  "application_origin": "https://app.infiniteocean.example",
+  "catalog_version": 3,
+  "required_offers": [
+    "free-v1",
+    "team-monthly-v1",
+    "operating-monthly-v1"
+  ],
+  "fixture_inventory_sha256": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+  "checks": [
+    {"id": "anonymous-boundary", "kind": "anonymous-boundary", "execution": "automated", "required": true},
+    {"id": "registration-email", "kind": "registration-email", "execution": "browser", "required": true},
+    {"id": "passkey-enrollment", "kind": "passkey-enrollment", "execution": "browser", "required": true},
+    {"id": "passkey-login", "kind": "passkey-login", "execution": "browser", "required": true},
+    {"id": "membership", "kind": "membership", "execution": "browser", "required": true},
+    {"id": "account-isolation", "kind": "account-isolation", "execution": "automated", "required": true},
+    {"id": "stripe-checkout", "kind": "stripe-checkout", "execution": "browser", "required": true},
+    {"id": "stripe-webhook", "kind": "stripe-webhook", "execution": "automated", "required": true},
+    {"id": "billing-projection", "kind": "billing-projection", "execution": "automated", "required": true},
+    {"id": "identity-recovery", "kind": "identity-recovery", "execution": "browser", "required": true},
+    {"id": "provider-degradation", "kind": "provider-degradation", "execution": "operator", "required": true},
+    {"id": "container-recovery", "kind": "container-recovery", "execution": "operator", "required": true},
+    {"id": "database-recovery", "kind": "database-recovery", "execution": "operator", "required": true},
+    {"id": "runner-recovery", "kind": "runner-recovery", "execution": "automated", "required": true},
+    {"id": "accessibility", "kind": "accessibility", "execution": "assistive-technology", "required": true},
+    {"id": "cleanup", "kind": "cleanup", "execution": "operator", "required": true}
+  ]
+}

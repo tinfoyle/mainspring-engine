@@ -7,9 +7,10 @@
 
 Current audit and execution reports:
 
-- [Phase 2.5 realignment plan](phase-2-5-closeout-report.md)
+- [Phase 2.5 closeout report](phase-2-5-closeout-report.md)
 - [Phase 3 final construction plan](phase-3-report.md)
 - [Local, stage and production deployment report](stage-production-deployment-report.md)
+- [Phase 3 product-journey certification](journey-certification.md)
 - [Account movement operations](account-movement.md)
 
 ## 1. Purpose
@@ -209,7 +210,7 @@ Add subpackages only when the module genuinely contains multiple cohesive concep
 | Platform control | Account directory, cell placement, capacity, migration state, and platform operations | Account business records or customer payment instruments |
 | Website | Infinite Ocean and Spyglass public content, package discovery, signup entry, legal/support surfaces | Authentication truth, entitlement evaluation, or billing mutation |
 
-The detailed designs are in [architecture.md](architecture.md), [accounts-packages-billing.md](accounts-packages-billing.md), [identity-security.md](identity-security.md), [operator-authorization.md](operator-authorization.md), [stripe-operations.md](stripe-operations.md), [work-module.md](work-module.md), [work-release-operations.md](work-release-operations.md), [runner-control.md](runner-control.md), [route-rotation-operations.md](route-rotation-operations.md), [runtime-configuration.md](runtime-configuration.md), [observability-operations.md](observability-operations.md), and [kubernetes-topology.md](kubernetes-topology.md). The current evidence-backed launch verdict and ordered closeout gates are in [production-readiness-audit.md](production-readiness-audit.md); artifact construction and verification are in [release-artifacts.md](release-artifacts.md), the exact-artifact deployed-origin workflow is in [staging-certification.md](staging-certification.md), the accessibility target/browser-device matrix/evidence policy is in [accessibility-certification.md](accessibility-certification.md), the bounded many-Account/hot-Account read procedure is in [load-certification.md](load-certification.md), and deterministic routed Work write/replay evidence is in [write-certification.md](write-certification.md).
+The detailed designs are in [architecture.md](architecture.md), [accounts-packages-billing.md](accounts-packages-billing.md), [identity-security.md](identity-security.md), [operator-authorization.md](operator-authorization.md), [stripe-operations.md](stripe-operations.md), [work-module.md](work-module.md), [work-release-operations.md](work-release-operations.md), [runner-control.md](runner-control.md), [route-rotation-operations.md](route-rotation-operations.md), [runtime-configuration.md](runtime-configuration.md), [observability-operations.md](observability-operations.md), and [kubernetes-topology.md](kubernetes-topology.md). The current evidence-backed launch verdict and ordered closeout gates are in [production-readiness-audit.md](production-readiness-audit.md); artifact construction and verification are in [release-artifacts.md](release-artifacts.md), the exact-artifact deployed-origin workflow is in [staging-certification.md](staging-certification.md), the final cross-runner product evidence contract is in [journey-certification.md](journey-certification.md), the accessibility target/browser-device matrix/evidence policy is in [accessibility-certification.md](accessibility-certification.md), the bounded many-Account/hot-Account read procedure is in [load-certification.md](load-certification.md), and deterministic routed Work write/replay evidence is in [write-certification.md](write-certification.md).
 
 ## 7. Dependency rules
 

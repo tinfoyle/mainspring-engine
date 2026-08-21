@@ -52,7 +52,7 @@ Before feature construction fans out:
 1. Treat RC.5 as the platform baseline, not as the final product release candidate.
 2. Define the final launch Catalog and obtain exact-scope operator authorization for its stage Stripe price mappings; do not mutate protected Catalog tables directly.
 3. Create revocable synthetic stage identities and mailboxes, with no customer data, for repeatable email, WebAuthn/passkey, Membership, billing and recovery journeys.
-4. Add a revision-controlled certification driver that records content-free results while keeping session material, WebAuthn keys, provider payloads and identifiers outside Git.
+4. Use the revision-controlled [product-journey certification driver](journey-certification.md), which records content-free results while keeping session material, WebAuthn keys, provider payloads and identifiers outside Git.
 5. Run the relevant customer journey after each package/surface becomes acceptance-ready, then rerun the complete matrix against the final immutable application/website pair.
 
 Exit: Phase 3 has safe fixtures and evidence formats without treating unfinished product behavior as a release gate.
