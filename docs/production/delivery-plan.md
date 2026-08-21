@@ -337,7 +337,7 @@ Acceptance:
 
 ### P3.2 Work persistence and queries
 
-Implementation checkpoint: pooled-cell schema, forced RLS, Account-local numbering, composite parent, Persona, Conversation and Run constraints, optimistic create/update, direct children, stable cursor queue, summaries, typed redacted mutation events, routed query/command transport, durable split-credential capacity release, execute-only audited dead-letter inspection/requeue, bounded completed-job retention with independent audit preservation, and non-owner isolation/concurrency tests are implemented. Representative query plans remain.
+Implementation checkpoint: pooled-cell schema, forced RLS, Account-local numbering, composite parent, Persona, Conversation and Run constraints, optimistic create/update, direct children, stable cursor queue, summaries, typed redacted mutation events, routed query/command transport, durable split-credential capacity release, execute-only audited dead-letter inspection/requeue, bounded completed-job retention with independent audit preservation, non-owner isolation, representative PostgreSQL query plans, tie-heavy cursor pagination properties, and concurrent completion/assignment stress are implemented.
 
 - Repository commands for create, update status, assign, attach provenance, and link conversations.
 - Cursor-based queue query with stable ordering.
