@@ -100,6 +100,8 @@ Exit: Work, Your Turn and approved external actions are complete through domain,
 
 ## P3.2 — Knowledge and Baseline
 
+Implementation checkpoint (2026-08-21): the prototype inventory is complete and the final Knowledge boundary is fixed around immutable evidence, reviewable canonical claims and monotonic accepted fact revisions. The typed kernel freezes Account, source kind/reference/revision, SHA-256, capture time and actor; rejects duplicate/trailing/oversized JSON; models Account/Work/Conversation scopes and sensitivity; permits workloads to propose but only humans to decide; and refuses authoritative acceptance when Agent derivation is the only supporting evidence. The first cell schema adds evidence, claims, citations, current facts, immutable fact revisions and content-redacted events with forced RLS, composite Account references, database acceptance/projection guards, movement fences and exact erasure accounting. The classified PostgreSQL repository provides exact replay, domain restoration, serializable claim decision/fact projection, supersession, stable redacted fact pagination and event redaction. Fresh PostgreSQL tests prove cross-Account denial, immutable history, agent-only-evidence rejection, repository replay and accepted fact creation. Routed HTTP/MCP/private UI surfaces, document infrastructure, retrieval and the Baseline state machine remain in this block.
+
 - Implement source-attributed facts, claims, evidence, revisions, scope and confidence.
 - Implement document upload, malware/type/size checks, extraction, chunking, indexing, retention and deletion.
 - Implement Account-scoped retrieval, citation validation and bounded result contracts.

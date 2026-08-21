@@ -31,6 +31,9 @@ type RunID string
 type RunResolutionID string
 type AgentInvocationID string
 type MessageID string
+type KnowledgeEvidenceID string
+type KnowledgeClaimID string
+type KnowledgeFactID string
 
 type Generator interface {
 	New() string
