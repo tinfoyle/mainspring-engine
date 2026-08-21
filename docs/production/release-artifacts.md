@@ -1,6 +1,6 @@
 # Release artifacts and provenance
 
-Status: RC.4 is the first independently verified, vulnerability-admitted application/website pair; environment certification and rollback evidence remain promotion gates
+Status: RC.5 is the current independently verified candidate and admitted RC.4 is retained for rollback; environment certification and rollback execution remain promotion gates
 
 Spyglass uses one shared, multi-mode application image for Account API, routers, cell APIs, private brokers, workers, runner execution, migrations, and one-shot operator commands. Runtime arguments choose the workload class. Kubernetes ServiceAccounts, NetworkPolicies, mounted credentials, database roles, and workload certificates—not separate per-customer builds—bound each process's authority. Ordinary Accounts never create an image, Deployment, namespace, or long-running container.
 
@@ -38,9 +38,11 @@ The first successfully signed pair is recorded in `deploy/releases/0.2.5-rc.2.en
 
 RC.3 added the final stage `tool-router` and is recorded in `deploy/releases/0.2.5-rc.3.env`, but an independent 2026-08-21 Trivy 0.74.0 scan found 5 critical and 48 high findings in each website platform manifest, with no embedded secrets. Its application image was clean. The stale Alpine packages and bundled npm/Corepack dependency trees were removed from the website runtime; RC.3 remains signed historical evidence but is not admissible for deployment or rollback.
 
-The current stage candidate is recorded in `deploy/releases/0.2.5-rc.4.env`: application digest `sha256:dccb70ddb34b975ada3a96c21ad775b4d2d21b64a2e87fc0f866a8441afc5800` and website digest `sha256:4630890a4f8f277c446c886febc7ae98ce32a04d3153f2aaeb91630e6a6e682d`, both built from `848de07e8d637b0488c18f5967be965bcf8bd773`. The application workflow completed at [run 32441659543](https://github.com/tinfoyle/mainspring-engine/actions/runs/32441659543). The first website attempt repeated the observed BuildKit stall and was canceled before publication; attempt 2 passed the overwrite guard, two-platform admission scan and signature at [run 32441659395](https://github.com/tinfoyle/mainspring-engine/actions/runs/32441659395).
+The first admitted pair is recorded in `deploy/releases/0.2.5-rc.4.env`: application digest `sha256:dccb70ddb34b975ada3a96c21ad775b4d2d21b64a2e87fc0f866a8441afc5800` and website digest `sha256:4630890a4f8f277c446c886febc7ae98ce32a04d3153f2aaeb91630e6a6e682d`, both built from `848de07e8d637b0488c18f5967be965bcf8bd773`. The application workflow completed at [run 32441659543](https://github.com/tinfoyle/mainspring-engine/actions/runs/32441659543). The first website attempt repeated the observed BuildKit stall and was canceled before publication; attempt 2 passed the overwrite guard, two-platform admission scan and signature at [run 32441659395](https://github.com/tinfoyle/mainspring-engine/actions/runs/32441659395). RC.4 is retained as the rollback pair.
 
-## RC.4 independent evidence
+The current stage candidate is recorded in `deploy/releases/0.2.5-rc.5.env`: application digest `sha256:ebb385049702f6948ff6618c8b3d5e6fe07ff81c8c2b8f5b73ba478835b5f435` and website digest `sha256:d9d7c941c655197c5fca88a0825ce4bb3a2fa76ca60e6b476d3b00ef4552dbff`, both built from `4bd276c6f96f6e9c4feef811864403c5fa36a1bb`. The application workflow completed at [run 32444590302](https://github.com/tinfoyle/mainspring-engine/actions/runs/32444590302). Two website attempts met the bounded BuildKit stall criterion and were canceled before publication; attempt 3 passed the overwrite guard, both platform scans and signing at [run 32444587448](https://github.com/tinfoyle/mainspring-engine/actions/runs/32444587448).
+
+## RC.4 and RC.5 independent evidence
 
 Verification from Docker in `ubunturojo` used Cosign 3.1.3 image digest `sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8` and Trivy 0.74.0 image digest `sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969`:
 
@@ -51,7 +53,11 @@ Verification from Docker in `ubunturojo` used Cosign 3.1.3 image digest `sha256:
 | Website AMD64 | `release-website-image.yml@refs/tags/website-v0.2.5-rc.4` | 92 | 0 | 0 | 0 |
 | Website ARM64 | same | 92 | 0 | 0 | 0 |
 
-Both Cosign checks validated the manifest claim, Fulcio certificate, GitHub OIDC issuer and Rekor transparency-log inclusion. Both platform SLSA records bind the correct workflow reference and builder run to source revision `848de07e8d637b0488c18f5967be965bcf8bd773`. Signature, provenance, SBOM and vulnerability/secret evidence are complete for this pair; these results do not substitute for environment certification.
+Both RC.4 Cosign checks validated the manifest claim, Fulcio certificate, GitHub OIDC issuer and Rekor transparency-log inclusion. Both platform SLSA records bind the correct workflow reference and builder run to source revision `848de07e8d637b0488c18f5967be965bcf8bd773`.
+
+Independent verification repeated the same result for RC.5: one valid signature per manifest, 39 application and 92 website SPDX packages per platform, and zero critical, high or secret findings across all four scans. Its SLSA records bind `spyglass-v0.2.5-rc.5` and `website-v0.2.5-rc.5` to revision `4bd276c6f96f6e9c4feef811864403c5fa36a1bb`, application run 32444590302 attempt 1 and website run 32444587448 attempt 3. Signature, provenance, SBOM and vulnerability/secret evidence are complete for both admitted pairs; these results do not substitute for environment certification.
+
+The RC.4-to-RC.5 source delta changes only deployment release records, environment digest references and documentation. Application, website, migration and Catalog code are identical, so the pair is prepared for rollback without a schema or Catalog downgrade. Live stage must still execute and certify the transition in both directions.
 
 ## Verification and promotion
 
@@ -71,4 +77,4 @@ Promotion reuses the same digest through staging, internal canary, customer cana
 
 ## Remaining release evidence
 
-RC.4 signature, BuildKit provenance/SBOM identity and vulnerability/secret-scan evidence are recorded. Before promotion, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert` record. RC.4 is currently the only admitted pair; a later admitted pair must retain RC.4 as its compatible rollback target. Cluster admission enforcement and an actual staged rollback remain launch gates.
+RC.4 and RC.5 signature, BuildKit provenance/SBOM identity and vulnerability/secret-scan evidence are recorded. Before promotion, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert` record. RC.5 is the candidate and RC.4 is its retained source-compatible rollback pair. Cluster admission enforcement and an actual staged rollback remain launch gates.

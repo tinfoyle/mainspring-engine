@@ -48,7 +48,7 @@ From a clean checkout on the VPS:
 
 ```bash
 cd deploy/docker/spyglass
-release_file="$(realpath ../../releases/0.2.5-rc.4.env)"
+release_file="$(realpath ../../releases/0.2.5-rc.5.env)"
 secret_set=/opt/spyglass-stage/secrets/2026-08-21-01
 ./verify-stage.sh "$release_file" "$secret_set/stage.env"
 ./deploy-stage.sh "$release_file" "$secret_set/stage.env"

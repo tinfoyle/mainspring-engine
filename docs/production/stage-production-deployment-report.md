@@ -45,17 +45,16 @@ Current reviewed stage-candidate pair:
 
 | Artifact | Tag | Immutable manifest |
 |---|---|---|
-| Application | `spyglass-v0.2.5-rc.4` | `ghcr.io/tinfoyle/spyglass-engine@sha256:dccb70ddb34b975ada3a96c21ad775b4d2d21b64a2e87fc0f866a8441afc5800` |
-| Website | `website-v0.2.5-rc.4` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:4630890a4f8f277c446c886febc7ae98ce32a04d3153f2aaeb91630e6a6e682d` |
+| Application | `spyglass-v0.2.5-rc.5` | `ghcr.io/tinfoyle/spyglass-engine@sha256:ebb385049702f6948ff6618c8b3d5e6fe07ff81c8c2b8f5b73ba478835b5f435` |
+| Website | `website-v0.2.5-rc.5` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:d9d7c941c655197c5fca88a0825ce4bb3a2fa76ca60e6b476d3b00ef4552dbff` |
 
-Both were built from `848de07e8d637b0488c18f5967be965bcf8bd773`, completed their keyless Cosign steps, expose attached per-platform SPDX/SLSA attestations, and independently passed exact-workflow Cosign verification plus Trivy 0.74.0 scans with zero high, critical or secret findings on AMD64 and ARM64. The application identity/tool-router fail-closed check, non-root website runtime, absence of npm/Corepack/Yarn and website readiness also passed from `ubunturojo`. The exact pair is tracked in `deploy/releases/0.2.5-rc.4.env`.
+Both were built from `4bd276c6f96f6e9c4feef811864403c5fa36a1bb`, completed their keyless Cosign steps, expose attached per-platform SPDX/SLSA attestations, and independently passed exact-workflow Cosign verification plus Trivy 0.74.0 scans with zero high, critical or secret findings on AMD64 and ARM64. The application identity/tool-router fail-closed check, non-root website runtime, absence of npm/Corepack/Yarn and website readiness also passed from `ubunturojo`. The exact pair is tracked in `deploy/releases/0.2.5-rc.5.env`.
 
-RC.2 predates the admission gate. RC.3 is signed but its website image failed the later independent scan with 5 critical and 48 high findings per platform. Both remain immutable history and neither is an approved rollback target.
+RC.2 predates the admission gate. RC.3 is signed but its website image failed the later independent scan with 5 critical and 48 high findings per platform. Both remain immutable history and neither is an approved rollback target. Admitted RC.4 is retained as the RC.5 rollback pair. `git diff --name-only spyglass-v0.2.5-rc.4..spyglass-v0.2.5-rc.5` contains no application, website, migration or Catalog code; environment execution must still prove the rollback.
 
 Remaining artifact work:
 
-- publish a later admitted pair that retains RC.4 as its compatible rollback target;
-- certify schema, Catalog and configuration compatibility through an actual stage rollback rehearsal.
+- certify RC.5-to-RC.4 schema, Catalog and configuration compatibility through an actual stage rollback rehearsal.
 
 ### Website image
 
@@ -91,6 +90,7 @@ deploy/releases/
   0.2.5-rc.2.env
   0.2.5-rc.3.env
   0.2.5-rc.4.env
+  0.2.5-rc.5.env
 deploy/kubernetes/overlays/
   linode-common/
   linode-preproduction/
