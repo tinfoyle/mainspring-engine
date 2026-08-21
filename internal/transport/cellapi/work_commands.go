@@ -49,6 +49,7 @@ type assignWorkRequest struct {
 type workAssignmentRequest struct {
 	Responsibility workdomain.Responsibility `json:"responsibility"`
 	UserID         ids.UserID                `json:"user_id,omitempty"`
+	PersonaID      string                    `json:"persona_id,omitempty"`
 	ExternalRef    string                    `json:"external_ref,omitempty"`
 }
 
@@ -67,7 +68,7 @@ func (s *Server) workCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	assignment, valid := interactiveAssignment(request.Assignment, actor)
 	if !valid {
-		writeProblem(w, http.StatusUnprocessableEntity, "invalid_work_assignment", "interactive Work may be shared, assigned to you, or assigned to an external reference")
+		writeProblem(w, http.StatusUnprocessableEntity, "invalid_work_assignment", "interactive Work may be shared, assigned to you, assigned to an active Persona, or assigned to an external reference")
 		return
 	}
 	item, err := s.commands.Create(routecontext.WithClaims(r.Context(), claims), workapp.CreateCommand{
@@ -120,7 +121,7 @@ func (s *Server) workAssign(w http.ResponseWriter, r *http.Request) {
 	}
 	assignment, valid := interactiveAssignment(request.Assignment, actor)
 	if !valid {
-		writeProblem(w, http.StatusUnprocessableEntity, "invalid_work_assignment", "interactive Work may be shared, assigned to you, or assigned to an external reference")
+		writeProblem(w, http.StatusUnprocessableEntity, "invalid_work_assignment", "interactive Work may be shared, assigned to you, assigned to an active Persona, or assigned to an external reference")
 		return
 	}
 	item, err := s.commands.Assign(routecontext.WithClaims(r.Context(), claims), workapp.AssignCommand{Actor: actor, AccountID: accountID, WorkItemID: itemID, Assignment: assignment, ExpectedVersion: version, Reason: request.Reason, CorrelationID: operationID})
@@ -206,17 +207,19 @@ func decodeWorkCommand(w http.ResponseWriter, r *http.Request, destination any) 
 }
 
 func interactiveAssignment(request workAssignmentRequest, actor access.Actor) (workdomain.Assignment, bool) {
-	assignment := workdomain.Assignment{Responsibility: request.Responsibility, UserID: request.UserID, ExternalRef: request.ExternalRef}
+	assignment := workdomain.Assignment{Responsibility: request.Responsibility, UserID: request.UserID, PersonaID: request.PersonaID, ExternalRef: request.ExternalRef}
 	switch assignment.Responsibility {
 	case workdomain.ResponsibilityShared:
-		return assignment, assignment.UserID == "" && strings.TrimSpace(assignment.ExternalRef) == ""
+		return assignment, assignment.UserID == "" && assignment.PersonaID == "" && strings.TrimSpace(assignment.ExternalRef) == ""
 	case workdomain.ResponsibilityUser:
 		if assignment.UserID == "" {
 			assignment.UserID = actor.UserID
 		}
-		return assignment, actor.UserID != "" && assignment.UserID == actor.UserID && strings.TrimSpace(assignment.ExternalRef) == ""
+		return assignment, actor.UserID != "" && assignment.UserID == actor.UserID && assignment.PersonaID == "" && strings.TrimSpace(assignment.ExternalRef) == ""
+	case workdomain.ResponsibilityPersona:
+		return assignment, assignment.UserID == "" && ids.Validate(assignment.PersonaID) == nil && strings.TrimSpace(assignment.ExternalRef) == ""
 	case workdomain.ResponsibilityExternal:
-		return assignment, assignment.UserID == "" && len(strings.TrimSpace(assignment.ExternalRef)) >= 2
+		return assignment, assignment.UserID == "" && assignment.PersonaID == "" && len(strings.TrimSpace(assignment.ExternalRef)) >= 2
 	default:
 		return workdomain.Assignment{}, false
 	}

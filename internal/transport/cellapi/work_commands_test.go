@@ -16,6 +16,7 @@ import (
 )
 
 const workOperation = "50000000-0000-4000-8000-000000000005"
+const workPersona = "70000000-0000-4000-8000-000000000007"
 
 func TestWorkCommandContractsDeriveActorAndConcurrencyAuthority(t *testing.T) {
 	now := time.Date(2026, 8, 18, 15, 0, 0, 0, time.UTC)
@@ -34,6 +35,12 @@ func TestWorkCommandContractsDeriveActorAndConcurrencyAuthority(t *testing.T) {
 	}
 
 	commands.item.Version = 2
+	assigned := commandRequest(t, server.Handler(), http.MethodPatch, "/api/v1/accounts/"+workAccount+"/work-items/"+workItemID+"/assignment", `{"assignment":{"responsibility":"persona","persona_id":"`+workPersona+`"}}`, `W/"1"`)
+	if assigned.Code != http.StatusOK || commands.assign.Assignment.PersonaID != workPersona || commands.assign.ExpectedVersion != 1 {
+		t.Fatalf("assign=%d command=%+v body=%s", assigned.Code, commands.assign, assigned.Body.String())
+	}
+
+	commands.item.Version = 2
 	transitioned := commandRequest(t, server.Handler(), http.MethodPost, "/api/v1/accounts/"+workAccount+"/work-items/"+workItemID+"/transitions", `{"to":"in_progress"}`, `W/"1"`)
 	if transitioned.Code != http.StatusOK || commands.transition.ExpectedVersion != 1 || commands.transition.RequestID != workOperation || commands.transition.CorrelationID != workOperation {
 		t.Fatalf("transition=%d command=%+v body=%s", transitioned.Code, commands.transition, transitioned.Body.String())
@@ -46,6 +53,10 @@ func TestWorkCommandsRejectSpoofedAssignmentMissingVersionAndConflict(t *testing
 	spoofed := commandRequest(t, server.Handler(), http.MethodPost, "/api/v1/accounts/"+workAccount+"/work-items", `{"kind":"todo","title":"Spoof owner","priority":"normal","assignment":{"responsibility":"user","user_id":"60000000-0000-4000-8000-000000000006"}}`, "")
 	if spoofed.Code != http.StatusUnprocessableEntity || commands.create.RequestID != "" {
 		t.Fatalf("spoofed=%d command=%+v body=%s", spoofed.Code, commands.create, spoofed.Body.String())
+	}
+	invalidPersona := commandRequest(t, server.Handler(), http.MethodPost, "/api/v1/accounts/"+workAccount+"/work-items", `{"kind":"todo","title":"Invalid persona","priority":"normal","assignment":{"responsibility":"persona","persona_id":"not-a-uuid"}}`, "")
+	if invalidPersona.Code != http.StatusUnprocessableEntity || commands.create.RequestID != "" {
+		t.Fatalf("invalid persona=%d command=%+v body=%s", invalidPersona.Code, commands.create, invalidPersona.Body.String())
 	}
 	missing := commandRequest(t, server.Handler(), http.MethodPost, "/api/v1/accounts/"+workAccount+"/work-items/"+workItemID+"/transitions", `{"to":"in_progress"}`, "")
 	if missing.Code != http.StatusPreconditionRequired {

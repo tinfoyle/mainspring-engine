@@ -321,7 +321,7 @@ Acceptance:
 
 ### P3.1 Work domain
 
-Implementation checkpoint: typed construction, lifecycle/role matrix, assignment and provenance values, maximum depth, optimistic versioning, private broker-backed active-item admission, routed create/transition/assignment contracts, and first creation/lifecycle browser controls are implemented. See [work-module.md](work-module.md). Persona ownership, assignment editing, and provenance attachment commands remain.
+Implementation checkpoint: typed construction, lifecycle/role matrix, assignment and provenance values, maximum depth, optimistic versioning, private broker-backed active-item admission, routed create/transition/assignment contracts, composite Account/Persona integrity, active published Persona assignment policy, and first creation/lifecycle browser controls are implemented. See [work-module.md](work-module.md). Assignment editing UI and provenance attachment commands remain.
 
 - Replace raw kind/status/priority/source/responsibility strings with validated value types.
 - Specify transition matrix and role permissions.
@@ -337,7 +337,7 @@ Acceptance:
 
 ### P3.2 Work persistence and queries
 
-Implementation checkpoint: pooled-cell schema, forced RLS, Account-local numbering, composite parent constraints, optimistic create/update, direct children, stable cursor queue, summaries, mutation events, routed query/command transport, durable split-credential capacity release, execute-only audited dead-letter inspection/requeue, bounded completed-job retention with independent audit preservation, and non-owner isolation/concurrency tests are implemented. Representative query plans, provenance links, and Persona foreign keys remain.
+Implementation checkpoint: pooled-cell schema, forced RLS, Account-local numbering, composite parent and Persona constraints, optimistic create/update, direct children, stable cursor queue, summaries, mutation events, routed query/command transport, durable split-credential capacity release, execute-only audited dead-letter inspection/requeue, bounded completed-job retention with independent audit preservation, and non-owner isolation/concurrency tests are implemented. Representative query plans and provenance links remain.
 
 - Repository commands for create, update status, assign, attach provenance, and link conversations.
 - Cursor-based queue query with stable ordering.

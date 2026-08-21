@@ -939,7 +939,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 59 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 60 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)
@@ -1164,6 +1164,33 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	}
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	actor := workdomain.Actor{Kind: workdomain.ActorUser, ID: "40000000-0000-4000-8000-000000000004"}
+	activePersona := "41000000-0000-4000-8000-000000000041"
+	inactivePersona := "42000000-0000-4000-8000-000000000042"
+	otherAccountPersona := "43000000-0000-4000-8000-000000000043"
+	archivedBoardroomPersona := "45000000-0000-4000-8000-000000000045"
+	unpublishedPersona := "46000000-0000-4000-8000-000000000046"
+	seedWorkPersona := func(accountID ids.AccountID, boardroomID, personaID, versionID, personaState, boardroomState string, published bool) {
+		t.Helper()
+		if err := cellPool.WithAccountTx(ctx, accountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, `
+				INSERT INTO spyglass.agent_boardrooms(account_id,id,name,purpose,state,version,created_at,updated_at)
+				VALUES ($1,$2,'Work assignment','Own assigned Work',$7,1,$5,$5);
+				INSERT INTO spyglass.agent_personas(account_id,id,boardroom_id,state,latest_version,created_at,updated_at)
+				VALUES ($1,$3,$2,$6,CASE WHEN $8 THEN 1 ELSE 0 END,$5,$5);
+				INSERT INTO spyglass.agent_persona_versions(account_id,id,persona_id,version,name,role,description,system_instructions,policy,content_digest,created_by,created_at)
+				SELECT $1,$4,$3,1,'Work Persona','Operator','Owns assigned Work','Execute assigned operational Work with evidence.','{}'::jsonb,decode(repeat('31',32),'hex'),$9,$5
+				WHERE $8`,
+				pgx.QueryExecModeSimpleProtocol, accountID, boardroomID, personaID, versionID, now, personaState, boardroomState, published, actor.ID)
+			return err
+		}); err != nil {
+			t.Fatalf("seed %s/%s Work Persona: %v", personaState, boardroomState, err)
+		}
+	}
+	seedWorkPersona(accountA, "51000000-0000-4000-8000-000000000051", activePersona, "61000000-0000-4000-8000-000000000061", "active", "active", true)
+	seedWorkPersona(accountA, "52000000-0000-4000-8000-000000000052", inactivePersona, "62000000-0000-4000-8000-000000000062", "inactive", "active", true)
+	seedWorkPersona(accountB, "53000000-0000-4000-8000-000000000053", otherAccountPersona, "63000000-0000-4000-8000-000000000063", "active", "active", true)
+	seedWorkPersona(accountA, "55000000-0000-4000-8000-000000000055", archivedBoardroomPersona, "65000000-0000-4000-8000-000000000065", "active", "archived", true)
+	seedWorkPersona(accountA, "56000000-0000-4000-8000-000000000056", unpublishedPersona, "66000000-0000-4000-8000-000000000066", "active", "active", false)
 	itemID := ids.WorkItemID("50000000-0000-4000-8000-000000000005")
 	draft, err := workdomain.NewDraft(workdomain.Draft{
 		ID: itemID, AccountID: accountA, Kind: workdomain.KindTicket, Title: "Reconcile month-end close",
@@ -1180,6 +1207,14 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	}
 	if created.Number != 1 || created.Version != 1 || created.State != workdomain.StateOpen {
 		t.Fatalf("created work item = %+v", created)
+	}
+	fkErr := cellPool.WithAccountTx(ctx, accountA, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE spyglass.work_items SET responsibility='persona',assignee_persona_id=$3 WHERE account_id=$1 AND id=$2`, accountA, itemID, otherAccountPersona)
+		return err
+	})
+	var foreignKeyError *pgconn.PgError
+	if !errors.As(fkErr, &foreignKeyError) || foreignKeyError.Code != "23503" {
+		t.Fatalf("cross-Account Persona foreign key error = %v", fkErr)
 	}
 	replayed, err := repository.Create(ctx, draft, creation)
 	if err != nil || replayed.ID != created.ID || replayed.Number != created.Number || replayed.Version != created.Version || !replayed.CreatedAt.Equal(created.CreatedAt) || !replayed.UpdatedAt.Equal(created.UpdatedAt) {
@@ -1233,12 +1268,41 @@ func testWorkIsolationAndConcurrency(t *testing.T, ctx context.Context, rawPool 
 	if err != nil || loaded.Version != started.Version || loaded.State != workdomain.StateInProgress {
 		t.Fatalf("load winning work state = %+v, %v", loaded, err)
 	}
-
-	done, err := started.Transition(workdomain.TransitionCommand{To: workdomain.StateDone, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: started.Version, At: now.Add(3 * time.Minute)})
+	for name, personaID := range map[string]string{
+		"missing":            "44000000-0000-4000-8000-000000000044",
+		"inactive":           inactivePersona,
+		"other_account":      otherAccountPersona,
+		"archived_boardroom": archivedBoardroomPersona,
+		"unpublished":        unpublishedPersona,
+	} {
+		candidate, assignErr := started.Assign(workdomain.AssignmentCommand{Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityPersona, PersonaID: personaID}, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: started.Version, At: now.Add(2 * time.Minute)})
+		if assignErr != nil {
+			t.Fatal(assignErr)
+		}
+		if _, assignErr = repository.Update(ctx, candidate, started.Version, workapp.Mutation{Kind: workapp.MutationAssigned, Actor: actor, Reason: "reject ineligible Persona", CorrelationID: "work-persona-" + name, At: now.Add(2 * time.Minute)}); !errors.Is(assignErr, workapp.ErrConstraint) {
+			t.Fatalf("%s Persona assignment error = %v", name, assignErr)
+		}
+	}
+	assigned, err := started.Assign(workdomain.AssignmentCommand{Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityPersona, PersonaID: activePersona}, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: started.Version, At: now.Add(2 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	done, err = repository.Update(ctx, done, started.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "finish before reconciliation", CorrelationID: "work-release-queue-contract", At: now.Add(3 * time.Minute)})
+	assigned, err = repository.Update(ctx, assigned, started.Version, workapp.Mutation{Kind: workapp.MutationAssigned, Actor: actor, Reason: "assign active published Persona", CorrelationID: "work-persona-contract", At: now.Add(2 * time.Minute)})
+	if err != nil || assigned.Assignment.PersonaID != activePersona {
+		t.Fatalf("active Persona assignment = %+v, %v", assigned.Assignment, err)
+	}
+	if err := cellPool.WithAccountTx(ctx, accountA, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE spyglass.agent_personas SET state='inactive',updated_at=$3 WHERE account_id=$1 AND id=$2`, accountA, activePersona, now.Add(3*time.Minute))
+		return err
+	}); err != nil {
+		t.Fatalf("retire assigned Persona: %v", err)
+	}
+
+	done, err := assigned.Transition(workdomain.TransitionCommand{To: workdomain.StateDone, Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: assigned.Version, At: now.Add(4 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err = repository.Update(ctx, done, assigned.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: actor, Reason: "finish before reconciliation", CorrelationID: "work-release-queue-contract", At: now.Add(4 * time.Minute)})
 	if err != nil {
 		t.Fatalf("complete work item: %v", err)
 	}

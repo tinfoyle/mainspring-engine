@@ -771,7 +771,8 @@ export interface WorkAssignment {
 
 export interface WorkAssignmentInput {
   readonly "external_ref"?: string;
-  readonly "responsibility": "user" | "shared" | "external";
+  readonly "persona_id"?: string;
+  readonly "responsibility": "user" | "persona" | "shared" | "external";
   readonly "user_id"?: string;
 }
 

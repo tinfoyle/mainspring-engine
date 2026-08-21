@@ -42,6 +42,9 @@ func (r *WorkRepository) Create(ctx context.Context, draft workdomain.Draft, mut
 			}
 			return workapp.ErrConflict
 		}
+		if err := validateWorkAssignment(ctx, tx, draft.AccountID, draft.Assignment); err != nil {
+			return err
+		}
 		depth := uint8(0)
 		if draft.ParentID != "" {
 			var parentDepth uint8
@@ -112,6 +115,11 @@ func (r *WorkRepository) Update(ctx context.Context, item workdomain.Item, expec
 		return workdomain.Item{}, workapp.ErrCorrupt
 	}
 	err := r.cell.WithAccountTx(ctx, item.AccountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		if mutation.Kind == workapp.MutationAssigned {
+			if err := validateWorkAssignment(ctx, tx, item.AccountID, item.Assignment); err != nil {
+				return err
+			}
+		}
 		result, err := tx.Exec(ctx, `
 			UPDATE spyglass.work_items SET
 			 state=$3,priority=$4,responsibility=$5,assignee_user_id=$6,assignee_persona_id=$7,external_assignee_ref=$8,
@@ -133,6 +141,33 @@ func (r *WorkRepository) Update(ctx context.Context, item workdomain.Item, expec
 		return workdomain.Item{}, classifyWorkError(err)
 	}
 	return item, nil
+}
+
+// validateWorkAssignment is the persistence-side Persona assignment policy.
+// The lock keeps Persona and Boardroom lifecycle writes from racing the Work
+// write; existing Work can continue to reference a Persona that is retired
+// later, while every new assignment requires an active, published identity.
+func validateWorkAssignment(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, assignment workdomain.Assignment) error {
+	if assignment.Responsibility != workdomain.ResponsibilityPersona {
+		return nil
+	}
+	var eligible bool
+	err := tx.QueryRow(ctx, `SELECT true
+		FROM spyglass.agent_personas p
+		JOIN spyglass.agent_boardrooms b ON b.account_id=p.account_id AND b.id=p.boardroom_id
+		JOIN spyglass.agent_persona_versions v ON v.account_id=p.account_id AND v.persona_id=p.id AND v.version=p.latest_version
+		WHERE p.account_id=$1 AND p.id=$2 AND p.state='active' AND b.state='active' AND p.latest_version>0
+		FOR SHARE OF p,b,v`, accountID, assignment.PersonaID).Scan(&eligible)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return workapp.ErrConstraint
+	}
+	if err != nil {
+		return err
+	}
+	if !eligible {
+		return workapp.ErrConstraint
+	}
+	return nil
 }
 
 func (r *WorkRepository) MarkCapacityReleased(ctx context.Context, accountID ids.AccountID, itemID ids.WorkItemID, reservationID string, at time.Time) error {
