@@ -79,6 +79,8 @@ Create separate Account-scoped aggregates:
 
 Add forced-RLS persistence, optimistic versions, immutable events, queries, redacted DTOs and authorization matrices. Answering shared information may complete only eligible requests; altering a proposal invalidates its approval.
 
+Implementation checkpoint (2026-08-21): the three aggregates now have separate typed kernels and persistence restore boundaries. Information requests bind exact fact key/scope and parent Work, reviews bind an assigned User to a Work version and proposal digest, and consequential approvals bind canonical duplicate-key-free JSON, evidence, capability, operation/invocation, policy, expiry and optional independent review. Table-driven tests cover role/object authority, optimistic versions, exact information eligibility, review/proposal invalidation, approval projection time bounds and payload/evidence/policy invalidation. Forced-RLS persistence, immutable events, application queries/commands, runner projection, HTTP/MCP and Your Turn UI remain. See [Attention module](attention-module.md).
+
 ### Connect Work to Agent execution
 
 Implement a Work-owned claim/start/link/heartbeat/release/resume/reconcile state machine. Every crash point must converge to one linked active Run or one safely requeued Work item. Existing Agent dispatch and runner capacity are reused but do not replace this boundary.

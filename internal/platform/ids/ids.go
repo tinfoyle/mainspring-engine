@@ -20,6 +20,9 @@ type InvitationID string
 type GrantID string
 type CellID string
 type WorkItemID string
+type InformationRequestID string
+type WorkReviewID string
+type ConsequentialApprovalID string
 type BoardroomID string
 type PersonaID string
 type PersonaVersionID string
