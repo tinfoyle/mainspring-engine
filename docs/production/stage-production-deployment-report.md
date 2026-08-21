@@ -98,7 +98,7 @@ docs/production/environments/
   local-docker.md
   hostinger-stage.md
   linode-production.md
-docs/production/release-record-template.md
+docs/production/release-artifacts.md
 ```
 
 No plaintext secret, private key, database URL, session material, provider payload or customer identifier belongs in these artifacts.

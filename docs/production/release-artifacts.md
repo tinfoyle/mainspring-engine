@@ -1,6 +1,6 @@
 # Release artifacts and provenance
 
-Status: executable application and website image builds/release workflows; registry publication, environment admission, and rollback evidence require a reviewed release run
+Status: first application/website release pair published and signed; independent scanning, environment admission, staging certification, and rollback evidence remain promotion gates
 
 Spyglass uses one shared, multi-mode application image for Account API, routers, cell APIs, private brokers, workers, runner execution, migrations, and one-shot operator commands. Runtime arguments choose the workload class. Kubernetes ServiceAccounts, NetworkPolicies, mounted credentials, database roles, and workload certificates—not separate per-customer builds—bound each process's authority. Ordinary Accounts never create an image, Deployment, namespace, or long-running container.
 
