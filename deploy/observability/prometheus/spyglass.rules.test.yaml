@@ -104,6 +104,33 @@ tests:
               description: Collector export or bounded-queue enqueue failures have persisted for five minutes.
               runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#collector-export-loss
 
+  - name: consequential-action-recovery-pages-after-sustained-uncertainty
+    interval: 1m
+    input_series:
+      - series: 'spyglass_worker_status{worker="runner-action",field="oldest_retry_due_age_seconds"}'
+        values: '600x30'
+      - series: 'spyglass_worker_status{worker="runner-action",field="unknown"}'
+        values: '1x30'
+      - series: 'spyglass_worker_status{worker="runner-action",field="manual_resolution"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: SpyglassRunnerActionRetryStalled
+        exp_alerts:
+          - exp_labels: {severity: page, owner: platform-on-call}
+            exp_annotations:
+              summary: A consequential action retry is more than five minutes overdue
+              description: The runner action recovery queue has a sustained overdue age of 10m 0s.
+              runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#consequential-action-recovery
+      - eval_time: 20m
+        alertname: SpyglassRunnerActionNeedsResolution
+        exp_alerts:
+          - exp_labels: {severity: page, owner: platform-on-call}
+            exp_annotations:
+              summary: A consequential action needs reconciliation or dual-controlled resolution
+              description: One or more external effects have remained uncertain for fifteen minutes.
+              runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#consequential-action-recovery
+
   - name: collector-metric-absence-is-not-health
     interval: 1m
     alert_rule_test:

@@ -2,6 +2,7 @@ package runnerbrokerapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/modelgatewayhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripeaction"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/toolrouterhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -19,6 +21,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/observability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
 	brokertransport "github.com/tinfoyle/spyglass-engine/internal/transport/runnerbrokerapi"
 	capabilitytransport "github.com/tinfoyle/spyglass-engine/internal/transport/runnercapabilityapi"
@@ -38,6 +41,8 @@ type Config struct {
 	ToolTransport                                                    http.RoundTripper
 	ModelGatewayOrigin                                               string
 	ModelTransport                                                   http.RoundTripper
+	StripeSecretKey, StripeAPIVersion                                string
+	StripeHTTPClient                                                 *http.Client
 }
 
 type Server struct {
@@ -119,6 +124,11 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	stripeCustomerHandler, err := stripeaction.NewCustomerHandler(config.StripeSecretKey, config.StripeAPIVersion, config.StripeHTTPClient)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	auditor, err := postgres.NewRunnerCapabilityAuditor(pool, ids.RandomGenerator{})
 	if err != nil {
 		pool.Close()
@@ -137,6 +147,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	capabilities, err := runnercapability.New(exchange, actions, auditor, registration.SystemClock{}, []runnercapability.Definition{
 		{Capability: toolrouter.WorkSummaryCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
 		{Capability: modelgateway.ModelTurnCapability, Effect: runnercapability.EffectReadOnly, Timeout: modelgateway.MaximumProviderTimeout, Handler: modelHandler},
+		{Capability: stripeaction.CustomerCreateCapability, Effect: runnercapability.EffectConsequential, Timeout: 20 * time.Second, Handler: stripeCustomerHandler},
 	})
 	if err != nil {
 		pool.Close()
@@ -195,6 +206,49 @@ func withHealth(pool *pgxpool.Pool, next http.Handler) http.Handler {
 			_, _ = w.Write([]byte(`{"status":"ready"}`))
 			return
 		}
+		if r.Method == http.MethodGet && (r.URL.Path == "/health/status" || r.URL.Path == "/metrics") {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			status, err := runnerActionStatus(ctx, pool)
+			if err != nil {
+				http.Error(w, "status unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+			if r.URL.Path == "/metrics" {
+				metrics, renderErr := observability.RenderWorkerMetrics("runner-action", status)
+				if renderErr != nil {
+					http.Error(w, "metrics unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+				_, _ = w.Write(metrics)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(status)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+type actionStatus struct {
+	Executing               uint64 `json:"executing"`
+	Reconciling             uint64 `json:"reconciling"`
+	RetryWait               uint64 `json:"retry_wait"`
+	Unknown                 uint64 `json:"unknown"`
+	ManualResolution        uint64 `json:"manual_resolution"`
+	Failed                  uint64 `json:"failed"`
+	Succeeded               uint64 `json:"succeeded"`
+	OldestRetryDueAgeSecond uint64 `json:"oldest_retry_due_age_seconds"`
+}
+
+func runnerActionStatus(ctx context.Context, pool *pgxpool.Pool) (actionStatus, error) {
+	var status actionStatus
+	err := pool.QueryRow(ctx, `SELECT executing,reconciling,retry_wait,unknown,manual_resolution,failed,succeeded,oldest_retry_due_age_seconds
+		FROM public.spyglass_runner_action_stats(statement_timestamp())`).Scan(
+		&status.Executing, &status.Reconciling, &status.RetryWait, &status.Unknown,
+		&status.ManualResolution, &status.Failed, &status.Succeeded, &status.OldestRetryDueAgeSecond)
+	return status, err
 }

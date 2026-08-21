@@ -119,6 +119,14 @@ These are minimum response contracts. Environment runbooks may add provider-spec
 3. Requeue only after the deterministic cause is corrected and reviewed. If the operation may have crossed an external-effect boundary, reconcile before retry.
 4. Verify the target reaches its terminal state, the gauge returns to zero, and the audit batch is archived.
 
+### Consequential action recovery
+
+1. Identify only the content-free operation, capability, executor/policy versions, current ledger state, attempt count, stable error code and timestamps. Do not copy the approved payload or provider response into an incident record.
+2. For `retry_wait`, verify the error code is in the frozen definite-failure policy and the provider response proved that no effect occurred. Let the bounded due retry reuse the same operation UUID; never mint another provider idempotency key.
+3. For `unknown`, invoke only the registered side-effect-free lookup. The Stripe Customer executor searches the exact operation and Account metadata and may not issue another create from its reconciliation path.
+4. If lookup cannot settle the effect, one Owner/Administrator requests an exact `succeeded` or `failed` resolution with a SHA-256 digest of restricted evidence. A different eligible Owner/Administrator must inspect the provider independently and confirm the same resolution. Direct ledger updates and self-confirmation are prohibited.
+5. Verify the applied resolution, Attention approval binding, provider object, immutable attempt trail and content-free metrics agree. Archive both operator identities, the evidence digest, release/executor versions and timestamps in the restricted incident record.
+
 ### Collector export loss
 
 1. Determine whether enqueue failure, send failure, or queue utilization fired and whether both collector replicas are affected.

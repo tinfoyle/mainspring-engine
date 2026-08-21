@@ -44,12 +44,16 @@ func TestRunnerActionLedgerExecutesOnceAndReconcilesUncertainRetries(t *testing.
 
 	actionRole := "spyglass_runner_action_" + randomSuffix(t)
 	approvalRole := "spyglass_runner_approval_" + randomSuffix(t)
+	resolutionRole := "spyglass_runner_resolution_" + randomSuffix(t)
 	if _, err := owner.Exec(ctx, `CREATE ROLE `+actionRole+` NOLOGIN NOBYPASSRLS; CREATE ROLE `+approvalRole+` NOLOGIN NOBYPASSRLS;
-		GRANT USAGE ON SCHEMA public TO `+actionRole+`,`+approvalRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_begin_runner_action(uuid,uuid,uuid,uuid,text,bytea,uuid,timestamptz,timestamptz) TO `+actionRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_complete_runner_action(uuid,uuid,uuid,uuid,text,bytea,text,uuid,timestamptz,text,text,timestamptz) TO `+actionRole+`;
+		CREATE ROLE `+resolutionRole+` NOLOGIN NOBYPASSRLS;
+		GRANT USAGE ON SCHEMA public TO `+actionRole+`,`+approvalRole+`,`+resolutionRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_begin_runner_action_v2(uuid,uuid,uuid,uuid,text,bytea,uuid,timestamptz,timestamptz) TO `+actionRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_complete_runner_action_v2(uuid,uuid,uuid,uuid,text,bytea,text,uuid,timestamptz,text,text,timestamptz) TO `+actionRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_record_runner_action_authorization(uuid,uuid,uuid,uuid,text,bytea,smallint,bytea,text,text,uuid,bigint,timestamptz,timestamptz) TO `+approvalRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_cancel_runner_action_authorization(uuid,uuid,uuid,timestamptz) TO `+approvalRole); err != nil {
+		GRANT EXECUTE ON FUNCTION public.spyglass_cancel_runner_action_authorization(uuid,uuid,uuid,timestamptz) TO `+approvalRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_request_runner_action_resolution(uuid,uuid,uuid,text,bytea,uuid,timestamptz) TO `+resolutionRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_confirm_runner_action_resolution(uuid,uuid,uuid,uuid,timestamptz) TO `+resolutionRole); err != nil {
 		t.Fatal(err)
 	}
 	actionPool := openPool(t, ctx, databaseURL, func(ctx context.Context, connection *pgx.Conn) error {
@@ -60,16 +64,30 @@ func TestRunnerActionLedgerExecutesOnceAndReconcilesUncertainRetries(t *testing.
 		_, err := connection.Exec(ctx, `SET ROLE `+approvalRole)
 		return err
 	})
+	resolutionPool := openPool(t, ctx, databaseURL, func(ctx context.Context, connection *pgx.Conn) error {
+		_, err := connection.Exec(ctx, `SET ROLE `+resolutionRole)
+		return err
+	})
 	defer func() {
 		actionPool.Close()
 		approvalPool.Close()
-		_, _ = owner.Exec(context.Background(), `DROP OWNED BY `+actionRole+`; DROP OWNED BY `+approvalRole+`; DROP ROLE IF EXISTS `+actionRole+`; DROP ROLE IF EXISTS `+approvalRole)
+		resolutionPool.Close()
+		_, _ = owner.Exec(context.Background(), `DROP OWNED BY `+actionRole+`; DROP OWNED BY `+approvalRole+`; DROP OWNED BY `+resolutionRole+`;
+			DROP ROLE IF EXISTS `+actionRole+`; DROP ROLE IF EXISTS `+approvalRole+`; DROP ROLE IF EXISTS `+resolutionRole)
 	}()
 	if err := actionPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.runner_action_ledger`).Scan(new(int)); err == nil {
 		t.Fatal("action role directly read the ledger")
 	}
 	if err := approvalPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.runner_action_authorizations`).Scan(new(int)); err == nil {
 		t.Fatal("approval projection role directly read authorizations")
+	}
+	if err := resolutionPool.QueryRow(ctx, `SELECT count(*) FROM spyglass.runner_action_ledger`).Scan(new(int)); err == nil {
+		t.Fatal("resolution role directly read the action ledger")
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.runner_action_executors
+		(capability,executor_id,executor_version,policy_version,enabled,max_definite_attempts,retry_base_delay,retryable_error_codes,updated_at)
+		VALUES ('email.send','test.email',1,1,true,3,interval '5 seconds',ARRAY['provider_rate_limited'],$1)`, now); err != nil {
+		t.Fatal(err)
 	}
 
 	operation := "40000000-0000-4000-8000-000000000001"
@@ -197,6 +215,80 @@ func TestRunnerActionLedgerExecutesOnceAndReconcilesUncertainRetries(t *testing.
 	var priorOutcome, priorError string
 	if err := owner.QueryRow(ctx, `SELECT outcome,error_code FROM spyglass.runner_action_attempts WHERE account_id=$1 AND attempt_id=$2`, accountA, abandoned.AttemptID).Scan(&priorOutcome, &priorError); err != nil || priorOutcome != "unknown" || priorError != "lease_expired" {
 		t.Fatalf("abandoned attempt outcome=%q code=%q err=%v", priorOutcome, priorError, err)
+	}
+
+	retryOperation := "40000000-0000-4000-8000-000000000006"
+	recordActionAuthorization(t, ctx, approvalPool, accountA, invocation, retryOperation, "50000000-0000-4000-8000-000000000006", digest, now, now.Add(30*time.Minute))
+	retryClock := &fixedClock{now: now}
+	retryService, _ := runneraction.New(repository, &erasureIDs{values: []string{
+		"72000000-0000-4000-8000-000000000001", "72000000-0000-4000-8000-000000000002",
+		"72000000-0000-4000-8000-000000000003", "72000000-0000-4000-8000-000000000004",
+	}}, retryClock, time.Minute)
+	retryRequest := request
+	retryRequest.OperationID = retryOperation
+	retryLease, err := retryService.BeginAction(ctx, retryRequest)
+	if err != nil || retryLease.Mode != runnercapability.ActionExecute {
+		t.Fatalf("retry first lease=%#v err=%v", retryLease, err)
+	}
+	if err := retryService.CompleteAction(ctx, runnercapability.ActionCompletion{Lease: retryLease, Outcome: runnercapability.ActionFailed, ErrorCode: "provider_rate_limited", At: now.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	retryClock.now = now.Add(4 * time.Second)
+	if _, err := retryService.BeginAction(ctx, retryRequest); !errors.Is(err, runneraction.ErrActionBusy) {
+		t.Fatalf("early definite retry=%v", err)
+	}
+	retryClock.now = now.Add(7 * time.Second)
+	secondRetry, err := retryService.BeginAction(ctx, retryRequest)
+	if err != nil || secondRetry.Mode != runnercapability.ActionExecute {
+		t.Fatalf("due definite retry=%#v err=%v", secondRetry, err)
+	}
+	if err := retryService.CompleteAction(ctx, runnercapability.ActionCompletion{Lease: secondRetry, Outcome: runnercapability.ActionFailed, ErrorCode: "provider_rejected", At: now.Add(8 * time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := retryService.BeginAction(ctx, retryRequest); !errors.Is(err, runneraction.ErrActionDenied) {
+		t.Fatalf("non-retryable definite failure=%v", err)
+	}
+
+	manualOperation := "40000000-0000-4000-8000-000000000007"
+	recordActionAuthorization(t, ctx, approvalPool, accountA, invocation, manualOperation, "50000000-0000-4000-8000-000000000007", digest, now, now.Add(30*time.Minute))
+	manualClock := &fixedClock{now: now.Add(10 * time.Second)}
+	manualService, _ := runneraction.New(repository, &erasureIDs{values: []string{"73000000-0000-4000-8000-000000000001"}}, manualClock, time.Minute)
+	manualRequest := request
+	manualRequest.OperationID = manualOperation
+	manualLease, err := manualService.BeginAction(ctx, manualRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manualService.CompleteAction(ctx, runnercapability.ActionCompletion{Lease: manualLease, Outcome: runnercapability.ActionUnknown, ErrorCode: "provider_timeout", At: now.Add(11 * time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	resolutionID := "74000000-0000-4000-8000-000000000001"
+	requesterID := "75000000-0000-4000-8000-000000000001"
+	confirmerID := "75000000-0000-4000-8000-000000000002"
+	reason := sha256.Sum256([]byte("operator inspected provider record and evidence"))
+	var changed bool
+	requestedAt := now.Add(12 * time.Second)
+	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_request_runner_action_resolution($1,$2,$3,'succeeded',$4,$5,$6)`,
+		accountA, manualOperation, resolutionID, reason[:], requesterID, requestedAt).Scan(&changed); err != nil || !changed {
+		t.Fatalf("manual resolution request changed=%v err=%v", changed, err)
+	}
+	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_confirm_runner_action_resolution($1,$2,$3,$4,$5)`,
+		accountA, manualOperation, resolutionID, requesterID, now.Add(13*time.Second)).Scan(&changed); err == nil {
+		t.Fatal("manual resolution accepted the requesting operator as confirmer")
+	}
+	confirmedAt := now.Add(14 * time.Second)
+	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_confirm_runner_action_resolution($1,$2,$3,$4,$5)`,
+		accountA, manualOperation, resolutionID, confirmerID, confirmedAt).Scan(&changed); err != nil || !changed {
+		t.Fatalf("manual resolution confirmation changed=%v err=%v", changed, err)
+	}
+	if err := resolutionPool.QueryRow(ctx, `SELECT public.spyglass_confirm_runner_action_resolution($1,$2,$3,$4,$5)`,
+		accountA, manualOperation, resolutionID, confirmerID, confirmedAt).Scan(&changed); err != nil || changed {
+		t.Fatalf("manual resolution replay changed=%v err=%v", changed, err)
+	}
+	var manualState, resolutionState string
+	if err := owner.QueryRow(ctx, `SELECT l.state,r.state FROM spyglass.runner_action_ledger l JOIN spyglass.runner_action_manual_resolutions r
+		ON r.account_id=l.account_id AND r.operation_id=l.operation_id WHERE l.account_id=$1 AND l.operation_id=$2`, accountA, manualOperation).Scan(&manualState, &resolutionState); err != nil || manualState != "succeeded" || resolutionState != "applied" {
+		t.Fatalf("manual outcome ledger=%q resolution=%q err=%v", manualState, resolutionState, err)
 	}
 }
 

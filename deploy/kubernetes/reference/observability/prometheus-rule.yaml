@@ -62,13 +62,29 @@ spec:
             description: "{{ $labels.worker }} reports {{ $value }} dead-lettered records."
             runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#queue-dead-letter
         - alert: SpyglassWorkerMetricsMissing
-          expr: absent(spyglass_worker_status{worker="runner-controller"}) or absent(spyglass_worker_status{worker="agent-dispatch"}) or absent(spyglass_worker_status{worker="agent-projection"}) or absent(spyglass_worker_status{worker="work-reconciler"})
+          expr: absent(spyglass_worker_status{worker="runner-controller"}) or absent(spyglass_worker_status{worker="runner-action"}) or absent(spyglass_worker_status{worker="agent-dispatch"}) or absent(spyglass_worker_status{worker="agent-projection"}) or absent(spyglass_worker_status{worker="work-reconciler"})
           for: 10m
           labels: {severity: page, owner: platform-on-call}
           annotations:
             summary: A critical Spyglass worker metric family is absent
             description: Runner, Agent dispatch/projection, or Work reconciliation health is not observable.
             runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#missing-telemetry
+        - alert: SpyglassRunnerActionRetryStalled
+          expr: max(spyglass_worker_status{worker="runner-action",field="oldest_retry_due_age_seconds"}) > 300
+          for: 10m
+          labels: {severity: page, owner: platform-on-call}
+          annotations:
+            summary: A consequential action retry is more than five minutes overdue
+            description: The runner action recovery queue has a sustained overdue age of {{ $value | humanizeDuration }}.
+            runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#consequential-action-recovery
+        - alert: SpyglassRunnerActionNeedsResolution
+          expr: max(spyglass_worker_status{worker="runner-action",field=~"unknown|manual_resolution"}) > 0
+          for: 15m
+          labels: {severity: page, owner: platform-on-call}
+          annotations:
+            summary: A consequential action needs reconciliation or dual-controlled resolution
+            description: One or more external effects have remained uncertain for fifteen minutes.
+            runbook_url: https://github.com/tinfoyle/mainspring-engine/blob/main/docs/production/observability-operations.md#consequential-action-recovery
     - name: spyglass.collector
       interval: 30s
       rules:

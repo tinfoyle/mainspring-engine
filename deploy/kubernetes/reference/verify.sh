@@ -89,7 +89,7 @@ rules_file="$rules_dir/spyglass.rules.yaml"
 trap 'rm -f "$rendered"; rm -rf -- "$rules_dir"' EXIT
 sed -n '/^spec:/,$p' "$reference_dir/observability/prometheus-rule.yaml" | tail -n +2 | sed 's/^  //' >"$rules_file"
 cp "$reference_dir/../../observability/prometheus/spyglass.rules.test.yaml" "$rules_dir/spyglass.rules.test.yaml"
-test "$(grep -c '^      - alert:' "$rules_file")" -eq 10
+test "$(grep -c '^      - alert:' "$rules_file")" -eq 12
 if command -v promtool >/dev/null 2>&1; then
   promtool check rules "$rules_file"
   promtool test rules "$rules_dir/spyglass.rules.test.yaml"

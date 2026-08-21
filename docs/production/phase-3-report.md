@@ -94,6 +94,8 @@ Implementation checkpoint (2026-08-21): Persona assignment now freezes an immuta
 - Add at least one real consequential adapter with idempotency and side-effect-free lookup.
 - Add redacted customer/operator views, alerting and recovery runbooks.
 
+Implementation checkpoint (2026-08-21): Attention's approval transaction is now the sole producer of the exact runner authorization projection. The action ledger consumes a versioned content-free executor/retry registry, freezes executor and policy versions per operation, retries only registry-allowlisted definite no-effect failures with bounded delay, and forces all uncertain/completed replay through reconciliation. Unknown outcomes can enter a two-person manual-resolution record whose requester cannot confirm it. The first real executor, `stripe.customer.create`, uses the operation UUID as Stripe's idempotency key and reconciles through side-effect-free exact Account/operation metadata search; the Stripe credential never enters runner Jobs. Content-free broker metrics, paging rules and a recovery runbook are complete. Authorized redacted customer/operator action views and their HTTP/MCP/UI surfaces remain before this block's exit. See [Consequential action execution](consequential-actions.md).
+
 Exit: Work, Your Turn and approved external actions are complete through domain, persistence, HTTP, MCP and UI.
 
 ## P3.2 — Knowledge and Baseline

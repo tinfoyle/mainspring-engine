@@ -1662,6 +1662,10 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil || maxBody > 2<<20 {
 		return errors.New("SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES must be between 1 and 2097152")
 	}
+	stripeSecretKey, err := requiredEnv("SPYGLASS_STRIPE_SECRET_KEY")
+	if err != nil {
+		return err
+	}
 	serverTLS, err := workloadidentity.NewServerConfig(workloadTLSFilesEnv())
 	if err != nil {
 		return err
@@ -1683,6 +1687,9 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 	}
 	toolTransport = observability.TracingFromContext(ctx).Transport(toolTransport)
 	modelTransport = observability.TracingFromContext(ctx).Transport(modelTransport)
+	stripeTransport := http.DefaultTransport.(*http.Transport).Clone()
+	stripeTransport.Proxy = nil
+	stripeHTTPClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(stripeTransport), Timeout: 20 * time.Second, CheckRedirect: rejectOutboundRedirect}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := runnerbrokerbootstrap.New(startup, runnerbrokerbootstrap.Config{
@@ -1692,7 +1699,8 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 		MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, ToolRouterOrigin: toolRouterOrigin,
 		ToolIssuer: toolIssuer, ToolSigningKeyID: toolSigningKeyID, ToolSigningKey: toolSigningKey,
 		ToolLifetime: toolLifetime, ToolTransport: toolTransport, ModelGatewayOrigin: modelGatewayOrigin,
-		ModelTransport: modelTransport,
+		ModelTransport: modelTransport, StripeSecretKey: stripeSecretKey,
+		StripeAPIVersion: os.Getenv("SPYGLASS_STRIPE_API_VERSION"), StripeHTTPClient: stripeHTTPClient,
 	}, logger)
 	if err != nil {
 		return err

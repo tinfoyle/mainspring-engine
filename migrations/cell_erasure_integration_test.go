@@ -36,6 +36,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	coveredTables := map[string]bool{"account_namespaces": true, "account_audit_events": true, "work_item_number_counters": true, "work_items": true, "work_item_events": true, "route_context_receipts": true, "work_capacity_release_queue": true, "route_context_receipt_cleanup_queue": true, "work_capacity_release_operator_events": true, "runner_account_scheduling": true, "runner_invocation_queue": true, "runner_invocation_exchanges": true, "runner_capability_events": true, "runner_action_authorizations": true, "runner_action_ledger": true, "runner_action_attempts": true, "agent_boardrooms": true, "agent_personas": true, "agent_persona_versions": true, "agent_conversations": true, "agent_runs": true, "agent_run_plan_turns": true, "agent_invocations": true, "agent_messages": true, "agent_result_projection_queue": true, "agent_user_messages": true, "agent_invocation_execution_plans": true, "agent_dispatch_queue": true, "agent_queue_operator_events": true, "agent_run_resolutions": true, "attention_information_requests": true, "attention_work_reviews": true, "attention_consequential_approvals": true, "attention_events": true, "account_move_checkpoints": true}
 	coveredTables["work_agent_executions"] = true
 	coveredTables["work_agent_execution_queue"] = true
+	coveredTables["runner_action_manual_resolutions"] = true
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
 	if err != nil {
 		t.Fatal(err)
@@ -247,10 +248,10 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		VALUES ($1,replace($3::text,'51','71')::uuid,$3,replace($3::text,'51','61')::uuid,replace($3::text,'51','81')::uuid,'work:read','read_only','succeeded',NULL,$2::timestamptz);
 		INSERT INTO spyglass.runner_action_authorizations(account_id,operation_id,invocation_id,approval_id,capability,input_sha256,hash_version,evidence_sha256,proposer_kind,proposer_id,approved_by_user_id,policy_version,state,approved_at,expires_at)
 		VALUES ($1,replace($3::text,'51','81')::uuid,$3,replace($3::text,'51','91')::uuid,'email.send',decode(repeat('dd',32),'hex'),1,decode(repeat('ee',32),'hex'),'workload','runner-test',replace($3::text,'51','92')::uuid,1,'approved',$2::timestamptz,$2::timestamptz+interval '30 minutes');
-		INSERT INTO spyglass.runner_action_ledger(account_id,operation_id,invocation_id,capability,input_sha256,idempotency_key,state,current_attempt_id,attempt_count,started_at,updated_at,completed_at)
-		VALUES ($1,replace($3::text,'51','81')::uuid,$3,'email.send',decode(repeat('dd',32),'hex'),replace($3::text,'51','81')::uuid,'succeeded',replace($3::text,'51','93')::uuid,1,$2,$2,$2);
-		INSERT INTO spyglass.runner_action_attempts(account_id,operation_id,attempt_id,mode,outcome,started_at,lease_expires_at,completed_at)
-		VALUES ($1,replace($3::text,'51','81')::uuid,replace($3::text,'51','93')::uuid,'execute','succeeded',$2,$2::timestamptz+interval '2 minutes',$2)`, pgx.QueryExecModeSimpleProtocol, accountID, now, invocationID, "runner-erasure-"+rootID); err != nil {
+		INSERT INTO spyglass.runner_action_ledger(account_id,operation_id,invocation_id,capability,input_sha256,idempotency_key,state,current_attempt_id,attempt_count,started_at,updated_at,completed_at,executor_id,executor_version,executor_policy_version)
+		VALUES ($1,replace($3::text,'51','81')::uuid,$3,'email.send',decode(repeat('dd',32),'hex'),replace($3::text,'51','81')::uuid,'succeeded',replace($3::text,'51','93')::uuid,1,$2,$2,$2,'legacy',1,1);
+		INSERT INTO spyglass.runner_action_attempts(account_id,operation_id,attempt_id,mode,outcome,started_at,lease_expires_at,completed_at,executor_id,executor_version,executor_policy_version)
+		VALUES ($1,replace($3::text,'51','81')::uuid,replace($3::text,'51','93')::uuid,'execute','succeeded',$2,$2::timestamptz+interval '2 minutes',$2,'legacy',1,1)`, pgx.QueryExecModeSimpleProtocol, accountID, now, invocationID, "runner-erasure-"+rootID); err != nil {
 		t.Fatal(err)
 	}
 	boardroomID := strings.Replace(rootID, "000000000001", "000000000101", 1)

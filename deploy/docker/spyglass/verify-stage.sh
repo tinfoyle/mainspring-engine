@@ -175,7 +175,7 @@ provider_members = {
     name for name, service in services.items()
     if "provider-egress" in service.get("networks", {})
 }
-if provider_members != {"account-api", "billing-worker", "notification-worker", "model-gateway"}:
+if provider_members != {"account-api", "billing-worker", "notification-worker", "model-gateway", "runner-broker-a", "runner-broker-b"}:
     raise SystemExit(f"provider egress membership is not least-authority: {sorted(provider_members)}")
 for suffix in ("a", "b"):
     network_name = f"runner-{suffix}-egress"

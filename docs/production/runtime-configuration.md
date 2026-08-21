@@ -40,9 +40,9 @@ The account API and workers share no in-memory state. Multiple replicas coordina
 | Environment variable | Consumers | Meaning |
 |---|---|---|
 | `SPYGLASS_DATABASE_URL` | Persistent processes except `work-reconciler` | Workload-specific PostgreSQL connection string: global for control-plane modes and one cell database for `app-api` or `route-receipt-worker` |
-| `SPYGLASS_STRIPE_SECRET_KEY` | Account API, billing worker | Environment-specific `sk_test_` or `sk_live_` key |
+| `SPYGLASS_STRIPE_SECRET_KEY` | Account API, billing worker, runner broker | Environment-specific `sk_test_` or `sk_live_` key; the broker uses it only for an approved registered Stripe action |
 | `SPYGLASS_STRIPE_MODE` | Account API, billing worker | Exact `test` or `live` mode; must match the key |
-| `SPYGLASS_STRIPE_API_VERSION` | Account API, billing worker | Optional deliberate override; defaults to the compiled, tested pin |
+| `SPYGLASS_STRIPE_API_VERSION` | Account API, billing worker, runner broker | Optional deliberate override; defaults to the compiled, tested pin |
 | `SPYGLASS_NOTIFICATION_ENCRYPTION_KEY` | Account API, notification worker | Standard Base64 encoding of exactly 32 random bytes |
 | `SPYGLASS_NETWORK_ACTOR_KEY` | Account API | Standard Base64 encoding of exactly 32 random bytes used only for keyed request-actor hashing |
 | `SPYGLASS_PASSKEY_ENCRYPTION_KEYS` | Account API, passkey admin | Comma-separated `positive-version=standard-base64-key` keyring; every key is exactly 32 bytes |
@@ -313,6 +313,8 @@ On Kubernetes the controller uses its in-cluster projected service-account token
 | `SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES` | Optional positive result-request limit through 2 MiB; defaults to 2 MiB while the application envelope remains capped at 1 MiB |
 | `SPYGLASS_TOOL_ROUTER_ORIGIN` | Required private app-router origin; HTTPS outside development |
 | `SPYGLASS_MODEL_GATEWAY_ORIGIN` | Required private model-gateway origin; HTTPS outside development |
+| `SPYGLASS_STRIPE_SECRET_KEY` | Required provider credential for the registered `stripe.customer.create` consequential executor; never passed to runner Jobs |
+| `SPYGLASS_STRIPE_API_VERSION` | Optional deliberate override shared with the billing boundary; defaults to the compiled tested pin |
 | `SPYGLASS_TOOL_CONTEXT_ISSUER` | Required exact issuer matching the app-router verifier |
 | `SPYGLASS_TOOL_CONTEXT_SIGNING_KEY_ID` | Required active tool-proof key identifier |
 | `SPYGLASS_TOOL_CONTEXT_SIGNING_KEY` | Standard Base64 encoding of at least 32 random secret bytes; never reuse route or envelope keys |
@@ -321,7 +323,7 @@ On Kubernetes the controller uses its in-cluster projected service-account token
 | `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
 | `SPYGLASS_HTTP_ADDRESS` | Optional broker HTTPS address; defaults to `:8443` |
 
-On Kubernetes the broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. On Docker stage the broker's mTLS identity plus broker-only bearer secret permits only token-to-running-container identity verification through the launcher. Its database role has execute-only exchange, capability-audit, and action begin/complete authority with no direct table grants. A separate future Attention projection role receives only authorization-record/cancel execute authority; it cannot begin or settle an action. The broker reaches model-gateway with its rotating workload certificate; it has no provider key. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
+On Kubernetes the broker ServiceAccount uses its ordinary in-cluster credential only for online TokenReview and exact Pod/Job GETs. On Docker stage the broker's mTLS identity plus broker-only bearer secret permits only token-to-running-container identity verification through the launcher. Its database role has execute-only exchange, capability-audit, and versioned action begin/complete authority with no direct table grants. Attention alone records or cancels approval projections; it cannot begin or settle an action. The broker reaches model-gateway with its rotating workload certificate. Its Stripe key is confined to the in-process registered executor and is never returned to a runner. Health endpoints disclose only liveness/readiness and exchange responses set `no-store`.
 
 ## Docker runner launcher values
 
@@ -345,7 +347,7 @@ This mode is rejected unless `SPYGLASS_ENVIRONMENT=stage` and `SPYGLASS_RUNNER_S
 
 Only this service receives Docker Engine authority. Launched containers have immutable contract labels, no environment/provider/database credentials, two read-only identity mounts, non-root execution, read-only root, all capabilities dropped, no-new-privileges, bounded CPU/memory/PIDs/tmpfs/deadline, no restart policy and the fixed isolated network. Stage uses native Unix permission enforcement for identity files.
 
-Do not deploy the runner fleet until the Agents serving/dispatch workloads and any provider-specific consequential adapters are protected by a tested environment NetworkPolicy. Routed Agent serving, encrypted dispatch, the bounded `agent.turn.execute` and `work.summary.snapshot` executors, read-only `work.summary.read` and `agents.model.turn` handlers, lease-fenced result projection worker, and durable execute-versus-reconcile action authorizer are executable, but no consequential handler exists. The reference topology places ephemeral Jobs and their permissionless ServiceAccount in a dedicated runner namespace, includes namespace-scoped Job lifecycle and TokenReview/Pod/Job observer RBAC, and permits only the internal runner→broker→gateway/tool paths. An environment must still supply and validate its cluster API egress CIDR, sandbox RuntimeClass, digest-pinned runner artifact, database/provider egress, certificate/secret controllers, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, Pod-bound content-free audit, and projection retention fencing are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
+Do not deploy the runner fleet until the Agents serving/dispatch workloads and provider-specific consequential adapters are protected by a tested environment NetworkPolicy. Routed Agent serving, encrypted dispatch, the bounded `agent.turn.execute` and `work.summary.snapshot` executors, read-only `work.summary.read` and `agents.model.turn` handlers, lease-fenced result projection worker, and durable execute-versus-reconcile action authorizer are executable. The first consequential handler creates a Stripe Customer with the operation UUID as its provider idempotency key and reconciles only through an exact metadata search. The reference topology places ephemeral Jobs and their permissionless ServiceAccount in a dedicated runner namespace, includes namespace-scoped Job lifecycle and TokenReview/Pod/Job observer RBAC, and permits only the internal runner→broker→gateway/tool paths. An environment must still supply and validate its cluster API egress CIDR, sandbox RuntimeClass, digest-pinned runner artifact, database/provider egress, certificate/secret controllers, and alert/custom-metric integration. Durable cancellation, database exchange revocation, capability reauthorization, Pod-bound content-free audit, and projection retention fencing are executable but still require applied-cluster and node-partition proof. See [runner-control.md](runner-control.md) and [runner-broker.md](runner-broker.md).
 
 ## Agent dispatch worker values
 

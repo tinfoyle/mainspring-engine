@@ -119,7 +119,9 @@ GRANT EXECUTE ON FUNCTION public.spyglass_submit_runner_result(uuid,uuid,text,te
   TO spyglass_runner_broker;
 GRANT EXECUTE ON FUNCTION public.spyglass_record_runner_capability_event(uuid,uuid,uuid,uuid,uuid,text,text,text,text,timestamptz)
   TO spyglass_runner_broker;
-GRANT EXECUTE ON FUNCTION public.spyglass_begin_runner_action(uuid,uuid,uuid,uuid,text,bytea,uuid,timestamptz,timestamptz)
+GRANT EXECUTE ON FUNCTION public.spyglass_begin_runner_action_v2(uuid,uuid,uuid,uuid,text,bytea,uuid,timestamptz,timestamptz)
   TO spyglass_runner_broker;
-GRANT EXECUTE ON FUNCTION public.spyglass_complete_runner_action(uuid,uuid,uuid,uuid,text,bytea,text,uuid,timestamptz,text,text,timestamptz)
+GRANT EXECUTE ON FUNCTION public.spyglass_complete_runner_action_v2(uuid,uuid,uuid,uuid,text,bytea,text,uuid,timestamptz,text,text,timestamptz)
+  TO spyglass_runner_broker;
+GRANT EXECUTE ON FUNCTION public.spyglass_runner_action_stats(timestamptz)
   TO spyglass_runner_broker;

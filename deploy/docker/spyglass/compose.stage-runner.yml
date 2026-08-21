@@ -155,6 +155,8 @@ services:
       SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES: "2097152"
       SPYGLASS_TOOL_ROUTER_ORIGIN: https://tool-router:8443
       SPYGLASS_MODEL_GATEWAY_ORIGIN: https://model-gateway:8443
+      SPYGLASS_STRIPE_SECRET_KEY: ${SPYGLASS_STRIPE_SECRET_KEY:?set Stripe secret key}
+      SPYGLASS_STRIPE_API_VERSION: ${SPYGLASS_STRIPE_API_VERSION:-2026-07-29.dahlia}
       SPYGLASS_TOOL_CONTEXT_ISSUER: ${SPYGLASS_TOOL_CONTEXT_ISSUER:?set tool context issuer}
       SPYGLASS_TOOL_CONTEXT_SIGNING_KEY_ID: ${SPYGLASS_CELL_A_TOOL_CONTEXT_SIGNING_KEY_ID:?set cell A tool key id}
       SPYGLASS_TOOL_CONTEXT_SIGNING_KEY: ${SPYGLASS_CELL_A_TOOL_CONTEXT_SIGNING_KEY:?set cell A tool signing key}
@@ -173,7 +175,7 @@ services:
       docker-runner-launcher-a: {condition: service_healthy}
       tool-router: {condition: service_healthy}
       model-gateway: {condition: service_healthy}
-    networks: [application, database, runner-a-egress]
+    networks: [application, database, runner-a-egress, provider-egress]
 
   runner-broker-b:
     <<: *stage-runner
@@ -196,6 +198,8 @@ services:
       SPYGLASS_RUNNER_BROKER_MAX_REQUEST_BODY_BYTES: "2097152"
       SPYGLASS_TOOL_ROUTER_ORIGIN: https://tool-router:8443
       SPYGLASS_MODEL_GATEWAY_ORIGIN: https://model-gateway:8443
+      SPYGLASS_STRIPE_SECRET_KEY: ${SPYGLASS_STRIPE_SECRET_KEY:?set Stripe secret key}
+      SPYGLASS_STRIPE_API_VERSION: ${SPYGLASS_STRIPE_API_VERSION:-2026-07-29.dahlia}
       SPYGLASS_TOOL_CONTEXT_ISSUER: ${SPYGLASS_TOOL_CONTEXT_ISSUER:?set tool context issuer}
       SPYGLASS_TOOL_CONTEXT_SIGNING_KEY_ID: ${SPYGLASS_CELL_B_TOOL_CONTEXT_SIGNING_KEY_ID:?set cell B tool key id}
       SPYGLASS_TOOL_CONTEXT_SIGNING_KEY: ${SPYGLASS_CELL_B_TOOL_CONTEXT_SIGNING_KEY:?set cell B tool signing key}
@@ -214,7 +218,7 @@ services:
       docker-runner-launcher-b: {condition: service_healthy}
       tool-router: {condition: service_healthy}
       model-gateway: {condition: service_healthy}
-    networks: [application, database, runner-b-egress]
+    networks: [application, database, runner-b-egress, provider-egress]
 
   docker-runner-launcher-a:
     <<: *stage-runner
