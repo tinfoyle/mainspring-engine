@@ -5,7 +5,11 @@ FROM ${GO_IMAGE} AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+# Keep the complete pinned module graph in the build layer. The test-runtime
+# stage runs packages that are intentionally absent from the release binary,
+# so an ephemeral module cache would make the hermetic test gate fetch at run
+# time and fail when Docker DNS or outbound access is unavailable.
+RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
