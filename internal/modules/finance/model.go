@@ -108,6 +108,8 @@ func (actor Actor) valid() bool {
 	return actor.Kind == ActorWorkload
 }
 
+func (actor Actor) Valid() bool { return actor.valid() }
+
 func canParticipate(role accounts.MembershipRole) bool {
 	return role == accounts.RoleOwner || role == accounts.RoleAdministrator || role == accounts.RoleMember
 }

@@ -151,7 +151,6 @@ CREATE TABLE spyglass.finance_reconciliations (
     updated_at timestamptz NOT NULL CHECK (updated_at>=created_at),
     confirmed_at timestamptz,
     PRIMARY KEY (account_id,id),
-    UNIQUE (account_id,ledger_id,posting_account_id,as_of),
     FOREIGN KEY (account_id,ledger_id) REFERENCES spyglass.finance_ledgers(account_id,id) ON DELETE CASCADE,
     FOREIGN KEY (account_id,ledger_id,posting_account_id) REFERENCES spyglass.finance_accounts(account_id,ledger_id,id) ON DELETE CASCADE,
     FOREIGN KEY (account_id,primary_evidence_id) REFERENCES spyglass.knowledge_evidence(account_id,id) ON DELETE CASCADE,
@@ -195,6 +194,8 @@ CREATE INDEX finance_entries_work ON spyglass.finance_entries(account_id,work_it
 CREATE UNIQUE INDEX finance_entries_one_reversal ON spyglass.finance_entries(account_id,reversal_of_id) WHERE reversal_of_id IS NOT NULL;
 CREATE UNIQUE INDEX finance_entries_one_reverse_link ON spyglass.finance_entries(account_id,reversed_by_id) WHERE reversed_by_id IS NOT NULL;
 CREATE INDEX finance_reconciliations_list ON spyglass.finance_reconciliations(account_id,ledger_id,as_of DESC,id);
+CREATE UNIQUE INDEX finance_one_confirmed_reconciliation
+    ON spyglass.finance_reconciliations(account_id,ledger_id,posting_account_id,as_of) WHERE state='confirmed';
 CREATE INDEX finance_events_aggregate ON spyglass.finance_events(account_id,aggregate_kind,aggregate_id,occurred_at,id);
 
 ALTER TABLE spyglass.finance_ledgers ENABLE ROW LEVEL SECURITY;

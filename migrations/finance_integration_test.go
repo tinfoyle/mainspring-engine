@@ -2,13 +2,21 @@ package migrations_test
 
 import (
 	"context"
+	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
+	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -157,5 +165,147 @@ func TestFinanceSchemaEnforcesIsolationPostingAndImmutableReversal(t *testing.T)
 	if _, err := reader.Exec(ctx, `INSERT INTO spyglass.finance_ledgers(account_id,id,name,code,description,currency,state,version,created_by_kind,created_by_id,created_at,updated_at)
 		VALUES ($1,'fb200000-0000-4000-8000-000000000099','Cross account','CROSS','','USD','active',1,'user',$2,$3,$3)`, accountB, userID, now); err == nil {
 		t.Fatal("cross-Account Finance insert bypassed RLS")
+	}
+}
+
+func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
+	adminURL := os.Getenv("SPYGLASS_POSTGRES_TEST_URL")
+	if adminURL == "" {
+		t.Skip("SPYGLASS_POSTGRES_TEST_URL is not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	databaseURL, cleanup := createDatabase(t, ctx, adminURL)
+	defer cleanup()
+	owner := openPool(t, ctx, databaseURL, nil)
+	defer owner.Close()
+	if _, err := migrations.Apply(ctx, owner, migrations.Cell); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 8, 22, 20, 0, 0, 0, time.UTC)
+	accountID := ids.AccountID("fc000000-0000-4000-8000-000000000001")
+	otherAccountID := ids.AccountID("fd000000-0000-4000-8000-000000000001")
+	userID := "fc100000-0000-4000-8000-000000000001"
+	evidenceID := ids.KnowledgeEvidenceID("fc200000-0000-4000-8000-000000000001")
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.account_namespaces(account_id,placement_generation,state,created_at) VALUES ($1,1,'active',$3),($2,1,'active',$3)`, accountID, otherAccountID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.knowledge_evidence(account_id,id,source_kind,source_reference,source_revision,content_sha256,captured_at,created_by_kind,created_by_id,created_at)
+		VALUES ($1,$2,'owner_statement','finance-repository-test','1',decode(repeat('22',32),'hex'),$3,'user',$4,$3)`, accountID, evidenceID, now, userID); err != nil {
+		t.Fatal(err)
+	}
+	cell, err := database.NewCellPool(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := postgresadapter.NewFinanceRepository(cell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := financedomain.Actor{Kind: financedomain.ActorUser, ID: userID}
+	mutation := func(id, kind string, at time.Time) financeapp.Mutation {
+		return financeapp.Mutation{EventID: id, Kind: kind, Actor: actor, CorrelationID: id, At: at}
+	}
+
+	ledgerID := ids.FinanceLedgerID("fc300000-0000-4000-8000-000000000001")
+	ledgerEvent := "fc400000-0000-4000-8000-000000000001"
+	ledgerDraft := financedomain.LedgerDraft{ID: ledgerID, AccountID: accountID, Name: "Operating ledger", Code: "main", Currency: "USD", CreatedBy: actor, CreatedAt: now}
+	ledger, created, err := repository.CreateLedger(ctx, ledgerDraft, accounts.RoleOwner, mutation(ledgerEvent, "created", now))
+	if err != nil || !created || ledger.Code != "MAIN" {
+		t.Fatalf("ledger=%+v created=%v err=%v", ledger, created, err)
+	}
+	retryDraft := ledgerDraft
+	retryDraft.CreatedAt = now.Add(time.Minute)
+	replayed, created, err := repository.CreateLedger(ctx, retryDraft, accounts.RoleOwner, mutation(ledgerEvent, "created", now.Add(time.Minute)))
+	if err != nil || created || !reflect.DeepEqual(replayed, ledger) {
+		t.Fatalf("ledger replay=%+v created=%v err=%v", replayed, created, err)
+	}
+	if _, err := repository.GetLedger(ctx, otherAccountID, ledgerID); !errors.Is(err, financeapp.ErrNotFound) {
+		t.Fatalf("cross-Account ledger err=%v", err)
+	}
+
+	cashID := ids.FinanceAccountID("fc500000-0000-4000-8000-000000000001")
+	revenueID := ids.FinanceAccountID("fc500000-0000-4000-8000-000000000002")
+	for index, value := range []struct {
+		id      ids.FinanceAccountID
+		code    string
+		name    string
+		kind    financedomain.AccountType
+		eventID string
+	}{{cashID, "1000", "Cash", financedomain.AccountAsset, "fc600000-0000-4000-8000-000000000001"},
+		{revenueID, "4000", "Revenue", financedomain.AccountIncome, "fc600000-0000-4000-8000-000000000002"}} {
+		_, created, err := repository.CreatePostingAccount(ctx, financedomain.PostingAccountDraft{ID: value.id, AccountID: accountID, LedgerID: ledgerID,
+			Code: value.code, Name: value.name, Type: value.kind, AllowPosting: true, CreatedBy: actor, CreatedAt: now.Add(time.Duration(index+1) * time.Minute)},
+			accounts.RoleOwner, mutation(value.eventID, "created", now.Add(time.Duration(index+1)*time.Minute)))
+		if err != nil || !created {
+			t.Fatalf("account %s created=%v err=%v", value.code, created, err)
+		}
+	}
+
+	entryID := ids.FinanceEntryID("fc700000-0000-4000-8000-000000000001")
+	entryEvent := "fc800000-0000-4000-8000-000000000001"
+	entryAt := now.Add(3 * time.Minute)
+	entryDraft := financedomain.EntryDraft{ID: entryID, AccountID: accountID, LedgerID: ledgerID, EntryDate: now, Description: "Recognize revenue", Reference: "INV-1", Currency: "USD",
+		Lines: []financedomain.JournalLine{{AccountID: cashID, DebitMinor: 10000}, {AccountID: revenueID, CreditMinor: 10000}}, Evidence: []ids.KnowledgeEvidenceID{evidenceID},
+		Provenance: financedomain.Provenance{Source: financedomain.SourceManual}, CreatedBy: actor, CreatedAt: entryAt}
+	entry, created, err := repository.CreateEntry(ctx, entryDraft, accounts.RoleMember, mutation(entryEvent, "created", entryAt))
+	if err != nil || !created || entry.Number != 1 {
+		t.Fatalf("entry=%+v created=%v err=%v", entry, created, err)
+	}
+	retryEntryDraft := entryDraft
+	retryEntryDraft.CreatedAt = entryAt.Add(time.Minute)
+	replayedEntry, created, err := repository.CreateEntry(ctx, retryEntryDraft, accounts.RoleMember, mutation(entryEvent, "created", entryAt.Add(time.Minute)))
+	if err != nil || created || !reflect.DeepEqual(replayedEntry, entry) {
+		t.Fatalf("entry replay=%+v created=%v err=%v", replayedEntry, created, err)
+	}
+	postAt := now.Add(5 * time.Minute)
+	postEvent := "fc800000-0000-4000-8000-000000000002"
+	posted, err := repository.PostEntry(ctx, accountID, entryID, 1, actor, accounts.RoleOwner, mutation(postEvent, "posted", postAt))
+	if err != nil || posted.State != financedomain.EntryStatePosted || posted.Version != 2 {
+		t.Fatalf("posted=%+v err=%v", posted, err)
+	}
+	replayedPost, err := repository.PostEntry(ctx, accountID, entryID, 1, actor, accounts.RoleOwner, mutation(postEvent, "posted", postAt.Add(time.Minute)))
+	if err != nil || replayedPost.ID != posted.ID || replayedPost.Version != posted.Version || replayedPost.State != posted.State || replayedPost.PostedAt == nil || !replayedPost.PostedAt.Equal(*posted.PostedAt) {
+		t.Fatalf("post replay=%+v err=%v", replayedPost, err)
+	}
+
+	reversalID := ids.FinanceEntryID("fc700000-0000-4000-8000-000000000002")
+	reverseEvent := "fc800000-0000-4000-8000-000000000003"
+	reverseAt := now.Add(6 * time.Minute)
+	reverseCommand := financedomain.ReverseCommand{ReversalID: reversalID, EntryDate: now.AddDate(0, 0, 1), Description: "Correct revenue", Evidence: []ids.KnowledgeEvidenceID{evidenceID}, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: 2, At: reverseAt}
+	original, reversal, err := repository.ReverseEntry(ctx, accountID, entryID, 2, reverseCommand, mutation(reverseEvent, "reversed", reverseAt))
+	if err != nil || original.State != financedomain.EntryStateReversed || reversal.State != financedomain.EntryStatePosted || reversal.Number != 2 {
+		t.Fatalf("original=%+v reversal=%+v err=%v", original, reversal, err)
+	}
+	retryReverseCommand := reverseCommand
+	retryReverseCommand.At = reverseAt.Add(time.Minute)
+	replayedOriginal, replayedReversal, err := repository.ReverseEntry(ctx, accountID, entryID, 2, retryReverseCommand, mutation(reverseEvent, "reversed", reverseAt.Add(time.Minute)))
+	if err != nil || replayedOriginal.ID != original.ID || replayedOriginal.State != original.State || replayedOriginal.ReversedByID != original.ReversedByID ||
+		replayedReversal.ID != reversal.ID || replayedReversal.State != reversal.State || replayedReversal.ReversalOfID != reversal.ReversalOfID {
+		t.Fatalf("reverse replay original=%+v reversal=%+v err=%v", replayedOriginal, replayedReversal, err)
+	}
+
+	asOf := now.AddDate(0, 0, 2)
+	statementMismatch, _ := financedomain.NewMoney("USD", 100)
+	ledgerBalance, _ := financedomain.NewMoney("USD", 0)
+	mismatchID := ids.FinanceReconciliationID("fc900000-0000-4000-8000-000000000001")
+	mismatch, created, err := repository.CreateReconciliation(ctx, financedomain.ReconciliationDraft{ID: mismatchID, AccountID: accountID, LedgerID: ledgerID,
+		PostingAccountID: cashID, AsOf: asOf, StatementBalance: statementMismatch, Evidence: []ids.KnowledgeEvidenceID{evidenceID}, CreatedBy: actor, CreatedAt: reverseAt.Add(time.Minute)},
+		accounts.RoleMember, mutation("fca00000-0000-4000-8000-000000000001", "reconciliation_proposed", reverseAt.Add(time.Minute)))
+	if err != nil || !created || mismatch.State != financedomain.ReconciliationDiscrepancy {
+		t.Fatalf("mismatch=%+v created=%v err=%v", mismatch, created, err)
+	}
+	matchedID := ids.FinanceReconciliationID("fc900000-0000-4000-8000-000000000002")
+	matched, created, err := repository.CreateReconciliation(ctx, financedomain.ReconciliationDraft{ID: matchedID, AccountID: accountID, LedgerID: ledgerID,
+		PostingAccountID: cashID, AsOf: asOf, StatementBalance: ledgerBalance, Evidence: []ids.KnowledgeEvidenceID{evidenceID}, CreatedBy: actor, CreatedAt: reverseAt.Add(2 * time.Minute)},
+		accounts.RoleMember, mutation("fca00000-0000-4000-8000-000000000002", "reconciliation_proposed", reverseAt.Add(2*time.Minute)))
+	if err != nil || !created || matched.State != financedomain.ReconciliationProposed {
+		t.Fatalf("matched=%+v created=%v err=%v", matched, created, err)
+	}
+	confirmed, err := repository.ConfirmReconciliation(ctx, accountID, matchedID, 1, actor, accounts.RoleAdministrator,
+		mutation("fca00000-0000-4000-8000-000000000003", "reconciliation_confirmed", reverseAt.Add(3*time.Minute)))
+	if err != nil || confirmed.State != financedomain.ReconciliationConfirmed {
+		t.Fatalf("confirmed=%+v err=%v", confirmed, err)
 	}
 }
