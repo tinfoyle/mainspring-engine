@@ -23,7 +23,7 @@ const pageTemplates = `
       <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
       <button type="submit">Switch Account</button>
     </form>
-    <nav aria-label="Primary navigation"><p>OPERATE</p><a {{if eq .Page "app"}}class="active" aria-current="page"{{end}} href="/app"><i aria-hidden="true">⌂</i>Overview</a><a {{if eq .Page "your-turn"}}class="active" aria-current="page"{{end}} href="/app/your-turn"><i aria-hidden="true">!</i>Your Turn</a><a {{if eq .Page "work"}}class="active" aria-current="page"{{end}} href="/app/work"><i aria-hidden="true">✓</i>Work</a><a {{if eq .Page "agents"}}class="active" aria-current="page"{{end}} href="/app/agents"><i aria-hidden="true">◌</i>Agents</a><a {{if eq .Page "schedules"}}class="active" aria-current="page"{{end}} href="/app/schedules"><i aria-hidden="true">◷</i>Schedules</a><a {{if eq .Page "knowledge"}}class="active" aria-current="page"{{end}} href="/app/knowledge"><i aria-hidden="true">◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i aria-hidden="true">≋</i>Finance</a><a href="/app#marketing"><i aria-hidden="true">↗</i>Marketing</a><a href="/app#billing"><i aria-hidden="true">$</i>Billing</a><a href="/app#settings"><i aria-hidden="true">⚙</i>Account</a><a {{if eq .Page "closures"}}class="active" aria-current="page"{{end}} href="/app/account-closures"><i aria-hidden="true">○</i>Lifecycle</a><a href="/app/security"><i aria-hidden="true">◇</i>Security</a></nav>
+    <nav aria-label="Primary navigation"><p>OPERATE</p><a {{if eq .Page "app"}}class="active" aria-current="page"{{end}} href="/app"><i aria-hidden="true">⌂</i>Overview</a><a {{if eq .Page "your-turn"}}class="active" aria-current="page"{{end}} href="/app/your-turn"><i aria-hidden="true">!</i>Your Turn</a><a {{if eq .Page "work"}}class="active" aria-current="page"{{end}} href="/app/work"><i aria-hidden="true">✓</i>Work</a><a {{if eq .Page "agents"}}class="active" aria-current="page"{{end}} href="/app/agents"><i aria-hidden="true">◌</i>Agents</a><a {{if eq .Page "schedules"}}class="active" aria-current="page"{{end}} href="/app/schedules"><i aria-hidden="true">◷</i>Schedules</a><a {{if eq .Page "knowledge"}}class="active" aria-current="page"{{end}} href="/app/knowledge"><i aria-hidden="true">◇</i>Knowledge</a><p>BUSINESS</p><a {{if eq .Page "finance"}}class="active" aria-current="page"{{end}} href="/app/finance"><i aria-hidden="true">≋</i>Finance</a><a href="/app#marketing"><i aria-hidden="true">↗</i>Marketing</a><a href="/app#billing"><i aria-hidden="true">$</i>Billing</a><a href="/app#settings"><i aria-hidden="true">⚙</i>Account</a><a {{if eq .Page "closures"}}class="active" aria-current="page"{{end}} href="/app/account-closures"><i aria-hidden="true">○</i>Lifecycle</a><a href="/app/security"><i aria-hidden="true">◇</i>Security</a></nav>
     <form method="post" action="/logout"><button class="logout" type="submit">Sign out</button></form>
   </aside>
 {{end}}
@@ -201,6 +201,69 @@ const pageTemplates = `
         </div>
         <section class="panel knowledge-facts"><header><div><p class="eyebrow">ACCEPTED PROJECTION</p><h2>Current facts</h2></div><span id="knowledge-facts-count">Loading</span></header><div id="knowledge-facts" class="knowledge-list"></div></section>
       </section>
+      {{end}}
+    </div>
+  </main>
+</div></body></html>
+{{end}}
+
+{{define "finance"}}
+{{template "head" .}}
+<div class="app-shell">
+  {{template "private-sidebar" .}}
+  <main class="workspace" id="main-content" tabindex="-1">
+    {{template "private-topbar" .}}
+    <div class="content finance-content">
+      {{template "alert" .}}
+      {{if not .Selected}}
+      <section class="empty"><h1>No Spyglass Accounts yet.</h1><p>Create an Account or accept an invitation to begin.</p><a href="/signup">Create Account</a></section>
+      {{else if not .FinanceAvailable}}
+      <section class="work-locked panel"><div><p class="eyebrow">FINANCE PACKAGE</p><h1>Keep the books clear.<br><em>Keep every posting governed.</em></h1><p>Finance is not included in this Account's current package set.</p><a href="/app#billing">Review Account plans →</a></div></section>
+      {{else}}
+      <section class="finance-heading"><div><p class="eyebrow">FINANCE</p><h1>A governed ledger<br><em>for the operating truth.</em></h1><p>Draft balanced journal entries, post them deliberately, and reconcile evidence without bypassing Account authority.</p></div><span class="work-mode">{{if .FinanceReadOnly}}READ-ONLY ACCESS{{else}}PACKAGE ENABLED{{end}}</span></section>
+      <section class="finance-app" id="finance-app" data-account-id="{{.Selected.AccountID}}" data-read-only="{{.FinanceReadOnly}}" aria-busy="true">
+        <p class="sr-only" id="finance-command-status" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div class="finance-toolbar panel">
+          <label>LEDGER<select id="finance-ledger" aria-label="Active ledger"><option value="">Loading ledgers…</option></select></label>
+          <button class="secondary" id="finance-refresh" type="button">Refresh</button>
+          {{if not .FinanceReadOnly}}<button class="secondary" id="finance-manage-ledger" type="button" disabled>Manage ledger</button><button class="primary" id="finance-new-ledger" type="button">New ledger</button>{{end}}
+        </div>
+        <div class="finance-summary" role="region" aria-label="Ledger summary">
+          <article><small>INCOME</small><strong id="finance-income">—</strong><span>Posted</span></article>
+          <article><small>EXPENSE</small><strong id="finance-expense">—</strong><span>Posted</span></article>
+          <article><small>NET</small><strong id="finance-net">—</strong><span>Income less expense</span></article>
+          <article><small>DRAFTS</small><strong id="finance-drafts">—</strong><span>Awaiting posting</span></article>
+        </div>
+        <div class="finance-tabs" role="tablist" aria-label="Finance workspace">
+          <button type="button" role="tab" aria-selected="true" aria-controls="finance-chart-panel" id="finance-chart-tab" data-finance-tab="chart">Chart of accounts</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="finance-journal-panel" id="finance-journal-tab" data-finance-tab="journal">Journal</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="finance-reconciliation-panel" id="finance-reconciliation-tab" data-finance-tab="reconciliation">Reconciliation</button>
+        </div>
+        <section class="finance-tab-panel" id="finance-chart-panel" role="tabpanel" aria-labelledby="finance-chart-tab">
+          <div class="finance-layout">
+            <section class="panel finance-list-panel"><header><div><p class="eyebrow">CHART OF ACCOUNTS</p><h2>Posting accounts</h2></div>{{if not .FinanceReadOnly}}<button class="secondary" id="finance-new-account" type="button">Add account</button>{{end}}</header><p class="finance-status" id="finance-accounts-status" role="status">Choose a ledger.</p><div class="finance-list" id="finance-accounts"></div></section>
+            <aside class="panel finance-detail" id="finance-account-detail" tabindex="-1" aria-live="polite"><p class="eyebrow">ACCOUNT DETAIL</p><h2>Select an account</h2><p>Inspect its normal balance, posting state, and current ledger balance.</p></aside>
+          </div>
+        </section>
+        <section class="finance-tab-panel" id="finance-journal-panel" role="tabpanel" aria-labelledby="finance-journal-tab" hidden>
+          <div class="finance-layout">
+            <section class="panel finance-list-panel"><header><div><p class="eyebrow">GENERAL JOURNAL</p><h2>Entries</h2></div>{{if not .FinanceReadOnly}}<button class="secondary" id="finance-new-entry" type="button">Draft entry</button>{{end}}</header><div class="finance-filters"><label><span class="sr-only">Entry state</span><select id="finance-entry-state"><option value="">All states</option><option value="draft">Draft</option><option value="posted">Posted</option><option value="reversed">Reversed</option></select></label></div><p class="finance-status" id="finance-entries-status" role="status">Choose a ledger.</p><div class="finance-list" id="finance-entries"></div></section>
+            <aside class="panel finance-detail" id="finance-entry-detail" tabindex="-1" aria-live="polite"><p class="eyebrow">ENTRY DETAIL</p><h2>Select an entry</h2><p>Inspect balanced lines, provenance, evidence, and posting state.</p></aside>
+          </div>
+        </section>
+        <section class="finance-tab-panel" id="finance-reconciliation-panel" role="tabpanel" aria-labelledby="finance-reconciliation-tab" hidden>
+          <div class="finance-layout">
+            <section class="panel finance-list-panel"><header><div><p class="eyebrow">RECONCILIATION</p><h2>Statement checks</h2></div>{{if not .FinanceReadOnly}}<button class="secondary" id="finance-new-reconciliation" type="button">Reconcile</button>{{end}}</header><p class="finance-status" id="finance-reconciliations-status" role="status">Choose a ledger.</p><div class="finance-list" id="finance-reconciliations"></div></section>
+            <aside class="panel finance-detail" id="finance-reconciliation-detail" tabindex="-1" aria-live="polite"><p class="eyebrow">RECONCILIATION DETAIL</p><h2>Select a check</h2><p>Compare statement evidence with the immutable ledger balance.</p></aside>
+          </div>
+        </section>
+      </section>
+      {{if not .FinanceReadOnly}}
+      <dialog class="finance-dialog" id="finance-ledger-dialog" aria-labelledby="finance-ledger-title"><form id="finance-ledger-form"><header><div><p class="eyebrow">LEDGER</p><h2 id="finance-ledger-title">Establish a book</h2></div><button type="button" data-close-dialog aria-label="Close">×</button></header><label>Name<input name="name" maxlength="160" required></label><div class="finance-form-grid"><label>Code<input name="code" maxlength="40" required></label><label>Currency<input name="currency" value="USD" minlength="3" maxlength="3" pattern="[A-Za-z]{3}" required></label></div><label>Description<textarea name="description" maxlength="4000" rows="3"></textarea></label><section class="finance-ledger-governance" id="finance-ledger-governance" hidden><p class="eyebrow">PERIOD GOVERNANCE</p><div class="finance-form-grid"><label>Close through<input type="date" name="close_through"></label><label>Evidence ID<input name="close_evidence" pattern="[0-9a-fA-F-]{36}"></label></div><div><button class="secondary" id="finance-close-period" type="button">Close period</button><button class="danger" id="finance-archive-ledger" type="button">Archive ledger</button></div></section><p class="finance-form-error" role="alert" hidden></p><footer><button class="secondary" type="button" data-close-dialog>Cancel</button><button class="primary" id="finance-save-ledger" type="submit">Create ledger</button></footer></form></dialog>
+      <dialog class="finance-dialog" id="finance-account-dialog" aria-labelledby="finance-account-title"><form id="finance-account-form"><header><div><p class="eyebrow">CHART OF ACCOUNTS</p><h2 id="finance-account-title">Add posting account</h2></div><button type="button" data-close-dialog aria-label="Close">×</button></header><div class="finance-form-grid"><label>Code<input name="code" maxlength="40" required></label><label>Type<select name="type"><option value="asset">Asset</option><option value="liability">Liability</option><option value="equity">Equity</option><option value="income">Income</option><option value="expense">Expense</option></select></label></div><label>Name<input name="name" maxlength="160" required></label><label>Description<textarea name="description" maxlength="4000" rows="3"></textarea></label><label class="finance-check"><input type="checkbox" name="allow_posting" checked> Allow journal postings</label><p class="finance-form-error" role="alert" hidden></p><footer><button class="secondary" type="button" data-close-dialog>Cancel</button><button class="primary" type="submit">Add account</button></footer></form></dialog>
+      <dialog class="finance-dialog finance-wide-dialog" id="finance-entry-dialog" aria-labelledby="finance-entry-title"><form id="finance-entry-form"><header><div><p class="eyebrow">JOURNAL DRAFT</p><h2 id="finance-entry-title">Record a balanced entry</h2></div><button type="button" data-close-dialog aria-label="Close">×</button></header><div class="finance-form-grid"><label>Entry date<input type="date" name="entry_date" required></label><label>Reference<input name="reference" maxlength="500"></label></div><label>Description<textarea name="description" maxlength="4000" rows="2" required></textarea></label><div class="finance-entry-lines"><label>Debit account<select name="debit_account" required></select></label><label>Credit account<select name="credit_account" required></select></label><label>Amount<input type="number" name="amount" min="0.01" step="0.01" required></label><label>Line memo<input name="memo" maxlength="1000"></label></div><label>Knowledge evidence IDs <input name="evidence" placeholder="Optional UUIDs separated by commas"></label><p class="finance-form-note">Creating an entry produces a draft. Posting is a separate, version-bound action.</p><p class="finance-form-error" role="alert" hidden></p><footer><button class="secondary" type="button" data-close-dialog>Cancel</button><button class="primary" type="submit">Create draft</button></footer></form></dialog>
+      <dialog class="finance-dialog" id="finance-reconciliation-dialog" aria-labelledby="finance-reconciliation-title"><form id="finance-reconciliation-form"><header><div><p class="eyebrow">STATEMENT CHECK</p><h2 id="finance-reconciliation-title">Propose reconciliation</h2></div><button type="button" data-close-dialog aria-label="Close">×</button></header><label>Posting account<select name="posting_account_id" required></select></label><div class="finance-form-grid"><label>As of<input type="date" name="as_of" required></label><label>Statement balance<input type="number" name="statement_balance" step="0.01" required></label></div><label>Knowledge evidence ID<input name="evidence" pattern="[0-9a-fA-F-]{36}" required></label><p class="finance-form-error" role="alert" hidden></p><footer><button class="secondary" type="button" data-close-dialog>Cancel</button><button class="primary" type="submit">Compare balances</button></footer></form></dialog>
+      {{end}}
       {{end}}
     </div>
   </main>

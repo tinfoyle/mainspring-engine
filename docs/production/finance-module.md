@@ -1,6 +1,6 @@
 # Finance module
 
-- Status: typed kernel, forced-RLS persistence, governed lifecycle, stable query summaries, generated HTTP and typed MCP transport constructed; private product surface and shared MCP production bootstrap remain
+- Status: typed kernel, forced-RLS persistence, governed lifecycle, stable query summaries, generated HTTP, typed MCP transport and private package-aware Finance workspace constructed; shared MCP production bootstrap, Agent/Attention draft proposals and migration certification remain
 - Package boundary: Finance
 - Decision: [ADR-0006](decisions/0006-finance-operational-ledger.md)
 
@@ -18,7 +18,7 @@ Agents and members may create and revise drafts under Finance mutation access. P
 2. Account-owned forced-RLS schema, immutable redacted events, per-ledger numbering, movement fencing and erasure/restore participation. **Constructed.**
 3. Classified repository and application service with idempotency, optimistic versions and exact Work/Run/Invocation/Evidence references. **Constructed for Ledger/Account lifecycle, balanced drafts, posting, reversal and reconciliation; query pages remain.**
 4. Stable query pages, summaries and bounded cursors. **Constructed.**
-5. Generated HTTP, optional MCP and private Finance surfaces with package/read-only/suspended behavior. **Generated HTTP and typed MCP transport constructed.**
+5. Generated HTTP, optional MCP and private Finance surfaces with package/read-only/suspended behavior. **Constructed.**
 6. Agent draft tools and Attention-governed proposals; no workload-direct posting.
 7. Prototype transformation, synthetic stage reconciliation/recovery and production role/retention grants.
 
@@ -54,4 +54,10 @@ Thirteen generated HTTP commands complete the same lifecycle without introducing
 
 Fresh-database certification now includes Finance in the complete cell-erasure inventory rather than testing its count triggers only in isolation. The suite seeds all ten Finance tables, grants only the erasure function role the required table access, proves exact per-table tombstone counts (including two journal lines), confirms zero residual rows for the erased Account, preserves another Account and proves replay/concurrent erasure convergence. Migration-ledger certification also counts migration 56 explicitly.
 
-The MCP transport now publishes 21 typed Finance tools over the identical query and command service: eight reads and thirteen governed mutations. OAuth bearer authority is rebound to the requested Account and Finance package for every call; mutation tools retain caller operation UUIDs and expected versions, expose bounded opaque cursor families, and map failures to a content-free Finance vocabulary. The MCP draft tool fixes provenance to `mcp` and cannot post implicitly. Close, archive, post and reverse tools advertise destructive semantics, while descriptions state the human-manager and evidence gates enforced by the canonical service. Tests prove the complete deterministic schema surface, routed authorization, MCP provenance, opaque pagination, missing-version rejection and backend-error redaction. A shared production MCP bootstrap and the private Finance UI remain rather than a Finance-specific duplicate server.
+The MCP transport now publishes 21 typed Finance tools over the identical query and command service: eight reads and thirteen governed mutations. OAuth bearer authority is rebound to the requested Account and Finance package for every call; mutation tools retain caller operation UUIDs and expected versions, expose bounded opaque cursor families, and map failures to a content-free Finance vocabulary. The MCP draft tool fixes provenance to `mcp` and cannot post implicitly. Close, archive, post and reverse tools advertise destructive semantics, while descriptions state the human-manager and evidence gates enforced by the canonical service. Tests prove the complete deterministic schema surface, routed authorization, MCP provenance, opaque pagination, missing-version rejection and backend-error redaction. A shared production MCP bootstrap remains rather than a Finance-specific duplicate server.
+
+## Private application checkpoint
+
+The authenticated `/app/finance` workspace is now a first-class package route instead of a dead Overview anchor. It derives enabled and read-only behavior from the selected Account's Finance entitlement, scopes every browser request to that Account and uses the generated HTTP boundary with same-origin session credentials. Ledger summaries, chart balances, journal state and reconciliations are discoverable without mutation access; read-only rendering omits every command form.
+
+Enabled users can create and revise Ledgers, bind evidence to monotonic period closes, archive fully retired Ledgers, maintain posting accounts, create exactly balanced two-line drafts, post and reverse through separately confirmed version-bound actions, and propose or confirm evidence-backed reconciliations. Existing-resource commands first obtain the canonical ETag and submit it through `If-Match`; every mutation receives a fresh UUID `Idempotency-Key`. The browser never persists customer content or session material in web storage, renders API values through DOM text nodes and announces command results through an assistive-technology live region. Template/client contract tests cover package/read-only gates, lifecycle endpoint use, optimistic versions and unsafe DOM/storage exclusions.
