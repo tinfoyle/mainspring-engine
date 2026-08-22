@@ -99,6 +99,7 @@ cell_a_database_password="$(secret_value SPYGLASS_CELL_A_DATABASE_PASSWORD passw
 cell_b_database_password="$(secret_value SPYGLASS_CELL_B_DATABASE_PASSWORD password)"
 account_api_password="$(secret_value SPYGLASS_ACCOUNT_API_DATABASE_PASSWORD password)"
 app_router_password="$(secret_value SPYGLASS_APP_ROUTER_DATABASE_PASSWORD password)"
+mcp_gateway_password="$(secret_value SPYGLASS_MCP_GATEWAY_DATABASE_PASSWORD password)"
 admission_password="$(secret_value SPYGLASS_ADMISSION_DATABASE_PASSWORD password)"
 billing_password="$(secret_value SPYGLASS_BILLING_WORKER_DATABASE_PASSWORD password)"
 notification_password="$(secret_value SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD password)"
@@ -146,6 +147,9 @@ SPYGLASS_PROCESS_ENV=stage
 SPYGLASS_PUBLIC_ORIGIN=https://stage.infiniteocean.net
 SPYGLASS_APP_ORIGIN=https://app.stage.infiniteocean.net
 SPYGLASS_MCP_RESOURCE_METADATA_URL=https://mcp.stage.infiniteocean.net/.well-known/oauth-protected-resource
+SPYGLASS_MCP_RESOURCE_ORIGIN=https://mcp.stage.infiniteocean.net
+SPYGLASS_MCP_AUTHORIZATION_SERVER=https://app.stage.infiniteocean.net
+SPYGLASS_MCP_TRUSTED_ORIGINS=https://app.stage.infiniteocean.net
 SPYGLASS_PASSKEY_RP_ID=app.stage.infiniteocean.net
 SPYGLASS_CELL_A_ROUTE_ORIGIN=https://app-api-a:8443
 SPYGLASS_CELL_B_ROUTE_ORIGIN=https://app-api-b:8443
@@ -172,6 +176,7 @@ SPYGLASS_CELL_A_DATABASE_PASSWORD=$cell_a_database_password
 SPYGLASS_CELL_B_DATABASE_PASSWORD=$cell_b_database_password
 SPYGLASS_ACCOUNT_API_DATABASE_PASSWORD=$account_api_password
 SPYGLASS_APP_ROUTER_DATABASE_PASSWORD=$app_router_password
+SPYGLASS_MCP_GATEWAY_DATABASE_PASSWORD=$mcp_gateway_password
 SPYGLASS_ADMISSION_DATABASE_PASSWORD=$admission_password
 SPYGLASS_BILLING_WORKER_DATABASE_PASSWORD=$billing_password
 SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD=$notification_password
@@ -197,6 +202,7 @@ SPYGLASS_CELL_B_MIGRATION_DATABASE_URL=postgres://spyglass_migrator:$cell_b_data
 SPYGLASS_ACCOUNT_API_DATABASE_URL=postgres://spyglass_account_api:$account_api_password@global-db:5432/spyglass?sslmode=disable
 SPYGLASS_ADMISSION_DATABASE_URL=postgres://spyglass_admission_api:$admission_password@global-db:5432/spyglass?sslmode=disable
 SPYGLASS_APP_ROUTER_DATABASE_URL=postgres://spyglass_app_router:$app_router_password@global-db:5432/spyglass?sslmode=disable
+SPYGLASS_MCP_GATEWAY_DATABASE_URL=postgres://spyglass_mcp_gateway:$mcp_gateway_password@global-db:5432/spyglass?sslmode=disable
 SPYGLASS_CELL_A_APP_API_DATABASE_URL=postgres://spyglass_app_api:$app_api_password@cell-a-db:5432/spyglass?sslmode=disable
 SPYGLASS_CELL_B_APP_API_DATABASE_URL=postgres://spyglass_app_api:$app_api_password@cell-b-db:5432/spyglass?sslmode=disable
 SPYGLASS_BILLING_WORKER_DATABASE_URL=postgres://spyglass_billing_worker:$billing_password@global-db:5432/spyglass?sslmode=disable
@@ -307,6 +313,7 @@ EOF
 }
 
 issue app-router '' 'spiffe://infiniteocean.net/spyglass/workloads/app-router' clientAuth
+issue mcp-gateway '' 'spiffe://infiniteocean.net/spyglass/workloads/mcp-gateway' clientAuth
 issue tool-router tool-router 'spiffe://infiniteocean.net/spyglass/workloads/app-router' serverAuth,clientAuth
 issue app-api-a app-api-a 'spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api' serverAuth,clientAuth
 issue app-api-b app-api-b 'spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api' serverAuth,clientAuth

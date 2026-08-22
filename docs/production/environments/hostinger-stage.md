@@ -3,13 +3,14 @@
 - SSH target: `infiniteocean` (commands originate in `ubunturojo`)
 - Public origin: `https://stage.infiniteocean.net`
 - Application origin: `https://app.stage.infiniteocean.net`
+- MCP resource origin: `https://mcp.stage.infiniteocean.net`
 - Compose project: `spyglass-stage`
 
 ## Verified host facts and live state (2026-08-22)
 
 The read-only inventory found Ubuntu kernel 7.0 on x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 storage with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user belongs to `docker` and has non-interactive sudo. The existing `infiniteocean` Compose project owns ports 80/443 through Caddy and owns the public mail ports through Stalwart. Spyglass must not replace, restart or bind over those services.
 
-The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the two stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs and the Account-scoped Work/Agent families without exposing any container port on the host.
+The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the website, application and MCP stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs, the Account-scoped Work/Agent families and public MCP traffic without exposing any container port on the host.
 
 The active clean checkout is `/opt/spyglass-stage/releases/263bb16d5cde51c7ce35ce6d19c7139f1750ee2a`, selected by `/opt/spyglass-stage/current`. The older RC.3 checkout remains rejected release history because its website image failed the later admission scan; do not select it. Both stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS.
 
@@ -34,7 +35,7 @@ previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-02/stage.env
 
 ```text
 <secret-set>/workload-ca/ca.crt
-<secret-set>/workload/{admission-api,app-router,app-api-a,app-api-b,tool-router}/{ca.crt,tls.crt,tls.key}
+<secret-set>/workload/{admission-api,app-router,mcp-gateway,app-api-a,app-api-b,tool-router}/{ca.crt,tls.crt,tls.key}
 <secret-set>/workload/{runner-controller-a,runner-controller-b}/{ca.crt,tls.crt,tls.key}
 <secret-set>/workload/{runner-broker-a,runner-broker-b}/{ca.crt,tls.crt,tls.key}
 <secret-set>/workload/{docker-runner-launcher-a,docker-runner-launcher-b,model-gateway}/{ca.crt,tls.crt,tls.key}
@@ -42,7 +43,7 @@ previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-02/stage.env
 <secret-set>/stage.env
 ```
 
-Workload private keys are mode `640` in mode-`750` identity directories. Their group is derived from the protected provider file and supplied only as a supplemental group to the 12 containers that mount workload identities; keys remain unreadable to every other host user and container. Writable per-cell runner identity directories are mode `770` under the same group, while `stage.env` remains mode `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The verifier checks certificate chains, key matches, group/mode contracts, seven-day minimum lifetime, exact DNS/SPIFFE/EKU contracts, immutable images, complete two-cell runner topology, provider-egress membership, internal runner networks, Docker socket ownership and absence of public port bindings.
+Workload private keys are mode `640` in mode-`750` identity directories. Their group is derived from the protected provider file and supplied only as a supplemental group to the 13 containers that mount workload identities; keys remain unreadable to every other host user and container. Writable per-cell runner identity directories are mode `770` under the same group, while `stage.env` remains mode `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The verifier checks certificate chains, key matches, group/mode contracts, seven-day minimum lifetime, exact DNS/SPIFFE/EKU contracts, immutable images, complete two-cell runner topology, provider-egress membership, internal runner networks, Docker socket ownership and absence of public port bindings.
 
 ## Deployment
 

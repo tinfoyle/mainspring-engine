@@ -12,6 +12,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
+	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/securityposture"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -41,11 +42,10 @@ type Server struct {
 	pool    *pgxpool.Pool
 }
 
-// New composes the global half of production MCP. The supplied authenticator
-// owns audience-bound token verification/revocation; this process receives
-// only the global database credential and signed cell-routing authority.
-func New(ctx context.Context, config Config, authenticator transport.TokenAuthenticator, logger *slog.Logger, clock routecontext.Clock) (*Server, error) {
-	if config.DatabaseURL == "" || config.RouteIssuer == "" || config.RouteSigningKeyID == "" || len(config.RouteSigningKey) < routecontext.MinimumKeyBytes || authenticator == nil || logger == nil || clock == nil {
+// New composes the global half of production MCP. It receives only a narrowly
+// privileged global database credential and signed cell-routing authority.
+func New(ctx context.Context, config Config, logger *slog.Logger, clock routecontext.Clock) (*Server, error) {
+	if config.DatabaseURL == "" || config.RouteIssuer == "" || config.RouteSigningKeyID == "" || len(config.RouteSigningKey) < routecontext.MinimumKeyBytes || logger == nil || clock == nil || len(config.AuthorizationServers) != 1 {
 		return nil, errors.New("MCP gateway bootstrap configuration is required")
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
@@ -66,6 +66,12 @@ func New(ctx context.Context, config Config, authenticator transport.TokenAuthen
 	if config.RouteLifetime == 0 {
 		config.RouteLifetime = routecontext.DefaultLifetime
 	}
+	tokenService, err := mcpauth.New(postgres.NewMCPAuthRepository(pool), ids.RandomGenerator{}, mcpauth.RandomSecrets{}, clock, config.AuthorizationServers[0], config.ResourceURL)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	authenticator := tokenAuthenticator{service: tokenService}
 	signer, err := routecontext.NewSigner(config.RouteIssuer, config.RouteSigningKeyID, config.RouteSigningKey, config.RouteLifetime, clock)
 	if err != nil {
 		pool.Close()
@@ -92,6 +98,15 @@ func New(ctx context.Context, config Config, authenticator transport.TokenAuthen
 		return nil, err
 	}
 	return &Server{Handler: withHealth(pool, gateway.Handler()), pool: pool}, nil
+}
+
+// tokenAuthenticator is composition glue: it translates the transport's
+// bearer-token requirement into the OAuth application's transport-neutral
+// requirement without coupling either layer to the other.
+type tokenAuthenticator struct{ service *mcpauth.Service }
+
+func (a tokenAuthenticator) Authenticate(ctx context.Context, token string, requirement transport.TokenRequirement) (access.Actor, error) {
+	return a.service.Authenticate(ctx, token, mcpauth.TokenRequirement{Audience: requirement.Audience, Scope: requirement.Scope})
 }
 
 func (s *Server) Close() { s.pool.Close() }

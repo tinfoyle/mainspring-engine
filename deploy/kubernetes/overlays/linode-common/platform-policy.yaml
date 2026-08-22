@@ -4,7 +4,7 @@ metadata: {name: public-ingress, namespace: spyglass-reference}
 spec:
   podSelector:
     matchExpressions:
-      - {key: app.kubernetes.io/name, operator: In, values: [infinite-ocean-website, account-api, app-router]}
+      - {key: app.kubernetes.io/name, operator: In, values: [infinite-ocean-website, account-api, app-router, mcp-gateway]}
   policyTypes: [Ingress]
   ingress:
     - from:
@@ -55,6 +55,7 @@ spec:
           - account-lifecycle-worker
           - admission-api
           - app-router
+          - mcp-gateway
           - tool-router
           - billing-worker
           - entitlement-worker
@@ -87,6 +88,7 @@ spec:
                   - account-lifecycle-worker
                   - admission-api
                   - app-router
+                  - mcp-gateway
                   - tool-router
                   - billing-worker
                   - entitlement-worker

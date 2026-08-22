@@ -55,6 +55,15 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Northstar Studio")) || !bytes.Contains(signedIn.body, []byte("YOUR OPERATING PARTNER")) || !bytes.Contains(signedIn.body, []byte("FEATURE PACKAGES")) || !bytes.Contains(signedIn.body, []byte("BILLING & ACCESS")) || !bytes.Contains(signedIn.body, []byte("Team")) || !bytes.Contains(signedIn.body, []byte("OWNER IDENTITY SETUP")) || !bytes.Contains(signedIn.body, []byte("Secure the helm")) || !bytes.Contains(signedIn.body, []byte("Save recovery codes")) || bytes.Contains(signedIn.body, []byte("People with access")) {
 		t.Fatalf("app shell: %d %s", signedIn.status, signedIn.body)
 	}
+	noRedirect := &http.Client{Jar: jar, Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	loginReturn, err := noRedirect.Get(server.URL + "/login?return_to=%2Foauth%2Fauthorize%3Fclient_id%3Dhttps%253A%252F%252Fclient.example%252Fmetadata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginReturn.Body.Close()
+	if loginReturn.StatusCode != http.StatusSeeOther || loginReturn.Header.Get("Location") != "/oauth/authorize?client_id=https%3A%2F%2Fclient.example%2Fmetadata" {
+		t.Fatalf("signed-in login return: %d %q", loginReturn.StatusCode, loginReturn.Header.Get("Location"))
+	}
 	workPage, err := client.Get(server.URL + "/app/work")
 	if err != nil {
 		t.Fatal(err)

@@ -61,6 +61,8 @@ RC.2 predates the admission gate. RC.3 is signed but its website image failed th
 
 The actual connected-stage RC.5 -> RC.4 -> RC.5 rehearsal completed successfully against retained PostgreSQL volumes. RC.4 and the restored RC.5 each passed the same 11-check exact-origin/Catalog boundary certificate. RC.5 remains the Phase 2.5 platform rollback baseline, while Phase 3 RC.1 is active on stage. The final complete-product release will be a later immutable pair; neither is predeclared as the production release.
 
+MCP deployment checkpoint (2026-08-22): revision control now contains the dedicated `mcp-gateway` process, least-privilege global role, `mcp.stage.infiniteocean.net` Hostinger route, local/Stage Compose service, Stage client-only workload certificate and LKE Deployment/Service/PDB/HPA/Ingress/network-policy topology. The account application origin owns OAuth metadata, consent and token/revocation endpoints; the MCP origin owns protected-resource metadata and Account-scoped Streamable HTTP. Local `ubunturojo` Docker proves both discovery documents and the RFC 9728 Bearer challenge. This is not Stage activation evidence: Stage still requires a new admitted image, generated role/password/certificate material, migration 33, external-client conformance and rollback capture before the MCP surface is advertised.
+
 ### Website image
 
 Phase 2.5 replaces the preview-specific Vinext/Cloudflare runtime with a standalone Next.js Node 22 image:

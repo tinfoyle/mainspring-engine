@@ -52,6 +52,7 @@ test ! -e "$secret_dir/workload-ca/ca.key" || { echo "stage workload CA private 
 declare -A dns uri usage
 dns[admission-api]=admission-api
 dns[app-router]=''
+dns[mcp-gateway]=''
 dns[app-api-a]=app-api-a
 dns[app-api-b]=app-api-b
 dns[agent-dispatch-worker-a]=''
@@ -68,6 +69,7 @@ dns[docker-runner-launcher-b]=docker-runner-launcher-b
 dns[model-gateway]=model-gateway
 uri[admission-api]='spiffe://infiniteocean.net/spyglass/workloads/admission-api'
 uri[app-router]='spiffe://infiniteocean.net/spyglass/workloads/app-router'
+uri[mcp-gateway]='spiffe://infiniteocean.net/spyglass/workloads/mcp-gateway'
 uri[app-api-a]='spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api'
 uri[app-api-b]='spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api'
 uri[agent-dispatch-worker-a]='spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker'
@@ -84,6 +86,7 @@ uri[docker-runner-launcher-b]='spiffe://infiniteocean.net/spyglass/cells/cell-us
 uri[model-gateway]='spiffe://infiniteocean.net/spyglass/workloads/model-gateway'
 usage[admission-api]=server
 usage[app-router]=client
+usage[mcp-gateway]=client
 usage[app-api-a]=both
 usage[app-api-b]=both
 usage[agent-dispatch-worker-a]=client
@@ -99,7 +102,7 @@ usage[docker-runner-launcher-a]=server
 usage[docker-runner-launcher-b]=server
 usage[model-gateway]=server
 
-for workload in admission-api app-router app-api-a app-api-b agent-dispatch-worker-a agent-dispatch-worker-b schedule-execution-worker-a schedule-execution-worker-b tool-router runner-controller-a runner-controller-b runner-broker-a runner-broker-b docker-runner-launcher-a docker-runner-launcher-b model-gateway; do
+for workload in admission-api app-router mcp-gateway app-api-a app-api-b agent-dispatch-worker-a agent-dispatch-worker-b schedule-execution-worker-a schedule-execution-worker-b tool-router runner-controller-a runner-controller-b runner-broker-a runner-broker-b docker-runner-launcher-a docker-runner-launcher-b model-gateway; do
   for file in ca.crt tls.crt tls.key; do
     test -s "$secret_dir/workload/$workload/$file" || { echo "missing workload identity: $workload/$file" >&2; exit 1; }
   done
@@ -198,7 +201,7 @@ for suffix in ("a", "b"):
     if members != expected:
         raise SystemExit(f"{network_name} membership is invalid: {sorted(members)}")
 secret_consumers = {
-    "admission-api", "app-router", "app-api-a", "app-api-b", "tool-router",
+    "admission-api", "app-router", "mcp-gateway", "app-api-a", "app-api-b", "tool-router",
     "runner-controller-a", "runner-controller-b", "runner-broker-a", "runner-broker-b",
     "docker-runner-launcher-a", "docker-runner-launcher-b", "model-gateway",
 }

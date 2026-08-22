@@ -17,3 +17,8 @@ app.infiniteocean.localhost {
     reverse_proxy account-api:8080
   }
 }
+
+mcp.infiniteocean.localhost {
+  tls internal
+  reverse_proxy mcp-gateway:8080
+}

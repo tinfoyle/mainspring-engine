@@ -6,6 +6,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_app_router') THEN
     CREATE ROLE spyglass_app_router LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_mcp_gateway') THEN
+    CREATE ROLE spyglass_mcp_gateway LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_admission_api') THEN
     CREATE ROLE spyglass_admission_api LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
@@ -38,6 +41,7 @@ $$;
 
 \getenv account_api_password SPYGLASS_ACCOUNT_API_DATABASE_PASSWORD
 \getenv app_router_password SPYGLASS_APP_ROUTER_DATABASE_PASSWORD
+\getenv mcp_gateway_password SPYGLASS_MCP_GATEWAY_DATABASE_PASSWORD
 \getenv admission_password SPYGLASS_ADMISSION_DATABASE_PASSWORD
 \getenv billing_password SPYGLASS_BILLING_WORKER_DATABASE_PASSWORD
 \getenv notification_password SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD
@@ -49,6 +53,7 @@ $$;
 \getenv prototype_migration_password SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD
 SELECT format('ALTER ROLE spyglass_account_api PASSWORD %L', :'account_api_password') \gexec
 SELECT format('ALTER ROLE spyglass_app_router PASSWORD %L', :'app_router_password') \gexec
+SELECT format('ALTER ROLE spyglass_mcp_gateway PASSWORD %L', :'mcp_gateway_password') \gexec
 SELECT format('ALTER ROLE spyglass_admission_api PASSWORD %L', :'admission_password') \gexec
 SELECT format('ALTER ROLE spyglass_billing_worker PASSWORD %L', :'billing_password') \gexec
 SELECT format('ALTER ROLE spyglass_notification_worker PASSWORD %L', :'notification_password') \gexec
@@ -59,24 +64,24 @@ SELECT format('ALTER ROLE spyglass_work_reconciler PASSWORD %L', :'work_reconcil
 SELECT format('ALTER ROLE spyglass_baseline_maintenance_worker PASSWORD %L', :'baseline_maintenance_password') \gexec
 SELECT format('ALTER ROLE spyglass_prototype_migration PASSWORD %L', :'prototype_migration_password') \gexec
 
-GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_admission_api,
+GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_mcp_gateway, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
   spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_work_reconciler,
   spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
-GRANT USAGE ON SCHEMA public TO spyglass_account_api, spyglass_app_router, spyglass_admission_api,
+GRANT USAGE ON SCHEMA public TO spyglass_account_api, spyglass_app_router, spyglass_mcp_gateway, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
   spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_work_reconciler,
   spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
 
-REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_billing_worker,
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
   spyglass_identity_maintenance_worker,
   spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
-REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_billing_worker,
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
   spyglass_identity_maintenance_worker,
   spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
-REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_billing_worker,
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
   spyglass_identity_maintenance_worker,
   spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
@@ -88,6 +93,12 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO spyglass_account_api;
 GRANT SELECT ON users, sessions, accounts, memberships, entitlement_snapshots,
   account_directory, cells, account_erasure_restore_ledger TO spyglass_app_router;
 GRANT UPDATE ON sessions TO spyglass_app_router;
+
+GRANT SELECT ON accounts, memberships, entitlement_snapshots, account_directory, cells,
+  account_erasure_restore_ledger, passkey_credentials, user_recovery_code_sets, user_recovery_codes
+  TO spyglass_mcp_gateway;
+GRANT EXECUTE ON FUNCTION spyglass_authenticate_mcp_access_token(bytea,text,text,timestamptz)
+  TO spyglass_mcp_gateway;
 
 GRANT SELECT ON accounts, memberships, entitlement_snapshots,
   entitlement_usage_counters, entitlement_usage_reservations,

@@ -64,6 +64,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/identitymaintenanceworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/knowledgedocumentworker"
+	bootstrapmcpgateway "github.com/tinfoyle/spyglass-engine/internal/bootstrap/mcpgateway"
 	modelgatewaybootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/modelgatewayapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	passkeycommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/passkeyadmin"
@@ -126,6 +127,8 @@ func main() {
 		err = runAccountAPI(ctx, logger)
 	case "app-router":
 		err = runAppRouter(ctx, logger, false)
+	case "mcp-gateway":
+		err = runMCPGateway(ctx, logger)
 	case "tool-router":
 		err = runAppRouter(ctx, logger, true)
 	case "app-api":
@@ -187,7 +190,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -942,7 +945,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	stripeClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(nil), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
 	if err != nil {
 		return err
 	}
@@ -1030,6 +1033,81 @@ func runAppRouter(ctx context.Context, logger *slog.Logger, privateTLS bool) err
 		return err
 	}
 	return serveHTTPS(ctx, "tool-router", httpAddress(":8443"), secured, serverTLS, logger)
+}
+
+func runMCPGateway(ctx context.Context, logger *slog.Logger) error {
+	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
+	issuer, err := requiredEnv("SPYGLASS_ROUTE_ISSUER")
+	if err != nil {
+		return err
+	}
+	keyID, err := requiredEnv("SPYGLASS_ROUTE_SIGNING_KEY_ID")
+	if err != nil {
+		return err
+	}
+	key, err := base64KeyEnv("SPYGLASS_ROUTE_SIGNING_KEY")
+	if err != nil {
+		return err
+	}
+	resource, err := requiredEnv("SPYGLASS_MCP_RESOURCE_ORIGIN")
+	if err != nil {
+		return err
+	}
+	metadata, err := requiredEnv("SPYGLASS_MCP_RESOURCE_METADATA_URL")
+	if err != nil {
+		return err
+	}
+	authorizationServer, err := requiredEnv("SPYGLASS_MCP_AUTHORIZATION_SERVER")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
+	if err != nil {
+		return err
+	}
+	lifetime, err := durationEnv("SPYGLASS_ROUTE_CONTEXT_TTL", 20*time.Second)
+	if err != nil {
+		return err
+	}
+	directoryTTL, err := durationEnv("SPYGLASS_DIRECTORY_CACHE_TTL", 30*time.Second)
+	if err != nil {
+		return err
+	}
+	directoryCapacityValue, err := int32Env("SPYGLASS_DIRECTORY_CACHE_CAPACITY", 10000)
+	if err != nil || directoryCapacityValue < 1 {
+		return errors.New("SPYGLASS_DIRECTORY_CACHE_CAPACITY must be positive")
+	}
+	var cellTransport http.RoundTripper
+	if !developmentMode {
+		cellTransport, err = workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+		if err != nil {
+			return err
+		}
+	}
+	cellTransport = observability.TracingFromContext(ctx).Transport(cellTransport)
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	server, err := bootstrapmcpgateway.New(startup, bootstrapmcpgateway.Config{
+		DatabaseURL: databaseURL, MaxDatabaseConns: maxConns,
+		RouteIssuer: issuer, RouteSigningKeyID: keyID, RouteSigningKey: key, RouteLifetime: lifetime,
+		DirectoryCacheTTL: directoryTTL, DirectoryCapacity: int(directoryCapacityValue), CellTransport: cellTransport,
+		AllowHTTPCells: developmentMode, TrustedOrigins: csvEnv("SPYGLASS_MCP_TRUSTED_ORIGINS"),
+		ResourceURL: resource, ResourceMetadataURL: metadata, AuthorizationServers: []string{authorizationServer},
+	}, logger, registration.SystemClock{})
+	if err != nil {
+		return err
+	}
+	defer server.Close()
+	return serveHTTP(ctx, "mcp-gateway", httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 }
 
 func runAppAPI(ctx context.Context, logger *slog.Logger) error {
@@ -2288,14 +2366,14 @@ func serveWorker(ctx context.Context, name, healthAddress string, worker runnabl
 }
 
 type persistentConfig struct {
-	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, passkeyRPID string
-	notificationEncryptionKey                                                                                             []byte
-	networkActorKey                                                                                                       []byte
-	passkeyEncryptionKeys                                                                                                 map[int][]byte
-	passkeyActiveKeyVersion                                                                                               int
-	trustedProxyCIDRs                                                                                                     []string
-	maxDatabaseConns                                                                                                      int32
-	catalogRefreshInterval                                                                                                time.Duration
+	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, mcpResourceOrigin, passkeyRPID string
+	notificationEncryptionKey                                                                                                                []byte
+	networkActorKey                                                                                                                          []byte
+	passkeyEncryptionKeys                                                                                                                    map[int][]byte
+	passkeyActiveKeyVersion                                                                                                                  int
+	trustedProxyCIDRs                                                                                                                        []string
+	maxDatabaseConns                                                                                                                         int32
+	catalogRefreshInterval                                                                                                                   time.Duration
 }
 
 func productionConfig() (persistentConfig, error) {
@@ -2304,7 +2382,7 @@ func productionConfig() (persistentConfig, error) {
 	fields := []struct {
 		name   string
 		target *string
-	}{{"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}, {"SPYGLASS_PASSKEY_RP_ID", &result.passkeyRPID}}
+	}{{"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}, {"SPYGLASS_MCP_RESOURCE_ORIGIN", &result.mcpResourceOrigin}, {"SPYGLASS_PASSKEY_RP_ID", &result.passkeyRPID}}
 	for _, field := range fields {
 		*field.target, err = requiredEnv(field.name)
 		if err != nil {

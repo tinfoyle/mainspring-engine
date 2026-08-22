@@ -22,6 +22,10 @@ data:
   SPYGLASS_ENVIRONMENT: preproduction
   SPYGLASS_PUBLIC_ORIGIN: https://preproduction.infiniteocean.net
   SPYGLASS_APP_ORIGIN: https://app.preproduction.infiniteocean.net
+  SPYGLASS_MCP_RESOURCE_ORIGIN: https://mcp.preproduction.infiniteocean.net
+  SPYGLASS_MCP_RESOURCE_METADATA_URL: https://mcp.preproduction.infiniteocean.net/.well-known/oauth-protected-resource
+  SPYGLASS_MCP_AUTHORIZATION_SERVER: https://app.preproduction.infiniteocean.net
+  SPYGLASS_MCP_TRUSTED_ORIGINS: https://app.preproduction.infiniteocean.net
   SPYGLASS_PASSKEY_RP_ID: app.preproduction.infiniteocean.net
   SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE: "0"
   SPYGLASS_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"

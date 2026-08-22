@@ -420,7 +420,11 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data pag
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.currentSession(w, r); ok {
-		http.Redirect(w, r, "/app", http.StatusSeeOther)
+		target := safeReturnTo(r.URL.Query().Get("return_to"))
+		if target == "" {
+			target = "/app"
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
 	data := pageData{Title: "Sign in", Notice: loginNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), PasskeysConfigured: s.passkeys != nil}

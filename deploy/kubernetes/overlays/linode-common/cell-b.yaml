@@ -25,7 +25,7 @@ spec:
             - {name: SPYGLASS_WORKLOAD_CERT_FILE, value: "/var/run/secrets/spyglass/workload/tls.crt"}
             - {name: SPYGLASS_WORKLOAD_KEY_FILE, value: "/var/run/secrets/spyglass/workload/tls.key"}
             - {name: SPYGLASS_WORKLOAD_CA_FILE, value: "/var/run/secrets/spyglass/workload/ca.crt"}
-            - {name: SPYGLASS_WORKLOAD_CLIENT_IDENTITIES, value: "spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker"}
+            - {name: SPYGLASS_WORKLOAD_CLIENT_IDENTITIES, value: "spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/workloads/mcp-gateway,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker"}
           envFrom:
             - configMapRef: {name: spyglass-cell-b-runtime}
             - secretRef: {name: spyglass-app-api-cell-b-secrets}

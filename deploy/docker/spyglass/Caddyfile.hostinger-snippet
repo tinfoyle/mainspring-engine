@@ -10,3 +10,8 @@ app.stage.infiniteocean.net {
   import security_headers
   reverse_proxy spyglass-stage-edge:80
 }
+
+mcp.stage.infiniteocean.net {
+  import security_headers
+  reverse_proxy spyglass-stage-edge:80
+}

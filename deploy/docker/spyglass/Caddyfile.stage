@@ -16,3 +16,7 @@ http://app.stage.infiniteocean.net {
     reverse_proxy account-api:8080
   }
 }
+
+http://mcp.stage.infiniteocean.net {
+  reverse_proxy mcp-gateway:8080
+}

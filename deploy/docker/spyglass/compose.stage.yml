@@ -34,6 +34,7 @@ services:
       PGPASSWORD: ${SPYGLASS_GLOBAL_DATABASE_PASSWORD:?set SPYGLASS_GLOBAL_DATABASE_PASSWORD}
       SPYGLASS_ACCOUNT_API_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_API_DATABASE_PASSWORD:?set role password}
       SPYGLASS_APP_ROUTER_DATABASE_PASSWORD: ${SPYGLASS_APP_ROUTER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_MCP_GATEWAY_DATABASE_PASSWORD: ${SPYGLASS_MCP_GATEWAY_DATABASE_PASSWORD:?set role password}
       SPYGLASS_ADMISSION_DATABASE_PASSWORD: ${SPYGLASS_ADMISSION_DATABASE_PASSWORD:?set role password}
       SPYGLASS_BILLING_WORKER_DATABASE_PASSWORD: ${SPYGLASS_BILLING_WORKER_DATABASE_PASSWORD:?set role password}
       SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD: ${SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD:?set role password}
@@ -103,6 +104,15 @@ services:
       SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
     volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/app-router:/var/run/secrets/spyglass/workload:ro"]
     depends_on: {global-roles: {condition: service_completed_successfully}}
+  mcp-gateway:
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
+    environment:
+      <<: *global-restore
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+    volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/mcp-gateway:/var/run/secrets/spyglass/workload:ro"]
+    depends_on: {global-roles: {condition: service_completed_successfully}}
   app-api-a:
     group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
     environment:
@@ -111,7 +121,7 @@ services:
       SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
       SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
       SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
-      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/workloads/mcp-gateway,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker
     volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/app-api-a:/var/run/secrets/spyglass/workload:ro"]
     healthcheck:
       test: [CMD, /spyglass, healthcheck, --url=https://app-api-a:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]
@@ -124,7 +134,7 @@ services:
       SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
       SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
       SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
-      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/workloads/mcp-gateway,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker
     volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/app-api-b:/var/run/secrets/spyglass/workload:ro"]
     healthcheck:
       test: [CMD, /spyglass, healthcheck, --url=https://app-api-b:8443/health/ready, --ca-file=/var/run/secrets/spyglass/workload/ca.crt]

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
@@ -34,6 +36,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/browserapp"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/httpapi"
+	"github.com/tinfoyle/spyglass-engine/internal/transport/mcpoauth"
 )
 
 type Config struct {
@@ -46,6 +49,7 @@ type Config struct {
 	MaxDatabaseConns          int32
 	AppOrigin                 string
 	PublicOrigin              string
+	MCPResourceOrigin         string
 	NotificationEncryptionKey []byte
 	NetworkActorKey           []byte
 	PasskeyEncryptionKeys     map[int][]byte
@@ -65,7 +69,7 @@ type Server struct {
 // New constructs the persistent account-api mode. Identity messages are
 // encrypted and durably queued; this process never connects to SMTP.
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, error) {
-	if config.DatabaseURL == "" || config.AppOrigin == "" || config.PublicOrigin == "" || logger == nil {
+	if config.DatabaseURL == "" || config.AppOrigin == "" || config.PublicOrigin == "" || config.MCPResourceOrigin == "" || logger == nil {
 		return nil, errors.New("database URL, application/public origins, and logger are required")
 	}
 	if config.StripeMode != "test" && config.StripeMode != "live" {
@@ -245,10 +249,25 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	mcpAuthorization, err := mcpauth.New(postgres.NewMCPAuthRepository(pool), ids.RandomGenerator{}, mcpauth.RandomSecrets{}, clock, config.AppOrigin, config.MCPResourceOrigin)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	clientMetadata, err := mcpoauth.NewHTTPMetadataLoader(net.DefaultResolver)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	oauth, err := mcpoauth.New(mcpAuthorization, sessionService, clientMetadata, mcpoauth.Config{Issuer: config.AppOrigin, Resource: config.MCPResourceOrigin, TrustedOrigin: config.AppOrigin, SecureCookies: true}, logger)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	refreshContext, stop := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go refreshCatalog(refreshContext, config.CatalogRefreshInterval, catalogRepository, catalogCache, logger, done)
-	return &Server{Handler: withReadiness(pool, actorResolver.Handler(browser.Handler(apiHandler))), pool: pool, stop: stop, done: done}, nil
+	return &Server{Handler: withReadiness(pool, actorResolver.Handler(oauth.Handler(browser.Handler(apiHandler)))), pool: pool, stop: stop, done: done}, nil
 }
 
 func (s *Server) Close() {

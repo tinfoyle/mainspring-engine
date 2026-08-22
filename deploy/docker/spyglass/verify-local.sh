@@ -6,6 +6,7 @@ smtp_port="${SPYGLASS_LOCAL_SMTP_PORT:-1026}"
 mailpit_port="${SPYGLASS_LOCAL_MAILPIT_PORT:-8025}"
 public_origin="https://web.infiniteocean.localhost:${tls_port}"
 app_origin="https://app.infiniteocean.localhost:${tls_port}"
+mcp_origin="https://mcp.infiniteocean.localhost:${tls_port}"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 compose=(docker compose --project-name spyglass-local --env-file "$script_dir/env/local.env" --file "$script_dir/compose.yml" --file "$script_dir/compose.local.yml")
 root_ca=/tmp/spyglass-local-caddy-root.crt
@@ -16,8 +17,14 @@ curl_common=(--fail --silent --show-error --cacert "$root_ca")
 curl "${curl_common[@]}" --resolve "app.infiniteocean.localhost:${tls_port}:127.0.0.1" \
   "${app_origin}/health/ready" >/tmp/spyglass-local-app-ready.json
 grep -q '"status":"ready"' /tmp/spyglass-local-app-ready.json
+curl "${curl_common[@]}" --resolve "app.infiniteocean.localhost:${tls_port}:127.0.0.1" \
+  "${app_origin}/.well-known/oauth-authorization-server" >/tmp/spyglass-local-oauth-metadata.json
+jq -e --arg issuer "$app_origin" --arg resource "$mcp_origin" '.issuer==$issuer and .authorization_endpoint==($issuer+"/oauth/authorize") and .client_id_metadata_document_supported==true and (.scopes_supported==["spyglass:mcp"])' /tmp/spyglass-local-oauth-metadata.json >/dev/null
+curl "${curl_common[@]}" --resolve "mcp.infiniteocean.localhost:${tls_port}:127.0.0.1" \
+  "${mcp_origin}/.well-known/oauth-protected-resource" >/tmp/spyglass-local-mcp-metadata.json
+jq -e --arg resource "$mcp_origin" --arg issuer "$app_origin" '.resource==$resource and .authorization_servers==[$issuer] and .scopes_supported==["spyglass:mcp"]' /tmp/spyglass-local-mcp-metadata.json >/dev/null
 
-for service in app-router app-api-a app-api-b admission-api; do
+for service in app-router mcp-gateway app-api-a app-api-b admission-api; do
   "${compose[@]}" exec --no-TTY "$service" /spyglass healthcheck \
     --url=http://127.0.0.1:8080/health/ready
 done
@@ -47,8 +54,8 @@ test "$cell_count" = "2"
 
 runtime_role_count="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
-  --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_account_api','spyglass_app_router','spyglass_admission_api','spyglass_billing_worker','spyglass_notification_worker','spyglass_entitlement_worker','spyglass_account_lifecycle_worker','spyglass_work_reconciler','spyglass_baseline_maintenance_worker','spyglass_prototype_migration') AND NOT rolsuper AND NOT rolbypassrls")"
-test "$runtime_role_count" = "10"
+    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_account_api','spyglass_app_router','spyglass_mcp_gateway','spyglass_admission_api','spyglass_billing_worker','spyglass_notification_worker','spyglass_entitlement_worker','spyglass_account_lifecycle_worker','spyglass_work_reconciler','spyglass_baseline_maintenance_worker','spyglass_prototype_migration') AND NOT rolsuper AND NOT rolbypassrls")"
+test "$runtime_role_count" = "11"
 
 for database in cell-a-db cell-b-db; do
   cell_runtime_role_count="$("${compose[@]}" exec --no-TTY "$database" psql \
@@ -71,6 +78,8 @@ assert_role_denied() {
 }
 
 assert_role_denied global-db spyglass_billing_worker 'SELECT count(*) FROM users'
+assert_role_denied global-db spyglass_mcp_gateway 'SELECT count(*) FROM users'
+assert_role_denied global-db spyglass_mcp_gateway 'SELECT count(*) FROM mcp_oauth_access_tokens'
 assert_role_denied global-db spyglass_notification_worker 'SELECT count(*) FROM accounts'
 assert_role_denied global-db spyglass_entitlement_worker 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_account_lifecycle_worker 'SELECT count(*) FROM users'

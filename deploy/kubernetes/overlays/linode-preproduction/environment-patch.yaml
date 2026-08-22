@@ -20,13 +20,13 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata: {name: spyglass-public, namespace: spyglass-reference}
 spec:
-  dnsNames: [preproduction.infiniteocean.net, app.preproduction.infiniteocean.net]
+  dnsNames: [preproduction.infiniteocean.net, app.preproduction.infiniteocean.net, mcp.preproduction.infiniteocean.net]
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata: {name: spyglass-public, namespace: spyglass-reference}
 spec:
-  tls: [{hosts: [preproduction.infiniteocean.net, app.preproduction.infiniteocean.net], secretName: spyglass-public-tls}]
+  tls: [{hosts: [preproduction.infiniteocean.net, app.preproduction.infiniteocean.net, mcp.preproduction.infiniteocean.net], secretName: spyglass-public-tls}]
   rules:
     - host: preproduction.infiniteocean.net
       http:
@@ -43,3 +43,9 @@ spec:
           - path: /
             pathType: Prefix
             backend: {service: {name: account-api, port: {name: http}}}
+    - host: mcp.preproduction.infiniteocean.net
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: mcp-gateway, port: {name: http}}}

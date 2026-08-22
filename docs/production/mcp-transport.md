@@ -1,6 +1,6 @@
 # MCP transport
 
-- Status: protocol, complete typed tool surface, and signed global-to-cell routing composition implemented; OAuth authorization server, token lifecycle, and deployment pending
+- Status: protocol, complete typed tool surface, signed global-to-cell routing, OAuth 2.1 core, and local/Stage/LKE deployment topology implemented; applied Stage conformance and grant-management hardening pending
 - Phase: 3.1 / 3.6
 - Protocol: stateless Streamable HTTP through the official Go SDK, with current `2026-07-28` support and backward negotiation supplied by the SDK
 
@@ -26,21 +26,27 @@ Tool annotations mark reads, additive mutations and cancellations explicitly. Mu
 
 Protocol tests use the official SDK client against the real Streamable HTTP handler. They prove deterministic typed discovery, Bearer/cookie/origin behavior, Account/package/role authorization classification, service reuse, approval-queue and action-recovery redaction, dual-control command wiring, safe conflict parity and canonical-payload preservation.
 
-`internal/transport/mcpgateway` and `internal/bootstrap/mcpgateway` now provide the global resource-server and routing half without a cell credential. The public endpoint is Account-scoped at `/mcp/v1/accounts/{accountID}`. It authenticates one audience/scope-bound token through an injected authority, parses only a bounded JSON-RPC envelope and the Account identifier required for routing, classifies every published tool through one reviewed registry, then resolves current Membership, role, package mode, placement and generation from the global store. The unchanged body is forwarded over the workload-authenticated cell transport with a fresh request-bound route proof; the customer Bearer value is removed and never reaches the cell.
+`internal/transport/mcpgateway` and `internal/bootstrap/mcpgateway` provide the global resource server and routing half without a cell credential. The public endpoint is Account-scoped at `/mcp/v1/accounts/{accountID}`. It authenticates one audience/scope-bound token, parses only a bounded JSON-RPC envelope and the Account identifier required for routing, classifies every published tool through one reviewed registry, then resolves current Membership, role, package mode, placement and generation from the global store. The unchanged body is forwarded over the workload-authenticated cell transport with a fresh request-bound route proof; the customer Bearer value is removed and never reaches the cell.
 
 The gateway serves RFC 9728 protected-resource metadata, challenges with the canonical metadata URL and `spyglass:mcp` scope, and validates the current `2026-07-28` `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` header mirrors against the body before using them. Older-version negotiation remains delegated to the official SDK. Tests prove exact tool classification, cross-Account and unknown-tool rejection before routing, modern header/body mismatch rejection, canonical audience/scope input, no token passthrough, exact body/path proof binding and one-use replay denial. This follows the current [MCP Streamable HTTP transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http) and [authorization](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization) contracts.
 
-## Why production MCP remains absent
+## OAuth and deployment checkpoint
 
-The remaining missing boundary is the OAuth 2.1 authorization server and its durable authorization-code, access-token, refresh/revocation and client-metadata lifecycle. The routing constructor deliberately receives that audience/scope validator as an interface rather than inventing a static token or accepting browser sessions. `production-mcp` therefore remains in `deploy/package-surface-inventory.json` as an absent surface and no public deployment manifest exposes the gateway yet.
+`internal/application/mcpauth`, `internal/adapters/postgres/mcp_auth.go` and `internal/transport/mcpoauth` now implement the authorization-server core on the existing `app.*` origin. Authorization uses the existing signed-in browser session and explicit consent, exact registered redirect matching from an HTTPS Client ID Metadata Document, mandatory S256 PKCE, RFC 8707 exact `resource`, exact `spyglass:mcp` scope and the RFC 9207 `iss` response parameter. Client metadata retrieval is HTTPS-only, redirect-free, size/time bounded, DNS-pinned for the request and rejects non-public addresses.
+
+Authorization codes are one-use and expire after five minutes. Opaque access tokens expire after 15 minutes; refresh tokens expire after 30 days and rotate on every use. PostgreSQL stores only SHA-256 digests. Grants bind User, client, audience, scope and `users.security_version`; credential recovery or another security-version advance invalidates them immediately. Reusing a consumed refresh credential atomically revokes its full refresh/access family. Revocation is immediate across replicas, and content-free security events record approvals, denials, exchanges, rotations, replay detection and revocation.
+
+The executable `mcp-gateway` mode, dedicated Docker database role, local/Stage Compose service, Hostinger ingress, client-only Stage workload certificate, LKE Deployment/Service/PDB/HPA, public ingress and default-deny network-policy additions are revision controlled. Local Docker proves both discovery documents and the unauthenticated RFC 9728 challenge through `mcp.infiniteocean.localhost`.
+
+## Why `production-mcp` remains absent
+
+The implementation is deployable, but `production-mcp` remains in `deploy/package-surface-inventory.json` until the release gates below are complete. This avoids treating a local topology check as an applied customer capability.
 
 Production enablement requires one global MCP gateway composition that:
 
-1. implement OAuth authorization-server metadata, authorization-code plus PKCE, issuer binding, Client ID Metadata Documents, exact redirect validation and RFC 8707 `resource` handling;
-2. persist only hashed access/refresh credentials, bind them to User security version, audience and `spyglass:mcp` scope, rotate refresh credentials and make revocation immediate across replicas;
-3. add consent/session binding, token and authorization rate limits, content-free durable audit, and User-visible grant revocation;
-4. complete malformed-protocol, OAuth conformance, routing retry, cancellation, load and multi-replica tests;
-5. add the public `mcp-gateway` process/deployment and allow only its workload identity to reach the private cell MCP route;
-6. remove `production-mcp` from the absent inventory and add `mcp` to each actually published package boundary in the same reviewed change.
+1. add authorization/token rate limits and a User-visible active-grant/revoke control;
+2. complete malformed-protocol, OAuth conformance, routing retry, cancellation, load and multi-replica tests;
+3. apply the new global migration and least-privilege role to Stage, publish the Hostinger MCP ingress, and capture an external-client authorization/tool-call/revocation certificate;
+4. remove `production-mcp` from the absent inventory and add `mcp` to each actually published package boundary in the same reviewed change.
 
 Until that composition exists, this package is executable and tested adapter code, not a claim that stage or production MCP is available.

@@ -5,6 +5,7 @@ resources:
   - service-accounts.yaml
   - account-api.yaml
   - app-router.yaml
+  - mcp-gateway.yaml
   - tool-router.yaml
   - app-api.yaml
   - admission-api.yaml
