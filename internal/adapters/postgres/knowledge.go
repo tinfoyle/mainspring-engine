@@ -458,7 +458,7 @@ func classifyKnowledge(err error) error {
 	if errors.Is(err, knowledgedomain.ErrConflict) {
 		return knowledgeapp.ErrConflict
 	}
-	if errors.Is(err, knowledgedomain.ErrState) || errors.Is(err, knowledgedomain.ErrRole) {
+	if errors.Is(err, knowledgedomain.ErrState) || errors.Is(err, knowledgedomain.ErrRole) || errors.Is(err, knowledgedomain.ErrDocumentHold) || errors.Is(err, knowledgedomain.ErrDocumentRetention) {
 		return knowledgeapp.ErrConstraint
 	}
 	var pgErr *pgconn.PgError

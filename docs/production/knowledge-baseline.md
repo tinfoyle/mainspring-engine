@@ -1,6 +1,6 @@
 # Knowledge and Baseline module
 
-- Status: typed Knowledge kernel, routed operations, review queue and first private UI implemented; documents/retrieval next
+- Status: Knowledge review surface and document lifecycle foundation implemented; object processing, routed document operations and retrieval next
 - Phase: 3.2
 - Owns: immutable evidence identity, reviewable claims, accepted fact revisions, documents/citations and the Baseline assessment lifecycle
 - Does not own: Work lifecycle, Agent execution, provider credentials or external source synchronization
@@ -60,3 +60,5 @@ Plan generation may create proposed Work only from the accepted assessment versi
 6. Transform prototype facts, documents and baselines with explicit unresolved-source reports, checksums, object/index counts and rollback checkpoints.
 
 Every new cell table must participate in forced RLS, placement write fencing, Account movement, exact erasure accounting and restore replay before its surface is considered complete.
+
+Document foundation checkpoint (2026-08-21): [ADR-0004](decisions/0004-knowledge-document-lifecycle.md) fixes the local/stage/production object mapping to MinIO/MinIO/Linode Object Storage behind one S3-compatible port, with private ClamAV and constrained extraction workers. The typed document/revision kernel now enforces Account-derived immutable object identities, a 50 MiB source and 8 MiB extraction bound, extension/verified-media agreement, quarantine-first scan/extraction/index transitions, stable hashed chunks, publish-only-when-ready, sensitivity, retention, legal hold and asynchronous deletion states. The cell schema and classified PostgreSQL repository persist documents, revisions, chunks and content-redacted events with forced RLS, immutable source fields, exact-ready-revision publication guards, Account movement fences and erasure counts. Application commands separate human admission/publication/deletion from workload-only processing and derive replay-stable chunk identities. Disposable PostgreSQL tests cover replay, cross-Account denial, processing order, publication, immutable metadata, redacted events and deletion entry. S3 streaming, ClamAV/extraction adapters, background queue/worker, routed upload/list/detail/delete operations, physical deletion receipts and retrieval remain open; this checkpoint does not claim document lifecycle completion.

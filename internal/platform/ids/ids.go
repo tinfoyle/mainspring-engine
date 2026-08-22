@@ -34,6 +34,9 @@ type MessageID string
 type KnowledgeEvidenceID string
 type KnowledgeClaimID string
 type KnowledgeFactID string
+type KnowledgeDocumentID string
+type KnowledgeDocumentRevisionID string
+type KnowledgeDocumentChunkID string
 
 type Generator interface {
 	New() string

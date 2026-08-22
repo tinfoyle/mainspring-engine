@@ -124,10 +124,11 @@ func TestKnowledgeFoundationIsAccountIsolatedImmutableAndEvidenceBound(t *testin
 	var fencedTables int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM pg_trigger trigger_row JOIN pg_class table_row ON table_row.oid=trigger_row.tgrelid
 		JOIN pg_namespace namespace_row ON namespace_row.oid=table_row.relnamespace
-		WHERE namespace_row.nspname='spyglass' AND table_row.relname LIKE 'knowledge_%' AND trigger_row.tgname='account_namespace_write_fence' AND NOT trigger_row.tgisinternal`).Scan(&fencedTables); err != nil || fencedTables != 6 {
+		WHERE namespace_row.nspname='spyglass' AND table_row.relname LIKE 'knowledge_%' AND trigger_row.tgname='account_namespace_write_fence' AND NOT trigger_row.tgisinternal`).Scan(&fencedTables); err != nil || fencedTables != 10 {
 		t.Fatalf("Knowledge movement write fences=%d err=%v", fencedTables, err)
 	}
 	exerciseKnowledgeRepository(t, ctx, owner, ids.AccountID(accountA), ids.AccountID(accountB), now.Add(5*time.Minute))
+	exerciseKnowledgeDocumentRepository(t, ctx, owner, ids.AccountID(accountA), ids.AccountID(accountB), now.Add(10*time.Minute))
 }
 
 type knowledgeExec interface {
@@ -236,5 +237,87 @@ func exerciseKnowledgeRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	var unsafeEvents int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.knowledge_events WHERE account_id=$1 AND (redacted_payload::text LIKE '%Northstar%' OR redacted_payload::text LIKE '%Owner statement reviewed%')`, accountID).Scan(&unsafeEvents); err != nil || unsafeEvents != 0 {
 		t.Fatalf("unsafe Knowledge events=%d err=%v", unsafeEvents, err)
+	}
+}
+
+func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owner *pgxpool.Pool, accountID, otherAccountID ids.AccountID, now time.Time) {
+	t.Helper()
+	cell, err := database.NewCellPool(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := postgresadapter.NewKnowledgeRepository(cell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	documentID := ids.KnowledgeDocumentID("d1000000-0000-4000-8000-000000000001")
+	revisionID := ids.KnowledgeDocumentRevisionID("d2000000-0000-4000-8000-000000000002")
+	actor := knowledgedomain.Actor{Kind: knowledgedomain.ActorUser, ID: "d3000000-0000-4000-8000-000000000003"}
+	worker := knowledgedomain.Actor{Kind: knowledgedomain.ActorWorkload, ID: "worker:document-admission"}
+	document, err := knowledgedomain.NewDocument(documentID, accountID, "Operating plan", knowledgedomain.SensitivityConfidential, nil, actor, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := knowledgedomain.NewDocumentRevision(knowledgedomain.DocumentRevisionDraft{
+		ID: revisionID, DocumentID: documentID, AccountID: accountID, Number: 1, Filename: "operating-plan.md", DeclaredType: "text/markdown", VerifiedType: "text/markdown",
+		ByteSize: 128, ContentSHA256: sha256.Sum256([]byte("source bytes")), ObjectKey: "accounts/" + string(accountID) + "/documents/" + string(documentID) + "/revisions/" + string(revisionID) + "/source", ObjectVersion: "version-1", ChangeSummary: "Initial upload", CreatedBy: actor,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation := knowledgeapp.Mutation{Actor: actor, CorrelationID: "d4000000-0000-4000-8000-000000000004", ReasonCode: "document_admitted", At: now}
+	admittedDocument, admittedRevision, err := repository.AdmitDocument(ctx, document, revision, mutation)
+	if err != nil || admittedDocument.ID != documentID || admittedRevision.ID != revisionID {
+		t.Fatalf("admit document=%+v revision=%+v err=%v", admittedDocument, admittedRevision, err)
+	}
+	if _, _, err := repository.AdmitDocument(ctx, document, revision, mutation); err != nil {
+		t.Fatalf("replay document admission err=%v", err)
+	}
+	if _, err := repository.GetDocument(ctx, otherAccountID, documentID); !errors.Is(err, knowledgeapp.ErrNotFound) {
+		t.Fatalf("cross-Account document read err=%v", err)
+	}
+	scanned, err := revision.RecordScan(knowledgedomain.ScanClean, "clamav/1.4.3", "daily.cvd:27810", now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scanned, err = repository.SaveDocumentRevision(ctx, scanned, revision.UpdatedAt, "scan_completed", knowledgeapp.Mutation{Actor: worker, CorrelationID: "d5000000-0000-4000-8000-000000000005", ReasonCode: "scan_completed", At: scanned.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	extracted, err := scanned.RecordExtraction(sha256.Sum256([]byte("Extracted operating plan")), 24, "spyglass/text-v1", now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	extracted, err = repository.SaveDocumentRevision(ctx, extracted, scanned.UpdatedAt, "extraction_completed", knowledgeapp.Mutation{Actor: worker, CorrelationID: "d6000000-0000-4000-8000-000000000006", ReasonCode: "extraction_completed", At: extracted.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexed, err := extracted.RecordIndex("knowledge-v1", 1, now.Add(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "Extracted operating plan"
+	chunk, err := knowledgedomain.NewDocumentChunk(knowledgedomain.DocumentChunk{ID: "d7000000-0000-4000-8000-000000000007", AccountID: accountID, RevisionID: revisionID, Index: 0, StartByte: 0, EndByte: int64(len(content)), Content: content, ContentSHA256: sha256.Sum256([]byte(content)), TokenCount: 3, IndexGeneration: "knowledge-v1", CreatedAt: indexed.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexed, err = repository.IndexDocumentRevision(ctx, indexed, extracted.UpdatedAt, []knowledgedomain.DocumentChunk{chunk}, knowledgeapp.Mutation{Actor: worker, CorrelationID: "d8000000-0000-4000-8000-000000000008", ReasonCode: "index_completed", At: indexed.UpdatedAt})
+	if err != nil || indexed.State != knowledgedomain.RevisionReady {
+		t.Fatalf("index document revision=%+v err=%v", indexed, err)
+	}
+	published, err := repository.PublishDocumentRevision(ctx, accountID, documentID, revisionID, 1, knowledgeapp.Mutation{Actor: actor, CorrelationID: "d9000000-0000-4000-8000-000000000009", ReasonCode: "revision_published", At: now.Add(4 * time.Second)})
+	if err != nil || published.State != knowledgedomain.DocumentReady || published.CurrentRevisionID != revisionID {
+		t.Fatalf("publish document=%+v err=%v", published, err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.knowledge_document_revisions SET object_key='changed' WHERE account_id=$1 AND id=$2`, accountID, revisionID); err == nil || !strings.Contains(err.Error(), "revision identity is immutable") {
+		t.Fatalf("revision identity update=%v", err)
+	}
+	var unsafeEvents int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.knowledge_document_events WHERE account_id=$1 AND redacted_payload::text LIKE '%Operating plan%'`, accountID).Scan(&unsafeEvents); err != nil || unsafeEvents != 0 {
+		t.Fatalf("unsafe document events=%d err=%v", unsafeEvents, err)
+	}
+	deleting, err := repository.RequestDocumentDeletion(ctx, accountID, documentID, 2, knowledgeapp.Mutation{Actor: actor, CorrelationID: "da000000-0000-4000-8000-00000000000a", ReasonCode: "deletion_requested", At: now.Add(5 * time.Second)})
+	if err != nil || deleting.State != knowledgedomain.DocumentDeletionPending {
+		t.Fatalf("request document deletion=%+v err=%v", deleting, err)
 	}
 }
