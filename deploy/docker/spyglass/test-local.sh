@@ -4,6 +4,7 @@ set -euo pipefail
 compose=(docker compose --project-name spyglass-local --env-file env/local.env --file compose.yml --file compose.local.yml --profile test)
 object_store_was_running="$("${compose[@]}" ps --quiet object-store 2>/dev/null || true)"
 extractor_was_running="$("${compose[@]}" ps --quiet document-extractor 2>/dev/null || true)"
+scanner_was_running="$("${compose[@]}" ps --quiet malware-scanner 2>/dev/null || true)"
 
 bash ../../verify-process-inventory.sh
 
@@ -14,6 +15,9 @@ cleanup() {
   fi
   if [[ -z "${extractor_was_running}" ]]; then
     "${compose[@]}" rm --stop --force document-extractor >/dev/null 2>&1 || true
+  fi
+  if [[ -z "${scanner_was_running}" ]]; then
+    "${compose[@]}" rm --stop --force malware-scanner >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT

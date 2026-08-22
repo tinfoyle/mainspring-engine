@@ -34,9 +34,9 @@ import (
 
 func Handler(logger *slog.Logger) http.Handler {
 	clock := registration.SystemClock{}
-	// Seed offers just before process start so a small wall-clock correction
-	// cannot make the development Catalog appear future-effective.
-	publishedCatalog := catalog.Default(clock.Now().Add(-time.Second))
+	// Give development-only offers a wide clock-correction margin. WSL and
+	// container clocks can resynchronize during long race-test runs.
+	publishedCatalog := catalog.Default(clock.Now().Add(-24 * time.Hour))
 	store := memory.NewStore(publishedCatalog, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 1000}})
 	networkGuard, err := abuse.NewGuard(store)
 	if err != nil {

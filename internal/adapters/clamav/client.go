@@ -166,9 +166,12 @@ func (client *Client) readVersion(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	lines := strings.Split(reply, "\n")
-	engine := strings.TrimSpace(lines[0])
-	if !strings.HasPrefix(engine, "ClamAV ") || len(engine) > knowledgedomain.MaximumProcessorIdentity || !strings.Contains(reply, "COMMANDS:") || !commandListed(reply, "INSTREAM") {
+	commandsAt := strings.Index(reply, "COMMANDS:")
+	if commandsAt < 0 {
+		return "", ErrProtocol
+	}
+	engine := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(reply[:commandsAt]), "|"))
+	if !strings.HasPrefix(engine, "ClamAV ") || len(engine) > knowledgedomain.MaximumProcessorIdentity || strings.ContainsAny(engine, "\r\n\x00") || !commandListed(reply[commandsAt+len("COMMANDS:"):], "INSTREAM") {
 		return "", ErrProtocol
 	}
 	return engine, nil
@@ -239,14 +242,9 @@ func parseScanReply(reply, engine string) (knowledgeapp.MalwareScanResult, error
 }
 
 func commandListed(reply, command string) bool {
-	for _, line := range strings.Split(reply, "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(line), "COMMANDS:") {
-			continue
-		}
-		for _, candidate := range strings.Fields(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "COMMANDS:"))) {
-			if strings.Trim(candidate, ",") == command {
-				return true
-			}
+	for _, candidate := range strings.Fields(reply) {
+		if strings.Trim(candidate, ",|") == command {
+			return true
 		}
 	}
 	return false

@@ -178,6 +178,26 @@ services:
       - no-new-privileges:true
     networks: [application]
 
+  malware-scanner:
+    profiles: [test, knowledge-processing]
+    image: clamav/clamav@sha256:c3bfbf2a2c9abc1fc179e63832a9e8bfac901ede83853e3fa10acf6f1fb5c803
+    restart: unless-stopped
+    environment:
+      CLAMAV_NO_FRESHCLAMD: ${SPYGLASS_CLAMAV_DISABLE_UPDATES:-true}
+      CLAMD_CONF_StreamMaxLength: 52428800
+      CLAMD_CONF_MaxFileSize: 52428800
+      CLAMD_CONF_MaxScanSize: 104857600
+      CLAMD_CONF_MaxScanTime: 120000
+    volumes:
+      - clamav-db:/var/lib/clamav
+    expose: ["3310"]
+    mem_limit: 4g
+    cpus: 2.0
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    networks: [application]
+
   global-migrate:
     <<: *application
     restart: "no"
@@ -582,3 +602,4 @@ volumes:
   cell-a-db:
   cell-b-db:
   object-store:
+  clamav-db:
