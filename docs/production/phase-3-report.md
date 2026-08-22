@@ -188,6 +188,8 @@ Exit: Agent behavior is durable, replay-safe, Account-isolated and recoverable a
 
 ## P3.4 — Scheduling, business packages and integrations
 
+Finance-scope/kernel checkpoint (2026-08-22): [ADR-0006](decisions/0006-finance-operational-ledger.md) resolves Finance as an Account-owned internal operational ledger rather than subscription billing, a payment rail or an accidental formal accounting standard. The provider-free typed kernel now validates one-currency integer-minor-unit money, overflow-safe balanced lines, optimistic ledger/account lifecycle, evidence-bound monotonic period close, human-only posting/reversal, immutable linked reversal shape and evidence-bound reconciliation that cannot conceal a difference. Agents may prepare drafts only with exact Run/invocation provenance and cannot post. Pure tests cover currency, overflow, balance, roles, evidence, closed periods, stale versions, reversal and mismatch. Forced-RLS persistence and routed surfaces are the next Finance slice. See [Finance module](finance-module.md).
+
 Complete every intended launch package rather than leaving preview shells:
 
 - Scheduling: durable definitions, time zones, missed-run policy, leases, pause/resume and idempotent dispatch.
