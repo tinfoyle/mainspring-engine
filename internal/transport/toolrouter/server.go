@@ -19,17 +19,54 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
+	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
 )
 
 const (
-	ContextHeader          = toolcontext.HeaderName
-	DefaultMaxRequestBody  = int64(256 << 10)
-	DefaultMaxResponseBody = int64(256 << 10)
-	WorkSummaryCapability  = runnercapability.WorkSummaryCapability
+	ContextHeader                 = toolcontext.HeaderName
+	DefaultMaxRequestBody         = int64(256 << 10)
+	DefaultMaxResponseBody        = int64(256 << 10)
+	WorkSummaryCapability         = runnercapability.WorkSummaryCapability
+	FinanceLedgersReadCapability  = runnercapability.FinanceLedgersReadCapability
+	FinanceAccountsReadCapability = runnercapability.FinanceAccountsReadCapability
+	FinanceEntryDraftCapability   = runnercapability.FinanceEntryDraftCapability
 )
+
+type dispatch struct {
+	method      string
+	target      string
+	body        []byte
+	requirement access.Requirement
+	createdOK   bool
+}
+
+type financeAccountsInput struct {
+	LedgerID ids.FinanceLedgerID `json:"ledger_id"`
+}
+
+type financeEntryDraftInput struct {
+	LedgerID    ids.FinanceLedgerID         `json:"ledger_id"`
+	RunID       ids.RunID                   `json:"run_id"`
+	EntryDate   time.Time                   `json:"entry_date"`
+	Description string                      `json:"description"`
+	Reference   string                      `json:"reference"`
+	Currency    string                      `json:"currency"`
+	Lines       []financedomain.JournalLine `json:"lines"`
+	Evidence    []ids.KnowledgeEvidenceID   `json:"evidence"`
+}
+
+type financeEntryDraftBody struct {
+	RunID       ids.RunID                   `json:"run_id"`
+	EntryDate   time.Time                   `json:"entry_date"`
+	Description string                      `json:"description"`
+	Reference   string                      `json:"reference"`
+	Currency    string                      `json:"currency"`
+	Lines       []financedomain.JournalLine `json:"lines"`
+	Evidence    []ids.KnowledgeEvidenceID   `json:"evidence"`
+}
 
 type Acceptor interface {
 	Accept(context.Context, string, routecontext.Binding) (toolcontext.Claims, error)
@@ -101,10 +138,6 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusRequestEntityTooLarge, "tool_dispatch_too_large")
 		return
 	}
-	if !emptyJSONObject(body) {
-		writeProblem(w, http.StatusBadRequest, "tool_input_invalid")
-		return
-	}
 	binding, err := routecontext.BindRequest(r, body)
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "tool_dispatch_invalid")
@@ -120,12 +153,17 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 		s.writeAcceptError(w, err)
 		return
 	}
-	if claims.Authority.Capability != WorkSummaryCapability {
+	dispatched, ok := dispatchCapability(claims.Authority.Capability, claims.Authority.AccountID, body)
+	if !ok {
+		if knownCapability(claims.Authority.Capability) {
+			writeProblem(w, http.StatusBadRequest, "tool_input_invalid")
+			return
+		}
 		writeProblem(w, http.StatusNotFound, "capability_unavailable")
 		return
 	}
 	actor := access.Actor{WorkloadID: "runner-invocation:" + claims.Authority.InvocationID}
-	accountContext, err := s.authorizer.Authorize(r.Context(), actor, claims.Authority.AccountID, access.Requirement{Package: catalog.PackageWork})
+	accountContext, err := s.authorizer.Authorize(r.Context(), actor, claims.Authority.AccountID, dispatched.requirement)
 	if err != nil {
 		writeProblem(w, http.StatusForbidden, "tool_authorization_denied")
 		return
@@ -140,8 +178,11 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "tool_routing_unavailable")
 		return
 	}
-	target := "/api/v1/accounts/" + string(claims.Authority.AccountID) + "/work-items/summary"
-	cellBinding, _ := routecontext.Bind(http.MethodGet, target, nil)
+	cellBinding, err := routecontext.Bind(dispatched.method, dispatched.target, dispatched.body)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "tool_routing_unavailable")
+		return
+	}
 	requestID := s.ids.New()
 	authority := routecontext.Authority{
 		RequestID: requestID, OperationID: claims.Authority.OperationID, AccountID: accountContext.AccountID,
@@ -155,14 +196,25 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	origin := cellRoute.Origin
-	origin.Path, origin.RawPath, origin.RawQuery = target, "", ""
-	outbound, err := http.NewRequestWithContext(r.Context(), http.MethodGet, origin.String(), nil)
+	origin.Path, origin.RawPath = strings.Split(dispatched.target, "?")[0], ""
+	if queryIndex := strings.IndexByte(dispatched.target, '?'); queryIndex >= 0 {
+		origin.RawQuery = dispatched.target[queryIndex+1:]
+	} else {
+		origin.RawQuery = ""
+	}
+	outbound, err := http.NewRequestWithContext(r.Context(), dispatched.method, origin.String(), bytes.NewReader(dispatched.body))
 	if err != nil {
 		writeProblem(w, http.StatusServiceUnavailable, "tool_routing_unavailable")
 		return
 	}
 	outbound.Header.Set(routecontext.HeaderName, routeToken)
 	outbound.Header.Set("X-Request-ID", requestID)
+	if len(dispatched.body) > 0 {
+		outbound.Header.Set("Content-Type", "application/json")
+	}
+	if dispatched.method != http.MethodGet {
+		outbound.Header.Set("Idempotency-Key", claims.Authority.OperationID)
+	}
 	response, err := s.client.Do(outbound)
 	if err != nil {
 		s.logger.Error("cell tool request failed", "account_id", claims.Authority.AccountID, "request_id", requestID)
@@ -175,7 +227,7 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadGateway, "tool_response_invalid")
 		return
 	}
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusOK && !(dispatched.createdOK && response.StatusCode == http.StatusCreated) {
 		writeProblem(w, http.StatusBadGateway, "tool_execution_failed")
 		return
 	}
@@ -187,6 +239,50 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(responseBody)
+}
+
+func knownCapability(capability string) bool {
+	return capability == WorkSummaryCapability || capability == FinanceLedgersReadCapability || capability == FinanceAccountsReadCapability || capability == FinanceEntryDraftCapability
+}
+
+func dispatchCapability(capability string, accountID ids.AccountID, raw []byte) (dispatch, bool) {
+	accountPath := "/api/v1/accounts/" + string(accountID)
+	switch capability {
+	case WorkSummaryCapability:
+		if !emptyJSONObject(raw) {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodGet, target: accountPath + "/work-items/summary", requirement: access.Requirement{Package: catalog.PackageWork}}, true
+	case FinanceLedgersReadCapability:
+		if !emptyJSONObject(raw) {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodGet, target: accountPath + "/finance/ledgers?limit=100", requirement: access.Requirement{Package: catalog.PackageFinance}}, true
+	case FinanceAccountsReadCapability:
+		var input financeAccountsInput
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.LedgerID)) != nil {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodGet, target: accountPath + "/finance/ledgers/" + string(input.LedgerID) + "/accounts?limit=100", requirement: access.Requirement{Package: catalog.PackageFinance}}, true
+	case FinanceEntryDraftCapability:
+		var input financeEntryDraftInput
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.LedgerID)) != nil || ids.Validate(string(input.RunID)) != nil {
+			return dispatch{}, false
+		}
+		body, err := json.Marshal(financeEntryDraftBody{RunID: input.RunID, EntryDate: input.EntryDate, Description: input.Description, Reference: input.Reference, Currency: input.Currency, Lines: input.Lines, Evidence: input.Evidence})
+		if err != nil {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodPost, target: "/internal/v1/accounts/" + string(accountID) + "/finance/ledgers/" + string(input.LedgerID) + "/entries:draft", body: body, requirement: access.Requirement{Package: catalog.PackageFinance, Mutation: true}, createdOK: true}, true
+	default:
+		return dispatch{}, false
+	}
+}
+
+func decodeToolInput(raw []byte, destination any) bool {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	return decoder.Decode(destination) == nil && errors.Is(decoder.Decode(&struct{}{}), io.EOF)
 }
 
 func emptyJSONObject(raw []byte) bool {

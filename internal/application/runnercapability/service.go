@@ -17,11 +17,14 @@ import (
 )
 
 const (
-	SchemaVersion         = 1
-	MaximumInputBytes     = 256 << 10
-	MaximumOutputBytes    = 256 << 10
-	MaximumDefinitions    = 64
-	WorkSummaryCapability = "work.summary.read"
+	SchemaVersion                 = 1
+	MaximumInputBytes             = 256 << 10
+	MaximumOutputBytes            = 256 << 10
+	MaximumDefinitions            = 64
+	WorkSummaryCapability         = "work.summary.read"
+	FinanceLedgersReadCapability  = "finance.ledgers.read"
+	FinanceAccountsReadCapability = "finance.accounts.read"
+	FinanceEntryDraftCapability   = "finance.entry.draft"
 )
 
 var (
@@ -38,6 +41,7 @@ type Effect string
 
 const (
 	EffectReadOnly      Effect = "read_only"
+	EffectAdditive      Effect = "additive"
 	EffectConsequential Effect = "consequential"
 )
 
@@ -194,7 +198,7 @@ func New(authorizer Authorizer, actions ActionAuthorizer, auditor Auditor, clock
 	}
 	registered := make(map[string]Definition, len(definitions))
 	for _, definition := range definitions {
-		if !runnerbroker.ValidCapability(definition.Capability) || definition.Handler == nil || definition.Timeout < 100*time.Millisecond || definition.Timeout > 5*time.Minute || (definition.Effect != EffectReadOnly && definition.Effect != EffectConsequential) {
+		if !runnerbroker.ValidCapability(definition.Capability) || definition.Handler == nil || definition.Timeout < 100*time.Millisecond || definition.Timeout > 5*time.Minute || (definition.Effect != EffectReadOnly && definition.Effect != EffectAdditive && definition.Effect != EffectConsequential) {
 			return nil, ErrInvalidCall
 		}
 		if definition.Effect == EffectConsequential {

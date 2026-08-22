@@ -15,9 +15,11 @@ import (
 type financeTestAuthorizer struct {
 	role        accounts.MembershipRole
 	requirement access.Requirement
+	actor       access.Actor
 }
 
-func (authorizer *financeTestAuthorizer) Authorize(_ context.Context, _ access.Actor, accountID ids.AccountID, requirement access.Requirement) (access.AccountContext, error) {
+func (authorizer *financeTestAuthorizer) Authorize(_ context.Context, actor access.Actor, accountID ids.AccountID, requirement access.Requirement) (access.AccountContext, error) {
+	authorizer.actor = actor
 	authorizer.requirement = requirement
 	if len(requirement.Roles) > 0 {
 		allowed := false
@@ -29,6 +31,37 @@ func (authorizer *financeTestAuthorizer) Authorize(_ context.Context, _ access.A
 		}
 	}
 	return access.AccountContext{AccountID: accountID, Role: authorizer.role}, nil
+}
+
+func TestFinanceWorkloadCanOnlyCreateExactProvenanceDraft(t *testing.T) {
+	now := time.Date(2026, 8, 22, 21, 30, 0, 0, time.UTC)
+	accountID := ids.AccountID("10000000-0000-4000-8000-000000000001")
+	runID := ids.RunID("21000000-0000-4000-8000-000000000002")
+	invocationID := ids.AgentInvocationID("22000000-0000-4000-8000-000000000002")
+	actor := access.Actor{WorkloadID: "runner-invocation:" + string(invocationID)}
+	authorizer := &financeTestAuthorizer{}
+	store := &financeTestStore{}
+	service, err := New(authorizer, store, financeTestClock{now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := CreateEntryCommand{Actor: actor, AccountID: accountID, RequestID: "30000000-0000-4000-8000-000000000003",
+		LedgerID: "40000000-0000-4000-8000-000000000004", EntryDate: now, Description: "Agent draft", Currency: "USD",
+		Lines:      []domain.JournalLine{{AccountID: "50000000-0000-4000-8000-000000000005", DebitMinor: 1}, {AccountID: "60000000-0000-4000-8000-000000000006", CreditMinor: 1}},
+		Provenance: domain.Provenance{Source: domain.SourceAgent, RunID: runID, InvocationID: invocationID}}
+	entry, created, err := service.CreateEntry(context.Background(), command)
+	if err != nil || !created || entry.ID != ids.FinanceEntryID(command.RequestID) || authorizer.actor != actor || len(authorizer.requirement.Roles) != 0 || !authorizer.requirement.Mutation || store.entryDraft.CreatedBy.Kind != domain.ActorWorkload || store.entryDraft.CreatedBy.ID != actor.WorkloadID || store.entryDraft.Provenance.InvocationID != invocationID {
+		t.Fatalf("entry=%+v created=%v requirement=%+v draft=%+v err=%v", entry, created, authorizer.requirement, store.entryDraft, err)
+	}
+	spoofed := command
+	spoofed.RequestID = "31000000-0000-4000-8000-000000000003"
+	spoofed.Provenance.InvocationID = "32000000-0000-4000-8000-000000000003"
+	if _, _, err := service.CreateEntry(context.Background(), spoofed); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("spoofed invocation error=%v", err)
+	}
+	if _, err := service.PostEntry(context.Background(), EntryTransitionCommand{Actor: actor, AccountID: accountID, RequestID: "33000000-0000-4000-8000-000000000003", EntryID: entry.ID, ExpectedVersion: 1}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("workload post error=%v", err)
+	}
 }
 
 type financeTestClock struct{ now time.Time }

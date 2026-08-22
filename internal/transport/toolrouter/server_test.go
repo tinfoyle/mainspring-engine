@@ -38,14 +38,22 @@ func (a *acceptingBoundary) Accept(_ context.Context, _ string, binding routecon
 	return a.claims, nil
 }
 
-type workloadAuthorizer struct{ actor access.Actor }
+type workloadAuthorizer struct {
+	actor       access.Actor
+	requirement access.Requirement
+}
 
 func (a *workloadAuthorizer) Authorize(_ context.Context, actor access.Actor, accountID ids.AccountID, requirement access.Requirement) (access.AccountContext, error) {
 	a.actor = actor
-	if accountID != testAccount || requirement.Package != catalog.PackageWork || requirement.Mutation {
+	a.requirement = requirement
+	if accountID != testAccount {
 		return access.AccountContext{}, &access.DeniedError{Code: access.DenialCorruptContext}
 	}
-	return access.AccountContext{AccountID: accountID, CellID: "cell-a", PlacementGeneration: 3, EntitlementVersion: 7, PackageAccess: &entitlements.PackageAccess{Code: catalog.PackageWork, Version: 1, Mode: catalog.ModeReadOnly}}, nil
+	mode := catalog.ModeReadOnly
+	if requirement.Mutation {
+		mode = catalog.ModeEnabled
+	}
+	return access.AccountContext{AccountID: accountID, CellID: "cell-a", PlacementGeneration: 3, EntitlementVersion: 7, PackageAccess: &entitlements.PackageAccess{Code: requirement.Package, Version: 1, Mode: mode}}, nil
 }
 
 type directory struct{ origin url.URL }
@@ -54,11 +62,54 @@ func (d directory) Resolve(_ context.Context, _ ids.AccountID, _ ids.CellID, _ u
 	return accountdirectory.Route{CellID: "cell-a", PlacementGeneration: 3, Origin: d.origin}, nil
 }
 
-type routeSigner struct{ authority routecontext.Authority }
+type routeSigner struct {
+	authority routecontext.Authority
+	binding   routecontext.Binding
+}
 
-func (s *routeSigner) Issue(_ string, authority routecontext.Authority, _ routecontext.Binding) (string, error) {
+func (s *routeSigner) Issue(_ string, authority routecontext.Authority, binding routecontext.Binding) (string, error) {
 	s.authority = authority
+	s.binding = binding
 	return "cell-route-token", nil
+}
+
+func TestFinanceDraftDispatchReauthorizesMutationAndPreservesAgentProvenance(t *testing.T) {
+	boundary := &acceptingBoundary{claims: toolcontext.Claims{Authority: toolcontext.Authority{
+		RequestID: "60000000-0000-4000-8000-000000000006", AccountID: testAccount, InvocationID: testInvocation,
+		PodUID: testPod, OperationID: testOperation, Capability: FinanceEntryDraftCapability,
+	}}}
+	authorizer := &workloadAuthorizer{}
+	signer := &routeSigner{}
+	cellOrigin, _ := url.Parse("http://cell.internal")
+	runID := "70000000-0000-4000-8000-000000000007"
+	ledgerID := "80000000-0000-4000-8000-000000000008"
+	input := `{"ledger_id":"` + ledgerID + `","run_id":"` + runID + `","entry_date":"2026-08-22T00:00:00Z","description":"Accrual draft","reference":"AGENT-1","currency":"USD","lines":[{"account_id":"90000000-0000-4000-8000-000000000009","memo":"Accrual","debit_minor":100,"credit_minor":0},{"account_id":"a0000000-0000-4000-8000-00000000000a","memo":"Accrual","debit_minor":0,"credit_minor":100}],"evidence":[]}`
+	transport := roundTrip(func(request *http.Request) (*http.Response, error) {
+		wantPath := "/internal/v1/accounts/" + testAccount + "/finance/ledgers/" + ledgerID + "/entries:draft"
+		if request.Method != http.MethodPost || request.URL.Path != wantPath || request.Header.Get("Idempotency-Key") != testOperation || request.Header.Get("Authorization") != "" {
+			t.Fatalf("unexpected cell request: %s %s headers=%v", request.Method, request.URL, request.Header)
+		}
+		raw, _ := io.ReadAll(request.Body)
+		if strings.Contains(string(raw), `"ledger_id"`) || !strings.Contains(string(raw), `"run_id":"`+runID+`"`) {
+			t.Fatalf("unexpected routed body: %s", raw)
+		}
+		return &http.Response{StatusCode: http.StatusCreated, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"` + testOperation + `","state":"draft"}`))}, nil
+	})
+	server, err := New(boundary, authorizer, directory{origin: *cellOrigin}, signer, fixedIDs{}, slog.New(slog.NewTextHandler(io.Discard, nil)), Config{Transport: transport, AllowHTTPCells: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/tools:invoke", strings.NewReader(input))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(ContextHeader, "tool-proof")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"draft"`) {
+		t.Fatalf("unexpected response: %d %s", response.Code, response.Body.String())
+	}
+	if authorizer.requirement.Package != catalog.PackageFinance || !authorizer.requirement.Mutation || signer.authority.ActorID != "runner-invocation:"+testInvocation || signer.binding.Method != http.MethodPost {
+		t.Fatalf("requirement=%+v authority=%+v binding=%+v", authorizer.requirement, signer.authority, signer.binding)
+	}
 }
 
 type fixedIDs struct{}
@@ -127,5 +178,20 @@ func TestToolDispatchRejectsInputAndUnavailableCapabilityBeforeCell(t *testing.T
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestFinanceReadDispatchUsesBoundedAccountRoutes(t *testing.T) {
+	ledgers, ok := dispatchCapability(FinanceLedgersReadCapability, testAccount, []byte(`{}`))
+	if !ok || ledgers.method != http.MethodGet || ledgers.target != "/api/v1/accounts/"+testAccount+"/finance/ledgers?limit=100" || ledgers.requirement.Package != catalog.PackageFinance || ledgers.requirement.Mutation {
+		t.Fatalf("ledger dispatch=%+v ok=%v", ledgers, ok)
+	}
+	ledgerID := "80000000-0000-4000-8000-000000000008"
+	accounts, ok := dispatchCapability(FinanceAccountsReadCapability, testAccount, []byte(`{"ledger_id":"`+ledgerID+`"}`))
+	if !ok || accounts.target != "/api/v1/accounts/"+testAccount+"/finance/ledgers/"+ledgerID+"/accounts?limit=100" || accounts.requirement.Package != catalog.PackageFinance {
+		t.Fatalf("account dispatch=%+v ok=%v", accounts, ok)
+	}
+	if _, ok := dispatchCapability(FinanceAccountsReadCapability, testAccount, []byte(`{"ledger_id":"invalid"}`)); ok {
+		t.Fatal("invalid Finance Ledger was routed")
 	}
 }

@@ -316,6 +316,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/finance/accounts/{postingAccountID}", s.financeAccountArchive)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/entries", s.financeEntryList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/entries", s.financeEntryCreate)
+	mux.HandleFunc("POST /internal/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/entries:draft", s.financeAgentEntryDraft)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/entries/{entryID}", s.financeEntryGet)
 	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/finance/entries/{entryID}", s.financeEntryRevise)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/entries/{entryID}/postings", s.financeEntryPost)

@@ -290,7 +290,9 @@ func (s *Service) PublishPersona(ctx context.Context, command PublishPersonaComm
 		return PersonaSummary{}, false, err
 	}
 	for _, tool := range command.Policy.Tools {
-		if tool.Capability != "work.summary.read" {
+		switch tool.Capability {
+		case "work.summary.read", "finance.ledgers.read", "finance.accounts.read", "finance.entry.draft":
+		default:
 			return PersonaSummary{}, false, ErrInvalidCommand
 		}
 	}

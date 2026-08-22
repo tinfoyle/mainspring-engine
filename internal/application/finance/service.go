@@ -3,6 +3,7 @@ package finance
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -225,7 +226,7 @@ type CreateEntryCommand struct {
 }
 
 func (service *Service) CreateEntry(ctx context.Context, command CreateEntryCommand) (domain.JournalEntry, bool, error) {
-	authorized, err := service.authorize(ctx, command.Actor, command.AccountID, true, false)
+	authorized, err := service.authorizeDraft(ctx, command.Actor, command.AccountID)
 	if err != nil || ids.Validate(command.RequestID) != nil {
 		if err != nil {
 			return domain.JournalEntry{}, false, err
@@ -233,7 +234,10 @@ func (service *Service) CreateEntry(ctx context.Context, command CreateEntryComm
 		return domain.JournalEntry{}, false, ErrInvalid
 	}
 	now := service.clock.Now().UTC()
-	actor := userActor(command.Actor)
+	actor, err := draftActor(command.Actor, command.Provenance)
+	if err != nil {
+		return domain.JournalEntry{}, false, err
+	}
 	if command.Provenance.Source == "" {
 		command.Provenance.Source = domain.SourceManual
 	}
@@ -267,7 +271,7 @@ type ReviseEntryCommand struct {
 }
 
 func (service *Service) ReviseEntry(ctx context.Context, command ReviseEntryCommand) (domain.JournalEntry, error) {
-	authorized, err := service.authorize(ctx, command.Actor, command.AccountID, true, false)
+	authorized, err := service.authorizeDraft(ctx, command.Actor, command.AccountID)
 	if err != nil || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.EntryID)) != nil || command.ExpectedVersion == 0 {
 		if err != nil {
 			return domain.JournalEntry{}, err
@@ -275,7 +279,7 @@ func (service *Service) ReviseEntry(ctx context.Context, command ReviseEntryComm
 		return domain.JournalEntry{}, ErrInvalid
 	}
 	now := service.clock.Now().UTC()
-	actor := userActor(command.Actor)
+	actor := financeActor(command.Actor)
 	revision := domain.EntryRevision{EntryDate: command.EntryDate, Description: command.Description, Reference: command.Reference, Lines: command.Lines,
 		Evidence: command.Evidence, ExpectedVersion: command.ExpectedVersion, Actor: actor, Role: authorized.Role, At: now}
 	return service.store.ReviseEntry(ctx, command.AccountID, command.EntryID, revision, mutation(command.RequestID, "revised", actor, now))
@@ -380,7 +384,7 @@ func (service *Service) ConfirmReconciliation(ctx context.Context, command Confi
 }
 
 func (service *Service) authorize(ctx context.Context, actor access.Actor, accountID ids.AccountID, mutation bool, manage bool) (access.AccountContext, error) {
-	if !actor.Valid() || actor.UserID == "" || ids.Validate(string(accountID)) != nil {
+	if !actor.Valid() || ids.Validate(string(accountID)) != nil || (mutation && actor.UserID == "") {
 		return access.AccountContext{}, ErrInvalid
 	}
 	requirement := access.Requirement{Package: PackageCode, Mutation: mutation}
@@ -389,6 +393,17 @@ func (service *Service) authorize(ctx context.Context, actor access.Actor, accou
 		if manage {
 			requirement.Roles = requirement.Roles[:2]
 		}
+	}
+	return service.authorizer.Authorize(ctx, actor, accountID, requirement)
+}
+
+func (service *Service) authorizeDraft(ctx context.Context, actor access.Actor, accountID ids.AccountID) (access.AccountContext, error) {
+	if !actor.Valid() || ids.Validate(string(accountID)) != nil {
+		return access.AccountContext{}, ErrInvalid
+	}
+	requirement := access.Requirement{Package: PackageCode, Mutation: true}
+	if actor.UserID != "" {
+		requirement.Roles = []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator, accounts.RoleMember}
 	}
 	return service.authorizer.Authorize(ctx, actor, accountID, requirement)
 }
@@ -407,6 +422,25 @@ func (service *Service) managementCommand(ctx context.Context, actor access.Acto
 
 func userActor(actor access.Actor) domain.Actor {
 	return domain.Actor{Kind: domain.ActorUser, ID: string(actor.UserID)}
+}
+
+func financeActor(actor access.Actor) domain.Actor {
+	if actor.WorkloadID != "" {
+		return domain.Actor{Kind: domain.ActorWorkload, ID: actor.WorkloadID}
+	}
+	return userActor(actor)
+}
+
+func draftActor(actor access.Actor, provenance domain.Provenance) (domain.Actor, error) {
+	result := financeActor(actor)
+	if actor.WorkloadID == "" {
+		return result, nil
+	}
+	invocationID := strings.TrimPrefix(actor.WorkloadID, "runner-invocation:")
+	if invocationID == actor.WorkloadID || ids.Validate(invocationID) != nil || provenance.Source != domain.SourceAgent || string(provenance.InvocationID) != invocationID || ids.Validate(string(provenance.RunID)) != nil {
+		return domain.Actor{}, ErrInvalid
+	}
+	return result, nil
 }
 
 func mutation(requestID, kind string, actor domain.Actor, at time.Time) Mutation {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +121,24 @@ func TestReadOnlyCapabilityReauthorizesAuditsAndBoundsExecution(t *testing.T) {
 	}
 	if len(auditor.records) != 2 || auditor.records[0].Decision != "authorized" || auditor.records[1].Decision != "succeeded" || auditor.records[0].AccountID != authorizer.grant.AccountID {
 		t.Fatalf("audit=%+v", auditor.records)
+	}
+}
+
+func TestAdditiveCapabilityExecutesWithoutConsequentialAuthorization(t *testing.T) {
+	authorizer, auditor, clock, call := capabilityFixture()
+	authorizer.grant.Capability = FinanceEntryDraftCapability
+	call.Capability = FinanceEntryDraftCapability
+	called := false
+	service, err := New(authorizer, nil, auditor, clock, []Definition{{Capability: FinanceEntryDraftCapability, Effect: EffectAdditive, Timeout: time.Second, Handler: HandlerFunc(func(_ context.Context, authorized AuthorizedCall) (json.RawMessage, error) {
+		called = authorized.Action == nil
+		return json.RawMessage(`{"state":"draft"}`), nil
+	})}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Invoke(context.Background(), "runner-token", authorizer.grant.Identity.InvocationID, call)
+	if err != nil || !called || !strings.Contains(string(result.Output), `"state":"draft"`) || len(auditor.records) != 2 || auditor.records[0].Effect != string(EffectAdditive) || auditor.records[0].Decision != "authorized" || auditor.records[1].Decision != "succeeded" {
+		t.Fatalf("result=%s called=%v records=%+v err=%v", result.Output, called, auditor.records, err)
 	}
 }
 

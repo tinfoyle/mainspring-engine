@@ -18,7 +18,11 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/testsupport/openapifixture"
 )
 
-const financeOperationID = "e7000000-0000-4000-8000-000000000007"
+const (
+	financeOperationID  = "e7000000-0000-4000-8000-000000000007"
+	financeRunID        = "e8000000-0000-4000-8000-000000000008"
+	financeInvocationID = "e9000000-0000-4000-8000-000000000009"
+)
 
 type financeCommandTransportService struct {
 	now                   time.Time
@@ -229,6 +233,28 @@ func TestFinanceCommandsRejectMissingRouteAuthorityAndPreconditions(t *testing.T
 	crossAccount := financeCommandRequestForTest(server.Handler(), http.MethodPost, strings.Replace(target, financeAccountID, "e9000000-0000-4000-8000-000000000009", 1), "", `W/"1"`, financeOperationID)
 	if crossAccount.Code != http.StatusNotFound {
 		t.Fatalf("cross Account=%d body=%s", crossAccount.Code, crossAccount.Body.String())
+	}
+}
+
+func TestFinanceAgentDraftBindsWorkloadInvocationAndNeverPosts(t *testing.T) {
+	service := &financeCommandTransportService{now: time.Date(2026, 8, 23, 2, 0, 0, 0, time.UTC)}
+	claims := financeCommandClaims()
+	claims.Authority.ActorKind = "workload"
+	claims.Authority.ActorID = "runner-invocation:" + financeInvocationID
+	claims.Authority.Role = ""
+	server, err := New(claimAcceptor{claims: claims}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithFinanceCommands(service))
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := "/internal/v1/accounts/" + financeAccountID + "/finance/ledgers/" + financeLedgerID + "/entries:draft"
+	body := `{"run_id":"` + financeRunID + `","entry_date":"2026-08-01T00:00:00Z","description":"Agent draft","reference":"A-12","currency":"USD","lines":[{"account_id":"` + financePostingAccountID + `","memo":"Draft","debit_minor":100,"credit_minor":0},{"account_id":"e4100000-0000-4000-8000-000000000014","memo":"Draft","debit_minor":0,"credit_minor":100}],"evidence":[]}`
+	response := financeCommandRequestForTest(server.Handler(), http.MethodPost, target, body, "", financeOperationID)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	command := service.entryCreate
+	if command.Actor.WorkloadID != "runner-invocation:"+financeInvocationID || command.Actor.UserID != "" || command.Provenance.Source != financedomain.SourceAgent || command.Provenance.RunID != financeRunID || command.Provenance.InvocationID != financeInvocationID {
+		t.Fatalf("command=%+v", command)
 	}
 }
 

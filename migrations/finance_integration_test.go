@@ -61,6 +61,36 @@ func TestFinanceSchemaEnforcesIsolationPostingAndImmutableReversal(t *testing.T)
 	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.finance_entry_number_counters(account_id,ledger_id,next_number) VALUES ($1,$2,2)`, accountA, ledgerID); err != nil {
 		t.Fatal(err)
 	}
+	boardroomID, personaID, personaVersionID := "fa810000-0000-4000-8000-000000000001", "fa820000-0000-4000-8000-000000000001", "fa830000-0000-4000-8000-000000000001"
+	conversationID, agentRunA, agentRunB := "fa840000-0000-4000-8000-000000000001", "fa850000-0000-4000-8000-000000000001", "fa850000-0000-4000-8000-000000000002"
+	invocationA, invocationB := "fa860000-0000-4000-8000-000000000001", "fa860000-0000-4000-8000-000000000002"
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.agent_boardrooms(account_id,id,name,purpose,state,version,created_at,updated_at)
+		VALUES ($1,$3,'Finance room','Verify Finance provenance','active',1,$2,$2);
+		INSERT INTO spyglass.agent_personas(account_id,id,boardroom_id,state,latest_version,created_at,updated_at)
+		VALUES ($1,$4,$3,'active',1,$2,$2);
+		INSERT INTO spyglass.agent_persona_versions(account_id,id,persona_id,version,name,role,description,system_instructions,policy,content_digest,created_by,created_at)
+		VALUES ($1,$5,$4,1,'Finance Agent','Finance','Finance provenance fixture','Prepare Finance drafts with exact immutable provenance.','{}',decode(repeat('31',32),'hex'),$6,$2);
+		INSERT INTO spyglass.agent_conversations(account_id,id,boardroom_id,subject,state,next_message_sequence,created_by,created_at,updated_at)
+		VALUES ($1,$7,$3,'Finance provenance','open',1,$6,$2,$2);
+		INSERT INTO spyglass.agent_runs(account_id,id,boardroom_id,conversation_id,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at,started_at,completed_at)
+		VALUES ($1,$8,$3,$7,'succeeded',1,1,decode(repeat('32',32),'hex'),1,$6,$2,$2,$2),
+		       ($1,$9,$3,$7,'succeeded',1,1,decode(repeat('33',32),'hex'),1,$6,$2,$2,$2);
+		INSERT INTO spyglass.agent_run_plan_turns(account_id,run_id,turn,persona_id,persona_version_id,persona_digest)
+		VALUES ($1,$8,1,$4,$5,decode(repeat('31',32),'hex')),($1,$9,1,$4,$5,decode(repeat('31',32),'hex'));
+		INSERT INTO spyglass.agent_invocations(account_id,id,run_id,turn,persona_version_id,status,expected_provider,requested_model,response_model,provider_response_id,runner_result_digest,result_digest,result_payload,input_tokens,output_tokens,total_tokens,queued_at,started_at,completed_at)
+		VALUES ($1,$10,$8,1,$5,'succeeded','openai','gpt-test','gpt-test','resp-finance-a',decode(repeat('34',32),'hex'),decode(repeat('35',32),'hex'),'{}',1,1,2,$2,$2,$2),
+		       ($1,$11,$9,1,$5,'succeeded','openai','gpt-test','gpt-test','resp-finance-b',decode(repeat('36',32),'hex'),decode(repeat('37',32),'hex'),'{}',1,1,2,$2,$2,$2)`,
+		pgx.QueryExecModeSimpleProtocol, accountA, now, boardroomID, personaID, personaVersionID, userID, conversationID, agentRunA, agentRunB, invocationA, invocationB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.finance_entries(account_id,id,ledger_id,entry_number,entry_date,description,reference,currency,total_minor,source,run_id,invocation_id,state,version,created_by_kind,created_by_id,created_at,updated_at)
+		VALUES ($1,'fa870000-0000-4000-8000-000000000001',$2,50,$3::date,'Agent draft','','USD',1,'agent',$4::uuid,$5::uuid,'draft',1,'workload','runner-invocation:'||$5::text,$3,$3)`, accountA, ledgerID, now, agentRunA, invocationA); err != nil {
+		t.Fatalf("matching Agent provenance=%v", err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.finance_entries(account_id,id,ledger_id,entry_number,entry_date,description,reference,currency,total_minor,source,run_id,invocation_id,state,version,created_by_kind,created_by_id,created_at,updated_at)
+		VALUES ($1,'fa870000-0000-4000-8000-000000000002',$2,51,$3::date,'Spoofed Agent draft','','USD',1,'agent',$4::uuid,$5::uuid,'draft',1,'workload','runner-invocation:'||$5::text,$3,$3)`, accountA, ledgerID, now, agentRunB, invocationA); err == nil || !strings.Contains(err.Error(), "finance_entries_agent_provenance") {
+		t.Fatalf("mismatched Agent provenance=%v", err)
+	}
 	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.finance_entries(account_id,id,ledger_id,entry_number,entry_date,description,reference,currency,total_minor,source,state,version,created_by_kind,created_by_id,created_at,updated_at)
 		VALUES ($1,$2,$3,1,$4::date,'Recognize revenue','INV-1','USD',10000,'manual','draft',1,'user',$5,$6,$6)`, accountA, entryID, ledgerID, now, userID, now); err != nil {
 		t.Fatal(err)

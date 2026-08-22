@@ -155,12 +155,15 @@ func TestConfigureBoardroomManagerRequiresOptimisticVersionAndPublishedPersonaId
 
 func TestPublishPersonaPinsOwnedResultSchemaAndCapabilityAllowlist(t *testing.T) {
 	service, _, repository, _ := newAgentService(t)
-	policy := agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-5.6", ReasoningEffort: "medium", MaximumInputTokens: 100000, MaximumOutputTokens: 4000, MaximumCostMicros: 100000, MaximumToolSteps: 1, CitationPolicy: "best_effort", ActionPolicy: "propose", Tools: []agentdomain.ToolGrant{{Name: "read_work", Capability: "work.summary.read", Description: "Read the Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)}}}
+	policy := agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-5.6", ReasoningEffort: "medium", MaximumInputTokens: 100000, MaximumOutputTokens: 4000, MaximumCostMicros: 100000, MaximumToolSteps: 1, CitationPolicy: "best_effort", ActionPolicy: "propose", Tools: []agentdomain.ToolGrant{
+		{Name: "read_work", Capability: "work.summary.read", Description: "Read the Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)},
+		{Name: "draft_finance_entry", Capability: "finance.entry.draft", Description: "Create a governed Finance draft.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)},
+	}}
 	_, created, err := service.PublishPersona(context.Background(), PublishPersonaCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, BoardroomID: testBoardroom, PersonaID: testPersona, VersionID: testVersion, Name: "Operations Lead", Role: "Operations", Description: "Coordinates work.", SystemInstructions: "Coordinate operational work and report evidence clearly.", Policy: policy})
 	if err != nil || !created || string(repository.version.Policy.OutputSchema) == "" || repository.version.Version != 1 {
 		t.Fatalf("version=%+v created=%v err=%v", repository.version, created, err)
 	}
-	policy.Tools[0].Capability = "email.send"
+	policy.Tools[1].Capability = "email.send"
 	if _, _, err := service.PublishPersona(context.Background(), PublishPersonaCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, BoardroomID: testBoardroom, PersonaID: testPersona, VersionID: testVersion, Name: "Operations Lead", Role: "Operations", SystemInstructions: "Coordinate operational work and report evidence clearly.", Policy: policy}); !errors.Is(err, ErrInvalidCommand) {
 		t.Fatalf("unregistered capability=%v", err)
 	}

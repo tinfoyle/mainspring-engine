@@ -32,7 +32,7 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 	packages := make([]string, 0, len(inventory.Packages))
 	for _, item := range inventory.Packages {
 		packages = append(packages, item.Code)
-		if item.Executable != (item.Code == "work" || item.Code == "agents" || item.Code == "knowledge") {
+		if item.Executable != (item.Code == "work" || item.Code == "agents" || item.Code == "knowledge" || item.Code == "finance") {
 			t.Fatalf("package %q executable=%t", item.Code, item.Executable)
 		}
 		if item.Executable && len(item.Boundaries) == 0 || !item.Executable && len(item.Boundaries) != 0 {
@@ -40,6 +40,13 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 		}
 		if item.Code == "agents" && !slices.Contains(item.Boundaries, "schedule-worker") {
 			t.Fatal("Agents must declare its customer Schedule worker boundary")
+		}
+		if item.Code == "finance" {
+			for _, boundary := range []string{"browser", "http", "agent-tool"} {
+				if !slices.Contains(item.Boundaries, boundary) {
+					t.Fatalf("Finance must declare its %s boundary", boundary)
+				}
+			}
 		}
 	}
 	slices.Sort(packages)

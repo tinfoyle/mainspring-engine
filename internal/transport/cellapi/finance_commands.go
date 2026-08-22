@@ -60,6 +60,16 @@ type financeEntryDefinitionRequest struct {
 	Evidence    []ids.KnowledgeEvidenceID   `json:"evidence"`
 }
 
+type financeAgentEntryDefinitionRequest struct {
+	RunID       ids.RunID                   `json:"run_id"`
+	EntryDate   time.Time                   `json:"entry_date"`
+	Description string                      `json:"description"`
+	Reference   string                      `json:"reference"`
+	Currency    string                      `json:"currency"`
+	Lines       []financedomain.JournalLine `json:"lines"`
+	Evidence    []ids.KnowledgeEvidenceID   `json:"evidence"`
+}
+
 type financeEntryRevisionRequest struct {
 	EntryDate   time.Time                   `json:"entry_date"`
 	Description string                      `json:"description"`
@@ -251,6 +261,43 @@ func (s *Server) financeEntryCreate(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.writeFinanceError(w, "create journal entry", err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/accounts/%s/finance/entries/%s", accountID, value.ID))
+	writeFinanceVersion(w, value.Version)
+	writeJSON(w, status, value)
+}
+
+func (s *Server) financeAgentEntryDraft(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, requestID, ok := s.financeCommandRequest(w, r)
+	if !ok {
+		return
+	}
+	ledgerID, ok := financeCommandTarget[ids.FinanceLedgerID](w, r, "ledgerID")
+	if !ok || claims.Authority.ActorKind != "workload" || actor.WorkloadID == "" {
+		writeProblem(w, http.StatusForbidden, "finance_agent_draft_denied", "the Finance Agent draft boundary is unavailable")
+		return
+	}
+	invocationRaw := strings.TrimPrefix(actor.WorkloadID, "runner-invocation:")
+	if invocationRaw == actor.WorkloadID || ids.Validate(invocationRaw) != nil {
+		writeProblem(w, http.StatusForbidden, "finance_agent_draft_denied", "the Finance Agent draft boundary is unavailable")
+		return
+	}
+	var body financeAgentEntryDefinitionRequest
+	if !decodeFinanceJSON(w, r, &body) {
+		return
+	}
+	value, created, err := s.financeCommands.CreateEntry(routecontext.WithClaims(r.Context(), claims), financeapp.CreateEntryCommand{
+		Actor: actor, AccountID: accountID, RequestID: requestID, LedgerID: ledgerID, EntryDate: body.EntryDate,
+		Description: body.Description, Reference: body.Reference, Currency: body.Currency, Lines: body.Lines, Evidence: body.Evidence,
+		Provenance: financedomain.Provenance{Source: financedomain.SourceAgent, RunID: body.RunID, InvocationID: ids.AgentInvocationID(invocationRaw)},
+	})
+	if err != nil {
+		s.writeFinanceError(w, "create Agent journal draft", err)
 		return
 	}
 	status := http.StatusOK

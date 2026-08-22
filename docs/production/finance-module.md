@@ -1,6 +1,6 @@
 # Finance module
 
-- Status: typed kernel, forced-RLS persistence, governed lifecycle, stable query summaries, generated HTTP, typed MCP transport and private package-aware Finance workspace constructed; shared MCP production bootstrap, Agent/Attention draft proposals and migration certification remain
+- Status: typed kernel, forced-RLS persistence, governed lifecycle, stable query summaries, generated HTTP, typed MCP transport, private package-aware workspace and least-authority Agent draft tools constructed; shared MCP production bootstrap, Attention-governed posting proposals and migration certification remain
 - Package boundary: Finance
 - Decision: [ADR-0006](decisions/0006-finance-operational-ledger.md)
 
@@ -19,7 +19,7 @@ Agents and members may create and revise drafts under Finance mutation access. P
 3. Classified repository and application service with idempotency, optimistic versions and exact Work/Run/Invocation/Evidence references. **Constructed for Ledger/Account lifecycle, balanced drafts, posting, reversal and reconciliation; query pages remain.**
 4. Stable query pages, summaries and bounded cursors. **Constructed.**
 5. Generated HTTP, optional MCP and private Finance surfaces with package/read-only/suspended behavior. **Constructed.**
-6. Agent draft tools and Attention-governed proposals; no workload-direct posting.
+6. Agent draft tools and Attention-governed proposals; no workload-direct posting. **Least-authority Ledger/chart reads and draft creation constructed; Attention-governed posting proposals remain.**
 7. Prototype transformation, synthetic stage reconciliation/recovery and production role/retention grants.
 
 ## Invariants
@@ -61,3 +61,9 @@ The MCP transport now publishes 21 typed Finance tools over the identical query 
 The authenticated `/app/finance` workspace is now a first-class package route instead of a dead Overview anchor. It derives enabled and read-only behavior from the selected Account's Finance entitlement, scopes every browser request to that Account and uses the generated HTTP boundary with same-origin session credentials. Ledger summaries, chart balances, journal state and reconciliations are discoverable without mutation access; read-only rendering omits every command form.
 
 Enabled users can create and revise Ledgers, bind evidence to monotonic period closes, archive fully retired Ledgers, maintain posting accounts, create exactly balanced two-line drafts, post and reverse through separately confirmed version-bound actions, and propose or confirm evidence-backed reconciliations. Existing-resource commands first obtain the canonical ETag and submit it through `If-Match`; every mutation receives a fresh UUID `Idempotency-Key`. The browser never persists customer content or session material in web storage, renders API values through DOM text nodes and announces command results through an assistive-technology live region. Template/client contract tests cover package/read-only gates, lifecycle endpoint use, optimistic versions and unsafe DOM/storage exclusions.
+
+## Agent draft checkpoint
+
+Published Personas may now receive three narrowly defined Finance capabilities: list Ledger summaries, list the active chart for one Ledger and create one balanced journal draft. The runner broker records the reads as read-only and the draft as an additive mutation; the global tool router independently reauthorizes the Finance package for each call, resolves current placement and forwards only a fresh signed Account/cell proof. Bearer or pod credentials never cross into the cell.
+
+Draft creation uses a private cell route, fixes source to `agent`, derives the invocation from authenticated runner identity and requires an explicit Run ID. Migration `000057_finance_agent_provenance.sql` adds a composite database foreign key that proves the invocation belongs to that exact Run, defeating a valid-but-mismatched provenance pair even under direct SQL. The Finance service accepts workloads only at its read and draft boundaries; Ledger/chart management, reconciliation and all posting/reversal commands remain user-only. Fresh PostgreSQL 17 certification passes the complete migration suite, including matched provenance acceptance and mismatched Run/invocation rejection.
