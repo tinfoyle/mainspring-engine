@@ -1,6 +1,6 @@
 # Scheduling module
 
-- Status: recurrence, customer lifecycle/trigger surfaces and workload-authorized occurrence runtime constructed; operator recovery and applied environment rehearsal remain
+- Status: recurrence, customer lifecycle/trigger surfaces, workload-authorized occurrence runtime and audited dead-letter recovery constructed; applied environment rehearsal remains
 - Owner: Scheduling application module
 - Package boundary: schedule definitions use the package of their target; the first target is Agents
 
@@ -48,7 +48,9 @@ The `schedule-execution-worker` is now deployable in local and Hostinger Docker 
 
 The customer Schedule surface now publishes stable cursor list/get, create, full revision, pause, resume, soft delete and trigger-now commands through the authenticated router. The browser workspace uses the same generated contract, resolves active Boardrooms and Personas, preserves command UUIDs across ambiguous network failure and removes mutation controls in read-only mode. Trigger-now persists an immutable request plus a separate identifier-only queue row, creates a `triggered` occurrence and deterministic Agent Run, and never changes the Schedule version or `next_run_at`. Pause, revision and deletion cancel stale queued triggers by version. `customer-schedule` is therefore executable and no longer appears in the absent-surface inventory.
 
-Operator dead-letter inspection/requeue and applied local/stage failure rehearsal remain before this module is operationally complete.
+`schedule-queue-admin` now provides signed, bounded, content-free inspection and exact-target requeue for both recurring and trigger queues. Its execute-only database functions expose identifiers, occurrence times, attempts, bounded error codes and timestamps while writing immutable Account-attributed evidence in the same transaction. Requeue preserves the original occurrence time and fails closed unless the exact row remains terminal.
+
+Applied local/stage failure rehearsal remains before this module is operationally complete.
 
 ## Invariants
 

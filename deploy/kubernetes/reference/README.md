@@ -192,6 +192,14 @@ It must not inherit envelope keys, provider credentials, worker credentials, or
 serving secrets. See
 [agent-queue-operations.md](../../../docs/production/agent-queue-operations.md).
 
+Schedule queue administration is likewise absent as a standing Deployment.
+Environments run `spyglass schedule-queue-admin inspect|requeue` as a
+short-lived, human-authorized Job with one target cell's execute-only operator
+credential, an exact `recurring` or `trigger` queue, exact target identifiers,
+and environment confirmation. It must not inherit Schedule worker, app-api,
+Agent, provider, or serving credentials. See
+[schedule-queue-operations.md](../../../docs/production/schedule-queue-operations.md).
+
 Account erasure administration is intentionally absent as a standing
 Deployment. Environments run `spyglass account-erasure-admin
 prepare|inspect|approve|cancel|execute` as short-lived, human-authorized Jobs with

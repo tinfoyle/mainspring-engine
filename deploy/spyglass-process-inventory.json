@@ -323,6 +323,18 @@
       "actions": ["inspect", "replay-event", "refresh-subscription"]
     },
     {
+      "mode": "schedule-queue-admin",
+      "kind": "operator_job",
+      "scope": "cell",
+      "port": null,
+      "health": null,
+      "database_roles": ["cell.schedule-queue-operator"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_SCHEDULE_QUEUE", "SPYGLASS_SCHEDULE_QUEUE_INSPECT_LIMIT", "SPYGLASS_SCHEDULE_ACCOUNT_ID", "SPYGLASS_SCHEDULE_ID", "SPYGLASS_SCHEDULE_TRIGGER_ID", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "operator_authorization"],
+      "dependencies": ["cell-postgresql"],
+      "actions": ["inspect", "requeue"]
+    },
+    {
       "mode": "agent-queue-admin",
       "kind": "operator_job",
       "scope": "cell",

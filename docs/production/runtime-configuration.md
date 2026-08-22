@@ -2,7 +2,7 @@
 
 - Status: executable Phase 2.5 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure/movement processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, private `tool-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `identity-maintenance-worker`, `work-reconciler`, `baseline-maintenance-worker`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `schedule-execution-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, private `tool-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `identity-maintenance-worker`, `work-reconciler`, `baseline-maintenance-worker`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `schedule-execution-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`schedule-queue-admin`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 The revision-controlled machine contract is [`deploy/spyglass-process-inventory.json`](../../deploy/spyglass-process-inventory.json). Its verification script compares the complete mode set to the binary switch and fails local verification when they drift.
 
@@ -25,6 +25,7 @@ The revision-controlled machine contract is [`deploy/spyglass-process-inventory.
 | `agent-dispatch-worker` | Lease identifier-only Agent invocations, read their immutable Account-RLS plans, and provision exact encrypted runner requests | Browser/session authority, global database, provider credentials, Agent configuration mutation, plaintext queue storage |
 | `schedule-execution-worker` | Lease identifier-only due occurrences, obtain fresh global authorization, and invoke the exact cell's private atomic occurrence boundary | Browser/session authority, schedule/occurrence table reads, global database, provider credentials, arbitrary cell routing |
 | `agent-projection-worker` | Lease terminal Agent results, decrypt Pod-bound envelopes, validate results, and atomically project Account-visible outcomes | Browser/session authority, provider credentials, unencrypted result persistence, arbitrary Agent mutation |
+| `schedule-queue-admin` | One audited bounded inspection or exact-target requeue of one cell's recurring/trigger Schedule dead letters | Serving traffic, Schedule definitions, direct queue access, Agent content, worker credentials, cross-cell discovery |
 | `agent-queue-admin` | One audited bounded inspection or exact-target requeue of one cell's Agent dispatch/projection dead letters | Serving traffic, direct queue/content/exchange access, provider credentials, cross-cell discovery |
 | `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
 | `account-erasure-admin` | One audited prepare, inspect, independent approval, pre-execution cancellation, leased cross-store execution, or signed restore replay of a retained closed Account | Serving traffic, automatic approval, arbitrary SQL, cross-cell fallback, external-store deletion |
@@ -462,6 +463,10 @@ GRANT EXECUTE ON FUNCTION public.spyglass_agent_result_projection_stats(timestam
 
 `agent-queue-admin inspect|requeue` is a one-shot cell recovery command documented in [Agent Queue Operations](agent-queue-operations.md). It requires an exact `SPYGLASS_AGENT_QUEUE` of `dispatch` or `projection`, the target cell's execute-only `SPYGLASS_CELL_DATABASE_URL`, environment confirmation, and signed operator authorization. Inspection accepts only the bounded `SPYGLASS_AGENT_QUEUE_INSPECT_LIMIT`; requeue additionally requires exact `SPYGLASS_AGENT_ACCOUNT_ID` and `SPYGLASS_AGENT_INVOCATION_ID` values. The database functions expose identifiers, attempt counts, timestamps, and bounded error codes only. They never return prompts, message bodies, model results, ciphertext, keys, or provider credentials.
 
+## Schedule queue operator values
+
+`schedule-queue-admin inspect|requeue` is the one-shot cell recovery command documented in [Schedule Queue Operations](schedule-queue-operations.md). It requires an exact `SPYGLASS_SCHEDULE_QUEUE` of `recurring` or `trigger`, the target cell's execute-only `SPYGLASS_CELL_DATABASE_URL`, environment confirmation and signed operator authorization. Inspection accepts only the bounded `SPYGLASS_SCHEDULE_QUEUE_INSPECT_LIMIT`; requeue also requires exact `SPYGLASS_SCHEDULE_ACCOUNT_ID` and `SPYGLASS_SCHEDULE_ID` values, plus `SPYGLASS_SCHEDULE_TRIGGER_ID` for the trigger queue. Grant the role only `USAGE` on `public` and `EXECUTE` on the two audited functions; it receives no table privileges or Schedule content.
+
 ## Model gateway values
 
 | Environment variable | Requirement |
@@ -526,6 +531,8 @@ spyglass runner-broker
 spyglass docker-runner-launcher
 spyglass model-gateway
 spyglass agent-dispatch-worker
+spyglass schedule-execution-worker
+spyglass schedule-queue-admin <action>
 spyglass agent-projection-worker
 spyglass agent-queue-admin <action>
 spyglass runner-invocation --broker-url=https://runner-broker.example --invocation-id=<uuid> --identity-token-file=/var/run/secrets/spyglass.io/runner-identity/token --broker-ca-file=/var/run/secrets/spyglass.io/broker-ca/ca.crt
