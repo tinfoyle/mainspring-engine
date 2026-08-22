@@ -115,6 +115,52 @@ type baselineMutationOutput struct {
 	WorkItemIDs []ids.WorkItemID          `json:"work_item_ids,omitempty"`
 }
 
+type baselineSourceListInput struct {
+	AccountID    ids.AccountID             `json:"account_id"`
+	AssessmentID ids.BaselineAssessmentID  `json:"assessment_id"`
+	After        ids.BaselineSourceGrantID `json:"after,omitempty"`
+	Limit        uint16                    `json:"limit,omitempty"`
+}
+
+type baselineSourceMutationInput struct {
+	AccountID       ids.AccountID             `json:"account_id"`
+	OperationID     string                    `json:"operation_id"`
+	AssessmentID    ids.BaselineAssessmentID  `json:"assessment_id"`
+	Action          string                    `json:"action"`
+	GrantID         ids.BaselineSourceGrantID `json:"grant_id,omitempty"`
+	ExpectedVersion uint64                    `json:"expected_version,omitempty"`
+	ConnectionID    string                    `json:"connection_id,omitempty"`
+	SourceKind      baselinedomain.SourceKind `json:"source_kind,omitempty"`
+	Folders         []string                  `json:"folders,omitempty"`
+	Since           *time.Time                `json:"since_at,omitempty"`
+	Until           *time.Time                `json:"until_at,omitempty"`
+	Reason          string                    `json:"reason,omitempty"`
+}
+
+type baselineSourceGrantOutput struct {
+	ID           ids.BaselineSourceGrantID       `json:"id"`
+	AccountID    ids.AccountID                   `json:"account_id"`
+	AssessmentID ids.BaselineAssessmentID        `json:"assessment_id"`
+	ConnectionID string                          `json:"connection_id"`
+	SourceKind   baselinedomain.SourceKind       `json:"source_kind"`
+	Folders      []string                        `json:"folders"`
+	Since        *time.Time                      `json:"since_at,omitempty"`
+	Until        *time.Time                      `json:"until_at,omitempty"`
+	State        baselinedomain.SourceGrantState `json:"state"`
+	GrantedBy    ids.UserID                      `json:"granted_by_user_id"`
+	RevokedBy    ids.UserID                      `json:"revoked_by_user_id,omitempty"`
+	RevokeReason string                          `json:"revoke_reason,omitempty"`
+	Version      uint64                          `json:"version"`
+	CreatedAt    time.Time                       `json:"created_at"`
+	UpdatedAt    time.Time                       `json:"updated_at"`
+	RevokedAt    *time.Time                      `json:"revoked_at,omitempty"`
+}
+
+type baselineSourcePageOutput struct {
+	Items      []baselineSourceGrantOutput `json:"items"`
+	NextCursor ids.BaselineSourceGrantID   `json:"next_cursor,omitempty"`
+}
+
 func (s *Server) registerBaseline(server *mcp.Server, actor access.Actor) {
 	read := access.Requirement{Package: catalog.PackageKnowledge}
 	mutation := access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}
@@ -212,6 +258,57 @@ func (s *Server) registerBaseline(server *mcp.Server, actor access.Actor) {
 		output := baselineAssessmentView(item)
 		return nil, baselineMutationOutput{Assessment: &output}, nil
 	})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_baseline_source_list", Title: "List Baseline source grants", Description: "List narrow read-only connector scopes granted after Baseline plan approval.", Annotations: toolAnnotations(true, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input baselineSourceListInput) (*mcp.CallToolResult, baselineSourcePageOutput, error) {
+		ctx, err := s.toolContext(ctx, actor, input.AccountID, access.Requirement{Package: catalog.PackageIntegrations})
+		if err != nil {
+			return nil, baselineSourcePageOutput{}, err
+		}
+		if input.Limit == 0 {
+			input.Limit = 50
+		}
+		page, err := s.baseline.ListSourceGrants(ctx, baselineapp.ListSourceGrantsQuery{Actor: actor, AccountID: input.AccountID, AssessmentID: input.AssessmentID, After: input.After, Limit: input.Limit})
+		if err != nil {
+			return nil, baselineSourcePageOutput{}, baselineError(err)
+		}
+		output := baselineSourcePageOutput{Items: make([]baselineSourceGrantOutput, 0, len(page.Items)), NextCursor: page.NextCursor}
+		for _, grant := range page.Items {
+			output.Items = append(output.Items, baselineSourceGrantView(grant))
+		}
+		return nil, output, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_baseline_source_mutate", Title: "Manage Baseline source grant", Description: "Grant or revoke one narrow read-only email or Google Drive scope.", Annotations: toolAnnotations(false, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input baselineSourceMutationInput) (*mcp.CallToolResult, baselineSourceGrantOutput, error) {
+		ctx, err := s.toolContext(ctx, actor, input.AccountID, access.Requirement{Package: catalog.PackageIntegrations, Mutation: true})
+		if err != nil {
+			return nil, baselineSourceGrantOutput{}, err
+		}
+		op, err := operationID(input.OperationID)
+		if err != nil {
+			return nil, baselineSourceGrantOutput{}, err
+		}
+		var grant baselinedomain.SourceGrant
+		switch input.Action {
+		case "grant":
+			grant, err = s.baseline.GrantSource(ctx, baselineapp.GrantSourceCommand{Actor: actor, AccountID: input.AccountID, AssessmentID: input.AssessmentID, GrantID: ids.BaselineSourceGrantID(op), ConnectionID: input.ConnectionID, Kind: input.SourceKind, Scope: baselinedomain.SourceScope{Folders: input.Folders, Since: input.Since, Until: input.Until}, CorrelationID: op})
+		case "revoke":
+			grant, err = s.baseline.RevokeSource(ctx, baselineapp.RevokeSourceCommand{Actor: actor, AccountID: input.AccountID, AssessmentID: input.AssessmentID, GrantID: input.GrantID, ExpectedVersion: input.ExpectedVersion, Reason: input.Reason, CorrelationID: op})
+		default:
+			return nil, baselineSourceGrantOutput{}, safeError("invalid_baseline_source_action")
+		}
+		if err != nil {
+			return nil, baselineSourceGrantOutput{}, baselineError(err)
+		}
+		return nil, baselineSourceGrantView(grant), nil
+	})
+}
+
+func baselineSourceGrantView(grant baselinedomain.SourceGrant) baselineSourceGrantOutput {
+	output := baselineSourceGrantOutput{ID: grant.ID, AccountID: grant.AccountID, AssessmentID: grant.AssessmentID, ConnectionID: grant.ConnectionID, SourceKind: grant.Kind, Folders: append([]string(nil), grant.Scope.Folders...), Since: grant.Scope.Since, Until: grant.Scope.Until, State: grant.State, GrantedBy: grant.GrantedBy.UserID, RevokeReason: grant.Reason, Version: grant.Version, CreatedAt: grant.CreatedAt, UpdatedAt: grant.UpdatedAt, RevokedAt: grant.RevokedAt}
+	if grant.RevokedBy != nil {
+		output.RevokedBy = grant.RevokedBy.UserID
+	}
+	return output
 }
 
 func baselineAssessmentView(value baselinedomain.Assessment) baselineAssessmentOutput {

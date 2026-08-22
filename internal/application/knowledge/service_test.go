@@ -135,6 +135,17 @@ func TestViewerCannotContributeAndCursorMustBeComplete(t *testing.T) {
 	}
 }
 
+func TestHumanCannotSpoofConnectorOrDerivedEvidence(t *testing.T) {
+	service, _, _, clock := knowledgeFixture(t)
+	digest := sha256.Sum256([]byte("connector record"))
+	for _, kind := range []knowledgedomain.SourceKind{knowledgedomain.SourceIntegrationRecord, knowledgedomain.SourceDocumentRevision, knowledgedomain.SourcePublicWebCapture, knowledgedomain.SourceAgentDerivation} {
+		_, err := service.RegisterEvidence(context.Background(), RegisterEvidenceCommand{Actor: access.Actor{UserID: appKnowledgeUser}, AccountID: appKnowledgeAccount, EvidenceID: appKnowledgeEvidence, Kind: kind, SourceReference: "untrusted", SourceRevision: "1", ContentSHA256: digest, CapturedAt: clock.now, CorrelationID: appKnowledgeOperation})
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("kind=%s err=%v", kind, err)
+		}
+	}
+}
+
 func TestListFactsOmitsSensitivitiesAboveMembershipRole(t *testing.T) {
 	service, authorizer, repository, _ := knowledgeFixture(t)
 	authorizer.account.Role = accounts.RoleMember

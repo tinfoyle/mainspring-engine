@@ -92,7 +92,7 @@ func Default(now time.Time) PublishedCatalog {
 		{Code: PackageAgents, Version: 1, Name: "Agents", Description: "Governed specialist agents and coordinated boardrooms.", Dependencies: []PackageCode{PackageWork, PackageKnowledge}, Features: []string{"agents.configure", "agents.run"}, DefaultLimits: map[LimitCode]int64{"concurrent_runs": 2}},
 		{Code: PackageFinance, Version: 1, Name: "Finance", Description: "Operational ledgers, accounts, entries, and reports.", Features: []string{"finance.read", "finance.post"}},
 		{Code: PackageMarketing, Version: 1, Name: "Marketing", Description: "Brand knowledge, research, campaign planning, and content work.", Dependencies: []PackageCode{PackageKnowledge}, Features: []string{"marketing.read", "marketing.manage"}},
-		{Code: PackageIntegrations, Version: 1, Name: "Integrations", Description: "Scoped, observable external connectors.", Features: []string{"integrations.read", "integrations.connect"}},
+		{Code: PackageIntegrations, Version: 1, Name: "Integrations", Description: "Scoped, observable external connectors.", Dependencies: []PackageCode{PackageKnowledge}, Features: []string{"integrations.read", "integrations.connect"}},
 	}
 	free := Plan{Code: "free", Version: 1, Name: "Free", Description: "A real Spyglass Account for exploring the operating model.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled}}
 	team := Plan{Code: "team", Version: 1, Name: "Team", Description: "A focused operating surface for a growing team.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled, PackageWork: ModeEnabled, PackageIntegrations: ModeEnabled}}

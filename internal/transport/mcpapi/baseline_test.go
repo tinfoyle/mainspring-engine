@@ -66,6 +66,15 @@ func (*baselineMCPStub) MarkReady(context.Context, baselineapp.AdvanceCommand) (
 func (*baselineMCPStub) Reassess(context.Context, baselineapp.ReassessCommand) (baselinedomain.Assessment, baselinedomain.Assessment, error) {
 	panic("unexpected Reassess")
 }
+func (*baselineMCPStub) GrantSource(context.Context, baselineapp.GrantSourceCommand) (baselinedomain.SourceGrant, error) {
+	panic("unexpected GrantSource")
+}
+func (*baselineMCPStub) ListSourceGrants(context.Context, baselineapp.ListSourceGrantsQuery) (baselineapp.SourceGrantPage, error) {
+	panic("unexpected ListSourceGrants")
+}
+func (*baselineMCPStub) RevokeSource(context.Context, baselineapp.RevokeSourceCommand) (baselinedomain.SourceGrant, error) {
+	panic("unexpected RevokeSource")
+}
 
 func TestBaselineMCPUsesCanonicalAuthorizedService(t *testing.T) {
 	authority := &testAuthority{}
@@ -84,7 +93,7 @@ func TestBaselineMCPUsesCanonicalAuthorizedService(t *testing.T) {
 	}
 	defer session.Close()
 	tools, err := session.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 18 {
+	if err != nil || len(tools.Tools) != 20 {
 		t.Fatalf("tools=%d err=%v", len(tools.Tools), err)
 	}
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_baseline_start", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation}})

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -46,6 +48,18 @@ type baselinePlanApprovalRequest struct {
 	PlanID            ids.BaselinePlanID `json:"plan_id"`
 	ContentSHA256     string             `json:"content_sha256"`
 	AssessmentVersion uint64             `json:"assessment_version"`
+}
+
+type baselineSourceGrantRequest struct {
+	ConnectionID string                    `json:"connection_id"`
+	SourceKind   baselinedomain.SourceKind `json:"source_kind"`
+	Folders      []string                  `json:"folders"`
+	Since        *time.Time                `json:"since_at,omitempty"`
+	Until        *time.Time                `json:"until_at,omitempty"`
+}
+
+type baselineSourceRevocationRequest struct {
+	Reason string `json:"reason"`
 }
 
 func (s *Server) baselineStart(w http.ResponseWriter, r *http.Request) {
@@ -217,6 +231,113 @@ func (s *Server) baselineReassess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"archived": baselineAssessmentView(archived), "next": baselineAssessmentView(next)})
+}
+
+func (s *Server) baselineSourceGrantCreate(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, operationID, ok := s.baselineCommandContext(w, r, true)
+	if !ok {
+		return
+	}
+	assessmentID := ids.BaselineAssessmentID(r.PathValue("assessmentID"))
+	var body baselineSourceGrantRequest
+	if !decodeBaselineJSON(w, r, &body) {
+		return
+	}
+	grant, err := s.baseline.GrantSource(routecontext.WithClaims(r.Context(), claims), baselineapp.GrantSourceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, GrantID: ids.BaselineSourceGrantID(operationID), ConnectionID: body.ConnectionID, Kind: body.SourceKind, Scope: baselinedomain.SourceScope{Folders: body.Folders, Since: body.Since, Until: body.Until}, CorrelationID: operationID})
+	if err != nil {
+		s.writeBaselineError(w, "grant source", err)
+		return
+	}
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/accounts/%s/baseline-assessments/%s/source-grants/%s", accountID, assessmentID, grant.ID))
+	writeBaselineSourceGrant(w, http.StatusCreated, grant)
+}
+
+func (s *Server) baselineSourceGrantList(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, assessmentID, ok := s.baselineRequestContext(w, r, false)
+	if !ok {
+		return
+	}
+	query := r.URL.Query()
+	if len(query) > 2 || len(query["cursor"]) > 1 || len(query["limit"]) > 1 {
+		writeProblem(w, http.StatusBadRequest, "invalid_baseline_query", "source grant query accepts one cursor and one limit value")
+		return
+	}
+	after := ids.BaselineSourceGrantID(query.Get("cursor"))
+	limit := uint64(50)
+	if raw := query.Get("limit"); raw != "" {
+		parsed, err := strconv.ParseUint(raw, 10, 16)
+		if err != nil {
+			writeProblem(w, http.StatusBadRequest, "invalid_baseline_query", "source grant limit must be an integer")
+			return
+		}
+		limit = parsed
+	}
+	page, err := s.baseline.ListSourceGrants(routecontext.WithClaims(r.Context(), claims), baselineapp.ListSourceGrantsQuery{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, After: after, Limit: uint16(limit)})
+	if err != nil {
+		s.writeBaselineError(w, "list source grants", err)
+		return
+	}
+	items := make([]map[string]any, 0, len(page.Items))
+	for _, grant := range page.Items {
+		items = append(items, baselineSourceGrantView(grant))
+	}
+	result := map[string]any{"items": items}
+	if page.NextCursor != "" {
+		result["next_cursor"] = page.NextCursor
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) baselineSourceGrantRevoke(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, operationID, ok := s.baselineCommandContext(w, r, true)
+	if !ok {
+		return
+	}
+	grantID := ids.BaselineSourceGrantID(r.PathValue("grantID"))
+	if ids.Validate(string(grantID)) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_baseline_source_grant", "the source grant identifier is invalid")
+		return
+	}
+	version, err := parseAttentionVersion(r.Header.Values("If-Match"))
+	if len(r.Header.Values("If-Match")) == 0 {
+		writeProblem(w, http.StatusPreconditionRequired, "baseline_source_version_required", "If-Match with the current source grant version is required")
+		return
+	}
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_baseline_source_version", "If-Match must contain exactly one weak source grant version ETag")
+		return
+	}
+	var body baselineSourceRevocationRequest
+	if !decodeBaselineJSON(w, r, &body) {
+		return
+	}
+	grant, err := s.baseline.RevokeSource(routecontext.WithClaims(r.Context(), claims), baselineapp.RevokeSourceCommand{Actor: actor, AccountID: accountID, AssessmentID: ids.BaselineAssessmentID(r.PathValue("assessmentID")), GrantID: grantID, ExpectedVersion: version, Reason: body.Reason, CorrelationID: operationID})
+	if err != nil {
+		s.writeBaselineError(w, "revoke source", err)
+		return
+	}
+	writeBaselineSourceGrant(w, http.StatusOK, grant)
+}
+
+func writeBaselineSourceGrant(w http.ResponseWriter, status int, grant baselinedomain.SourceGrant) {
+	w.Header().Set("ETag", fmt.Sprintf(`W/"%d"`, grant.Version))
+	writeJSON(w, status, baselineSourceGrantView(grant))
+}
+
+func baselineSourceGrantView(grant baselinedomain.SourceGrant) map[string]any {
+	result := map[string]any{"id": grant.ID, "account_id": grant.AccountID, "assessment_id": grant.AssessmentID, "connection_id": grant.ConnectionID, "source_kind": grant.Kind, "folders": grant.Scope.Folders, "state": grant.State, "granted_by_user_id": grant.GrantedBy.UserID, "version": grant.Version, "created_at": grant.CreatedAt, "updated_at": grant.UpdatedAt}
+	if grant.Scope.Since != nil {
+		result["since_at"] = grant.Scope.Since
+	}
+	if grant.Scope.Until != nil {
+		result["until_at"] = grant.Scope.Until
+	}
+	if grant.RevokedBy != nil {
+		result["revoked_by_user_id"] = grant.RevokedBy.UserID
+		result["revoke_reason"] = grant.Reason
+		result["revoked_at"] = grant.RevokedAt
+	}
+	return result
 }
 
 func (s *Server) baselineRequestContext(w http.ResponseWriter, r *http.Request, detail bool) (routecontext.Claims, access.Actor, ids.AccountID, ids.BaselineAssessmentID, bool) {

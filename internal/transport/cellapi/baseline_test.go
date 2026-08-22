@@ -19,10 +19,13 @@ import (
 )
 
 type baselineServiceStub struct {
-	start       func(context.Context, baselineapp.StartCommand) (baselinedomain.Assessment, error)
-	get         func(context.Context, access.Actor, ids.AccountID, ids.BaselineAssessmentID) (baselinedomain.Assessment, error)
-	answer      func(context.Context, baselineapp.AnswerCommand) (baselinedomain.Assessment, error)
-	materialize func(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error)
+	start        func(context.Context, baselineapp.StartCommand) (baselinedomain.Assessment, error)
+	get          func(context.Context, access.Actor, ids.AccountID, ids.BaselineAssessmentID) (baselinedomain.Assessment, error)
+	answer       func(context.Context, baselineapp.AnswerCommand) (baselinedomain.Assessment, error)
+	materialize  func(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error)
+	grantSource  func(context.Context, baselineapp.GrantSourceCommand) (baselinedomain.SourceGrant, error)
+	listSources  func(context.Context, baselineapp.ListSourceGrantsQuery) (baselineapp.SourceGrantPage, error)
+	revokeSource func(context.Context, baselineapp.RevokeSourceCommand) (baselinedomain.SourceGrant, error)
 }
 
 func (stub baselineServiceStub) Start(ctx context.Context, command baselineapp.StartCommand) (baselinedomain.Assessment, error) {
@@ -60,6 +63,15 @@ func (stub baselineServiceStub) MarkReady(context.Context, baselineapp.AdvanceCo
 }
 func (stub baselineServiceStub) Reassess(context.Context, baselineapp.ReassessCommand) (baselinedomain.Assessment, baselinedomain.Assessment, error) {
 	panic("unexpected Reassess")
+}
+func (stub baselineServiceStub) GrantSource(ctx context.Context, command baselineapp.GrantSourceCommand) (baselinedomain.SourceGrant, error) {
+	return stub.grantSource(ctx, command)
+}
+func (stub baselineServiceStub) ListSourceGrants(ctx context.Context, query baselineapp.ListSourceGrantsQuery) (baselineapp.SourceGrantPage, error) {
+	return stub.listSources(ctx, query)
+}
+func (stub baselineServiceStub) RevokeSource(ctx context.Context, command baselineapp.RevokeSourceCommand) (baselinedomain.SourceGrant, error) {
+	return stub.revokeSource(ctx, command)
 }
 
 func newBaselineServer(t *testing.T, service BaselineService) *Server {
@@ -138,5 +150,54 @@ func TestBaselineMaterializationBindsApprovedPlanAndReturnsWork(t *testing.T) {
 	response := attentionMutation(t, newBaselineServer(t, service).Handler(), http.MethodPost, path, body, attentionOperation, `W/"8"`)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"number":42`) || !strings.Contains(response.Body.String(), `"source":"baseline"`) {
 		t.Fatalf("response=%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestBaselineSourceGrantBoundaryPreservesNarrowScopeAndGrantVersion(t *testing.T) {
+	now := time.Date(2026, 8, 22, 23, 0, 0, 0, time.UTC)
+	assessmentID := ids.BaselineAssessmentID(attentionFact)
+	grantID := ids.BaselineSourceGrantID(attentionOperation)
+	connectionID := attentionWork
+	newGrant := func() baselinedomain.SourceGrant {
+		grant, err := baselinedomain.NewSourceGrant(baselinedomain.SourceGrantDraft{ID: grantID, AccountID: attentionAccount, AssessmentID: assessmentID, ConnectionID: connectionID, Kind: baselinedomain.SourceEmail, Scope: baselinedomain.SourceScope{Folders: []string{"INBOX"}}, GrantedBy: baselinedomain.Actor{UserID: attentionUser}}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return grant
+	}
+	service := baselineServiceStub{
+		grantSource: func(_ context.Context, command baselineapp.GrantSourceCommand) (baselinedomain.SourceGrant, error) {
+			if command.GrantID != grantID || command.AssessmentID != assessmentID || command.ConnectionID != connectionID || command.Kind != baselinedomain.SourceEmail || len(command.Scope.Folders) != 1 || command.Scope.Folders[0] != "INBOX" {
+				t.Fatalf("grant command=%+v", command)
+			}
+			return newGrant(), nil
+		},
+		listSources: func(_ context.Context, query baselineapp.ListSourceGrantsQuery) (baselineapp.SourceGrantPage, error) {
+			if query.AssessmentID != assessmentID || query.Limit != 10 {
+				t.Fatalf("list query=%+v", query)
+			}
+			return baselineapp.SourceGrantPage{Items: []baselinedomain.SourceGrant{newGrant()}}, nil
+		},
+		revokeSource: func(_ context.Context, command baselineapp.RevokeSourceCommand) (baselinedomain.SourceGrant, error) {
+			if command.GrantID != grantID || command.ExpectedVersion != 1 || command.Reason != "Scope is no longer needed" {
+				t.Fatalf("revoke command=%+v", command)
+			}
+			grant := newGrant()
+			return grant.Revoke(baselinedomain.Actor{UserID: attentionUser}, "owner", command.Reason, command.ExpectedVersion, now.Add(time.Minute))
+		},
+	}
+	server := newBaselineServer(t, service).Handler()
+	path := "/api/v1/accounts/" + attentionAccount + "/baseline-assessments/" + string(assessmentID) + "/source-grants"
+	created := attentionMutation(t, server, http.MethodPost, path, `{"connection_id":"`+connectionID+`","source_kind":"email","folders":["INBOX"]}`, attentionOperation, "")
+	if created.Code != http.StatusCreated || created.Header().Get("ETag") != `W/"1"` || !strings.Contains(created.Body.String(), `"source_kind":"email"`) {
+		t.Fatalf("created=%d headers=%v body=%s", created.Code, created.Header(), created.Body.String())
+	}
+	listed := attentionRead(t, server, path+"?limit=10")
+	if listed.Code != http.StatusOK || !strings.Contains(listed.Body.String(), `"folders":["INBOX"]`) {
+		t.Fatalf("listed=%d body=%s", listed.Code, listed.Body.String())
+	}
+	revoked := attentionMutation(t, server, http.MethodPost, path+"/"+string(grantID)+"/revocations", `{"reason":"Scope is no longer needed"}`, attentionOperation, `W/"1"`)
+	if revoked.Code != http.StatusOK || revoked.Header().Get("ETag") != `W/"2"` || !strings.Contains(revoked.Body.String(), `"state":"revoked"`) {
+		t.Fatalf("revoked=%d headers=%v body=%s", revoked.Code, revoked.Header(), revoked.Body.String())
 	}
 }

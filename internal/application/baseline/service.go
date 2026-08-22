@@ -14,6 +14,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -24,6 +25,8 @@ type Service struct {
 	clock      Clock
 	work       WorkCreator
 	facts      FactResolver
+	evidence   EvidenceResolver
+	sources    SourceGrantRepository
 }
 
 type Option func(*Service) error
@@ -44,6 +47,26 @@ func WithFactResolver(resolver FactResolver) Option {
 			return errors.New("Baseline Fact resolver is required")
 		}
 		service.facts = resolver
+		return nil
+	}
+}
+
+func WithEvidenceResolver(resolver EvidenceResolver) Option {
+	return func(service *Service) error {
+		if resolver == nil {
+			return errors.New("Baseline Evidence resolver is required")
+		}
+		service.evidence = resolver
+		return nil
+	}
+}
+
+func WithSourceGrantRepository(repository SourceGrantRepository) Option {
+	return func(service *Service) error {
+		if repository == nil {
+			return errors.New("Baseline Source Grant repository is required")
+		}
+		service.sources = repository
 		return nil
 	}
 }
@@ -230,6 +253,16 @@ type DecideEvidenceCommand struct {
 }
 
 func (s *Service) DecideEvidence(ctx context.Context, command DecideEvidenceCommand) (domain.Assessment, error) {
+	if s.evidence == nil {
+		return domain.Assessment{}, ErrRepository
+	}
+	evidence, err := s.evidence.ResolveEvidence(ctx, command.AccountID, command.EvidenceID)
+	if err != nil {
+		return domain.Assessment{}, err
+	}
+	if evidence.ID != command.EvidenceID || !evidence.Kind.Valid() || (command.Decision == domain.EvidenceAccepted && (evidence.Kind == knowledge.SourceAgentDerivation || evidence.Kind == knowledge.SourceIntegrationRecord)) {
+		return domain.Assessment{}, ErrConstraint
+	}
 	transition := Transition{EventType: "evidence_decided", RequirementID: command.RequirementID}
 	return s.change(ctx, command.Actor, command.AccountID, command.AssessmentID, command.ExpectedVersion, command.CorrelationID, "evidence_decided", func(current domain.Assessment, actor domain.Actor, role accounts.MembershipRole, now time.Time) (domain.Assessment, error) {
 		return current.DecideEvidence(domain.DecideEvidenceCommand{RequirementID: command.RequirementID, Decision: domain.EvidenceDecision{EvidenceID: command.EvidenceID, Decision: command.Decision, Reason: command.Reason, DecidedBy: actor, DecidedAt: now}, Role: role, ExpectedVersion: command.ExpectedVersion})

@@ -63,6 +63,13 @@ func TestBaselineRepositoryPersistsIsolatedImmutableLifecycle(t *testing.T) {
 	if _, err := repository.Resolve(ctx, otherAccountID, []baselinedomain.FactReference{{FactID: factID, Revision: 1}}); !errors.Is(err, baselineapp.ErrNotFound) {
 		t.Fatalf("cross-account fact resolution error=%v", err)
 	}
+	resolvedEvidence, err := repository.ResolveEvidence(ctx, accountID, evidenceID)
+	if err != nil || resolvedEvidence.ID != evidenceID || resolvedEvidence.Kind != "owner_statement" {
+		t.Fatalf("resolved evidence=%+v err=%v", resolvedEvidence, err)
+	}
+	if _, err := repository.ResolveEvidence(ctx, otherAccountID, evidenceID); !errors.Is(err, baselineapp.ErrNotFound) {
+		t.Fatalf("cross-account evidence resolution error=%v", err)
+	}
 	assessmentID := ids.BaselineAssessmentID("d7000000-0000-4000-8000-000000000007")
 	requirementID := ids.BaselineRequirementID("d8000000-0000-4000-8000-000000000008")
 	planID := ids.BaselinePlanID("d9000000-0000-4000-8000-000000000009")
@@ -137,6 +144,39 @@ func TestBaselineRepositoryPersistsIsolatedImmutableLifecycle(t *testing.T) {
 	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.baseline_interview_answers SET answered_at=answered_at WHERE account_id=$1 AND assessment_id=$2`, accountID, assessmentID); err == nil || !strings.Contains(err.Error(), "frozen") {
 		t.Fatalf("frozen interview update=%v", err)
+	}
+
+	now = now.Add(time.Second)
+	grantID := ids.BaselineSourceGrantID("dc000000-0000-4000-8000-000000000001")
+	grant, err := baselinedomain.NewSourceGrant(baselinedomain.SourceGrantDraft{ID: grantID, AccountID: accountID, AssessmentID: assessmentID, ConnectionID: "dc000000-0000-4000-8000-000000000002", Kind: baselinedomain.SourceEmail, Scope: baselinedomain.SourceScope{Folders: []string{"INBOX"}}, GrantedBy: actor}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err = repository.CreateSourceGrant(ctx, grant, mutation(10, "source_granted"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := repository.ListSourceGrants(ctx, accountID, assessmentID, "", 10)
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != grantID {
+		t.Fatalf("source grants=%+v err=%v", page, err)
+	}
+	if _, err := repository.GetSourceGrant(ctx, otherAccountID, grantID); !errors.Is(err, baselineapp.ErrNotFound) {
+		t.Fatalf("cross-account source grant error=%v", err)
+	}
+	now = now.Add(time.Second)
+	revoked, err := grant.Revoke(actor, accounts.RoleOwner, "Connection access is no longer needed", grant.Version, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked, err = repository.UpdateSourceGrant(ctx, revoked, grant.Version, mutation(11, "source_revoked"))
+	if err != nil || revoked.State != baselinedomain.SourceGrantRevoked {
+		t.Fatalf("revoked=%+v err=%v", revoked, err)
+	}
+	if _, err := repository.UpdateSourceGrant(ctx, revoked, grant.Version, mutation(11, "source_revoked")); !errors.Is(err, baselineapp.ErrConflict) {
+		t.Fatalf("stale source revoke error=%v", err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.baseline_source_grants SET folders=ARRAY['All Mail'] WHERE account_id=$1 AND id=$2`, accountID, grantID); err == nil || !strings.Contains(err.Error(), "scope is immutable") {
+		t.Fatalf("source scope update=%v", err)
 	}
 
 	now = now.Add(time.Second)

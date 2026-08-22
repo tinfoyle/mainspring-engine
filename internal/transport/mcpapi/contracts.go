@@ -69,6 +69,9 @@ type BaselineService interface {
 	MaterializePlan(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error)
 	MarkReady(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error)
 	Reassess(context.Context, baselineapp.ReassessCommand) (baselinedomain.Assessment, baselinedomain.Assessment, error)
+	GrantSource(context.Context, baselineapp.GrantSourceCommand) (baselinedomain.SourceGrant, error)
+	ListSourceGrants(context.Context, baselineapp.ListSourceGrantsQuery) (baselineapp.SourceGrantPage, error)
+	RevokeSource(context.Context, baselineapp.RevokeSourceCommand) (baselinedomain.SourceGrant, error)
 }
 
 type requirementInput struct {

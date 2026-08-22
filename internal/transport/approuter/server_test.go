@@ -202,6 +202,36 @@ func TestAttentionRouteAllowlistMatchesCellSurface(t *testing.T) {
 	}
 }
 
+func TestBaselineRouteAllowlistMatchesCellSurface(t *testing.T) {
+	tests := []struct {
+		method, resource  string
+		pkg               catalog.PackageCode
+		mutation, allowed bool
+	}{
+		{http.MethodPost, "baseline-assessments", catalog.PackageKnowledge, true, true},
+		{http.MethodGet, "baseline-assessments/" + routerRequest, catalog.PackageKnowledge, false, true},
+		{http.MethodPost, "baseline-assessments/" + routerRequest + "/answers", catalog.PackageKnowledge, true, true},
+		{http.MethodPost, "baseline-assessments/" + routerRequest + "/reassessments", catalog.PackageKnowledge, true, true},
+		{http.MethodGet, "baseline-assessments/" + routerRequest + "/source-grants", catalog.PackageIntegrations, false, true},
+		{http.MethodPost, "baseline-assessments/" + routerRequest + "/source-grants", catalog.PackageIntegrations, true, true},
+		{http.MethodPost, "baseline-assessments/" + routerRequest + "/source-grants/" + routerRequest + "/revocations", catalog.PackageIntegrations, true, true},
+		{http.MethodDelete, "baseline-assessments/" + routerRequest, "", false, false},
+		{http.MethodPost, "baseline-assessments/not-a-uuid/answers", "", false, false},
+		{http.MethodPost, "baseline-assessments/" + routerRequest + "/unknown", "", false, false},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.resource, func(t *testing.T) {
+			requirement, allowed := routeRequirement(test.method, test.resource)
+			if allowed != test.allowed {
+				t.Fatalf("allowed=%t want %t requirement=%+v", allowed, test.allowed, requirement)
+			}
+			if allowed && (requirement.Package != test.pkg || requirement.Mutation != test.mutation) {
+				t.Fatalf("requirement=%+v", requirement)
+			}
+		})
+	}
+}
+
 func TestKnowledgeRouteAllowlistMatchesCellSurface(t *testing.T) {
 	tests := []struct {
 		method, resource string

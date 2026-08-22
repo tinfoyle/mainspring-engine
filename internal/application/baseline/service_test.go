@@ -12,6 +12,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -35,7 +36,12 @@ func TestServiceRunsAuthorizedVersionBoundLifecycle(t *testing.T) {
 	resolver := &baselineFactResolver{values: map[domain.FactReference]ResolvedFact{
 		*fact: {Reference: *fact, Key: "organization.industry", CanonicalValue: []byte(`"professional services"`)},
 	}}
-	service, err := New(authorizer, repository, clock, WithFactResolver(resolver))
+	evidenceID := ids.KnowledgeEvidenceID("a7000000-0000-4000-8000-000000000007")
+	agentEvidenceID := ids.KnowledgeEvidenceID("a7000000-0000-4000-8000-000000000008")
+	integrationEvidenceID := ids.KnowledgeEvidenceID("a7000000-0000-4000-8000-000000000009")
+	evidenceResolver := &baselineEvidenceResolver{values: map[ids.KnowledgeEvidenceID]knowledge.SourceKind{evidenceID: knowledge.SourceOwnerStatement, agentEvidenceID: knowledge.SourceAgentDerivation, integrationEvidenceID: knowledge.SourceIntegrationRecord}}
+	sourceRepository := &baselineSourceGrantRepository{items: map[ids.BaselineSourceGrantID]domain.SourceGrant{}}
+	service, err := New(authorizer, repository, clock, WithFactResolver(resolver), WithEvidenceResolver(evidenceResolver), WithSourceGrantRepository(sourceRepository))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +89,12 @@ func TestServiceRunsAuthorizedVersionBoundLifecycle(t *testing.T) {
 	}
 	requirementID := assessment.Requirements[0].ID
 	clock.advance()
-	assessment, err = service.DecideEvidence(ctx, DecideEvidenceCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation("evidence")}, RequirementID: requirementID, EvidenceID: "a7000000-0000-4000-8000-000000000007", Decision: domain.EvidenceAccepted, Reason: "Current verified formation record"})
+	for label, unsupportedEvidenceID := range map[string]ids.KnowledgeEvidenceID{"agent": agentEvidenceID, "unbound-integration": integrationEvidenceID} {
+		if _, err := service.DecideEvidence(ctx, DecideEvidenceCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation(label + "-evidence")}, RequirementID: requirementID, EvidenceID: unsupportedEvidenceID, Decision: domain.EvidenceAccepted, Reason: "Unsupported output cannot establish this requirement"}); !errors.Is(err, ErrConstraint) {
+			t.Fatalf("%s evidence error=%v", label, err)
+		}
+	}
+	assessment, err = service.DecideEvidence(ctx, DecideEvidenceCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation("evidence")}, RequirementID: requirementID, EvidenceID: evidenceID, Decision: domain.EvidenceAccepted, Reason: "Current verified formation record"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,6 +132,26 @@ func TestServiceRunsAuthorizedVersionBoundLifecycle(t *testing.T) {
 	assessment, err = service.MarkReady(ctx, AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "b4000000-0000-4000-8000-000000000004"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	clock.advance()
+	grantID := ids.BaselineSourceGrantID(operation("email-source-grant"))
+	grant, err := service.GrantSource(ctx, GrantSourceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, GrantID: grantID, ConnectionID: operation("email-connection"), Kind: domain.SourceEmail, Scope: domain.SourceScope{Folders: []string{"INBOX"}}, CorrelationID: operation("grant-source")})
+	if err != nil || grant.State != domain.SourceGrantActive || len(sourceRepository.items) != 1 {
+		t.Fatalf("grant=%+v err=%v", grant, err)
+	}
+	page, err := service.ListSourceGrants(ctx, ListSourceGrantsQuery{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, Limit: 10})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != grantID {
+		t.Fatalf("source grants=%+v err=%v", page, err)
+	}
+	authorizer.role = accounts.RoleMember
+	if _, err := service.RevokeSource(ctx, RevokeSourceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, GrantID: grantID, ExpectedVersion: grant.Version, Reason: "Connection is no longer needed", CorrelationID: operation("member-revoke")}); !access.IsDenied(err, access.DenialRole) {
+		t.Fatalf("member revoked source: %v", err)
+	}
+	authorizer.role = accounts.RoleOwner
+	clock.advance()
+	grant, err = service.RevokeSource(ctx, RevokeSourceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, GrantID: grantID, ExpectedVersion: grant.Version, Reason: "Connection is no longer needed", CorrelationID: operation("revoke-source")})
+	if err != nil || grant.State != domain.SourceGrantRevoked {
+		t.Fatalf("revoked grant=%+v err=%v", grant, err)
 	}
 	clock.advance()
 	archived, next, err := service.Reassess(ctx, ReassessCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "b4000000-0000-4000-8000-000000000005"}, NewAssessmentID: "a9000000-0000-4000-8000-000000000009"})
@@ -187,6 +218,18 @@ type baselineFactResolver struct {
 	values map[domain.FactReference]ResolvedFact
 }
 
+type baselineEvidenceResolver struct {
+	values map[ids.KnowledgeEvidenceID]knowledge.SourceKind
+}
+
+func (resolver *baselineEvidenceResolver) ResolveEvidence(_ context.Context, _ ids.AccountID, evidenceID ids.KnowledgeEvidenceID) (ResolvedEvidence, error) {
+	kind, exists := resolver.values[evidenceID]
+	if !exists {
+		return ResolvedEvidence{}, ErrNotFound
+	}
+	return ResolvedEvidence{ID: evidenceID, Kind: kind}, nil
+}
+
 func (resolver *baselineFactResolver) Resolve(_ context.Context, _ ids.AccountID, references []domain.FactReference) ([]ResolvedFact, error) {
 	result := make([]ResolvedFact, 0, len(references))
 	for _, reference := range references {
@@ -205,7 +248,7 @@ func (clock *baselineClock) advance()       { clock.now = clock.now.Add(time.Min
 type baselineAuthorizer struct{ role accounts.MembershipRole }
 
 func (authorizer *baselineAuthorizer) Authorize(_ context.Context, actor access.Actor, accountID ids.AccountID, requirement access.Requirement) (access.AccountContext, error) {
-	if !actor.Valid() || accountID == "" || requirement.Package != catalog.PackageKnowledge {
+	if !actor.Valid() || accountID == "" || (requirement.Package != catalog.PackageKnowledge && requirement.Package != catalog.PackageIntegrations) {
 		return access.AccountContext{}, &access.DeniedError{Code: access.DenialUnauthenticated}
 	}
 	return access.AccountContext{AccountID: accountID, Role: authorizer.role}, nil
@@ -214,6 +257,44 @@ func (authorizer *baselineAuthorizer) Authorize(_ context.Context, actor access.
 type baselineRepository struct {
 	items  map[ids.BaselineAssessmentID]domain.Assessment
 	events []string
+}
+
+type baselineSourceGrantRepository struct {
+	items map[ids.BaselineSourceGrantID]domain.SourceGrant
+}
+
+func (repository *baselineSourceGrantRepository) CreateSourceGrant(_ context.Context, value domain.SourceGrant, _ Mutation) (domain.SourceGrant, error) {
+	if _, exists := repository.items[value.ID]; exists {
+		return domain.SourceGrant{}, ErrConflict
+	}
+	repository.items[value.ID] = value
+	return value, nil
+}
+
+func (repository *baselineSourceGrantRepository) GetSourceGrant(_ context.Context, accountID ids.AccountID, grantID ids.BaselineSourceGrantID) (domain.SourceGrant, error) {
+	value, exists := repository.items[grantID]
+	if !exists || value.AccountID != accountID {
+		return domain.SourceGrant{}, ErrNotFound
+	}
+	return value, nil
+}
+
+func (repository *baselineSourceGrantRepository) ListSourceGrants(_ context.Context, accountID ids.AccountID, assessmentID ids.BaselineAssessmentID, _ ids.BaselineSourceGrantID, _ uint16) (SourceGrantPage, error) {
+	result := SourceGrantPage{Items: make([]domain.SourceGrant, 0, len(repository.items))}
+	for _, value := range repository.items {
+		if value.AccountID == accountID && value.AssessmentID == assessmentID {
+			result.Items = append(result.Items, value)
+		}
+	}
+	return result, nil
+}
+
+func (repository *baselineSourceGrantRepository) UpdateSourceGrant(_ context.Context, value domain.SourceGrant, expected uint64, _ Mutation) (domain.SourceGrant, error) {
+	if repository.items[value.ID].Version != expected {
+		return domain.SourceGrant{}, ErrConflict
+	}
+	repository.items[value.ID] = value
+	return value, nil
 }
 
 type baselineWorkCreator struct {

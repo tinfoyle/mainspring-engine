@@ -13,6 +13,7 @@ import (
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -84,6 +85,27 @@ type ResolvedFact struct {
 
 type FactResolver interface {
 	Resolve(context.Context, ids.AccountID, []domain.FactReference) ([]ResolvedFact, error)
+}
+
+type ResolvedEvidence struct {
+	ID   ids.KnowledgeEvidenceID
+	Kind knowledge.SourceKind
+}
+
+type EvidenceResolver interface {
+	ResolveEvidence(context.Context, ids.AccountID, ids.KnowledgeEvidenceID) (ResolvedEvidence, error)
+}
+
+type SourceGrantPage struct {
+	Items      []domain.SourceGrant
+	NextCursor ids.BaselineSourceGrantID
+}
+
+type SourceGrantRepository interface {
+	CreateSourceGrant(context.Context, domain.SourceGrant, Mutation) (domain.SourceGrant, error)
+	GetSourceGrant(context.Context, ids.AccountID, ids.BaselineSourceGrantID) (domain.SourceGrant, error)
+	ListSourceGrants(context.Context, ids.AccountID, ids.BaselineAssessmentID, ids.BaselineSourceGrantID, uint16) (SourceGrantPage, error)
+	UpdateSourceGrant(context.Context, domain.SourceGrant, uint64, Mutation) (domain.SourceGrant, error)
 }
 
 type WorkCreator interface {

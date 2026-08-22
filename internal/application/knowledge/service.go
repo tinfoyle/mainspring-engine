@@ -150,6 +150,9 @@ func (s *Service) RegisterEvidence(ctx context.Context, command RegisterEvidence
 	if actor.Kind == knowledgedomain.ActorUser && !canContribute(accountContext.Role) {
 		return knowledgedomain.Evidence{}, &access.DeniedError{Code: access.DenialRole, Package: catalog.PackageKnowledge}
 	}
+	if actor.Kind == knowledgedomain.ActorUser && command.Kind != knowledgedomain.SourceOwnerStatement {
+		return knowledgedomain.Evidence{}, ErrInvalid
+	}
 	evidence, err := knowledgedomain.NewEvidence(knowledgedomain.Evidence{ID: command.EvidenceID, AccountID: command.AccountID, Kind: command.Kind, SourceReference: command.SourceReference, SourceRevision: command.SourceRevision, ContentSHA256: command.ContentSHA256, CapturedAt: command.CapturedAt, CreatedBy: actor, CreatedAt: s.clock.Now()})
 	if err != nil {
 		return knowledgedomain.Evidence{}, ErrInvalid

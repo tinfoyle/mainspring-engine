@@ -132,6 +132,9 @@ type BaselineService interface {
 	MaterializePlan(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error)
 	MarkReady(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error)
 	Reassess(context.Context, baselineapp.ReassessCommand) (baselinedomain.Assessment, baselinedomain.Assessment, error)
+	GrantSource(context.Context, baselineapp.GrantSourceCommand) (baselinedomain.SourceGrant, error)
+	ListSourceGrants(context.Context, baselineapp.ListSourceGrantsQuery) (baselineapp.SourceGrantPage, error)
+	RevokeSource(context.Context, baselineapp.RevokeSourceCommand) (baselinedomain.SourceGrant, error)
 }
 
 func WithBaseline(service BaselineService) Option {
@@ -215,6 +218,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/work-materializations", s.baselineMaterializePlan)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/readiness", s.baselineMarkReady)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/reassessments", s.baselineReassess)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", s.baselineSourceGrantList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", s.baselineSourceGrantCreate)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants/{grantID}/revocations", s.baselineSourceGrantRevoke)
 	return s.recover(s.securityHeaders(mux))
 }
 

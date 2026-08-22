@@ -13,6 +13,7 @@ import (
 
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -100,6 +101,28 @@ func (r *BaselineRepository) Resolve(ctx context.Context, accountID ids.AccountI
 		return nil
 	})
 	return result, classifyBaseline(err)
+}
+
+func (r *BaselineRepository) ResolveEvidence(ctx context.Context, accountID ids.AccountID, evidenceID ids.KnowledgeEvidenceID) (baselineapp.ResolvedEvidence, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(string(evidenceID)) != nil {
+		return baselineapp.ResolvedEvidence{}, baselineapp.ErrInvalid
+	}
+	var result baselineapp.ResolvedEvidence
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		result.ID = evidenceID
+		if err := tx.QueryRow(ctx, `SELECT source_kind FROM spyglass.knowledge_evidence WHERE account_id=$1 AND id=$2`, accountID, evidenceID).Scan(&result.Kind); errors.Is(err, pgx.ErrNoRows) {
+			return baselineapp.ErrNotFound
+		} else {
+			return err
+		}
+	})
+	if err != nil {
+		return baselineapp.ResolvedEvidence{}, classifyBaseline(err)
+	}
+	if !knowledge.SourceKind(result.Kind).Valid() {
+		return baselineapp.ResolvedEvidence{}, baselineapp.ErrRepository
+	}
+	return result, nil
 }
 
 func (r *BaselineRepository) Update(ctx context.Context, updated domain.Assessment, expected uint64, transition baselineapp.Transition, mutation baselineapp.Mutation) (domain.Assessment, error) {
@@ -497,3 +520,4 @@ func classifyBaseline(err error) error {
 
 var _ baselineapp.Repository = (*BaselineRepository)(nil)
 var _ baselineapp.FactResolver = (*BaselineRepository)(nil)
+var _ baselineapp.EvidenceResolver = (*BaselineRepository)(nil)

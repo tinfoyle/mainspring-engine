@@ -40,6 +40,7 @@ type KnowledgeDocumentChunkID string
 type BaselineAssessmentID string
 type BaselineRequirementID string
 type BaselinePlanID string
+type BaselineSourceGrantID string
 
 type Generator interface {
 	New() string

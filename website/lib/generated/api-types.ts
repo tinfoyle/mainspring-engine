@@ -512,6 +512,34 @@ export interface BaselineResponsibility {
   readonly "kind": "account" | "user" | "persona";
 }
 
+export interface BaselineSourceGrant {
+  readonly "account_id": string;
+  readonly "assessment_id": string;
+  readonly "connection_id": string;
+  readonly "created_at": string;
+  readonly "folders": ReadonlyArray<string>;
+  readonly "granted_by_user_id": string;
+  readonly "id": string;
+  readonly "revoke_reason"?: string;
+  readonly "revoked_at"?: string;
+  readonly "revoked_by_user_id"?: string;
+  readonly "since_at"?: string;
+  readonly "source_kind": BaselineSourceKind;
+  readonly "state": BaselineSourceGrantState;
+  readonly "until_at"?: string;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface BaselineSourceGrantPage {
+  readonly "items": ReadonlyArray<BaselineSourceGrant>;
+  readonly "next_cursor"?: string;
+}
+
+export type BaselineSourceGrantState = "active" | "revoked";
+
+export type BaselineSourceKind = "email" | "google_drive";
+
 export type BaselineState = "interview" | "inventory" | "gap_review" | "plan_approval" | "active" | "ready" | "archived";
 
 export interface BeginContactChangeRequest {
@@ -669,6 +697,14 @@ export interface CreateApprovalRequest {
   readonly "policy_version": number;
   readonly "require_independent_review": boolean;
   readonly "work_item_id"?: string;
+}
+
+export interface CreateBaselineSourceGrantRequest {
+  readonly "connection_id": string;
+  readonly "folders": ReadonlyArray<string>;
+  readonly "since_at"?: string;
+  readonly "source_kind": BaselineSourceKind;
+  readonly "until_at"?: string;
 }
 
 export interface CreateCheckoutSessionRequest {
@@ -1237,6 +1273,10 @@ export interface RetrieveKnowledgeDocumentsRequest {
   readonly "query": string;
 }
 
+export interface RevokeBaselineSourceGrantRequest {
+  readonly "reason": string;
+}
+
 export interface SecurityEvent {
   readonly "occurred_at": string;
   readonly "session_id"?: string;
@@ -1535,6 +1575,10 @@ export interface ApiSchemas {
   readonly BaselineReassessment: BaselineReassessment;
   readonly BaselineRequirement: BaselineRequirement;
   readonly BaselineResponsibility: BaselineResponsibility;
+  readonly BaselineSourceGrant: BaselineSourceGrant;
+  readonly BaselineSourceGrantPage: BaselineSourceGrantPage;
+  readonly BaselineSourceGrantState: BaselineSourceGrantState;
+  readonly BaselineSourceKind: BaselineSourceKind;
   readonly BaselineState: BaselineState;
   readonly BeginContactChangeRequest: BeginContactChangeRequest;
   readonly BeginRecoveryRequest: BeginRecoveryRequest;
@@ -1562,6 +1606,7 @@ export interface ApiSchemas {
   readonly ContactChangeCompleted: ContactChangeCompleted;
   readonly CreateAgentBoardroomRequest: CreateAgentBoardroomRequest;
   readonly CreateApprovalRequest: CreateApprovalRequest;
+  readonly CreateBaselineSourceGrantRequest: CreateBaselineSourceGrantRequest;
   readonly CreateCheckoutSessionRequest: CreateCheckoutSessionRequest;
   readonly CreateInformationRequestInput: CreateInformationRequestInput;
   readonly CreateInvitationRequest: CreateInvitationRequest;
@@ -1646,6 +1691,7 @@ export interface ApiSchemas {
   readonly RequestActionResolutionRequest: RequestActionResolutionRequest;
   readonly ResolveAgentRunRequest: ResolveAgentRunRequest;
   readonly RetrieveKnowledgeDocumentsRequest: RetrieveKnowledgeDocumentsRequest;
+  readonly RevokeBaselineSourceGrantRequest: RevokeBaselineSourceGrantRequest;
   readonly SecurityEvent: SecurityEvent;
   readonly SecurityEventType: SecurityEventType;
   readonly SecurityEvents: SecurityEvents;
