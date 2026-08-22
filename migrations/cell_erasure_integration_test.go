@@ -43,6 +43,9 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	for _, table := range []string{"knowledge_documents", "knowledge_document_revisions", "knowledge_document_chunks", "knowledge_document_events", "knowledge_document_processing_queue", "knowledge_document_deletion_queue", "knowledge_document_deletion_receipts"} {
 		coveredTables[table] = true
 	}
+	for _, table := range []string{"baseline_assessments", "baseline_interview_answers", "baseline_requirements", "baseline_evidence_decisions", "baseline_plans", "baseline_events"} {
+		coveredTables[table] = true
+	}
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +166,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedCounts := map[string]int64{"account_move_checkpoints": 1, "route_context_receipts": 1, "route_context_receipt_cleanup_queue": 1, "work_capacity_release_queue": 2, "work_item_events": 2, "work_items": 2, "work_item_number_counters": 1, "account_audit_events": 1, "work_capacity_release_operator_events": 1, "runner_invocation_queue": 1, "runner_account_scheduling": 1, "runner_invocation_exchanges": 1, "runner_capability_events": 1, "account_namespaces": 1, "agent_boardrooms": 1, "agent_personas": 1, "agent_persona_versions": 1, "agent_conversations": 1, "agent_runs": 1, "agent_run_plan_turns": 1, "agent_invocations": 1, "agent_messages": 1, "agent_result_projection_queue": 1, "agent_user_messages": 1, "agent_invocation_execution_plans": 1, "agent_dispatch_queue": 1, "agent_queue_operator_events": 1, "agent_run_resolutions": 1, "attention_information_requests": 1, "attention_work_reviews": 1, "attention_consequential_approvals": 1, "attention_events": 4, "knowledge_evidence": 1, "knowledge_claims": 1, "knowledge_claim_citations": 1, "knowledge_facts": 1, "knowledge_fact_revisions": 1, "knowledge_events": 3}
+	expectedCounts := map[string]int64{"account_move_checkpoints": 1, "route_context_receipts": 1, "route_context_receipt_cleanup_queue": 1, "work_capacity_release_queue": 2, "work_item_events": 2, "work_items": 2, "work_item_number_counters": 1, "account_audit_events": 1, "work_capacity_release_operator_events": 1, "runner_invocation_queue": 1, "runner_account_scheduling": 1, "runner_invocation_exchanges": 1, "runner_capability_events": 1, "account_namespaces": 1, "agent_boardrooms": 1, "agent_personas": 1, "agent_persona_versions": 1, "agent_conversations": 1, "agent_runs": 1, "agent_run_plan_turns": 1, "agent_invocations": 1, "agent_messages": 1, "agent_result_projection_queue": 1, "agent_user_messages": 1, "agent_invocation_execution_plans": 1, "agent_dispatch_queue": 1, "agent_queue_operator_events": 1, "agent_run_resolutions": 1, "attention_information_requests": 1, "attention_work_reviews": 1, "attention_consequential_approvals": 1, "attention_events": 4, "knowledge_evidence": 1, "knowledge_claims": 1, "knowledge_claim_citations": 1, "knowledge_facts": 1, "knowledge_fact_revisions": 1, "knowledge_events": 3, "baseline_assessments": 1, "baseline_interview_answers": 1, "baseline_requirements": 1, "baseline_evidence_decisions": 1, "baseline_plans": 1, "baseline_events": 1}
 	for name, expected := range expectedCounts {
 		if tombstone.RowCounts[name] != expected {
 			t.Fatalf("row count %s=%d want=%d; all=%v", name, tombstone.RowCounts[name], expected, tombstone.RowCounts)
@@ -375,6 +378,27 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		VALUES ($1,replace($3::text,'402','412')::uuid,'claim',$3,'claim_accepted',1,2,'user',$5,'claim_accepted',replace($3::text,'402','422')::uuid,'{}',$6);
 		INSERT INTO spyglass.knowledge_events(account_id,id,aggregate_kind,fact_id,event_type,from_version,to_version,actor_kind,actor_id,reason_code,correlation_id,redacted_payload,occurred_at)
 		VALUES ($1,replace($4::text,'403','413')::uuid,'fact',$4,'fact_created',0,1,'user',$5,'claim_accepted',replace($4::text,'403','423')::uuid,'{}',$6)`, pgx.QueryExecModeSimpleProtocol, accountID, knowledgeEvidenceID, knowledgeClaimID, knowledgeFactID, reviewerUserID, now); err != nil {
+		t.Fatal(err)
+	}
+	baselineAssessmentID := strings.Replace(rootID, "000000000001", "000000000501", 1)
+	baselineRequirementID := strings.Replace(rootID, "000000000001", "000000000502", 1)
+	baselinePlanID := strings.Replace(rootID, "000000000001", "000000000503", 1)
+	baselineEventID := strings.Replace(rootID, "000000000001", "000000000511", 1)
+	baselineCorrelationID := strings.Replace(rootID, "000000000001", "000000000521", 1)
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.baseline_assessments(account_id,id,catalog_version,scope_policy_version,state,created_by_user_id,version,created_at,updated_at)
+		VALUES ($1,$2,'catalog-v1','scope-v1','interview',$6,1,$7,$7);
+		INSERT INTO spyglass.baseline_interview_answers(account_id,assessment_id,question_key,answer_kind,fact_id,fact_revision,answered_by_user_id,answered_at)
+		VALUES ($1,$2,'organization.erasure_fixture','fact',$5,1,$6,$7);
+		INSERT INTO spyglass.baseline_requirements(account_id,assessment_id,id,requirement_code,title,responsibility_kind,renew_after_days,catalog_version,scope_policy_version,disposition,renew_at)
+		VALUES ($1,$2,$3,'organization.fixture','Verify erasure fixture','account',365,'catalog-v1','scope-v1','satisfied',$7::timestamptz+interval '365 days');
+		INSERT INTO spyglass.baseline_evidence_decisions(account_id,assessment_id,requirement_id,evidence_id,decision,reason,decided_by_user_id,decided_at)
+		VALUES ($1,$2,$3,$4,'accepted','accepted erasure fixture',$6,$7);
+		INSERT INTO spyglass.baseline_plans(account_id,assessment_id,id,assessment_version,content_sha256,proposed_work_count,approved_by_user_id,approved_at,created_at)
+		VALUES ($1,$2,$8,6,decode(repeat('73',32),'hex'),0,$6,$7,$7);
+		INSERT INTO spyglass.baseline_events(account_id,id,assessment_id,plan_id,event_type,from_version,to_version,actor_user_id,reason_code,correlation_id,redacted_payload,occurred_at)
+		VALUES ($1,$9,$2,$8,'assessment_ready',8,9,$6,'requirements_ready',$10,'{"state":"ready"}',$7);
+		UPDATE spyglass.baseline_assessments SET state='ready',version=9 WHERE account_id=$1 AND id=$2`,
+		pgx.QueryExecModeSimpleProtocol, accountID, baselineAssessmentID, baselineRequirementID, knowledgeEvidenceID, knowledgeFactID, reviewerUserID, now, baselinePlanID, baselineEventID, baselineCorrelationID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.route_context_receipts(account_id,request_id,placement_generation,entitlement_version,actor_kind,actor_id,method,target_sha256,body_sha256,issued_at,expires_at,consumed_at) VALUES ($1,$2,3,1,'user','test-actor','GET',$3,$3,$4,$5,$4)`, accountID, strings.Replace(rootID, "000000000001", "000000000031", 1), bytes.Repeat([]byte{1}, 32), now, now.Add(time.Minute)); err != nil {
