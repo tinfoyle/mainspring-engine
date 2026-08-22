@@ -7,8 +7,10 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
+	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
+	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -35,6 +37,14 @@ type ActionRecoveryService interface {
 	Get(context.Context, access.Actor, ids.AccountID, string) (actionrecovery.Detail, error)
 	Request(context.Context, actionrecovery.RequestCommand) (actionrecovery.Detail, error)
 	Confirm(context.Context, actionrecovery.ConfirmCommand) (actionrecovery.Detail, error)
+}
+
+type KnowledgeService interface {
+	RegisterEvidence(context.Context, knowledgeapp.RegisterEvidenceCommand) (knowledgedomain.Evidence, error)
+	ProposeClaim(context.Context, knowledgeapp.ProposeClaimCommand) (knowledgedomain.Claim, error)
+	DecideClaim(context.Context, knowledgeapp.DecideClaimCommand) (knowledgedomain.Claim, *knowledgedomain.Fact, error)
+	GetClaim(context.Context, access.Actor, ids.AccountID, ids.KnowledgeClaimID) (knowledgedomain.Claim, error)
+	ListFacts(context.Context, access.Actor, ids.AccountID, knowledgeapp.FactListQuery) (knowledgeapp.FactPage, error)
 }
 
 type requirementInput struct {

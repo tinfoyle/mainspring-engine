@@ -36,6 +36,7 @@ type Server struct {
 	authority        Authority
 	attention        AttentionService
 	actions          ActionRecoveryService
+	knowledge        KnowledgeService
 	logger           *slog.Logger
 	version          string
 	maxBody          int64
@@ -52,6 +53,16 @@ func WithActionRecovery(service ActionRecoveryService) Option {
 			return errors.New("MCP action recovery service is required")
 		}
 		server.actions = service
+		return nil
+	}
+}
+
+func WithKnowledge(service KnowledgeService) Option {
+	return func(server *Server) error {
+		if service == nil {
+			return errors.New("MCP Knowledge service is required")
+		}
+		server.knowledge = service
 		return nil
 	}
 }
@@ -122,6 +133,9 @@ func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 	s.registerApprovals(server, actor)
 	if s.actions != nil {
 		s.registerActionRecovery(server, actor)
+	}
+	if s.knowledge != nil {
+		s.registerKnowledge(server, actor)
 	}
 	return server
 }

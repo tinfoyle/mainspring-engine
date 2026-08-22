@@ -624,6 +624,11 @@ export interface DecideApprovalRequest {
   readonly "reason": string;
 }
 
+export interface DecideKnowledgeClaimRequest {
+  readonly "accept": boolean;
+  readonly "reason": string;
+}
+
 export interface DecideWorkReviewRequest {
   readonly "decision": WorkReviewDecisionValue;
   readonly "reason": string;
@@ -720,6 +725,111 @@ export interface InvitationCreated {
   readonly "status": "pending";
 }
 
+export interface KnowledgeActor {
+  readonly "id": string;
+  readonly "kind": "user" | "workload";
+}
+
+export interface KnowledgeCitation {
+  readonly "evidence_id": string;
+  readonly "evidence_kind": KnowledgeSourceKind;
+  readonly "locator": string;
+  readonly "relation": KnowledgeEvidenceRelation;
+}
+
+export interface KnowledgeClaim {
+  readonly "account_id": string;
+  readonly "citations": ReadonlyArray<KnowledgeCitation>;
+  readonly "confidence": number;
+  readonly "created_at": string;
+  readonly "decision"?: KnowledgeClaimDecision;
+  readonly "hash_version": number;
+  readonly "id": string;
+  readonly "key": string;
+  readonly "proposed_by": KnowledgeActor;
+  readonly "scope": KnowledgeScope;
+  readonly "sensitivity": KnowledgeSensitivity;
+  readonly "state": KnowledgeClaimState;
+  readonly "updated_at": string;
+  readonly "value": KnowledgeValue;
+  readonly "value_sha256": string;
+  readonly "version": number;
+}
+
+export interface KnowledgeClaimDecision {
+  readonly "decided_at": string;
+  readonly "decided_by_user_id": string;
+  readonly "reason": string;
+}
+
+export interface KnowledgeClaimDecisionResult {
+  readonly "claim": KnowledgeClaim;
+  readonly "fact"?: KnowledgeFact;
+}
+
+export type KnowledgeClaimState = "proposed" | "accepted" | "rejected" | "superseded" | "stale";
+
+export interface KnowledgeEvidence {
+  readonly "account_id": string;
+  readonly "captured_at": string;
+  readonly "content_sha256": string;
+  readonly "created_at": string;
+  readonly "created_by": KnowledgeActor;
+  readonly "id": string;
+  readonly "source_kind": KnowledgeSourceKind;
+  readonly "source_reference": string;
+  readonly "source_revision": string;
+}
+
+export type KnowledgeEvidenceRelation = "supports" | "refutes";
+
+export interface KnowledgeFact {
+  readonly "accepted_at": string;
+  readonly "accepted_by_user_id": string;
+  readonly "account_id": string;
+  readonly "created_at": string;
+  readonly "current_claim_id": string;
+  readonly "id": string;
+  readonly "key": string;
+  readonly "revision": number;
+  readonly "scope": KnowledgeScope;
+  readonly "sensitivity": KnowledgeSensitivity;
+  readonly "state": KnowledgeFactState;
+  readonly "updated_at": string;
+}
+
+export interface KnowledgeFactPage {
+  readonly "items": ReadonlyArray<KnowledgeFactSummary>;
+  readonly "next_cursor"?: string;
+}
+
+export type KnowledgeFactState = "active" | "stale";
+
+export interface KnowledgeFactSummary {
+  readonly "accepted_at": string;
+  readonly "current_claim_id": string;
+  readonly "id": string;
+  readonly "key": string;
+  readonly "revision": number;
+  readonly "scope": KnowledgeScope;
+  readonly "sensitivity": KnowledgeSensitivity;
+  readonly "state": KnowledgeFactState;
+  readonly "updated_at": string;
+}
+
+export interface KnowledgeScope {
+  readonly "id"?: string;
+  readonly "kind": KnowledgeScopeKind;
+}
+
+export type KnowledgeScopeKind = "account" | "work_item" | "conversation";
+
+export type KnowledgeSensitivity = "public" | "internal" | "confidential" | "restricted";
+
+export type KnowledgeSourceKind = "owner_statement" | "document_revision" | "integration_record" | "public_web_capture" | "agent_derivation";
+
+export type KnowledgeValue = string | number | boolean | null | Readonly<Record<string, unknown>> | ReadonlyArray<KnowledgeValue>;
+
 export interface LimitPolicy {
   readonly "combine": "replace" | "add" | "maximum" | "minimum";
   readonly "kind": "capacity";
@@ -805,6 +915,15 @@ export interface Problem {
   readonly "type": string;
 }
 
+export interface ProposeKnowledgeClaimRequest {
+  readonly "citations": ReadonlyArray<KnowledgeCitation>;
+  readonly "confidence": number;
+  readonly "key": string;
+  readonly "scope": KnowledgeScope;
+  readonly "sensitivity": KnowledgeSensitivity;
+  readonly "value": KnowledgeValue;
+}
+
 export interface ProvisionedAccount {
   readonly "cell_id": string;
   readonly "display_name": string;
@@ -866,6 +985,14 @@ export interface RecoveryCodeStatus {
   readonly "created_at"?: string;
   readonly "remaining": number;
   readonly "version"?: number;
+}
+
+export interface RegisterKnowledgeEvidenceRequest {
+  readonly "captured_at": string;
+  readonly "content_sha256": string;
+  readonly "source_kind": KnowledgeSourceKind;
+  readonly "source_reference": string;
+  readonly "source_revision": string;
 }
 
 export interface RegistrationAccepted {
@@ -1208,6 +1335,7 @@ export interface ApiSchemas {
   readonly CreateWorkRequest: CreateWorkRequest;
   readonly CreateWorkReviewRequest: CreateWorkReviewRequest;
   readonly DecideApprovalRequest: DecideApprovalRequest;
+  readonly DecideKnowledgeClaimRequest: DecideKnowledgeClaimRequest;
   readonly DecideWorkReviewRequest: DecideWorkReviewRequest;
   readonly EntitlementGrantSource: EntitlementGrantSource;
   readonly EntitlementPackageAccess: EntitlementPackageAccess;
@@ -1223,6 +1351,23 @@ export interface ApiSchemas {
   readonly InformationScope: InformationScope;
   readonly InvitationAcceptance: InvitationAcceptance;
   readonly InvitationCreated: InvitationCreated;
+  readonly KnowledgeActor: KnowledgeActor;
+  readonly KnowledgeCitation: KnowledgeCitation;
+  readonly KnowledgeClaim: KnowledgeClaim;
+  readonly KnowledgeClaimDecision: KnowledgeClaimDecision;
+  readonly KnowledgeClaimDecisionResult: KnowledgeClaimDecisionResult;
+  readonly KnowledgeClaimState: KnowledgeClaimState;
+  readonly KnowledgeEvidence: KnowledgeEvidence;
+  readonly KnowledgeEvidenceRelation: KnowledgeEvidenceRelation;
+  readonly KnowledgeFact: KnowledgeFact;
+  readonly KnowledgeFactPage: KnowledgeFactPage;
+  readonly KnowledgeFactState: KnowledgeFactState;
+  readonly KnowledgeFactSummary: KnowledgeFactSummary;
+  readonly KnowledgeScope: KnowledgeScope;
+  readonly KnowledgeScopeKind: KnowledgeScopeKind;
+  readonly KnowledgeSensitivity: KnowledgeSensitivity;
+  readonly KnowledgeSourceKind: KnowledgeSourceKind;
+  readonly KnowledgeValue: KnowledgeValue;
   readonly LimitPolicy: LimitPolicy;
   readonly LinkWorkConversationRequest: LinkWorkConversationRequest;
   readonly LoginRequest: LoginRequest;
@@ -1236,6 +1381,7 @@ export interface ApiSchemas {
   readonly PasskeyLoginSession: PasskeyLoginSession;
   readonly Passkeys: Passkeys;
   readonly Problem: Problem;
+  readonly ProposeKnowledgeClaimRequest: ProposeKnowledgeClaimRequest;
   readonly ProvisionedAccount: ProvisionedAccount;
   readonly ProvisionedMembership: ProvisionedMembership;
   readonly ProvisionedUser: ProvisionedUser;
@@ -1245,6 +1391,7 @@ export interface ApiSchemas {
   readonly RecoveryAccepted: RecoveryAccepted;
   readonly RecoveryCodeRotation: RecoveryCodeRotation;
   readonly RecoveryCodeStatus: RecoveryCodeStatus;
+  readonly RegisterKnowledgeEvidenceRequest: RegisterKnowledgeEvidenceRequest;
   readonly RegistrationAccepted: RegistrationAccepted;
   readonly RegistrationCompleted: RegistrationCompleted;
   readonly RenamePasskeyRequest: RenamePasskeyRequest;

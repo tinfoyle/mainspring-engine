@@ -202,6 +202,37 @@ func TestAttentionRouteAllowlistMatchesCellSurface(t *testing.T) {
 	}
 }
 
+func TestKnowledgeRouteAllowlistMatchesCellSurface(t *testing.T) {
+	tests := []struct {
+		method, resource string
+		mutation         bool
+		allowed          bool
+	}{
+		{http.MethodPost, "knowledge/evidence", true, true},
+		{http.MethodGet, "knowledge/facts", false, true},
+		{http.MethodPost, "knowledge/claims", true, true},
+		{http.MethodGet, "knowledge/claims/" + routerRequest, false, true},
+		{http.MethodPost, "knowledge/claims/" + routerRequest + "/decisions", true, true},
+		{http.MethodGet, "knowledge/evidence", false, false},
+		{http.MethodPost, "knowledge/facts", false, false},
+		{http.MethodGet, "knowledge/claims", false, false},
+		{http.MethodGet, "knowledge/claims/not-a-uuid", false, false},
+		{http.MethodGet, "knowledge/claims/" + routerRequest + "/decisions", false, false},
+		{http.MethodDelete, "knowledge/claims/" + routerRequest, false, false},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.resource, func(t *testing.T) {
+			requirement, allowed := routeRequirement(test.method, test.resource)
+			if allowed != test.allowed {
+				t.Fatalf("allowed=%t want %t requirement=%+v", allowed, test.allowed, requirement)
+			}
+			if test.allowed && (requirement.Package != catalog.PackageKnowledge || requirement.Mutation != test.mutation) {
+				t.Fatalf("requirement=%+v", requirement)
+			}
+		})
+	}
+}
+
 func TestWorkMutationCarriesOnlyAuthorizedPackageAccess(t *testing.T) {
 	clock := fixedClock{time.Date(2026, 8, 18, 4, 0, 0, 0, time.UTC)}
 	key := []byte("0123456789abcdef0123456789abcdef")

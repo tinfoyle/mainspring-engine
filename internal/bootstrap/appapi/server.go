@@ -15,6 +15,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	agentapp "github.com/tinfoyle/spyglass-engine/internal/application/agents"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
+	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
@@ -133,7 +134,17 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService))
+	knowledgeRepository, err := postgres.NewKnowledgeRepository(cellPool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	knowledgeService, err := knowledgeapp.New(routeaccess.NewAuthorizer(), knowledgeRepository, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService))
 	if err != nil {
 		pool.Close()
 		return nil, err

@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
+	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
@@ -66,6 +67,26 @@ func actionRecoveryError(err error) error {
 		return safeError(string(denied.Code))
 	default:
 		return safeError("action_recovery_unavailable")
+	}
+}
+
+func knowledgeError(err error) error {
+	var denied *access.DeniedError
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, knowledgeapp.ErrInvalid):
+		return safeError("invalid_knowledge_request")
+	case errors.Is(err, knowledgeapp.ErrNotFound):
+		return safeError("knowledge_not_found")
+	case errors.Is(err, knowledgeapp.ErrConflict):
+		return safeError("knowledge_conflict")
+	case errors.Is(err, knowledgeapp.ErrConstraint):
+		return safeError("knowledge_rejected")
+	case errors.As(err, &denied):
+		return safeError(string(denied.Code))
+	default:
+		return safeError("knowledge_unavailable")
 	}
 }
 

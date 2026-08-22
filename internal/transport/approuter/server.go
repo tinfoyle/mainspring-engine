@@ -296,6 +296,25 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 	if len(parts) == 2 && parts[0] == "agent-runs" && ids.Validate(parts[1]) == nil {
 		return access.Requirement{Package: catalog.PackageAgents}, method == http.MethodGet
 	}
+	if len(parts) >= 2 && parts[0] == "knowledge" {
+		switch parts[1] {
+		case "evidence":
+			return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, len(parts) == 2 && method == http.MethodPost
+		case "facts":
+			return access.Requirement{Package: catalog.PackageKnowledge}, len(parts) == 2 && method == http.MethodGet
+		case "claims":
+			if len(parts) == 2 {
+				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, method == http.MethodPost
+			}
+			if len(parts) == 3 && ids.Validate(parts[2]) == nil {
+				return access.Requirement{Package: catalog.PackageKnowledge}, method == http.MethodGet
+			}
+			if len(parts) == 4 && ids.Validate(parts[2]) == nil && parts[3] == "decisions" {
+				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, method == http.MethodPost
+			}
+		}
+		return access.Requirement{}, false
+	}
 	if len(parts) == 3 && parts[0] == "agent-runs" && ids.Validate(parts[1]) == nil && parts[2] == "resolutions" {
 		return access.Requirement{Package: catalog.PackageAgents, Mutation: true}, method == http.MethodPost
 	}

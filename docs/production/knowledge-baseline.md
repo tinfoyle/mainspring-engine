@@ -1,6 +1,6 @@
 # Knowledge and Baseline module
 
-- Status: final boundary defined; typed Knowledge kernel under construction
+- Status: typed Knowledge kernel and routed command/read surface implemented; review queue and private UI next
 - Phase: 3.2
 - Owns: immutable evidence identity, reviewable claims, accepted fact revisions, documents/citations and the Baseline assessment lifecycle
 - Does not own: Work lifecycle, Agent execution, provider credentials or external source synchronization

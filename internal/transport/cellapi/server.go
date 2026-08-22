@@ -14,7 +14,9 @@ import (
 	"sync/atomic"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
+	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
@@ -37,6 +39,7 @@ type Server struct {
 	agents    AgentService
 	attention AttentionService
 	actions   ActionRecoveryService
+	knowledge KnowledgeService
 	counters  routeCounters
 }
 
@@ -81,6 +84,18 @@ type ActionRecoveryService interface {
 
 func WithActionRecovery(service ActionRecoveryService) Option {
 	return func(server *Server) { server.actions = service }
+}
+
+type KnowledgeService interface {
+	RegisterEvidence(context.Context, knowledgeapp.RegisterEvidenceCommand) (knowledge.Evidence, error)
+	ProposeClaim(context.Context, knowledgeapp.ProposeClaimCommand) (knowledge.Claim, error)
+	DecideClaim(context.Context, knowledgeapp.DecideClaimCommand) (knowledge.Claim, *knowledge.Fact, error)
+	GetClaim(context.Context, access.Actor, ids.AccountID, ids.KnowledgeClaimID) (knowledge.Claim, error)
+	ListFacts(context.Context, access.Actor, ids.AccountID, knowledgeapp.FactListQuery) (knowledgeapp.FactPage, error)
+}
+
+func WithKnowledge(service KnowledgeService) Option {
+	return func(server *Server) { server.knowledge = service }
 }
 
 func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
@@ -135,6 +150,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/attention/actions/{operationID}", s.actionRecoveryGet)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/actions/{operationID}/resolution-requests", s.actionRecoveryRequest)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/actions/{operationID}/resolutions/{resolutionID}/confirmations", s.actionRecoveryConfirm)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/evidence", s.knowledgeEvidenceRegister)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/facts", s.knowledgeFactList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/claims", s.knowledgeClaimPropose)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/claims/{claimID}", s.knowledgeClaimGet)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/claims/{claimID}/decisions", s.knowledgeClaimDecide)
 	return s.recover(s.securityHeaders(mux))
 }
 
