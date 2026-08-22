@@ -119,6 +119,8 @@ Baseline-foundation checkpoint (2026-08-22): the typed assessment aggregate and 
 
 Exit: source-attributed business memory and baseline claims are complete and production-certifiable.
 
+Baseline persistence checkpoint (2026-08-22): the Baseline aggregate is now carried through the canonical authorized application boundary and a classified, Account-scoped PostgreSQL repository. The repository persists each optimistic state transition with a redacted audit event, exact accepted Fact revision and Knowledge Evidence references, immutable plan binding and atomic reassessment. A PostgreSQL 17 lifecycle test covers idempotent start, stale-write conflict, complete restore, cross-Account denial, frozen and immutable history, event redaction, approval/readiness and one-current-assessment enforcement. The next P3.2 construction slice is the supported HTTP/MCP boundary and deterministic creation of proposed Work from the exact approved assessment/plan digest; this checkpoint does not declare P3.2 complete.
+
 ## P3.3 — Workspace and Agent execution
 
 - Complete workspace/Boardroom configuration and immutable Persona/version lifecycle.
