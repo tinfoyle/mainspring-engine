@@ -105,6 +105,7 @@ services:
     volumes: ["${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/workload/app-router:/var/run/secrets/spyglass/workload:ro"]
     depends_on: {global-roles: {condition: service_completed_successfully}}
   mcp-gateway:
+    scale: 2
     group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
     environment:
       <<: *global-restore

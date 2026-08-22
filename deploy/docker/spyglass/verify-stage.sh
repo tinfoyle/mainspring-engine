@@ -185,6 +185,8 @@ if socket_holders != {"docker-runner-launcher-a", "docker-runner-launcher-b"}:
     raise SystemExit(f"unexpected Docker socket holders: {sorted(socket_holders)}")
 if services["website"]["image"] != website_image:
     raise SystemExit("website image does not match the release file")
+if services["mcp-gateway"].get("scale") != 2:
+    raise SystemExit("stage MCP gateway must run exactly two replicas")
 for name in application_services:
     if services[name]["image"] != application_image:
         raise SystemExit(f"{name} image does not match the application release digest")
