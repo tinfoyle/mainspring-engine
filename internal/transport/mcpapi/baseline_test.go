@@ -60,6 +60,12 @@ func (*baselineMCPStub) ApprovePlan(context.Context, baselineapp.ApprovePlanComm
 func (*baselineMCPStub) MaterializePlan(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error) {
 	panic("unexpected MaterializePlan")
 }
+func (*baselineMCPStub) ConfirmWorkEvidence(context.Context, baselineapp.ConfirmWorkEvidenceCommand) (baselinedomain.Assessment, error) {
+	panic("unexpected ConfirmWorkEvidence")
+}
+func (*baselineMCPStub) MaterializeMaintenance(context.Context, baselineapp.MaterializeMaintenanceCommand) ([]workdomain.Item, error) {
+	panic("unexpected MaterializeMaintenance")
+}
 func (*baselineMCPStub) MarkReady(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error) {
 	panic("unexpected MarkReady")
 }

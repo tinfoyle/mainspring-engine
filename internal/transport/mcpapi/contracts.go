@@ -67,6 +67,8 @@ type BaselineService interface {
 	SubmitPlan(context.Context, baselineapp.SubmitPlanCommand) (baselinedomain.Assessment, error)
 	ApprovePlan(context.Context, baselineapp.ApprovePlanCommand) (baselinedomain.Assessment, error)
 	MaterializePlan(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error)
+	ConfirmWorkEvidence(context.Context, baselineapp.ConfirmWorkEvidenceCommand) (baselinedomain.Assessment, error)
+	MaterializeMaintenance(context.Context, baselineapp.MaterializeMaintenanceCommand) ([]workdomain.Item, error)
 	MarkReady(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error)
 	Reassess(context.Context, baselineapp.ReassessCommand) (baselinedomain.Assessment, baselinedomain.Assessment, error)
 	GrantSource(context.Context, baselineapp.GrantSourceCommand) (baselinedomain.SourceGrant, error)

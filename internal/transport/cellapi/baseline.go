@@ -50,6 +50,13 @@ type baselinePlanApprovalRequest struct {
 	AssessmentVersion uint64             `json:"assessment_version"`
 }
 
+type baselineWorkEvidenceConfirmationRequest struct {
+	RequirementID ids.BaselineRequirementID `json:"requirement_id"`
+	WorkItemID    ids.WorkItemID            `json:"work_item_id"`
+	EvidenceID    ids.KnowledgeEvidenceID   `json:"evidence_id"`
+	Reason        string                    `json:"reason"`
+}
+
 type baselineSourceGrantRequest struct {
 	ConnectionID string                    `json:"connection_id"`
 	SourceKind   baselinedomain.SourceKind `json:"source_kind"`
@@ -199,6 +206,36 @@ func (s *Server) baselineMaterializePlan(w http.ResponseWriter, r *http.Request)
 	items, err := s.baseline.MaterializePlan(routecontext.WithClaims(r.Context(), claims), baselineapp.MaterializePlanCommand{AdvanceCommand: command, PlanID: body.PlanID, ContentSHA256: digest, AssessmentVersion: body.AssessmentVersion})
 	if err != nil {
 		s.writeBaselineError(w, "materialize plan", err)
+		return
+	}
+	output := make([]workItemResponse, 0, len(items))
+	for _, item := range items {
+		output = append(output, workItemView(item))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": output})
+}
+
+func (s *Server) baselineConfirmWorkEvidence(w http.ResponseWriter, r *http.Request) {
+	claims, command, ok := s.baselineAdvanceCommand(w, r)
+	if !ok {
+		return
+	}
+	var body baselineWorkEvidenceConfirmationRequest
+	if !decodeBaselineJSON(w, r, &body) {
+		return
+	}
+	assessment, err := s.baseline.ConfirmWorkEvidence(routecontext.WithClaims(r.Context(), claims), baselineapp.ConfirmWorkEvidenceCommand{AdvanceCommand: command, RequirementID: body.RequirementID, WorkItemID: body.WorkItemID, EvidenceID: body.EvidenceID, Reason: body.Reason})
+	s.writeBaselineResult(w, "confirm Work evidence", assessment, err)
+}
+
+func (s *Server) baselineMaterializeMaintenance(w http.ResponseWriter, r *http.Request) {
+	claims, command, ok := s.baselineAdvanceCommand(w, r)
+	if !ok || !decodeBaselineJSON(w, r, &struct{}{}) {
+		return
+	}
+	items, err := s.baseline.MaterializeMaintenance(routecontext.WithClaims(r.Context(), claims), baselineapp.MaterializeMaintenanceCommand{AdvanceCommand: command})
+	if err != nil {
+		s.writeBaselineError(w, "materialize maintenance", err)
 		return
 	}
 	output := make([]workItemResponse, 0, len(items))
@@ -481,6 +518,9 @@ func baselineAssessmentView(value baselinedomain.Assessment) map[string]any {
 			plan["approved_by_user_id"], plan["approved_at"] = value.Plan.ApprovedBy.UserID, value.Plan.ApprovedAt
 		}
 		result["plan"] = plan
+	}
+	if value.ReassessAt != nil {
+		result["reassess_at"] = value.ReassessAt
 	}
 	if value.SupersededBy != "" {
 		result["superseded_by_assessment_id"] = value.SupersededBy

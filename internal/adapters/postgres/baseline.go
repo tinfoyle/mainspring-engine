@@ -14,6 +14,7 @@ import (
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -125,6 +126,32 @@ func (r *BaselineRepository) ResolveEvidence(ctx context.Context, accountID ids.
 	return result, nil
 }
 
+func (r *BaselineRepository) ResolveWork(ctx context.Context, accountID ids.AccountID, workItemID ids.WorkItemID) (baselineapp.ResolvedWork, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(string(workItemID)) != nil {
+		return baselineapp.ResolvedWork{}, baselineapp.ErrInvalid
+	}
+	var result baselineapp.ResolvedWork
+	var requirementID *string
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		result.ID = workItemID
+		if err := tx.QueryRow(ctx, `SELECT state,baseline_requirement_id,completed_at FROM spyglass.work_items WHERE account_id=$1 AND id=$2`, accountID, workItemID).Scan(&result.State, &requirementID, &result.CompletedAt); errors.Is(err, pgx.ErrNoRows) {
+			return baselineapp.ErrNotFound
+		} else {
+			return err
+		}
+	})
+	if err != nil {
+		return baselineapp.ResolvedWork{}, classifyBaseline(err)
+	}
+	if requirementID != nil {
+		result.BaselineRequirementID = ids.BaselineRequirementID(*requirementID)
+	}
+	if !result.State.Valid() || (result.CompletedAt != nil) != (result.State == workdomain.StateDone) || (result.BaselineRequirementID != "" && ids.Validate(string(result.BaselineRequirementID)) != nil) {
+		return baselineapp.ResolvedWork{}, baselineapp.ErrRepository
+	}
+	return result, nil
+}
+
 func (r *BaselineRepository) Update(ctx context.Context, updated domain.Assessment, expected uint64, transition baselineapp.Transition, mutation baselineapp.Mutation) (domain.Assessment, error) {
 	updated, err := domain.RestoreAssessment(updated)
 	if err != nil || updated.Version != expected+1 || !transition.Valid() || !mutation.Valid() || !updated.UpdatedAt.Equal(mutation.At) {
@@ -144,8 +171,8 @@ func (r *BaselineRepository) Update(ctx context.Context, updated domain.Assessme
 		if err := persistBaselineChildren(ctx, tx, current, updated); err != nil {
 			return err
 		}
-		result, err := tx.Exec(ctx, `UPDATE spyglass.baseline_assessments SET state=$3,superseded_by_assessment_id=NULL,version=$4,updated_at=$5
-			WHERE account_id=$1 AND id=$2 AND version=$6`, updated.AccountID, updated.ID, updated.State, updated.Version, updated.UpdatedAt, expected)
+		result, err := tx.Exec(ctx, `UPDATE spyglass.baseline_assessments SET state=$3,reassess_at=$4,superseded_by_assessment_id=NULL,version=$5,updated_at=$6
+			WHERE account_id=$1 AND id=$2 AND version=$7`, updated.AccountID, updated.ID, updated.State, updated.ReassessAt, updated.Version, updated.UpdatedAt, expected)
 		if err != nil {
 			return err
 		}
@@ -201,12 +228,12 @@ func (r *BaselineRepository) Reassess(ctx context.Context, archived, next domain
 func loadBaselineAssessment(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, assessmentID ids.BaselineAssessmentID, lock bool) (domain.Assessment, error) {
 	var result domain.Assessment
 	var superseded *string
-	query := `SELECT account_id,id,catalog_version,scope_policy_version,state,created_by_user_id,superseded_by_assessment_id,version,created_at,updated_at
+	query := `SELECT account_id,id,catalog_version,scope_policy_version,state,created_by_user_id,reassess_at,superseded_by_assessment_id,version,created_at,updated_at
 		FROM spyglass.baseline_assessments WHERE account_id=$1 AND id=$2`
 	if lock {
 		query += ` FOR UPDATE`
 	}
-	err := tx.QueryRow(ctx, query, accountID, assessmentID).Scan(&result.AccountID, &result.ID, &result.CatalogVersion, &result.ScopePolicyVersion, &result.State, &result.CreatedBy.UserID, &superseded, &result.Version, &result.CreatedAt, &result.UpdatedAt)
+	err := tx.QueryRow(ctx, query, accountID, assessmentID).Scan(&result.AccountID, &result.ID, &result.CatalogVersion, &result.ScopePolicyVersion, &result.State, &result.CreatedBy.UserID, &result.ReassessAt, &superseded, &result.Version, &result.CreatedAt, &result.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Assessment{}, baselineapp.ErrNotFound
 	}
@@ -333,6 +360,28 @@ func loadBaselinePlan(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, a
 	if approvedBy != nil {
 		plan.ApprovedBy = &domain.Actor{UserID: ids.UserID(*approvedBy)}
 	}
+	rows, err := tx.Query(ctx, `SELECT requirement_id,title,description,responsibility_kind,responsible_user_id,responsible_persona_id
+		FROM spyglass.baseline_plan_work WHERE account_id=$1 AND plan_id=$2 ORDER BY sequence`, accountID, plan.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var item domain.PlannedWork
+		var userID, personaID *string
+		if err := rows.Scan(&item.RequirementID, &item.Title, &item.Description, &item.Responsibility.Kind, &userID, &personaID); err != nil {
+			return nil, err
+		}
+		if userID != nil {
+			item.Responsibility.ID = *userID
+		} else if personaID != nil {
+			item.Responsibility.ID = *personaID
+		}
+		plan.Work = append(plan.Work, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return &plan, nil
 }
 
@@ -397,6 +446,13 @@ func persistBaselineChildren(ctx context.Context, tx pgx.Tx, current, updated do
 		if err != nil {
 			return err
 		}
+		for sequence, item := range updated.Plan.Work {
+			userID, personaID := responsibilityColumns(item.Responsibility)
+			if _, err := tx.Exec(ctx, `INSERT INTO spyglass.baseline_plan_work(account_id,plan_id,sequence,assessment_id,requirement_id,title,description,responsibility_kind,responsible_user_id,responsible_persona_id)
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, updated.AccountID, updated.Plan.ID, sequence, updated.ID, item.RequirementID, item.Title, item.Description, item.Responsibility.Kind, userID, personaID); err != nil {
+				return err
+			}
+		}
 	} else if current.Plan != nil && updated.Plan != nil && current.Plan.ApprovedAt == nil && updated.Plan.ApprovedAt != nil {
 		result, err := tx.Exec(ctx, `UPDATE spyglass.baseline_plans SET approved_by_user_id=$4,approved_at=$5
 			WHERE account_id=$1 AND assessment_id=$2 AND id=$3 AND approved_at IS NULL`, updated.AccountID, updated.ID, updated.Plan.ID, updated.Plan.ApprovedBy.UserID, updated.Plan.ApprovedAt)
@@ -413,6 +469,12 @@ func persistBaselineChildren(ctx context.Context, tx pgx.Tx, current, updated do
 func validateBaselineTransition(current, updated domain.Assessment, transition baselineapp.Transition) error {
 	if !sameBaselineIdentity(current, updated) || updated.SupersededBy != "" {
 		return baselineapp.ErrConflict
+	}
+	if transition.EventType == "work_evidence_confirmed" {
+		if (current.State != domain.StateActive && current.State != domain.StateReady) || updated.State != current.State || transition.RequirementID == "" || requirementByID(updated.Requirements, transition.RequirementID) == nil {
+			return baselineapp.ErrConstraint
+		}
+		return nil
 	}
 	states := map[string][2]domain.AssessmentState{
 		"interview_answered":        {domain.StateInterview, domain.StateInterview},

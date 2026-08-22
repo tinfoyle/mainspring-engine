@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"hash"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type Assessment struct {
 	Answers      []InterviewAnswer
 	Requirements []Requirement
 	Plan         *PlanBinding
+	ReassessAt   *time.Time
 	SupersededBy ids.BaselineAssessmentID
 	Version      uint64
 	CreatedAt    time.Time
@@ -48,6 +50,13 @@ func RestoreAssessment(assessment Assessment) (Assessment, error) {
 	if assessment.Plan != nil {
 		value := assessment.Plan.normalized()
 		assessment.Plan = &value
+	}
+	if assessment.ReassessAt != nil {
+		value := assessment.ReassessAt.UTC()
+		assessment.ReassessAt = &value
+		if value.Before(assessment.CreatedAt) {
+			return Assessment{}, ErrInvalid
+		}
 	}
 	if ids.Validate(string(assessment.ID)) != nil || ids.Validate(string(assessment.AccountID)) != nil ||
 		!validVersionLabel(assessment.CatalogVersion) || !validVersionLabel(assessment.ScopePolicyVersion) || !assessment.CreatedBy.valid() ||
@@ -84,8 +93,11 @@ func RestoreAssessment(assessment Assessment) (Assessment, error) {
 		requirementCodes[requirement.Code] = struct{}{}
 	}
 	if assessment.Plan != nil {
-		expected, err := assessment.derivedPlanAt(assessment.Plan.ID, assessment.Plan.AssessmentVersion)
+		expected, err := assessment.derivedPlanFor(assessment.Plan.ID, assessment.Plan.AssessmentVersion, assessment.Plan.Work)
 		if err != nil || expected.ContentSHA256 != assessment.Plan.ContentSHA256 || expected.ProposedWorkCount != assessment.Plan.ProposedWorkCount {
+			return Assessment{}, ErrInvalid
+		}
+		if assessment.Version <= assessment.Plan.AssessmentVersion+2 && !reflect.DeepEqual(assessment.PlannedWork(), assessment.Plan.Work) {
 			return Assessment{}, ErrInvalid
 		}
 	}
@@ -98,15 +110,17 @@ func RestoreAssessment(assessment Assessment) (Assessment, error) {
 func validAssessmentStateShape(assessment Assessment) bool {
 	switch assessment.State {
 	case StateInterview:
-		return len(assessment.Requirements) == 0 && assessment.Plan == nil && assessment.SupersededBy == ""
+		return len(assessment.Requirements) == 0 && assessment.Plan == nil && assessment.ReassessAt == nil && assessment.SupersededBy == ""
 	case StateInventory:
-		return len(assessment.Answers) > 0 && len(assessment.Requirements) == 0 && assessment.Plan == nil && assessment.SupersededBy == ""
+		return len(assessment.Answers) > 0 && len(assessment.Requirements) == 0 && assessment.Plan == nil && assessment.ReassessAt == nil && assessment.SupersededBy == ""
 	case StateGapReview:
-		return len(assessment.Answers) > 0 && len(assessment.Requirements) > 0 && assessment.Plan == nil && assessment.SupersededBy == ""
+		return len(assessment.Answers) > 0 && len(assessment.Requirements) > 0 && assessment.Plan == nil && assessment.ReassessAt == nil && assessment.SupersededBy == ""
 	case StatePlanApproval:
-		return requirementsReviewed(assessment.Requirements) && assessment.Plan != nil && assessment.Plan.valid(false) && assessment.Plan.AssessmentVersion+1 == assessment.Version && assessment.SupersededBy == ""
-	case StateActive, StateReady:
-		return requirementsReviewed(assessment.Requirements) && assessment.Plan != nil && assessment.Plan.valid(true) && assessment.Plan.AssessmentVersion+2 <= assessment.Version && assessment.SupersededBy == ""
+		return requirementsReviewed(assessment.Requirements) && assessment.Plan != nil && assessment.Plan.valid(false) && assessment.Plan.AssessmentVersion+1 == assessment.Version && assessment.ReassessAt == nil && assessment.SupersededBy == ""
+	case StateActive:
+		return requirementsReviewed(assessment.Requirements) && assessment.Plan != nil && assessment.Plan.valid(true) && assessment.Plan.AssessmentVersion+2 <= assessment.Version && assessment.ReassessAt == nil && assessment.SupersededBy == ""
+	case StateReady:
+		return requirementsReviewed(assessment.Requirements) && assessment.Plan != nil && assessment.Plan.valid(true) && assessment.Plan.AssessmentVersion+2 <= assessment.Version && assessment.ReassessAt != nil && assessment.SupersededBy == ""
 	case StateArchived:
 		return ids.Validate(string(assessment.SupersededBy)) == nil && assessment.SupersededBy != assessment.ID
 	default:
@@ -353,10 +367,17 @@ func (assessment Assessment) derivedPlan(planID ids.BaselinePlanID) (PlanBinding
 }
 
 func (assessment Assessment) derivedPlanAt(planID ids.BaselinePlanID, assessmentVersion uint64) (PlanBinding, error) {
+	return assessment.derivedPlanFor(planID, assessmentVersion, assessment.PlannedWork())
+}
+
+func (assessment Assessment) derivedPlanFor(planID ids.BaselinePlanID, assessmentVersion uint64, work []PlannedWork) (PlanBinding, error) {
 	if ids.Validate(string(planID)) != nil {
 		return PlanBinding{}, ErrInvalid
 	}
-	work := assessment.PlannedWork()
+	frozen := make([]PlannedWork, len(work))
+	copy(frozen, work)
+	work = frozen
+	sort.Slice(work, func(left, right int) bool { return work[left].RequirementID < work[right].RequirementID })
 	digest := sha256.New()
 	for _, value := range []string{"spyglass-baseline-plan-v1", string(assessment.ID), string(assessment.AccountID), assessment.CatalogVersion, assessment.ScopePolicyVersion} {
 		writePlanValue(digest, value)
@@ -373,7 +394,7 @@ func (assessment Assessment) derivedPlanAt(planID ids.BaselinePlanID, assessment
 	}
 	var contentSHA256 [sha256.Size]byte
 	copy(contentSHA256[:], digest.Sum(nil))
-	return PlanBinding{ID: planID, AssessmentVersion: assessmentVersion, ContentSHA256: contentSHA256, ProposedWorkCount: uint16(len(work))}, nil
+	return PlanBinding{ID: planID, AssessmentVersion: assessmentVersion, ContentSHA256: contentSHA256, ProposedWorkCount: uint16(len(work)), Work: work}, nil
 }
 
 func writePlanValue(destination hash.Hash, value string) {
@@ -437,8 +458,65 @@ func (assessment Assessment) MarkReady(command MarkReadyCommand) (Assessment, er
 	}
 	result := assessment
 	result.State = StateReady
+	reassessAt := command.At.UTC().Add(ReassessmentInterval)
+	result.ReassessAt = &reassessAt
 	result.Version++
 	result.UpdatedAt = command.At.UTC()
+	return RestoreAssessment(result)
+}
+
+type ConfirmLinkedWorkCommand struct {
+	RequirementID   ids.BaselineRequirementID
+	WorkItemID      ids.WorkItemID
+	WorkCompletedAt time.Time
+	Decision        EvidenceDecision
+	Role            accounts.MembershipRole
+	ExpectedVersion uint64
+}
+
+// ConfirmLinkedWork closes the Baseline loop only after the application has
+// resolved an exact completed Work item whose immutable provenance names this
+// requirement. Work completion alone is not authoritative evidence.
+func (assessment Assessment) ConfirmLinkedWork(command ConfirmLinkedWorkCommand) (Assessment, error) {
+	if command.ExpectedVersion != assessment.Version {
+		return Assessment{}, ErrConflict
+	}
+	decision := command.Decision.normalized()
+	if (assessment.State != StateActive && assessment.State != StateReady) || ids.Validate(string(command.WorkItemID)) != nil ||
+		command.WorkCompletedAt.IsZero() || decision.Decision != EvidenceAccepted || !decision.valid() ||
+		decision.DecidedAt.Before(command.WorkCompletedAt.UTC()) || decision.DecidedAt.Before(assessment.UpdatedAt) {
+		return Assessment{}, ErrState
+	}
+	if !canParticipate(command.Role) {
+		return Assessment{}, ErrRole
+	}
+	result := assessment
+	result.Requirements = append([]Requirement(nil), assessment.Requirements...)
+	index := requirementIndex(result.Requirements, command.RequirementID)
+	if index < 0 || result.Requirements[index].Disposition == DispositionNotApplicable {
+		return Assessment{}, ErrState
+	}
+	requirement := result.Requirements[index]
+	requirement.Evidence = append([]EvidenceDecision(nil), requirement.Evidence...)
+	for _, existing := range requirement.Evidence {
+		if existing.EvidenceID == decision.EvidenceID {
+			return Assessment{}, ErrConflict
+		}
+	}
+	if len(requirement.Evidence) >= MaximumRequirementEvidence {
+		return Assessment{}, ErrInvalid
+	}
+	requirement.Evidence = append(requirement.Evidence, decision)
+	requirement.Disposition = DispositionSatisfied
+	requirement.Reason = ""
+	requirement.RenewAt = nil
+	if requirement.RenewAfterDays > 0 {
+		renewAt := decision.DecidedAt.Add(time.Duration(requirement.RenewAfterDays) * 24 * time.Hour)
+		requirement.RenewAt = &renewAt
+	}
+	result.Requirements[index] = requirement
+	result.Version++
+	result.UpdatedAt = decision.DecidedAt
 	return RestoreAssessment(result)
 }
 
@@ -489,6 +567,35 @@ func (assessment Assessment) RenewalDue(at time.Time) []ids.BaselineRequirementI
 			result = append(result, requirement.ID)
 		}
 	}
+	return result
+}
+
+// MaintenanceWork returns deterministic renewal and reassessment obligations
+// entering the fixed lead-time window. It never mutates the frozen plan.
+func (assessment Assessment) MaintenanceWork(at time.Time) []MaintenanceWork {
+	if at.IsZero() || (assessment.State != StateActive && assessment.State != StateReady) {
+		return nil
+	}
+	cutoff := at.UTC().Add(RenewalLeadTime)
+	result := make([]MaintenanceWork, 0)
+	for _, requirement := range assessment.Requirements {
+		if requirement.Disposition != DispositionSatisfied || requirement.RenewAt == nil || requirement.RenewAt.After(cutoff) {
+			continue
+		}
+		result = append(result, MaintenanceWork{Kind: MaintenanceRenewal, RequirementID: requirement.ID, Title: "Renew Baseline evidence: " + requirement.Title, Description: "Collect and review current evidence before this Baseline requirement expires.", Responsibility: requirement.Responsibility, DueAt: requirement.RenewAt.UTC()})
+	}
+	if assessment.State == StateReady && assessment.ReassessAt != nil && !assessment.ReassessAt.After(cutoff) {
+		result = append(result, MaintenanceWork{Kind: MaintenanceReassessment, Title: "Reassess the documented business baseline", Description: "Review changed operations, connected sources, expired evidence, and unresolved gaps; preserve provenance and create only changed follow-up Work.", Responsibility: Responsibility{Kind: ResponsibilityAccount}, DueAt: assessment.ReassessAt.UTC()})
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if !result[left].DueAt.Equal(result[right].DueAt) {
+			return result[left].DueAt.Before(result[right].DueAt)
+		}
+		if result[left].Kind != result[right].Kind {
+			return result[left].Kind < result[right].Kind
+		}
+		return result[left].RequirementID < result[right].RequirementID
+	})
 	return result
 }
 

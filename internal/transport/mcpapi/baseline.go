@@ -45,6 +45,7 @@ type baselineMutationInput struct {
 	Reason            string                                `json:"reason,omitempty"`
 	RequirementID     ids.BaselineRequirementID             `json:"requirement_id,omitempty"`
 	EvidenceID        ids.KnowledgeEvidenceID               `json:"evidence_id,omitempty"`
+	WorkItemID        ids.WorkItemID                        `json:"work_item_id,omitempty"`
 	EvidenceDecision  baselinedomain.EvidenceDecisionKind   `json:"evidence_decision,omitempty"`
 	Disposition       baselinedomain.RequirementDisposition `json:"disposition,omitempty"`
 	ContentSHA256     string                                `json:"content_sha256,omitempty"`
@@ -106,6 +107,7 @@ type baselineAssessmentOutput struct {
 	Version            uint64                         `json:"version"`
 	CreatedAt          time.Time                      `json:"created_at"`
 	UpdatedAt          time.Time                      `json:"updated_at"`
+	ReassessAt         *time.Time                     `json:"reassess_at,omitempty"`
 }
 
 type baselineMutationOutput struct {
@@ -192,7 +194,7 @@ func (s *Server) registerBaseline(server *mcp.Server, actor access.Actor) {
 		return nil, baselineAssessmentView(item), nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_baseline_mutate", Title: "Advance Baseline assessment", Description: "Apply one optimistic Baseline action: answer, begin_inventory, complete_inventory, decide_evidence, disposition, submit_plan, approve_plan, materialize_plan, mark_ready, or reassess.", Annotations: toolAnnotations(false, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input baselineMutationInput) (*mcp.CallToolResult, baselineMutationOutput, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_baseline_mutate", Title: "Advance Baseline assessment", Description: "Apply one optimistic Baseline action: answer, begin_inventory, complete_inventory, decide_evidence, disposition, submit_plan, approve_plan, materialize_plan, confirm_work_evidence, materialize_maintenance, mark_ready, or reassess.", Annotations: toolAnnotations(false, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input baselineMutationInput) (*mcp.CallToolResult, baselineMutationOutput, error) {
 		ctx, err := s.toolContext(ctx, actor, input.AccountID, mutation)
 		if err != nil {
 			return nil, baselineMutationOutput{}, err
@@ -232,6 +234,18 @@ func (s *Server) registerBaseline(server *mcp.Server, actor access.Actor) {
 				return nil, baselineMutationOutput{}, digestErr
 			}
 			items, materializeErr := s.baseline.MaterializePlan(ctx, baselineapp.MaterializePlanCommand{AdvanceCommand: advance, PlanID: input.PlanID, ContentSHA256: value, AssessmentVersion: input.AssessmentVersion})
+			if materializeErr != nil {
+				return nil, baselineMutationOutput{}, baselineError(materializeErr)
+			}
+			workItemIDs := make([]ids.WorkItemID, 0, len(items))
+			for _, value := range items {
+				workItemIDs = append(workItemIDs, value.ID)
+			}
+			return nil, baselineMutationOutput{WorkItemIDs: workItemIDs}, nil
+		case "confirm_work_evidence":
+			item, err = s.baseline.ConfirmWorkEvidence(ctx, baselineapp.ConfirmWorkEvidenceCommand{AdvanceCommand: advance, RequirementID: input.RequirementID, WorkItemID: input.WorkItemID, EvidenceID: input.EvidenceID, Reason: input.Reason})
+		case "materialize_maintenance":
+			items, materializeErr := s.baseline.MaterializeMaintenance(ctx, baselineapp.MaterializeMaintenanceCommand{AdvanceCommand: advance})
 			if materializeErr != nil {
 				return nil, baselineMutationOutput{}, baselineError(materializeErr)
 			}
@@ -312,7 +326,7 @@ func baselineSourceGrantView(grant baselinedomain.SourceGrant) baselineSourceGra
 }
 
 func baselineAssessmentView(value baselinedomain.Assessment) baselineAssessmentOutput {
-	output := baselineAssessmentOutput{ID: value.ID, AccountID: value.AccountID, CatalogVersion: value.CatalogVersion, ScopePolicyVersion: value.ScopePolicyVersion, State: value.State, Answers: make([]baselineAnswerOutput, 0, len(value.Answers)), Requirements: make([]baselineRequirementOutput, 0, len(value.Requirements)), SupersededBy: value.SupersededBy, CreatedBy: value.CreatedBy.UserID, Version: value.Version, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
+	output := baselineAssessmentOutput{ID: value.ID, AccountID: value.AccountID, CatalogVersion: value.CatalogVersion, ScopePolicyVersion: value.ScopePolicyVersion, State: value.State, Answers: make([]baselineAnswerOutput, 0, len(value.Answers)), Requirements: make([]baselineRequirementOutput, 0, len(value.Requirements)), ReassessAt: value.ReassessAt, SupersededBy: value.SupersededBy, CreatedBy: value.CreatedBy.UserID, Version: value.Version, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 	for _, answer := range value.Answers {
 		var fact *baselineFactInput
 		if answer.Fact != nil {

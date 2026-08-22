@@ -26,6 +26,7 @@ type Service struct {
 	work       WorkCreator
 	facts      FactResolver
 	evidence   EvidenceResolver
+	workItems  WorkResolver
 	sources    SourceGrantRepository
 }
 
@@ -57,6 +58,16 @@ func WithEvidenceResolver(resolver EvidenceResolver) Option {
 			return errors.New("Baseline Evidence resolver is required")
 		}
 		service.evidence = resolver
+		return nil
+	}
+}
+
+func WithWorkResolver(resolver WorkResolver) Option {
+	return func(service *Service) error {
+		if resolver == nil {
+			return errors.New("Baseline Work resolver is required")
+		}
+		service.workItems = resolver
 		return nil
 	}
 }
@@ -315,6 +326,38 @@ func (s *Service) MarkReady(ctx context.Context, command AdvanceCommand) (domain
 	}, Transition{EventType: "assessment_ready"})
 }
 
+type ConfirmWorkEvidenceCommand struct {
+	AdvanceCommand
+	RequirementID ids.BaselineRequirementID
+	WorkItemID    ids.WorkItemID
+	EvidenceID    ids.KnowledgeEvidenceID
+	Reason        string
+}
+
+func (s *Service) ConfirmWorkEvidence(ctx context.Context, command ConfirmWorkEvidenceCommand) (domain.Assessment, error) {
+	if s.evidence == nil || s.workItems == nil {
+		return domain.Assessment{}, ErrRepository
+	}
+	evidence, err := s.evidence.ResolveEvidence(ctx, command.AccountID, command.EvidenceID)
+	if err != nil {
+		return domain.Assessment{}, err
+	}
+	if evidence.ID != command.EvidenceID || !evidence.Kind.Valid() || evidence.Kind == knowledge.SourceAgentDerivation || evidence.Kind == knowledge.SourceIntegrationRecord {
+		return domain.Assessment{}, ErrConstraint
+	}
+	work, err := s.workItems.ResolveWork(ctx, command.AccountID, command.WorkItemID)
+	if err != nil {
+		return domain.Assessment{}, err
+	}
+	if work.ID != command.WorkItemID || work.State != workdomain.StateDone || work.CompletedAt == nil || work.BaselineRequirementID != command.RequirementID {
+		return domain.Assessment{}, ErrConstraint
+	}
+	transition := Transition{EventType: "work_evidence_confirmed", RequirementID: command.RequirementID}
+	return s.change(ctx, command.Actor, command.AccountID, command.AssessmentID, command.ExpectedVersion, command.CorrelationID, "work_evidence_confirmed", func(current domain.Assessment, actor domain.Actor, role accounts.MembershipRole, now time.Time) (domain.Assessment, error) {
+		return current.ConfirmLinkedWork(domain.ConfirmLinkedWorkCommand{RequirementID: command.RequirementID, WorkItemID: command.WorkItemID, WorkCompletedAt: *work.CompletedAt, Decision: domain.EvidenceDecision{EvidenceID: command.EvidenceID, Decision: domain.EvidenceAccepted, Reason: command.Reason, DecidedBy: actor, DecidedAt: now}, Role: role, ExpectedVersion: command.ExpectedVersion})
+	}, transition)
+}
+
 type MaterializePlanCommand struct {
 	AdvanceCommand
 	PlanID            ids.BaselinePlanID
@@ -348,7 +391,7 @@ func (s *Service) MaterializePlan(ctx context.Context, command MaterializePlanCo
 		assessment.Plan.ID != command.PlanID || assessment.Plan.ContentSHA256 != command.ContentSHA256 || assessment.Plan.AssessmentVersion != command.AssessmentVersion {
 		return nil, ErrConstraint
 	}
-	planned := assessment.PlannedWork()
+	planned := append([]domain.PlannedWork(nil), assessment.Plan.Work...)
 	if len(planned) != int(assessment.Plan.ProposedWorkCount) {
 		return nil, ErrRepository
 	}
@@ -363,6 +406,66 @@ func (s *Service) MaterializePlan(ctx context.Context, command MaterializePlanCo
 			return nil, ErrInvalid
 		}
 		item, createErr := s.work.Create(ctx, workapp.CreateCommand{Actor: command.Actor, AccountID: command.AccountID, RequestID: workID, Kind: workdomain.KindTodo, Title: proposal.Title, Description: proposal.Description, Priority: workdomain.PriorityNormal, Assignment: workAssignment(proposal.Responsibility), Provenance: workdomain.Provenance{Source: workdomain.SourceBaseline, CreatedBy: workdomain.Actor{Kind: workdomain.ActorUser, ID: string(actor.UserID)}, BaselineRequirementID: string(proposal.RequirementID)}, Reason: "Approved Baseline gap plan", CorrelationID: correlationID})
+		if createErr != nil {
+			if errors.Is(createErr, workapp.ErrConflict) {
+				return nil, ErrConflict
+			}
+			if errors.Is(createErr, workapp.ErrInvalidCommand) || errors.Is(createErr, workapp.ErrConstraint) {
+				return nil, ErrConstraint
+			}
+			return nil, createErr
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+type MaterializeMaintenanceCommand struct {
+	AdvanceCommand
+}
+
+// MaterializeMaintenance creates only obligations inside the governed 30-day
+// window. IDs include the immutable due instant, so retries and later renewal
+// cycles cannot duplicate one another.
+func (s *Service) MaterializeMaintenance(ctx context.Context, command MaterializeMaintenanceCommand) ([]workdomain.Item, error) {
+	accountContext, actor, err := s.authorize(ctx, command.Actor, command.AccountID, command.AssessmentID, command.CorrelationID, true)
+	if err != nil {
+		return nil, err
+	}
+	if !canManage(accountContext.Role) {
+		return nil, roleDenied()
+	}
+	if s.work == nil || command.ExpectedVersion == 0 {
+		return nil, ErrRepository
+	}
+	assessment, err := s.repository.Get(ctx, command.AccountID, command.AssessmentID)
+	if err != nil {
+		return nil, err
+	}
+	if assessment.Version != command.ExpectedVersion {
+		return nil, ErrConflict
+	}
+	now := s.clock.Now().UTC()
+	planned := assessment.MaintenanceWork(now)
+	result := make([]workdomain.Item, 0, len(planned))
+	for _, proposal := range planned {
+		key := string(proposal.Kind) + ":" + proposal.DueAt.UTC().Format(time.RFC3339Nano)
+		if proposal.RequirementID != "" {
+			key += ":" + string(proposal.RequirementID)
+		}
+		workID, deriveErr := ids.Derive(string(assessment.ID), "baseline-maintenance:"+key)
+		if deriveErr != nil {
+			return nil, ErrRepository
+		}
+		correlationID, deriveErr := ids.Derive(command.CorrelationID, "baseline-maintenance:"+key)
+		if deriveErr != nil {
+			return nil, ErrInvalid
+		}
+		priority := workdomain.PriorityHigh
+		if !now.Before(proposal.DueAt) {
+			priority = workdomain.PriorityUrgent
+		}
+		item, createErr := s.work.Create(ctx, workapp.CreateCommand{Actor: command.Actor, AccountID: command.AccountID, RequestID: workID, Kind: workdomain.KindTodo, Title: proposal.Title, Description: proposal.Description, Priority: priority, Assignment: workAssignment(proposal.Responsibility), Provenance: workdomain.Provenance{Source: workdomain.SourceBaseline, CreatedBy: workdomain.Actor{Kind: workdomain.ActorUser, ID: string(actor.UserID)}, BaselineRequirementID: string(proposal.RequirementID)}, DueAt: &proposal.DueAt, Reason: "Scheduled Baseline maintenance", CorrelationID: correlationID})
 		if createErr != nil {
 			if errors.Is(createErr, workapp.ErrConflict) {
 				return nil, ErrConflict

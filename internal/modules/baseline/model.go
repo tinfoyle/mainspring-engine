@@ -22,6 +22,8 @@ const (
 	MaximumAssessmentAnswers   = 256
 	MaximumRequirements        = 256
 	MaximumRequirementEvidence = 128
+	RenewalLeadTime            = 30 * 24 * time.Hour
+	ReassessmentInterval       = 90 * 24 * time.Hour
 )
 
 var (
@@ -258,6 +260,7 @@ type PlanBinding struct {
 	AssessmentVersion uint64
 	ContentSHA256     [sha256.Size]byte
 	ProposedWorkCount uint16
+	Work              []PlannedWork
 	ApprovedBy        *Actor
 	ApprovedAt        *time.Time
 }
@@ -269,7 +272,26 @@ type PlannedWork struct {
 	Responsibility Responsibility
 }
 
+type MaintenanceWorkKind string
+
+const (
+	MaintenanceRenewal      MaintenanceWorkKind = "renewal"
+	MaintenanceReassessment MaintenanceWorkKind = "reassessment"
+)
+
+type MaintenanceWork struct {
+	Kind           MaintenanceWorkKind
+	RequirementID  ids.BaselineRequirementID
+	Title          string
+	Description    string
+	Responsibility Responsibility
+	DueAt          time.Time
+}
+
 func (plan PlanBinding) normalized() PlanBinding {
+	work := make([]PlannedWork, len(plan.Work))
+	copy(work, plan.Work)
+	plan.Work = work
 	if plan.ApprovedBy != nil {
 		value := *plan.ApprovedBy
 		plan.ApprovedBy = &value
@@ -282,8 +304,20 @@ func (plan PlanBinding) normalized() PlanBinding {
 }
 
 func (plan PlanBinding) valid(approved bool) bool {
-	if ids.Validate(string(plan.ID)) != nil || plan.AssessmentVersion == 0 || plan.ContentSHA256 == ([sha256.Size]byte{}) || plan.ProposedWorkCount > MaximumRequirements {
+	if ids.Validate(string(plan.ID)) != nil || plan.AssessmentVersion == 0 || plan.ContentSHA256 == ([sha256.Size]byte{}) ||
+		plan.ProposedWorkCount > MaximumRequirements || len(plan.Work) != int(plan.ProposedWorkCount) {
 		return false
+	}
+	seen := make(map[ids.BaselineRequirementID]struct{}, len(plan.Work))
+	for _, item := range plan.Work {
+		if ids.Validate(string(item.RequirementID)) != nil || item.Title == "" || len(item.Title) > MaximumRequirementTitle ||
+			!validReason(item.Description) || !item.Responsibility.valid() {
+			return false
+		}
+		if _, exists := seen[item.RequirementID]; exists {
+			return false
+		}
+		seen[item.RequirementID] = struct{}{}
 	}
 	if approved {
 		return plan.ApprovedBy != nil && plan.ApprovedBy.valid() && plan.ApprovedAt != nil && !plan.ApprovedAt.IsZero()

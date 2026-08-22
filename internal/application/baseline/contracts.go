@@ -48,11 +48,11 @@ type Transition struct {
 
 func (transition Transition) Valid() bool {
 	switch transition.EventType {
-	case "interview_answered", "inventory_started", "inventory_completed", "evidence_decided", "requirement_dispositioned", "plan_submitted", "plan_approved", "assessment_ready":
+	case "interview_answered", "inventory_started", "inventory_completed", "evidence_decided", "requirement_dispositioned", "plan_submitted", "plan_approved", "assessment_ready", "work_evidence_confirmed":
 	default:
 		return false
 	}
-	if (transition.EventType == "evidence_decided" || transition.EventType == "requirement_dispositioned") != (transition.RequirementID != "") {
+	if (transition.EventType == "evidence_decided" || transition.EventType == "requirement_dispositioned" || transition.EventType == "work_evidence_confirmed") != (transition.RequirementID != "") {
 		return false
 	}
 	if transition.RequirementID != "" && ids.Validate(string(transition.RequirementID)) != nil {
@@ -94,6 +94,17 @@ type ResolvedEvidence struct {
 
 type EvidenceResolver interface {
 	ResolveEvidence(context.Context, ids.AccountID, ids.KnowledgeEvidenceID) (ResolvedEvidence, error)
+}
+
+type ResolvedWork struct {
+	ID                    ids.WorkItemID
+	State                 workdomain.State
+	BaselineRequirementID ids.BaselineRequirementID
+	CompletedAt           *time.Time
+}
+
+type WorkResolver interface {
+	ResolveWork(context.Context, ids.AccountID, ids.WorkItemID) (ResolvedWork, error)
 }
 
 type SourceGrantPage struct {

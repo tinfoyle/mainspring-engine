@@ -212,6 +212,8 @@ func TestBaselineRouteAllowlistMatchesCellSurface(t *testing.T) {
 		{http.MethodGet, "baseline-assessments/" + routerRequest, catalog.PackageKnowledge, false, true},
 		{http.MethodPost, "baseline-assessments/" + routerRequest + "/answers", catalog.PackageKnowledge, true, true},
 		{http.MethodPost, "baseline-assessments/" + routerRequest + "/reassessments", catalog.PackageKnowledge, true, true},
+		{http.MethodPost, "baseline-assessments/" + routerRequest + "/work-evidence-confirmations", catalog.PackageKnowledge, true, true},
+		{http.MethodPost, "baseline-assessments/" + routerRequest + "/maintenance-work-materializations", catalog.PackageKnowledge, true, true},
 		{http.MethodGet, "baseline-assessments/" + routerRequest + "/source-grants", catalog.PackageIntegrations, false, true},
 		{http.MethodPost, "baseline-assessments/" + routerRequest + "/source-grants", catalog.PackageIntegrations, true, true},
 		{http.MethodPost, "baseline-assessments/" + routerRequest + "/source-grants/" + routerRequest + "/revocations", catalog.PackageIntegrations, true, true},

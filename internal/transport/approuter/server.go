@@ -341,7 +341,7 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 		}
 		if len(parts) == 3 {
 			switch parts[2] {
-			case "answers", "inventory-starts", "inventories", "evidence-decisions", "dispositions", "plans", "plan-approvals", "work-materializations", "readiness", "reassessments":
+			case "answers", "inventory-starts", "inventories", "evidence-decisions", "dispositions", "plans", "plan-approvals", "work-materializations", "work-evidence-confirmations", "maintenance-work-materializations", "readiness", "reassessments":
 				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, method == http.MethodPost
 			}
 		}

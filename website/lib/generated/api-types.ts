@@ -458,6 +458,7 @@ export interface BaselineAssessment {
   readonly "created_by_user_id": string;
   readonly "id": string;
   readonly "plan"?: BaselinePlan;
+  readonly "reassess_at"?: string;
   readonly "requirements": ReadonlyArray<BaselineRequirement>;
   readonly "scope_policy_version": string;
   readonly "state": BaselineState;
@@ -661,6 +662,13 @@ export interface CompleteRecoveryRequest {
 export interface CompleteRegistrationRequest {
   readonly "password": string;
   readonly "token": string;
+}
+
+export interface ConfirmBaselineWorkEvidenceRequest {
+  readonly "evidence_id": string;
+  readonly "reason": string;
+  readonly "requirement_id": string;
+  readonly "work_item_id": string;
 }
 
 export interface ConsumeRecoveryCodeRequest {
@@ -1601,6 +1609,7 @@ export interface ApiSchemas {
   readonly CompletePasskeyRegistrationRequest: CompletePasskeyRegistrationRequest;
   readonly CompleteRecoveryRequest: CompleteRecoveryRequest;
   readonly CompleteRegistrationRequest: CompleteRegistrationRequest;
+  readonly ConfirmBaselineWorkEvidenceRequest: ConfirmBaselineWorkEvidenceRequest;
   readonly ConsumeRecoveryCodeRequest: ConsumeRecoveryCodeRequest;
   readonly ContactChangeAccepted: ContactChangeAccepted;
   readonly ContactChangeCompleted: ContactChangeCompleted;

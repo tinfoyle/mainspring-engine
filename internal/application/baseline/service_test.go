@@ -212,6 +212,72 @@ func TestServiceMaterializesApprovedGapPlanThroughDeterministicWorkCommands(t *t
 	}
 }
 
+func TestServiceConfirmsCompletedWorkEvidenceAndMaterializesMaintenance(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 22, 22, 0, 0, 0, time.UTC)
+	actor := domain.Actor{UserID: "d1000000-0000-4000-8000-000000000001"}
+	accessActor := access.Actor{UserID: actor.UserID}
+	accountID := ids.AccountID("d2000000-0000-4000-8000-000000000002")
+	assessmentID := ids.BaselineAssessmentID("d3000000-0000-4000-8000-000000000003")
+	requirementID := ids.BaselineRequirementID("d4000000-0000-4000-8000-000000000004")
+	planID := ids.BaselinePlanID("d5000000-0000-4000-8000-000000000005")
+	workID := ids.WorkItemID("d6000000-0000-4000-8000-000000000006")
+	evidenceID := ids.KnowledgeEvidenceID("d7000000-0000-4000-8000-000000000007")
+	assessment, err := domain.NewAssessment(domain.AssessmentDraft{ID: assessmentID, AccountID: accountID, CatalogVersion: "catalog-v1", ScopePolicyVersion: "scope-v1", CreatedBy: actor}, now)
+	if err == nil {
+		assessment, err = assessment.AnswerInterview(domain.AnswerInterviewCommand{Answer: domain.InterviewAnswer{QuestionKey: "organization.formation", Kind: domain.AnswerUnknown, Reason: "Formation record is missing", AnsweredBy: actor, AnsweredAt: now.Add(time.Minute)}, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version})
+	}
+	if err == nil {
+		assessment, err = assessment.BeginInventory(domain.BeginInventoryCommand{Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(2 * time.Minute)})
+	}
+	if err == nil {
+		assessment, err = assessment.CompleteInventory(domain.CompleteInventoryCommand{Requirements: []domain.RequirementDraft{{ID: requirementID, Code: "legal.formation", Title: "Obtain formation record", Responsibility: domain.Responsibility{Kind: domain.ResponsibilityAccount}, RenewAfterDays: 30, CatalogVersion: "catalog-v1", ScopePolicyVersion: "scope-v1"}}, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(3 * time.Minute)})
+	}
+	if err == nil {
+		assessment, err = assessment.DispositionRequirement(domain.DispositionRequirementCommand{RequirementID: requirementID, Disposition: domain.DispositionGap, Reason: "Formation record is not available", Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(4 * time.Minute)})
+	}
+	if err == nil {
+		assessment, err = assessment.SubmitPlan(domain.SubmitPlanCommand{PlanID: planID, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(5 * time.Minute)})
+	}
+	if err == nil {
+		assessment, err = assessment.ApprovePlan(domain.ApprovePlanCommand{PlanID: planID, PlanSHA256: assessment.Plan.ContentSHA256, AssessmentVersion: assessment.Plan.AssessmentVersion, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(6 * time.Minute)})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	completedAt := now.Add(7 * time.Minute)
+	clock := &baselineClock{now: now.Add(8 * time.Minute)}
+	repository := &baselineRepository{items: map[ids.BaselineAssessmentID]domain.Assessment{assessmentID: assessment}}
+	creator := &baselineWorkCreator{now: clock.now}
+	workResolver := &baselineWorkResolver{values: map[ids.WorkItemID]ResolvedWork{workID: {ID: workID, State: workdomain.StateDone, BaselineRequirementID: requirementID, CompletedAt: &completedAt}}}
+	evidenceResolver := &baselineEvidenceResolver{values: map[ids.KnowledgeEvidenceID]knowledge.SourceKind{evidenceID: knowledge.SourceOwnerStatement}}
+	service, err := New(&baselineAuthorizer{role: accounts.RoleOwner}, repository, clock, WithWorkCreator(creator), WithWorkResolver(workResolver), WithEvidenceResolver(evidenceResolver))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment, err = service.ConfirmWorkEvidence(ctx, ConfirmWorkEvidenceCommand{AdvanceCommand: AdvanceCommand{Actor: accessActor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "d8000000-0000-4000-8000-000000000008"}, RequirementID: requirementID, WorkItemID: workID, EvidenceID: evidenceID, Reason: "Completed Work produced the filed record"})
+	if err != nil || assessment.Requirements[0].Disposition != domain.DispositionSatisfied || repository.events[len(repository.events)-1] != "work_evidence_confirmed" {
+		t.Fatalf("confirmation=%+v events=%v err=%v", assessment, repository.events, err)
+	}
+	clock.advance()
+	assessment, err = service.MarkReady(ctx, AdvanceCommand{Actor: accessActor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "d9000000-0000-4000-8000-000000000009"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.advance()
+	items, err := service.MaterializeMaintenance(ctx, MaterializeMaintenanceCommand{AdvanceCommand: AdvanceCommand{Actor: accessActor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "da000000-0000-4000-8000-00000000000a"}})
+	if err != nil || len(items) != 1 || len(creator.commands) != 1 {
+		t.Fatalf("maintenance=%+v commands=%+v err=%v", items, creator.commands, err)
+	}
+	command := creator.commands[0]
+	if command.Provenance.BaselineRequirementID != string(requirementID) || command.DueAt == nil || !command.DueAt.Equal(*assessment.Requirements[0].RenewAt) || command.Priority != workdomain.PriorityHigh {
+		t.Fatalf("maintenance command=%+v", command)
+	}
+	if _, err := service.MaterializeMaintenance(ctx, MaterializeMaintenanceCommand{AdvanceCommand: AdvanceCommand{Actor: accessActor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "da000000-0000-4000-8000-00000000000a"}}); err != nil || creator.commands[1].RequestID != command.RequestID {
+		t.Fatalf("maintenance replay=%+v err=%v", creator.commands, err)
+	}
+}
+
 type baselineClock struct{ now time.Time }
 
 type baselineFactResolver struct {
@@ -220,6 +286,18 @@ type baselineFactResolver struct {
 
 type baselineEvidenceResolver struct {
 	values map[ids.KnowledgeEvidenceID]knowledge.SourceKind
+}
+
+type baselineWorkResolver struct {
+	values map[ids.WorkItemID]ResolvedWork
+}
+
+func (resolver *baselineWorkResolver) ResolveWork(_ context.Context, _ ids.AccountID, workItemID ids.WorkItemID) (ResolvedWork, error) {
+	value, exists := resolver.values[workItemID]
+	if !exists {
+		return ResolvedWork{}, ErrNotFound
+	}
+	return value, nil
 }
 
 func (resolver *baselineEvidenceResolver) ResolveEvidence(_ context.Context, _ ids.AccountID, evidenceID ids.KnowledgeEvidenceID) (ResolvedEvidence, error) {
@@ -304,7 +382,7 @@ type baselineWorkCreator struct {
 
 func (creator *baselineWorkCreator) Create(_ context.Context, command workapp.CreateCommand) (workdomain.Item, error) {
 	creator.commands = append(creator.commands, command)
-	draft, err := workdomain.NewDraft(workdomain.Draft{ID: ids.WorkItemID(command.RequestID), AccountID: command.AccountID, Kind: command.Kind, Title: command.Title, Description: command.Description, Priority: command.Priority, Assignment: command.Assignment, Provenance: command.Provenance, CapacityReservationID: command.RequestID})
+	draft, err := workdomain.NewDraft(workdomain.Draft{ID: ids.WorkItemID(command.RequestID), AccountID: command.AccountID, Kind: command.Kind, Title: command.Title, Description: command.Description, Priority: command.Priority, Assignment: command.Assignment, Provenance: command.Provenance, DueAt: command.DueAt, CapacityReservationID: command.RequestID})
 	if err != nil {
 		return workdomain.Item{}, err
 	}

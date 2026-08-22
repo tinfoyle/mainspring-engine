@@ -23,6 +23,8 @@ type baselineServiceStub struct {
 	get          func(context.Context, access.Actor, ids.AccountID, ids.BaselineAssessmentID) (baselinedomain.Assessment, error)
 	answer       func(context.Context, baselineapp.AnswerCommand) (baselinedomain.Assessment, error)
 	materialize  func(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error)
+	confirmWork  func(context.Context, baselineapp.ConfirmWorkEvidenceCommand) (baselinedomain.Assessment, error)
+	maintenance  func(context.Context, baselineapp.MaterializeMaintenanceCommand) ([]workdomain.Item, error)
 	grantSource  func(context.Context, baselineapp.GrantSourceCommand) (baselinedomain.SourceGrant, error)
 	listSources  func(context.Context, baselineapp.ListSourceGrantsQuery) (baselineapp.SourceGrantPage, error)
 	revokeSource func(context.Context, baselineapp.RevokeSourceCommand) (baselinedomain.SourceGrant, error)
@@ -57,6 +59,12 @@ func (stub baselineServiceStub) ApprovePlan(context.Context, baselineapp.Approve
 }
 func (stub baselineServiceStub) MaterializePlan(ctx context.Context, command baselineapp.MaterializePlanCommand) ([]workdomain.Item, error) {
 	return stub.materialize(ctx, command)
+}
+func (stub baselineServiceStub) ConfirmWorkEvidence(ctx context.Context, command baselineapp.ConfirmWorkEvidenceCommand) (baselinedomain.Assessment, error) {
+	return stub.confirmWork(ctx, command)
+}
+func (stub baselineServiceStub) MaterializeMaintenance(ctx context.Context, command baselineapp.MaterializeMaintenanceCommand) ([]workdomain.Item, error) {
+	return stub.maintenance(ctx, command)
 }
 func (stub baselineServiceStub) MarkReady(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error) {
 	panic("unexpected MarkReady")
@@ -150,6 +158,36 @@ func TestBaselineMaterializationBindsApprovedPlanAndReturnsWork(t *testing.T) {
 	response := attentionMutation(t, newBaselineServer(t, service).Handler(), http.MethodPost, path, body, attentionOperation, `W/"8"`)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"number":42`) || !strings.Contains(response.Body.String(), `"source":"baseline"`) {
 		t.Fatalf("response=%d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestBaselineWorkEvidenceAndMaintenanceCommandsAreVersionBound(t *testing.T) {
+	workID := ids.WorkItemID("f1000000-0000-4000-8000-000000000001")
+	requirementID := ids.BaselineRequirementID("f2000000-0000-4000-8000-000000000002")
+	evidenceID := ids.KnowledgeEvidenceID("f3000000-0000-4000-8000-000000000003")
+	service := baselineServiceStub{
+		confirmWork: func(_ context.Context, command baselineapp.ConfirmWorkEvidenceCommand) (baselinedomain.Assessment, error) {
+			if command.ExpectedVersion != 11 || command.RequirementID != requirementID || command.WorkItemID != workID || command.EvidenceID != evidenceID || command.Reason != "Filed record reviewed after completion" {
+				t.Fatalf("confirmation command=%+v", command)
+			}
+			return baselinedomain.Assessment{Version: 12}, nil
+		},
+		maintenance: func(_ context.Context, command baselineapp.MaterializeMaintenanceCommand) ([]workdomain.Item, error) {
+			if command.ExpectedVersion != 12 {
+				t.Fatalf("maintenance command=%+v", command)
+			}
+			return []workdomain.Item{}, nil
+		},
+	}
+	server := newBaselineServer(t, service).Handler()
+	confirmationBody := `{"requirement_id":"` + string(requirementID) + `","work_item_id":"` + string(workID) + `","evidence_id":"` + string(evidenceID) + `","reason":"Filed record reviewed after completion"}`
+	response := attentionMutation(t, server, http.MethodPost, "/api/v1/accounts/"+attentionAccount+"/baseline-assessments/f4000000-0000-4000-8000-000000000004/work-evidence-confirmations", confirmationBody, attentionOperation, `W/"11"`)
+	if response.Code != http.StatusOK || response.Header().Get("ETag") != `W/"12"` {
+		t.Fatalf("confirmation status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+	response = attentionMutation(t, server, http.MethodPost, "/api/v1/accounts/"+attentionAccount+"/baseline-assessments/f4000000-0000-4000-8000-000000000004/maintenance-work-materializations", `{}`, attentionOperation, `W/"12"`)
+	if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != `{"items":[]}` {
+		t.Fatalf("maintenance status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 

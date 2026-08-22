@@ -11,8 +11,10 @@ import (
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
+	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
@@ -108,8 +110,8 @@ func TestBaselineRepositoryPersistsIsolatedImmutableLifecycle(t *testing.T) {
 	assessment = persistBaselineUpdate(t, ctx, repository, assessment, previous.Version, baselineapp.Transition{EventType: "inventory_completed"}, mutation(4, "inventory_completed"), err)
 	now = now.Add(time.Second)
 	previous = assessment
-	assessment, err = assessment.DecideEvidence(baselinedomain.DecideEvidenceCommand{RequirementID: requirementID, Decision: baselinedomain.EvidenceDecision{EvidenceID: evidenceID, Decision: baselinedomain.EvidenceAccepted, Reason: "Current verified formation record", DecidedBy: actor, DecidedAt: now}, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version})
-	assessment = persistBaselineUpdate(t, ctx, repository, assessment, previous.Version, baselineapp.Transition{EventType: "evidence_decided", RequirementID: requirementID}, mutation(5, "evidence_reviewed"), err)
+	assessment, err = assessment.DispositionRequirement(baselinedomain.DispositionRequirementCommand{RequirementID: requirementID, Disposition: baselinedomain.DispositionGap, Reason: "Current formation record must be obtained", Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now})
+	assessment = persistBaselineUpdate(t, ctx, repository, assessment, previous.Version, baselineapp.Transition{EventType: "requirement_dispositioned", RequirementID: requirementID}, mutation(5, "gap_recorded"), err)
 	now = now.Add(time.Second)
 	previous = assessment
 	assessment, err = assessment.SubmitPlan(baselinedomain.SubmitPlanCommand{PlanID: planID, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now})
@@ -119,13 +121,55 @@ func TestBaselineRepositoryPersistsIsolatedImmutableLifecycle(t *testing.T) {
 	previous = assessment
 	assessment, err = assessment.ApprovePlan(baselinedomain.ApprovePlanCommand{PlanID: planID, PlanSHA256: digest, AssessmentVersion: assessment.Plan.AssessmentVersion, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now})
 	assessment = persistBaselineUpdate(t, ctx, repository, assessment, previous.Version, baselineapp.Transition{EventType: "plan_approved", PlanID: planID}, mutation(7, "plan_approved"), err)
+	workRepository, err := postgresadapter.NewWorkRepository(cell, ids.RandomGenerator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workItemID := ids.WorkItemID("dd000000-0000-4000-8000-000000000001")
+	workActor := workdomain.Actor{Kind: workdomain.ActorUser, ID: string(userID)}
+	workDraft, err := workdomain.NewDraft(workdomain.Draft{ID: workItemID, AccountID: accountID, Kind: workdomain.KindTodo, Title: "Verify formation", Description: "Current formation record must be obtained", Priority: workdomain.PriorityNormal, Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared}, Provenance: workdomain.Provenance{Source: workdomain.SourceBaseline, CreatedBy: workActor, BaselineRequirementID: string(requirementID)}, CapacityReservationID: string(workItemID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	workItem, err := workRepository.Create(ctx, workDraft, workapp.Mutation{Kind: workapp.MutationCreated, Actor: workActor, Reason: "Approved Baseline gap plan", CorrelationID: "dd000000-0000-4000-8000-000000000002", At: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	startedWork, err := workItem.Transition(workdomain.TransitionCommand{To: workdomain.StateInProgress, Role: accounts.RoleOwner, Actor: workActor, ExpectedVersion: workItem.Version, At: now})
+	if err == nil {
+		startedWork, err = workRepository.Update(ctx, startedWork, workItem.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: workActor, Reason: "Formation verification started", CorrelationID: "dd000000-0000-4000-8000-000000000003", At: now})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	completedWork, err := startedWork.Transition(workdomain.TransitionCommand{To: workdomain.StateDone, Role: accounts.RoleOwner, Actor: workActor, ExpectedVersion: startedWork.Version, At: now})
+	if err == nil {
+		completedWork, err = workRepository.Update(ctx, completedWork, startedWork.Version, workapp.Mutation{Kind: workapp.MutationTransitioned, Actor: workActor, Reason: "Formation evidence collected", CorrelationID: "dd000000-0000-4000-8000-000000000004", At: now})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedWork, err := repository.ResolveWork(ctx, accountID, workItemID)
+	if err != nil || resolvedWork.State != workdomain.StateDone || resolvedWork.BaselineRequirementID != requirementID || resolvedWork.CompletedAt == nil {
+		t.Fatalf("resolved Work=%+v err=%v", resolvedWork, err)
+	}
+	if _, err := repository.ResolveWork(ctx, otherAccountID, workItemID); !errors.Is(err, baselineapp.ErrNotFound) {
+		t.Fatalf("cross-account Work resolution error=%v", err)
+	}
+	now = now.Add(time.Second)
+	previous = assessment
+	assessment, err = assessment.ConfirmLinkedWork(baselinedomain.ConfirmLinkedWorkCommand{RequirementID: requirementID, WorkItemID: workItemID, WorkCompletedAt: *completedWork.CompletedAt, Decision: baselinedomain.EvidenceDecision{EvidenceID: evidenceID, Decision: baselinedomain.EvidenceAccepted, Reason: "Completed Work produced a current verified formation record", DecidedBy: actor, DecidedAt: now}, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version})
+	assessment = persistBaselineUpdate(t, ctx, repository, assessment, previous.Version, baselineapp.Transition{EventType: "work_evidence_confirmed", RequirementID: requirementID}, mutation(8, "work_evidence_confirmed"), err)
 	now = now.Add(time.Second)
 	previous = assessment
 	assessment, err = assessment.MarkReady(baselinedomain.MarkReadyCommand{Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now})
-	assessment = persistBaselineUpdate(t, ctx, repository, assessment, previous.Version, baselineapp.Transition{EventType: "assessment_ready"}, mutation(8, "assessment_ready"), err)
+	assessment = persistBaselineUpdate(t, ctx, repository, assessment, previous.Version, baselineapp.Transition{EventType: "assessment_ready"}, mutation(12, "assessment_ready"), err)
 
 	loaded, err := repository.Get(ctx, accountID, assessmentID)
-	if err != nil || loaded.State != baselinedomain.StateReady || loaded.Version != assessment.Version || len(loaded.Requirements) != 1 || len(loaded.Requirements[0].Evidence) != 1 || loaded.Plan == nil || loaded.Plan.ApprovedAt == nil {
+	if err != nil || loaded.State != baselinedomain.StateReady || loaded.Version != assessment.Version || len(loaded.Requirements) != 1 || len(loaded.Requirements[0].Evidence) != 1 || loaded.Plan == nil || loaded.Plan.ApprovedAt == nil || len(loaded.Plan.Work) != 1 || loaded.ReassessAt == nil {
 		t.Fatalf("loaded=%+v err=%v", loaded, err)
 	}
 	if _, err := repository.Get(ctx, otherAccountID, assessmentID); !errors.Is(err, baselineapp.ErrNotFound) {
@@ -133,7 +177,7 @@ func TestBaselineRepositoryPersistsIsolatedImmutableLifecycle(t *testing.T) {
 	}
 	var eventCount int
 	var payloads string
-	if err := owner.QueryRow(ctx, `SELECT count(*),string_agg(redacted_payload::text,' ') FROM spyglass.baseline_events WHERE account_id=$1 AND assessment_id=$2`, accountID, assessmentID).Scan(&eventCount, &payloads); err != nil || eventCount != 8 {
+	if err := owner.QueryRow(ctx, `SELECT count(*),string_agg(redacted_payload::text,' ') FROM spyglass.baseline_events WHERE account_id=$1 AND assessment_id=$2`, accountID, assessmentID).Scan(&eventCount, &payloads); err != nil || eventCount != 9 {
 		t.Fatalf("events=%d payloads=%q err=%v", eventCount, payloads, err)
 	}
 	if strings.Contains(payloads, "Current verified formation record") || strings.Contains(payloads, "organization.legal_name") {
@@ -141,6 +185,9 @@ func TestBaselineRepositoryPersistsIsolatedImmutableLifecycle(t *testing.T) {
 	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.baseline_evidence_decisions SET reason='changed' WHERE account_id=$1 AND requirement_id=$2`, accountID, requirementID); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("evidence decision update=%v", err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.baseline_plan_work SET title='changed' WHERE account_id=$1 AND plan_id=$2`, accountID, planID); err == nil || !strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("plan Work update=%v", err)
 	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.baseline_interview_answers SET answered_at=answered_at WHERE account_id=$1 AND assessment_id=$2`, accountID, assessmentID); err == nil || !strings.Contains(err.Error(), "frozen") {
 		t.Fatalf("frozen interview update=%v", err)

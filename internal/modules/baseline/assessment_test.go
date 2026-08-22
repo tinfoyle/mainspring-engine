@@ -18,6 +18,7 @@ const (
 	testRequirement  ids.BaselineRequirementID = "b5000000-0000-4000-8000-000000000005"
 	testEvidenceID   ids.KnowledgeEvidenceID   = "b6000000-0000-4000-8000-000000000006"
 	testPlanID       ids.BaselinePlanID        = "b7000000-0000-4000-8000-000000000007"
+	testWorkItemID   ids.WorkItemID            = "ba000000-0000-4000-8000-00000000000a"
 )
 
 func TestAssessmentLifecycleFreezesEvidenceAndPlanVersions(t *testing.T) {
@@ -121,7 +122,46 @@ func TestAssessmentEvidenceDecisionsAreImmutableByEvidenceIdentity(t *testing.T)
 	}
 }
 
+func TestLinkedWorkEvidenceSchedulesRenewalAndReassessment(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	assessment, actor := assessmentAtGapReviewWithRenewal(t, now, 30)
+	assessment, err := assessment.DispositionRequirement(DispositionRequirementCommand{RequirementID: testRequirement, Disposition: DispositionGap, Reason: "Formation record must be obtained", Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(4 * time.Minute)})
+	if err == nil {
+		assessment, err = assessment.SubmitPlan(SubmitPlanCommand{PlanID: testPlanID, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(5 * time.Minute)})
+	}
+	if err == nil {
+		assessment, err = assessment.ApprovePlan(ApprovePlanCommand{PlanID: testPlanID, PlanSHA256: assessment.Plan.ContentSHA256, AssessmentVersion: assessment.Plan.AssessmentVersion, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(6 * time.Minute)})
+	}
+	completedAt := now.Add(7 * time.Minute)
+	decidedAt := now.Add(8 * time.Minute)
+	if err == nil {
+		assessment, err = assessment.ConfirmLinkedWork(ConfirmLinkedWorkCommand{RequirementID: testRequirement, WorkItemID: testWorkItemID, WorkCompletedAt: completedAt, Decision: EvidenceDecision{EvidenceID: testEvidenceID, Decision: EvidenceAccepted, Reason: "Completed Work produced a current filed record", DecidedBy: actor, DecidedAt: decidedAt}, Role: accounts.RoleMember, ExpectedVersion: assessment.Version})
+	}
+	if err != nil || assessment.Requirements[0].Disposition != DispositionSatisfied || assessment.Requirements[0].RenewAt == nil || !assessment.Requirements[0].RenewAt.Equal(decidedAt.Add(30*24*time.Hour)) {
+		t.Fatalf("confirmation=%+v err=%v", assessment, err)
+	}
+	if _, err := assessment.ConfirmLinkedWork(ConfirmLinkedWorkCommand{RequirementID: testRequirement, WorkItemID: testWorkItemID, WorkCompletedAt: completedAt, Decision: EvidenceDecision{EvidenceID: testEvidenceID, Decision: EvidenceAccepted, Reason: "Duplicate evidence must not replace history", DecidedBy: actor, DecidedAt: decidedAt.Add(time.Minute)}, Role: accounts.RoleMember, ExpectedVersion: assessment.Version}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate linked evidence=%v", err)
+	}
+	assessment, err = assessment.MarkReady(MarkReadyCommand{Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(9 * time.Minute)})
+	if err != nil || assessment.ReassessAt == nil || !assessment.ReassessAt.Equal(now.Add(9*time.Minute+ReassessmentInterval)) {
+		t.Fatalf("ready schedule=%+v err=%v", assessment, err)
+	}
+	maintenance := assessment.MaintenanceWork(now.Add(24 * time.Hour))
+	if len(maintenance) != 1 || maintenance[0].Kind != MaintenanceRenewal || maintenance[0].RequirementID != testRequirement || !maintenance[0].DueAt.Equal(*assessment.Requirements[0].RenewAt) {
+		t.Fatalf("renewal maintenance=%+v", maintenance)
+	}
+	maintenance = assessment.MaintenanceWork(now.Add(61 * 24 * time.Hour))
+	if len(maintenance) != 2 || maintenance[1].Kind != MaintenanceReassessment || !maintenance[1].DueAt.Equal(*assessment.ReassessAt) {
+		t.Fatalf("reassessment maintenance=%+v", maintenance)
+	}
+}
+
 func assessmentAtGapReview(t *testing.T, now time.Time) (Assessment, Actor) {
+	return assessmentAtGapReviewWithRenewal(t, now, 0)
+}
+
+func assessmentAtGapReviewWithRenewal(t *testing.T, now time.Time, renewAfterDays uint16) (Assessment, Actor) {
 	t.Helper()
 	actor := Actor{UserID: testUserID}
 	assessment, err := NewAssessment(AssessmentDraft{ID: testAssessmentID, AccountID: testAccountID, CatalogVersion: "catalog-v1", ScopePolicyVersion: "scope-v1", CreatedBy: actor}, now)
@@ -136,7 +176,7 @@ func assessmentAtGapReview(t *testing.T, now time.Time) (Assessment, Actor) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assessment, err = assessment.CompleteInventory(CompleteInventoryCommand{Actor: actor, Role: accounts.RoleMember, ExpectedVersion: assessment.Version, At: now.Add(3 * time.Minute), Requirements: []RequirementDraft{{ID: testRequirement, Code: "legal.formation", Title: "Confirm formation", Responsibility: Responsibility{Kind: ResponsibilityAccount}, CatalogVersion: "catalog-v1", ScopePolicyVersion: "scope-v1"}}})
+	assessment, err = assessment.CompleteInventory(CompleteInventoryCommand{Actor: actor, Role: accounts.RoleMember, ExpectedVersion: assessment.Version, At: now.Add(3 * time.Minute), Requirements: []RequirementDraft{{ID: testRequirement, Code: "legal.formation", Title: "Confirm formation", Responsibility: Responsibility{Kind: ResponsibilityAccount}, RenewAfterDays: renewAfterDays, CatalogVersion: "catalog-v1", ScopePolicyVersion: "scope-v1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
