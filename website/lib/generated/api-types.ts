@@ -507,14 +507,6 @@ export interface BaselineRequirement {
   readonly "title": string;
 }
 
-export interface BaselineRequirementInput {
-  readonly "code": string;
-  readonly "id": string;
-  readonly "renew_after_days": number;
-  readonly "responsibility": BaselineResponsibility;
-  readonly "title": string;
-}
-
 export interface BaselineResponsibility {
   readonly "id"?: string;
   readonly "kind": "account" | "user" | "persona";
@@ -613,10 +605,6 @@ export interface ChangeMembershipRoleRequest {
 export interface ChangeMembershipStateRequest {
   readonly "expected_version": number;
   readonly "reason": string;
-}
-
-export interface CompleteBaselineInventoryRequest {
-  readonly "requirements": ReadonlyArray<BaselineRequirementInput>;
 }
 
 export interface CompleteContactChangeRequest {
@@ -1187,11 +1175,6 @@ export interface PublishKnowledgeDocumentRequest {
   readonly "revision_id": string;
 }
 
-export interface ReassessBaselineRequest {
-  readonly "catalog_version": string;
-  readonly "scope_policy_version": string;
-}
-
 export interface ReauthenticateRequest {
   readonly "password": string;
 }
@@ -1291,11 +1274,6 @@ export interface StartAgentRunRequest {
   readonly "persona_ids": ReadonlyArray<string>;
   readonly "prompt": string;
   readonly "subject"?: string;
-}
-
-export interface StartBaselineRequest {
-  readonly "catalog_version": string;
-  readonly "scope_policy_version": string;
 }
 
 export type StripeEvent = Readonly<Record<string, unknown>>;
@@ -1556,7 +1534,6 @@ export interface ApiSchemas {
   readonly BaselinePlan: BaselinePlan;
   readonly BaselineReassessment: BaselineReassessment;
   readonly BaselineRequirement: BaselineRequirement;
-  readonly BaselineRequirementInput: BaselineRequirementInput;
   readonly BaselineResponsibility: BaselineResponsibility;
   readonly BaselineState: BaselineState;
   readonly BeginContactChangeRequest: BeginContactChangeRequest;
@@ -1574,7 +1551,6 @@ export interface ApiSchemas {
   readonly ChangeAccountClosureRequest: ChangeAccountClosureRequest;
   readonly ChangeMembershipRoleRequest: ChangeMembershipRoleRequest;
   readonly ChangeMembershipStateRequest: ChangeMembershipStateRequest;
-  readonly CompleteBaselineInventoryRequest: CompleteBaselineInventoryRequest;
   readonly CompleteContactChangeRequest: CompleteContactChangeRequest;
   readonly CompletePasskeyLoginRequest: CompletePasskeyLoginRequest;
   readonly CompletePasskeyReauthenticationRequest: CompletePasskeyReauthenticationRequest;
@@ -1659,7 +1635,6 @@ export interface ApiSchemas {
   readonly PublicCatalog: PublicCatalog;
   readonly PublishAgentPersonaRequest: PublishAgentPersonaRequest;
   readonly PublishKnowledgeDocumentRequest: PublishKnowledgeDocumentRequest;
-  readonly ReassessBaselineRequest: ReassessBaselineRequest;
   readonly ReauthenticateRequest: ReauthenticateRequest;
   readonly RecoveryAccepted: RecoveryAccepted;
   readonly RecoveryCodeRotation: RecoveryCodeRotation;
@@ -1678,7 +1653,6 @@ export interface ApiSchemas {
   readonly SelectAccountRequest: SelectAccountRequest;
   readonly SelectedAccountContext: SelectedAccountContext;
   readonly StartAgentRunRequest: StartAgentRunRequest;
-  readonly StartBaselineRequest: StartBaselineRequest;
   readonly StripeEvent: StripeEvent;
   readonly StripeWebhookReceipt: StripeWebhookReceipt;
   readonly TransferOwnershipRequest: TransferOwnershipRequest;

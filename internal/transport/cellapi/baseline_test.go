@@ -75,14 +75,18 @@ func TestBaselineStartBindsAssessmentToRoutedOperation(t *testing.T) {
 	now := time.Date(2026, 8, 22, 20, 0, 0, 0, time.UTC)
 	service := baselineServiceStub{start: func(ctx context.Context, command baselineapp.StartCommand) (baselinedomain.Assessment, error) {
 		claims, ok := routecontext.FromContext(ctx)
-		if !ok || claims.Authority.AccountID != attentionAccount || command.Actor.UserID != attentionUser || command.AccountID != attentionAccount || string(command.AssessmentID) != attentionOperation || command.CorrelationID != attentionOperation || command.CatalogVersion != "catalog-v1" || command.ScopePolicyVersion != "scope-v1" {
+		if !ok || claims.Authority.AccountID != attentionAccount || command.Actor.UserID != attentionUser || command.AccountID != attentionAccount || string(command.AssessmentID) != attentionOperation || command.CorrelationID != attentionOperation {
 			t.Fatalf("claims=%+v command=%+v", claims, command)
 		}
-		return baselinedomain.NewAssessment(baselinedomain.AssessmentDraft{ID: command.AssessmentID, AccountID: command.AccountID, CatalogVersion: command.CatalogVersion, ScopePolicyVersion: command.ScopePolicyVersion, CreatedBy: baselinedomain.Actor{UserID: command.Actor.UserID}}, now)
+		return baselinedomain.NewAssessment(baselinedomain.AssessmentDraft{ID: command.AssessmentID, AccountID: command.AccountID, CatalogVersion: baselinedomain.EvidenceCatalogVersion, ScopePolicyVersion: baselinedomain.ScopePolicyVersion, CreatedBy: baselinedomain.Actor{UserID: command.Actor.UserID}}, now)
 	}}
-	response := attentionMutation(t, newBaselineServer(t, service).Handler(), http.MethodPost, "/api/v1/accounts/"+attentionAccount+"/baseline-assessments", `{"catalog_version":"catalog-v1","scope_policy_version":"scope-v1"}`, attentionOperation, "")
+	response := attentionMutation(t, newBaselineServer(t, service).Handler(), http.MethodPost, "/api/v1/accounts/"+attentionAccount+"/baseline-assessments", `{}`, attentionOperation, "")
 	if response.Code != http.StatusCreated || response.Header().Get("ETag") != `W/"1"` || !strings.HasSuffix(response.Header().Get("Location"), "/"+attentionOperation) || !strings.Contains(response.Body.String(), `"state":"interview"`) {
 		t.Fatalf("response=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+	callerSelected := attentionMutation(t, newBaselineServer(t, service).Handler(), http.MethodPost, "/api/v1/accounts/"+attentionAccount+"/baseline-assessments", `{"catalog_version":"caller-catalog","scope_policy_version":"caller-policy"}`, attentionOperation, "")
+	if callerSelected.Code != http.StatusBadRequest {
+		t.Fatalf("caller-selected versions=%d %s", callerSelected.Code, callerSelected.Body.String())
 	}
 }
 

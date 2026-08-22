@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -63,6 +64,40 @@ func (r *BaselineRepository) Get(ctx context.Context, accountID ids.AccountID, a
 		value, err := loadBaselineAssessment(ctx, tx, accountID, assessmentID, false)
 		result = value
 		return err
+	})
+	return result, classifyBaseline(err)
+}
+
+func (r *BaselineRepository) Resolve(ctx context.Context, accountID ids.AccountID, references []domain.FactReference) ([]baselineapp.ResolvedFact, error) {
+	if ids.Validate(string(accountID)) != nil || len(references) > domain.MaximumAssessmentAnswers {
+		return nil, baselineapp.ErrInvalid
+	}
+	result := make([]baselineapp.ResolvedFact, 0, len(references))
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		for _, reference := range references {
+			if ids.Validate(string(reference.FactID)) != nil || reference.Revision == 0 {
+				return baselineapp.ErrInvalid
+			}
+			var key string
+			var canonical []byte
+			err := tx.QueryRow(ctx, `SELECT fact_row.fact_key,claim_row.canonical_value
+				FROM spyglass.knowledge_fact_revisions revision_row
+				JOIN spyglass.knowledge_facts fact_row ON fact_row.account_id=revision_row.account_id AND fact_row.id=revision_row.fact_id
+				JOIN spyglass.knowledge_claims claim_row ON claim_row.account_id=revision_row.account_id AND claim_row.id=revision_row.claim_id
+				WHERE revision_row.account_id=$1 AND revision_row.fact_id=$2 AND revision_row.revision=$3
+				  AND claim_row.fact_key=fact_row.fact_key`, accountID, reference.FactID, reference.Revision).Scan(&key, &canonical)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return baselineapp.ErrNotFound
+			}
+			if err != nil {
+				return err
+			}
+			if !json.Valid(canonical) {
+				return baselineapp.ErrRepository
+			}
+			result = append(result, baselineapp.ResolvedFact{Reference: reference, Key: key, CanonicalValue: append(json.RawMessage(nil), canonical...)})
+		}
+		return nil
 	})
 	return result, classifyBaseline(err)
 }
@@ -461,3 +496,4 @@ func classifyBaseline(err error) error {
 }
 
 var _ baselineapp.Repository = (*BaselineRepository)(nil)
+var _ baselineapp.FactResolver = (*BaselineRepository)(nil)

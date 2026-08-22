@@ -14,10 +14,8 @@ import (
 )
 
 type baselineStartInput struct {
-	AccountID          ids.AccountID `json:"account_id"`
-	OperationID        string        `json:"operation_id"`
-	CatalogVersion     string        `json:"catalog_version"`
-	ScopePolicyVersion string        `json:"scope_policy_version"`
+	AccountID   ids.AccountID `json:"account_id"`
+	OperationID string        `json:"operation_id"`
 }
 
 type baselineGetInput struct {
@@ -35,34 +33,23 @@ type baselineResponsibilityInput struct {
 	ID   string                            `json:"id,omitempty"`
 }
 
-type baselineRequirementInput struct {
-	ID             ids.BaselineRequirementID   `json:"id"`
-	Code           string                      `json:"code"`
-	Title          string                      `json:"title"`
-	Responsibility baselineResponsibilityInput `json:"responsibility"`
-	RenewAfterDays uint16                      `json:"renew_after_days"`
-}
-
 type baselineMutationInput struct {
-	AccountID          ids.AccountID                         `json:"account_id"`
-	OperationID        string                                `json:"operation_id"`
-	AssessmentID       ids.BaselineAssessmentID              `json:"assessment_id"`
-	ExpectedVersion    uint64                                `json:"expected_version"`
-	Action             string                                `json:"action"`
-	QuestionKey        string                                `json:"question_key,omitempty"`
-	AnswerKind         baselinedomain.AnswerKind             `json:"answer_kind,omitempty"`
-	Fact               *baselineFactInput                    `json:"fact,omitempty"`
-	Reason             string                                `json:"reason,omitempty"`
-	Requirements       []baselineRequirementInput            `json:"requirements,omitempty"`
-	RequirementID      ids.BaselineRequirementID             `json:"requirement_id,omitempty"`
-	EvidenceID         ids.KnowledgeEvidenceID               `json:"evidence_id,omitempty"`
-	EvidenceDecision   baselinedomain.EvidenceDecisionKind   `json:"evidence_decision,omitempty"`
-	Disposition        baselinedomain.RequirementDisposition `json:"disposition,omitempty"`
-	ContentSHA256      string                                `json:"content_sha256,omitempty"`
-	PlanID             ids.BaselinePlanID                    `json:"plan_id,omitempty"`
-	AssessmentVersion  uint64                                `json:"assessment_version,omitempty"`
-	CatalogVersion     string                                `json:"catalog_version,omitempty"`
-	ScopePolicyVersion string                                `json:"scope_policy_version,omitempty"`
+	AccountID         ids.AccountID                         `json:"account_id"`
+	OperationID       string                                `json:"operation_id"`
+	AssessmentID      ids.BaselineAssessmentID              `json:"assessment_id"`
+	ExpectedVersion   uint64                                `json:"expected_version"`
+	Action            string                                `json:"action"`
+	QuestionKey       string                                `json:"question_key,omitempty"`
+	AnswerKind        baselinedomain.AnswerKind             `json:"answer_kind,omitempty"`
+	Fact              *baselineFactInput                    `json:"fact,omitempty"`
+	Reason            string                                `json:"reason,omitempty"`
+	RequirementID     ids.BaselineRequirementID             `json:"requirement_id,omitempty"`
+	EvidenceID        ids.KnowledgeEvidenceID               `json:"evidence_id,omitempty"`
+	EvidenceDecision  baselinedomain.EvidenceDecisionKind   `json:"evidence_decision,omitempty"`
+	Disposition       baselinedomain.RequirementDisposition `json:"disposition,omitempty"`
+	ContentSHA256     string                                `json:"content_sha256,omitempty"`
+	PlanID            ids.BaselinePlanID                    `json:"plan_id,omitempty"`
+	AssessmentVersion uint64                                `json:"assessment_version,omitempty"`
 }
 
 type baselineAnswerOutput struct {
@@ -140,7 +127,7 @@ func (s *Server) registerBaseline(server *mcp.Server, actor access.Actor) {
 		if err != nil {
 			return nil, baselineAssessmentOutput{}, err
 		}
-		item, err := s.baseline.Start(ctx, baselineapp.StartCommand{Actor: actor, AccountID: input.AccountID, AssessmentID: ids.BaselineAssessmentID(op), CatalogVersion: input.CatalogVersion, ScopePolicyVersion: input.ScopePolicyVersion, CorrelationID: op})
+		item, err := s.baseline.Start(ctx, baselineapp.StartCommand{Actor: actor, AccountID: input.AccountID, AssessmentID: ids.BaselineAssessmentID(op), CorrelationID: op})
 		if err != nil {
 			return nil, baselineAssessmentOutput{}, baselineError(err)
 		}
@@ -180,11 +167,7 @@ func (s *Server) registerBaseline(server *mcp.Server, actor access.Actor) {
 		case "begin_inventory":
 			item, err = s.baseline.BeginInventory(ctx, advance)
 		case "complete_inventory":
-			requirements := make([]baselinedomain.RequirementDraft, 0, len(input.Requirements))
-			for _, value := range input.Requirements {
-				requirements = append(requirements, baselinedomain.RequirementDraft{ID: value.ID, Code: value.Code, Title: value.Title, Responsibility: baselinedomain.Responsibility{Kind: value.Responsibility.Kind, ID: value.Responsibility.ID}, RenewAfterDays: value.RenewAfterDays})
-			}
-			item, err = s.baseline.CompleteInventory(ctx, baselineapp.CompleteInventoryCommand{AdvanceCommand: advance, Requirements: requirements})
+			item, err = s.baseline.CompleteInventory(ctx, baselineapp.CompleteInventoryCommand{AdvanceCommand: advance})
 		case "decide_evidence":
 			item, err = s.baseline.DecideEvidence(ctx, baselineapp.DecideEvidenceCommand{AdvanceCommand: advance, RequirementID: input.RequirementID, EvidenceID: input.EvidenceID, Decision: input.EvidenceDecision, Reason: input.Reason})
 		case "disposition":
@@ -214,7 +197,7 @@ func (s *Server) registerBaseline(server *mcp.Server, actor access.Actor) {
 		case "mark_ready":
 			item, err = s.baseline.MarkReady(ctx, advance)
 		case "reassess":
-			archived, next, reassessErr := s.baseline.Reassess(ctx, baselineapp.ReassessCommand{AdvanceCommand: advance, NewAssessmentID: ids.BaselineAssessmentID(op), CatalogVersion: input.CatalogVersion, ScopePolicyVersion: input.ScopePolicyVersion})
+			archived, next, reassessErr := s.baseline.Reassess(ctx, baselineapp.ReassessCommand{AdvanceCommand: advance, NewAssessmentID: ids.BaselineAssessmentID(op)})
 			if reassessErr != nil {
 				return nil, baselineMutationOutput{}, baselineError(reassessErr)
 			}

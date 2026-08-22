@@ -56,6 +56,13 @@ func TestBaselineRepositoryPersistsIsolatedImmutableLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	resolved, err := repository.Resolve(ctx, accountID, []baselinedomain.FactReference{{FactID: factID, Revision: 1}})
+	if err != nil || len(resolved) != 1 || resolved[0].Key != "organization.legal_name" || string(resolved[0].CanonicalValue) != `"Northstar LLC"` {
+		t.Fatalf("resolved=%+v err=%v", resolved, err)
+	}
+	if _, err := repository.Resolve(ctx, otherAccountID, []baselinedomain.FactReference{{FactID: factID, Revision: 1}}); !errors.Is(err, baselineapp.ErrNotFound) {
+		t.Fatalf("cross-account fact resolution error=%v", err)
+	}
 	assessmentID := ids.BaselineAssessmentID("d7000000-0000-4000-8000-000000000007")
 	requirementID := ids.BaselineRequirementID("d8000000-0000-4000-8000-000000000008")
 	planID := ids.BaselinePlanID("d9000000-0000-4000-8000-000000000009")

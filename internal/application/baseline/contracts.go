@@ -4,6 +4,7 @@ package baseline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -74,6 +75,16 @@ type Authorizer interface {
 }
 
 type Clock interface{ Now() time.Time }
+
+type ResolvedFact struct {
+	Reference      domain.FactReference
+	Key            string
+	CanonicalValue json.RawMessage
+}
+
+type FactResolver interface {
+	Resolve(context.Context, ids.AccountID, []domain.FactReference) ([]ResolvedFact, error)
+}
 
 type WorkCreator interface {
 	Create(context.Context, workapp.CreateCommand) (workdomain.Item, error)

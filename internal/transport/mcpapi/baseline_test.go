@@ -26,7 +26,7 @@ type baselineMCPStub struct {
 
 func (stub *baselineMCPStub) Start(_ context.Context, command baselineapp.StartCommand) (baselinedomain.Assessment, error) {
 	stub.start = command
-	return baselinedomain.NewAssessment(baselinedomain.AssessmentDraft{ID: command.AssessmentID, AccountID: command.AccountID, CatalogVersion: command.CatalogVersion, ScopePolicyVersion: command.ScopePolicyVersion, CreatedBy: baselinedomain.Actor{UserID: command.Actor.UserID}}, stub.now)
+	return baselinedomain.NewAssessment(baselinedomain.AssessmentDraft{ID: command.AssessmentID, AccountID: command.AccountID, CatalogVersion: baselinedomain.EvidenceCatalogVersion, ScopePolicyVersion: baselinedomain.ScopePolicyVersion, CreatedBy: baselinedomain.Actor{UserID: command.Actor.UserID}}, stub.now)
 }
 func (*baselineMCPStub) Get(context.Context, access.Actor, ids.AccountID, ids.BaselineAssessmentID) (baselinedomain.Assessment, error) {
 	return baselinedomain.Assessment{}, baselineapp.ErrNotFound
@@ -87,7 +87,7 @@ func TestBaselineMCPUsesCanonicalAuthorizedService(t *testing.T) {
 	if err != nil || len(tools.Tools) != 18 {
 		t.Fatalf("tools=%d err=%v", len(tools.Tools), err)
 	}
-	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_baseline_start", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation, "catalog_version": "catalog-v1", "scope_policy_version": "scope-v1"}})
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_baseline_start", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation}})
 	if err != nil || result.IsError || !strings.Contains(result.Content[0].(*mcp.TextContent).Text, `"state":"interview"`) || service.start.AssessmentID != ids.BaselineAssessmentID(mcpOperation) {
 		t.Fatalf("result=%+v start=%+v err=%v", result, service.start, err)
 	}

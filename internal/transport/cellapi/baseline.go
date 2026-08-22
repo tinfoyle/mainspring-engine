@@ -17,11 +17,6 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
 
-type baselineStartRequest struct {
-	CatalogVersion     string `json:"catalog_version"`
-	ScopePolicyVersion string `json:"scope_policy_version"`
-}
-
 type baselineAnswerRequest struct {
 	QuestionKey string                    `json:"question_key"`
 	Kind        baselinedomain.AnswerKind `json:"kind"`
@@ -32,23 +27,6 @@ type baselineAnswerRequest struct {
 type baselineFactRequest struct {
 	FactID   ids.KnowledgeFactID `json:"fact_id"`
 	Revision uint64              `json:"revision"`
-}
-
-type baselineResponsibilityRequest struct {
-	Kind baselinedomain.ResponsibilityKind `json:"kind"`
-	ID   string                            `json:"id,omitempty"`
-}
-
-type baselineRequirementRequest struct {
-	ID             ids.BaselineRequirementID     `json:"id"`
-	Code           string                        `json:"code"`
-	Title          string                        `json:"title"`
-	Responsibility baselineResponsibilityRequest `json:"responsibility"`
-	RenewAfterDays uint16                        `json:"renew_after_days"`
-}
-
-type baselineInventoryRequest struct {
-	Requirements []baselineRequirementRequest `json:"requirements"`
 }
 
 type baselineEvidenceDecisionRequest struct {
@@ -70,21 +48,15 @@ type baselinePlanApprovalRequest struct {
 	AssessmentVersion uint64             `json:"assessment_version"`
 }
 
-type baselineReassessmentRequest struct {
-	CatalogVersion     string `json:"catalog_version"`
-	ScopePolicyVersion string `json:"scope_policy_version"`
-}
-
 func (s *Server) baselineStart(w http.ResponseWriter, r *http.Request) {
 	claims, actor, accountID, operationID, ok := s.baselineCommandContext(w, r, false)
 	if !ok {
 		return
 	}
-	var body baselineStartRequest
-	if !decodeBaselineJSON(w, r, &body) {
+	if !decodeBaselineJSON(w, r, &struct{}{}) {
 		return
 	}
-	assessment, err := s.baseline.Start(routecontext.WithClaims(r.Context(), claims), baselineapp.StartCommand{Actor: actor, AccountID: accountID, AssessmentID: ids.BaselineAssessmentID(operationID), CatalogVersion: body.CatalogVersion, ScopePolicyVersion: body.ScopePolicyVersion, CorrelationID: operationID})
+	assessment, err := s.baseline.Start(routecontext.WithClaims(r.Context(), claims), baselineapp.StartCommand{Actor: actor, AccountID: accountID, AssessmentID: ids.BaselineAssessmentID(operationID), CorrelationID: operationID})
 	if err != nil {
 		s.writeBaselineError(w, "start", err)
 		return
@@ -134,18 +106,10 @@ func (s *Server) baselineBeginInventory(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) baselineCompleteInventory(w http.ResponseWriter, r *http.Request) {
 	claims, command, ok := s.baselineAdvanceCommand(w, r)
-	if !ok {
+	if !ok || !decodeBaselineJSON(w, r, &struct{}{}) {
 		return
 	}
-	var body baselineInventoryRequest
-	if !decodeBaselineJSON(w, r, &body) {
-		return
-	}
-	requirements := make([]baselinedomain.RequirementDraft, 0, len(body.Requirements))
-	for _, value := range body.Requirements {
-		requirements = append(requirements, baselinedomain.RequirementDraft{ID: value.ID, Code: value.Code, Title: value.Title, Responsibility: baselinedomain.Responsibility{Kind: value.Responsibility.Kind, ID: value.Responsibility.ID}, RenewAfterDays: value.RenewAfterDays})
-	}
-	assessment, err := s.baseline.CompleteInventory(routecontext.WithClaims(r.Context(), claims), baselineapp.CompleteInventoryCommand{AdvanceCommand: command, Requirements: requirements})
+	assessment, err := s.baseline.CompleteInventory(routecontext.WithClaims(r.Context(), claims), baselineapp.CompleteInventoryCommand{AdvanceCommand: command})
 	s.writeBaselineResult(w, "complete inventory", assessment, err)
 }
 
@@ -244,11 +208,10 @@ func (s *Server) baselineReassess(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var body baselineReassessmentRequest
-	if !decodeBaselineJSON(w, r, &body) {
+	if !decodeBaselineJSON(w, r, &struct{}{}) {
 		return
 	}
-	archived, next, err := s.baseline.Reassess(routecontext.WithClaims(r.Context(), claims), baselineapp.ReassessCommand{AdvanceCommand: command, NewAssessmentID: ids.BaselineAssessmentID(command.CorrelationID), CatalogVersion: body.CatalogVersion, ScopePolicyVersion: body.ScopePolicyVersion})
+	archived, next, err := s.baseline.Reassess(routecontext.WithClaims(r.Context(), claims), baselineapp.ReassessCommand{AdvanceCommand: command, NewAssessmentID: ids.BaselineAssessmentID(command.CorrelationID)})
 	if err != nil {
 		s.writeBaselineError(w, "reassess", err)
 		return

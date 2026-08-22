@@ -1,9 +1,12 @@
 package baseline
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
@@ -20,6 +23,7 @@ type Service struct {
 	repository Repository
 	clock      Clock
 	work       WorkCreator
+	facts      FactResolver
 }
 
 type Option func(*Service) error
@@ -30,6 +34,16 @@ func WithWorkCreator(creator WorkCreator) Option {
 			return errors.New("Baseline Work creator is required")
 		}
 		service.work = creator
+		return nil
+	}
+}
+
+func WithFactResolver(resolver FactResolver) Option {
+	return func(service *Service) error {
+		if resolver == nil {
+			return errors.New("Baseline Fact resolver is required")
+		}
+		service.facts = resolver
 		return nil
 	}
 }
@@ -51,12 +65,10 @@ func New(authorizer Authorizer, repository Repository, clock Clock, options ...O
 }
 
 type StartCommand struct {
-	Actor              access.Actor
-	AccountID          ids.AccountID
-	AssessmentID       ids.BaselineAssessmentID
-	CatalogVersion     string
-	ScopePolicyVersion string
-	CorrelationID      string
+	Actor         access.Actor
+	AccountID     ids.AccountID
+	AssessmentID  ids.BaselineAssessmentID
+	CorrelationID string
 }
 
 func (s *Service) Start(ctx context.Context, command StartCommand) (domain.Assessment, error) {
@@ -68,7 +80,7 @@ func (s *Service) Start(ctx context.Context, command StartCommand) (domain.Asses
 		return domain.Assessment{}, roleDenied()
 	}
 	now := s.clock.Now().UTC()
-	assessment, err := domain.NewAssessment(domain.AssessmentDraft{ID: command.AssessmentID, AccountID: command.AccountID, CatalogVersion: command.CatalogVersion, ScopePolicyVersion: command.ScopePolicyVersion, CreatedBy: actor}, now)
+	assessment, err := domain.NewAssessment(domain.AssessmentDraft{ID: command.AssessmentID, AccountID: command.AccountID, CatalogVersion: domain.EvidenceCatalogVersion, ScopePolicyVersion: domain.ScopePolicyVersion, CreatedBy: actor}, now)
 	if err != nil {
 		return domain.Assessment{}, ErrInvalid
 	}
@@ -98,6 +110,9 @@ type AnswerCommand struct {
 }
 
 func (s *Service) Answer(ctx context.Context, command AnswerCommand) (domain.Assessment, error) {
+	if _, exists := domain.BaselineQuestion(command.QuestionKey); !exists {
+		return domain.Assessment{}, ErrInvalid
+	}
 	return s.change(ctx, command.Actor, command.AccountID, command.AssessmentID, command.ExpectedVersion, command.CorrelationID, "interview_answered", func(current domain.Assessment, actor domain.Actor, role accounts.MembershipRole, now time.Time) (domain.Assessment, error) {
 		return current.AnswerInterview(domain.AnswerInterviewCommand{Answer: domain.InterviewAnswer{QuestionKey: command.QuestionKey, Kind: command.Kind, Fact: command.Fact, Reason: command.Reason, AnsweredBy: actor, AnsweredAt: now}, Role: role, ExpectedVersion: command.ExpectedVersion})
 	}, Transition{EventType: "interview_answered"})
@@ -113,24 +128,97 @@ type AdvanceCommand struct {
 
 func (s *Service) BeginInventory(ctx context.Context, command AdvanceCommand) (domain.Assessment, error) {
 	return s.change(ctx, command.Actor, command.AccountID, command.AssessmentID, command.ExpectedVersion, command.CorrelationID, "inventory_started", func(current domain.Assessment, actor domain.Actor, role accounts.MembershipRole, now time.Time) (domain.Assessment, error) {
+		answered := make(map[string]struct{}, len(current.Answers))
+		for _, answer := range current.Answers {
+			answered[answer.QuestionKey] = struct{}{}
+		}
+		if len(domain.MissingRequiredQuestions(answered)) != 0 {
+			return domain.Assessment{}, ErrConstraint
+		}
 		return current.BeginInventory(domain.BeginInventoryCommand{Actor: actor, Role: role, ExpectedVersion: command.ExpectedVersion, At: now})
 	}, Transition{EventType: "inventory_started"})
 }
 
 type CompleteInventoryCommand struct {
 	AdvanceCommand
-	Requirements []domain.RequirementDraft
 }
 
 func (s *Service) CompleteInventory(ctx context.Context, command CompleteInventoryCommand) (domain.Assessment, error) {
 	return s.change(ctx, command.Actor, command.AccountID, command.AssessmentID, command.ExpectedVersion, command.CorrelationID, "inventory_completed", func(current domain.Assessment, actor domain.Actor, role accounts.MembershipRole, now time.Time) (domain.Assessment, error) {
-		requirements := append([]domain.RequirementDraft(nil), command.Requirements...)
-		for index := range requirements {
-			requirements[index].CatalogVersion = current.CatalogVersion
-			requirements[index].ScopePolicyVersion = current.ScopePolicyVersion
+		if s.facts == nil || current.CatalogVersion != domain.EvidenceCatalogVersion || current.ScopePolicyVersion != domain.ScopePolicyVersion {
+			return domain.Assessment{}, ErrRepository
+		}
+		scopeFacts, err := s.resolveScopeFacts(ctx, current)
+		if err != nil {
+			return domain.Assessment{}, err
+		}
+		selection := domain.SelectScope(scopeFacts)
+		requirements := make([]domain.RequirementDraft, 0, len(selection.Requirements))
+		for _, definition := range selection.Requirements {
+			requirementID, deriveErr := ids.Derive(string(current.ID), "baseline-requirement:"+definition.Code)
+			if deriveErr != nil {
+				return domain.Assessment{}, ErrRepository
+			}
+			responsibility := domain.Responsibility{Kind: domain.ResponsibilityAccount}
+			if definition.Responsibility == domain.CatalogOwner {
+				responsibility = domain.Responsibility{Kind: domain.ResponsibilityUser, ID: string(actor.UserID)}
+			}
+			requirements = append(requirements, domain.RequirementDraft{ID: ids.BaselineRequirementID(requirementID), Code: definition.Code, Title: definition.Title, Responsibility: responsibility, RenewAfterDays: definition.RenewAfterDays, CatalogVersion: selection.CatalogVersion, ScopePolicyVersion: selection.ScopePolicyVersion})
 		}
 		return current.CompleteInventory(domain.CompleteInventoryCommand{Requirements: requirements, Actor: actor, Role: role, ExpectedVersion: command.ExpectedVersion, At: now})
 	}, Transition{EventType: "inventory_completed"})
+}
+
+func (s *Service) resolveScopeFacts(ctx context.Context, assessment domain.Assessment) (domain.ScopeFacts, error) {
+	references := make([]domain.FactReference, 0, len(assessment.Answers))
+	answerKeys := make(map[domain.FactReference]string)
+	for _, answer := range assessment.Answers {
+		if answer.Fact != nil {
+			if _, exists := answerKeys[*answer.Fact]; exists {
+				return domain.ScopeFacts{}, ErrConstraint
+			}
+			references = append(references, *answer.Fact)
+			answerKeys[*answer.Fact] = answer.QuestionKey
+		}
+	}
+	resolved, err := s.facts.Resolve(ctx, assessment.AccountID, references)
+	if err != nil {
+		return domain.ScopeFacts{}, err
+	}
+	values := make(map[string]string, len(resolved))
+	for _, fact := range resolved {
+		questionKey, exists := answerKeys[fact.Reference]
+		if !exists || fact.Key != questionKey {
+			return domain.ScopeFacts{}, ErrConstraint
+		}
+		if !json.Valid(fact.CanonicalValue) {
+			return domain.ScopeFacts{}, ErrRepository
+		}
+		decoder := json.NewDecoder(bytes.NewReader(fact.CanonicalValue))
+		decoder.UseNumber()
+		var value any
+		if decoder.Decode(&value) != nil {
+			return domain.ScopeFacts{}, ErrRepository
+		}
+		switch typed := value.(type) {
+		case string:
+			if strings.TrimSpace(typed) == "" {
+				return domain.ScopeFacts{}, ErrConstraint
+			}
+			values[questionKey] = typed
+		case json.Number:
+			if questionKey != "organization.team_size" {
+				return domain.ScopeFacts{}, ErrConstraint
+			}
+			values[questionKey] = typed.String()
+		default:
+			return domain.ScopeFacts{}, ErrConstraint
+		}
+	}
+	if len(resolved) != len(references) {
+		return domain.ScopeFacts{}, ErrConstraint
+	}
+	return domain.ScopeFacts{Industry: values["organization.industry"], Services: values["organization.services"], TeamSize: values["organization.team_size"], ImmediateConcern: values["baseline.immediate_concern"]}, nil
 }
 
 type DecideEvidenceCommand struct {
@@ -269,9 +357,7 @@ func workAssignment(value domain.Responsibility) workdomain.Assignment {
 
 type ReassessCommand struct {
 	AdvanceCommand
-	NewAssessmentID    ids.BaselineAssessmentID
-	CatalogVersion     string
-	ScopePolicyVersion string
+	NewAssessmentID ids.BaselineAssessmentID
 }
 
 func (s *Service) Reassess(ctx context.Context, command ReassessCommand) (domain.Assessment, domain.Assessment, error) {
@@ -283,7 +369,7 @@ func (s *Service) Reassess(ctx context.Context, command ReassessCommand) (domain
 	if err != nil {
 		return domain.Assessment{}, domain.Assessment{}, err
 	}
-	archived, next, err := current.StartReassessment(domain.StartReassessmentCommand{NewAssessmentID: command.NewAssessmentID, CatalogVersion: command.CatalogVersion, ScopePolicyVersion: command.ScopePolicyVersion, Actor: actor, Role: accountContext.Role, ExpectedVersion: command.ExpectedVersion, At: s.clock.Now().UTC()})
+	archived, next, err := current.StartReassessment(domain.StartReassessmentCommand{NewAssessmentID: command.NewAssessmentID, CatalogVersion: domain.EvidenceCatalogVersion, ScopePolicyVersion: domain.ScopePolicyVersion, Actor: actor, Role: accountContext.Role, ExpectedVersion: command.ExpectedVersion, At: s.clock.Now().UTC()})
 	if err != nil {
 		return domain.Assessment{}, domain.Assessment{}, classifyDomain(err)
 	}
@@ -325,6 +411,8 @@ func mutation(actor domain.Actor, reasonCode, correlationID string, at time.Time
 
 func classifyDomain(err error) error {
 	switch {
+	case errors.Is(err, ErrInvalid), errors.Is(err, ErrNotFound), errors.Is(err, ErrConflict), errors.Is(err, ErrConstraint), errors.Is(err, ErrRepository):
+		return err
 	case errors.Is(err, domain.ErrConflict):
 		return ErrConflict
 	case errors.Is(err, domain.ErrInvalid), errors.Is(err, domain.ErrState), errors.Is(err, domain.ErrPlan):

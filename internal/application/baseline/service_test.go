@@ -21,43 +21,82 @@ func TestServiceRunsAuthorizedVersionBoundLifecycle(t *testing.T) {
 	clock := &baselineClock{now: time.Date(2026, 8, 22, 18, 0, 0, 0, time.UTC)}
 	repository := &baselineRepository{items: map[ids.BaselineAssessmentID]domain.Assessment{}}
 	authorizer := &baselineAuthorizer{role: accounts.RoleOwner}
-	service, err := New(authorizer, repository, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
 	actor := access.Actor{UserID: "a1000000-0000-4000-8000-000000000001"}
 	accountID := ids.AccountID("a2000000-0000-4000-8000-000000000002")
 	assessmentID := ids.BaselineAssessmentID("a3000000-0000-4000-8000-000000000003")
-	correlation := func(value byte) string { return "a4000000-0000-4000-8000-00000000000" + string(rune('0'+value)) }
-	assessment, err := service.Start(ctx, StartCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, CatalogVersion: "catalog-v1", ScopePolicyVersion: "scope-v1", CorrelationID: correlation(4)})
+	operation := func(label string) string {
+		value, deriveErr := ids.Derive(string(assessmentID), label)
+		if deriveErr != nil {
+			t.Fatal(deriveErr)
+		}
+		return value
+	}
+	fact := &domain.FactReference{FactID: "a5000000-0000-4000-8000-000000000005", Revision: 2}
+	resolver := &baselineFactResolver{values: map[domain.FactReference]ResolvedFact{
+		*fact: {Reference: *fact, Key: "organization.industry", CanonicalValue: []byte(`"professional services"`)},
+	}}
+	service, err := New(authorizer, repository, clock, WithFactResolver(resolver))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment, err := service.Start(ctx, StartCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, CorrelationID: operation("start")})
 	if err != nil || assessment.State != domain.StateInterview {
 		t.Fatalf("start=%+v err=%v", assessment, err)
 	}
+	if _, err := service.Answer(ctx, AnswerCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, QuestionKey: "caller.selected.question", Kind: domain.AnswerUnknown, Reason: "This is not a governed question", ExpectedVersion: assessment.Version, CorrelationID: operation("unknown-question")}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unknown question error=%v", err)
+	}
+	if _, err := service.BeginInventory(ctx, AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation("premature-inventory")}); !errors.Is(err, ErrConstraint) {
+		t.Fatalf("premature inventory error=%v", err)
+	}
+	for _, question := range domain.BaselineQuestions() {
+		if question.Optional {
+			continue
+		}
+		clock.advance()
+		command := AnswerCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, QuestionKey: question.Key, Kind: domain.AnswerUnknown, Reason: "Confirmed information is not yet available", ExpectedVersion: assessment.Version, CorrelationID: operation("answer:" + question.Key)}
+		if question.Key == "organization.industry" {
+			command.Kind, command.Fact, command.Reason = domain.AnswerFact, fact, ""
+		}
+		assessment, err = service.Answer(ctx, command)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	clock.advance()
-	fact := &domain.FactReference{FactID: "a5000000-0000-4000-8000-000000000005", Revision: 2}
-	assessment, err = service.Answer(ctx, AnswerCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, QuestionKey: "company.legal_name", Kind: domain.AnswerFact, Fact: fact, ExpectedVersion: assessment.Version, CorrelationID: correlation(5)})
+	assessment, err = service.BeginInventory(ctx, AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation("begin-inventory")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	clock.advance()
-	assessment, err = service.BeginInventory(ctx, AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: correlation(6)})
-	if err != nil {
-		t.Fatal(err)
+	resolvedIndustry := resolver.values[*fact]
+	wrongKey := resolvedIndustry
+	wrongKey.Key = "organization.services"
+	resolver.values[*fact] = wrongKey
+	if _, err := service.CompleteInventory(ctx, CompleteInventoryCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation("mismatched-fact")}}); !errors.Is(err, ErrConstraint) {
+		t.Fatalf("mismatched fact error=%v", err)
 	}
-	clock.advance()
-	requirementID := ids.BaselineRequirementID("a6000000-0000-4000-8000-000000000006")
-	assessment, err = service.CompleteInventory(ctx, CompleteInventoryCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: correlation(7)}, Requirements: []domain.RequirementDraft{{ID: requirementID, Code: "legal.formation", Title: "Verify formation", Responsibility: domain.Responsibility{Kind: domain.ResponsibilityAccount}, RenewAfterDays: 365, CatalogVersion: "caller-cannot-select", ScopePolicyVersion: "caller-cannot-select"}}})
-	if err != nil || assessment.Requirements[0].CatalogVersion != "catalog-v1" || assessment.Requirements[0].ScopePolicyVersion != "scope-v1" {
+	resolver.values[*fact] = resolvedIndustry
+	assessment, err = service.CompleteInventory(ctx, CompleteInventoryCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation("complete-inventory")}})
+	if err != nil || len(assessment.Requirements) != 13 || assessment.Requirements[0].CatalogVersion != domain.EvidenceCatalogVersion || assessment.Requirements[0].ScopePolicyVersion != domain.ScopePolicyVersion {
 		t.Fatalf("inventory=%+v err=%v", assessment, err)
 	}
+	requirementID := assessment.Requirements[0].ID
 	clock.advance()
-	assessment, err = service.DecideEvidence(ctx, DecideEvidenceCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: correlation(8)}, RequirementID: requirementID, EvidenceID: "a7000000-0000-4000-8000-000000000007", Decision: domain.EvidenceAccepted, Reason: "Current verified formation record"})
+	assessment, err = service.DecideEvidence(ctx, DecideEvidenceCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation("evidence")}, RequirementID: requirementID, EvidenceID: "a7000000-0000-4000-8000-000000000007", Decision: domain.EvidenceAccepted, Reason: "Current verified formation record"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, requirement := range assessment.Requirements[1:] {
+		clock.advance()
+		assessment, err = service.Disposition(ctx, DispositionCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation("disposition:" + requirement.Code)}, RequirementID: requirement.ID, Disposition: domain.DispositionNotApplicable, Reason: "Explicitly reviewed for lifecycle coverage"})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	clock.advance()
 	planID := ids.BaselinePlanID("a8000000-0000-4000-8000-000000000008")
-	assessment, err = service.SubmitPlan(ctx, SubmitPlanCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: correlation(9)}, PlanID: planID})
+	assessment, err = service.SubmitPlan(ctx, SubmitPlanCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: operation("submit-plan")}, PlanID: planID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,8 +123,8 @@ func TestServiceRunsAuthorizedVersionBoundLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	clock.advance()
-	archived, next, err := service.Reassess(ctx, ReassessCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "b4000000-0000-4000-8000-000000000005"}, NewAssessmentID: "a9000000-0000-4000-8000-000000000009", CatalogVersion: "catalog-v2", ScopePolicyVersion: "scope-v2"})
-	if err != nil || archived.State != domain.StateArchived || next.State != domain.StateInterview || repository.events[len(repository.events)-1] != "reassessed" {
+	archived, next, err := service.Reassess(ctx, ReassessCommand{AdvanceCommand: AdvanceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "b4000000-0000-4000-8000-000000000005"}, NewAssessmentID: "a9000000-0000-4000-8000-000000000009"})
+	if err != nil || archived.State != domain.StateArchived || next.State != domain.StateInterview || next.CatalogVersion != domain.EvidenceCatalogVersion || next.ScopePolicyVersion != domain.ScopePolicyVersion || repository.events[len(repository.events)-1] != "reassessed" {
 		t.Fatalf("reassess archived=%+v next=%+v events=%v err=%v", archived, next, repository.events, err)
 	}
 }
@@ -143,6 +182,22 @@ func TestServiceMaterializesApprovedGapPlanThroughDeterministicWorkCommands(t *t
 }
 
 type baselineClock struct{ now time.Time }
+
+type baselineFactResolver struct {
+	values map[domain.FactReference]ResolvedFact
+}
+
+func (resolver *baselineFactResolver) Resolve(_ context.Context, _ ids.AccountID, references []domain.FactReference) ([]ResolvedFact, error) {
+	result := make([]ResolvedFact, 0, len(references))
+	for _, reference := range references {
+		value, exists := resolver.values[reference]
+		if !exists {
+			return nil, ErrNotFound
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
 
 func (clock *baselineClock) Now() time.Time { return clock.now }
 func (clock *baselineClock) advance()       { clock.now = clock.now.Add(time.Minute) }
