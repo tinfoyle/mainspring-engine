@@ -147,7 +147,7 @@ Message
   is the user-visible durable contribution created from a successful invocation
 ```
 
-The run plan is immutable after preparation except for deterministic application-owned delegation expansion. A workflow never looks up mutable persona configuration to reinterpret an already prepared turn.
+The run plan is immutable after preparation except for deterministic application-owned delegation expansion. A workflow never looks up mutable persona configuration to reinterpret an already prepared turn. A caller may explicitly attach bounded Work items, accepted Knowledge Facts, and Baseline Assessments. StartRun reads them in one repeatable-read transaction, freezes exact source versions and canonical content on the Run, and records both per-item and aggregate SHA-256 digests. Dispatch uses only that frozen payload plus the Conversation sequence watermark; it never re-joins mutable source tables. Attached content is labeled untrusted evidence and cannot become system instructions. Knowledge sensitivity rules still apply before capture.
 
 ### 4.3 Work and attention
 

@@ -64,10 +64,16 @@ type toolGrantRequest struct {
 	InputSchema json.RawMessage `json:"input_schema"`
 }
 type startAgentRunRequest struct {
-	ConversationID ids.ConversationID `json:"conversation_id,omitempty"`
-	Subject        *string            `json:"subject"`
-	Prompt         string             `json:"prompt"`
-	PersonaIDs     []ids.PersonaID    `json:"persona_ids"`
+	ConversationID ids.ConversationID      `json:"conversation_id,omitempty"`
+	Subject        *string                 `json:"subject"`
+	Prompt         string                  `json:"prompt"`
+	PersonaIDs     []ids.PersonaID         `json:"persona_ids"`
+	Context        *agentRunContextRequest `json:"context,omitempty"`
+}
+type agentRunContextRequest struct {
+	WorkItemIDs           []ids.WorkItemID           `json:"work_item_ids"`
+	KnowledgeFactIDs      []ids.KnowledgeFactID      `json:"knowledge_fact_ids"`
+	BaselineAssessmentIDs []ids.BaselineAssessmentID `json:"baseline_assessment_ids"`
 }
 type resolveAgentRunRequest struct {
 	Action agentapp.RunResolutionAction `json:"action"`
@@ -212,9 +218,13 @@ func (s *Server) agentRunStart(w http.ResponseWriter, r *http.Request) {
 	if request.Subject != nil {
 		subject = *request.Subject
 	}
+	contextSelection := agentapp.ContextSelection{}
+	if request.Context != nil {
+		contextSelection = agentapp.ContextSelection{WorkItemIDs: request.Context.WorkItemIDs, KnowledgeFactIDs: request.Context.KnowledgeFactIDs, BaselineAssessmentIDs: request.Context.BaselineAssessmentIDs}
+	}
 	run, created, err := s.agents.StartRun(routecontext.WithClaims(r.Context(), claims), agentapp.StartRunCommand{Actor: actor,
 		AccountID: accountID, RequestID: operationID, BoardroomID: boardroomID, ConversationID: request.ConversationID,
-		Subject: subject, Prompt: request.Prompt, PersonaIDs: request.PersonaIDs})
+		Subject: subject, Prompt: request.Prompt, PersonaIDs: request.PersonaIDs, Context: contextSelection})
 	if err != nil {
 		s.writeAgentError(w, "start_run", err)
 		return
@@ -607,21 +617,29 @@ type agentRunResolutionResponse struct {
 	CreatedAt  time.Time                    `json:"created_at"`
 }
 type agentRunResponse struct {
-	ID                 ids.RunID                    `json:"id"`
-	BoardroomID        ids.BoardroomID              `json:"boardroom_id"`
-	ConversationID     ids.ConversationID           `json:"conversation_id"`
-	State              string                       `json:"state"`
-	Subject            string                       `json:"subject"`
-	Prompt             string                       `json:"prompt"`
-	UserMessageID      ids.MessageID                `json:"user_message_id"`
-	EntitlementVersion uint64                       `json:"entitlement_version"`
-	PolicyVersion      uint64                       `json:"policy_version"`
-	PlanDigest         string                       `json:"plan_digest"`
-	Turns              []agentRunTurnResponse       `json:"turns"`
-	InvocationIDs      []ids.AgentInvocationID      `json:"invocation_ids"`
-	Invocations        []agentRunInvocationResponse `json:"invocations"`
-	Resolutions        []agentRunResolutionResponse `json:"resolutions"`
-	CreatedAt          time.Time                    `json:"created_at"`
+	ID                 ids.RunID                          `json:"id"`
+	BoardroomID        ids.BoardroomID                    `json:"boardroom_id"`
+	ConversationID     ids.ConversationID                 `json:"conversation_id"`
+	State              string                             `json:"state"`
+	Subject            string                             `json:"subject"`
+	Prompt             string                             `json:"prompt"`
+	UserMessageID      ids.MessageID                      `json:"user_message_id"`
+	EntitlementVersion uint64                             `json:"entitlement_version"`
+	PolicyVersion      uint64                             `json:"policy_version"`
+	PlanDigest         string                             `json:"plan_digest"`
+	Turns              []agentRunTurnResponse             `json:"turns"`
+	InvocationIDs      []ids.AgentInvocationID            `json:"invocation_ids"`
+	Invocations        []agentRunInvocationResponse       `json:"invocations"`
+	Resolutions        []agentRunResolutionResponse       `json:"resolutions"`
+	CreatedAt          time.Time                          `json:"created_at"`
+	Context            []agentRunContextReferenceResponse `json:"context"`
+	ContextDigest      string                             `json:"context_digest"`
+}
+type agentRunContextReferenceResponse struct {
+	Kind    string `json:"kind"`
+	ID      string `json:"id"`
+	Version uint64 `json:"version"`
+	Digest  string `json:"digest"`
 }
 
 func agentRunView(run agentapp.Run) agentRunResponse {
@@ -642,11 +660,16 @@ func agentRunView(run agentapp.Run) agentRunResponse {
 	for index, resolution := range run.Resolutions {
 		resolutions[index] = agentRunResolutionView(resolution)
 	}
+	contextReferences := make([]agentRunContextReferenceResponse, len(run.Context))
+	for index, reference := range run.Context {
+		contextReferences[index] = agentRunContextReferenceResponse{Kind: reference.Kind, ID: reference.ID, Version: reference.Version, Digest: hex.EncodeToString(reference.Digest[:])}
+	}
 	return agentRunResponse{ID: run.Plan.RunID, BoardroomID: run.Plan.BoardroomID, ConversationID: run.Plan.ConversationID,
 		State: run.State, Subject: run.Subject, Prompt: run.Prompt, UserMessageID: run.UserMessageID,
 		EntitlementVersion: run.Plan.EntitlementVersion, PolicyVersion: run.Plan.PolicyVersion,
 		PlanDigest: hex.EncodeToString(run.Plan.Digest[:]), Turns: turns, InvocationIDs: run.InvocationIDs,
-		Invocations: invocations, Resolutions: resolutions, CreatedAt: run.Plan.CreatedAt}
+		Invocations: invocations, Resolutions: resolutions, CreatedAt: run.Plan.CreatedAt,
+		Context: contextReferences, ContextDigest: hex.EncodeToString(run.ContextDigest[:])}
 }
 
 func agentRunResolutionView(item agentapp.RunResolution) agentRunResolutionResponse {

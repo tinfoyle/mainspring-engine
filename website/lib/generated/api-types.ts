@@ -277,6 +277,8 @@ export interface AgentResult {
 
 export interface AgentRun {
   readonly "boardroom_id": string;
+  readonly "context": ReadonlyArray<AgentRunContextReference>;
+  readonly "context_digest": string;
   readonly "conversation_id": string;
   readonly "created_at": string;
   readonly "entitlement_version": number;
@@ -291,6 +293,19 @@ export interface AgentRun {
   readonly "subject": string;
   readonly "turns": ReadonlyArray<AgentRunTurn>;
   readonly "user_message_id": string;
+}
+
+export interface AgentRunContextInput {
+  readonly "baseline_assessment_ids"?: ReadonlyArray<string>;
+  readonly "knowledge_fact_ids"?: ReadonlyArray<string>;
+  readonly "work_item_ids"?: ReadonlyArray<string>;
+}
+
+export interface AgentRunContextReference {
+  readonly "digest": string;
+  readonly "id": string;
+  readonly "kind": "work_item" | "knowledge_fact" | "baseline_assessment";
+  readonly "version": number;
 }
 
 export interface AgentRunInvocation {
@@ -1326,6 +1341,7 @@ export interface SelectedAccountContext {
 }
 
 export interface StartAgentRunRequest {
+  readonly "context"?: AgentRunContextInput;
   readonly "conversation_id"?: string;
   readonly "persona_ids": ReadonlyArray<string>;
   readonly "prompt": string;
@@ -1559,6 +1575,8 @@ export interface ApiSchemas {
   readonly AgentProposedAction: AgentProposedAction;
   readonly AgentResult: AgentResult;
   readonly AgentRun: AgentRun;
+  readonly AgentRunContextInput: AgentRunContextInput;
+  readonly AgentRunContextReference: AgentRunContextReference;
   readonly AgentRunInvocation: AgentRunInvocation;
   readonly AgentRunInvocationState: AgentRunInvocationState;
   readonly AgentRunResolution: AgentRunResolution;

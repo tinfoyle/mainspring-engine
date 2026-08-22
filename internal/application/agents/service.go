@@ -18,10 +18,12 @@ import (
 )
 
 const (
-	PackageCode        catalog.PackageCode = "agents"
-	ConcurrentRuns     catalog.LimitCode   = "concurrent_runs"
-	MaximumPageSize                        = 100
-	DefaultRunLifetime                     = 24 * time.Hour
+	PackageCode         catalog.PackageCode = "agents"
+	ConcurrentRuns      catalog.LimitCode   = "concurrent_runs"
+	MaximumPageSize                         = 100
+	DefaultRunLifetime                      = 24 * time.Hour
+	MaximumContextItems                     = 64
+	MaximumContextBytes                     = 48 << 10
 )
 
 var (
@@ -120,6 +122,21 @@ type Run struct {
 	InvocationIDs []ids.AgentInvocationID
 	Invocations   []RunInvocation
 	Resolutions   []RunResolution
+	Context       []ContextReference
+	ContextDigest [32]byte
+}
+
+type ContextSelection struct {
+	WorkItemIDs           []ids.WorkItemID
+	KnowledgeFactIDs      []ids.KnowledgeFactID
+	BaselineAssessmentIDs []ids.BaselineAssessmentID
+}
+
+type ContextReference struct {
+	Kind    string
+	ID      string
+	Version uint64
+	Digest  [32]byte
 }
 
 type RunInvocation struct {
@@ -270,8 +287,10 @@ type StartRunDraft struct {
 	Subject              string
 	Prompt               string
 	PersonaIDs           []ids.PersonaID
+	Context              ContextSelection
 	EntitlementVersion   uint64
 	MaximumConcurrentRun int64
+	CanReadRestricted    bool
 	CreatedAt            time.Time
 	RequestExpiresAt     time.Time
 }
@@ -285,6 +304,7 @@ type StartRunCommand struct {
 	Subject        string
 	Prompt         string
 	PersonaIDs     []ids.PersonaID
+	Context        ContextSelection
 }
 
 func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, bool, error) {
@@ -300,6 +320,9 @@ func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, b
 			return Run{}, false, ErrInvalidCommand
 		}
 	}
+	if !validContextSelection(command.Context) {
+		return Run{}, false, ErrInvalidCommand
+	}
 	accountContext, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Roles: runRoles(), Package: PackageCode, Mutation: true})
 	if err != nil {
 		return Run{}, false, err
@@ -307,6 +330,16 @@ func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, b
 	maximum, exists := accountContext.PackageAccess.Limits[ConcurrentRuns]
 	if !exists || maximum < 1 {
 		return Run{}, false, &access.DeniedError{Code: access.DenialLimitNotDefined, Package: PackageCode, Limit: ConcurrentRuns}
+	}
+	if len(command.Context.WorkItemIDs) != 0 {
+		if _, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Package: catalog.PackageWork}); err != nil {
+			return Run{}, false, err
+		}
+	}
+	if len(command.Context.KnowledgeFactIDs)+len(command.Context.BaselineAssessmentIDs) != 0 {
+		if _, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Package: catalog.PackageKnowledge}); err != nil {
+			return Run{}, false, err
+		}
 	}
 	conversationID := command.ConversationID
 	createConversation := conversationID == ""
@@ -326,8 +359,9 @@ func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, b
 		Actor: command.Actor, AccountID: command.AccountID, BoardroomID: command.BoardroomID,
 		RunID: ids.RunID(command.RequestID), ConversationID: conversationID, CreateConversation: createConversation,
 		UserMessageID: ids.MessageID(messageID), Subject: subject, Prompt: strings.TrimSpace(command.Prompt),
-		PersonaIDs: personas, EntitlementVersion: accountContext.EntitlementVersion, MaximumConcurrentRun: maximum,
-		CreatedAt: now, RequestExpiresAt: now.Add(DefaultRunLifetime),
+		PersonaIDs: personas, Context: cloneContextSelection(command.Context), EntitlementVersion: accountContext.EntitlementVersion, MaximumConcurrentRun: maximum,
+		CanReadRestricted: accountContext.Role == accounts.RoleOwner || accountContext.Role == accounts.RoleAdministrator,
+		CreatedAt:         now, RequestExpiresAt: now.Add(DefaultRunLifetime),
 	}
 	run, created, err := s.repository.StartRun(ctx, draft)
 	var limit *ConcurrentRunLimitError
@@ -335,6 +369,43 @@ func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, b
 		return Run{}, false, &access.DeniedError{Code: access.DenialLimitExceeded, Package: PackageCode, Limit: ConcurrentRuns, Current: limit.Current, Maximum: limit.Maximum}
 	}
 	return run, created, err
+}
+
+func validContextSelection(selection ContextSelection) bool {
+	total := len(selection.WorkItemIDs) + len(selection.KnowledgeFactIDs) + len(selection.BaselineAssessmentIDs)
+	if total > MaximumContextItems {
+		return false
+	}
+	seen := make(map[string]struct{}, total)
+	validate := func(values []string) bool {
+		for _, value := range values {
+			if ids.Validate(value) != nil {
+				return false
+			}
+			if _, duplicate := seen[value]; duplicate {
+				return false
+			}
+			seen[value] = struct{}{}
+		}
+		return true
+	}
+	work := make([]string, len(selection.WorkItemIDs))
+	for index, value := range selection.WorkItemIDs {
+		work[index] = string(value)
+	}
+	facts := make([]string, len(selection.KnowledgeFactIDs))
+	for index, value := range selection.KnowledgeFactIDs {
+		facts[index] = string(value)
+	}
+	baselines := make([]string, len(selection.BaselineAssessmentIDs))
+	for index, value := range selection.BaselineAssessmentIDs {
+		baselines[index] = string(value)
+	}
+	return validate(work) && validate(facts) && validate(baselines)
+}
+
+func cloneContextSelection(selection ContextSelection) ContextSelection {
+	return ContextSelection{WorkItemIDs: slices.Clone(selection.WorkItemIDs), KnowledgeFactIDs: slices.Clone(selection.KnowledgeFactIDs), BaselineAssessmentIDs: slices.Clone(selection.BaselineAssessmentIDs)}
 }
 
 func (s *Service) ListBoardrooms(ctx context.Context, actor access.Actor, accountID ids.AccountID, limit int) ([]agentdomain.Boardroom, error) {

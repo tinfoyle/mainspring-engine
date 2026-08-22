@@ -2,6 +2,7 @@ package agentdispatch
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -70,9 +71,11 @@ func validSnapshot(t *testing.T, now time.Time) Snapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
+	contextPayload := []byte(`{"schema_version":1,"items":[]}`)
 	return Snapshot{AccountID: version.AccountID, InvocationID: "61000000-0000-4000-8000-000000000001", Profile: "agent-medium", QueuedAt: now.Add(-time.Minute), RequestExpiresAt: now.Add(time.Hour), Persona: version,
 		Messages:          []modelgateway.Message{{Role: "user", Content: "What should we prioritize?"}},
-		ModelOperationIDs: []string{"71000000-0000-4000-8000-000000000001", "71000000-0000-4000-8000-000000000002"}, ToolOperationIDs: []string{"81000000-0000-4000-8000-000000000001"}}
+		ModelOperationIDs: []string{"71000000-0000-4000-8000-000000000001", "71000000-0000-4000-8000-000000000002"}, ToolOperationIDs: []string{"81000000-0000-4000-8000-000000000001"},
+		ContextPayload: contextPayload, ContextDigest: sha256.Sum256(contextPayload)}
 }
 
 func TestBuildFreezesCompiledTurnAndCapabilities(t *testing.T) {

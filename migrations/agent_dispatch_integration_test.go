@@ -55,9 +55,16 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	runID := ids.RunID("64000000-0000-4000-8000-000000000001")
 	conversationID := ids.ConversationID("74000000-0000-4000-8000-000000000001")
 	messageID := ids.MessageID("84000000-0000-4000-8000-000000000001")
+	workItemID := ids.WorkItemID("86000000-0000-4000-8000-000000000001")
 	leaseID := "94000000-0000-4000-8000-000000000001"
 	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.account_namespaces(account_id,placement_generation,state,created_at)
 		VALUES ($1,1,'active',$3),($2,1,'active',$3)`, accountID, otherAccountID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.work_items
+		(account_id,id,number,depth,kind,title,description,state,priority,responsibility,source,created_by_actor_kind,created_by_actor_id,capacity_reservation_id,version,created_at,updated_at)
+		VALUES ($1,$2,1,0,'ticket','Inspect reef dependency','Frozen attachment body','open','high','shared','manual','user',$3,$4,3,$5,$5)`,
+		accountID, workItemID, userID, "87000000-0000-4000-8000-000000000001", now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -124,7 +131,7 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	run, created, err := repository.StartRun(ctx, agentapp.StartRunDraft{
 		Actor: access.Actor{UserID: userID}, AccountID: accountID, BoardroomID: boardroomID,
 		RunID: runID, ConversationID: conversationID, CreateConversation: true, UserMessageID: messageID,
-		Subject: "Reef backlog", Prompt: prompt, PersonaIDs: []ids.PersonaID{personaID}, EntitlementVersion: 7,
+		Subject: "Reef backlog", Prompt: prompt, PersonaIDs: []ids.PersonaID{personaID}, Context: agentapp.ContextSelection{WorkItemIDs: []ids.WorkItemID{workItemID}}, EntitlementVersion: 7,
 		MaximumConcurrentRun: 1, CreatedAt: now, RequestExpiresAt: now.Add(time.Hour),
 	})
 	if err != nil || !created || len(run.InvocationIDs) != 1 {
@@ -133,7 +140,7 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	if repeated, repeatedCreated, err := repository.StartRun(ctx, agentapp.StartRunDraft{
 		Actor: access.Actor{UserID: userID}, AccountID: accountID, BoardroomID: boardroomID,
 		RunID: runID, ConversationID: conversationID, CreateConversation: true, UserMessageID: messageID,
-		Subject: "Reef backlog", Prompt: prompt, PersonaIDs: []ids.PersonaID{personaID}, EntitlementVersion: 7,
+		Subject: "Reef backlog", Prompt: prompt, PersonaIDs: []ids.PersonaID{personaID}, Context: agentapp.ContextSelection{WorkItemIDs: []ids.WorkItemID{workItemID}}, EntitlementVersion: 7,
 		MaximumConcurrentRun: 1, CreatedAt: now, RequestExpiresAt: now.Add(time.Hour),
 	}); err != nil || repeatedCreated || repeated.Plan.Digest != run.Plan.Digest {
 		t.Fatalf("idempotent run=%+v created=%v err=%v", repeated, repeatedCreated, err)
@@ -173,7 +180,7 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	dispatcherRole := "spyglass_agent_dispatcher_" + randomSuffix(t)
 	if _, err := owner.Exec(ctx, `CREATE ROLE `+dispatcherRole+` NOLOGIN NOBYPASSRLS;
 		GRANT USAGE ON SCHEMA public,spyglass TO `+dispatcherRole+`;
-		GRANT SELECT ON spyglass.agent_invocation_execution_plans,spyglass.agent_invocations,
+		GRANT SELECT ON spyglass.agent_invocation_execution_plans,spyglass.agent_invocations,spyglass.agent_runs,
 			spyglass.agent_persona_versions,spyglass.agent_user_messages,spyglass.agent_messages TO `+dispatcherRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_dispatch(uuid,timestamptz,integer) TO `+dispatcherRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_complete_agent_dispatch(uuid,uuid,uuid,bytea,timestamptz) TO `+dispatcherRole+`;
@@ -204,6 +211,10 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	dispatchRepository, err := postgresadapter.NewAgentDispatchRepository(dispatcher, dispatchCell)
 	if err != nil {
 		t.Fatal(err)
+	}
+	snapshot, err := dispatchRepository.Load(ctx, agentdispatch.Claim{AccountID: accountID, InvocationID: string(run.InvocationIDs[0]), LeaseID: leaseID, Attempt: 1})
+	if err != nil || snapshot.ContextItemCount != 1 || snapshot.ContextDigest == ([32]byte{}) || !bytes.Contains(snapshot.ContextPayload, []byte("Frozen attachment body")) {
+		t.Fatalf("frozen context count=%d digest=%x payload=%s err=%v", snapshot.ContextItemCount, snapshot.ContextDigest, snapshot.ContextPayload, err)
 	}
 	brokerRepository, err := postgresadapter.NewRunnerBrokerRepository(dispatcher)
 	if err != nil {

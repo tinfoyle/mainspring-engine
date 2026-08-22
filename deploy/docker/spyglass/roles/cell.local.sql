@@ -86,7 +86,7 @@ GRANT SELECT, UPDATE, DELETE ON spyglass.work_capacity_release_queue TO spyglass
 GRANT SELECT, UPDATE ON spyglass.work_items TO spyglass_work_reconciler;
 GRANT SELECT ON spyglass.account_namespaces TO spyglass_work_reconciler;
 
-GRANT SELECT ON spyglass.agent_invocation_execution_plans, spyglass.agent_invocations,
+GRANT SELECT ON spyglass.agent_invocation_execution_plans, spyglass.agent_invocations, spyglass.agent_runs,
   spyglass.agent_persona_versions, spyglass.agent_user_messages, spyglass.agent_messages
   TO spyglass_agent_dispatch_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_work_agent_execution(uuid,timestamptz,integer)

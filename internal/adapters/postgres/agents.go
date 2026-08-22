@@ -1,10 +1,14 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"time"
 	"unicode/utf8"
@@ -305,12 +309,12 @@ func (r *AgentRepository) ListMessages(ctx context.Context, accountID ids.Accoun
 func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunDraft) (agentapp.Run, bool, error) {
 	var result agentapp.Run
 	created := false
-	err := r.cell.WithAccountTx(ctx, draft.AccountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+	err := r.cell.WithAccountTx(ctx, draft.AccountID, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(ctx context.Context, tx pgx.Tx) error {
 		if existing, found, err := loadAgentRun(ctx, tx, draft.AccountID, draft.RunID); err != nil {
 			return err
 		} else if found {
 			if existing.Plan.BoardroomID != draft.BoardroomID || existing.Plan.ConversationID != draft.ConversationID || existing.Prompt != draft.Prompt || existing.Plan.CreatedBy != draft.Actor.UserID ||
-				existing.Plan.EntitlementVersion != draft.EntitlementVersion || len(existing.Plan.Turns) != len(draft.PersonaIDs) || (draft.CreateConversation && existing.Subject != draft.Subject) {
+				existing.Plan.EntitlementVersion != draft.EntitlementVersion || len(existing.Plan.Turns) != len(draft.PersonaIDs) || (draft.CreateConversation && existing.Subject != draft.Subject) || !contextSelectionMatches(existing.Context, draft.Context) {
 				return agentapp.ErrConflict
 			}
 			for index, personaID := range draft.PersonaIDs {
@@ -390,10 +394,15 @@ func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunD
 		if err != nil {
 			return agentapp.ErrCorrupt
 		}
+		contextPayload, contextDigest, contextReferences, err := buildAgentContext(ctx, tx, draft.AccountID, draft.Context, draft.CanReadRestricted)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_runs
-			(account_id,id,boardroom_id,conversation_id,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at)
-			VALUES ($1,$2,$3,$4,'planned',$5,$6,$7,$8,$9,$10)`, draft.AccountID, draft.RunID, draft.BoardroomID,
-			draft.ConversationID, draft.EntitlementVersion, boardroomVersion, plan.Digest[:], len(turns), draft.Actor.UserID, draft.CreatedAt); err != nil {
+			(account_id,id,boardroom_id,conversation_id,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at,context_payload,context_digest,context_item_count)
+			VALUES ($1,$2,$3,$4,'planned',$5,$6,$7,$8,$9,$10,$11,$12,$13)`, draft.AccountID, draft.RunID, draft.BoardroomID,
+			draft.ConversationID, draft.EntitlementVersion, boardroomVersion, plan.Digest[:], len(turns), draft.Actor.UserID, draft.CreatedAt,
+			contextPayload, contextDigest[:], len(contextReferences)); err != nil {
 			return err
 		}
 		invocationIDs := make([]ids.AgentInvocationID, len(turns))
@@ -405,7 +414,7 @@ func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunD
 			invocationIDs[index] = invocationID
 		}
 		created = true
-		result = agentapp.Run{Plan: plan, State: "planned", Subject: draft.Subject, Prompt: draft.Prompt, UserMessageID: draft.UserMessageID, InvocationIDs: invocationIDs}
+		result = agentapp.Run{Plan: plan, State: "planned", Subject: draft.Subject, Prompt: draft.Prompt, UserMessageID: draft.UserMessageID, InvocationIDs: invocationIDs, Context: contextReferences, ContextDigest: contextDigest}
 		return nil
 	})
 	if err != nil {
@@ -527,10 +536,17 @@ func (r *AgentRepository) ResolveRun(ctx context.Context, draft agentapp.Resolve
 			if err != nil {
 				return agentapp.ErrCorrupt
 			}
+			var retryContextPayload, retryContextDigest []byte
+			var retryContextCount int
+			if err := tx.QueryRow(ctx, `SELECT context_payload,context_digest,context_item_count FROM spyglass.agent_runs
+				WHERE account_id=$1 AND id=$2 FOR SHARE`, draft.AccountID, draft.RunID).Scan(&retryContextPayload, &retryContextDigest, &retryContextCount); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_runs
-				(account_id,id,boardroom_id,conversation_id,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at)
-				VALUES ($1,$2,$3,$4,'planned',$5,$6,$7,$8,$9,$10)`, draft.AccountID, draft.RetryRunID, plan.BoardroomID,
-				plan.ConversationID, plan.EntitlementVersion, plan.PolicyVersion, plan.Digest[:], len(turns), draft.Actor.UserID, draft.CreatedAt); err != nil {
+				(account_id,id,boardroom_id,conversation_id,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at,context_payload,context_digest,context_item_count)
+				VALUES ($1,$2,$3,$4,'planned',$5,$6,$7,$8,$9,$10,$11,$12,$13)`, draft.AccountID, draft.RetryRunID, plan.BoardroomID,
+				plan.ConversationID, plan.EntitlementVersion, plan.PolicyVersion, plan.Digest[:], len(turns), draft.Actor.UserID, draft.CreatedAt,
+				retryContextPayload, retryContextDigest, retryContextCount); err != nil {
 				return err
 			}
 			for index, turn := range turns {
@@ -594,6 +610,204 @@ func insertAgentInvocation(ctx context.Context, tx pgx.Tx, accountID ids.Account
 		return "", err
 	}
 	return invocationID, nil
+}
+
+type frozenContextEnvelope struct {
+	SchemaVersion int                 `json:"schema_version"`
+	Items         []frozenContextItem `json:"items"`
+}
+
+type frozenContextItem struct {
+	Kind    string          `json:"kind"`
+	ID      string          `json:"id"`
+	Version uint64          `json:"version"`
+	Digest  string          `json:"digest"`
+	Content json.RawMessage `json:"content"`
+}
+
+func buildAgentContext(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, selection agentapp.ContextSelection, canReadRestricted bool) ([]byte, [sha256.Size]byte, []agentapp.ContextReference, error) {
+	envelope := frozenContextEnvelope{SchemaVersion: 1, Items: make([]frozenContextItem, 0, len(selection.WorkItemIDs)+len(selection.KnowledgeFactIDs)+len(selection.BaselineAssessmentIDs))}
+	add := func(kind, id string, version uint64, content any) error {
+		raw, err := json.Marshal(content)
+		if err != nil || version == 0 {
+			return agentapp.ErrCorrupt
+		}
+		digest := sha256.Sum256(raw)
+		envelope.Items = append(envelope.Items, frozenContextItem{Kind: kind, ID: id, Version: version, Digest: fmt.Sprintf("%x", digest), Content: raw})
+		return nil
+	}
+	for _, id := range selection.WorkItemIDs {
+		var number, version int64
+		var kind, title, description, state, priority, responsibility string
+		var dueAt *time.Time
+		err := tx.QueryRow(ctx, `SELECT number,version,kind,title,description,state,priority,responsibility,due_at
+			FROM spyglass.work_items WHERE account_id=$1 AND id=$2 FOR SHARE`, accountID, id).Scan(&number, &version, &kind, &title, &description, &state, &priority, &responsibility, &dueAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrNotFound
+		}
+		if err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+		if number < 1 || version < 1 {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrCorrupt
+		}
+		content := struct {
+			Number         int64      `json:"number"`
+			Kind           string     `json:"kind"`
+			Title          string     `json:"title"`
+			Description    string     `json:"description"`
+			State          string     `json:"state"`
+			Priority       string     `json:"priority"`
+			Responsibility string     `json:"responsibility"`
+			DueAt          *time.Time `json:"due_at,omitempty"`
+		}{number, kind, title, description, state, priority, responsibility, dueAt}
+		if err := add("work_item", string(id), uint64(version), content); err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+	}
+	for _, id := range selection.KnowledgeFactIDs {
+		var revision int64
+		var scope, key, state, sensitivity string
+		var confidence int16
+		var canonical []byte
+		err := tx.QueryRow(ctx, `SELECT f.revision,f.scope_kind,f.fact_key,f.state,c.canonical_value,c.confidence,c.sensitivity
+			FROM spyglass.knowledge_facts f JOIN spyglass.knowledge_claims c ON c.account_id=f.account_id AND c.id=f.current_claim_id
+			WHERE f.account_id=$1 AND f.id=$2 AND f.state='active' AND c.state='accepted' AND (c.sensitivity<>'restricted' OR $3) FOR SHARE OF f,c`, accountID, id, canReadRestricted).Scan(&revision, &scope, &key, &state, &canonical, &confidence, &sensitivity)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrNotFound
+		}
+		if err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+		if revision < 1 || !json.Valid(canonical) {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrCorrupt
+		}
+		content := struct {
+			Scope       string          `json:"scope"`
+			Key         string          `json:"key"`
+			State       string          `json:"state"`
+			Value       json.RawMessage `json:"value"`
+			Confidence  int16           `json:"confidence"`
+			Sensitivity string          `json:"sensitivity"`
+		}{scope, key, state, canonical, confidence, sensitivity}
+		if err := add("knowledge_fact", string(id), uint64(revision), content); err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+	}
+	for _, id := range selection.BaselineAssessmentIDs {
+		var version int64
+		var catalogVersion, scopePolicyVersion, state string
+		err := tx.QueryRow(ctx, `SELECT version,catalog_version,scope_policy_version,state FROM spyglass.baseline_assessments
+			WHERE account_id=$1 AND id=$2 FOR SHARE`, accountID, id).Scan(&version, &catalogVersion, &scopePolicyVersion, &state)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrNotFound
+		}
+		if err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+		if version < 1 {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrCorrupt
+		}
+		type requirement struct {
+			Code        string `json:"code"`
+			Title       string `json:"title"`
+			Disposition string `json:"disposition"`
+			Reason      string `json:"reason,omitempty"`
+		}
+		requirements := make([]requirement, 0)
+		rows, err := tx.Query(ctx, `SELECT requirement_code,title,disposition,reason FROM spyglass.baseline_requirements
+			WHERE account_id=$1 AND assessment_id=$2 ORDER BY requirement_code,id`, accountID, id)
+		if err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+		for rows.Next() {
+			var item requirement
+			if err := rows.Scan(&item.Code, &item.Title, &item.Disposition, &item.Reason); err != nil {
+				rows.Close()
+				return nil, [sha256.Size]byte{}, nil, err
+			}
+			requirements = append(requirements, item)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+		content := struct {
+			CatalogVersion     string        `json:"catalog_version"`
+			ScopePolicyVersion string        `json:"scope_policy_version"`
+			State              string        `json:"state"`
+			Requirements       []requirement `json:"requirements"`
+		}{catalogVersion, scopePolicyVersion, state, requirements}
+		if err := add("baseline_assessment", string(id), uint64(version), content); err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil || len(raw) > agentapp.MaximumContextBytes {
+		return nil, [sha256.Size]byte{}, nil, agentapp.ErrConstraint
+	}
+	digest := sha256.Sum256(raw)
+	references := make([]agentapp.ContextReference, len(envelope.Items))
+	for index, item := range envelope.Items {
+		decoded, err := hex.DecodeString(item.Digest)
+		if err != nil || len(decoded) != sha256.Size {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrCorrupt
+		}
+		references[index] = agentapp.ContextReference{Kind: item.Kind, ID: item.ID, Version: item.Version}
+		copy(references[index].Digest[:], decoded)
+	}
+	return raw, digest, references, nil
+}
+
+func contextSelectionMatches(references []agentapp.ContextReference, selection agentapp.ContextSelection) bool {
+	expected := make([]string, 0, len(selection.WorkItemIDs)+len(selection.KnowledgeFactIDs)+len(selection.BaselineAssessmentIDs))
+	for _, id := range selection.WorkItemIDs {
+		expected = append(expected, "work_item:"+string(id))
+	}
+	for _, id := range selection.KnowledgeFactIDs {
+		expected = append(expected, "knowledge_fact:"+string(id))
+	}
+	for _, id := range selection.BaselineAssessmentIDs {
+		expected = append(expected, "baseline_assessment:"+string(id))
+	}
+	if len(expected) != len(references) {
+		return false
+	}
+	for index, reference := range references {
+		if expected[index] != reference.Kind+":"+reference.ID {
+			return false
+		}
+	}
+	return true
+}
+
+func decodeAgentContext(raw, storedDigest []byte, expectedCount int) ([]agentapp.ContextReference, [sha256.Size]byte, error) {
+	var digest [sha256.Size]byte
+	if len(raw) < 1 || len(raw) > agentapp.MaximumContextBytes || len(storedDigest) != sha256.Size || expectedCount < 0 || expectedCount > agentapp.MaximumContextItems {
+		return nil, digest, agentapp.ErrCorrupt
+	}
+	digest = sha256.Sum256(raw)
+	if !bytes.Equal(digest[:], storedDigest) {
+		return nil, [sha256.Size]byte{}, agentapp.ErrCorrupt
+	}
+	var envelope frozenContextEnvelope
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&envelope) != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) || envelope.SchemaVersion != 1 || len(envelope.Items) != expectedCount {
+		return nil, [sha256.Size]byte{}, agentapp.ErrCorrupt
+	}
+	references := make([]agentapp.ContextReference, len(envelope.Items))
+	for index, item := range envelope.Items {
+		decoded, err := hex.DecodeString(item.Digest)
+		contentDigest := sha256.Sum256(item.Content)
+		if err != nil || len(decoded) != sha256.Size || !bytes.Equal(decoded, contentDigest[:]) || ids.Validate(item.ID) != nil || item.Version == 0 ||
+			!slices.Contains([]string{"work_item", "knowledge_fact", "baseline_assessment"}, item.Kind) || !json.Valid(item.Content) {
+			return nil, [sha256.Size]byte{}, agentapp.ErrCorrupt
+		}
+		references[index] = agentapp.ContextReference{Kind: item.Kind, ID: item.ID, Version: item.Version, Digest: contentDigest}
+	}
+	return references, digest, nil
 }
 
 func nullableRunID(value ids.RunID) any {
@@ -717,17 +931,19 @@ func loadLatestPersonaVersion(ctx context.Context, tx pgx.Tx, accountID ids.Acco
 func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID ids.RunID) (agentapp.Run, bool, error) {
 	var plan agentdomain.RunPlan
 	var state, subject, prompt string
-	var digest []byte
+	var digest, contextPayload, contextDigest []byte
+	var contextItemCount int
 	var contextSequence int64
 	plan.AccountID, plan.RunID = accountID, runID
 	err := tx.QueryRow(ctx, `SELECT r.boardroom_id,r.conversation_id,r.state,r.entitlement_version,r.policy_version,r.plan_digest,r.created_by,r.created_at,
-		c.subject,e.context_sequence,u.body
+		c.subject,e.context_sequence,u.body,r.context_payload,r.context_digest,r.context_item_count
 		FROM spyglass.agent_runs r JOIN spyglass.agent_conversations c ON c.account_id=r.account_id AND c.id=r.conversation_id
 		JOIN spyglass.agent_invocations i ON i.account_id=r.account_id AND i.run_id=r.id AND i.turn=1
 		JOIN spyglass.agent_invocation_execution_plans e ON e.account_id=i.account_id AND e.invocation_id=i.id
 		JOIN spyglass.agent_user_messages u ON u.account_id=r.account_id AND u.conversation_id=r.conversation_id AND u.sequence=e.context_sequence
 		WHERE r.account_id=$1 AND r.id=$2`, accountID, runID).Scan(&plan.BoardroomID, &plan.ConversationID, &state,
-		&plan.EntitlementVersion, &plan.PolicyVersion, &digest, &plan.CreatedBy, &plan.CreatedAt, &subject, &contextSequence, &prompt)
+		&plan.EntitlementVersion, &plan.PolicyVersion, &digest, &plan.CreatedBy, &plan.CreatedAt, &subject, &contextSequence, &prompt,
+		&contextPayload, &contextDigest, &contextItemCount)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return agentapp.Run{}, false, nil
 	}
@@ -738,6 +954,10 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 		return agentapp.Run{}, false, agentapp.ErrCorrupt
 	}
 	copy(plan.Digest[:], digest)
+	contextReferences, validatedContextDigest, err := decodeAgentContext(contextPayload, contextDigest, contextItemCount)
+	if err != nil {
+		return agentapp.Run{}, false, err
+	}
 	rows, err := tx.Query(ctx, `SELECT t.turn,t.persona_id,t.persona_version_id,t.persona_digest,i.id,i.status,i.failure_code,i.started_at,i.completed_at,
 		CASE WHEN i.status='succeeded' THEN i.input_tokens END,CASE WHEN i.status='succeeded' THEN i.output_tokens END,
 		CASE WHEN i.status='succeeded' THEN i.total_tokens END,CASE WHEN i.status='succeeded' THEN i.cost_micros END
@@ -818,7 +1038,7 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 	if len(resolutions) > 1 {
 		return agentapp.Run{}, false, agentapp.ErrCorrupt
 	}
-	return agentapp.Run{Plan: validated, State: state, Subject: subject, Prompt: prompt, UserMessageID: messageID, InvocationIDs: invocations, Invocations: invocationViews, Resolutions: resolutions}, true, nil
+	return agentapp.Run{Plan: validated, State: state, Subject: subject, Prompt: prompt, UserMessageID: messageID, InvocationIDs: invocations, Invocations: invocationViews, Resolutions: resolutions, Context: contextReferences, ContextDigest: validatedContextDigest}, true, nil
 }
 
 func loadRunResolution(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, resolutionID ids.RunResolutionID) (agentapp.RunResolution, bool, error) {
