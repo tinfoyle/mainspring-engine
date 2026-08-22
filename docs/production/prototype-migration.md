@@ -1,6 +1,6 @@
 # Prototype Knowledge, document and Baseline migration
 
-- Status: deterministic source export and transformation manifest implemented; destination import, processing reconciliation and owner review remain
+- Status: deterministic export plus replay-safe destination import/reconciliation implemented; executed cohort evidence and owner review remain
 - Phase: 3.2
 - Source: one retained Mainspring prototype tenant PostgreSQL database
 - Destination: one existing Spyglass Account in its assigned cell
@@ -39,10 +39,38 @@ The output directory must not already exist. It is created privately and publish
 
 P3.2 migration is complete only when the destination operation is replay-safe and proves all of the following against the sealed manifest:
 
-1. Every importable reconstructed document has the exact Account-derived object and revision identities, passes malware/extraction processing, publishes ready, and has the expected source/text digest and chunk count.
+1. Every importable reconstructed document has the exact Account-derived object and revision identities, passes malware/extraction processing, reaches an indexed ready revision, and has the expected source/text digest and chunk count. The Account document remains unpublished until a human reviews it.
 2. Every importable Evidence and proposed Claim is present with the deterministic target identity, source kind/reference/revision, content digest and canonical value.
 3. Every source inventory row is either mapped to a destination receipt or appears in `unresolved.json`; totals must reconcile without silent omission.
 4. Owner review resolves or explicitly declines the unresolved fact and Baseline answer set before a new governed assessment can become ready.
 5. A destination checkpoint records the manifest digest, imported target identities, unresolved count and reconciliation result. A failed or partial run retries the same manifest and IDs rather than generating replacements.
 
-The export checkpoint is constructed and PostgreSQL-tested. The destination importer/receipt ledger and post-processing reconciler are the next construction slice; no stage or production data migration should be attempted before that checkpoint is complete.
+## Destination operation
+
+The same release image contains `/prototype-import`. Run it as a short-lived operator container from `ubunturojo` for local rehearsal, from the Hostinger Docker network for stage, or as a suspended Kubernetes Job using the exact admitted production image. It requires an existing active Account with Knowledge enabled, the Account's assigned cell database, and the same versioned S3-compatible object store used by the document worker.
+
+```sh
+export SPYGLASS_PROTOTYPE_IMPORT_GLOBAL_DATABASE_URL='postgres://...'
+export SPYGLASS_PROTOTYPE_IMPORT_CELL_DATABASE_URL='postgres://...'
+export SPYGLASS_PROTOTYPE_IMPORT_OBJECT_ENDPOINT='minio:9000'
+export SPYGLASS_PROTOTYPE_IMPORT_OBJECT_REGION='us-east-1'
+export SPYGLASS_PROTOTYPE_IMPORT_OBJECT_BUCKET='spyglass-knowledge'
+export SPYGLASS_PROTOTYPE_IMPORT_OBJECT_ACCESS_KEY='...'
+export SPYGLASS_PROTOTYPE_IMPORT_OBJECT_SECRET_KEY='...'
+export SPYGLASS_PROTOTYPE_IMPORT_OBJECT_SECURE='false'
+export SPYGLASS_PROTOTYPE_IMPORT_OBJECT_SSE='false'
+
+/prototype-import \
+  -bundle /private/read-only/spyglass-prototype-bundle \
+  -certificate /private/evidence/prototype-reconciliation.json
+```
+
+The bundle loader refuses links, extra files, unknown JSON fields, mismatched unresolved/checkpoint files, unreferenced objects and checksum drift. Import uses the named `prototype-migration` workload through the normal Knowledge application services. It cannot create owner statements, decide Claims, publish documents or mark a Baseline ready.
+
+The first invocation normally admits the immutable source objects, unpublished document revisions, Evidence and proposed Claims, records exact target receipts, moves the run to `imported`, and exits with reconciliation pending. Run the ordinary Knowledge document worker until those revisions are malware-scanned, extracted and indexed, then invoke the exact command again. Replay reuses the same deterministic targets. Completion verifies both physical object versions and bodies, every regenerated chunk and digest, every Evidence/Claim/citation tuple, the sealed unresolved count and the complete receipt set before moving the run to `reconciled` and atomically writing a private no-overwrite certificate.
+
+The certificate is destination evidence, not authorization to make imported material authoritative. An Owner or Administrator must inspect the unresolved report, publish accepted reconstructed documents, accept or reject each proposed Claim, and start a new governed Baseline assessment from the reviewed Facts. Agent-only Claims cannot become authoritative by themselves.
+
+Selective deletion of immutable Knowledge history is deliberately not a rollback mechanism. Before owner decisions, an interrupted run converges by exact retry and has no published/accepted effect. A cohort requiring full reversal must use an isolated target Account and the governed Account-erasure path while retaining the source checkpoint and bundle. The prototype source is not retired until the reconciliation certificate, owner review, Account-level migration certificate and rollback observation window are complete.
+
+The exporter, strict bundle loader, workload-only importer, forced-RLS receipt/event ledger and post-processing object/chunk/citation reconciler are constructed and PostgreSQL 17 tested. P3.2 still requires scheduler-driven Baseline maintenance invocation plus an executed synthetic/internal migration and owner-review certificate; connected stage or production data is not mutated during construction.

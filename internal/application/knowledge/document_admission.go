@@ -40,11 +40,11 @@ type UploadDocumentCommand struct {
 }
 
 func (service *DocumentAdmissionService) Upload(ctx context.Context, command UploadDocumentCommand) (knowledgedomain.Document, knowledgedomain.DocumentRevision, error) {
-	_, accountContext, err := service.documents.authorizeMutation(ctx, command.Actor, command.AccountID, command.CorrelationID)
+	actor, accountContext, err := service.documents.authorizeMutation(ctx, command.Actor, command.AccountID, command.CorrelationID)
 	if err != nil {
 		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, err
 	}
-	if !canContribute(accountContext.Role) {
+	if actor.Kind == knowledgedomain.ActorUser && !canContribute(accountContext.Role) {
 		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, &access.DeniedError{Code: access.DenialRole, Package: catalog.PackageKnowledge}
 	}
 	verified, err := VerifyDocumentSource(command.Filename, command.DeclaredType, command.Body)

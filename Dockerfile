@@ -24,6 +24,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -trimpath -buildvcs=false \
     -ldflags="-s -w -buildid= -X github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo.Version=${VERSION} -X github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo.Revision=${REVISION} -X github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo.BuiltAt=${CREATED}" \
     -o /out/spyglass ./cmd/spyglass
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
+    -o /out/prototype-transform ./cmd/prototype-transform
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
+    -o /out/prototype-import ./cmd/prototype-import
 
 FROM build AS test-runtime
 
@@ -51,6 +59,8 @@ LABEL org.opencontainers.image.title="Infinite Ocean: Spyglass" \
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build --chown=65532:65532 /out/spyglass /spyglass
+COPY --from=build --chown=65532:65532 /out/prototype-transform /prototype-transform
+COPY --from=build --chown=65532:65532 /out/prototype-import /prototype-import
 
 USER 65532:65532
 EXPOSE 8080 8081 8443

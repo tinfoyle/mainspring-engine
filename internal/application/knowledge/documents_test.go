@@ -237,3 +237,19 @@ func TestUploadAuthorizesBeforeObjectWriteAndCleansNewOrphan(t *testing.T) {
 		t.Fatalf("orphan cleanup=%+v err=%v", objects.deleted, err)
 	}
 }
+
+func TestUploadAllowsAuthorizedWorkloadWithoutHumanRole(t *testing.T) {
+	documents, authorizer, _, _ := documentServiceFixture(t)
+	authorizer.account.Role = ""
+	objects := &sourceObjectStore{created: true}
+	service, _ := NewDocumentAdmissionService(documents, objects)
+	document, revision, err := service.Upload(context.Background(), UploadDocumentCommand{
+		Actor: access.Actor{WorkloadID: "prototype-migration"}, AccountID: appKnowledgeAccount,
+		DocumentID: appKnowledgeDocument, RevisionID: appKnowledgeRevision, Title: "Migrated plan",
+		Sensitivity: knowledgedomain.SensitivityInternal, Filename: "migrated-plan.txt", DeclaredType: "text/plain",
+		Body: bytes.NewReader([]byte("source")), ChangeSummary: "Review-first import", CorrelationID: appKnowledgeOperation,
+	})
+	if err != nil || objects.puts != 1 || document.CreatedBy.Kind != knowledgedomain.ActorWorkload || document.CreatedBy.ID != "prototype-migration" || revision.CreatedBy != document.CreatedBy {
+		t.Fatalf("document=%+v revision=%+v puts=%d err=%v", document, revision, objects.puts, err)
+	}
+}
