@@ -130,6 +130,14 @@ type RunInvocation struct {
 	FailureCode      string
 	StartedAt        *time.Time
 	CompletedAt      *time.Time
+	Usage            *RunUsage
+}
+
+type RunUsage struct {
+	InputTokens  int64
+	OutputTokens int64
+	TotalTokens  int64
+	CostMicros   int64
 }
 
 type RunResolutionAction string

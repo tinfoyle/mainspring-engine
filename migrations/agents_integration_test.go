@@ -64,7 +64,7 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	if _, err := owner.Exec(ctx, `CREATE ROLE `+projectorRole+` NOLOGIN NOBYPASSRLS; CREATE ROLE `+readerRole+` NOLOGIN NOBYPASSRLS;
 		GRANT USAGE ON SCHEMA public,spyglass TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection(uuid,timestamptz,integer) TO `+projectorRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success(uuid,uuid,uuid,uuid,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,timestamptz,timestamptz) TO `+projectorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success(uuid,uuid,uuid,uuid,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,bigint,timestamptz,timestamptz) TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_failure(uuid,uuid,uuid,bytea,text,timestamptz,timestamptz) TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_result_projection(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer) TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_agent_result_projection_stats(timestamptz) TO `+projectorRole+`;
@@ -101,11 +101,11 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 		t.Fatalf("claim A account=%s invocation=%s err=%v", claimedAccount, claimedInvocation, err)
 	}
 	var created bool
-	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,$9,$9)`,
+	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9)`,
 		accountA, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err != nil || !created {
 		t.Fatalf("project success created=%v err=%v", created, err)
 	}
-	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,$9,$9)`,
+	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9)`,
 		accountA, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err != nil || created {
 		t.Fatalf("idempotent success created=%v err=%v", created, err)
 	}
@@ -122,7 +122,11 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	if err != nil || len(messagePage.Items) != 1 || messagePage.Items[0].Role != agentapp.MessageRolePersona || messagePage.Items[0].InvocationID != ids.AgentInvocationID(invocationA) || messagePage.Items[0].Result == nil || messagePage.Items[0].Result.Confidence != agentdomain.ConfidenceHigh || messagePage.Items[0].Result.Contribution != "Reconcile the backlog." {
 		t.Fatalf("projected message page=%+v err=%v", messagePage, err)
 	}
-	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,$9,$9)`,
+	var projectedCost, projectedTokens int64
+	if err := owner.QueryRow(ctx, `SELECT cost_micros,total_tokens FROM spyglass.agent_invocations WHERE account_id=$1 AND id=$2`, accountA, invocationA).Scan(&projectedCost, &projectedTokens); err != nil || projectedCost != 21 || projectedTokens != 14 {
+		t.Fatalf("projected cost=%d tokens=%d err=%v", projectedCost, projectedTokens, err)
+	}
+	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9)`,
 		accountB, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err == nil {
 		t.Fatal("cross-Account invocation projection succeeded")
 	}
@@ -130,7 +134,7 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id FROM public.spyglass_claim_agent_result_projection($1,$2,300)`, leaseB, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation); err != nil || claimedAccount != accountB || claimedInvocation != invocationB {
 		t.Fatalf("claim B account=%s invocation=%s err=%v", claimedAccount, claimedInvocation, err)
 	}
-	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_b',$5,$6,$7::jsonb,$8,8,3,11,$9,$9)`,
+	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_b',$5,$6,$7::jsonb,$8,8,3,11,17,$9,$9)`,
 		accountB, invocationB, leaseB, messageA, runnerDigestB, resultDigestB, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err == nil {
 		t.Fatal("duplicate message identity unexpectedly committed")
 	}

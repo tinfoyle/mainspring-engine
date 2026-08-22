@@ -137,6 +137,8 @@ Baseline scheduler checkpoint (2026-08-22): a content-free per-cell technical qu
 
 ## P3.3 — Workspace and Agent execution
 
+Cost-control checkpoint (2026-08-22): the provider-neutral usage contract now includes gateway-calculated micro-unit cost. Model-gateway starts only with a syntactically valid operator price book, requires an exact entry for the requested model and fails closed before provider invocation when no entry exists. Provider responses cannot inject cost. The bounded runner carries the immutable Persona maximum, accumulates token and cost usage across every sequential model/tool turn with overflow checks, and stops with a stable `cost_limit_exceeded` failure once the ceiling is crossed. Successful projection stores cost beside token counters, binds it into idempotent replay comparison and exposes the completed usage on the generated HTTP/TypeScript Agent Run contract. Stage secret preparation, Compose and LKE secret contracts now require the price book without committing actual provider prices. Deterministic cross-module context, orchestration/synthesis, fallback, schedules/attachments/proposals and remaining queue recovery work are still open.
+
 - Complete workspace/Boardroom configuration and immutable Persona/version lifecycle.
 - Implement multi-turn orchestration, manager synthesis, delegation, resumable owner questions and structured recovery.
 - Implement deterministic context assembly from Work, Knowledge, Baseline and Conversation watermarks.

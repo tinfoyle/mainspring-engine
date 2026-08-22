@@ -60,6 +60,7 @@ type Success struct {
 	InputTokens        int64
 	OutputTokens       int64
 	TotalTokens        int64
+	CostMicros         int64
 	CompletedAt        time.Time
 	ProjectedAt        time.Time
 }
@@ -150,6 +151,7 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 		ProviderResponseID: output.ResponseID, RunnerDigest: claim.Result.Digest, ResultDigest: sha256.Sum256(payload),
 		ResultPayload: payload, Body: output.Result.Contribution, InputTokens: output.Usage.InputTokens,
 		OutputTokens: output.Usage.OutputTokens, TotalTokens: output.Usage.TotalTokens,
+		CostMicros:  output.Usage.CostMicros,
 		CompletedAt: claim.Result.SubmittedAt.UTC(), ProjectedAt: now,
 	}
 	if err := p.queue.ProjectSuccess(ctx, success); err != nil {

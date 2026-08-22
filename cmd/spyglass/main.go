@@ -1751,7 +1751,7 @@ func runModelGateway(ctx context.Context, logger *slog.Logger) error {
 	providerTransport := http.DefaultTransport.(*http.Transport).Clone()
 	providerTransport.Proxy = nil
 	server, err := modelgatewaybootstrap.New(modelgatewaybootstrap.Config{
-		OpenAIAPIKey: apiKey, OpenAIOrigin: os.Getenv("SPYGLASS_OPENAI_ORIGIN"), OpenAIClient: &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(providerTransport), Timeout: modelgateway.MaximumProviderTimeout, CheckRedirect: rejectOutboundRedirect}, MaxRequestBody: maxBody,
+		OpenAIAPIKey: apiKey, OpenAIOrigin: os.Getenv("SPYGLASS_OPENAI_ORIGIN"), OpenAIPricing: os.Getenv("SPYGLASS_OPENAI_MODEL_PRICING_JSON"), OpenAIClient: &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(providerTransport), Timeout: modelgateway.MaximumProviderTimeout, CheckRedirect: rejectOutboundRedirect}, MaxRequestBody: maxBody,
 	}, logger)
 	if err != nil {
 		return err

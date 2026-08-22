@@ -300,6 +300,7 @@ export interface AgentRunInvocation {
   readonly "started_at"?: string;
   readonly "status": AgentRunInvocationState;
   readonly "turn": number;
+  readonly "usage"?: AgentRunUsage;
 }
 
 export type AgentRunInvocationState = "queued" | "running" | "succeeded" | "failed" | "canceled";
@@ -322,6 +323,13 @@ export interface AgentRunTurn {
   readonly "persona_id": string;
   readonly "persona_version_id": string;
   readonly "turn": number;
+}
+
+export interface AgentRunUsage {
+  readonly "cost_micros": number;
+  readonly "input_tokens": number;
+  readonly "output_tokens": number;
+  readonly "total_tokens": number;
 }
 
 export interface AgentToolGrant {
@@ -1557,6 +1565,7 @@ export interface ApiSchemas {
   readonly AgentRunResolutionAction: AgentRunResolutionAction;
   readonly AgentRunState: AgentRunState;
   readonly AgentRunTurn: AgentRunTurn;
+  readonly AgentRunUsage: AgentRunUsage;
   readonly AgentToolGrant: AgentToolGrant;
   readonly AgentToolGrantInput: AgentToolGrantInput;
   readonly AnswerBaselineRequest: AnswerBaselineRequest;

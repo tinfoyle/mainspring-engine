@@ -19,8 +19,8 @@ const (
 )
 
 func TestTurnExecutorRunsOneDeterministicToolLoopAndValidatesResult(t *testing.T) {
-	first := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test", ResponseID: "resp_1", StopReason: "tool_call", ToolCalls: []modelgateway.ToolCall{{CallID: "call_1", Name: "read_work", Arguments: json.RawMessage(`{}`)}}, Continuation: json.RawMessage(`[{"type":"function_call","call_id":"call_1","name":"read_work","arguments":"{}"}]`), Usage: modelgateway.Usage{InputTokens: 10, OutputTokens: 2, TotalTokens: 12}}
-	second := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test-2026", ResponseID: "resp_2", StopReason: "completed", Output: validStructuredResult(), Usage: modelgateway.Usage{InputTokens: 14, OutputTokens: 6, TotalTokens: 20}}
+	first := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test", ResponseID: "resp_1", StopReason: "tool_call", ToolCalls: []modelgateway.ToolCall{{CallID: "call_1", Name: "read_work", Arguments: json.RawMessage(`{}`)}}, Continuation: json.RawMessage(`[{"type":"function_call","call_id":"call_1","name":"read_work","arguments":"{}"}]`), Usage: modelgateway.Usage{InputTokens: 10, OutputTokens: 2, TotalTokens: 12, CostMicros: 5}}
+	second := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test-2026", ResponseID: "resp_2", StopReason: "completed", Output: validStructuredResult(), Usage: modelgateway.Usage{InputTokens: 14, OutputTokens: 6, TotalTokens: 20, CostMicros: 7}}
 	gateway := &gatewayStub{results: []runnercapability.Result{capabilityResult(first), {SchemaVersion: 1, Output: json.RawMessage(`{"active":3}`)}, capabilityResult(second)}}
 	input := validTurnInput()
 	raw, _ := json.Marshal(input)
@@ -32,7 +32,7 @@ func TestTurnExecutorRunsOneDeterministicToolLoopAndValidatesResult(t *testing.T
 	if err := json.Unmarshal(output, &turn); err != nil {
 		t.Fatal(err)
 	}
-	if turn.Result.Contribution != "Reconcile the backlog." || turn.Usage.TotalTokens != 32 || turn.ResponseID != "resp_2" || turn.ResponseModel != "gpt-test-2026" {
+	if turn.Result.Contribution != "Reconcile the backlog." || turn.Usage.TotalTokens != 32 || turn.Usage.CostMicros != 12 || turn.ResponseID != "resp_2" || turn.ResponseModel != "gpt-test-2026" {
 		t.Fatalf("unexpected output %#v", turn)
 	}
 	if len(gateway.calls) != 3 || gateway.calls[0].Capability != modelgateway.ModelTurnCapability || gateway.calls[0].OperationID != modelOperation1 || gateway.calls[1].Capability != "work.summary.read" || gateway.calls[1].OperationID != toolOperation1 || gateway.calls[2].OperationID != modelOperation2 {
@@ -47,6 +47,19 @@ func TestTurnExecutorRunsOneDeterministicToolLoopAndValidatesResult(t *testing.T
 	}
 	if continued.MaximumOutTokens != 998 {
 		t.Fatalf("remaining output ceiling=%d", continued.MaximumOutTokens)
+	}
+}
+
+func TestTurnExecutorStopsAtImmutableCostCeiling(t *testing.T) {
+	result := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test", ResponseID: "resp_1", StopReason: "completed", Output: validStructuredResult(), Usage: modelgateway.Usage{CostMicros: 11}}
+	input := validTurnInput()
+	input.Tools, input.ToolOperationIDs, input.MaximumToolSteps = nil, nil, 0
+	input.ModelOperationIDs = []string{modelOperation1}
+	input.MaximumCostMicros = 10
+	raw, _ := json.Marshal(input)
+	_, err := (TurnExecutor{}).Execute(context.Background(), runnerexecution.Execution{Kind: TurnExecutionKind, Input: raw, Capabilities: []string{modelgateway.ModelTurnCapability}, Gateway: &gatewayStub{results: []runnercapability.Result{capabilityResult(result)}}})
+	if !errors.Is(err, ErrCostLimit) {
+		t.Fatalf("expected cost limit, got %v", err)
 	}
 }
 
@@ -80,7 +93,7 @@ func TestTurnExecutorRejectsMissingStrictResultLists(t *testing.T) {
 }
 
 func validTurnInput() TurnInput {
-	return TurnInput{Provider: "openai", Model: "gpt-test", ReasoningEffort: "medium", Instructions: "Act as the operations lead.", Messages: []modelgateway.Message{{Role: "user", Content: "Review the backlog."}}, Tools: []Tool{{Name: "read_work", Capability: "work.summary.read", Description: "Read current Work summary.", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)}}, OutputFormat: modelgateway.OutputFormat{Name: "agent_result", Schema: json.RawMessage(`{"type":"object"}`)}, MaximumInputTokens: 100000, MaximumOutputTokens: 1000, MaximumToolSteps: 1, ModelOperationIDs: []string{modelOperation1, modelOperation2}, ToolOperationIDs: []string{toolOperation1}}
+	return TurnInput{Provider: "openai", Model: "gpt-test", ReasoningEffort: "medium", Instructions: "Act as the operations lead.", Messages: []modelgateway.Message{{Role: "user", Content: "Review the backlog."}}, Tools: []Tool{{Name: "read_work", Capability: "work.summary.read", Description: "Read current Work summary.", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)}}, OutputFormat: modelgateway.OutputFormat{Name: "agent_result", Schema: json.RawMessage(`{"type":"object"}`)}, MaximumInputTokens: 100000, MaximumOutputTokens: 1000, MaximumCostMicros: 1000, MaximumToolSteps: 1, ModelOperationIDs: []string{modelOperation1, modelOperation2}, ToolOperationIDs: []string{toolOperation1}}
 }
 
 func validStructuredResult() json.RawMessage {

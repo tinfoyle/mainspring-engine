@@ -37,6 +37,7 @@ smtp_from_address="$(provider_value SPYGLASS_SMTP_FROM_ADDRESS)"
 smtp_from_name="$(provider_value SPYGLASS_SMTP_FROM_NAME)"
 openai_api_key="$(provider_value SPYGLASS_OPENAI_API_KEY)"
 openai_origin="$(provider_value SPYGLASS_OPENAI_ORIGIN)"
+openai_pricing="$(provider_value SPYGLASS_OPENAI_MODEL_PRICING_JSON)"
 
 [[ "$stripe_webhook_secret" =~ ^whsec_[A-Za-z0-9_-]+$ ]] || fail "Stripe webhook secret must be a test endpoint whsec_ value"
 [[ "$stripe_secret_key" =~ ^sk_test_[A-Za-z0-9_-]+$ ]] || fail "Stripe key must be an sk_test_ value"
@@ -48,6 +49,7 @@ openai_origin="$(provider_value SPYGLASS_OPENAI_ORIGIN)"
 [[ "$smtp_from_name" =~ ^[A-Za-z0-9._[:space:]-]+$ ]] || fail "SMTP from name contains unsupported dotenv characters"
 [[ "$openai_api_key" =~ ^[A-Za-z0-9_-]+$ ]] || fail "OpenAI key contains unsupported dotenv characters"
 [[ "$openai_origin" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || fail "OpenAI origin must be an exact HTTPS origin"
+[[ "$openai_pricing" =~ ^\{[A-Za-z0-9._:\",{}-]+\}$ ]] || fail "OpenAI model pricing must be compact injection-safe JSON"
 
 if [[ -e "$target" ]]; then
   [[ -d "$target" ]] || fail "secrets target exists and is not a directory"
@@ -226,6 +228,7 @@ SPYGLASS_CELL_B_DOCKER_LAUNCHER_CONTROLLER_TOKEN=$launcher_controller_b_token
 SPYGLASS_CELL_B_DOCKER_LAUNCHER_BROKER_TOKEN=$launcher_broker_b_token
 SPYGLASS_OPENAI_API_KEY=$openai_api_key
 SPYGLASS_OPENAI_ORIGIN=$openai_origin
+SPYGLASS_OPENAI_MODEL_PRICING_JSON=$openai_pricing
 EOF
 
 ca_dir="$work/workload-ca"

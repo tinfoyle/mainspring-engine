@@ -15,7 +15,7 @@ const (
 
 func TestServiceValidatesAndDispatchesOneStep(t *testing.T) {
 	provider := &providerStub{result: Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test", ResponseID: "resp_1", StopReason: "completed", Output: json.RawMessage(`{"answer":"ok"}`), Usage: Usage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10}}}
-	service, err := New([]Definition{{Name: "openai", Timeout: time.Second, Provider: provider}})
+	service, err := New([]Definition{{Name: "openai", Timeout: time.Second, Provider: provider, Pricing: []ModelPrice{{Model: "gpt-test", InputMicrosPerMillionTokens: 1_000_000, OutputMicrosPerMillionTokens: 2_000_000}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,8 +23,29 @@ func TestServiceValidatesAndDispatchesOneStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.StopReason != "completed" || string(result.Output) != `{"answer":"ok"}` || provider.calls != 1 {
+	if result.StopReason != "completed" || string(result.Output) != `{"answer":"ok"}` || result.Usage.CostMicros != 13 || provider.calls != 1 {
 		t.Fatalf("unexpected result %#v calls=%d", result, provider.calls)
+	}
+}
+
+func TestServiceRejectsUnpricedModelsBeforeProviderCall(t *testing.T) {
+	provider := &providerStub{}
+	service, err := New([]Definition{{Name: "openai", Timeout: time.Second, Provider: provider, Pricing: []ModelPrice{{Model: "another-model"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Invoke(context.Background(), validRequest()); !errors.Is(err, ErrProviderUnavailable) || provider.calls != 0 {
+		t.Fatalf("unpriced result err=%v calls=%d", err, provider.calls)
+	}
+}
+
+func TestParsePricingJSONIsExactAndDeterministic(t *testing.T) {
+	prices, err := ParsePricingJSON(`{"z-model":{"input_micros_per_million_tokens":3,"output_micros_per_million_tokens":4},"a-model":{"input_micros_per_million_tokens":1,"output_micros_per_million_tokens":2}}`)
+	if err != nil || len(prices) != 2 || prices[0].Model != "a-model" || prices[1].Model != "z-model" {
+		t.Fatalf("prices=%+v err=%v", prices, err)
+	}
+	if _, err := ParsePricingJSON(`{"gpt-test":{"input_micros_per_million_tokens":1,"output_micros_per_million_tokens":2,"currency":"usd"}}`); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("expected unknown price field rejection, got %v", err)
 	}
 }
 

@@ -169,6 +169,8 @@ On 2026-08-21 both stage names resolved to the VPS public address and the shared
 
 The provider input remains mode 600 outside Git. Generated secret set `/opt/spyglass-stage/secrets/2026-08-21-02` passes its mode, identity, certificate and restore-checkpoint verifier. Stripe sandbox access and webhook endpoint `we_1U6uGAPokWCfkh4CBSN0SjNI`, non-production OpenAI access, Stalwart implicit TLS and model-gateway health all passed the content-free provider certificate. RC.4 rollback and RC.5 restoration completed without database restoration. Owner-managed backup destinations/schedules and external disk/certificate alerting remain environment operations, as agreed; they are not application-construction blockers.
 
+The next Phase 3 release adds one required provider input, `SPYGLASS_OPENAI_MODEL_PRICING_JSON`, containing reviewed current prices for every exact model enabled in immutable Personas. Stage secret preparation and the LKE model-gateway Secret fail closed when it is absent or malformed; no actual price or provider credential belongs in Git. This is a release-preparation requirement only and does not mutate the currently active RC.5 stage deployment.
+
 ### Stage topology
 
 The stage override uses the same service graph with production-mode process arguments:

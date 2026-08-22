@@ -16,6 +16,7 @@ import (
 type Config struct {
 	OpenAIAPIKey   string
 	OpenAIOrigin   string
+	OpenAIPricing  string
 	OpenAIClient   *http.Client
 	MaxRequestBody int64
 }
@@ -30,7 +31,11 @@ func New(config Config, logger *slog.Logger) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	service, err := modelgateway.New([]modelgateway.Definition{{Name: "openai", Timeout: modelgateway.MaximumProviderTimeout, Provider: provider}})
+	pricing, err := modelgateway.ParsePricingJSON(config.OpenAIPricing)
+	if err != nil {
+		return nil, errors.New("model gateway pricing configuration is invalid")
+	}
+	service, err := modelgateway.New([]modelgateway.Definition{{Name: "openai", Timeout: modelgateway.MaximumProviderTimeout, Provider: provider, Pricing: pricing}})
 	if err != nil {
 		return nil, err
 	}

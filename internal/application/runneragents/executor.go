@@ -31,6 +31,7 @@ var (
 	ErrInvalidModelOutput = errors.New("agent model output is invalid")
 	ErrToolLimit          = errors.New("agent tool step limit reached")
 	ErrTokenLimit         = errors.New("agent token ceiling reached")
+	ErrCostLimit          = errors.New("agent cost ceiling reached")
 	validProvider         = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 	validModel            = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$`)
 )
@@ -52,6 +53,7 @@ type TurnInput struct {
 	OutputFormat        modelgateway.OutputFormat `json:"output_format"`
 	MaximumInputTokens  int64                     `json:"maximum_input_tokens"`
 	MaximumOutputTokens int                       `json:"maximum_output_tokens"`
+	MaximumCostMicros   int64                     `json:"maximum_cost_micros"`
 	MaximumToolSteps    int                       `json:"maximum_tool_steps"`
 	ModelOperationIDs   []string                  `json:"model_operation_ids"`
 	ToolOperationIDs    []string                  `json:"tool_operation_ids"`
@@ -79,7 +81,7 @@ func ValidateTurnOutput(output TurnOutput, expectedProvider, expectedModel strin
 	if !validProvider.MatchString(output.Provider) || output.Provider != expectedProvider ||
 		!validModel.MatchString(output.RequestedModel) || output.RequestedModel != expectedModel ||
 		!validModel.MatchString(output.ResponseModel) || output.ResponseID == "" || len(output.ResponseID) > 200 ||
-		strings.ContainsAny(output.ResponseID, " \t\r\n") || output.Usage.InputTokens < 0 || output.Usage.OutputTokens < 0 ||
+		strings.ContainsAny(output.ResponseID, " \t\r\n") || output.Usage.InputTokens < 0 || output.Usage.OutputTokens < 0 || output.Usage.CostMicros < 0 ||
 		output.Usage.TotalTokens < 0 || output.Usage.TotalTokens != output.Usage.InputTokens+output.Usage.OutputTokens {
 		return TurnOutput{}, ErrInvalidModelOutput
 	}
@@ -96,7 +98,7 @@ func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execu
 		return nil, coded("capability_not_granted", ErrCapabilityDenied)
 	}
 	input, err := decodeExact[TurnInput](execution.Input)
-	if err != nil || input.MaximumInputTokens < 1 || input.MaximumInputTokens > 2_000_000 || input.MaximumOutputTokens < 1 || input.MaximumOutputTokens > modelgateway.MaximumOutputTokens || input.MaximumToolSteps < 0 || input.MaximumToolSteps > agents.MaximumToolSteps ||
+	if err != nil || input.MaximumInputTokens < 1 || input.MaximumInputTokens > 2_000_000 || input.MaximumOutputTokens < 1 || input.MaximumOutputTokens > modelgateway.MaximumOutputTokens || input.MaximumCostMicros < 0 || input.MaximumCostMicros > 1_000_000_000 || input.MaximumToolSteps < 0 || input.MaximumToolSteps > agents.MaximumToolSteps ||
 		len(input.ModelOperationIDs) != input.MaximumToolSteps+1 || len(input.ToolOperationIDs) != input.MaximumToolSteps {
 		return nil, coded("invalid_input", ErrInvalidInput)
 	}
@@ -140,14 +142,18 @@ func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execu
 			return nil, coded("model_output_invalid", ErrInvalidModelOutput)
 		}
 		result, err = modelgateway.ValidateResult(request, result)
-		if err != nil || usage.InputTokens > math.MaxInt64-result.Usage.InputTokens || usage.OutputTokens > math.MaxInt64-result.Usage.OutputTokens || usage.TotalTokens > math.MaxInt64-result.Usage.TotalTokens {
+		if err != nil || usage.InputTokens > math.MaxInt64-result.Usage.InputTokens || usage.OutputTokens > math.MaxInt64-result.Usage.OutputTokens || usage.TotalTokens > math.MaxInt64-result.Usage.TotalTokens || usage.CostMicros > math.MaxInt64-result.Usage.CostMicros {
 			return nil, coded("model_output_invalid", ErrInvalidModelOutput)
 		}
 		usage.InputTokens += result.Usage.InputTokens
 		usage.OutputTokens += result.Usage.OutputTokens
 		usage.TotalTokens += result.Usage.TotalTokens
+		usage.CostMicros += result.Usage.CostMicros
 		if usage.InputTokens > input.MaximumInputTokens || usage.OutputTokens > int64(input.MaximumOutputTokens) {
 			return nil, coded("token_limit_exceeded", ErrTokenLimit)
+		}
+		if usage.CostMicros > input.MaximumCostMicros {
+			return nil, coded("cost_limit_exceeded", ErrCostLimit)
 		}
 		switch result.StopReason {
 		case "completed":

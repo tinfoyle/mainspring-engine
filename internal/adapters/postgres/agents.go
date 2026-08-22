@@ -738,7 +738,9 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 		return agentapp.Run{}, false, agentapp.ErrCorrupt
 	}
 	copy(plan.Digest[:], digest)
-	rows, err := tx.Query(ctx, `SELECT t.turn,t.persona_id,t.persona_version_id,t.persona_digest,i.id,i.status,i.failure_code,i.started_at,i.completed_at
+	rows, err := tx.Query(ctx, `SELECT t.turn,t.persona_id,t.persona_version_id,t.persona_digest,i.id,i.status,i.failure_code,i.started_at,i.completed_at,
+		CASE WHEN i.status='succeeded' THEN i.input_tokens END,CASE WHEN i.status='succeeded' THEN i.output_tokens END,
+		CASE WHEN i.status='succeeded' THEN i.total_tokens END,CASE WHEN i.status='succeeded' THEN i.cost_micros END
 		FROM spyglass.agent_run_plan_turns t JOIN spyglass.agent_invocations i
 		ON i.account_id=t.account_id AND i.run_id=t.run_id AND i.turn=t.turn
 		WHERE t.account_id=$1 AND t.run_id=$2 ORDER BY t.turn`, accountID, runID)
@@ -754,15 +756,24 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 		var rawDigest []byte
 		var invocation agentapp.RunInvocation
 		var failureCode *string
-		if err := rows.Scan(&turnNumber, &turn.PersonaID, &turn.PersonaVersionID, &rawDigest, &invocation.ID, &invocation.Status, &failureCode, &invocation.StartedAt, &invocation.CompletedAt); err != nil || len(rawDigest) != len(turn.PersonaDigest) {
+		var inputTokens, outputTokens, totalTokens, costMicros *int64
+		if err := rows.Scan(&turnNumber, &turn.PersonaID, &turn.PersonaVersionID, &rawDigest, &invocation.ID, &invocation.Status, &failureCode, &invocation.StartedAt, &invocation.CompletedAt,
+			&inputTokens, &outputTokens, &totalTokens, &costMicros); err != nil || len(rawDigest) != len(turn.PersonaDigest) {
 			return agentapp.Run{}, false, agentapp.ErrCorrupt
 		}
 		if turnNumber < 1 || !slices.Contains([]string{"queued", "running", "succeeded", "failed", "canceled"}, invocation.Status) ||
 			((invocation.Status == "failed" || invocation.Status == "canceled") != (failureCode != nil)) ||
 			((invocation.Status == "queued") && (invocation.StartedAt != nil || invocation.CompletedAt != nil)) ||
 			((invocation.Status == "running") && (invocation.StartedAt == nil || invocation.CompletedAt != nil)) ||
-			(slices.Contains([]string{"succeeded", "failed", "canceled"}, invocation.Status) && invocation.CompletedAt == nil) {
+			(slices.Contains([]string{"succeeded", "failed", "canceled"}, invocation.Status) && invocation.CompletedAt == nil) ||
+			(invocation.Status == "succeeded") != (inputTokens != nil && outputTokens != nil && totalTokens != nil && costMicros != nil) {
 			return agentapp.Run{}, false, agentapp.ErrCorrupt
+		}
+		if invocation.Status == "succeeded" {
+			if *inputTokens < 0 || *outputTokens < 0 || *totalTokens != *inputTokens+*outputTokens || *costMicros < 0 {
+				return agentapp.Run{}, false, agentapp.ErrCorrupt
+			}
+			invocation.Usage = &agentapp.RunUsage{InputTokens: *inputTokens, OutputTokens: *outputTokens, TotalTokens: *totalTokens, CostMicros: *costMicros}
 		}
 		if failureCode != nil {
 			invocation.FailureCode = *failureCode

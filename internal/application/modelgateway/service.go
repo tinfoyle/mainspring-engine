@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -29,6 +30,8 @@ const (
 	MaximumToolDescription = 4 << 10
 	MaximumOutputTokens    = 32_768
 	MaximumProviderTimeout = 5 * time.Minute
+	MaximumUsageTokens     = 10_000_000
+	MaximumPriceMicros     = 1_000_000_000_000
 	ModelTurnCapability    = "agents.model.turn"
 )
 
@@ -99,6 +102,7 @@ type Usage struct {
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
 	TotalTokens  int64 `json:"total_tokens"`
+	CostMicros   int64 `json:"cost_micros"`
 }
 
 type Result struct {
@@ -121,25 +125,51 @@ type Definition struct {
 	Name     string
 	Timeout  time.Duration
 	Provider Provider
+	Pricing  []ModelPrice
+}
+
+// ModelPrice is an operator-controlled price snapshot for one requested model.
+// Values are micro-units of account currency per one million tokens. The
+// gateway, rather than an untrusted runner or provider response, calculates
+// the billable cost returned with every step.
+type ModelPrice struct {
+	Model                        string
+	InputMicrosPerMillionTokens  int64
+	OutputMicrosPerMillionTokens int64
+}
+
+type pricedProvider struct {
+	definition Definition
+	pricing    map[string]ModelPrice
 }
 
 type Service struct {
-	providers map[string]Definition
+	providers map[string]pricedProvider
 }
 
 func New(definitions []Definition) (*Service, error) {
 	if len(definitions) == 0 || len(definitions) > 16 {
 		return nil, ErrInvalidRequest
 	}
-	providers := make(map[string]Definition, len(definitions))
+	providers := make(map[string]pricedProvider, len(definitions))
 	for _, definition := range definitions {
-		if !validProvider.MatchString(definition.Name) || definition.Provider == nil || definition.Timeout < time.Second || definition.Timeout > MaximumProviderTimeout {
+		if !validProvider.MatchString(definition.Name) || definition.Provider == nil || definition.Timeout < time.Second || definition.Timeout > MaximumProviderTimeout || len(definition.Pricing) == 0 || len(definition.Pricing) > 256 {
 			return nil, ErrInvalidRequest
 		}
 		if _, exists := providers[definition.Name]; exists {
 			return nil, ErrInvalidRequest
 		}
-		providers[definition.Name] = definition
+		prices := make(map[string]ModelPrice, len(definition.Pricing))
+		for _, price := range definition.Pricing {
+			if !validModel.MatchString(price.Model) || price.InputMicrosPerMillionTokens < 0 || price.InputMicrosPerMillionTokens > MaximumPriceMicros || price.OutputMicrosPerMillionTokens < 0 || price.OutputMicrosPerMillionTokens > MaximumPriceMicros {
+				return nil, ErrInvalidRequest
+			}
+			if _, exists := prices[price.Model]; exists {
+				return nil, ErrInvalidRequest
+			}
+			prices[price.Model] = price
+		}
+		providers[definition.Name] = pricedProvider{definition: definition, pricing: prices}
 	}
 	return &Service{providers: providers}, nil
 }
@@ -149,17 +179,32 @@ func (s *Service) Invoke(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	definition, exists := s.providers[validated.Provider]
+	provider, exists := s.providers[validated.Provider]
 	if !exists {
 		return Result{}, ErrProviderUnavailable
 	}
-	executionContext, cancel := context.WithTimeout(ctx, definition.Timeout)
+	price, exists := provider.pricing[validated.Model]
+	if !exists {
+		return Result{}, ErrProviderUnavailable
+	}
+	executionContext, cancel := context.WithTimeout(ctx, provider.definition.Timeout)
 	defer cancel()
-	result, err := definition.Provider.Invoke(executionContext, validated)
+	result, err := provider.definition.Provider.Invoke(executionContext, validated)
 	if err != nil {
 		return Result{}, err
 	}
-	return ValidateResult(validated, result)
+	if result.Usage.CostMicros != 0 {
+		return Result{}, ErrInvalidProviderReply
+	}
+	result, err = ValidateResult(validated, result)
+	if err != nil {
+		return Result{}, err
+	}
+	result.Usage.CostMicros, err = price.cost(result.Usage)
+	if err != nil {
+		return Result{}, ErrInvalidProviderReply
+	}
+	return result, nil
 }
 
 func ValidateRequest(request Request) (Request, error) {
@@ -220,7 +265,7 @@ func ValidateRequest(request Request) (Request, error) {
 
 func ValidateResult(request Request, result Result) (Result, error) {
 	if result.SchemaVersion != SchemaVersion || result.Provider != request.Provider || !validModel.MatchString(result.Model) || !validOpaqueID(result.ResponseID) ||
-		result.Usage.InputTokens < 0 || result.Usage.OutputTokens < 0 || result.Usage.TotalTokens < 0 ||
+		result.Usage.InputTokens < 0 || result.Usage.InputTokens > MaximumUsageTokens || result.Usage.OutputTokens < 0 || result.Usage.OutputTokens > MaximumUsageTokens || result.Usage.TotalTokens < 0 || result.Usage.TotalTokens > MaximumUsageTokens || result.Usage.CostMicros < 0 ||
 		result.Usage.TotalTokens != result.Usage.InputTokens+result.Usage.OutputTokens {
 		return Result{}, ErrInvalidProviderReply
 	}
@@ -255,6 +300,34 @@ func ValidateResult(request Request, result Result) (Result, error) {
 		return Result{}, ErrInvalidProviderReply
 	}
 	return result, nil
+}
+
+func (price ModelPrice) cost(usage Usage) (int64, error) {
+	input, err := tokenCost(usage.InputTokens, price.InputMicrosPerMillionTokens)
+	if err != nil {
+		return 0, err
+	}
+	output, err := tokenCost(usage.OutputTokens, price.OutputMicrosPerMillionTokens)
+	if err != nil || input > math.MaxInt64-output {
+		return 0, ErrInvalidProviderReply
+	}
+	return input + output, nil
+}
+
+func tokenCost(tokens, rate int64) (int64, error) {
+	if tokens < 0 || tokens > MaximumUsageTokens || rate < 0 || rate > MaximumPriceMicros {
+		return 0, ErrInvalidProviderReply
+	}
+	whole := (tokens / 1_000_000) * rate
+	remainder := tokens % 1_000_000
+	partial := remainder * rate
+	if partial > 0 {
+		partial = (partial + 999_999) / 1_000_000
+	}
+	if whole > math.MaxInt64-partial {
+		return 0, ErrInvalidProviderReply
+	}
+	return whole + partial, nil
 }
 
 func canonicalObject(raw json.RawMessage, maximum int) (json.RawMessage, error) {

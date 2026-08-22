@@ -95,7 +95,7 @@ Before an environment overlay may use these resources it must add:
   from application workloads and unrelated operator Jobs.
 - The runner broker secret carries its constrained cell database credential,
   envelope keyring, and tool-context signing key. The model gateway alone
-  receives the OpenAI/provider credential. A certificate controller supplies
+  receives the OpenAI/provider credential and exact-model pricing JSON. A certificate controller supplies
   `spyglass-runner-broker-cell-reference-workload-tls`, `spyglass-tool-router-workload-tls`, and
   `spyglass-model-gateway-workload-tls`; the broker certificate is also a
   client identity accepted by model-gateway. `spyglass-runner-broker-ca`

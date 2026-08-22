@@ -583,12 +583,19 @@ type agentRunTurnResponse struct {
 	PersonaVersionID ids.PersonaVersionID `json:"persona_version_id"`
 }
 type agentRunInvocationResponse struct {
-	ID               ids.AgentInvocationID `json:"id"`
-	Turn             uint32                `json:"turn"`
-	PersonaVersionID ids.PersonaVersionID  `json:"persona_version_id"`
-	Status           string                `json:"status"`
-	StartedAt        *time.Time            `json:"started_at,omitempty"`
-	CompletedAt      *time.Time            `json:"completed_at,omitempty"`
+	ID               ids.AgentInvocationID  `json:"id"`
+	Turn             uint32                 `json:"turn"`
+	PersonaVersionID ids.PersonaVersionID   `json:"persona_version_id"`
+	Status           string                 `json:"status"`
+	StartedAt        *time.Time             `json:"started_at,omitempty"`
+	CompletedAt      *time.Time             `json:"completed_at,omitempty"`
+	Usage            *agentRunUsageResponse `json:"usage,omitempty"`
+}
+type agentRunUsageResponse struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
+	CostMicros   int64 `json:"cost_micros"`
 }
 type agentRunResolutionResponse struct {
 	ID         ids.RunResolutionID          `json:"id"`
@@ -626,6 +633,10 @@ func agentRunView(run agentapp.Run) agentRunResponse {
 	for index, invocation := range run.Invocations {
 		invocations[index] = agentRunInvocationResponse{ID: invocation.ID, Turn: invocation.Turn, PersonaVersionID: invocation.PersonaVersionID,
 			Status: invocation.Status, StartedAt: invocation.StartedAt, CompletedAt: invocation.CompletedAt}
+		if invocation.Usage != nil {
+			invocations[index].Usage = &agentRunUsageResponse{InputTokens: invocation.Usage.InputTokens, OutputTokens: invocation.Usage.OutputTokens,
+				TotalTokens: invocation.Usage.TotalTokens, CostMicros: invocation.Usage.CostMicros}
+		}
 	}
 	resolutions := make([]agentRunResolutionResponse, len(run.Resolutions))
 	for index, resolution := range run.Resolutions {

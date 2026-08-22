@@ -167,7 +167,8 @@ func Build(snapshot Snapshot, now time.Time) (runnerbroker.ProvisionCommand, [sh
 		Instructions: instructions, Messages: snapshot.Messages, Tools: tools,
 		OutputFormat:       modelgateway.OutputFormat{Name: "agent_result", Schema: persona.Policy.OutputSchema},
 		MaximumInputTokens: persona.Policy.MaximumInputTokens, MaximumOutputTokens: int(persona.Policy.MaximumOutputTokens),
-		MaximumToolSteps: persona.Policy.MaximumToolSteps, ModelOperationIDs: snapshot.ModelOperationIDs, ToolOperationIDs: snapshot.ToolOperationIDs,
+		MaximumCostMicros: persona.Policy.MaximumCostMicros,
+		MaximumToolSteps:  persona.Policy.MaximumToolSteps, ModelOperationIDs: snapshot.ModelOperationIDs, ToolOperationIDs: snapshot.ToolOperationIDs,
 	})
 	if err != nil {
 		return runnerbroker.ProvisionCommand{}, [sha256.Size]byte{}, ErrInvalidSnapshot

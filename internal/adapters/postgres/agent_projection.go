@@ -50,10 +50,10 @@ func (r *AgentProjectionRepository) Claim(ctx context.Context, leaseID string, n
 func (r *AgentProjectionRepository) ProjectSuccess(ctx context.Context, result agentprojection.Success) error {
 	var projected bool
 	err := r.pool.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success(
-		$1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16)`,
+		$1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,$17)`,
 		result.Claim.AccountID, result.Claim.InvocationID, result.Claim.LeaseID, result.MessageID, result.Provider,
 		result.ResponseModel, result.ProviderResponseID, result.RunnerDigest[:], result.ResultDigest[:], result.ResultPayload,
-		result.Body, result.InputTokens, result.OutputTokens, result.TotalTokens, result.CompletedAt.UTC(), result.ProjectedAt.UTC()).Scan(&projected)
+		result.Body, result.InputTokens, result.OutputTokens, result.TotalTokens, result.CostMicros, result.CompletedAt.UTC(), result.ProjectedAt.UTC()).Scan(&projected)
 	if err != nil {
 		return mapAgentProjectionError("project agent invocation success", err)
 	}

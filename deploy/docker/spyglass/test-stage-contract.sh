@@ -24,6 +24,7 @@ sed -i \
   -e 's/SPYGLASS_SMTP_FROM_NAME=REPLACE/SPYGLASS_SMTP_FROM_NAME=Infinite Ocean Stage/' \
   -e 's/SPYGLASS_OPENAI_API_KEY=REPLACE/SPYGLASS_OPENAI_API_KEY=sk-proj-stagecontract/' \
   -e 's|SPYGLASS_OPENAI_ORIGIN=https://api.openai.com|SPYGLASS_OPENAI_ORIGIN=https://api.openai.com|' \
+  -e 's|SPYGLASS_OPENAI_MODEL_PRICING_JSON=REPLACE_WITH_COMPACT_EXACT_MODEL_PRICE_BOOK|SPYGLASS_OPENAI_MODEL_PRICING_JSON={"gpt-test":{"input_micros_per_million_tokens":1000000,"output_micros_per_million_tokens":2000000}}|' \
   "$provider_file"
 chmod 600 "$provider_file"
 

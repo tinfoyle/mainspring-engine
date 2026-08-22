@@ -272,7 +272,7 @@
       "port": 8443,
       "health": "/health/live,/health/ready",
       "database_roles": [],
-      "configuration": ["SPYGLASS_OPENAI_API_KEY", "SPYGLASS_OPENAI_ORIGIN", "SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES", "SPYGLASS_HTTP_ADDRESS"],
+      "configuration": ["SPYGLASS_OPENAI_API_KEY", "SPYGLASS_OPENAI_ORIGIN", "SPYGLASS_OPENAI_MODEL_PRICING_JSON", "SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES", "SPYGLASS_HTTP_ADDRESS"],
       "configuration_profiles": ["traced", "workload_tls"],
       "dependencies": ["openai-api"]
     },

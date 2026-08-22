@@ -437,12 +437,19 @@ GRANT EXECUTE ON FUNCTION public.spyglass_agent_result_projection_stats(timestam
 |---|---|
 | `SPYGLASS_OPENAI_API_KEY` | Required provider credential, mounted only into model-gateway |
 | `SPYGLASS_OPENAI_ORIGIN` | Optional exact provider API origin; defaults to `https://api.openai.com` |
+| `SPYGLASS_OPENAI_MODEL_PRICING_JSON` | Required compact exact-model price book; each entry supplies `input_micros_per_million_tokens` and `output_micros_per_million_tokens` |
 | `SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES` | Optional positive bound through 256 KiB; defaults to 256 KiB |
 | `SPYGLASS_WORKLOAD_CERT_FILE` / `SPYGLASS_WORKLOAD_KEY_FILE` / `SPYGLASS_WORKLOAD_CA_FILE` | Required rotating TLS 1.3 server material outside development |
 | `SPYGLASS_WORKLOAD_CLIENT_IDENTITIES` | Comma-separated exact broker SPIFFE URI identities accepted on the private invocation path |
 | `SPYGLASS_HTTP_ADDRESS` | Optional listen address; defaults to `:8443` outside development and `:8080` in development |
 
-Model-gateway is stateless, accepts only workload-authenticated internal requests outside explicit development, and has no PostgreSQL configuration. Its OpenAI adapter disables provider-side response storage and parallel tool calls, sends strict JSON schemas for both tool arguments and final output, refuses redirects, ignores ambient proxy configuration, bounds responses, and never returns provider error bodies or its credential. No live provider call is part of repository verification; contract tests use local HTTP fixtures.
+Model-gateway is stateless, accepts only workload-authenticated internal requests outside explicit development, and has no PostgreSQL configuration. Its OpenAI adapter disables provider-side response storage and parallel tool calls, sends strict JSON schemas for both tool arguments and final output, refuses redirects, ignores ambient proxy configuration, bounds responses, and never returns provider error bodies or its credential. The gateway rejects an unpriced requested model before making an external call. It calculates micro-unit cost from validated input/output token counts and the exact operator price entry; provider responses and runners cannot supply their own price. Price-book updates apply to later model steps, while the immutable Persona maximum remains the hard aggregate ceiling for the complete turn. No live provider call is part of repository verification; contract tests use local HTTP fixtures.
+
+Example shape (illustrative values only; operators must enter reviewed current prices for the exact enabled model names):
+
+```json
+{"exact-model-name":{"input_micros_per_million_tokens":1000000,"output_micros_per_million_tokens":2000000}}
+```
 
 ## Work release operator values
 
