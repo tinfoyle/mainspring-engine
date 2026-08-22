@@ -1,6 +1,6 @@
 # Schedule Queue Operations
 
-Status: executable operator contract; connected-environment rehearsal and production role grants remain release gates
+Status: executable operator contract and applied local rehearsal complete; stage rehearsal and production role grants remain release gates
 
 Recurring occurrences and trigger-now requests use independent identifier-only durable queues. A terminal row never retries forever and never disappears automatically. Operators can inspect one queue in one cell and, after correcting the underlying condition, requeue one exact recurring Schedule or trigger request.
 

@@ -1,6 +1,6 @@
 # Scheduling module
 
-- Status: recurrence, customer lifecycle/trigger surfaces, workload-authorized occurrence runtime and audited dead-letter recovery constructed; applied environment rehearsal remains
+- Status: recurrence, customer lifecycle/trigger surfaces, workload-authorized occurrence runtime and audited dead-letter recovery constructed; applied local rehearsal complete and stage rehearsal remains
 - Owner: Scheduling application module
 - Package boundary: schedule definitions use the package of their target; the first target is Agents
 
@@ -50,7 +50,9 @@ The customer Schedule surface now publishes stable cursor list/get, create, full
 
 `schedule-queue-admin` now provides signed, bounded, content-free inspection and exact-target requeue for both recurring and trigger queues. Its execute-only database functions expose identifiers, occurrence times, attempts, bounded error codes and timestamps while writing immutable Account-attributed evidence in the same transaction. Requeue preserves the original occurrence time and fails closed unless the exact row remains terminal.
 
-Applied local/stage failure rehearsal remains before this module is operationally complete.
+The persistent `spyglass-local` stack has applied migrations 53–55 and the current binary. A synthetic due row exercised live worker retry, was moved to terminal failure for the recovery drill, was inspected and requeued by the real one-shot command under distinct production-format signed authorizations and an execute-only role, and was reclaimed by the live worker. Soft deletion then removed the due row, the temporary credential was dropped, immutable evidence remained, and the complete local smoke certificate passed. The fresh PostgreSQL integration gate separately proves successful recurring and trigger occurrence dispatch.
+
+The corresponding Hostinger stage failure rehearsal remains before this module is operationally complete.
 
 ## Invariants
 
