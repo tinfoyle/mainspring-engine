@@ -125,6 +125,114 @@ func TestScheduleRepositoryPersistsAndIsolatesDefinitions(t *testing.T) {
 	}
 }
 
+type scheduleExecutionAuthorizer struct {
+	value scheduleapp.ExecutionAuthorization
+}
+
+func (authorizer scheduleExecutionAuthorizer) Authorize(context.Context, scheduleapp.ExecutionSnapshot) (scheduleapp.ExecutionAuthorization, error) {
+	return authorizer.value, nil
+}
+
+func TestScheduleExecutionAtomicallyCreatesRunAndAdvancesDefinition(t *testing.T) {
+	adminURL := os.Getenv("SPYGLASS_POSTGRES_TEST_URL")
+	if adminURL == "" {
+		t.Skip("SPYGLASS_POSTGRES_TEST_URL is not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	databaseURL, cleanup := createDatabase(t, ctx, adminURL)
+	defer cleanup()
+	owner := openPool(t, ctx, databaseURL, nil)
+	defer owner.Close()
+	if _, err := migrations.Apply(ctx, owner, migrations.Cell); err != nil {
+		t.Fatal(err)
+	}
+	var createdAt time.Time
+	if err := owner.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&createdAt); err != nil {
+		t.Fatal(err)
+	}
+	createdAt = createdAt.UTC()
+	accountID := ids.AccountID("14000000-0000-4000-8000-000000000001")
+	userID := ids.UserID("24000000-0000-4000-8000-000000000001")
+	boardroomID := ids.BoardroomID("34000000-0000-4000-8000-000000000001")
+	personaID := ids.PersonaID("44000000-0000-4000-8000-000000000001")
+	scheduleID := ids.ScheduleID("54000000-0000-4000-8000-000000000001")
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.account_namespaces(account_id,placement_generation,state,created_at) VALUES ($1,1,'active',$2)`, accountID, createdAt); err != nil {
+		t.Fatal(err)
+	}
+	cell, err := database.NewCellPool(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents, err := postgresadapter.NewAgentRepository(cell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := agents.CreateBoardroom(ctx, mustBoardroom(t, boardroomID, accountID, createdAt)); err != nil {
+		t.Fatal(err)
+	}
+	persona := mustPersonaVersion(t, "64000000-0000-4000-8000-000000000001", personaID, accountID, 1, "Scheduled Reviewer", userID, createdAt)
+	if _, _, err := agents.PublishPersona(ctx, boardroomID, persona, 0); err != nil {
+		t.Fatal(err)
+	}
+	schedule, err := scheduledomain.New(scheduledomain.Draft{
+		ID: scheduleID, AccountID: accountID, Name: "Scheduled operating review", Timezone: "America/New_York",
+		Recurrence:      scheduledomain.Recurrence{Frequency: scheduledomain.FrequencyDaily, LocalHour: 9, GapPolicy: scheduledomain.GapSkip, OverlapPolicy: scheduledomain.OverlapFirst},
+		MissedRunPolicy: scheduledomain.MissedCatchUpOne,
+		Template:        scheduledomain.AgentRunTemplate{BoardroomID: boardroomID, Mode: "selected", PersonaIDs: []ids.PersonaID{personaID}, Subject: "Operating review", Prompt: "Review the scheduled operating priorities."},
+		CreatedBy:       userID, CreatedAt: createdAt,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, err := postgresadapter.NewScheduleRepository(cell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := definitions.Create(ctx, schedule, scheduleapp.Mutation{EventID: "74000000-0000-4000-8000-000000000001", Kind: "created", ActorUserID: userID, Reason: "Created scheduled review", CorrelationID: "schedule-execution-create", At: createdAt}); err != nil || !created {
+		t.Fatalf("created=%v err=%v", created, err)
+	}
+	executions, err := postgresadapter.NewScheduleExecutionRepository(owner, cell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	processAt := schedule.NextRunAt.Add(time.Minute)
+	processor, err := scheduleapp.NewExecutionProcessor(executions,
+		scheduleExecutionAuthorizer{value: scheduleapp.ExecutionAuthorization{EntitlementVersion: 9, MaximumConcurrentRun: 4, CanReadRestricted: true}},
+		fixedClock{now: processAt}, fixedIDGenerator{value: "84000000-0000-4000-8000-000000000001"}, scheduleapp.DefaultExecutionLease, scheduleapp.DefaultExecutionMaxAttempts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := processor.ProcessOne(ctx)
+	if err != nil || !result.Worked || !result.Dispatched || result.Skipped {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	occurrenceID, _ := ids.Derive(string(scheduleID), "occurrence/"+schedule.NextRunAt.UTC().Format(time.RFC3339Nano))
+	runID, _ := ids.Derive(occurrenceID, "run")
+	conversationID, _ := ids.Derive(occurrenceID, "conversation")
+	loadedRun, err := agents.GetRun(ctx, accountID, ids.RunID(runID))
+	if err != nil || loadedRun.Plan.CreatedBy != userID || loadedRun.Plan.EntitlementVersion != 9 || loadedRun.Plan.ConversationID != ids.ConversationID(conversationID) || len(loadedRun.Plan.Turns) != 1 || loadedRun.Plan.Turns[0].PersonaID != personaID {
+		t.Fatalf("run=%+v err=%v", loadedRun, err)
+	}
+	advanced, err := definitions.Get(ctx, accountID, scheduleID)
+	if err != nil || advanced.Version != 2 || advanced.NextRunAt == nil || !advanced.NextRunAt.After(processAt) {
+		t.Fatalf("advanced=%+v err=%v", advanced, err)
+	}
+	var outcome, initiator string
+	var storedRun, storedConversation string
+	if err := owner.QueryRow(ctx, `SELECT outcome,run_id,conversation_id,initiated_by_id FROM spyglass.schedule_occurrences
+		WHERE account_id=$1 AND id=$2`, accountID, occurrenceID).Scan(&outcome, &storedRun, &storedConversation, &initiator); err != nil || outcome != "dispatched" || storedRun != runID || storedConversation != conversationID || initiator != "schedule-execution-worker" {
+		t.Fatalf("outcome=%s run=%s conversation=%s initiator=%s err=%v", outcome, storedRun, storedConversation, initiator, err)
+	}
+	var scheduleEvents, agentDispatches, dueRows int
+	if err := owner.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM spyglass.schedule_events WHERE account_id=$1 AND schedule_id=$2),
+		(SELECT count(*) FROM spyglass.agent_dispatch_queue WHERE account_id=$1),
+		(SELECT count(*) FROM spyglass.schedule_dispatch_queue WHERE account_id=$1 AND schedule_id=$2 AND state='pending')`, accountID, scheduleID).Scan(&scheduleEvents, &agentDispatches, &dueRows); err != nil || scheduleEvents != 2 || agentDispatches != 1 || dueRows != 1 {
+		t.Fatalf("schedule events=%d agent dispatches=%d due=%d err=%v", scheduleEvents, agentDispatches, dueRows, err)
+	}
+}
+
 func TestScheduleDefinitionsQueueLeasesAndLeastPrivilege(t *testing.T) {
 	adminURL := os.Getenv("SPYGLASS_POSTGRES_TEST_URL")
 	if adminURL == "" {
@@ -168,6 +276,7 @@ func TestScheduleDefinitionsQueueLeasesAndLeastPrivilege(t *testing.T) {
 	if _, err := owner.Exec(ctx, `CREATE ROLE `+workerRole+` NOLOGIN NOBYPASSRLS;
 		GRANT USAGE ON SCHEMA public TO `+workerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_claim_schedule_dispatch(uuid,timestamptz,integer) TO `+workerRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_heartbeat_schedule_dispatch(uuid,uuid,uuid,timestamptz,timestamptz,integer) TO `+workerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_fail_schedule_dispatch(uuid,uuid,uuid,timestamptz,boolean,timestamptz,text,timestamptz,integer) TO `+workerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_schedule_dispatch_stats(timestamptz) TO `+workerRole); err != nil {
 		t.Fatal(err)
@@ -197,6 +306,14 @@ func TestScheduleDefinitionsQueueLeasesAndLeastPrivilege(t *testing.T) {
 	}
 	if _, err := worker.Exec(ctx, `SELECT count(*) FROM spyglass.schedule_dispatch_queue`); err == nil {
 		t.Fatal("schedule worker directly read cross-Account queue")
+	}
+	if _, err := worker.Exec(ctx, `SELECT count(*) FROM spyglass.schedule_occurrences`); err == nil {
+		t.Fatal("schedule worker directly read Account occurrence history")
+	}
+	var heartbeat bool
+	if err := worker.QueryRow(ctx, `SELECT public.spyglass_heartbeat_schedule_dispatch($1,$2,$3,$4,$5,30)`,
+		accountA, scheduleA, leaseID, now, now).Scan(&heartbeat); err != nil || !heartbeat {
+		t.Fatalf("heartbeat=%v err=%v", heartbeat, err)
 	}
 	if _, err := worker.Exec(ctx, `SELECT public.spyglass_fail_schedule_dispatch($1,$2,$3,$4,true,$5,'temporary_unavailable',$6,4)`,
 		accountA, scheduleA, "72000000-0000-4000-8000-000000000002", now, now.Add(time.Minute), now); err == nil || !strings.Contains(err.Error(), "lease lost") {

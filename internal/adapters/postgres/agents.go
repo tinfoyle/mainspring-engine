@@ -357,12 +357,30 @@ func (r *AgentRepository) ListMessages(ctx context.Context, accountID ids.Accoun
 }
 
 func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunDraft) (agentapp.Run, bool, error) {
+	var result agentapp.Run
+	var created bool
+	err := r.cell.WithAccountTx(ctx, draft.AccountID, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		result, created, err = startAgentRunInTx(ctx, tx, draft)
+		return err
+	})
+	if err != nil {
+		var limit *accessLimitError
+		if errors.As(err, &limit) {
+			return agentapp.Run{}, false, &agentapp.ConcurrentRunLimitError{Current: limit.current, Maximum: limit.maximum}
+		}
+		return agentapp.Run{}, false, classifyAgentError(err)
+	}
+	return result, created, nil
+}
+
+func startAgentRunInTx(ctx context.Context, tx pgx.Tx, draft agentapp.StartRunDraft) (agentapp.Run, bool, error) {
 	if draft.Mode == "" {
 		draft.Mode = agentapp.RunModeSelected
 	}
 	var result agentapp.Run
 	created := false
-	err := r.cell.WithAccountTx(ctx, draft.AccountID, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(ctx context.Context, tx pgx.Tx) error {
+	err := func() error {
 		if existing, found, err := loadAgentRun(ctx, tx, draft.AccountID, draft.RunID); err != nil {
 			return err
 		} else if found {
@@ -485,15 +503,8 @@ func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunD
 		created = true
 		result = agentapp.Run{Plan: plan, Mode: draft.Mode, State: "planned", Subject: draft.Subject, Prompt: draft.Prompt, UserMessageID: draft.UserMessageID, InvocationIDs: invocationIDs, Context: contextReferences, ContextDigest: contextDigest}
 		return nil
-	})
-	if err != nil {
-		var limit *accessLimitError
-		if errors.As(err, &limit) {
-			return agentapp.Run{}, false, &agentapp.ConcurrentRunLimitError{Current: limit.current, Maximum: limit.maximum}
-		}
-		return agentapp.Run{}, false, classifyAgentError(err)
-	}
-	return result, created, nil
+	}()
+	return result, created, err
 }
 
 func (r *AgentRepository) GetRun(ctx context.Context, accountID ids.AccountID, runID ids.RunID) (agentapp.Run, error) {

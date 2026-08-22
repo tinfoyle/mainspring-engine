@@ -301,3 +301,18 @@ func (s Schedule) Resume(expectedVersion uint64, at time.Time) (Schedule, error)
 	s.State, s.Version, s.NextRunAt, s.UpdatedAt = StateActive, s.Version+1, &next, at.UTC()
 	return Restore(s)
 }
+
+// AdvanceOccurrence records the next selected instant after one scheduled
+// occurrence was either dispatched or deliberately skipped. Occurrence/run
+// persistence remains an application transaction concern.
+func (s Schedule) AdvanceOccurrence(expectedVersion uint64, next, at time.Time) (Schedule, error) {
+	if expectedVersion != s.Version {
+		return Schedule{}, ErrVersionConflict
+	}
+	if s.State != StateActive || s.NextRunAt == nil || !next.After(at) || !next.After(*s.NextRunAt) {
+		return Schedule{}, ErrInvalidSchedule
+	}
+	next = next.UTC()
+	s.Version, s.NextRunAt, s.UpdatedAt = s.Version+1, &next, at.UTC()
+	return Restore(s)
+}

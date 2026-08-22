@@ -24,8 +24,8 @@ The first execution template creates a new dated Agent Conversation/Run through 
 
 1. Typed recurrence, timezone/DST behavior, missed-run policy and immutable Agent template. **Constructed.**
 2. Forced-RLS schedule definitions, immutable events and identifier-only due queue with lease fencing. **Constructed through definition create/get/pause/resume and claim/fail retry; occurrence completion/advance remains with step 3.**
-3. A workload-authorized occurrence command that reuses Agents admission and StartRun semantics without presenting a browser session or impersonating a User.
-4. Deterministic occurrence, Conversation, Run and operation identities derived from schedule plus scheduled instant.
+3. A workload-authorized occurrence command that reuses Agents admission and StartRun semantics without presenting a browser session or impersonating a User. **Pure processor and atomic cell-side execution constructed; private workload transport and current global admission composition remain.**
+4. Deterministic occurrence, Conversation, Run and operation identities derived from schedule plus scheduled instant. **Constructed for scheduled occurrences.**
 5. Pause, resume, update, delete and trigger-now commands; trigger-now is a separate occurrence and never changes recurrence state.
 6. HTTP, optional MCP and private UI surfaces with generated contracts and enabled/read-only/suspended package tests.
 7. Account movement, export, erasure, retention, dead-letter recovery, stage failure rehearsal and LKE scaling evidence.
@@ -37,6 +37,14 @@ Migration `000051_scheduling_foundation.sql` adds Account-owned schedule definit
 An active definition creates or refreshes exactly one queue row; pausing removes it. The worker role receives execute-only claim, failure and content-free statistics functions, never table access. Claims use `FOR UPDATE SKIP LOCKED`, an exact lease UUID, bounded expiry and monotonically increasing attempt count. Failure requires the exact Account, schedule, scheduled instant and live lease and converges to bounded retry or dead letter. No occurrence is created yet: successful completion, recurrence advance, `catch_up_one`, deterministic Run creation and workload authorization remain the next construction boundary.
 
 The new tables participate in Account movement write fencing and cascade-safe erasure counting. Fresh PostgreSQL integration proves repository replay, optimistic pause/resume, cross-Account denial, event immutability, due ordering, lease fencing, least privilege and pause cancellation. The complete `ubunturojo` Docker certificate passes normal and race suites, migrations, formatting, vet, API contracts, website build/lint/audit and object-policy checks.
+
+## Occurrence execution checkpoint
+
+The execution processor now distinguishes the verified workload initiator from the schedule creator used for current Membership checks and durable provenance. Occurrence, Conversation, Run and user-message identities derive from the schedule UUID plus the exact scheduled UTC instant. Conversation subjects include the scheduled local date. A due occurrence advances to the next selected instant; once at least one later recurrence is also due, `skip` records a skipped occurrence without a Run while `catch_up_one` creates exactly one Run and advances beyond the current time. Neither policy replays an unbounded backlog.
+
+The trusted cell-side repository holds one serializable transaction across lease validation, canonical Agent Run/context capture, immutable workload occurrence/event insertion, optimistic schedule advance and due-row refresh. Pause and dispatch lock the schedule and queue in the same order, so the operation linearizes before or after pause rather than leaving an orphan Run. The schedule creator remains `created_by` provenance; `schedule_occurrences.initiated_by_kind/id` records `workload/schedule-execution-worker`. Exact occurrence uniqueness and deterministic Run IDs make the transaction replay-safe.
+
+This is not yet a deployable worker checkpoint. The queue credential still requires a private mTLS client to the trusted cell-side execution boundary, and the admission service must resolve the creator's current Membership, placement, Agents mode, context-package modes, restricted-data role and concurrent-Run limit for that exact schedule claim. Until that transport/composition and its workload-certificate inventory are complete, no runtime polls this queue and `customer-schedule` remains absent.
 
 ## Invariants
 
