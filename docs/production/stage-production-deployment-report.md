@@ -52,16 +52,16 @@ Current active Phase 3 stage candidate:
 
 | Artifact | Tag | Immutable manifest |
 |---|---|---|
-| Application | `spyglass-v0.3.0-rc.1` | `ghcr.io/tinfoyle/spyglass-engine@sha256:f37b9927870d7f697e639d7becdc6aa5b00bca793a601fac4b74a29873b48253` |
-| Website | `website-v0.3.0-rc.1` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:2bd61f89e9ec049e92bd408fef780cc6c109aa2be99d752a14b39d4aa7e887ab` |
+| Application | `spyglass-v0.3.0-rc.2` | `ghcr.io/tinfoyle/spyglass-engine@sha256:e3d3fa3228f09aff97461e922eeca6861e9711b1059efa59d56d09d5aceb9c13` |
+| Website | reused `website-v0.3.0-rc.1` artifact | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:2bd61f89e9ec049e92bd408fef780cc6c109aa2be99d752a14b39d4aa7e887ab` |
 
-Both were built from `9f87fd2482b77eafe53c832cfde703db027d71a2`, passed the release workflows and are tracked in `deploy/releases/0.3.0-rc.1.env`. Application run `32591754241` and website run `32591754027` completed successfully; the ordinary main verification run `32591550152` also passed. The pair is immutable stage evidence for the completed Scheduling slice, not the final production release.
+The RC.2 application was built from `3657d97858b30a121a0e562a8a3c541609ac707c`; release workflow run `32605107543` completed multi-architecture build, scan, provenance and signing successfully. The exact pair is tracked in `deploy/releases/0.3.0-rc.2.env`. RC.2 reuses the already admitted website digest because this release changes no website source. It is immutable Stage evidence for the MCP slice, not the final production release.
 
 RC.2 predates the admission gate. RC.3 is signed but its website image failed the later independent scan with 5 critical and 48 high findings per platform. Both remain immutable history and neither is an approved rollback target. Admitted RC.4 is retained as the RC.5 rollback pair. `git diff --name-only spyglass-v0.2.5-rc.4..spyglass-v0.2.5-rc.5` contains no application, website, migration or Catalog code; the connected environment rehearsal confirmed the expected compatibility.
 
-The actual connected-stage RC.5 -> RC.4 -> RC.5 rehearsal completed successfully against retained PostgreSQL volumes. RC.4 and the restored RC.5 each passed the same 11-check exact-origin/Catalog boundary certificate. RC.5 remains the Phase 2.5 platform rollback baseline, while Phase 3 RC.1 is active on stage. The final complete-product release will be a later immutable pair; neither is predeclared as the production release.
+The actual connected-stage RC.5 -> RC.4 -> RC.5 rehearsal completed successfully against retained PostgreSQL volumes. RC.4 and the restored RC.5 each passed the same 11-check exact-origin/Catalog boundary certificate. RC.5 remains the Phase 2.5 platform rollback baseline, while Phase 3 RC.2 is active on Stage. The final complete-product release will be a later immutable pair; neither is predeclared as the production release.
 
-MCP deployment checkpoint (2026-08-22): revision control now contains the dedicated `mcp-gateway` process, least-privilege global role, `mcp.stage.infiniteocean.net` Hostinger route, local/Stage Compose service, Stage client-only workload certificate and LKE Deployment/Service/PDB/HPA/Ingress/network-policy topology. The account application origin owns OAuth metadata, consent and token/revocation endpoints; the MCP origin owns protected-resource metadata and Account-scoped Streamable HTTP. Local `ubunturojo` Docker proves both discovery documents and the RFC 9728 Bearer challenge. This is not Stage activation evidence: Stage still requires a new admitted image, generated role/password/certificate material, migration 33, external-client conformance and rollback capture before the MCP surface is advertised.
+MCP deployment checkpoint (2026-08-22): RC.2 is applied on Hostinger with migrations 33-34, the least-privilege gateway role, generated password/client certificate, public `mcp.stage.infiniteocean.net` ingress and two healthy gateway replicas. The account application origin publishes OAuth metadata and consent/token/revocation endpoints; the MCP origin publishes protected-resource metadata and the Account-scoped Streamable HTTP endpoint. Both discovery documents and the RFC 9728 Bearer challenge pass through public DNS/TLS. A controlled public-edge certificate returned the expected response for 128/128 requests with both replicas, 128/128 with each replica removed in turn and 128/128 after restoration. The remaining activation gate is a signed-in external-client authorization, routed tool call, refresh rotation and revocation certificate; `production-mcp` stays absent until that evidence is sealed.
 
 ### Website image
 
@@ -101,6 +101,7 @@ deploy/releases/
   0.2.5-rc.4.env
   0.2.5-rc.5.env
   0.3.0-rc.1.env
+  0.3.0-rc.2.env
 deploy/kubernetes/overlays/
   linode-common/
   linode-preproduction/
@@ -169,9 +170,9 @@ The implementation must provide these documented operations through Compose and/
 
 The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 
-On 2026-08-21 both stage names resolved to the VPS public address and the shared Caddy routes were activated with the repository's shared security-header policy, including HSTS. On 2026-08-22 the active clean checkout became `/opt/spyglass-stage/releases/263bb16d5cde51c7ce35ce6d19c7139f1750ee2a`; `/opt/spyglass-stage/current` selects it atomically. The immutable Phase 3 RC.1 images are deployed, 40 long-running containers are present, all 39 healthchecked workloads are healthy, the internal edge is running, and the global/cell A/cell B PostgreSQL services retain their volumes at migrations 53–55.
+On 2026-08-21 the website and application stage names resolved to the VPS public address and the shared Caddy routes were activated with the repository's shared security-header policy, including HSTS. On 2026-08-22 the MCP wildcard hostname was activated and the clean checkout became `/opt/spyglass-stage/releases/773f3c45cc3fb351aec44d6e52a6d279d3b5d4bb`; `/opt/spyglass-stage/current` selects it atomically. The immutable Phase 3 RC.2 pair is deployed, 42 long-running containers are present, all 41 healthchecked workloads are healthy, the internal edge is running, and the retained global/cell A/cell B PostgreSQL services have applied migrations 33-34 and 53-55 as applicable.
 
-The provider input remains mode 600 outside Git. Generated secret set `/opt/spyglass-stage/secrets/2026-08-22-02` passes its mode, identity, certificate and restore-checkpoint verifier while carrying retained database/service credentials forward from `2026-08-21-02`. This corrected a failed first upgrade attempt that regenerated passwords already bound into persistent PostgreSQL volumes. Future additive topology upgrades must supply the previous active environment to `prepare-stage-secrets.sh`; full credential rotation needs coordinated datastore changes. Stripe sandbox access and webhook endpoint `we_1U6uGAPokWCfkh4CBSN0SjNI`, non-production OpenAI access, Stalwart implicit TLS and model-gateway health all passed the content-free provider certificate. RC.4 rollback and RC.5 restoration completed without database restoration. Owner-managed backup destinations/schedules and external disk/certificate alerting remain environment operations, as agreed; they are not application-construction blockers.
+The provider input remains mode 600 outside Git. Generated secret set `/opt/spyglass-stage/secrets/2026-08-22-03` passes its mode, identity, certificate and restore-checkpoint verifier while carrying retained database/service credentials forward from `2026-08-22-02` and adding the MCP gateway credential/identity. Future additive topology upgrades must supply the previous active environment to `prepare-stage-secrets.sh`; full credential rotation needs coordinated datastore changes. Stripe sandbox access and webhook endpoint `we_1U6uGAPokWCfkh4CBSN0SjNI`, non-production OpenAI access, Stalwart implicit TLS and model-gateway health all passed the content-free provider certificate. RC.4 rollback and RC.5 restoration completed without database restoration. Owner-managed backup destinations/schedules and external disk/certificate alerting remain environment operations, as agreed; they are not application-construction blockers.
 
 The required non-secret `SPYGLASS_OPENAI_MODEL_PRICING_JSON` provider input now contains reviewed current prices for every exact model enabled in immutable Personas. Stage secret preparation and the LKE model-gateway Secret fail closed when it is absent or malformed; neither actual prices nor provider credentials belong in Git because prices are environment-reviewed operational input.
 
@@ -184,9 +185,10 @@ The stage override uses the same service graph with production-mode process argu
 - private versioned MinIO document storage on a persistent volume with a generated static stage encryption key and distinct prefix-scoped admission, worker and one-shot prototype-migration credentials; production replaces this service with Linode Object Storage and corresponding scoped credentials;
 - an internal Caddy router on the existing `infiniteocean_public` network; the existing Infinite Ocean Caddy remains the only public 80/443 and ACME owner;
 - Stripe test mode, TLS SMTP and non-production provider credentials;
-- a non-internal provider-egress network attached only to Account API, billing, notification and model-gateway workloads;
+- a non-internal provider-egress network attached only to Account API, billing, notification, model-gateway and the two runner-broker workloads;
 - workload-specific secrets/environment files stored outside the repository;
 - resource limits, health checks, log rotation and content-safe telemetry;
+- two stateless, least-privilege MCP gateway replicas behind the public/internal Caddy chain;
 - one mTLS `tool-router`, model gateway, and independent cell A/cell B runner controller, broker and Docker launcher paths;
 - internal cell-specific runner networks that contain only the respective broker and launcher; dynamically launched runner containers join only that cell network.
 
@@ -220,6 +222,8 @@ The completed Phase 2.5 Hostinger gate proves:
 - clean-checkout activation with secrets kept outside Git;
 
 The 2026-08-22 Phase 3 Scheduling checkpoint additionally proves both identifier-only queues through real retry/terminal failure, signed inspection, exact requeue, worker restart/reclaim, negative authorization and immutable-audit checks, followed by erasure-fenced fixture cleanup. Its mode-600 certificate is `/opt/spyglass-stage/evidence/0.3.0-rc.1/schedule-queue-rehearsal.json`, SHA-256 `68a3e20c5a445ce21c1bdb33b01178af0b3af209550c2ba345180f2c4b795ae3`.
+
+The RC.2 anonymous boundary certificate passes 11/11 checks at SHA-256 `dd87e48f4c57070afc22f916118b900fe6b2268bd1b7aee73f7d4e6b16e4168d`. The two-replica MCP public-edge load/failover certificate is SHA-256 `5ca33277955531c993b5305e89b3530fb1cd54a4fd29a6e38182e5a8d9ad0de5`; it records the clean 16-concurrency profile and also preserves the rejected 32-concurrency calibration with nine client timeouts. Both mode-600 artifacts are under `/opt/spyglass-stage/evidence/0.3.0-rc.2/`.
 
 The final Phase 3 Hostinger release gate additionally proves:
 

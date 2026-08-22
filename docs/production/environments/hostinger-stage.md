@@ -12,18 +12,18 @@ The read-only inventory found Ubuntu kernel 7.0 on x86-64, 2 vCPU, 7.7 GiB RAM, 
 
 The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the website, application and MCP stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs, the Account-scoped Work/Agent families and public MCP traffic without exposing any container port on the host.
 
-The active clean checkout is `/opt/spyglass-stage/releases/263bb16d5cde51c7ce35ce6d19c7139f1750ee2a`, selected by `/opt/spyglass-stage/current`. The older RC.3 checkout remains rejected release history because its website image failed the later admission scan; do not select it. Both stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS.
+The active clean checkout is `/opt/spyglass-stage/releases/773f3c45cc3fb351aec44d6e52a6d279d3b5d4bb`, selected by `/opt/spyglass-stage/current`. The older RC.3 checkout remains rejected release history because its website image failed the later admission scan; do not select it. All three Stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS. A temporary `mcp-client.stage.infiniteocean.net` Client ID Metadata Document supports the outstanding external-client certificate and must be removed after that evidence is sealed.
 
-The protected provider input exists at `/opt/spyglass-stage/provider-input/stage.providers.env` with directory mode 700 and file mode 600. SMTP, Stripe sandbox/webhook, non-production OpenAI and the reviewed non-secret OpenAI model price book are present without disclosure. Stalwart implicit TLS is published on port 465 and healthy; the prior Compose file is retained as `/opt/infiniteocean/compose.yml.bak.20260821T143155Z.pre-smtps-465`. The Phase 3 RC.1 application and website images run at the exact reviewed digests recorded in `deploy/releases/0.3.0-rc.1.env`. There are 40 long-running Spyglass containers: all 39 healthchecked workloads are healthy and the internal edge is running without a healthcheck. The three PostgreSQL services retain their persistent volumes, and both cell Schedule workers are healthy.
+The protected provider input exists at `/opt/spyglass-stage/provider-input/stage.providers.env` with directory mode 700 and file mode 600. SMTP, Stripe sandbox/webhook, non-production OpenAI and the reviewed non-secret OpenAI model price book are present without disclosure. Stalwart implicit TLS is published on port 465 and healthy; the prior Compose file is retained as `/opt/infiniteocean/compose.yml.bak.20260821T143155Z.pre-smtps-465`. The Phase 3 RC.2 application and reused website images run at the exact reviewed digests recorded in `deploy/releases/0.3.0-rc.2.env`. There are 42 long-running Spyglass containers: all 41 healthchecked workloads, including two MCP gateway replicas, are healthy and the internal edge is running without a healthcheck. The three PostgreSQL services retain their persistent volumes, and both cell Schedule workers are healthy.
 
 ## Files kept outside Git
 
-The mode-600 provider input and generated secrets remain outside Git. Active immutable secret set `2026-08-22-02` was generated from provider input while carrying retained service credentials forward from `2026-08-21-02`; it is the only set used by the live stack. For an additive topology upgrade, choose a new empty versioned target and pass the previous active environment as the fourth argument:
+The mode-600 provider input and generated secrets remain outside Git. Active immutable secret set `2026-08-22-03` was generated from provider input while carrying retained service credentials forward from `2026-08-22-02`; it is the only set used by the live stack. For an additive topology upgrade, choose a new empty versioned target and pass the previous active environment as the fourth argument:
 
 ```bash
 # Edit the provider input without printing it to logs.
 secret_set=/opt/spyglass-stage/secrets/YYYY-MM-DD-NN
-previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-02/stage.env
+previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-03/stage.env
 ./prepare-stage-secrets.sh \
   /opt/spyglass-stage/provider-input/stage.providers.env \
   "$secret_set" \
@@ -44,7 +44,7 @@ previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-02/stage.env
 <secret-set>/stage.env
 ```
 
-Workload private keys are mode `640` in mode-`750` identity directories. Their group is derived from the protected provider file and supplied only as a supplemental group to the 17 containers that mount workload identities; keys remain unreadable to every other host user and container. Writable per-cell runner identity directories are mode `770` under the same group, while `stage.env` remains mode `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The verifier checks certificate chains, key matches, group/mode contracts, seven-day minimum lifetime, exact DNS/SPIFFE/EKU contracts, immutable images, every application service's exact reviewed digest, complete two-cell runner topology, provider-egress membership, internal runner networks, Docker socket ownership and absence of public port bindings.
+Workload private keys are mode `640` in mode-`750` identity directories. Their group is derived from the protected provider file and supplied only to the 17 workload identity definitions; 18 running containers mount them because the stateless MCP gateway has two replicas. Keys remain unreadable to every other host user and container. Writable per-cell runner identity directories are mode `770` under the same group, while `stage.env` remains mode `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The verifier checks certificate chains, key matches, group/mode contracts, seven-day minimum lifetime, exact DNS/SPIFFE/EKU contracts, immutable images, every application service's exact reviewed digest, exactly two Stage MCP replicas, complete two-cell runner topology, provider-egress membership, internal runner networks, Docker socket ownership and absence of public port bindings.
 
 ## Deployment
 
@@ -52,8 +52,8 @@ From the clean checkout selected by `current`:
 
 ```bash
 cd /opt/spyglass-stage/current/deploy/docker/spyglass
-release_file="$(realpath ../../releases/0.3.0-rc.1.env)"
-secret_set=/opt/spyglass-stage/secrets/2026-08-22-02
+release_file="$(realpath ../../releases/0.3.0-rc.2.env)"
+secret_set=/opt/spyglass-stage/secrets/2026-08-22-03
 ./verify-stage.sh "$release_file" "$secret_set/stage.env"
 ./deploy-stage.sh "$release_file" "$secret_set/stage.env"
 ```
@@ -73,5 +73,7 @@ Evidence files are mode 600 under `/opt/spyglass-stage/evidence`:
 | `0.2.5-rc.5/app-api-replica-restart.json` | `8201f58712c0752aa42c5faeb5a09308aa34eb87f1593835f4130a95f4ec95cf` |
 | `0.2.5-rc.5/provider-readiness.json` | `73a53bcbd690685565fad59c6da7aa43e216bbf72e927c183d5a057c45ee529d` |
 | `0.3.0-rc.1/schedule-queue-rehearsal.json` | `68a3e20c5a445ce21c1bdb33b01178af0b3af209550c2ba345180f2c4b795ae3` |
+| `0.3.0-rc.2/anonymous-boundary.json` | `dd87e48f4c57070afc22f916118b900fe6b2268bd1b7aee73f7d4e6b16e4168d` |
+| `0.3.0-rc.2/mcp-public-edge-failover.json` | `5ca33277955531c993b5305e89b3530fb1cd54a4fd29a6e38182e5a8d9ad0de5` |
 
 The Schedule recovery fixture and temporary execute-only database role were erased after certification. Stage otherwise remains reserved for revocable synthetic acceptance fixtures. Phase 3 creates final Catalog mappings through signed operator authorization before customer/provider journey certification.

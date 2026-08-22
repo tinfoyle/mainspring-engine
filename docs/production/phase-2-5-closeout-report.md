@@ -185,6 +185,8 @@ The active `/opt/spyglass-stage/current` link selects clean checkout `d127a4c715
 
 The stage database was deliberately left with zero users, Accounts, active provider-price mappings, billing profiles and subscriptions. Creating the final signed Catalog mappings and synthetic/customer journeys before Phase 3 would certify a temporary product surface and weaken the operator-authorization boundary. Those records and tests are created through the Phase 3 release process instead.
 
+Post-closeout Phase 3 note (2026-08-22): the Phase 2.5 closure evidence above remains the historical RC.5 baseline. Current Stage has advanced to admitted Phase 3 RC.2 from clean checkout `773f3c45cc3fb351aec44d6e52a6d279d3b5d4bb`, secret set `2026-08-22-03` and 42 long-running containers, including two healthy MCP gateway replicas. This does not reopen Phase 2.5 or redefine its scope; the RC.2 external-client consent/tool/revocation certificate and later complete-product journeys belong to Phase 3.
+
 ## Workstream G — LKE production skeleton
 
 Before the kubeconfig is furnished, create and CI-render:

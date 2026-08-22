@@ -1,6 +1,6 @@
 # MCP transport
 
-- Status: protocol, complete typed tool surface, signed global-to-cell routing, OAuth 2.1 core, distributed endpoint budgets, User grant control, and local/Stage/LKE deployment topology implemented; applied Stage external-client/load conformance pending
+- Status: protocol, complete typed tool surface, signed global-to-cell routing, OAuth 2.1 core, distributed endpoint budgets, User grant control, and local/Stage/LKE deployment topology implemented; Stage activation and public-edge failover certified, external-client authorization/tool/revocation pending
 - Phase: 3.1 / 3.6
 - Protocol: stateless Streamable HTTP through the official Go SDK, with current `2026-07-28` support and backward negotiation supplied by the SDK
 
@@ -42,14 +42,16 @@ Transport conformance tests reject duplicated security parameters, query paramet
 
 The executable `mcp-gateway` mode, dedicated Docker database role, local/Stage Compose service, Hostinger ingress, client-only Stage workload certificate, LKE Deployment/Service/PDB/HPA, public ingress and default-deny network-policy additions are revision controlled. Local Docker proves both discovery documents and the unauthenticated RFC 9728 challenge through `mcp.infiniteocean.localhost`.
 
+RC.2 applies migrations 33-34 and the least-privilege role on Hostinger, publishes both discovery documents and the RFC 9728 challenge through public DNS/TLS, and keeps exactly two healthy Stage gateway replicas. Its public-edge certificate records 128/128 expected responses with both replicas, with each replica stopped in turn, and after both were restored. The certificate also retains a rejected 32-concurrency calibration with nine client timeouts; the accepted 16-concurrency profile is not misrepresented as a higher-capacity result. The only remaining MCP activation evidence is the signed-in public-client consent/code exchange, one routed tool call, refresh rotation and revocation sequence.
+
 ## Why `production-mcp` remains absent
 
 The implementation is deployable, but `production-mcp` remains in `deploy/package-surface-inventory.json` until the release gates below are complete. This avoids treating a local topology check as an applied customer capability.
 
 Production enablement requires one global MCP gateway composition that:
 
-1. apply the new global migrations and least-privilege role to Stage, publish the Hostinger MCP ingress, and capture an external-client authorization/tool-call/revocation certificate;
-2. run the applied multi-replica load/failover certificate through the public Stage edge;
+1. capture an external-client authorization/tool-call/refresh/revocation certificate through the applied Hostinger ingress;
+2. retain the completed applied multi-replica public-edge load/failover certificate with the RC.2 release evidence;
 3. remove `production-mcp` from the absent inventory and add `mcp` to each actually published package boundary in the same reviewed change.
 
 Until that composition exists, this package is executable and tested adapter code, not a claim that stage or production MCP is available.
