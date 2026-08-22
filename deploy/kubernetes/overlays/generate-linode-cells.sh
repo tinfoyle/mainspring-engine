@@ -7,6 +7,7 @@ reference_dir="$repository_root/deploy/kubernetes/reference"
 sources=(
   app-api.yaml
   work-reconciler.yaml
+  baseline-maintenance-worker.yaml
   route-receipt-worker.yaml
   agent-dispatch-worker.yaml
   agent-projection-worker.yaml

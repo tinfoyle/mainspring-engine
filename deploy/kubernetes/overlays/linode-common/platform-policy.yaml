@@ -61,6 +61,7 @@ spec:
           - identity-maintenance-worker
           - notification-worker
           - work-reconciler
+          - baseline-maintenance-worker
   policyTypes: [Egress]
   egress:
     - to:
@@ -92,6 +93,7 @@ spec:
                   - identity-maintenance-worker
                   - notification-worker
                   - work-reconciler
+                  - baseline-maintenance-worker
       ports: [{protocol: TCP, port: 5432}]
     - from:
         - podSelector:

@@ -11,7 +11,7 @@ test:
 	bash test-local.sh
 
 up:
-	$(COMPOSE) up --detach --build --wait
+	$(COMPOSE) up --detach --build --force-recreate --wait
 
 verify: test up
 	bash verify-local.sh

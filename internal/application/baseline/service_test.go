@@ -276,6 +276,15 @@ func TestServiceConfirmsCompletedWorkEvidenceAndMaterializesMaintenance(t *testi
 	if _, err := service.MaterializeMaintenance(ctx, MaterializeMaintenanceCommand{AdvanceCommand: AdvanceCommand{Actor: accessActor, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "da000000-0000-4000-8000-00000000000a"}}); err != nil || creator.commands[1].RequestID != command.RequestID {
 		t.Fatalf("maintenance replay=%+v err=%v", creator.commands, err)
 	}
+	workload := access.Actor{WorkloadID: MaintenanceWorkloadID}
+	workloadItems, err := service.MaterializeMaintenanceWorkload(ctx, MaterializeMaintenanceWorkloadCommand{Actor: workload, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "db000000-0000-4000-8000-00000000000b"})
+	workloadCommand := creator.commands[len(creator.commands)-1]
+	if err != nil || len(workloadItems) != 1 || workloadCommand.Actor != workload || workloadCommand.Provenance.CreatedBy.Kind != workdomain.ActorWorkload || workloadCommand.Provenance.CreatedBy.ID != MaintenanceWorkloadID || workloadCommand.RequestID != command.RequestID {
+		t.Fatalf("workload items=%+v command=%+v err=%v", workloadItems, workloadCommand, err)
+	}
+	if _, err := service.MaterializeMaintenanceWorkload(ctx, MaterializeMaintenanceWorkloadCommand{Actor: access.Actor{WorkloadID: "other-worker"}, AccountID: accountID, AssessmentID: assessmentID, ExpectedVersion: assessment.Version, CorrelationID: "dc000000-0000-4000-8000-00000000000c"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unexpected workload error=%v", err)
+	}
 }
 
 type baselineClock struct{ now time.Time }

@@ -141,7 +141,8 @@ application_services = {
     "tool-router", "runner-controller-a", "runner-controller-b",
     "runner-broker-a", "runner-broker-b", "docker-runner-launcher-a",
     "docker-runner-launcher-b", "model-gateway", "knowledge-document-worker-a",
-    "knowledge-document-worker-b",
+    "knowledge-document-worker-b", "baseline-maintenance-worker-a",
+    "baseline-maintenance-worker-b",
 }
 required = application_services | {"malware-scanner", "document-extractor"}
 missing = sorted(required - services.keys())
@@ -202,6 +203,11 @@ for name in ("tool-router", "runner-controller-a", "runner-controller-b", "runne
     environment = services[name].get("environment", {})
     if "SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE" not in environment or "SPYGLASS_ERASURE_CHECKPOINT_ROOT" not in environment:
         raise SystemExit(f"{name} does not carry its database restore checkpoint")
+for name in ("baseline-maintenance-worker-a", "baseline-maintenance-worker-b"):
+    environment = services[name].get("environment", {})
+    for prefix in ("SPYGLASS_GLOBAL_ERASURE_", "SPYGLASS_CELL_ERASURE_"):
+        if prefix + "CHECKPOINT_SEQUENCE" not in environment or prefix + "CHECKPOINT_ROOT" not in environment:
+            raise SystemExit(f"{name} does not carry both database restore checkpoints")
 if config["networks"]["host-edge"].get("name") != edge_network:
     raise SystemExit("stage host edge network does not match the reviewed secret file")
 PY

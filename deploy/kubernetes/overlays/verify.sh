@@ -13,11 +13,12 @@ for environment in linode-preproduction linode-production; do
   grep -Fq 'ghcr.io/tinfoyle/spyglass-engine@sha256:' "$temporary/$environment.yaml"
   grep -Fq 'ghcr.io/tinfoyle/infinite-ocean-website@sha256:' "$temporary/$environment.yaml"
   for cell in a b; do
-    for workload in app-api work-reconciler route-receipt-worker agent-dispatch-worker agent-projection-worker runner-controller runner-broker; do
+    for workload in app-api work-reconciler baseline-maintenance-worker route-receipt-worker agent-dispatch-worker agent-projection-worker runner-controller runner-broker; do
       grep -Fq "name: $workload-cell-$cell" "$temporary/$environment.yaml"
     done
     grep -Fq "name: spyglass-cell-$cell-runtime" "$temporary/$environment.yaml"
     grep -Fq "name: spyglass-work-reconciler-cell-$cell-restore-checkpoints" "$temporary/$environment.yaml"
+    grep -Fq "name: spyglass-baseline-maintenance-worker-cell-$cell-restore-checkpoints" "$temporary/$environment.yaml"
   done
   grep -Fq 'name: global-workloads-to-postgres' "$temporary/$environment.yaml"
   grep -Fq 'name: public-ingress' "$temporary/$environment.yaml"

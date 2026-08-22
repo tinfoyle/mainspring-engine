@@ -11,6 +11,7 @@ test -s "$rendered"
 required_objects=(
   "name: agent-dispatch-worker-cell-reference"
   "name: agent-projection-worker-cell-reference"
+  "name: baseline-maintenance-worker-cell-reference"
   "name: runner-controller-cell-reference"
   "name: runner-broker-cell-reference"
   "name: tool-router"

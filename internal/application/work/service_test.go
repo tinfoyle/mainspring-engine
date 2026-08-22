@@ -48,6 +48,18 @@ func TestCreateAuthorizesAndReservesCapacity(t *testing.T) {
 	}
 }
 
+func TestCreateAllowsAuthorizedWorkloadWithoutHumanRole(t *testing.T) {
+	repository := &fakeRepository{}
+	capacity := &fakeCapacity{}
+	service, _ := NewService(fakeAuthorizer{}, capacity, repository, fakeClock{time.Now()})
+	command := createCommand()
+	command.Actor = access.Actor{WorkloadID: "baseline-maintenance-worker"}
+	command.Provenance.CreatedBy = workdomain.Actor{Kind: workdomain.ActorWorkload, ID: "baseline-maintenance-worker"}
+	if _, err := service.Create(context.Background(), command); err != nil || repository.mutation.Actor.Kind != workdomain.ActorWorkload || repository.mutation.Actor.ID != "baseline-maintenance-worker" {
+		t.Fatalf("mutation=%+v err=%v", repository.mutation, err)
+	}
+}
+
 func TestCreateCompensatesCapacityWhenCellWriteFails(t *testing.T) {
 	repository := &fakeRepository{createErr: ErrConstraint}
 	capacity := &fakeCapacity{reservation: usageadmission.Reservation{NewlyCreated: true}}

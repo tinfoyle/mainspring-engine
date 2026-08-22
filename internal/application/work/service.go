@@ -138,7 +138,7 @@ func (s *Service) Create(ctx context.Context, command CreateCommand) (workdomain
 	if err != nil {
 		return workdomain.Item{}, err
 	}
-	if !canManage(accountContext.Role) {
+	if command.Actor.UserID != "" && !canManage(accountContext.Role) {
 		return workdomain.Item{}, &access.DeniedError{Code: access.DenialRole, Package: PackageCode}
 	}
 	draft, err := workdomain.NewDraft(workdomain.Draft{ID: ids.WorkItemID(command.RequestID), AccountID: command.AccountID, ParentID: command.ParentID, Kind: command.Kind, Title: command.Title, Description: command.Description, Priority: command.Priority, Assignment: command.Assignment, Provenance: command.Provenance, DueAt: command.DueAt, CapacityReservationID: command.RequestID})

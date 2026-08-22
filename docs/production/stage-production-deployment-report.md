@@ -129,7 +129,7 @@ The common Compose definition models final process boundaries:
 - cell app APIs admit routed document uploads through bounded private-disk spools and write only verified immutable source objects; per-cell workers consume the same private bucket for scanning, extraction, indexing and receipt-backed exact-version deletion;
 - migration jobs for each database target;
 - Account API, app router, two cell app APIs and private admission API;
-- notification, billing, entitlement, lifecycle, identity-maintenance, route-receipt and Work reconciliation workers;
+- notification, billing, entitlement, lifecycle, identity-maintenance, route-receipt, Work reconciliation and per-cell Baseline maintenance workers;
 - Agent dispatch/projection in the ordinary local stack, plus a separately certified Docker launcher integration; the complete controller/broker/model/tool-router runner graph is enabled by the Hostinger stage override;
 - Mailpit or equivalent SMTP capture;
 - optional Prometheus, Grafana and OpenTelemetry profiles.

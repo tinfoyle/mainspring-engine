@@ -14,6 +14,7 @@ resources:
   - account-lifecycle-worker.yaml
   - identity-maintenance-worker.yaml
   - work-reconciler.yaml
+  - baseline-maintenance-worker.yaml
   - route-receipt-worker.yaml
   - agent-dispatch-worker.yaml
   - agent-projection-worker.yaml

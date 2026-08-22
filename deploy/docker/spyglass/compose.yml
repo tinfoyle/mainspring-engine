@@ -525,6 +525,42 @@ services:
       global-seed: {condition: service_completed_successfully}
     networks: [application, database]
 
+  baseline-maintenance-worker-a:
+    <<: *worker
+    command: [baseline-maintenance-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-east-01
+      SPYGLASS_GLOBAL_DATABASE_URL: ${SPYGLASS_BASELINE_MAINTENANCE_GLOBAL_DATABASE_URL:?set SPYGLASS_BASELINE_MAINTENANCE_GLOBAL_DATABASE_URL}
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_A_BASELINE_MAINTENANCE_DATABASE_URL:?set SPYGLASS_CELL_A_BASELINE_MAINTENANCE_DATABASE_URL}
+      SPYGLASS_BASELINE_MAINTENANCE_POLL_INTERVAL: ${SPYGLASS_BASELINE_MAINTENANCE_POLL_INTERVAL:-1s}
+      SPYGLASS_BASELINE_MAINTENANCE_LEASE: ${SPYGLASS_BASELINE_MAINTENANCE_LEASE:-2m}
+      SPYGLASS_BASELINE_MAINTENANCE_MAX_ATTEMPTS: ${SPYGLASS_BASELINE_MAINTENANCE_MAX_ATTEMPTS:-10}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      cell-a-migrate: {condition: service_completed_successfully}
+      global-seed: {condition: service_completed_successfully}
+    networks: [application, database]
+
+  baseline-maintenance-worker-b:
+    <<: *worker
+    command: [baseline-maintenance-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-west-01
+      SPYGLASS_GLOBAL_DATABASE_URL: ${SPYGLASS_BASELINE_MAINTENANCE_GLOBAL_DATABASE_URL:?set SPYGLASS_BASELINE_MAINTENANCE_GLOBAL_DATABASE_URL}
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_B_BASELINE_MAINTENANCE_DATABASE_URL:?set SPYGLASS_CELL_B_BASELINE_MAINTENANCE_DATABASE_URL}
+      SPYGLASS_BASELINE_MAINTENANCE_POLL_INTERVAL: ${SPYGLASS_BASELINE_MAINTENANCE_POLL_INTERVAL:-1s}
+      SPYGLASS_BASELINE_MAINTENANCE_LEASE: ${SPYGLASS_BASELINE_MAINTENANCE_LEASE:-2m}
+      SPYGLASS_BASELINE_MAINTENANCE_MAX_ATTEMPTS: ${SPYGLASS_BASELINE_MAINTENANCE_MAX_ATTEMPTS:-10}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      cell-b-migrate: {condition: service_completed_successfully}
+      global-seed: {condition: service_completed_successfully}
+    networks: [application, database]
+
   route-receipt-worker-a:
     <<: *worker
     command: [route-receipt-worker]

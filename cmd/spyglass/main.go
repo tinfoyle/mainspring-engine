@@ -30,6 +30,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	agentqueueapp "github.com/tinfoyle/spyglass-engine/internal/application/agentqueueadmin"
+	baselinemaintenanceapp "github.com/tinfoyle/spyglass-engine/internal/application/baselinemaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
@@ -53,6 +54,7 @@ import (
 	agentqueuecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentqueueadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/approuter"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/baselinemaintenanceworker"
 	billingcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/billingworker"
 	catalogcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/catalogadmin"
@@ -154,6 +156,8 @@ func main() {
 		err = runAgentProjectionWorker(ctx, logger)
 	case "knowledge-document-worker":
 		err = runKnowledgeDocumentWorker(ctx, logger)
+	case "baseline-maintenance-worker":
+		err = runBaselineMaintenanceWorker(ctx, logger)
 	case "agent-dispatch-worker":
 		err = runAgentDispatchWorker(ctx, logger)
 	case "agent-queue-admin":
@@ -175,7 +179,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | knowledge-document-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1874,6 +1878,62 @@ func runKnowledgeDocumentWorker(ctx context.Context, logger *slog.Logger) error 
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "knowledge-document", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
+}
+
+func runBaselineMaintenanceWorker(ctx context.Context, logger *slog.Logger) error {
+	globalDatabaseURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	cellDatabaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	globalRestore, err := openRequiredRestoreGate(ctx, globalDatabaseURL, restoregate.Global, "SPYGLASS_GLOBAL_")
+	if err != nil {
+		return err
+	}
+	defer globalRestore.Close()
+	cellRestore, err := openRequiredRestoreGate(ctx, cellDatabaseURL, restoregate.Cell, "SPYGLASS_CELL_")
+	if err != nil {
+		return err
+	}
+	defer cellRestore.Close()
+	cellID, err := requiredEnv("SPYGLASS_CELL_ID")
+	if err != nil {
+		return err
+	}
+	globalConns, err := int32Env("SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", 3)
+	if err != nil {
+		return err
+	}
+	cellConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 3)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_BASELINE_MAINTENANCE_POLL_INTERVAL", time.Second)
+	if err != nil || poll < 100*time.Millisecond || poll > time.Minute {
+		return errors.New("SPYGLASS_BASELINE_MAINTENANCE_POLL_INTERVAL must be between 100ms and 1m")
+	}
+	lease, err := durationEnv("SPYGLASS_BASELINE_MAINTENANCE_LEASE", baselinemaintenanceapp.DefaultLease)
+	if err != nil || lease < time.Second || lease > 30*time.Minute || lease%time.Second != 0 {
+		return errors.New("SPYGLASS_BASELINE_MAINTENANCE_LEASE must be whole seconds between 1s and 30m")
+	}
+	maxAttempts, err := int32Env("SPYGLASS_BASELINE_MAINTENANCE_MAX_ATTEMPTS", baselinemaintenanceapp.DefaultMaxAttempts)
+	if err != nil || maxAttempts < 1 || maxAttempts > 100 {
+		return errors.New("SPYGLASS_BASELINE_MAINTENANCE_MAX_ATTEMPTS must be between 1 and 100")
+	}
+	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	worker, err := baselinemaintenanceworker.New(startup, baselinemaintenanceworker.Config{
+		GlobalDatabaseURL: globalDatabaseURL, CellDatabaseURL: cellDatabaseURL, CellID: ids.CellID(cellID),
+		MaxGlobalConns: globalConns, MaxCellConns: cellConns, PollInterval: poll, Lease: lease, MaxAttempts: int(maxAttempts),
+	}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "baseline-maintenance", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{globalRestore, cellRestore}}, logger)
 }
 
 func runAgentDispatchWorker(ctx context.Context, logger *slog.Logger) error {

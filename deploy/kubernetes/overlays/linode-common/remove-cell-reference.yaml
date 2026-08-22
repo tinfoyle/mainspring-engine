@@ -35,6 +35,21 @@ $patch: delete
 ---
 apiVersion: apps/v1
 kind: Deployment
+metadata: {name: baseline-maintenance-worker-cell-reference, namespace: spyglass-reference}
+$patch: delete
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: baseline-maintenance-worker-cell-reference, namespace: spyglass-reference}
+$patch: delete
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: baseline-maintenance-worker-cell-reference, namespace: spyglass-reference}
+$patch: delete
+---
+apiVersion: apps/v1
+kind: Deployment
 metadata: {name: route-receipt-worker-cell-reference, namespace: spyglass-reference}
 $patch: delete
 ---

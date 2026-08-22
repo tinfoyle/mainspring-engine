@@ -424,6 +424,16 @@ type MaterializeMaintenanceCommand struct {
 	AdvanceCommand
 }
 
+const MaintenanceWorkloadID = "baseline-maintenance-worker"
+
+type MaterializeMaintenanceWorkloadCommand struct {
+	Actor           access.Actor
+	AccountID       ids.AccountID
+	AssessmentID    ids.BaselineAssessmentID
+	ExpectedVersion uint64
+	CorrelationID   string
+}
+
 // MaterializeMaintenance creates only obligations inside the governed 30-day
 // window. IDs include the immutable due instant, so retries and later renewal
 // cycles cannot duplicate one another.
@@ -445,6 +455,30 @@ func (s *Service) MaterializeMaintenance(ctx context.Context, command Materializ
 	if assessment.Version != command.ExpectedVersion {
 		return nil, ErrConflict
 	}
+	return s.materializeMaintenance(ctx, command.Actor, command.AccountID, command.CorrelationID, assessment, workdomain.Actor{Kind: workdomain.ActorUser, ID: string(actor.UserID)})
+}
+
+// MaterializeMaintenanceWorkload is the only unattended Baseline mutation
+// boundary. It creates deterministic Work but cannot change an assessment,
+// decide evidence, mark readiness, or impersonate the assessment owner.
+func (s *Service) MaterializeMaintenanceWorkload(ctx context.Context, command MaterializeMaintenanceWorkloadCommand) ([]workdomain.Item, error) {
+	if command.Actor.UserID != "" || command.Actor.WorkloadID != MaintenanceWorkloadID || ids.Validate(string(command.AccountID)) != nil || ids.Validate(string(command.AssessmentID)) != nil || ids.Validate(command.CorrelationID) != nil || command.ExpectedVersion == 0 || s.work == nil {
+		return nil, ErrInvalid
+	}
+	if _, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}); err != nil {
+		return nil, err
+	}
+	assessment, err := s.repository.Get(ctx, command.AccountID, command.AssessmentID)
+	if err != nil {
+		return nil, err
+	}
+	if assessment.Version != command.ExpectedVersion {
+		return nil, ErrConflict
+	}
+	return s.materializeMaintenance(ctx, command.Actor, command.AccountID, command.CorrelationID, assessment, workdomain.Actor{Kind: workdomain.ActorWorkload, ID: MaintenanceWorkloadID})
+}
+
+func (s *Service) materializeMaintenance(ctx context.Context, accessActor access.Actor, accountID ids.AccountID, correlationRoot string, assessment domain.Assessment, provenanceActor workdomain.Actor) ([]workdomain.Item, error) {
 	now := s.clock.Now().UTC()
 	planned := assessment.MaintenanceWork(now)
 	result := make([]workdomain.Item, 0, len(planned))
@@ -457,7 +491,7 @@ func (s *Service) MaterializeMaintenance(ctx context.Context, command Materializ
 		if deriveErr != nil {
 			return nil, ErrRepository
 		}
-		correlationID, deriveErr := ids.Derive(command.CorrelationID, "baseline-maintenance:"+key)
+		correlationID, deriveErr := ids.Derive(correlationRoot, "baseline-maintenance:"+key)
 		if deriveErr != nil {
 			return nil, ErrInvalid
 		}
@@ -465,7 +499,7 @@ func (s *Service) MaterializeMaintenance(ctx context.Context, command Materializ
 		if !now.Before(proposal.DueAt) {
 			priority = workdomain.PriorityUrgent
 		}
-		item, createErr := s.work.Create(ctx, workapp.CreateCommand{Actor: command.Actor, AccountID: command.AccountID, RequestID: workID, Kind: workdomain.KindTodo, Title: proposal.Title, Description: proposal.Description, Priority: priority, Assignment: workAssignment(proposal.Responsibility), Provenance: workdomain.Provenance{Source: workdomain.SourceBaseline, CreatedBy: workdomain.Actor{Kind: workdomain.ActorUser, ID: string(actor.UserID)}, BaselineRequirementID: string(proposal.RequirementID)}, DueAt: &proposal.DueAt, Reason: "Scheduled Baseline maintenance", CorrelationID: correlationID})
+		item, createErr := s.work.Create(ctx, workapp.CreateCommand{Actor: accessActor, AccountID: accountID, RequestID: workID, Kind: workdomain.KindTodo, Title: proposal.Title, Description: proposal.Description, Priority: priority, Assignment: workAssignment(proposal.Responsibility), Provenance: workdomain.Provenance{Source: workdomain.SourceBaseline, CreatedBy: provenanceActor, BaselineRequirementID: string(proposal.RequirementID)}, DueAt: &proposal.DueAt, Reason: "Scheduled Baseline maintenance", CorrelationID: correlationID})
 		if createErr != nil {
 			if errors.Is(createErr, workapp.ErrConflict) {
 				return nil, ErrConflict

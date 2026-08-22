@@ -220,6 +220,17 @@
       "dependencies": ["cell-postgresql", "versioned-object-store", "private-malware-scanner", "private-document-extractor"]
     },
     {
+      "mode": "baseline-maintenance-worker",
+      "kind": "worker",
+      "scope": "cell",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.baseline-maintenance-worker", "cell.baseline-maintenance-worker"],
+      "configuration": ["SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_CELL_ID", "SPYGLASS_BASELINE_MAINTENANCE_POLL_INTERVAL", "SPYGLASS_BASELINE_MAINTENANCE_LEASE", "SPYGLASS_BASELINE_MAINTENANCE_MAX_ATTEMPTS", "SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate", "cell_restore_gate"],
+      "dependencies": ["global-postgresql", "cell-postgresql"]
+    },
+    {
       "mode": "runner-controller",
       "kind": "worker",
       "scope": "cell",
