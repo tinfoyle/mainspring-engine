@@ -14,8 +14,10 @@ import (
 
 const (
 	LegacyVersion           uint32 = 1
-	CurrentVersion          uint32 = 2
+	ActionVersion           uint32 = 2
+	CurrentVersion          uint32 = 3
 	MaximumProjectedActions        = 8
+	MaximumOwnerQuestions          = 8
 )
 
 var ErrDenied = errors.New("agent result violates immutable result policy")
@@ -36,7 +38,7 @@ type Policy struct {
 }
 
 func Validate(policy Policy, result agentdomain.ResultEnvelope) error {
-	if (policy.Version != LegacyVersion && policy.Version != CurrentVersion) || ids.Validate(string(policy.CurrentPersonaID)) != nil ||
+	if (policy.Version < LegacyVersion || policy.Version > CurrentVersion) || ids.Validate(string(policy.CurrentPersonaID)) != nil ||
 		!slices.Contains([]string{"none", "required", "best_effort"}, policy.CitationPolicy) ||
 		!slices.Contains([]string{"none", "propose"}, policy.ActionPolicy) {
 		return ErrDenied
@@ -60,7 +62,7 @@ func Validate(policy Policy, result agentdomain.ResultEnvelope) error {
 		(policy.ActionPolicy == "none" && len(result.ProposedActions) != 0) {
 		return ErrDenied
 	}
-	if policy.Version == CurrentVersion {
+	if policy.Version >= ActionVersion {
 		if len(result.ProposedActions) > MaximumProjectedActions {
 			return ErrDenied
 		}
@@ -69,6 +71,9 @@ func Validate(policy Policy, result agentdomain.ResultEnvelope) error {
 				return ErrDenied
 			}
 		}
+	}
+	if policy.Version >= CurrentVersion && len(result.Questions) > MaximumOwnerQuestions {
+		return ErrDenied
 	}
 	citationIDs := make([]string, 0, len(result.Citations))
 	for _, citation := range result.Citations {

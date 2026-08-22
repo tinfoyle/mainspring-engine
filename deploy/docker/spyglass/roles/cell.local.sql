@@ -112,9 +112,9 @@ GRANT EXECUTE ON FUNCTION public.spyglass_agent_dispatch_stats(timestamptz)
 GRANT EXECUTE ON FUNCTION public.spyglass_provision_runner_invocation(uuid,uuid,text,timestamptz,bytea,bytea,integer,bytea,timestamptz)
   TO spyglass_agent_dispatch_worker;
 
-GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection_v3(uuid,timestamptz,integer)
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection_v4(uuid,timestamptz,integer)
   TO spyglass_agent_projection_worker;
-GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success_v2(uuid,uuid,uuid,uuid,text,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,bigint,timestamptz,timestamptz,jsonb)
+GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success_v3(uuid,uuid,uuid,uuid,text,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,bigint,timestamptz,timestamptz,jsonb,jsonb,uuid)
   TO spyglass_agent_projection_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_failure(uuid,uuid,uuid,bytea,text,timestamptz,timestamptz)
   TO spyglass_agent_projection_worker;

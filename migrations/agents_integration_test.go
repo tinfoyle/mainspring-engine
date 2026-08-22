@@ -71,8 +71,8 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	readerRole := "spyglass_agent_reader_" + randomSuffix(t)
 	if _, err := owner.Exec(ctx, `CREATE ROLE `+projectorRole+` NOLOGIN NOBYPASSRLS; CREATE ROLE `+readerRole+` NOLOGIN NOBYPASSRLS;
 		GRANT USAGE ON SCHEMA public,spyglass TO `+projectorRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection_v3(uuid,timestamptz,integer) TO `+projectorRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success_v2(uuid,uuid,uuid,uuid,text,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,bigint,timestamptz,timestamptz,jsonb) TO `+projectorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection_v4(uuid,timestamptz,integer) TO `+projectorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success_v3(uuid,uuid,uuid,uuid,text,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,bigint,timestamptz,timestamptz,jsonb,jsonb,uuid) TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_failure(uuid,uuid,uuid,bytea,text,timestamptz,timestamptz) TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_result_projection(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer) TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_agent_result_projection_stats(timestamptz) TO `+projectorRole+`;
@@ -112,18 +112,18 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_persona_versions SET policy='{"action_policy":"propose","action_capabilities":["work.create"]}'::jsonb WHERE account_id=$1 AND persona_id=$2`, accountA, "81000000-0000-4000-8000-000000000001"); err != nil {
 		t.Fatal(err)
 	}
-	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id,permitted_models,result_policy_version,citation_policy,action_policy,action_capabilities,current_persona_id,delegate_persona_ids,citation_bindings FROM public.spyglass_claim_agent_result_projection_v3($1,$2,300)`, leaseA, now.Add(45*time.Second)).Scan(
+	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id,permitted_models,result_policy_version,citation_policy,action_policy,action_capabilities,current_persona_id,delegate_persona_ids,citation_bindings FROM public.spyglass_claim_agent_result_projection_v4($1,$2,300)`, leaseA, now.Add(45*time.Second)).Scan(
 		&claimedAccount, &claimedInvocation, &claimedModels, &policyVersion, &citationPolicy, &actionPolicy, &actionCapabilities, &currentPersona, &delegatePersonas, &citationBindings); err != nil ||
-		claimedAccount != accountA || claimedInvocation != invocationA || !slices.Equal(claimedModels, []string{"gpt-test", "gpt-fallback"}) || policyVersion != 2 || citationPolicy != "none" || actionPolicy != "propose" || !slices.Equal(actionCapabilities, []string{"work.create"}) ||
+		claimedAccount != accountA || claimedInvocation != invocationA || !slices.Equal(claimedModels, []string{"gpt-test", "gpt-fallback"}) || policyVersion != 3 || citationPolicy != "none" || actionPolicy != "propose" || !slices.Equal(actionCapabilities, []string{"work.create"}) ||
 		currentPersona != "81000000-0000-4000-8000-000000000001" || !slices.Equal(delegatePersonas, []string{"81000000-0000-4000-8000-000000000012"}) || len(citationBindings) != 0 {
 		t.Fatalf("claim A account=%s invocation=%s err=%v", claimedAccount, claimedInvocation, err)
 	}
-	proposalA, err := json.Marshal([]map[string]any{{"approval_id": "74000000-0000-4000-8000-000000000001", "operation_id": "75000000-0000-4000-8000-000000000001", "event_id": "76000000-0000-4000-8000-000000000001", "capability": "work.create", "payload_base64": base64.StdEncoding.EncodeToString([]byte(`{}`)), "input_sha256_base64": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x51}, 32)), "evidence_sha256_base64": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x61}, 32)), "proposer_id": "agent:81000000-0000-4000-8000-000000000001", "policy_version": 2, "expires_at": now.Add(time.Minute + 24*time.Hour)}})
+	proposalA, err := json.Marshal([]map[string]any{{"approval_id": "74000000-0000-4000-8000-000000000001", "operation_id": "75000000-0000-4000-8000-000000000001", "event_id": "76000000-0000-4000-8000-000000000001", "capability": "work.create", "payload_base64": base64.StdEncoding.EncodeToString([]byte(`{}`)), "input_sha256_base64": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x51}, 32)), "evidence_sha256_base64": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x61}, 32)), "proposer_id": "agent:81000000-0000-4000-8000-000000000001", "policy_version": 3, "expires_at": now.Add(time.Minute + 24*time.Hour)}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var created bool
-	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v2($1,$2,$3,$4,'openai','gpt-fallback','gpt-fallback-2026','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9,$10::jsonb)`,
+	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v3($1,$2,$3,$4,'openai','gpt-fallback','gpt-fallback-2026','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9,$10::jsonb,'[]'::jsonb,NULL::uuid)`,
 		accountA, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute), proposalA).Scan(&created); err != nil || !created {
 		t.Fatalf("project success created=%v err=%v", created, err)
 	}
@@ -133,7 +133,7 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 		(SELECT count(*) FROM spyglass.agent_dispatch_queue WHERE account_id=$1 AND invocation_id=$2)`, accountA, invocationA2).Scan(&nextContext, &nextDispatch); err != nil || nextContext != 1 || nextDispatch != 1 {
 		t.Fatalf("next turn context=%d dispatch=%d err=%v", nextContext, nextDispatch, err)
 	}
-	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v2($1,$2,$3,$4,'openai','gpt-fallback','gpt-fallback-2026','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9,$10::jsonb)`,
+	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v3($1,$2,$3,$4,'openai','gpt-fallback','gpt-fallback-2026','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9,$10::jsonb,'[]'::jsonb,NULL::uuid)`,
 		accountA, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute), proposalA).Scan(&created); err != nil || created {
 		t.Fatalf("idempotent success created=%v err=%v", created, err)
 	}
@@ -162,20 +162,20 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT cost_micros,total_tokens,selected_model FROM spyglass.agent_invocations WHERE account_id=$1 AND id=$2`, accountA, invocationA).Scan(&projectedCost, &projectedTokens, &selectedModel); err != nil || projectedCost != 21 || projectedTokens != 14 || selectedModel != "gpt-fallback" {
 		t.Fatalf("projected cost=%d tokens=%d err=%v", projectedCost, projectedTokens, err)
 	}
-	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v2($1,$2,$3,$4,'openai','gpt-test','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9,'[]'::jsonb)`,
+	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v3($1,$2,$3,$4,'openai','gpt-test','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9,'[]'::jsonb,'[]'::jsonb,NULL::uuid)`,
 		accountB, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err == nil {
 		t.Fatal("cross-Account invocation projection succeeded")
 	}
 	leaseB := "73000000-0000-4000-8000-000000000002"
-	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id FROM public.spyglass_claim_agent_result_projection_v3($1,$2,300)`, leaseB, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation); err != nil || claimedAccount != accountB || claimedInvocation != invocationB {
+	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id FROM public.spyglass_claim_agent_result_projection_v4($1,$2,300)`, leaseB, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation); err != nil || claimedAccount != accountB || claimedInvocation != invocationB {
 		t.Fatalf("claim B account=%s invocation=%s err=%v", claimedAccount, claimedInvocation, err)
 	}
-	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v2($1,$2,$3,$4,'openai','gpt-test','gpt-test','resp_b',$5,$6,$7::jsonb,$8,8,3,11,17,$9,$9,'[]'::jsonb)`,
+	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v3($1,$2,$3,$4,'openai','gpt-test','gpt-test','resp_b',$5,$6,$7::jsonb,$8,8,3,11,17,$9,$9,'[]'::jsonb,'[]'::jsonb,NULL::uuid)`,
 		accountB, invocationB, leaseB, messageA, runnerDigestB, resultDigestB, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err == nil {
 		t.Fatal("duplicate message identity unexpectedly committed")
 	}
 	leaseC := "73000000-0000-4000-8000-000000000003"
-	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id FROM public.spyglass_claim_agent_result_projection_v3($1,$2,300)`, leaseC, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation); err != nil || claimedAccount != accountC || claimedInvocation != invocationC {
+	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id FROM public.spyglass_claim_agent_result_projection_v4($1,$2,300)`, leaseC, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation); err != nil || claimedAccount != accountC || claimedInvocation != invocationC {
 		t.Fatalf("claim C account=%s invocation=%s err=%v", claimedAccount, claimedInvocation, err)
 	}
 	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_failure($1,$2,$3,$4,'provider_denied',$5,$5)`,

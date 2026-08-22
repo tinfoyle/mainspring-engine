@@ -164,8 +164,49 @@ func TestProcessorProjectsPolicyV2ActionsAsDeterministicApprovals(t *testing.T) 
 	proposal := queue.success.Proposals[0]
 	wantID, _ := ids.Derive(stored.InvocationID, "action/1/approval")
 	if proposal.ApprovalID != wantID || proposal.Capability != "work.create" || proposal.ProposerID != "agent:"+string(claim.CurrentPersonaID) ||
-		proposal.PolicyVersion != agentresultpolicy.CurrentVersion || proposal.ExpiresAt != now.Add(24*time.Hour) || proposal.InputDigest == ([32]byte{}) || proposal.EvidenceDigest == ([32]byte{}) {
+		proposal.PolicyVersion != agentresultpolicy.CurrentVersion || proposal.ExpiresAt != stored.SubmittedAt.Add(24*time.Hour) || proposal.InputDigest == ([32]byte{}) || proposal.EvidenceDigest == ([32]byte{}) {
 		t.Fatalf("unexpected proposal: %+v", proposal)
+	}
+}
+
+func TestProcessorProjectsWorkQuestionsAsDeterministicInformationRequests(t *testing.T) {
+	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
+	var turn runneragents.TurnOutput
+	if err := json.Unmarshal(validTurnOutput(t), &turn); err != nil {
+		t.Fatal(err)
+	}
+	turn.Result.Questions = []string{"Which system is the operational source of truth?"}
+	raw, err := json.Marshal(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", raw, "")
+	claim := validProjectionClaim(stored, 1)
+	claim.ResultPolicyVersion = agentresultpolicy.CurrentVersion
+	claim.WorkItemID = ids.WorkItemID("81000000-0000-4000-8000-000000000001")
+	queue := &projectionQueue{found: true, claim: claim}
+	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
+	if err != nil || !result.Projected || queue.success == nil || len(queue.success.InformationRequests) != 1 {
+		t.Fatalf("result=%+v success=%+v err=%v", result, queue.success, err)
+	}
+	request := queue.success.InformationRequests[0]
+	wantRequestID, _ := ids.Derive(stored.InvocationID, "question/1/request")
+	wantEventID, _ := ids.Derive(stored.InvocationID, "question/1/event")
+	wantWorkEventID, _ := ids.Derive(stored.InvocationID, "questions/work-event")
+	if request.RequestID != wantRequestID || request.EventID != wantEventID || request.Question != turn.Result.Questions[0] ||
+		request.FactKey != "agent.owner_question.30408080bd1a993a6db4ecc104a77b56" ||
+		request.RequesterID != "agent:"+string(claim.CurrentPersonaID) || queue.success.WorkEventID != wantWorkEventID {
+		t.Fatalf("unexpected information request=%+v work_event=%s", request, queue.success.WorkEventID)
+	}
+
+	// Boardroom-only turns remain conversational. Questions are published in
+	// the result but cannot fabricate a Work/Attention lifecycle.
+	directClaim := claim
+	directClaim.WorkItemID = ""
+	directQueue := &projectionQueue{found: true, claim: directClaim}
+	result, err = testProcessor(t, directQueue, cipher, now).ProcessOne(context.Background())
+	if err != nil || !result.Projected || directQueue.success == nil || len(directQueue.success.InformationRequests) != 0 || directQueue.success.WorkEventID != "" {
+		t.Fatalf("direct result=%+v success=%+v err=%v", result, directQueue.success, err)
 	}
 }
 

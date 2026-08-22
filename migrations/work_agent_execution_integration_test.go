@@ -252,4 +252,99 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 	if _, _, err := executions.Claim(ctx, "84000000-0000-4000-8000-000000000009", now.Add(11*time.Second), 30*time.Second); err != nil {
 		t.Fatal(err)
 	}
+
+	// A completed Work Agent turn with questions atomically publishes its
+	// message, opens Attention requests and pauses Work. Supplying an accepted
+	// fact resumes Work through a new deterministic execution carrying the
+	// answer as bounded Account data.
+	var invocationID string
+	if err := owner.QueryRow(ctx, `SELECT id FROM spyglass.agent_invocations WHERE account_id=$1 AND run_id=$2`, accountID, snapshot.RunID).Scan(&invocationID); err != nil {
+		t.Fatal(err)
+	}
+	runnerDigest := make([]byte, 32)
+	resultDigest := make([]byte, 32)
+	for index := range runnerDigest {
+		runnerDigest[index], resultDigest[index] = 0x31, 0x41
+	}
+	projectionAt := now.Add(12 * time.Second)
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.runner_invocation_queue
+		(invocation_id,account_id,profile,processing_state,job_name,queued_at,completed_at)
+		VALUES ($1,$2,'agent-small','completed','owner-question-runner',$3,$4);
+		INSERT INTO spyglass.runner_invocation_exchanges
+		(account_id,invocation_id,request_ciphertext,request_nonce,request_key_version,request_digest,request_expires_at,
+		 bound_pod_uid,bound_at,last_fetched_at,fetch_count,result_outcome,result_ciphertext,result_nonce,result_key_version,result_digest,result_submitted_at,created_at)
+		VALUES ($2,$1,decode(repeat('01',17),'hex'),decode(repeat('02',12),'hex'),1,decode(repeat('03',32),'hex'),$4::timestamptz+interval '1 hour',
+		 '99000000-0000-4000-8000-000000000009',$3,$3,1,'completed',decode(repeat('04',17),'hex'),decode(repeat('05',12),'hex'),1,$5,$4,$3)`,
+		pgx.QueryExecModeSimpleProtocol, invocationID, accountID, now.Add(4*time.Second), projectionAt, runnerDigest); err != nil {
+		t.Fatal(err)
+	}
+	projectionLease := "85000000-0000-4000-8000-000000000009"
+	var claimedInvocation, claimedWork string
+	if err := owner.QueryRow(ctx, `SELECT invocation_id,work_item_id FROM public.spyglass_claim_agent_result_projection_v4($1,$2,300)`, projectionLease, projectionAt).Scan(&claimedInvocation, &claimedWork); err != nil || claimedInvocation != invocationID || claimedWork != string(workItemID) {
+		t.Fatalf("owner-question claim invocation=%s work=%s err=%v", claimedInvocation, claimedWork, err)
+	}
+	resultPayload := json.RawMessage(`{"contribution":"I need one owner fact before continuing.","findings":[],"recommendations":[],"questions":["Which system is the operational source of truth?"],"citations":[],"proposed_actions":[],"delegations":[],"confidence":"low"}`)
+	requestID := "86000000-0000-4000-8000-000000000009"
+	requestEventID := "87000000-0000-4000-8000-000000000009"
+	workEventID := "88000000-0000-4000-8000-000000000009"
+	requestPayload, err := json.Marshal([]map[string]any{{"request_id": requestID, "event_id": requestEventID,
+		"fact_key": "agent.owner_question.30408080bd1a993a6db4ecc104a77b56", "question": "Which system is the operational source of truth?",
+		"requester_id": "agent:" + string(personaID)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projected bool
+	if err := owner.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v3(
+		$1,$2,$3,$4,'openai','gpt-5','gpt-5-2026','owner-question-response',$5,$6,$7::jsonb,$8,10,5,15,20,$9,$9,'[]'::jsonb,$10::jsonb,$11)`,
+		accountID, invocationID, projectionLease, "89000000-0000-4000-8000-000000000009", runnerDigest, resultDigest, resultPayload,
+		"I need one owner fact before continuing.", projectionAt, requestPayload, workEventID).Scan(&projected); err != nil || !projected {
+		t.Fatalf("owner-question projection projected=%v err=%v", projected, err)
+	}
+	var workState, runState, requestState string
+	if err := owner.QueryRow(ctx, `SELECT
+		(SELECT state FROM spyglass.work_items WHERE account_id=$1 AND id=$2),
+		(SELECT state FROM spyglass.agent_runs WHERE account_id=$1 AND id=$3),
+		(SELECT state FROM spyglass.attention_information_requests WHERE account_id=$1 AND id=$4)`,
+		accountID, workItemID, snapshot.RunID, requestID).Scan(&workState, &runState, &requestState); err != nil || workState != "waiting" || runState != "waiting_input" || requestState != "open" {
+		t.Fatalf("owner-question states work=%s run=%s request=%s err=%v", workState, runState, requestState, err)
+	}
+
+	factID := "8a000000-0000-4000-8000-000000000009"
+	claimID := "8b000000-0000-4000-8000-000000000009"
+	evidenceID := "8c000000-0000-4000-8000-000000000009"
+	resumeAt := now.Add(13 * time.Second)
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.knowledge_evidence
+		(account_id,id,source_kind,source_reference,source_revision,content_sha256,captured_at,created_by_kind,created_by_id,created_at)
+		VALUES ($1,$8,'owner_statement',$7,'1',decode(repeat('50',32),'hex'),$5,'user',$4,$5);
+		INSERT INTO spyglass.knowledge_claims
+		(account_id,id,scope_kind,fact_key,canonical_value,value_sha256,hash_version,confidence,sensitivity,proposed_by_kind,proposed_by_id,
+		 state,version,created_at,updated_at)
+		VALUES ($1,$2,'account','agent.owner_question.30408080bd1a993a6db4ecc104a77b56',$3,decode(repeat('51',32),'hex'),1,1000,'internal',
+		 'user',$4,'proposed',1,$5,$5);
+		INSERT INTO spyglass.knowledge_claim_citations(account_id,claim_id,evidence_id,evidence_kind,relation,locator,created_at)
+		VALUES ($1,$2,$8,'owner_statement','supports','owner answer',$5);
+		UPDATE spyglass.knowledge_claims SET state='accepted',decision_reason='Owner supplied the requested fact',decided_by_user_id=$4,
+		 decided_at=$5,version=2,updated_at=$5 WHERE account_id=$1 AND id=$2;
+		INSERT INTO spyglass.knowledge_facts
+		(account_id,id,scope_kind,fact_key,current_claim_id,state,revision,accepted_by_user_id,accepted_at,created_at,updated_at)
+		VALUES ($1,$6,'account','agent.owner_question.30408080bd1a993a6db4ecc104a77b56',$2,'active',1,$4,$5,$5,$5);
+		INSERT INTO spyglass.knowledge_fact_revisions(account_id,fact_id,revision,claim_id,accepted_by_user_id,accepted_at)
+		VALUES ($1,$6,1,$2,$4,$5);
+		UPDATE spyglass.attention_information_requests SET state='answered',fact_id=$6,fact_version=1,answered_by_kind='user',answered_by_id=$4,
+		 answered_at=$5,version=2,updated_at=$5 WHERE account_id=$1 AND id=$7`,
+		pgx.QueryExecModeSimpleProtocol, accountID, claimID, []byte(`"Operations Hub"`), userID, resumeAt, factID, requestID, evidenceID); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := work.ResumeAttentionParents(ctx, accountID, []ids.WorkItemID{workItemID}, accounts.RoleOwner, actor, "owner-question-resume", resumeAt)
+	if err != nil || len(resumed) != 1 || resumed[0].State != workdomain.StateInProgress {
+		t.Fatalf("owner-question resume=%+v err=%v", resumed, err)
+	}
+	var continuationState, originalRunState, continuationDescription string
+	if err := owner.QueryRow(ctx, `SELECT queue.state,run.state,execution.description
+		FROM spyglass.work_agent_execution_queue queue
+		JOIN spyglass.work_agent_executions execution ON execution.account_id=queue.account_id AND execution.execution_id=queue.execution_id
+		JOIN spyglass.agent_runs run ON run.account_id=execution.account_id AND run.id=$2
+		WHERE queue.account_id=$1 AND queue.work_item_id=$3 AND queue.state='pending'`, accountID, snapshot.RunID, workItemID).Scan(&continuationState, &originalRunState, &continuationDescription); err != nil || continuationState != "pending" || originalRunState != "succeeded" || !strings.Contains(continuationDescription, "Operations Hub") {
+		t.Fatalf("continuation state=%s original=%s description=%q err=%v", continuationState, originalRunState, continuationDescription, err)
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,6 +51,7 @@ type Claim struct {
 	ActionPolicy        string
 	ActionCapabilities  []string
 	CurrentPersonaID    ids.PersonaID
+	WorkItemID          ids.WorkItemID
 	DelegatePersonaIDs  []ids.PersonaID
 	CitationBindings    []agentresultpolicy.CitationBinding
 	Result              runnerbroker.StoredResult
@@ -64,8 +66,11 @@ func (c Claim) Valid() bool {
 			return false
 		}
 	}
-	if (c.ResultPolicyVersion != agentresultpolicy.LegacyVersion && c.ResultPolicyVersion != agentresultpolicy.CurrentVersion) || ids.Validate(string(c.CurrentPersonaID)) != nil ||
+	if (c.ResultPolicyVersion < agentresultpolicy.LegacyVersion || c.ResultPolicyVersion > agentresultpolicy.CurrentVersion) || ids.Validate(string(c.CurrentPersonaID)) != nil ||
 		!slices.Contains([]string{"none", "required", "best_effort"}, c.CitationPolicy) || !slices.Contains([]string{"none", "propose"}, c.ActionPolicy) {
+		return false
+	}
+	if c.WorkItemID != "" && ids.Validate(string(c.WorkItemID)) != nil {
 		return false
 	}
 	for index, capability := range c.ActionCapabilities {
@@ -89,23 +94,25 @@ func (c Claim) Valid() bool {
 }
 
 type Success struct {
-	Claim              Claim
-	MessageID          string
-	Provider           string
-	SelectedModel      string
-	ResponseModel      string
-	ProviderResponseID string
-	RunnerDigest       [sha256.Size]byte
-	ResultDigest       [sha256.Size]byte
-	ResultPayload      json.RawMessage
-	Body               string
-	InputTokens        int64
-	OutputTokens       int64
-	TotalTokens        int64
-	CostMicros         int64
-	CompletedAt        time.Time
-	ProjectedAt        time.Time
-	Proposals          []ApprovalProposal
+	Claim               Claim
+	MessageID           string
+	Provider            string
+	SelectedModel       string
+	ResponseModel       string
+	ProviderResponseID  string
+	RunnerDigest        [sha256.Size]byte
+	ResultDigest        [sha256.Size]byte
+	ResultPayload       json.RawMessage
+	Body                string
+	InputTokens         int64
+	OutputTokens        int64
+	TotalTokens         int64
+	CostMicros          int64
+	CompletedAt         time.Time
+	ProjectedAt         time.Time
+	Proposals           []ApprovalProposal
+	InformationRequests []InformationRequest
+	WorkEventID         string
 }
 
 type ApprovalProposal struct {
@@ -119,6 +126,14 @@ type ApprovalProposal struct {
 	ProposerID       string
 	PolicyVersion    uint32
 	ExpiresAt        time.Time
+}
+
+type InformationRequest struct {
+	RequestID   string
+	EventID     string
+	FactKey     string
+	Question    string
+	RequesterID string
 }
 
 type Failure struct {
@@ -215,8 +230,14 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 		CostMicros:  output.Usage.CostMicros,
 		CompletedAt: claim.Result.SubmittedAt.UTC(), ProjectedAt: now,
 	}
-	if claim.ResultPolicyVersion == agentresultpolicy.CurrentVersion {
-		success.Proposals, err = approvalProposals(claim, output.Result.ProposedActions, success.ResultDigest, now)
+	if claim.ResultPolicyVersion >= agentresultpolicy.ActionVersion {
+		success.Proposals, err = approvalProposals(claim, output.Result.ProposedActions, success.ResultDigest, success.CompletedAt)
+		if err != nil {
+			return p.reject(ctx, claim, now, "result_policy_denied", ErrInvalidPayload)
+		}
+	}
+	if claim.ResultPolicyVersion >= agentresultpolicy.CurrentVersion && claim.WorkItemID != "" {
+		success.InformationRequests, success.WorkEventID, err = informationRequests(claim, output.Result.Questions)
 		if err != nil {
 			return p.reject(ctx, claim, now, "result_policy_denied", ErrInvalidPayload)
 		}
@@ -225,6 +246,32 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 		return p.handleProjectionError(ctx, claim, now, "success_projection_failed", err)
 	}
 	return Result{Worked: true, Projected: true}, nil
+}
+
+func informationRequests(claim Claim, questions []string) ([]InformationRequest, string, error) {
+	if len(questions) == 0 {
+		return []InformationRequest{}, "", nil
+	}
+	workEventID, err := ids.Derive(claim.InvocationID, "questions/work-event")
+	if err != nil {
+		return nil, "", err
+	}
+	requests := make([]InformationRequest, len(questions))
+	for index, question := range questions {
+		requestID, err := ids.Derive(claim.InvocationID, fmt.Sprintf("question/%d/request", index+1))
+		if err != nil {
+			return nil, "", err
+		}
+		eventID, err := ids.Derive(claim.InvocationID, fmt.Sprintf("question/%d/event", index+1))
+		if err != nil {
+			return nil, "", err
+		}
+		digest := sha256.Sum256([]byte(question))
+		requests[index] = InformationRequest{RequestID: requestID, EventID: eventID,
+			FactKey: "agent.owner_question." + hex.EncodeToString(digest[:16]), Question: question,
+			RequesterID: "agent:" + string(claim.CurrentPersonaID)}
+	}
+	return requests, workEventID, nil
 }
 
 func approvalProposals(claim Claim, actions []agentdomain.ProposedAction, resultDigest [sha256.Size]byte, now time.Time) ([]ApprovalProposal, error) {

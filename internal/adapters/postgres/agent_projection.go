@@ -36,11 +36,11 @@ func (r *AgentProjectionRepository) Claim(ctx context.Context, leaseID string, n
 	var resultPolicyVersion int64
 	var actionCapabilities, delegateIDs, citationBindings []string
 	err := r.pool.QueryRow(ctx, `SELECT account_id,invocation_id,lease_id,attempt_count,expected_provider,requested_model,permitted_models,
-		result_policy_version,citation_policy,action_policy,action_capabilities,current_persona_id,delegate_persona_ids,citation_bindings,
+		result_policy_version,citation_policy,action_policy,action_capabilities,current_persona_id,work_item_id,delegate_persona_ids,citation_bindings,
 		pod_uid,result_outcome,result_ciphertext,result_nonce,result_key_version,result_digest,result_submitted_at
-		FROM public.spyglass_claim_agent_result_projection_v3($1,$2,$3)`, leaseID, now.UTC(), int(lease/time.Second)).Scan(
+		FROM public.spyglass_claim_agent_result_projection_v4($1,$2,$3)`, leaseID, now.UTC(), int(lease/time.Second)).Scan(
 		&claim.AccountID, &claim.InvocationID, &claim.LeaseID, &claim.Attempt, &claim.ExpectedProvider, &claim.RequestedModel, &claim.PermittedModels,
-		&resultPolicyVersion, &claim.CitationPolicy, &claim.ActionPolicy, &actionCapabilities, &claim.CurrentPersonaID, &delegateIDs, &citationBindings,
+		&resultPolicyVersion, &claim.CitationPolicy, &claim.ActionPolicy, &actionCapabilities, &claim.CurrentPersonaID, &claim.WorkItemID, &delegateIDs, &citationBindings,
 		&claim.Result.PodUID, &claim.Result.Outcome, &claim.Result.Ciphertext, &claim.Result.Nonce, &claim.Result.KeyVersion,
 		&digest, &claim.Result.SubmittedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -83,12 +83,25 @@ func (r *AgentProjectionRepository) ProjectSuccess(ctx context.Context, result a
 	if err != nil {
 		return fmt.Errorf("encode agent action proposals: %w", err)
 	}
+	informationRequests := make([]map[string]any, len(result.InformationRequests))
+	for index, request := range result.InformationRequests {
+		informationRequests[index] = map[string]any{"request_id": request.RequestID, "event_id": request.EventID, "fact_key": request.FactKey,
+			"question": request.Question, "requester_id": request.RequesterID}
+	}
+	informationPayload, err := json.Marshal(informationRequests)
+	if err != nil {
+		return fmt.Errorf("encode agent information requests: %w", err)
+	}
+	var workEventID any
+	if result.WorkEventID != "" {
+		workEventID = result.WorkEventID
+	}
 	var projected bool
-	err = r.pool.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v2(
-		$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)`,
+	err = r.pool.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v3(
+		$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19::jsonb,$20::jsonb,$21::uuid)`,
 		result.Claim.AccountID, result.Claim.InvocationID, result.Claim.LeaseID, result.MessageID, result.Provider,
 		result.SelectedModel, result.ResponseModel, result.ProviderResponseID, result.RunnerDigest[:], result.ResultDigest[:], result.ResultPayload,
-		result.Body, result.InputTokens, result.OutputTokens, result.TotalTokens, result.CostMicros, result.CompletedAt.UTC(), result.ProjectedAt.UTC(), proposalPayload).Scan(&projected)
+		result.Body, result.InputTokens, result.OutputTokens, result.TotalTokens, result.CostMicros, result.CompletedAt.UTC(), result.ProjectedAt.UTC(), proposalPayload, informationPayload, workEventID).Scan(&projected)
 	if err != nil {
 		return mapAgentProjectionError("project agent invocation success", err)
 	}

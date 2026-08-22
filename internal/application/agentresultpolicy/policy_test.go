@@ -67,6 +67,19 @@ func TestValidateV2DeniesUnfrozenActionCapabilityWhileV1RemainsReplayable(t *tes
 	}
 }
 
+func TestValidateV3BoundsOwnerQuestions(t *testing.T) {
+	result := validResult()
+	result.Questions = make([]string, MaximumOwnerQuestions+1)
+	for index := range result.Questions {
+		result.Questions[index] = "Owner question"
+	}
+	policy := Policy{Version: CurrentVersion, CitationPolicy: "best_effort", ActionPolicy: "propose", CurrentPersonaID: currentPersona,
+		ActionCapabilities: []string{"work.create"}, DelegatePersonaIDs: []ids.PersonaID{nextPersona}, CitationBindings: []CitationBinding{{DocumentID: documentID, ChunkID: chunkID}}}
+	if err := Validate(policy, result); !errors.Is(err, ErrDenied) {
+		t.Fatalf("expected owner-question limit denial, got %v", err)
+	}
+}
+
 func validResult() agentdomain.ResultEnvelope {
 	return agentdomain.ResultEnvelope{Contribution: "Review the dependency.", Findings: []string{}, Recommendations: []string{}, Questions: []string{},
 		Citations:       []agentdomain.Citation{{ID: "source-1", DocumentID: documentID, ChunkID: chunkID, Label: "Dependency record"}},
