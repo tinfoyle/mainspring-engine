@@ -11,7 +11,7 @@
       "executable": true,
       "boundaries": ["browser", "http", "dispatch-worker", "runner", "result-projection-worker"]
     },
-    {"code": "knowledge", "executable": false, "boundaries": []},
+    {"code": "knowledge", "executable": true, "boundaries": ["browser", "http", "document-processing-worker"]},
     {"code": "finance", "executable": false, "boundaries": []},
     {"code": "marketing", "executable": false, "boundaries": []},
     {"code": "integrations", "executable": false, "boundaries": []}
@@ -21,7 +21,6 @@
     "customer-schedule",
     "connector-runtime",
     "customer-export-api",
-    "object-store",
     "search-vector-store",
     "analytics-export-store"
   ],

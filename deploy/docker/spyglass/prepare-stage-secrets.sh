@@ -80,6 +80,7 @@ app_api_password="$(random_password)"
 route_receipt_password="$(random_password)"
 agent_dispatch_password="$(random_password)"
 agent_projection_password="$(random_password)"
+knowledge_document_password="$(random_password)"
 runner_controller_a_password="$(random_password)"
 runner_controller_b_password="$(random_password)"
 runner_broker_a_password="$(random_password)"
@@ -136,6 +137,7 @@ SPYGLASS_APP_API_DATABASE_PASSWORD=$app_api_password
 SPYGLASS_ROUTE_RECEIPT_WORKER_DATABASE_PASSWORD=$route_receipt_password
 SPYGLASS_AGENT_DISPATCH_WORKER_DATABASE_PASSWORD=$agent_dispatch_password
 SPYGLASS_AGENT_PROJECTION_WORKER_DATABASE_PASSWORD=$agent_projection_password
+SPYGLASS_KNOWLEDGE_DOCUMENT_WORKER_DATABASE_PASSWORD=$knowledge_document_password
 SPYGLASS_CELL_A_RUNNER_CONTROLLER_DATABASE_PASSWORD=$runner_controller_a_password
 SPYGLASS_CELL_B_RUNNER_CONTROLLER_DATABASE_PASSWORD=$runner_controller_b_password
 SPYGLASS_CELL_A_RUNNER_BROKER_DATABASE_PASSWORD=$runner_broker_a_password
@@ -162,6 +164,8 @@ SPYGLASS_CELL_A_AGENT_DISPATCH_DATABASE_URL=postgres://spyglass_agent_dispatch_w
 SPYGLASS_CELL_B_AGENT_DISPATCH_DATABASE_URL=postgres://spyglass_agent_dispatch_worker:$agent_dispatch_password@cell-b-db:5432/spyglass?sslmode=disable
 SPYGLASS_CELL_A_AGENT_PROJECTION_DATABASE_URL=postgres://spyglass_agent_projection_worker:$agent_projection_password@cell-a-db:5432/spyglass?sslmode=disable
 SPYGLASS_CELL_B_AGENT_PROJECTION_DATABASE_URL=postgres://spyglass_agent_projection_worker:$agent_projection_password@cell-b-db:5432/spyglass?sslmode=disable
+SPYGLASS_CELL_A_KNOWLEDGE_DOCUMENT_DATABASE_URL=postgres://spyglass_knowledge_document_worker:$knowledge_document_password@cell-a-db:5432/spyglass?sslmode=disable
+SPYGLASS_CELL_B_KNOWLEDGE_DOCUMENT_DATABASE_URL=postgres://spyglass_knowledge_document_worker:$knowledge_document_password@cell-b-db:5432/spyglass?sslmode=disable
 SPYGLASS_CELL_A_RUNNER_CONTROLLER_DATABASE_URL=postgres://spyglass_runner_controller:$runner_controller_a_password@cell-a-db:5432/spyglass?sslmode=disable
 SPYGLASS_CELL_B_RUNNER_CONTROLLER_DATABASE_URL=postgres://spyglass_runner_controller:$runner_controller_b_password@cell-b-db:5432/spyglass?sslmode=disable
 SPYGLASS_CELL_A_RUNNER_BROKER_DATABASE_URL=postgres://spyglass_runner_broker:$runner_broker_a_password@cell-a-db:5432/spyglass?sslmode=disable

@@ -209,6 +209,17 @@
       "dependencies": ["cell-postgresql"]
     },
     {
+      "mode": "knowledge-document-worker",
+      "kind": "worker",
+      "scope": "cell",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["cell.knowledge-document-worker"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_OBJECT_STORE_ENDPOINT", "SPYGLASS_OBJECT_STORE_REGION", "SPYGLASS_OBJECT_STORE_BUCKET", "SPYGLASS_OBJECT_STORE_ACCESS_KEY", "SPYGLASS_OBJECT_STORE_SECRET_KEY", "SPYGLASS_OBJECT_STORE_SECURE", "SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", "SPYGLASS_CLAMAV_ADDRESS", "SPYGLASS_CLAMAV_OPERATION_TIMEOUT", "SPYGLASS_TIKA_ENDPOINT", "SPYGLASS_TIKA_TIMEOUT", "SPYGLASS_KNOWLEDGE_DOCUMENT_POLL_INTERVAL", "SPYGLASS_KNOWLEDGE_DOCUMENT_LEASE", "SPYGLASS_KNOWLEDGE_DOCUMENT_MAX_ATTEMPTS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "cell_restore_gate"],
+      "dependencies": ["cell-postgresql", "versioned-object-store", "private-malware-scanner", "private-document-extractor"]
+    },
+    {
       "mode": "runner-controller",
       "kind": "worker",
       "scope": "cell",

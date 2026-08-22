@@ -77,6 +77,25 @@ func (r *KnowledgeRepository) SaveDocumentRevision(ctx context.Context, value kn
 		if err := updateKnowledgeDocumentRevision(ctx, tx, value, expectedUpdatedAt); err != nil {
 			return err
 		}
+		if value.State == knowledgedomain.RevisionFailed && value.Number == 1 {
+			document, err := getKnowledgeDocument(ctx, tx, value.AccountID, value.DocumentID, true)
+			if err != nil {
+				return err
+			}
+			if document.State == knowledgedomain.DocumentProcessing {
+				failed, err := document.FailInitial(document.Version, mutation.At)
+				if err != nil {
+					return err
+				}
+				tag, err := tx.Exec(ctx, `UPDATE spyglass.knowledge_documents SET state=$4,version=$5,updated_at=$6 WHERE account_id=$1 AND id=$2 AND version=$3`, failed.AccountID, failed.ID, document.Version, failed.State, failed.Version, failed.UpdatedAt)
+				if err == nil && tag.RowsAffected() != 1 {
+					return knowledgeapp.ErrConflict
+				}
+				if err != nil {
+					return err
+				}
+			}
+		}
 		return insertKnowledgeDocumentEvent(ctx, tx, value.AccountID, value.DocumentID, value.ID, eventType, 0, 0, mutation, map[string]any{"revision": value.Number, "state": value.State, "scan_state": value.ScanState, "extraction_state": value.Extraction, "index_state": value.Index})
 	})
 	return value, classifyKnowledge(err)

@@ -124,7 +124,7 @@ func TestKnowledgeFoundationIsAccountIsolatedImmutableAndEvidenceBound(t *testin
 	var fencedTables int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM pg_trigger trigger_row JOIN pg_class table_row ON table_row.oid=trigger_row.tgrelid
 		JOIN pg_namespace namespace_row ON namespace_row.oid=table_row.relnamespace
-		WHERE namespace_row.nspname='spyglass' AND table_row.relname LIKE 'knowledge_%' AND trigger_row.tgname='account_namespace_write_fence' AND NOT trigger_row.tgisinternal`).Scan(&fencedTables); err != nil || fencedTables != 10 {
+		WHERE namespace_row.nspname='spyglass' AND table_row.relname LIKE 'knowledge_%' AND trigger_row.tgname='account_namespace_write_fence' AND NOT trigger_row.tgisinternal`).Scan(&fencedTables); err != nil || fencedTables != 11 {
 		t.Fatalf("Knowledge movement write fences=%d err=%v", fencedTables, err)
 	}
 	exerciseKnowledgeRepository(t, ctx, owner, ids.AccountID(accountA), ids.AccountID(accountB), now.Add(5*time.Minute))
@@ -273,6 +273,17 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if _, _, err := repository.AdmitDocument(ctx, document, revision, mutation); err != nil {
 		t.Fatalf("replay document admission err=%v", err)
 	}
+	queue, err := postgresadapter.NewKnowledgeDocumentProcessingQueue(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, found, err := queue.Claim(ctx, "db000000-0000-4000-8000-00000000000b", now, 10*time.Minute)
+	if err != nil || !found || claim.AccountID != accountID || claim.RevisionID != revisionID || claim.Attempt != 1 {
+		t.Fatalf("processing claim=%+v found=%v err=%v", claim, found, err)
+	}
+	if second, found, err := queue.Claim(ctx, "dc000000-0000-4000-8000-00000000000c", now, 10*time.Minute); err != nil || found {
+		t.Fatalf("duplicate processing claim=%+v found=%v err=%v", second, found, err)
+	}
 	if _, err := repository.GetDocument(ctx, otherAccountID, documentID); !errors.Is(err, knowledgeapp.ErrNotFound) {
 		t.Fatalf("cross-Account document read err=%v", err)
 	}
@@ -305,6 +316,13 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if err != nil || indexed.State != knowledgedomain.RevisionReady {
 		t.Fatalf("index document revision=%+v err=%v", indexed, err)
 	}
+	if err := queue.Complete(ctx, claim, now.Add(4*time.Second)); err != nil {
+		t.Fatalf("complete document processing queue: %v", err)
+	}
+	stats, err := queue.Stats(ctx, now.Add(4*time.Second))
+	if err != nil || stats.Completed != 1 || stats.Ready != 0 || stats.DeadLetter != 0 {
+		t.Fatalf("processing stats=%+v err=%v", stats, err)
+	}
 	published, err := repository.PublishDocumentRevision(ctx, accountID, documentID, revisionID, 1, knowledgeapp.Mutation{Actor: actor, CorrelationID: "d9000000-0000-4000-8000-000000000009", ReasonCode: "revision_published", At: now.Add(4 * time.Second)})
 	if err != nil || published.State != knowledgedomain.DocumentReady || published.CurrentRevisionID != revisionID {
 		t.Fatalf("publish document=%+v err=%v", published, err)
@@ -322,5 +340,32 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	deleting, err := repository.RequestDocumentDeletion(ctx, accountID, documentID, 2, knowledgeapp.Mutation{Actor: actor, CorrelationID: "da000000-0000-4000-8000-00000000000a", ReasonCode: "deletion_requested", At: now.Add(5 * time.Second)})
 	if err != nil || deleting.State != knowledgedomain.DocumentDeletionPending {
 		t.Fatalf("request document deletion=%+v err=%v", deleting, err)
+	}
+	failedDocumentID := ids.KnowledgeDocumentID("db000000-0000-4000-8000-00000000000b")
+	failedRevisionID := ids.KnowledgeDocumentRevisionID("dc000000-0000-4000-8000-00000000000c")
+	failedDocument, err := knowledgedomain.NewDocument(failedDocumentID, accountID, "Rejected source", knowledgedomain.SensitivityInternal, nil, actor, now.Add(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedRevision, err := knowledgedomain.NewDocumentRevision(knowledgedomain.DocumentRevisionDraft{
+		ID: failedRevisionID, DocumentID: failedDocumentID, AccountID: accountID, Number: 1, Filename: "rejected.txt", DeclaredType: "text/plain", VerifiedType: "text/plain",
+		ByteSize: 5, ContentSHA256: sha256.Sum256([]byte("eicar")), ObjectKey: "accounts/" + string(accountID) + "/documents/" + string(failedDocumentID) + "/revisions/" + string(failedRevisionID) + "/source", ObjectVersion: "version-failed", ChangeSummary: "Rejected upload", CreatedBy: actor,
+	}, now.Add(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := repository.AdmitDocument(ctx, failedDocument, failedRevision, knowledgeapp.Mutation{Actor: actor, CorrelationID: "dd000000-0000-4000-8000-00000000000d", ReasonCode: "document_admitted", At: failedDocument.CreatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	failedRevision, err = failedRevision.RecordScan(knowledgedomain.ScanInfected, "ClamAV 1.4.6", "Eicar-Signature", now.Add(7*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.SaveDocumentRevision(ctx, failedRevision, failedDocument.CreatedAt, "processing_failed", knowledgeapp.Mutation{Actor: worker, CorrelationID: "de000000-0000-4000-8000-00000000000e", ReasonCode: "processing_failed", At: failedRevision.UpdatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	storedFailed, err := repository.GetDocument(ctx, accountID, failedDocumentID)
+	if err != nil || storedFailed.State != knowledgedomain.DocumentFailed || storedFailed.Version != 2 {
+		t.Fatalf("failed document=%+v err=%v", storedFailed, err)
 	}
 }

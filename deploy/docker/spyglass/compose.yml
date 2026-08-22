@@ -588,6 +588,56 @@ services:
       cell-b-migrate: {condition: service_completed_successfully}
     networks: [application, database]
 
+  knowledge-document-worker-a:
+    <<: *worker
+    profiles: [knowledge-processing]
+    command: [knowledge-document-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-east-01
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_A_KNOWLEDGE_DOCUMENT_DATABASE_URL:?set SPYGLASS_CELL_A_KNOWLEDGE_DOCUMENT_DATABASE_URL}
+      SPYGLASS_OBJECT_STORE_ENDPOINT: ${SPYGLASS_OBJECT_STORE_ENDPOINT:?set SPYGLASS_OBJECT_STORE_ENDPOINT}
+      SPYGLASS_OBJECT_STORE_BUCKET: ${SPYGLASS_OBJECT_STORE_BUCKET:?set SPYGLASS_OBJECT_STORE_BUCKET}
+      SPYGLASS_OBJECT_STORE_ACCESS_KEY: ${SPYGLASS_OBJECT_STORE_ACCESS_KEY:?set SPYGLASS_OBJECT_STORE_ACCESS_KEY}
+      SPYGLASS_OBJECT_STORE_SECRET_KEY: ${SPYGLASS_OBJECT_STORE_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_SECRET_KEY}
+      SPYGLASS_OBJECT_STORE_SECURE: ${SPYGLASS_OBJECT_STORE_SECURE:-false}
+      SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION: ${SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION:-true}
+      SPYGLASS_CLAMAV_ADDRESS: malware-scanner:3310
+      SPYGLASS_TIKA_ENDPOINT: http://document-extractor:9998
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      cell-a-migrate: {condition: service_completed_successfully}
+      object-store-init: {condition: service_completed_successfully}
+      malware-scanner: {condition: service_healthy}
+      document-extractor: {condition: service_healthy}
+    networks: [application, database]
+
+  knowledge-document-worker-b:
+    <<: *worker
+    profiles: [knowledge-processing]
+    command: [knowledge-document-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-west-01
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_B_KNOWLEDGE_DOCUMENT_DATABASE_URL:?set SPYGLASS_CELL_B_KNOWLEDGE_DOCUMENT_DATABASE_URL}
+      SPYGLASS_OBJECT_STORE_ENDPOINT: ${SPYGLASS_OBJECT_STORE_ENDPOINT:?set SPYGLASS_OBJECT_STORE_ENDPOINT}
+      SPYGLASS_OBJECT_STORE_BUCKET: ${SPYGLASS_OBJECT_STORE_BUCKET:?set SPYGLASS_OBJECT_STORE_BUCKET}
+      SPYGLASS_OBJECT_STORE_ACCESS_KEY: ${SPYGLASS_OBJECT_STORE_ACCESS_KEY:?set SPYGLASS_OBJECT_STORE_ACCESS_KEY}
+      SPYGLASS_OBJECT_STORE_SECRET_KEY: ${SPYGLASS_OBJECT_STORE_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_SECRET_KEY}
+      SPYGLASS_OBJECT_STORE_SECURE: ${SPYGLASS_OBJECT_STORE_SECURE:-false}
+      SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION: ${SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION:-true}
+      SPYGLASS_CLAMAV_ADDRESS: malware-scanner:3310
+      SPYGLASS_TIKA_ENDPOINT: http://document-extractor:9998
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      cell-b-migrate: {condition: service_completed_successfully}
+      object-store-init: {condition: service_completed_successfully}
+      malware-scanner: {condition: service_healthy}
+      document-extractor: {condition: service_healthy}
+    networks: [application, database]
+
 networks:
   edge:
   application:

@@ -31,6 +31,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	agentqueueapp "github.com/tinfoyle/spyglass-engine/internal/application/agentqueueadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
+	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
@@ -58,6 +59,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/identitymaintenanceworker"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/knowledgedocumentworker"
 	modelgatewaybootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/modelgatewayapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	passkeycommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/passkeyadmin"
@@ -150,6 +152,8 @@ func main() {
 		err = runRunnerInvocation(ctx)
 	case "agent-projection-worker":
 		err = runAgentProjectionWorker(ctx, logger)
+	case "knowledge-document-worker":
+		err = runKnowledgeDocumentWorker(ctx, logger)
 	case "agent-dispatch-worker":
 		err = runAgentDispatchWorker(ctx, logger)
 	case "agent-queue-admin":
@@ -171,7 +175,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | agent-projection-worker | knowledge-document-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1784,6 +1788,73 @@ func runAgentProjectionWorker(ctx context.Context, logger *slog.Logger) error {
 	return serveWorker(ctx, "agent-projection", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
+func runKnowledgeDocumentWorker(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Cell, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
+	maxConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 5)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_KNOWLEDGE_DOCUMENT_POLL_INTERVAL", time.Second)
+	if err != nil || poll < 100*time.Millisecond || poll > time.Minute {
+		return errors.New("SPYGLASS_KNOWLEDGE_DOCUMENT_POLL_INTERVAL must be between 100ms and 1m")
+	}
+	lease, err := durationEnv("SPYGLASS_KNOWLEDGE_DOCUMENT_LEASE", knowledgeapp.DefaultDocumentProcessingLease)
+	if err != nil || lease < time.Second || lease > 30*time.Minute || lease%time.Second != 0 {
+		return errors.New("SPYGLASS_KNOWLEDGE_DOCUMENT_LEASE must be whole seconds between 1s and 30m")
+	}
+	maxAttempts, err := int32Env("SPYGLASS_KNOWLEDGE_DOCUMENT_MAX_ATTEMPTS", knowledgeapp.DefaultDocumentProcessingMaxAttempts)
+	if err != nil || maxAttempts > knowledgeapp.MaximumDocumentProcessingMaxAttempts {
+		return fmt.Errorf("SPYGLASS_KNOWLEDGE_DOCUMENT_MAX_ATTEMPTS must be between 1 and %d", knowledgeapp.MaximumDocumentProcessingMaxAttempts)
+	}
+	objectSecure, err := boolEnv("SPYGLASS_OBJECT_STORE_SECURE", false)
+	if err != nil {
+		return err
+	}
+	objectSSE, err := boolEnv("SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", true)
+	if err != nil {
+		return err
+	}
+	malwareTimeout, err := durationEnv("SPYGLASS_CLAMAV_OPERATION_TIMEOUT", 2*time.Minute)
+	if err != nil || malwareTimeout > 5*time.Minute {
+		return errors.New("SPYGLASS_CLAMAV_OPERATION_TIMEOUT must be at most 5m")
+	}
+	extractorTimeout, err := durationEnv("SPYGLASS_TIKA_TIMEOUT", 2*time.Minute)
+	if err != nil || extractorTimeout > 5*time.Minute {
+		return errors.New("SPYGLASS_TIKA_TIMEOUT must be at most 5m")
+	}
+	config := knowledgedocumentworker.Config{
+		CellDatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease, MaxAttempts: int(maxAttempts),
+		ObjectEndpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), ObjectRegion: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"),
+		ObjectBucket: envOr("SPYGLASS_OBJECT_STORE_BUCKET", "spyglass-documents"), ObjectSecure: objectSecure, ObjectSSE: objectSSE,
+		MalwareAddress: envOr("SPYGLASS_CLAMAV_ADDRESS", "malware-scanner:3310"), MalwareTimeout: malwareTimeout,
+		ExtractorEndpoint: envOr("SPYGLASS_TIKA_ENDPOINT", "http://document-extractor:9998"), ExtractorTimeout: extractorTimeout,
+	}
+	config.ObjectAccessKey, err = requiredEnv("SPYGLASS_OBJECT_STORE_ACCESS_KEY")
+	if err != nil {
+		return err
+	}
+	config.ObjectSecretKey, err = requiredEnv("SPYGLASS_OBJECT_STORE_SECRET_KEY")
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	worker, err := knowledgedocumentworker.New(startup, config, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "knowledge-document", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
+}
+
 func runAgentDispatchWorker(ctx context.Context, logger *slog.Logger) error {
 	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
 	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
@@ -2371,6 +2442,17 @@ func int64Env(name string, fallback int64) (int64, error) {
 	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || value <= 0 {
 		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return value, nil
+}
+func boolEnv(name string, fallback bool) (bool, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean", name)
 	}
 	return value, nil
 }

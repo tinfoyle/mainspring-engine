@@ -102,12 +102,15 @@ func (s *DocumentService) RecordScan(ctx context.Context, command RecordScanComm
 	if actor.Kind != knowledgedomain.ActorWorkload || ids.Validate(string(command.RevisionID)) != nil {
 		return knowledgedomain.DocumentRevision{}, ErrInvalid
 	}
-	current, err := s.repository.GetDocumentRevision(ctx, command.AccountID, command.RevisionID)
+	return s.recordScan(ctx, actor, command.AccountID, command.RevisionID, command.State, command.Engine, command.Signature, command.CorrelationID, s.clock.Now().UTC())
+}
+
+func (s *DocumentService) recordScan(ctx context.Context, actor knowledgedomain.Actor, accountID ids.AccountID, revisionID ids.KnowledgeDocumentRevisionID, state knowledgedomain.ScanState, engine, signature, correlationID string, now time.Time) (knowledgedomain.DocumentRevision, error) {
+	current, err := s.repository.GetDocumentRevision(ctx, accountID, revisionID)
 	if err != nil {
 		return knowledgedomain.DocumentRevision{}, err
 	}
-	now := s.clock.Now().UTC()
-	result, err := current.RecordScan(command.State, command.Engine, command.Signature, now)
+	result, err := current.RecordScan(state, engine, signature, now)
 	if err != nil {
 		return knowledgedomain.DocumentRevision{}, classifyDocumentDomain(err)
 	}
@@ -115,7 +118,7 @@ func (s *DocumentService) RecordScan(ctx context.Context, command RecordScanComm
 	if result.State == knowledgedomain.RevisionFailed {
 		event = "processing_failed"
 	}
-	return s.repository.SaveDocumentRevision(ctx, result, current.UpdatedAt, event, Mutation{Actor: actor, CorrelationID: command.CorrelationID, ReasonCode: event, At: now})
+	return s.repository.SaveDocumentRevision(ctx, result, current.UpdatedAt, event, Mutation{Actor: actor, CorrelationID: correlationID, ReasonCode: event, At: now})
 }
 
 type RecordExtractionCommand struct {
@@ -138,16 +141,19 @@ func (s *DocumentService) RecordExtraction(ctx context.Context, command RecordEx
 	if actor.Kind != knowledgedomain.ActorWorkload || ids.Validate(string(command.RevisionID)) != nil {
 		return knowledgedomain.DocumentRevision{}, ErrInvalid
 	}
-	current, err := s.repository.GetDocumentRevision(ctx, command.AccountID, command.RevisionID)
+	return s.recordExtraction(ctx, actor, command.AccountID, command.RevisionID, command.TextSHA256, command.TextBytes, command.Extractor, command.ObjectKey, command.ObjectVersion, command.CorrelationID, s.clock.Now().UTC())
+}
+
+func (s *DocumentService) recordExtraction(ctx context.Context, actor knowledgedomain.Actor, accountID ids.AccountID, revisionID ids.KnowledgeDocumentRevisionID, textSHA256 [sha256.Size]byte, textBytes int64, extractor, objectKey, objectVersion, correlationID string, now time.Time) (knowledgedomain.DocumentRevision, error) {
+	current, err := s.repository.GetDocumentRevision(ctx, accountID, revisionID)
 	if err != nil {
 		return knowledgedomain.DocumentRevision{}, err
 	}
-	now := s.clock.Now().UTC()
-	result, err := current.RecordExtraction(command.TextSHA256, command.TextBytes, command.Extractor, command.ObjectKey, command.ObjectVersion, now)
+	result, err := current.RecordExtraction(textSHA256, textBytes, extractor, objectKey, objectVersion, now)
 	if err != nil {
 		return knowledgedomain.DocumentRevision{}, classifyDocumentDomain(err)
 	}
-	return s.repository.SaveDocumentRevision(ctx, result, current.UpdatedAt, "extraction_completed", Mutation{Actor: actor, CorrelationID: command.CorrelationID, ReasonCode: "extraction_completed", At: now})
+	return s.repository.SaveDocumentRevision(ctx, result, current.UpdatedAt, "extraction_completed", Mutation{Actor: actor, CorrelationID: correlationID, ReasonCode: "extraction_completed", At: now})
 }
 
 type IndexDocumentCommand struct {
@@ -174,22 +180,28 @@ func (s *DocumentService) Index(ctx context.Context, command IndexDocumentComman
 	if actor.Kind != knowledgedomain.ActorWorkload || ids.Validate(string(command.RevisionID)) != nil || len(command.Chunks) == 0 || len(command.Chunks) > int(knowledgedomain.MaximumDocumentChunks) {
 		return knowledgedomain.DocumentRevision{}, ErrInvalid
 	}
-	current, err := s.repository.GetDocumentRevision(ctx, command.AccountID, command.RevisionID)
+	return s.index(ctx, actor, command.AccountID, command.RevisionID, command.Generation, command.Chunks, command.CorrelationID, s.clock.Now().UTC())
+}
+
+func (s *DocumentService) index(ctx context.Context, actor knowledgedomain.Actor, accountID ids.AccountID, revisionID ids.KnowledgeDocumentRevisionID, generation string, drafts []DocumentChunkDraft, correlationID string, now time.Time) (knowledgedomain.DocumentRevision, error) {
+	if len(drafts) == 0 || len(drafts) > int(knowledgedomain.MaximumDocumentChunks) {
+		return knowledgedomain.DocumentRevision{}, ErrInvalid
+	}
+	current, err := s.repository.GetDocumentRevision(ctx, accountID, revisionID)
 	if err != nil {
 		return knowledgedomain.DocumentRevision{}, err
 	}
-	now := s.clock.Now().UTC()
-	result, err := current.RecordIndex(command.Generation, uint32(len(command.Chunks)), now)
+	result, err := current.RecordIndex(generation, uint32(len(drafts)), now)
 	if err != nil {
 		return knowledgedomain.DocumentRevision{}, classifyDocumentDomain(err)
 	}
-	chunks := make([]knowledgedomain.DocumentChunk, len(command.Chunks))
-	for index, draft := range command.Chunks {
-		chunkID, deriveErr := ids.Derive(command.CorrelationID, fmt.Sprintf("document-chunk-%d", index))
+	chunks := make([]knowledgedomain.DocumentChunk, len(drafts))
+	for index, draft := range drafts {
+		chunkID, deriveErr := ids.Derive(correlationID, fmt.Sprintf("document-chunk-%d", index))
 		if deriveErr != nil {
 			return knowledgedomain.DocumentRevision{}, ErrInvalid
 		}
-		chunk, chunkErr := knowledgedomain.NewDocumentChunk(knowledgedomain.DocumentChunk{ID: ids.KnowledgeDocumentChunkID(chunkID), AccountID: command.AccountID, RevisionID: command.RevisionID, Index: uint32(index), StartByte: draft.StartByte, EndByte: draft.EndByte, Content: draft.Content, ContentSHA256: sha256.Sum256([]byte(draft.Content)), TokenCount: draft.TokenCount, IndexGeneration: result.IndexGeneration, CreatedAt: now})
+		chunk, chunkErr := knowledgedomain.NewDocumentChunk(knowledgedomain.DocumentChunk{ID: ids.KnowledgeDocumentChunkID(chunkID), AccountID: accountID, RevisionID: revisionID, Index: uint32(index), StartByte: draft.StartByte, EndByte: draft.EndByte, Content: draft.Content, ContentSHA256: sha256.Sum256([]byte(draft.Content)), TokenCount: draft.TokenCount, IndexGeneration: result.IndexGeneration, CreatedAt: now})
 		if chunkErr != nil {
 			return knowledgedomain.DocumentRevision{}, ErrInvalid
 		}
@@ -198,7 +210,7 @@ func (s *DocumentService) Index(ctx context.Context, command IndexDocumentComman
 		}
 		chunks[index] = chunk
 	}
-	return s.repository.IndexDocumentRevision(ctx, result, current.UpdatedAt, chunks, Mutation{Actor: actor, CorrelationID: command.CorrelationID, ReasonCode: "index_completed", At: now})
+	return s.repository.IndexDocumentRevision(ctx, result, current.UpdatedAt, chunks, Mutation{Actor: actor, CorrelationID: correlationID, ReasonCode: "index_completed", At: now})
 }
 
 type PublishDocumentCommand struct {

@@ -32,7 +32,7 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 	packages := make([]string, 0, len(inventory.Packages))
 	for _, item := range inventory.Packages {
 		packages = append(packages, item.Code)
-		if item.Executable != (item.Code == "work" || item.Code == "agents") {
+		if item.Executable != (item.Code == "work" || item.Code == "agents" || item.Code == "knowledge") {
 			t.Fatalf("package %q executable=%t", item.Code, item.Executable)
 		}
 		if item.Executable && len(item.Boundaries) == 0 || !item.Executable && len(item.Boundaries) != 0 {
@@ -43,7 +43,7 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 	if !slices.Equal(packages, wantPackages) {
 		t.Fatalf("packages=%v want=%v", packages, wantPackages)
 	}
-	for _, absent := range []string{"production-mcp", "customer-schedule", "connector-runtime", "customer-export-api", "object-store", "search-vector-store", "analytics-export-store"} {
+	for _, absent := range []string{"production-mcp", "customer-schedule", "connector-runtime", "customer-export-api", "search-vector-store", "analytics-export-store"} {
 		if !slices.Contains(inventory.AbsentSurfaceKinds, absent) {
 			t.Errorf("absent surface %q is not declared", absent)
 		}

@@ -128,7 +128,7 @@ network="$(value SPYGLASS_HOST_EDGE_NETWORK)"
 docker network inspect "$network" >/dev/null
 rendered="$(mktemp)"
 trap 'rm -f "$rendered"' EXIT
-docker compose --project-name spyglass-stage --env-file "$release_file" --env-file "$env_file" --file "$stack_dir/compose.yml" --file "$stack_dir/compose.stage.yml" --file "$stack_dir/compose.stage-runner.yml" config --format json >"$rendered"
+docker compose --project-name spyglass-stage --env-file "$release_file" --env-file "$env_file" --file "$stack_dir/compose.yml" --file "$stack_dir/compose.stage.yml" --file "$stack_dir/compose.stage-runner.yml" --profile knowledge-processing config --format json >"$rendered"
 python3 - "$rendered" "$network" "$(release_value SPYGLASS_APPLICATION_IMAGE)" "$(release_value SPYGLASS_WEBSITE_IMAGE)" "$secrets_gid" <<'PY'
 import json
 import sys
@@ -137,11 +137,13 @@ path, edge_network, application_image, website_image, secrets_gid = sys.argv[1:]
 with open(path, encoding="utf-8") as source:
     config = json.load(source)
 services = config["services"]
-required = {
+application_services = {
     "tool-router", "runner-controller-a", "runner-controller-b",
     "runner-broker-a", "runner-broker-b", "docker-runner-launcher-a",
-    "docker-runner-launcher-b", "model-gateway",
+    "docker-runner-launcher-b", "model-gateway", "knowledge-document-worker-a",
+    "knowledge-document-worker-b",
 }
+required = application_services | {"malware-scanner", "document-extractor"}
 missing = sorted(required - services.keys())
 if missing:
     raise SystemExit(f"stage runner topology is incomplete: {', '.join(missing)}")
@@ -165,7 +167,7 @@ if socket_holders != {"docker-runner-launcher-a", "docker-runner-launcher-b"}:
     raise SystemExit(f"unexpected Docker socket holders: {sorted(socket_holders)}")
 if services["website"]["image"] != website_image:
     raise SystemExit("website image does not match the release file")
-for name in required:
+for name in application_services:
     if services[name]["image"] != application_image:
         raise SystemExit(f"{name} image does not match the application release digest")
 for name in ("runner-broker-a", "runner-broker-b"):

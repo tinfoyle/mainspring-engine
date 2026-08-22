@@ -64,6 +64,9 @@ func (repository *documentRepository) GetDocumentRevision(context.Context, ids.A
 }
 func (repository *documentRepository) SaveDocumentRevision(_ context.Context, value knowledgedomain.DocumentRevision, _ time.Time, _ string, mutation Mutation) (knowledgedomain.DocumentRevision, error) {
 	repository.revision, repository.mutation = value, mutation
+	if value.State == knowledgedomain.RevisionFailed && value.Number == 1 && repository.document.State == knowledgedomain.DocumentProcessing {
+		repository.document, _ = repository.document.FailInitial(repository.document.Version, mutation.At)
+	}
 	return value, nil
 }
 func (repository *documentRepository) IndexDocumentRevision(_ context.Context, value knowledgedomain.DocumentRevision, _ time.Time, chunks []knowledgedomain.DocumentChunk, mutation Mutation) (knowledgedomain.DocumentRevision, error) {
