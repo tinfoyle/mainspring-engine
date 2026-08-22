@@ -31,6 +31,9 @@ func (*knowledgeMCPStub) DecideClaim(context.Context, knowledgeapp.DecideClaimCo
 func (*knowledgeMCPStub) GetClaim(context.Context, access.Actor, ids.AccountID, ids.KnowledgeClaimID) (knowledgedomain.Claim, error) {
 	return knowledgedomain.Claim{}, nil
 }
+func (*knowledgeMCPStub) ListClaims(context.Context, access.Actor, ids.AccountID, knowledgeapp.ClaimListQuery) (knowledgeapp.ClaimPage, error) {
+	return knowledgeapp.ClaimPage{}, nil
+}
 func (stub *knowledgeMCPStub) ListFacts(_ context.Context, _ access.Actor, _ ids.AccountID, query knowledgeapp.FactListQuery) (knowledgeapp.FactPage, error) {
 	stub.query = query
 	now := time.Date(2026, 8, 21, 23, 0, 0, 0, time.UTC)
@@ -54,7 +57,7 @@ func TestKnowledgeMCPPublishesBoundedSensitivityAwareSurface(t *testing.T) {
 	}
 	defer session.Close()
 	tools, err := session.ListTools(context.Background(), nil)
-	if err != nil || len(tools.Tools) != 20 {
+	if err != nil || len(tools.Tools) != 21 {
 		t.Fatalf("tools=%d err=%v", len(tools.Tools), err)
 	}
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_knowledge_fact_list", Arguments: map[string]any{"account_id": mcpAccount, "scope": map[string]any{"kind": "account"}, "key_prefix": "organization.", "limit": 5}})

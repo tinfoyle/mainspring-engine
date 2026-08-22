@@ -212,6 +212,10 @@ func exerciseKnowledgeRepository(t *testing.T, ctx context.Context, owner *pgxpo
 	if _, err := repository.ProposeClaim(ctx, replayedClaim, mutation); err != nil {
 		t.Fatalf("replay claim err=%v", err)
 	}
+	claimPage, err := repository.ListClaims(ctx, accountID, knowledgeapp.ClaimListQuery{State: knowledgedomain.ClaimProposed, KeyPrefix: "organization.", Limit: 1})
+	if err != nil || len(claimPage.Items) != 1 || claimPage.Items[0].ID != claimID || claimPage.Items[0].Key != "organization.display_name" {
+		t.Fatalf("claim page=%+v err=%v", claimPage, err)
+	}
 	if _, err := repository.GetClaim(ctx, otherAccountID, claimID); !errors.Is(err, knowledgeapp.ErrNotFound) {
 		t.Fatalf("cross-Account claim read err=%v", err)
 	}

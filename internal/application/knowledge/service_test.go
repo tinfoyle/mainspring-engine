@@ -40,6 +40,7 @@ type knowledgeRepository struct {
 	decision knowledgedomain.DecideClaimCommand
 	factID   ids.KnowledgeFactID
 	page     FactPage
+	claims   ClaimPage
 }
 
 func (repository *knowledgeRepository) RegisterEvidence(_ context.Context, value knowledgedomain.Evidence, _ Mutation) (knowledgedomain.Evidence, error) {
@@ -52,6 +53,9 @@ func (repository *knowledgeRepository) ProposeClaim(_ context.Context, value kno
 }
 func (repository *knowledgeRepository) GetClaim(context.Context, ids.AccountID, ids.KnowledgeClaimID) (knowledgedomain.Claim, error) {
 	return repository.claim, nil
+}
+func (repository *knowledgeRepository) ListClaims(context.Context, ids.AccountID, ClaimListQuery) (ClaimPage, error) {
+	return repository.claims, nil
 }
 func (repository *knowledgeRepository) DecideClaim(_ context.Context, _ ids.AccountID, _ ids.KnowledgeClaimID, factID ids.KnowledgeFactID, command knowledgedomain.DecideClaimCommand, _ Mutation) (knowledgedomain.Claim, *knowledgedomain.Fact, error) {
 	repository.factID, repository.decision = factID, command
@@ -144,5 +148,15 @@ func TestListFactsOmitsSensitivitiesAboveMembershipRole(t *testing.T) {
 	page, err := service.ListFacts(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, FactListQuery{})
 	if err != nil || len(page.Items) != 1 || page.Items[0].Sensitivity != knowledgedomain.SensitivityInternal || page.NextCursor == nil {
 		t.Fatalf("filtered page=%+v err=%v", page, err)
+	}
+}
+
+func TestListClaimsOmitsRestrictedReviewMetadataForMember(t *testing.T) {
+	service, authorizer, repository, _ := knowledgeFixture(t)
+	authorizer.account.Role = accounts.RoleMember
+	repository.claims = ClaimPage{Items: []ClaimSummary{{ID: appKnowledgeClaim, Sensitivity: knowledgedomain.SensitivityInternal}, {ID: "70000000-0000-4000-8000-000000000007", Sensitivity: knowledgedomain.SensitivityRestricted}}}
+	page, err := service.ListClaims(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, ClaimListQuery{State: knowledgedomain.ClaimProposed})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != appKnowledgeClaim {
+		t.Fatalf("claims=%+v err=%v", page, err)
 	}
 }

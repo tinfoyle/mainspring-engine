@@ -104,6 +104,8 @@ Implementation checkpoint (2026-08-21): the prototype inventory is complete and 
 
 Routed-surface checkpoint (2026-08-21): evidence registration, claim proposal/detail/decision and sensitivity-filtered fact listing now cross the signed app-router/cell boundary through the shared Knowledge service. All mutations use routed UUID idempotency, decisions require weak version ETags, responses are typed in OpenAPI, and generated Go/web contract inventories are current. The optional MCP transport exposes the same five operations with Account/package authorization and bounded opaque cursors. A discoverable proposed-claim review queue and private Knowledge page remain before this surface is considered complete.
 
+Review-surface checkpoint (2026-08-21): a sixth shared operation provides a stable, value-redacted claim queue filtered by state, scope, key prefix and caller sensitivity. The private `/app/knowledge` page uses that queue to discover proposals, fetches exact claim value/citations only on selection, and submits human accept/reject decisions with a fresh idempotency UUID and the claim ETag. The accepted-fact projection remains value-redacted in its list. Read-only package mode removes decision controls. Document admission, retrieval, citation-to-document validation and the Baseline lifecycle remain next.
+
 - Implement source-attributed facts, claims, evidence, revisions, scope and confidence.
 - Implement document upload, malware/type/size checks, extraction, chunking, indexing, retention and deletion.
 - Implement Account-scoped retrieval, citation validation and bounded result contracts.

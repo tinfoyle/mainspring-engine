@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -124,6 +125,32 @@ func (s *Server) knowledgeClaimGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeKnowledgeClaim(w, http.StatusOK, claim)
+}
+
+func (s *Server) knowledgeClaimList(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, ok := s.knowledgeRequestContext(w, r, false)
+	if !ok {
+		return
+	}
+	query, err := parseKnowledgeClaimQuery(r)
+	if err != nil {
+		s.writeKnowledgeError(w, "list claims", err)
+		return
+	}
+	page, err := s.knowledge.ListClaims(routecontext.WithClaims(r.Context(), claims), actor, accountID, query)
+	if err != nil {
+		s.writeKnowledgeError(w, "list claims", err)
+		return
+	}
+	items := make([]map[string]any, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, knowledgeClaimSummaryView(item))
+	}
+	response := map[string]any{"items": items}
+	if page.NextCursor != nil {
+		response["next_cursor"] = encodeAttentionCursor("knowledge_claim", page.NextCursor.UpdatedAt, string(page.NextCursor.ID))
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) knowledgeClaimDecide(w http.ResponseWriter, r *http.Request) {
@@ -284,6 +311,46 @@ func parseKnowledgeFactQuery(r *http.Request) (knowledgeapp.FactListQuery, error
 	return query, nil
 }
 
+func parseKnowledgeClaimQuery(r *http.Request) (knowledgeapp.ClaimListQuery, error) {
+	values := r.URL.Query()
+	if !allowedAttentionQuery(values, "state", "scope_kind", "scope_id", "key_prefix", "cursor", "limit") {
+		return knowledgeapp.ClaimListQuery{}, knowledgeapp.ErrInvalid
+	}
+	factQuery, err := parseKnowledgeFactQueryFromValues(values)
+	if err != nil {
+		return knowledgeapp.ClaimListQuery{}, err
+	}
+	query := knowledgeapp.ClaimListQuery{State: knowledgedomain.ClaimState(values.Get("state")), Scope: factQuery.Scope, KeyPrefix: factQuery.KeyPrefix, Limit: factQuery.Limit}
+	if raw := values.Get("cursor"); raw != "" {
+		cursor, err := decodeAttentionCursor(raw, "knowledge_claim")
+		if err != nil {
+			return query, knowledgeapp.ErrInvalid
+		}
+		query.AfterUpdatedAt, query.AfterID = &cursor.UpdatedAt, ids.KnowledgeClaimID(cursor.ID)
+	}
+	return query, nil
+}
+
+func parseKnowledgeFactQueryFromValues(values url.Values) (knowledgeapp.FactListQuery, error) {
+	query := knowledgeapp.FactListQuery{KeyPrefix: values.Get("key_prefix")}
+	kind, scopeID := knowledgedomain.ScopeKind(values.Get("scope_kind")), values.Get("scope_id")
+	if kind != "" || scopeID != "" {
+		scope := knowledgedomain.Scope{Kind: kind, ID: scopeID}
+		if !scope.Valid() {
+			return query, knowledgeapp.ErrInvalid
+		}
+		query.Scope = &scope
+	}
+	if raw := values.Get("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil {
+			return query, knowledgeapp.ErrInvalid
+		}
+		query.Limit = limit
+	}
+	return query, nil
+}
+
 func knowledgeEvidenceView(value knowledgedomain.Evidence) map[string]any {
 	return map[string]any{"id": value.ID, "account_id": value.AccountID, "source_kind": value.Kind, "source_reference": value.SourceReference, "source_revision": value.SourceRevision, "content_sha256": hex.EncodeToString(value.ContentSHA256[:]), "captured_at": value.CapturedAt, "created_by": map[string]any{"kind": value.CreatedBy.Kind, "id": value.CreatedBy.ID}, "created_at": value.CreatedAt}
 }
@@ -302,6 +369,10 @@ func knowledgeClaimView(value knowledgedomain.Claim) map[string]any {
 
 func knowledgeFactSummaryView(value knowledgeapp.FactSummary) map[string]any {
 	return map[string]any{"id": value.ID, "current_claim_id": value.CurrentClaimID, "scope": knowledgeScopeView(value.Scope), "key": value.Key, "sensitivity": value.Sensitivity, "state": value.State, "revision": value.Revision, "accepted_at": value.AcceptedAt, "updated_at": value.UpdatedAt}
+}
+
+func knowledgeClaimSummaryView(value knowledgeapp.ClaimSummary) map[string]any {
+	return map[string]any{"id": value.ID, "scope": knowledgeScopeView(value.Scope), "key": value.Key, "confidence": value.Confidence, "sensitivity": value.Sensitivity, "state": value.State, "proposed_by": map[string]any{"kind": value.ProposedBy.Kind, "id": value.ProposedBy.ID}, "version": value.Version, "created_at": value.CreatedAt, "updated_at": value.UpdatedAt}
 }
 
 func knowledgeFactView(value knowledgedomain.Fact, sensitivity knowledgedomain.Sensitivity) map[string]any {

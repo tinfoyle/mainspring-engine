@@ -65,6 +65,7 @@ var Routes = [...]Route{
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/attention/work-reviews", OperationID: "attentionReviewList", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/attention/work-reviews/{reviewID}", OperationID: "attentionReviewGet", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/context", OperationID: "accountContext", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/knowledge/claims", OperationID: "knowledgeClaimList", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/knowledge/claims/{claimID}", OperationID: "knowledgeClaimGet", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/knowledge/facts", OperationID: "knowledgeFactList", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/work-items", OperationID: "workList", Authentication: "sessionCookie", Contract: "typed"},

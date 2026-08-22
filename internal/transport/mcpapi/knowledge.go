@@ -64,6 +64,14 @@ type knowledgeFactListInput struct {
 	Cursor    string               `json:"cursor,omitempty"`
 	Limit     int                  `json:"limit,omitempty"`
 }
+type knowledgeClaimListInput struct {
+	AccountID ids.AccountID              `json:"account_id"`
+	State     knowledgedomain.ClaimState `json:"state,omitempty"`
+	Scope     *knowledgeScopeInput       `json:"scope,omitempty"`
+	KeyPrefix string                     `json:"key_prefix,omitempty"`
+	Cursor    string                     `json:"cursor,omitempty"`
+	Limit     int                        `json:"limit,omitempty"`
+}
 
 type knowledgeActorOutput struct {
 	Kind knowledgedomain.ActorKind `json:"kind"`
@@ -112,6 +120,22 @@ type knowledgeClaimOutput struct {
 	Version     uint64                      `json:"version"`
 	CreatedAt   time.Time                   `json:"created_at"`
 	UpdatedAt   time.Time                   `json:"updated_at"`
+}
+type knowledgeClaimSummaryOutput struct {
+	ID          ids.KnowledgeClaimID        `json:"id"`
+	Scope       knowledgeScopeOutput        `json:"scope"`
+	Key         string                      `json:"key"`
+	Confidence  uint16                      `json:"confidence"`
+	Sensitivity knowledgedomain.Sensitivity `json:"sensitivity"`
+	State       knowledgedomain.ClaimState  `json:"state"`
+	ProposedBy  knowledgeActorOutput        `json:"proposed_by"`
+	Version     uint64                      `json:"version"`
+	CreatedAt   time.Time                   `json:"created_at"`
+	UpdatedAt   time.Time                   `json:"updated_at"`
+}
+type knowledgeClaimPageOutput struct {
+	Items      []knowledgeClaimSummaryOutput `json:"items"`
+	NextCursor string                        `json:"next_cursor,omitempty"`
 }
 type knowledgeFactOutput struct {
 	ID             ids.KnowledgeFactID         `json:"id"`
@@ -189,6 +213,41 @@ func (s *Server) registerKnowledge(server *mcp.Server, actor access.Actor) {
 			return nil, knowledgeClaimOutput{}, knowledgeError(err)
 		}
 		return nil, knowledgeClaimView(item), nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_knowledge_claim_list", Title: "List Knowledge claims", Description: "List a bounded, sensitivity-filtered review queue without claim values or citation detail.", Annotations: toolAnnotations(true, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input knowledgeClaimListInput) (*mcp.CallToolResult, knowledgeClaimPageOutput, error) {
+		ctx, err := s.toolContext(ctx, actor, input.AccountID, read)
+		if err != nil {
+			return nil, knowledgeClaimPageOutput{}, err
+		}
+		bounded, err := limit(input.Limit)
+		if err != nil {
+			return nil, knowledgeClaimPageOutput{}, err
+		}
+		query := knowledgeapp.ClaimListQuery{State: input.State, KeyPrefix: input.KeyPrefix, Limit: bounded}
+		if input.Scope != nil {
+			scope := knowledgedomain.Scope{Kind: input.Scope.Kind, ID: input.Scope.ID}
+			query.Scope = &scope
+		}
+		if input.Cursor != "" {
+			cursor, err := decodeCursor(input.Cursor, "knowledge_claim")
+			if err != nil {
+				return nil, knowledgeClaimPageOutput{}, err
+			}
+			query.AfterUpdatedAt, query.AfterID = &cursor.UpdatedAt, ids.KnowledgeClaimID(cursor.ID)
+		}
+		page, err := s.knowledge.ListClaims(ctx, actor, input.AccountID, query)
+		if err != nil {
+			return nil, knowledgeClaimPageOutput{}, knowledgeError(err)
+		}
+		output := knowledgeClaimPageOutput{Items: make([]knowledgeClaimSummaryOutput, 0, len(page.Items))}
+		for _, item := range page.Items {
+			output.Items = append(output.Items, knowledgeClaimSummaryView(item))
+		}
+		if page.NextCursor != nil {
+			output.NextCursor = encodeCursor("knowledge_claim", page.NextCursor.UpdatedAt, string(page.NextCursor.ID))
+		}
+		return nil, output, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_knowledge_claim_decide", Title: "Decide Knowledge claim", Description: "Accept or reject a claim at its expected version. Acceptance requires independent supporting evidence.", Annotations: toolAnnotations(false, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input knowledgeClaimDecideInput) (*mcp.CallToolResult, knowledgeDecisionResultOutput, error) {
@@ -271,4 +330,7 @@ func knowledgeFactView(value knowledgedomain.Fact, sensitivity knowledgedomain.S
 }
 func knowledgeFactSummaryView(value knowledgeapp.FactSummary) knowledgeFactOutput {
 	return knowledgeFactOutput{ID: value.ID, CurrentClaimID: value.CurrentClaimID, Scope: knowledgeScopeOutput{Kind: value.Scope.Kind, ID: value.Scope.ID}, Key: value.Key, Sensitivity: value.Sensitivity, State: value.State, Revision: value.Revision, AcceptedAt: value.AcceptedAt, UpdatedAt: value.UpdatedAt}
+}
+func knowledgeClaimSummaryView(value knowledgeapp.ClaimSummary) knowledgeClaimSummaryOutput {
+	return knowledgeClaimSummaryOutput{ID: value.ID, Scope: knowledgeScopeOutput{Kind: value.Scope.Kind, ID: value.Scope.ID}, Key: value.Key, Confidence: value.Confidence, Sensitivity: value.Sensitivity, State: value.State, ProposedBy: knowledgeActorOutput{Kind: value.ProposedBy.Kind, ID: value.ProposedBy.ID}, Version: value.Version, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 }

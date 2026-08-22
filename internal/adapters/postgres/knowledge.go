@@ -100,6 +100,47 @@ func (r *KnowledgeRepository) GetClaim(ctx context.Context, accountID ids.Accoun
 	return result, classifyKnowledge(err)
 }
 
+func (r *KnowledgeRepository) ListClaims(ctx context.Context, accountID ids.AccountID, query knowledgeapp.ClaimListQuery) (knowledgeapp.ClaimPage, error) {
+	page := knowledgeapp.ClaimPage{Items: make([]knowledgeapp.ClaimSummary, 0, query.Limit)}
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		var scopeKind any
+		var workID, conversationID any
+		if query.Scope != nil {
+			scopeKind = query.Scope.Kind
+			workID, conversationID = scopeColumns(*query.Scope)
+		}
+		rows, err := tx.Query(ctx, `SELECT id,scope_kind,scope_work_item_id,scope_conversation_id,fact_key,confidence,sensitivity,state,proposed_by_kind,proposed_by_id,version,created_at,updated_at
+			FROM spyglass.knowledge_claims WHERE account_id=$1 AND ($2='' OR state=$2)
+			AND ($3::text IS NULL OR (scope_kind=$3 AND scope_work_item_id IS NOT DISTINCT FROM $4::uuid AND scope_conversation_id IS NOT DISTINCT FROM $5::uuid))
+			AND ($6='' OR fact_key LIKE $6||'%') AND ($7::timestamptz IS NULL OR (updated_at,id)<($7,$8::uuid))
+			ORDER BY updated_at DESC,id DESC LIMIT $9`, accountID, query.State, scopeKind, workID, conversationID, query.KeyPrefix, query.AfterUpdatedAt, nullableKnowledgeID(string(query.AfterID)), query.Limit+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var item knowledgeapp.ClaimSummary
+			var scopeKind knowledgedomain.ScopeKind
+			var work, conversation *string
+			if err := rows.Scan(&item.ID, &scopeKind, &work, &conversation, &item.Key, &item.Confidence, &item.Sensitivity, &item.State, &item.ProposedBy.Kind, &item.ProposedBy.ID, &item.Version, &item.CreatedAt, &item.UpdatedAt); err != nil {
+				return err
+			}
+			item.Scope = restoreScope(scopeKind, work, conversation)
+			page.Items = append(page.Items, item)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return knowledgeapp.ClaimPage{}, classifyKnowledge(err)
+	}
+	if len(page.Items) > query.Limit {
+		page.Items = page.Items[:query.Limit]
+		last := page.Items[len(page.Items)-1]
+		page.NextCursor = &knowledgeapp.ClaimCursor{UpdatedAt: last.UpdatedAt, ID: last.ID}
+	}
+	return page, nil
+}
+
 func (r *KnowledgeRepository) DecideClaim(ctx context.Context, accountID ids.AccountID, claimID ids.KnowledgeClaimID, factID ids.KnowledgeFactID, command knowledgedomain.DecideClaimCommand, mutation knowledgeapp.Mutation) (knowledgedomain.Claim, *knowledgedomain.Fact, error) {
 	var decided knowledgedomain.Claim
 	var fact *knowledgedomain.Fact

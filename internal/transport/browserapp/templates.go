@@ -23,7 +23,7 @@ const pageTemplates = `
       <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
       <button type="submit">Switch Account</button>
     </form>
-    <nav aria-label="Primary navigation"><p>OPERATE</p><a {{if eq .Page "app"}}class="active" aria-current="page"{{end}} href="/app"><i aria-hidden="true">⌂</i>Overview</a><a {{if eq .Page "your-turn"}}class="active" aria-current="page"{{end}} href="/app/your-turn"><i aria-hidden="true">!</i>Your Turn</a><a {{if eq .Page "work"}}class="active" aria-current="page"{{end}} href="/app/work"><i aria-hidden="true">✓</i>Work</a><a {{if eq .Page "agents"}}class="active" aria-current="page"{{end}} href="/app/agents"><i aria-hidden="true">◌</i>Agents</a><a href="/app#knowledge"><i aria-hidden="true">◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i aria-hidden="true">≋</i>Finance</a><a href="/app#marketing"><i aria-hidden="true">↗</i>Marketing</a><a href="/app#billing"><i aria-hidden="true">$</i>Billing</a><a href="/app#settings"><i aria-hidden="true">⚙</i>Account</a><a {{if eq .Page "closures"}}class="active" aria-current="page"{{end}} href="/app/account-closures"><i aria-hidden="true">○</i>Lifecycle</a><a href="/app/security"><i aria-hidden="true">◇</i>Security</a></nav>
+    <nav aria-label="Primary navigation"><p>OPERATE</p><a {{if eq .Page "app"}}class="active" aria-current="page"{{end}} href="/app"><i aria-hidden="true">⌂</i>Overview</a><a {{if eq .Page "your-turn"}}class="active" aria-current="page"{{end}} href="/app/your-turn"><i aria-hidden="true">!</i>Your Turn</a><a {{if eq .Page "work"}}class="active" aria-current="page"{{end}} href="/app/work"><i aria-hidden="true">✓</i>Work</a><a {{if eq .Page "agents"}}class="active" aria-current="page"{{end}} href="/app/agents"><i aria-hidden="true">◌</i>Agents</a><a {{if eq .Page "knowledge"}}class="active" aria-current="page"{{end}} href="/app/knowledge"><i aria-hidden="true">◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i aria-hidden="true">≋</i>Finance</a><a href="/app#marketing"><i aria-hidden="true">↗</i>Marketing</a><a href="/app#billing"><i aria-hidden="true">$</i>Billing</a><a href="/app#settings"><i aria-hidden="true">⚙</i>Account</a><a {{if eq .Page "closures"}}class="active" aria-current="page"{{end}} href="/app/account-closures"><i aria-hidden="true">○</i>Lifecycle</a><a href="/app/security"><i aria-hidden="true">◇</i>Security</a></nav>
     <form method="post" action="/logout"><button class="logout" type="submit">Sign out</button></form>
   </aside>
 {{end}}
@@ -173,6 +173,34 @@ const pageTemplates = `
       <dialog class="work-dialog work-command-dialog" id="work-transition-dialog" aria-labelledby="work-transition-title"><form id="work-transition-form"><header><div><p class="eyebrow">WORK COMMAND</p><h2 id="work-transition-title">Update work state</h2></div><button id="work-transition-close" type="button" aria-label="Close">×</button></header><p class="work-dialog-context" id="work-transition-context"></p><label>Operational reason<textarea name="reason" minlength="3" maxlength="1000" rows="4" required placeholder="Why is this state change appropriate now?"></textarea></label><p class="work-form-error" id="work-transition-error" role="alert" hidden></p><footer><button class="secondary" id="work-transition-cancel" type="button">Cancel</button><button class="primary" type="submit">Apply state change</button></footer></form></dialog>
       <dialog class="work-dialog work-command-dialog" id="work-assignment-dialog" aria-labelledby="work-assignment-title"><form id="work-assignment-form"><header><div><p class="eyebrow">WORK ASSIGNMENT</p><h2 id="work-assignment-title">Set responsibility</h2></div><button id="work-assignment-close" type="button" aria-label="Close">×</button></header><label>Responsibility<select name="responsibility" id="work-assignment-responsibility"><option value="shared">Shared</option><option value="user">Assign to me</option><option value="external">External owner</option><option value="persona" disabled>Agent (no active Persona)</option></select></label><label id="work-assignment-external-field" hidden>External owner reference<input name="external_ref" minlength="2" maxlength="200" disabled placeholder="Team, vendor, or contact reference"></label><label id="work-assignment-persona-field" hidden>Agent Persona<select name="persona_id" id="work-assignment-persona" disabled></select></label><label>Assignment reason<textarea name="reason" minlength="3" maxlength="1000" rows="3" required placeholder="Why should responsibility change?"></textarea></label><p class="work-form-error" id="work-assignment-error" role="alert" hidden></p><footer><button class="secondary" id="work-assignment-cancel" type="button">Cancel</button><button class="primary" type="submit">Update assignment</button></footer></form></dialog>
       {{end}}
+      {{end}}
+    </div>
+  </main>
+</div></body></html>
+{{end}}
+
+{{define "knowledge"}}
+{{template "head" .}}
+<div class="app-shell">
+  {{template "private-sidebar" .}}
+  <main class="workspace" id="main-content" tabindex="-1">
+    {{template "private-topbar" .}}
+    <div class="content knowledge-content">
+      {{template "alert" .}}
+      {{if not .Selected}}
+      <section class="empty"><h1>No Spyglass Accounts yet.</h1><p>Create an Account or accept an invitation to begin.</p><a href="/signup">Create Account</a></section>
+      {{else if not .KnowledgeAvailable}}
+      <section class="work-locked panel"><div><p class="eyebrow">KNOWLEDGE PACKAGE</p><h1>Make evidence useful.<br><em>Keep authority human.</em></h1><p>Knowledge is not included in this Account's current package set.</p><a href="/app#billing">Review Account plans →</a></div></section>
+      {{else}}
+      <section class="work-heading"><div><p class="eyebrow">KNOWLEDGE</p><h1>What the Account knows,<br><em>and why it trusts it.</em></h1><p>Review source-attributed claims and inspect the current accepted fact projection. Agent output remains a proposal until a person decides.</p></div><span class="work-mode">{{if .KnowledgeReadOnly}}READ-ONLY ACCESS{{else}}PACKAGE ENABLED{{end}}</span></section>
+      <section class="knowledge-app" id="knowledge-app" data-account-id="{{.Selected.AccountID}}" data-read-only="{{.KnowledgeReadOnly}}" aria-busy="true">
+        <p class="sr-only" id="knowledge-command-status" role="status" aria-live="polite"></p>
+        <div class="knowledge-layout">
+          <section class="panel knowledge-queue"><header><div><p class="eyebrow">REVIEW QUEUE</p><h2>Proposed claims</h2></div><button class="secondary" id="knowledge-refresh" type="button">Refresh</button></header><p id="knowledge-claims-status" role="status">Loading claims…</p><div id="knowledge-claims" class="knowledge-list"></div></section>
+          <aside class="panel knowledge-detail" id="knowledge-detail" tabindex="-1"><p class="eyebrow">CLAIM DETAIL</p><h2>Select a claim</h2><p>Inspect its exact canonical value and citations before deciding.</p></aside>
+        </div>
+        <section class="panel knowledge-facts"><header><div><p class="eyebrow">ACCEPTED PROJECTION</p><h2>Current facts</h2></div><span id="knowledge-facts-count">Loading</span></header><div id="knowledge-facts" class="knowledge-list"></div></section>
+      </section>
       {{end}}
     </div>
   </main>

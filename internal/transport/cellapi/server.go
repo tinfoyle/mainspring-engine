@@ -91,6 +91,7 @@ type KnowledgeService interface {
 	ProposeClaim(context.Context, knowledgeapp.ProposeClaimCommand) (knowledge.Claim, error)
 	DecideClaim(context.Context, knowledgeapp.DecideClaimCommand) (knowledge.Claim, *knowledge.Fact, error)
 	GetClaim(context.Context, access.Actor, ids.AccountID, ids.KnowledgeClaimID) (knowledge.Claim, error)
+	ListClaims(context.Context, access.Actor, ids.AccountID, knowledgeapp.ClaimListQuery) (knowledgeapp.ClaimPage, error)
 	ListFacts(context.Context, access.Actor, ids.AccountID, knowledgeapp.FactListQuery) (knowledgeapp.FactPage, error)
 }
 
@@ -153,6 +154,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/evidence", s.knowledgeEvidenceRegister)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/facts", s.knowledgeFactList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/claims", s.knowledgeClaimPropose)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/claims", s.knowledgeClaimList)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/claims/{claimID}", s.knowledgeClaimGet)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/claims/{claimID}/decisions", s.knowledgeClaimDecide)
 	return s.recover(s.securityHeaders(mux))

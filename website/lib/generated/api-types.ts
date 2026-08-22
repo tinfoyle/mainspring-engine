@@ -767,7 +767,25 @@ export interface KnowledgeClaimDecisionResult {
   readonly "fact"?: KnowledgeFact;
 }
 
+export interface KnowledgeClaimPage {
+  readonly "items": ReadonlyArray<KnowledgeClaimSummary>;
+  readonly "next_cursor"?: string;
+}
+
 export type KnowledgeClaimState = "proposed" | "accepted" | "rejected" | "superseded" | "stale";
+
+export interface KnowledgeClaimSummary {
+  readonly "confidence": number;
+  readonly "created_at": string;
+  readonly "id": string;
+  readonly "key": string;
+  readonly "proposed_by": KnowledgeActor;
+  readonly "scope": KnowledgeScope;
+  readonly "sensitivity": KnowledgeSensitivity;
+  readonly "state": KnowledgeClaimState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
 
 export interface KnowledgeEvidence {
   readonly "account_id": string;
@@ -1356,7 +1374,9 @@ export interface ApiSchemas {
   readonly KnowledgeClaim: KnowledgeClaim;
   readonly KnowledgeClaimDecision: KnowledgeClaimDecision;
   readonly KnowledgeClaimDecisionResult: KnowledgeClaimDecisionResult;
+  readonly KnowledgeClaimPage: KnowledgeClaimPage;
   readonly KnowledgeClaimState: KnowledgeClaimState;
+  readonly KnowledgeClaimSummary: KnowledgeClaimSummary;
   readonly KnowledgeEvidence: KnowledgeEvidence;
   readonly KnowledgeEvidenceRelation: KnowledgeEvidenceRelation;
   readonly KnowledgeFact: KnowledgeFact;

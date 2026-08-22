@@ -67,10 +67,43 @@ type FactPage struct {
 	NextCursor *FactCursor
 }
 
+type ClaimSummary struct {
+	ID          ids.KnowledgeClaimID
+	Scope       knowledgedomain.Scope
+	Key         string
+	Confidence  uint16
+	Sensitivity knowledgedomain.Sensitivity
+	State       knowledgedomain.ClaimState
+	ProposedBy  knowledgedomain.Actor
+	Version     uint64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type ClaimCursor struct {
+	UpdatedAt time.Time
+	ID        ids.KnowledgeClaimID
+}
+
+type ClaimListQuery struct {
+	State          knowledgedomain.ClaimState
+	Scope          *knowledgedomain.Scope
+	KeyPrefix      string
+	AfterUpdatedAt *time.Time
+	AfterID        ids.KnowledgeClaimID
+	Limit          int
+}
+
+type ClaimPage struct {
+	Items      []ClaimSummary
+	NextCursor *ClaimCursor
+}
+
 type Repository interface {
 	RegisterEvidence(context.Context, knowledgedomain.Evidence, Mutation) (knowledgedomain.Evidence, error)
 	ProposeClaim(context.Context, knowledgedomain.Claim, Mutation) (knowledgedomain.Claim, error)
 	GetClaim(context.Context, ids.AccountID, ids.KnowledgeClaimID) (knowledgedomain.Claim, error)
+	ListClaims(context.Context, ids.AccountID, ClaimListQuery) (ClaimPage, error)
 	DecideClaim(context.Context, ids.AccountID, ids.KnowledgeClaimID, ids.KnowledgeFactID, knowledgedomain.DecideClaimCommand, Mutation) (knowledgedomain.Claim, *knowledgedomain.Fact, error)
 	ListFacts(context.Context, ids.AccountID, FactListQuery) (FactPage, error)
 }
@@ -206,6 +239,34 @@ func (s *Service) GetClaim(ctx context.Context, actor access.Actor, accountID id
 	return claim, nil
 }
 
+func (s *Service) ListClaims(ctx context.Context, actor access.Actor, accountID ids.AccountID, query ClaimListQuery) (ClaimPage, error) {
+	if _, ok := domainActor(actor); !ok || ids.Validate(string(accountID)) != nil || !validClaimQuery(query) {
+		return ClaimPage{}, ErrInvalid
+	}
+	accountContext, err := s.authorize(ctx, actor, accountID, false)
+	if err != nil {
+		return ClaimPage{}, err
+	}
+	if query.Limit == 0 {
+		query.Limit = DefaultLimit
+	}
+	if query.Limit < 1 || query.Limit > MaximumLimit {
+		return ClaimPage{}, ErrInvalid
+	}
+	page, err := s.repository.ListClaims(ctx, accountID, query)
+	if err != nil {
+		return ClaimPage{}, err
+	}
+	visible := page.Items[:0]
+	for _, item := range page.Items {
+		if canReadSensitivity(accountContext.Role, item.Sensitivity) {
+			visible = append(visible, item)
+		}
+	}
+	page.Items = visible
+	return page, nil
+}
+
 func (s *Service) ListFacts(ctx context.Context, actor access.Actor, accountID ids.AccountID, query FactListQuery) (FactPage, error) {
 	if _, ok := domainActor(actor); !ok || ids.Validate(string(accountID)) != nil || !validFactQuery(query) {
 		return FactPage{}, ErrInvalid
@@ -273,4 +334,11 @@ func validFactQuery(query FactListQuery) bool {
 		return false
 	}
 	return query.AfterUpdatedAt == nil || (!query.AfterUpdatedAt.IsZero() && ids.Validate(string(query.AfterID)) == nil)
+}
+
+func validClaimQuery(query ClaimListQuery) bool {
+	if query.State != "" && query.State != knowledgedomain.ClaimProposed && query.State != knowledgedomain.ClaimAccepted && query.State != knowledgedomain.ClaimRejected && query.State != knowledgedomain.ClaimSuperseded && query.State != knowledgedomain.ClaimStale {
+		return false
+	}
+	return validFactQuery(FactListQuery{Scope: query.Scope, KeyPrefix: query.KeyPrefix, AfterUpdatedAt: query.AfterUpdatedAt, AfterID: ids.KnowledgeFactID(query.AfterID), Limit: query.Limit})
 }

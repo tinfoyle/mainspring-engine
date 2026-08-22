@@ -23,6 +23,7 @@ type knowledgeServiceStub struct {
 	propose  func(context.Context, knowledgeapp.ProposeClaimCommand) (knowledgedomain.Claim, error)
 	decide   func(context.Context, knowledgeapp.DecideClaimCommand) (knowledgedomain.Claim, *knowledgedomain.Fact, error)
 	get      func(context.Context, access.Actor, ids.AccountID, ids.KnowledgeClaimID) (knowledgedomain.Claim, error)
+	claims   func(context.Context, access.Actor, ids.AccountID, knowledgeapp.ClaimListQuery) (knowledgeapp.ClaimPage, error)
 	list     func(context.Context, access.Actor, ids.AccountID, knowledgeapp.FactListQuery) (knowledgeapp.FactPage, error)
 }
 
@@ -37,6 +38,9 @@ func (s knowledgeServiceStub) DecideClaim(ctx context.Context, command knowledge
 }
 func (s knowledgeServiceStub) GetClaim(ctx context.Context, actor access.Actor, accountID ids.AccountID, claimID ids.KnowledgeClaimID) (knowledgedomain.Claim, error) {
 	return s.get(ctx, actor, accountID, claimID)
+}
+func (s knowledgeServiceStub) ListClaims(ctx context.Context, actor access.Actor, accountID ids.AccountID, query knowledgeapp.ClaimListQuery) (knowledgeapp.ClaimPage, error) {
+	return s.claims(ctx, actor, accountID, query)
 }
 func (s knowledgeServiceStub) ListFacts(ctx context.Context, actor access.Actor, accountID ids.AccountID, query knowledgeapp.FactListQuery) (knowledgeapp.FactPage, error) {
 	return s.list(ctx, actor, accountID, query)
@@ -115,6 +119,19 @@ func TestKnowledgeDecisionAndFactListUseVersionAndOpaqueCursor(t *testing.T) {
 	page := attentionRead(t, server, "/api/v1/accounts/"+attentionAccount+"/knowledge/facts?scope_kind=account&key_prefix=organization.&limit=5")
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `"next_cursor"`) || !strings.Contains(page.Body.String(), `"current_claim_id"`) {
 		t.Fatalf("page=%d %s", page.Code, page.Body.String())
+	}
+}
+
+func TestKnowledgeClaimListIsRedactedAndBounded(t *testing.T) {
+	service := knowledgeServiceStub{claims: func(_ context.Context, _ access.Actor, _ ids.AccountID, query knowledgeapp.ClaimListQuery) (knowledgeapp.ClaimPage, error) {
+		if query.State != knowledgedomain.ClaimProposed || query.Limit != 5 {
+			t.Fatalf("query=%+v", query)
+		}
+		return knowledgeapp.ClaimPage{Items: []knowledgeapp.ClaimSummary{{ID: attentionFact, Scope: knowledgedomain.Scope{Kind: knowledgedomain.ScopeAccount}, Key: "organization.name", Confidence: 900, Sensitivity: knowledgedomain.SensitivityInternal, State: knowledgedomain.ClaimProposed, ProposedBy: knowledgedomain.Actor{Kind: knowledgedomain.ActorWorkload, ID: "agent:analyst"}, Version: 1}}}, nil
+	}}
+	response := attentionRead(t, newKnowledgeServer(t, service).Handler(), "/api/v1/accounts/"+attentionAccount+"/knowledge/claims?state=proposed&limit=5")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "organization.name") || strings.Contains(response.Body.String(), `"value"`) || strings.Contains(response.Body.String(), `"citations"`) {
+		t.Fatalf("response=%d %s", response.Code, response.Body.String())
 	}
 }
 

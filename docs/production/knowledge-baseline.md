@@ -1,6 +1,6 @@
 # Knowledge and Baseline module
 
-- Status: typed Knowledge kernel and routed command/read surface implemented; review queue and private UI next
+- Status: typed Knowledge kernel, routed operations, review queue and first private UI implemented; documents/retrieval next
 - Phase: 3.2
 - Owns: immutable evidence identity, reviewable claims, accepted fact revisions, documents/citations and the Baseline assessment lifecycle
 - Does not own: Work lifecycle, Agent execution, provider credentials or external source synchronization

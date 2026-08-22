@@ -44,6 +44,7 @@ type KnowledgeService interface {
 	ProposeClaim(context.Context, knowledgeapp.ProposeClaimCommand) (knowledgedomain.Claim, error)
 	DecideClaim(context.Context, knowledgeapp.DecideClaimCommand) (knowledgedomain.Claim, *knowledgedomain.Fact, error)
 	GetClaim(context.Context, access.Actor, ids.AccountID, ids.KnowledgeClaimID) (knowledgedomain.Claim, error)
+	ListClaims(context.Context, access.Actor, ids.AccountID, knowledgeapp.ClaimListQuery) (knowledgeapp.ClaimPage, error)
 	ListFacts(context.Context, access.Actor, ids.AccountID, knowledgeapp.FactListQuery) (knowledgeapp.FactPage, error)
 }
 

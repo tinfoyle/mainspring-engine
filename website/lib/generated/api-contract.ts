@@ -61,6 +61,7 @@ export const apiRoutes = [
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/attention/work-reviews", operationId: "attentionReviewList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/attention/work-reviews/{reviewID}", operationId: "attentionReviewGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/context", operationId: "accountContext", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/knowledge/claims", operationId: "knowledgeClaimList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/knowledge/claims/{claimID}", operationId: "knowledgeClaimGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/knowledge/facts", operationId: "knowledgeFactList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/work-items", operationId: "workList", authentication: "sessionCookie", contract: "typed" },
