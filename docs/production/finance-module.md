@@ -1,6 +1,6 @@
 # Finance module
 
-- Status: typed kernel, forced-RLS persistence, governed lifecycle and stable query summaries constructed; product surfaces remain
+- Status: typed kernel, forced-RLS persistence, governed lifecycle, stable query summaries and generated HTTP reads constructed; command/product surfaces remain
 - Package boundary: Finance
 - Decision: [ADR-0006](decisions/0006-finance-operational-ledger.md)
 
@@ -18,7 +18,7 @@ Agents and members may create and revise drafts under Finance mutation access. P
 2. Account-owned forced-RLS schema, immutable redacted events, per-ledger numbering, movement fencing and erasure/restore participation. **Constructed.**
 3. Classified repository and application service with idempotency, optimistic versions and exact Work/Run/Invocation/Evidence references. **Constructed for Ledger/Account lifecycle, balanced drafts, posting, reversal and reconciliation; query pages remain.**
 4. Stable query pages, summaries and bounded cursors. **Constructed.**
-5. Generated HTTP, optional MCP and private Finance surfaces with package/read-only/suspended behavior.
+5. Generated HTTP, optional MCP and private Finance surfaces with package/read-only/suspended behavior. **Generated HTTP reads constructed.**
 6. Agent draft tools and Attention-governed proposals; no workload-direct posting.
 7. Prototype transformation, synthetic stage reconciliation/recovery and production role/retention grants.
 
@@ -46,4 +46,6 @@ Reconciliation does not trust a caller-supplied ledger balance. The repository c
 
 Ledger, chart and draft lifecycle commands are now complete at the application/persistence boundary. Revision, monotonic evidence-backed close and ordered archival all require a fresh version and an immutable event identity; exact retries restore the first result. Members may revise only drafts, while posting and reversal remain human Owner/Administrator transitions. Draft revision atomically replaces balanced lines/evidence, rechecks the closed period and writes only content-redacted event fields. Posting-account moves verify an active parent in the same Ledger and reject recursive parent cycles. An account cannot be archived while it has an active child or appears in a draft, and a Ledger cannot be archived while it has any active account or draft. Containerized PostgreSQL tests cover those guards, lifecycle replay, numbering, draft replacement, restore, reversal and mismatch-to-corrected reconciliation.
 
-The read boundary now provides Account-authorized detail retrieval plus bounded keyset pages for Ledgers, posting accounts, journal entries and reconciliations. Ledger summaries include account/draft counts and calculated income, expense and net values; chart summaries calculate each account balance according to its immutable normal-balance rule. Aggregate SQL uses PostgreSQL numeric arithmetic and refuses values outside the signed minor-unit range instead of wrapping. Ledger/chart cursors are deterministic `(code,id)` keys; journals use `(entry_date,entry_number)` descending and reconciliations use `(as_of,id)` descending. Dedicated indexes support the unfiltered Ledger/chart keysets, while existing journal and reconciliation indexes cover their page order. Fresh containerized tests prove traversal without duplicates, restored detail and posted/reversed balance behavior. Generated HTTP/MCP and private Finance surfaces are the next slice.
+The read boundary now provides Account-authorized detail retrieval plus bounded keyset pages for Ledgers, posting accounts, journal entries and reconciliations. Ledger summaries include account/draft counts and calculated income, expense and net values; chart summaries calculate each account balance according to its immutable normal-balance rule. Aggregate SQL uses PostgreSQL numeric arithmetic and refuses values outside the signed minor-unit range instead of wrapping. Ledger/chart cursors are deterministic `(code,id)` keys; journals use `(entry_date,entry_number)` descending and reconciliations use `(as_of,id)` descending. Dedicated indexes support the unfiltered Ledger/chart keysets, while existing journal and reconciliation indexes cover their page order. Fresh containerized tests prove traversal without duplicates, restored detail and posted/reversed balance behavior.
+
+Eight generated HTTP reads now expose those detail and page operations through the canonical Finance service. The routes bind every target to routed Account authority, preserve the same package/read-only/suspended decisions as the application boundary, publish weak version ETags for mutation preconditions, and use typed opaque cursors whose shape is specific to the corresponding stable keyset. OpenAPI response-validation tests cover every page family and generated Go/TypeScript contracts remain drift-free. Governed HTTP commands, MCP and private Finance surfaces are the next slice.

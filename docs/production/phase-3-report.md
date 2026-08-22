@@ -198,6 +198,8 @@ Finance-lifecycle checkpoint (2026-08-22): Owner/Administrator Ledger revision, 
 
 Finance-query checkpoint (2026-08-22): the canonical read boundary now exposes package-authorized Ledger, chart, journal and reconciliation detail/pages with defaults, strict maximums and structurally complete cursors. Ledger summaries derive account/draft counts plus income, expense and net values; chart summaries derive balances from immutable posted/reversed lines and each account's normal-balance rule. PostgreSQL numeric aggregates are range-checked before conversion to signed minor units. Stable `(code,id)`, `(entry_date,entry_number)` and `(as_of,id)` keysets have matching indexes and containerized traversal tests, including restored posting-account/reconciliation detail and the zeroed balances produced by linked reversal. Generated HTTP/MCP contracts and private Finance surfaces remain.
 
+Finance-HTTP-read checkpoint (2026-08-22): eight generated OpenAPI operations now route Ledger, posting-account, journal-entry and reconciliation detail/pages through the canonical Account-authorized Finance service. Every target is bound to routed Account authority; detail resources publish weak version ETags; page cursors are opaque, versioned and structurally bound to their stable keyset so cursor families cannot be exchanged. Contract tests validate all four page families, cross-Account concealment and malformed cursor rejection, while generated Go and TypeScript artifacts pass drift checks. Governed HTTP commands, MCP and private Finance surfaces remain.
+
 Complete every intended launch package rather than leaving preview shells:
 
 - Scheduling: durable definitions, time zones, missed-run policy, leases, pause/resume and idempotent dispatch.

@@ -845,6 +845,198 @@ export interface EntitlementSnapshot {
   readonly "version": number;
 }
 
+export type FinanceAccountType = "asset" | "liability" | "equity" | "income" | "expense";
+
+export interface FinanceActor {
+  readonly "id": string;
+  readonly "kind": "user" | "workload";
+}
+
+export type FinanceCurrency = string;
+
+export interface FinanceEntryPage {
+  readonly "items": ReadonlyArray<FinanceEntrySummary>;
+  readonly "next_cursor"?: string;
+}
+
+export type FinanceEntrySource = "manual" | "agent" | "mcp" | "import" | "system" | "reversal";
+
+export type FinanceEntryState = "draft" | "posted" | "reversed";
+
+export interface FinanceEntrySummary {
+  readonly "account_id": string;
+  readonly "currency": FinanceCurrency;
+  readonly "description": string;
+  readonly "entry_date": string;
+  readonly "id": string;
+  readonly "ledger_id": string;
+  readonly "number": number;
+  readonly "reference": string;
+  readonly "reversal_of_id"?: string;
+  readonly "reversed_by_id"?: string;
+  readonly "source": FinanceEntrySource;
+  readonly "state": FinanceEntryState;
+  readonly "total_minor": number;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface FinanceJournalEntry {
+  readonly "account_id": string;
+  readonly "created_at": string;
+  readonly "created_by": FinanceActor;
+  readonly "currency": FinanceCurrency;
+  readonly "description": string;
+  readonly "entry_date": string;
+  readonly "evidence": ReadonlyArray<string> | null;
+  readonly "id": string;
+  readonly "ledger_id": string;
+  readonly "lines": ReadonlyArray<FinanceJournalLine>;
+  readonly "number": number;
+  readonly "posted_at"?: string;
+  readonly "posted_by"?: FinanceActor;
+  readonly "provenance": FinanceProvenance;
+  readonly "reference": string;
+  readonly "reversal_of_id"?: string;
+  readonly "reversed_at"?: string;
+  readonly "reversed_by"?: FinanceActor;
+  readonly "reversed_by_id"?: string;
+  readonly "state": FinanceEntryState;
+  readonly "total_minor": number;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface FinanceJournalLine {
+  readonly "account_id": string;
+  readonly "credit_minor": number;
+  readonly "debit_minor": number;
+  readonly "memo": string;
+}
+
+export interface FinanceLedger {
+  readonly "account_id": string;
+  readonly "close_evidence"?: ReadonlyArray<string>;
+  readonly "closed_through"?: string;
+  readonly "code": string;
+  readonly "created_at": string;
+  readonly "created_by": FinanceActor;
+  readonly "currency": FinanceCurrency;
+  readonly "description": string;
+  readonly "id": string;
+  readonly "name": string;
+  readonly "state": FinanceLedgerState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface FinanceLedgerPage {
+  readonly "items": ReadonlyArray<FinanceLedgerSummary>;
+  readonly "next_cursor"?: string;
+}
+
+export type FinanceLedgerState = "active" | "archived";
+
+export interface FinanceLedgerSummary {
+  readonly "account_count": number;
+  readonly "account_id": string;
+  readonly "closed_through"?: string;
+  readonly "code": string;
+  readonly "currency": FinanceCurrency;
+  readonly "description": string;
+  readonly "draft_count": number;
+  readonly "expense_minor": number;
+  readonly "id": string;
+  readonly "income_minor": number;
+  readonly "name": string;
+  readonly "net_minor": number;
+  readonly "state": FinanceLedgerState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface FinanceMoney {
+  readonly "currency": FinanceCurrency;
+  readonly "minor": number;
+}
+
+export type FinanceNormalBalance = "debit" | "credit";
+
+export interface FinancePostingAccount {
+  readonly "account_id": string;
+  readonly "allow_posting": boolean;
+  readonly "code": string;
+  readonly "created_at": string;
+  readonly "created_by": FinanceActor;
+  readonly "description": string;
+  readonly "id": string;
+  readonly "ledger_id": string;
+  readonly "name": string;
+  readonly "normal_balance": FinanceNormalBalance;
+  readonly "parent_account_id"?: string;
+  readonly "state": FinanceLedgerState;
+  readonly "type": FinanceAccountType;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface FinancePostingAccountPage {
+  readonly "items": ReadonlyArray<FinancePostingAccountSummary>;
+  readonly "next_cursor"?: string;
+}
+
+export interface FinancePostingAccountSummary {
+  readonly "account": FinancePostingAccount;
+  readonly "balance_minor": number;
+}
+
+export interface FinanceProvenance {
+  readonly "invocation_id"?: string;
+  readonly "run_id"?: string;
+  readonly "source": FinanceEntrySource;
+  readonly "work_item_id"?: string;
+}
+
+export interface FinanceReconciliation {
+  readonly "account_id": string;
+  readonly "as_of": string;
+  readonly "confirmed_at"?: string;
+  readonly "confirmed_by"?: FinanceActor;
+  readonly "created_at": string;
+  readonly "created_by": FinanceActor;
+  readonly "difference_minor": number;
+  readonly "evidence": ReadonlyArray<string>;
+  readonly "id": string;
+  readonly "ledger_balance": FinanceMoney;
+  readonly "ledger_id": string;
+  readonly "posting_account_id": string;
+  readonly "state": FinanceReconciliationState;
+  readonly "statement_balance": FinanceMoney;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface FinanceReconciliationPage {
+  readonly "items": ReadonlyArray<FinanceReconciliationSummary>;
+  readonly "next_cursor"?: string;
+}
+
+export type FinanceReconciliationState = "proposed" | "discrepancy" | "confirmed";
+
+export interface FinanceReconciliationSummary {
+  readonly "account_id": string;
+  readonly "as_of": string;
+  readonly "difference_minor": number;
+  readonly "id": string;
+  readonly "ledger_balance": FinanceMoney;
+  readonly "ledger_id": string;
+  readonly "posting_account_id": string;
+  readonly "state": FinanceReconciliationState;
+  readonly "statement_balance": FinanceMoney;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
 export interface HostedBillingSession {
   readonly "expires_at": string;
   readonly "session_id": string;
@@ -1762,6 +1954,29 @@ export interface ApiSchemas {
   readonly EntitlementGrantSource: EntitlementGrantSource;
   readonly EntitlementPackageAccess: EntitlementPackageAccess;
   readonly EntitlementSnapshot: EntitlementSnapshot;
+  readonly FinanceAccountType: FinanceAccountType;
+  readonly FinanceActor: FinanceActor;
+  readonly FinanceCurrency: FinanceCurrency;
+  readonly FinanceEntryPage: FinanceEntryPage;
+  readonly FinanceEntrySource: FinanceEntrySource;
+  readonly FinanceEntryState: FinanceEntryState;
+  readonly FinanceEntrySummary: FinanceEntrySummary;
+  readonly FinanceJournalEntry: FinanceJournalEntry;
+  readonly FinanceJournalLine: FinanceJournalLine;
+  readonly FinanceLedger: FinanceLedger;
+  readonly FinanceLedgerPage: FinanceLedgerPage;
+  readonly FinanceLedgerState: FinanceLedgerState;
+  readonly FinanceLedgerSummary: FinanceLedgerSummary;
+  readonly FinanceMoney: FinanceMoney;
+  readonly FinanceNormalBalance: FinanceNormalBalance;
+  readonly FinancePostingAccount: FinancePostingAccount;
+  readonly FinancePostingAccountPage: FinancePostingAccountPage;
+  readonly FinancePostingAccountSummary: FinancePostingAccountSummary;
+  readonly FinanceProvenance: FinanceProvenance;
+  readonly FinanceReconciliation: FinanceReconciliation;
+  readonly FinanceReconciliationPage: FinanceReconciliationPage;
+  readonly FinanceReconciliationState: FinanceReconciliationState;
+  readonly FinanceReconciliationSummary: FinanceReconciliationSummary;
   readonly HostedBillingSession: HostedBillingSession;
   readonly InformationAnswer: InformationAnswer;
   readonly InformationCompletion: InformationCompletion;

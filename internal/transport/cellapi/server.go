@@ -15,10 +15,12 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
+	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	schedulingapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
+	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	schedulingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/scheduling"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
@@ -48,6 +50,7 @@ type Server struct {
 	knowledge              KnowledgeService
 	documents              KnowledgeDocumentService
 	baseline               BaselineService
+	finance                FinanceService
 	scheduling             SchedulingService
 	scheduleExecution      ScheduleExecutionService
 	scheduleWorkerIdentity string
@@ -146,6 +149,21 @@ type BaselineService interface {
 
 func WithBaseline(service BaselineService) Option {
 	return func(server *Server) { server.baseline = service }
+}
+
+type FinanceService interface {
+	GetLedger(context.Context, access.Actor, ids.AccountID, ids.FinanceLedgerID) (financedomain.Ledger, error)
+	ListLedgers(context.Context, access.Actor, ids.AccountID, financeapp.LedgerListQuery) (financeapp.LedgerPage, error)
+	GetPostingAccount(context.Context, access.Actor, ids.AccountID, ids.FinanceAccountID) (financedomain.PostingAccount, error)
+	ListPostingAccounts(context.Context, access.Actor, ids.AccountID, financeapp.PostingAccountListQuery) (financeapp.PostingAccountPage, error)
+	GetEntry(context.Context, access.Actor, ids.AccountID, ids.FinanceEntryID) (financedomain.JournalEntry, error)
+	ListEntries(context.Context, access.Actor, ids.AccountID, financeapp.EntryListQuery) (financeapp.EntryPage, error)
+	GetReconciliation(context.Context, access.Actor, ids.AccountID, ids.FinanceReconciliationID) (financedomain.Reconciliation, error)
+	ListReconciliations(context.Context, access.Actor, ids.AccountID, financeapp.ReconciliationListQuery) (financeapp.ReconciliationPage, error)
+}
+
+func WithFinance(service FinanceService) Option {
+	return func(server *Server) { server.finance = service }
 }
 
 type SchedulingService interface {
@@ -264,6 +282,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", s.baselineSourceGrantList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", s.baselineSourceGrantCreate)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants/{grantID}/revocations", s.baselineSourceGrantRevoke)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers", s.financeLedgerList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}", s.financeLedgerGet)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/accounts", s.financeAccountList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/accounts/{postingAccountID}", s.financeAccountGet)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/entries", s.financeEntryList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/entries/{entryID}", s.financeEntryGet)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/reconciliations", s.financeReconciliationList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/reconciliations/{reconciliationID}", s.financeReconciliationGet)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleGet)
