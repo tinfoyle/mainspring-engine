@@ -113,8 +113,10 @@ GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_result_projection(uuid,uuid
 GRANT EXECUTE ON FUNCTION public.spyglass_agent_result_projection_stats(timestamptz)
   TO spyglass_agent_projection_worker;
 
+GRANT SELECT ON spyglass.knowledge_documents TO spyglass_knowledge_document_worker;
 GRANT SELECT, UPDATE ON spyglass.knowledge_document_revisions TO spyglass_knowledge_document_worker;
 GRANT INSERT ON spyglass.knowledge_document_chunks, spyglass.knowledge_document_events TO spyglass_knowledge_document_worker;
+GRANT SELECT, INSERT ON spyglass.knowledge_document_deletion_receipts TO spyglass_knowledge_document_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_knowledge_document_processing(uuid,timestamptz,integer)
   TO spyglass_knowledge_document_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_complete_knowledge_document_processing(uuid,uuid,uuid,timestamptz)
@@ -122,6 +124,14 @@ GRANT EXECUTE ON FUNCTION public.spyglass_complete_knowledge_document_processing
 GRANT EXECUTE ON FUNCTION public.spyglass_fail_knowledge_document_processing(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer)
   TO spyglass_knowledge_document_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_knowledge_document_processing_stats(timestamptz)
+  TO spyglass_knowledge_document_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_knowledge_document_deletion(uuid,timestamptz,integer)
+  TO spyglass_knowledge_document_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_complete_knowledge_document_deletion(uuid,uuid,uuid,timestamptz)
+  TO spyglass_knowledge_document_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_fail_knowledge_document_deletion(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer)
+  TO spyglass_knowledge_document_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_knowledge_document_deletion_stats(timestamptz)
   TO spyglass_knowledge_document_worker;
 
 GRANT SELECT, UPDATE ON spyglass.runner_account_scheduling, spyglass.runner_invocation_queue

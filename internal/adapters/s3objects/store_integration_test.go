@@ -72,6 +72,9 @@ func TestS3StoreStreamsImmutableVersionedObjects(t *testing.T) {
 	if err := store.Delete(ctx, identity); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.Delete(ctx, identity); err != nil {
+		t.Fatalf("replay exact-version delete: %v", err)
+	}
 }
 
 func TestS3StoreHonorsAdmissionAndWorkerCredentials(t *testing.T) {
@@ -125,4 +128,15 @@ func TestS3StoreHonorsAdmissionAndWorkerCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer worker.Delete(context.Background(), extracted.Identity)
+	for _, identity := range []knowledgeapp.DocumentObjectIdentity{source.Identity, extracted.Identity} {
+		if err := worker.Delete(ctx, identity); err != nil {
+			t.Fatalf("worker exact-version delete %s: %v", identity.Key, err)
+		}
+		if err := worker.Delete(ctx, identity); err != nil {
+			t.Fatalf("worker exact-version delete replay %s: %v", identity.Key, err)
+		}
+		if _, err := worker.Open(ctx, identity); err == nil {
+			t.Fatalf("deleted object version %s remained readable", identity.Key)
+		}
+	}
 }

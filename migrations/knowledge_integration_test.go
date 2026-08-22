@@ -124,7 +124,7 @@ func TestKnowledgeFoundationIsAccountIsolatedImmutableAndEvidenceBound(t *testin
 	var fencedTables int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM pg_trigger trigger_row JOIN pg_class table_row ON table_row.oid=trigger_row.tgrelid
 		JOIN pg_namespace namespace_row ON namespace_row.oid=table_row.relnamespace
-		WHERE namespace_row.nspname='spyglass' AND table_row.relname LIKE 'knowledge_%' AND trigger_row.tgname='account_namespace_write_fence' AND NOT trigger_row.tgisinternal`).Scan(&fencedTables); err != nil || fencedTables != 11 {
+		WHERE namespace_row.nspname='spyglass' AND table_row.relname LIKE 'knowledge_%' AND trigger_row.tgname='account_namespace_write_fence' AND NOT trigger_row.tgisinternal`).Scan(&fencedTables); err != nil || fencedTables != 13 {
 		t.Fatalf("Knowledge movement write fences=%d err=%v", fencedTables, err)
 	}
 	exerciseKnowledgeRepository(t, ctx, owner, ids.AccountID(accountA), ids.AccountID(accountB), now.Add(5*time.Minute))
@@ -351,6 +351,58 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	deleting, err := repository.RequestDocumentDeletion(ctx, accountID, documentID, 2, knowledgeapp.Mutation{Actor: actor, CorrelationID: "da000000-0000-4000-8000-00000000000a", ReasonCode: "deletion_requested", At: now.Add(5 * time.Second)})
 	if err != nil || deleting.State != knowledgedomain.DocumentDeletionPending {
 		t.Fatalf("request document deletion=%+v err=%v", deleting, err)
+	}
+	deletionQueue, err := postgresadapter.NewKnowledgeDocumentDeletionQueue(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletionClaim, found, err := deletionQueue.Claim(ctx, "df000000-0000-4000-8000-00000000000f", now.Add(5*time.Second), 10*time.Minute)
+	if err != nil || !found || deletionClaim.AccountID != accountID || deletionClaim.DocumentID != documentID || deletionClaim.Attempt != 1 {
+		t.Fatalf("deletion claim=%+v found=%v err=%v", deletionClaim, found, err)
+	}
+	manifest, err := repository.LoadDeletionManifest(ctx, accountID, documentID)
+	if err != nil || len(manifest.Objects) != 2 || manifest.Objects[0].Kind != "source" || manifest.Objects[1].Kind != "extracted" {
+		t.Fatalf("deletion manifest=%+v err=%v", manifest, err)
+	}
+	if _, err := repository.LoadDeletionManifest(ctx, otherAccountID, documentID); !errors.Is(err, knowledgeapp.ErrNotFound) {
+		t.Fatalf("cross-Account deletion manifest err=%v", err)
+	}
+	if err := deletionQueue.Complete(ctx, deletionClaim, now.Add(6*time.Second)); !errors.Is(err, knowledgeapp.ErrDocumentDeletionClaim) {
+		t.Fatalf("deletion without receipts err=%v", err)
+	}
+	for _, object := range manifest.Objects {
+		receipt := knowledgeapp.DocumentDeletionReceipt{AccountID: accountID, DocumentID: documentID, Object: object, DeletedAt: now.Add(6 * time.Second)}
+		if err := repository.RecordDeletionReceipt(ctx, receipt); err != nil {
+			t.Fatalf("record deletion receipt kind=%s: %v", object.Kind, err)
+		}
+		if err := repository.RecordDeletionReceipt(ctx, receipt); err != nil {
+			t.Fatalf("replay deletion receipt kind=%s: %v", object.Kind, err)
+		}
+	}
+	if err := deletionQueue.Complete(ctx, deletionClaim, now.Add(6*time.Second)); err != nil {
+		t.Fatalf("complete document deletion: %v", err)
+	}
+	deletedDocument, err := repository.GetDocument(ctx, accountID, documentID)
+	if err != nil || deletedDocument.State != knowledgedomain.DocumentDeleted || deletedDocument.Version != 4 || deletedDocument.DeletedAt == nil {
+		t.Fatalf("deleted document=%+v err=%v", deletedDocument, err)
+	}
+	deletedRevision, err := repository.GetDocumentRevision(ctx, accountID, revisionID)
+	if err != nil || deletedRevision.State != knowledgedomain.RevisionDeleted {
+		t.Fatalf("deleted revision=%+v err=%v", deletedRevision, err)
+	}
+	var remainingChunks, deletionEvents int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.knowledge_document_chunks WHERE account_id=$1 AND revision_id=$2`, accountID, revisionID).Scan(&remainingChunks); err != nil || remainingChunks != 0 {
+		t.Fatalf("remaining document chunks=%d err=%v", remainingChunks, err)
+	}
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.knowledge_document_events WHERE account_id=$1 AND document_id=$2 AND event_type='deletion_completed'`, accountID, documentID).Scan(&deletionEvents); err != nil || deletionEvents != 1 {
+		t.Fatalf("document deletion events=%d err=%v", deletionEvents, err)
+	}
+	deletionStats, err := deletionQueue.Stats(ctx, now.Add(6*time.Second))
+	if err != nil || deletionStats.Completed != 1 || deletionStats.Ready != 0 || deletionStats.DeadLetter != 0 {
+		t.Fatalf("deletion stats=%+v err=%v", deletionStats, err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.knowledge_document_deletion_receipts SET object_version='changed' WHERE account_id=$1 AND document_id=$2`, accountID, documentID); err == nil || !strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("deletion receipt update=%v", err)
 	}
 	failedDocumentID := ids.KnowledgeDocumentID("db000000-0000-4000-8000-00000000000b")
 	failedRevisionID := ids.KnowledgeDocumentRevisionID("dc000000-0000-4000-8000-00000000000c")

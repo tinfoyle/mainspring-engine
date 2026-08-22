@@ -23,7 +23,7 @@
 | Document objects | Private versioned S3 contract: encrypted MinIO volumes in local/Hostinger stage and managed Linode Object Storage in production |
 | Malware scanning | Fail-closed ClamAV `INSTREAM` client over a digest-pinned, unexposed 4 GiB private service with persistent signatures; local/CI freeze signatures and stage enables FreshClam updates |
 | Document extraction | Private digest-pinned Apache Tika service with no unsecure features, bounded parser lifecycle/resources and no host port; production replicas remain behind a ClusterIP |
-| Document processing | Content-free per-cell PostgreSQL lease queues and least-privilege workers; Hostinger uses the `knowledge-processing` Compose profile and LKE will use one scalable worker Deployment per cell boundary |
+| Document processing and deletion | Content-free per-cell PostgreSQL lease queues, Account-scoped exact-version manifests/receipts and least-privilege workers; Hostinger uses the `knowledge-processing` Compose profile and LKE will use one scalable worker Deployment per cell boundary |
 | Backups | Configured and operated per environment by the project owner after application/database placement; deployment supplies hooks, checkpoints and restore tooling |
 | Secrets | Local/stage files outside Git; SOPS/age-encrypted production manifests with private keys outside Git |
 | Preview hosting | `.openai/hosting.json`, Sites/Cloudflare preview deployment and `chatgpt.site` are not release targets |
@@ -125,7 +125,7 @@ The common Compose definition models final process boundaries:
 - standalone public website;
 - global, cell A and cell B PostgreSQL 17 containers with distinct volumes;
 - private versioned MinIO document storage with server-side encryption and no host-published port;
-- cell app APIs admit routed document uploads through bounded private-disk spools and write only verified immutable source objects; per-cell workers consume the same private bucket for scanning, extraction and indexing;
+- cell app APIs admit routed document uploads through bounded private-disk spools and write only verified immutable source objects; per-cell workers consume the same private bucket for scanning, extraction, indexing and receipt-backed exact-version deletion;
 - migration jobs for each database target;
 - Account API, app router, two cell app APIs and private admission API;
 - notification, billing, entitlement, lifecycle, identity-maintenance, route-receipt and Work reconciliation workers;
@@ -217,6 +217,7 @@ The final Phase 3 Hostinger release gate additionally proves:
 - real email delivery and provider behavior through final product surfaces;
 - Account-level two-cell routing and database isolation;
 - container/database restart and durable queue recovery;
+- document processing and physical-deletion replay, including exact-version receipt reconciliation after interruption;
 - stage Docker runner execution/reconciliation;
 - accessibility/device journeys;
 - Docker-level load, fairness, restore fencing and rollback.
