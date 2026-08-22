@@ -21,6 +21,7 @@
 | Databases | Containerized PostgreSQL 17 in every environment |
 | Production database operator | CloudNativePG on LKE with LKE block storage and configurable replicas |
 | Document objects | Private versioned S3 contract: encrypted MinIO volumes in local/Hostinger stage and managed Linode Object Storage in production |
+| Malware scanning | Fail-closed ClamAV `INSTREAM` client over an unexposed private service; final container placement and capacity certification occur with the document-processing worker |
 | Backups | Configured and operated per environment by the project owner after application/database placement; deployment supplies hooks, checkpoints and restore tooling |
 | Secrets | Local/stage files outside Git; SOPS/age-encrypted production manifests with private keys outside Git |
 | Preview hosting | `.openai/hosting.json`, Sites/Cloudflare preview deployment and `chatgpt.site` are not release targets |
