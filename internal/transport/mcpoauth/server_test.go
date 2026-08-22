@@ -212,6 +212,52 @@ func TestTokenEndpointEnforcesDistributedRequestBudget(t *testing.T) {
 	}
 }
 
+func TestOAuthEndpointsRejectAmbiguousOrAuthenticatedPublicClientRequests(t *testing.T) {
+	now := time.Date(2026, 8, 22, 23, 0, 0, 0, time.UTC)
+	service, err := mcpauth.New(&transportRepository{}, &transportIDs{values: []string{testPending}}, mcpauth.RandomSecrets{}, transportClock{now}, testIssuer, testResource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(service, transportSessions{authenticated: true}, transportClients{}, transportLimiter{allowed: true}, transportClock{now}, Config{Issuer: testIssuer, Resource: testResource, TrustedOrigin: testIssuer}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler(nil)
+
+	tests := []struct {
+		name, target, body, contentType, authorization string
+	}{
+		{name: "token query", target: "/oauth/token?grant_type=authorization_code", body: "client_id=" + url.QueryEscape(testClient), contentType: "application/x-www-form-urlencoded"},
+		{name: "token duplicate", target: "/oauth/token", body: "grant_type=authorization_code&grant_type=refresh_token&client_id=" + url.QueryEscape(testClient) + "&resource=" + url.QueryEscape(testResource), contentType: "application/x-www-form-urlencoded"},
+		{name: "token basic auth", target: "/oauth/token", body: "grant_type=refresh_token&client_id=" + url.QueryEscape(testClient) + "&resource=" + url.QueryEscape(testResource) + "&refresh_token=value", contentType: "application/x-www-form-urlencoded", authorization: "Basic Zm9vOmJhcg=="},
+		{name: "token client secret", target: "/oauth/token", body: "grant_type=refresh_token&client_id=" + url.QueryEscape(testClient) + "&client_secret=secret&resource=" + url.QueryEscape(testResource) + "&refresh_token=value", contentType: "application/x-www-form-urlencoded"},
+		{name: "token JSON", target: "/oauth/token", body: `{}`, contentType: "application/json"},
+		{name: "revocation duplicate", target: "/oauth/revoke", body: "token=one&token=two&client_id=" + url.QueryEscape(testClient), contentType: "application/x-www-form-urlencoded"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, testIssuer+test.target, strings.NewReader(test.body))
+			request.Header.Set("Content-Type", test.contentType)
+			if test.authorization != "" {
+				request.Header.Set("Authorization", test.authorization)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	authorizationRequest := httptest.NewRequest(http.MethodGet, testIssuer+"/oauth/authorize?response_type=code&client_id="+url.QueryEscape(testClient)+"&redirect_uri="+url.QueryEscape(testRedirect)+"&redirect_uri="+url.QueryEscape(testRedirect)+"&resource="+url.QueryEscape(testResource)+"&scope="+url.QueryEscape(mcpauth.ScopeMCP)+"&code_challenge=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&code_challenge_method=S256", nil)
+	authorizationRequest.AddCookie(&http.Cookie{Name: defaultSessionCookie, Value: "session"})
+	authorizationResponse := httptest.NewRecorder()
+	handler.ServeHTTP(authorizationResponse, authorizationRequest)
+	if authorizationResponse.Code != http.StatusBadRequest || !strings.Contains(authorizationResponse.Body.String(), "invalid_request") {
+		t.Fatalf("ambiguous authorization response=%d body=%s", authorizationResponse.Code, authorizationResponse.Body.String())
+	}
+}
+
 func TestClientMetadataAddressesMustBePublic(t *testing.T) {
 	for _, raw := range []string{"127.0.0.1", "10.0.0.1", "169.254.1.1", "::1", "fc00::1", "ff02::1", "0.0.0.0"} {
 		if publicMetadataAddress(net.ParseIP(raw)) {

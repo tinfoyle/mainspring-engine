@@ -107,7 +107,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	if query.Get("response_type") != "code" || query.Get("code_challenge_method") != "S256" {
+	if !oneEach(query, "response_type", "client_id", "redirect_uri", "resource", "scope", "code_challenge", "code_challenge_method") || !atMostOne(query, "state") || query.Get("response_type") != "code" || query.Get("code_challenge_method") != "S256" {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
@@ -149,6 +149,10 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
+	if !oneEach(r.PostForm, "pending_id", "decision") {
+		s.oauthError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
 	decision := r.FormValue("decision")
 	if decision != "approve" && decision != "deny" {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
@@ -186,12 +190,24 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
+	if len(r.Header.Values("Authorization")) != 0 || r.PostForm.Get("client_secret") != "" || !oneEach(r.PostForm, "grant_type", "client_id", "resource") {
+		s.oauthError(w, http.StatusBadRequest, "invalid_client")
+		return
+	}
 	var result mcpauth.TokenSet
 	var err error
 	switch r.FormValue("grant_type") {
 	case "authorization_code":
+		if !oneEach(r.PostForm, "code", "redirect_uri", "code_verifier") {
+			s.oauthError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
 		result, err = s.service.ExchangeCode(r.Context(), r.FormValue("code"), r.FormValue("client_id"), r.FormValue("redirect_uri"), r.FormValue("resource"), r.FormValue("code_verifier"))
 	case "refresh_token":
+		if !oneEach(r.PostForm, "refresh_token") || !atMostOne(r.PostForm, "scope") {
+			s.oauthError(w, http.StatusBadRequest, "invalid_request")
+			return
+		}
 		if scope := r.FormValue("scope"); scope != "" && scope != mcpauth.ScopeMCP {
 			s.oauthError(w, http.StatusBadRequest, "invalid_scope")
 			return
@@ -218,6 +234,10 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := requireForm(w, r); err != nil {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	if len(r.Header.Values("Authorization")) != 0 || r.PostForm.Get("client_secret") != "" || !oneEach(r.PostForm, "token", "client_id") || !atMostOne(r.PostForm, "token_type_hint") {
+		s.oauthError(w, http.StatusBadRequest, "invalid_client")
 		return
 	}
 	if err := s.service.Revoke(r.Context(), r.FormValue("token"), r.FormValue("client_id")); err != nil {
@@ -260,6 +280,9 @@ func (s *Server) currentSession(w http.ResponseWriter, r *http.Request) (session
 }
 
 func requireForm(w http.ResponseWriter, r *http.Request) error {
+	if r.URL.RawQuery != "" {
+		return errors.New("form endpoints do not accept query parameters")
+	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/x-www-form-urlencoded" {
 		return errors.New("form content type required")
@@ -267,7 +290,28 @@ func requireForm(w http.ResponseWriter, r *http.Request) error {
 	return parseForm(w, r)
 }
 
+func oneEach(values url.Values, names ...string) bool {
+	for _, name := range names {
+		if len(values[name]) != 1 || values[name][0] == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func atMostOne(values url.Values, names ...string) bool {
+	for _, name := range names {
+		if len(values[name]) > 1 {
+			return false
+		}
+	}
+	return true
+}
+
 func parseForm(w http.ResponseWriter, r *http.Request) error {
+	if r.URL.RawQuery != "" {
+		return errors.New("form endpoints do not accept query parameters")
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 	return r.ParseForm()
 }

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -152,6 +153,7 @@ func TestGatewayRejectsUnknownOrCrossAccountToolBeforeRouting(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"spyglass_unknown","arguments":{"account_id":"` + gatewayAccount + `"}}}`,
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"spyglass_finance_ledger_list","arguments":{"account_id":"90000000-0000-4000-8000-000000000009"}}}`,
 		`[{"jsonrpc":"2.0","id":1,"method":"ping"}]`,
+		`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{}}`,
 	} {
 		request := httptest.NewRequest(http.MethodPost, "https://mcp.infiniteocean.net/mcp/v1/accounts/"+gatewayAccount, strings.NewReader(body))
 		request.Header.Set("Authorization", "Bearer audience-bound-token")
@@ -179,6 +181,144 @@ func TestGatewayRejectsUnknownOrCrossAccountToolBeforeRouting(t *testing.T) {
 	if cellCalls != 0 {
 		t.Fatalf("cell calls=%d", cellCalls)
 	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+func TestGatewayRetriesOneTransportFailureWithFreshRouteProof(t *testing.T) {
+	now := time.Date(2026, 8, 22, 20, 0, 0, 0, time.UTC)
+	authority := &tokenAuthority{}
+	key := []byte("0123456789abcdef0123456789abcdef")
+	signer, _ := routecontext.NewSigner("spyglass-router", "active", key, 20*time.Second, fixedClock{now})
+	var calls int
+	var requestIDs []string
+	config := gatewayConfig()
+	config.Transport = roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		requestIDs = append(requestIDs, request.Header.Get("X-Request-ID"))
+		if calls == 1 {
+			return nil, io.ErrUnexpectedEOF
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":1,"result":{}}`))}, nil
+	})
+	origin, _ := url.Parse("https://cell.internal")
+	server, err := New(authority, authority, directory{origin: *origin}, signer, &generator{}, slog.New(slog.NewTextHandler(io.Discard, nil)), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := gatewayRequestForContext(context.Background(), `{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || calls != 2 || len(requestIDs) != 2 || requestIDs[0] == requestIDs[1] || response.Header().Get("X-Request-ID") != requestIDs[1] {
+		t.Fatalf("status=%d calls=%d ids=%v response-id=%q body=%s", response.Code, calls, requestIDs, response.Header().Get("X-Request-ID"), response.Body.String())
+	}
+}
+
+func TestGatewayPropagatesCancellationWithoutRetry(t *testing.T) {
+	now := time.Date(2026, 8, 22, 20, 0, 0, 0, time.UTC)
+	authority := &tokenAuthority{}
+	key := []byte("0123456789abcdef0123456789abcdef")
+	signer, _ := routecontext.NewSigner("spyglass-router", "active", key, 20*time.Second, fixedClock{now})
+	started := make(chan struct{})
+	var calls atomic.Int32
+	config := gatewayConfig()
+	config.Transport = roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		close(started)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})
+	origin, _ := url.Parse("https://cell.internal")
+	server, err := New(authority, authority, directory{origin: *origin}, signer, &generator{}, slog.New(slog.NewTextHandler(io.Discard, nil)), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	request := gatewayRequestForContext(ctx, `{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+	response := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.Handler().ServeHTTP(response, request)
+		close(done)
+	}()
+	<-started
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("gateway did not propagate request cancellation")
+	}
+	if calls.Load() != 1 || response.Code != http.StatusBadGateway {
+		t.Fatalf("calls=%d status=%d body=%s", calls.Load(), response.Code, response.Body.String())
+	}
+}
+
+type statelessAuthority struct{}
+
+func (statelessAuthority) Authenticate(_ context.Context, token string, requirement TokenRequirement) (access.Actor, error) {
+	if token != "audience-bound-token" || requirement.Audience != "https://mcp.infiniteocean.net" || requirement.Scope != RequiredScope {
+		return access.Actor{}, errors.New("invalid token")
+	}
+	return access.Actor{UserID: gatewayUser}, nil
+}
+
+func (statelessAuthority) Authorize(_ context.Context, actor access.Actor, accountID ids.AccountID, _ access.Requirement) (access.AccountContext, error) {
+	if actor.UserID != gatewayUser || accountID != gatewayAccount {
+		return access.AccountContext{}, &access.DeniedError{Code: access.DenialMembership}
+	}
+	return access.AccountContext{AccountID: accountID, CellID: gatewayCell, PlacementGeneration: 7, EntitlementVersion: 9, Role: accounts.RoleOwner}, nil
+}
+
+func TestGatewayHandlesConcurrentStatelessRequests(t *testing.T) {
+	now := time.Date(2026, 8, 22, 20, 0, 0, 0, time.UTC)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	signer, _ := routecontext.NewSigner("spyglass-router", "active", key, 20*time.Second, fixedClock{now})
+	var calls atomic.Int32
+	config := gatewayConfig()
+	config.Transport = roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"jsonrpc":"2.0","id":1,"result":{}}`))}, nil
+	})
+	origin, _ := url.Parse("https://cell.internal")
+	server, err := New(statelessAuthority{}, statelessAuthority{}, directory{origin: *origin}, signer, ids.RandomGenerator{}, slog.New(slog.NewTextHandler(io.Discard, nil)), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const requests = 128
+	var group sync.WaitGroup
+	failures := make(chan string, requests)
+	for index := 0; index < requests; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			request := gatewayRequestForContext(context.Background(), `{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, request)
+			if response.Code != http.StatusOK || response.Header().Get("X-Request-ID") == "" {
+				failures <- response.Body.String()
+			}
+		}()
+	}
+	group.Wait()
+	close(failures)
+	for failure := range failures {
+		t.Fatalf("concurrent gateway request failed: %s", failure)
+	}
+	if calls.Load() != requests {
+		t.Fatalf("cell calls=%d want=%d", calls.Load(), requests)
+	}
+}
+
+func gatewayRequestForContext(ctx context.Context, body string) *http.Request {
+	request := httptest.NewRequest(http.MethodPost, "https://mcp.infiniteocean.net/mcp/v1/accounts/"+gatewayAccount, strings.NewReader(body)).WithContext(ctx)
+	request.Header.Set("Authorization", "Bearer audience-bound-token")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	return request
 }
 
 func TestGatewayChallengesMissingBearerWithProtectedResourceMetadata(t *testing.T) {

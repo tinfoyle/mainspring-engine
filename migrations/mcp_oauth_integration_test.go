@@ -58,6 +58,10 @@ func TestMCPOAuthCodeRotationAudienceAndIdentityInvalidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	replica, err := mcpauth.New(postgresadapter.NewMCPAuthRepository(pool), ids.RandomGenerator{}, mcpauth.RandomSecrets{}, fixedClock{now: now}, issuer, resource)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	issue := func(state string) mcpauth.TokenSet {
 		t.Helper()
@@ -85,14 +89,14 @@ func TestMCPOAuthCodeRotationAudienceAndIdentityInvalidation(t *testing.T) {
 	}
 
 	initial := issue("first")
-	if actor, authErr := service.Authenticate(ctx, initial.AccessToken, mcpauth.TokenRequirement{Audience: resource, Scope: mcpauth.ScopeMCP}); authErr != nil || actor.UserID != userID {
+	if actor, authErr := replica.Authenticate(ctx, initial.AccessToken, mcpauth.TokenRequirement{Audience: resource, Scope: mcpauth.ScopeMCP}); authErr != nil || actor.UserID != userID {
 		t.Fatalf("access authentication = %+v, %v", actor, authErr)
 	}
 	if _, authErr := service.Authenticate(ctx, initial.AccessToken, mcpauth.TokenRequirement{Audience: "https://other.example", Scope: mcpauth.ScopeMCP}); !errors.Is(authErr, mcpauth.ErrAccessDenied) {
 		t.Fatalf("wrong audience = %v", authErr)
 	}
 
-	rotated, err := service.Refresh(ctx, initial.RefreshToken, clientID, resource)
+	rotated, err := replica.Refresh(ctx, initial.RefreshToken, clientID, resource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +121,7 @@ func TestMCPOAuthCodeRotationAudienceAndIdentityInvalidation(t *testing.T) {
 	}
 
 	managed := issue("grant-management")
-	grants, err := service.Grants(ctx, userID)
+	grants, err := replica.Grants(ctx, userID)
 	if err != nil || len(grants) != 1 || grants[0].ClientID != clientID || grants[0].ClientName != "Integration Client" {
 		t.Fatalf("active grants = %+v, %v", grants, err)
 	}
@@ -125,7 +129,7 @@ func TestMCPOAuthCodeRotationAudienceAndIdentityInvalidation(t *testing.T) {
 	if err != nil || !grantRevoked {
 		t.Fatalf("grant revocation = %t, %v", grantRevoked, err)
 	}
-	if _, err = service.Authenticate(ctx, managed.AccessToken, mcpauth.TokenRequirement{Audience: resource, Scope: mcpauth.ScopeMCP}); !errors.Is(err, mcpauth.ErrAccessDenied) {
+	if _, err = replica.Authenticate(ctx, managed.AccessToken, mcpauth.TokenRequirement{Audience: resource, Scope: mcpauth.ScopeMCP}); !errors.Is(err, mcpauth.ErrAccessDenied) {
 		t.Fatalf("access after grant revocation = %v", err)
 	}
 	if _, err = service.Refresh(ctx, managed.RefreshToken, clientID, resource); !errors.Is(err, mcpauth.ErrAccessDenied) {

@@ -279,7 +279,12 @@ func classify(request *http.Request, body *requestbody.Capture, accountID ids.Ac
 		if modern && len(nameValues) != 0 {
 			return access.Requirement{}, envelope.Method, "", errors.New("unexpected MCP name header")
 		}
-		return access.Requirement{}, envelope.Method, "", nil
+		switch envelope.Method {
+		case "initialize", "notifications/initialized", "ping", "tools/list":
+			return access.Requirement{}, envelope.Method, "", nil
+		default:
+			return access.Requirement{}, envelope.Method, "", errors.New("unsupported MCP method")
+		}
 	}
 	var call callParams
 	if len(envelope.Params) == 0 || json.Unmarshal(envelope.Params, &call) != nil || call.Name == "" || len(call.Arguments) == 0 {
