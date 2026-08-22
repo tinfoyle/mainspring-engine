@@ -89,6 +89,7 @@ type PersonaPolicy struct {
 	MaximumToolSteps    int             `json:"maximum_tool_steps"`
 	CitationPolicy      string          `json:"citation_policy"`
 	ActionPolicy        string          `json:"action_policy"`
+	ActionCapabilities  []string        `json:"action_capabilities,omitempty"`
 	Tools               []ToolGrant     `json:"tools"`
 	OutputSchema        json.RawMessage `json:"output_schema"`
 }
@@ -138,10 +139,14 @@ func RestorePersonaVersion(version PersonaVersion) (PersonaVersion, error) {
 func canonicalPersonaDraft(draft PersonaVersionDraft) (PersonaVersionDraft, error) {
 	draft.Policy.Tools = append(make([]ToolGrant, 0, len(draft.Policy.Tools)), draft.Policy.Tools...)
 	draft.Policy.FallbackModels = append(make([]string, 0, len(draft.Policy.FallbackModels)), draft.Policy.FallbackModels...)
+	draft.Policy.ActionCapabilities = append(make([]string, 0, len(draft.Policy.ActionCapabilities)), draft.Policy.ActionCapabilities...)
 	draft.Name, draft.Role, draft.Description, draft.SystemInstructions = strings.TrimSpace(draft.Name), strings.TrimSpace(draft.Role), strings.TrimSpace(draft.Description), strings.TrimSpace(draft.SystemInstructions)
 	draft.Policy.Provider, draft.Policy.Model, draft.Policy.ReasoningEffort = strings.TrimSpace(draft.Policy.Provider), strings.TrimSpace(draft.Policy.Model), strings.TrimSpace(draft.Policy.ReasoningEffort)
 	for index := range draft.Policy.FallbackModels {
 		draft.Policy.FallbackModels[index] = strings.TrimSpace(draft.Policy.FallbackModels[index])
+	}
+	for index := range draft.Policy.ActionCapabilities {
+		draft.Policy.ActionCapabilities[index] = strings.TrimSpace(draft.Policy.ActionCapabilities[index])
 	}
 	draft.Policy.CitationPolicy, draft.Policy.ActionPolicy = strings.TrimSpace(draft.Policy.CitationPolicy), strings.TrimSpace(draft.Policy.ActionPolicy)
 	draft.CreatedAt = draft.CreatedAt.UTC()
@@ -149,12 +154,17 @@ func canonicalPersonaDraft(draft PersonaVersionDraft) (PersonaVersionDraft, erro
 		len(draft.Name) < 2 || len(draft.Name) > 120 || len(draft.Role) < 2 || len(draft.Role) > 160 || len(draft.Description) > 4000 || len(draft.SystemInstructions) < 20 || len(draft.SystemInstructions) > MaximumInstructions ||
 		!validCode.MatchString(draft.Policy.Provider) || !validCode.MatchString(draft.Policy.Model) || len(draft.Policy.FallbackModels) > MaximumFallbackModels || (draft.Policy.ReasoningEffort != "" && !validCode.MatchString(draft.Policy.ReasoningEffort)) ||
 		draft.Policy.MaximumInputTokens < 1 || draft.Policy.MaximumInputTokens > 2_000_000 || draft.Policy.MaximumOutputTokens < 1 || draft.Policy.MaximumOutputTokens > 32_768 || draft.Policy.MaximumCostMicros < 0 || draft.Policy.MaximumCostMicros > 1_000_000_000 ||
-		draft.Policy.MaximumToolSteps < 0 || draft.Policy.MaximumToolSteps > MaximumToolSteps || !slices.Contains([]string{"none", "required", "best_effort"}, draft.Policy.CitationPolicy) || !slices.Contains([]string{"none", "propose"}, draft.Policy.ActionPolicy) || len(draft.Policy.Tools) > MaximumToolsPerPersona {
+		draft.Policy.MaximumToolSteps < 0 || draft.Policy.MaximumToolSteps > MaximumToolSteps || !slices.Contains([]string{"none", "required", "best_effort"}, draft.Policy.CitationPolicy) || !slices.Contains([]string{"none", "propose"}, draft.Policy.ActionPolicy) || len(draft.Policy.ActionCapabilities) > MaximumToolsPerPersona || len(draft.Policy.Tools) > MaximumToolsPerPersona {
 		return PersonaVersionDraft{}, ErrInvalidPersona
 	}
 	models := append([]string{draft.Policy.Model}, draft.Policy.FallbackModels...)
 	for index, model := range models {
 		if !validCode.MatchString(model) || slices.Contains(models[:index], model) {
+			return PersonaVersionDraft{}, ErrInvalidPersona
+		}
+	}
+	for index, capability := range draft.Policy.ActionCapabilities {
+		if !validCode.MatchString(capability) || slices.Contains(draft.Policy.ActionCapabilities[:index], capability) {
 			return PersonaVersionDraft{}, ErrInvalidPersona
 		}
 	}

@@ -226,6 +226,7 @@ export interface AgentPersona {
 }
 
 export interface AgentPersonaPolicy {
+  readonly "action_capabilities"?: ReadonlyArray<string>;
   readonly "action_policy": "none" | "propose";
   readonly "citation_policy": "none" | "required" | "best_effort";
   readonly "fallback_models": ReadonlyArray<string>;
@@ -241,6 +242,7 @@ export interface AgentPersonaPolicy {
 }
 
 export interface AgentPersonaPolicyInput {
+  readonly "action_capabilities"?: ReadonlyArray<string>;
   readonly "action_policy": "none" | "propose";
   readonly "citation_policy": "none" | "required" | "best_effort";
   readonly "fallback_models": ReadonlyArray<string>;

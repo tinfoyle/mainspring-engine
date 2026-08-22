@@ -12,7 +12,11 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
-const CurrentVersion uint32 = 1
+const (
+	LegacyVersion           uint32 = 1
+	CurrentVersion          uint32 = 2
+	MaximumProjectedActions        = 8
+)
 
 var ErrDenied = errors.New("agent result violates immutable result policy")
 
@@ -25,16 +29,22 @@ type Policy struct {
 	Version            uint32
 	CitationPolicy     string
 	ActionPolicy       string
+	ActionCapabilities []string
 	CurrentPersonaID   ids.PersonaID
 	DelegatePersonaIDs []ids.PersonaID
 	CitationBindings   []CitationBinding
 }
 
 func Validate(policy Policy, result agentdomain.ResultEnvelope) error {
-	if policy.Version != CurrentVersion || ids.Validate(string(policy.CurrentPersonaID)) != nil ||
+	if (policy.Version != LegacyVersion && policy.Version != CurrentVersion) || ids.Validate(string(policy.CurrentPersonaID)) != nil ||
 		!slices.Contains([]string{"none", "required", "best_effort"}, policy.CitationPolicy) ||
 		!slices.Contains([]string{"none", "propose"}, policy.ActionPolicy) {
 		return ErrDenied
+	}
+	for index, capability := range policy.ActionCapabilities {
+		if strings.TrimSpace(capability) != capability || capability == "" || len(capability) > 128 || slices.Contains(policy.ActionCapabilities[:index], capability) {
+			return ErrDenied
+		}
 	}
 	for index, personaID := range policy.DelegatePersonaIDs {
 		if ids.Validate(string(personaID)) != nil || personaID == policy.CurrentPersonaID || slices.Contains(policy.DelegatePersonaIDs[:index], personaID) {
@@ -49,6 +59,16 @@ func Validate(policy Policy, result agentdomain.ResultEnvelope) error {
 	if (policy.CitationPolicy == "none" && len(result.Citations) != 0) || (policy.CitationPolicy == "required" && len(result.Citations) == 0) ||
 		(policy.ActionPolicy == "none" && len(result.ProposedActions) != 0) {
 		return ErrDenied
+	}
+	if policy.Version == CurrentVersion {
+		if len(result.ProposedActions) > MaximumProjectedActions {
+			return ErrDenied
+		}
+		for _, action := range result.ProposedActions {
+			if !slices.Contains(policy.ActionCapabilities, action.Kind) {
+				return ErrDenied
+			}
+		}
 	}
 	citationIDs := make([]string, 0, len(result.Citations))
 	for _, citation := range result.Citations {

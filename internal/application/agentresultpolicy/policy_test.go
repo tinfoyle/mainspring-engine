@@ -17,7 +17,7 @@ const (
 
 func TestValidateBindsCitationsActionsAndForwardDelegations(t *testing.T) {
 	policy := Policy{Version: CurrentVersion, CitationPolicy: "required", ActionPolicy: "propose", CurrentPersonaID: currentPersona,
-		DelegatePersonaIDs: []ids.PersonaID{nextPersona}, CitationBindings: []CitationBinding{{DocumentID: documentID, ChunkID: chunkID}}}
+		ActionCapabilities: []string{"work.create"}, DelegatePersonaIDs: []ids.PersonaID{nextPersona}, CitationBindings: []CitationBinding{{DocumentID: documentID, ChunkID: chunkID}}}
 	result := validResult()
 	if err := Validate(policy, result); err != nil {
 		t.Fatal(err)
@@ -43,12 +43,27 @@ func TestValidateBindsCitationsActionsAndForwardDelegations(t *testing.T) {
 func TestValidateEnforcesSuppressionAndRequiredEvidence(t *testing.T) {
 	result := validResult()
 	result.Citations = nil
-	if err := Validate(Policy{Version: CurrentVersion, CitationPolicy: "required", ActionPolicy: "propose", CurrentPersonaID: currentPersona, DelegatePersonaIDs: []ids.PersonaID{nextPersona}}, result); !errors.Is(err, ErrDenied) {
+	if err := Validate(Policy{Version: CurrentVersion, CitationPolicy: "required", ActionPolicy: "propose", ActionCapabilities: []string{"work.create"}, CurrentPersonaID: currentPersona, DelegatePersonaIDs: []ids.PersonaID{nextPersona}}, result); !errors.Is(err, ErrDenied) {
 		t.Fatalf("expected missing citation denial, got %v", err)
 	}
 	result = validResult()
 	if err := Validate(Policy{Version: CurrentVersion, CitationPolicy: "best_effort", ActionPolicy: "none", CurrentPersonaID: currentPersona, DelegatePersonaIDs: []ids.PersonaID{nextPersona}, CitationBindings: []CitationBinding{{DocumentID: documentID, ChunkID: chunkID}}}, result); !errors.Is(err, ErrDenied) {
 		t.Fatalf("expected action suppression, got %v", err)
+	}
+}
+
+func TestValidateV2DeniesUnfrozenActionCapabilityWhileV1RemainsReplayable(t *testing.T) {
+	result := validResult()
+	base := Policy{CitationPolicy: "best_effort", ActionPolicy: "propose", CurrentPersonaID: currentPersona,
+		DelegatePersonaIDs: []ids.PersonaID{nextPersona}, CitationBindings: []CitationBinding{{DocumentID: documentID, ChunkID: chunkID}}}
+	base.Version = CurrentVersion
+	base.ActionCapabilities = []string{"work.update"}
+	if err := Validate(base, result); !errors.Is(err, ErrDenied) {
+		t.Fatalf("expected capability denial, got %v", err)
+	}
+	base.Version = LegacyVersion
+	if err := Validate(base, result); err != nil {
+		t.Fatalf("legacy replay policy rejected: %v", err)
 	}
 }
 

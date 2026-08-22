@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentresultpolicy"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneragents"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
@@ -137,6 +138,34 @@ func TestProcessorProjectsValidatedCompletedTurn(t *testing.T) {
 	}
 	if queue.success.MessageID != "51000000-0000-4000-8000-000000000001" || queue.success.Body != "Prioritize the oldest blocked work." || queue.success.TotalTokens != 14 || queue.success.ResultDigest == ([32]byte{}) {
 		t.Fatalf("unexpected success projection: %+v", queue.success)
+	}
+}
+
+func TestProcessorProjectsPolicyV2ActionsAsDeterministicApprovals(t *testing.T) {
+	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
+	var turn runneragents.TurnOutput
+	if err := json.Unmarshal(validTurnOutput(t), &turn); err != nil {
+		t.Fatal(err)
+	}
+	turn.Result.ProposedActions = []agents.ProposedAction{{Kind: "work.create", Reason: "Track the follow-up", Payload: json.RawMessage(`{"title":"Follow up"}`), Evidence: []string{"finding-1"}}}
+	raw, err := json.Marshal(turn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", raw, "")
+	claim := validProjectionClaim(stored, 1)
+	claim.ResultPolicyVersion = agentresultpolicy.CurrentVersion
+	claim.ActionCapabilities = []string{"work.create"}
+	queue := &projectionQueue{found: true, claim: claim}
+	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
+	if err != nil || !result.Projected || queue.success == nil || len(queue.success.Proposals) != 1 {
+		t.Fatalf("result=%+v success=%+v err=%v", result, queue.success, err)
+	}
+	proposal := queue.success.Proposals[0]
+	wantID, _ := ids.Derive(stored.InvocationID, "action/1/approval")
+	if proposal.ApprovalID != wantID || proposal.Capability != "work.create" || proposal.ProposerID != "agent:"+string(claim.CurrentPersonaID) ||
+		proposal.PolicyVersion != agentresultpolicy.CurrentVersion || proposal.ExpiresAt != now.Add(24*time.Hour) || proposal.InputDigest == ([32]byte{}) || proposal.EvidenceDigest == ([32]byte{}) {
+		t.Fatalf("unexpected proposal: %+v", proposal)
 	}
 }
 

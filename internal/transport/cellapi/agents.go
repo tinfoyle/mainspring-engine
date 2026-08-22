@@ -61,6 +61,7 @@ type personaPolicyRequest struct {
 	MaximumToolSteps    int                 `json:"maximum_tool_steps"`
 	CitationPolicy      string              `json:"citation_policy"`
 	ActionPolicy        string              `json:"action_policy"`
+	ActionCapabilities  []string            `json:"action_capabilities,omitempty"`
 	Tools               *[]toolGrantRequest `json:"tools"`
 }
 type toolGrantRequest struct {
@@ -229,7 +230,7 @@ func (request personaPolicyRequest) domainPolicy() agentdomain.PersonaPolicy {
 		Provider: request.Provider, Model: request.Model, FallbackModels: request.FallbackModels, ReasoningEffort: request.ReasoningEffort,
 		MaximumInputTokens: request.MaximumInputTokens, MaximumOutputTokens: request.MaximumOutputTokens,
 		MaximumCostMicros: request.MaximumCostMicros, MaximumToolSteps: request.MaximumToolSteps,
-		CitationPolicy: request.CitationPolicy, ActionPolicy: request.ActionPolicy, Tools: tools,
+		CitationPolicy: request.CitationPolicy, ActionPolicy: request.ActionPolicy, ActionCapabilities: request.ActionCapabilities, Tools: tools,
 	}
 }
 

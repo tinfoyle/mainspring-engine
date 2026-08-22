@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -32,13 +34,13 @@ func (r *AgentProjectionRepository) Claim(ctx context.Context, leaseID string, n
 	var claim agentprojection.Claim
 	var digest []byte
 	var resultPolicyVersion int64
-	var delegateIDs, citationBindings []string
+	var actionCapabilities, delegateIDs, citationBindings []string
 	err := r.pool.QueryRow(ctx, `SELECT account_id,invocation_id,lease_id,attempt_count,expected_provider,requested_model,permitted_models,
-		result_policy_version,citation_policy,action_policy,current_persona_id,delegate_persona_ids,citation_bindings,
+		result_policy_version,citation_policy,action_policy,action_capabilities,current_persona_id,delegate_persona_ids,citation_bindings,
 		pod_uid,result_outcome,result_ciphertext,result_nonce,result_key_version,result_digest,result_submitted_at
-		FROM public.spyglass_claim_agent_result_projection_v2($1,$2,$3)`, leaseID, now.UTC(), int(lease/time.Second)).Scan(
+		FROM public.spyglass_claim_agent_result_projection_v3($1,$2,$3)`, leaseID, now.UTC(), int(lease/time.Second)).Scan(
 		&claim.AccountID, &claim.InvocationID, &claim.LeaseID, &claim.Attempt, &claim.ExpectedProvider, &claim.RequestedModel, &claim.PermittedModels,
-		&resultPolicyVersion, &claim.CitationPolicy, &claim.ActionPolicy, &claim.CurrentPersonaID, &delegateIDs, &citationBindings,
+		&resultPolicyVersion, &claim.CitationPolicy, &claim.ActionPolicy, &actionCapabilities, &claim.CurrentPersonaID, &delegateIDs, &citationBindings,
 		&claim.Result.PodUID, &claim.Result.Outcome, &claim.Result.Ciphertext, &claim.Result.Nonce, &claim.Result.KeyVersion,
 		&digest, &claim.Result.SubmittedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -52,6 +54,7 @@ func (r *AgentProjectionRepository) Claim(ctx context.Context, leaseID string, n
 		return claim, true, agentprojection.ErrInvalidClaim
 	}
 	claim.ResultPolicyVersion = uint32(resultPolicyVersion)
+	claim.ActionCapabilities = actionCapabilities
 	claim.DelegatePersonaIDs = make([]ids.PersonaID, len(delegateIDs))
 	for index, raw := range delegateIDs {
 		claim.DelegatePersonaIDs[index] = ids.PersonaID(raw)
@@ -69,12 +72,23 @@ func (r *AgentProjectionRepository) Claim(ctx context.Context, leaseID string, n
 }
 
 func (r *AgentProjectionRepository) ProjectSuccess(ctx context.Context, result agentprojection.Success) error {
+	proposals := make([]map[string]any, len(result.Proposals))
+	for index, proposal := range result.Proposals {
+		proposals[index] = map[string]any{"approval_id": proposal.ApprovalID, "operation_id": proposal.OperationID, "event_id": proposal.EventID,
+			"capability": proposal.Capability, "payload_base64": base64.StdEncoding.EncodeToString(proposal.CanonicalPayload),
+			"input_sha256_base64": base64.StdEncoding.EncodeToString(proposal.InputDigest[:]), "evidence_sha256_base64": base64.StdEncoding.EncodeToString(proposal.EvidenceDigest[:]),
+			"proposer_id": proposal.ProposerID, "policy_version": proposal.PolicyVersion, "expires_at": proposal.ExpiresAt.UTC()}
+	}
+	proposalPayload, err := json.Marshal(proposals)
+	if err != nil {
+		return fmt.Errorf("encode agent action proposals: %w", err)
+	}
 	var projected bool
-	err := r.pool.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success(
-		$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18)`,
+	err = r.pool.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v2(
+		$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18,$19::jsonb)`,
 		result.Claim.AccountID, result.Claim.InvocationID, result.Claim.LeaseID, result.MessageID, result.Provider,
 		result.SelectedModel, result.ResponseModel, result.ProviderResponseID, result.RunnerDigest[:], result.ResultDigest[:], result.ResultPayload,
-		result.Body, result.InputTokens, result.OutputTokens, result.TotalTokens, result.CostMicros, result.CompletedAt.UTC(), result.ProjectedAt.UTC()).Scan(&projected)
+		result.Body, result.InputTokens, result.OutputTokens, result.TotalTokens, result.CostMicros, result.CompletedAt.UTC(), result.ProjectedAt.UTC(), proposalPayload).Scan(&projected)
 	if err != nil {
 		return mapAgentProjectionError("project agent invocation success", err)
 	}

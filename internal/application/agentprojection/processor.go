@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentresultpolicy"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneragents"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
+	agentdomain "github.com/tinfoyle/spyglass-engine/internal/modules/agents"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -46,6 +48,7 @@ type Claim struct {
 	ResultPolicyVersion uint32
 	CitationPolicy      string
 	ActionPolicy        string
+	ActionCapabilities  []string
 	CurrentPersonaID    ids.PersonaID
 	DelegatePersonaIDs  []ids.PersonaID
 	CitationBindings    []agentresultpolicy.CitationBinding
@@ -61,9 +64,14 @@ func (c Claim) Valid() bool {
 			return false
 		}
 	}
-	if c.ResultPolicyVersion != agentresultpolicy.CurrentVersion || ids.Validate(string(c.CurrentPersonaID)) != nil ||
+	if (c.ResultPolicyVersion != agentresultpolicy.LegacyVersion && c.ResultPolicyVersion != agentresultpolicy.CurrentVersion) || ids.Validate(string(c.CurrentPersonaID)) != nil ||
 		!slices.Contains([]string{"none", "required", "best_effort"}, c.CitationPolicy) || !slices.Contains([]string{"none", "propose"}, c.ActionPolicy) {
 		return false
+	}
+	for index, capability := range c.ActionCapabilities {
+		if !validClaimModel.MatchString(capability) || slices.Contains(c.ActionCapabilities[:index], capability) {
+			return false
+		}
 	}
 	for index, personaID := range c.DelegatePersonaIDs {
 		if ids.Validate(string(personaID)) != nil || personaID == c.CurrentPersonaID || slices.Contains(c.DelegatePersonaIDs[:index], personaID) {
@@ -97,6 +105,20 @@ type Success struct {
 	CostMicros         int64
 	CompletedAt        time.Time
 	ProjectedAt        time.Time
+	Proposals          []ApprovalProposal
+}
+
+type ApprovalProposal struct {
+	ApprovalID       string
+	OperationID      string
+	EventID          string
+	Capability       string
+	CanonicalPayload json.RawMessage
+	InputDigest      [sha256.Size]byte
+	EvidenceDigest   [sha256.Size]byte
+	ProposerID       string
+	PolicyVersion    uint32
+	ExpiresAt        time.Time
 }
 
 type Failure struct {
@@ -178,7 +200,7 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 	}
 	if err := agentresultpolicy.Validate(agentresultpolicy.Policy{Version: claim.ResultPolicyVersion, CitationPolicy: claim.CitationPolicy,
 		ActionPolicy: claim.ActionPolicy, CurrentPersonaID: claim.CurrentPersonaID, DelegatePersonaIDs: claim.DelegatePersonaIDs,
-		CitationBindings: claim.CitationBindings}, output.Result); err != nil {
+		ActionCapabilities: claim.ActionCapabilities, CitationBindings: claim.CitationBindings}, output.Result); err != nil {
 		return p.reject(ctx, claim, now, "result_policy_denied", ErrInvalidPayload)
 	}
 	payload, err := json.Marshal(output.Result)
@@ -193,10 +215,52 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 		CostMicros:  output.Usage.CostMicros,
 		CompletedAt: claim.Result.SubmittedAt.UTC(), ProjectedAt: now,
 	}
+	if claim.ResultPolicyVersion == agentresultpolicy.CurrentVersion {
+		success.Proposals, err = approvalProposals(claim, output.Result.ProposedActions, success.ResultDigest, now)
+		if err != nil {
+			return p.reject(ctx, claim, now, "result_policy_denied", ErrInvalidPayload)
+		}
+	}
 	if err := p.queue.ProjectSuccess(ctx, success); err != nil {
 		return p.handleProjectionError(ctx, claim, now, "success_projection_failed", err)
 	}
 	return Result{Worked: true, Projected: true}, nil
+}
+
+func approvalProposals(claim Claim, actions []agentdomain.ProposedAction, resultDigest [sha256.Size]byte, now time.Time) ([]ApprovalProposal, error) {
+	proposals := make([]ApprovalProposal, len(actions))
+	for index, action := range actions {
+		approvalID, err := ids.Derive(claim.InvocationID, fmt.Sprintf("action/%d/approval", index+1))
+		if err != nil {
+			return nil, err
+		}
+		operationID, err := ids.Derive(claim.InvocationID, fmt.Sprintf("action/%d/operation", index+1))
+		if err != nil {
+			return nil, err
+		}
+		eventID, err := ids.Derive(claim.InvocationID, fmt.Sprintf("action/%d/event", index+1))
+		if err != nil {
+			return nil, err
+		}
+		inputDigest := sha256.Sum256(action.Payload)
+		hash := sha256.New()
+		_, _ = hash.Write([]byte("spyglass/action-evidence/v1/"))
+		_, _ = hash.Write(resultDigest[:])
+		var ordinal [8]byte
+		binary.BigEndian.PutUint64(ordinal[:], uint64(index+1))
+		_, _ = hash.Write(ordinal[:])
+		_, _ = hash.Write([]byte(action.Reason))
+		for _, evidence := range action.Evidence {
+			_, _ = hash.Write([]byte{0})
+			_, _ = hash.Write([]byte(evidence))
+		}
+		var evidenceDigest [sha256.Size]byte
+		copy(evidenceDigest[:], hash.Sum(nil))
+		proposals[index] = ApprovalProposal{ApprovalID: approvalID, OperationID: operationID, EventID: eventID,
+			Capability: action.Kind, CanonicalPayload: action.Payload, InputDigest: inputDigest, EvidenceDigest: evidenceDigest,
+			ProposerID: "agent:" + string(claim.CurrentPersonaID), PolicyVersion: claim.ResultPolicyVersion, ExpiresAt: now.Add(24 * time.Hour)}
+	}
+	return proposals, nil
 }
 
 func (p *Processor) Stats(ctx context.Context) (Stats, error) {

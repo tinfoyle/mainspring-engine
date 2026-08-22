@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,7 +66,7 @@ func validSnapshot(t *testing.T, now time.Time) Snapshot {
 		AccountID: "11000000-0000-4000-8000-000000000001", Version: 1, Name: "Operations Lead", Role: "Operations",
 		Description: "Coordinates work.", SystemInstructions: "Coordinate operational work and report evidence clearly.",
 		Policy: agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-test", FallbackModels: []string{"gpt-fallback"}, MaximumInputTokens: 100000, MaximumOutputTokens: 4000,
-			MaximumToolSteps: 1, CitationPolicy: "best_effort", ActionPolicy: "propose", OutputSchema: agentdomain.ResultSchema(),
+			MaximumToolSteps: 1, CitationPolicy: "best_effort", ActionPolicy: "propose", ActionCapabilities: []string{"work.create"}, OutputSchema: agentdomain.ResultSchema(),
 			Tools: []agentdomain.ToolGrant{{Name: "read_work", Capability: "work.summary.read", Description: "Read the Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)}}},
 		CreatedBy: "21000000-0000-4000-8000-000000000001", CreatedAt: now.Add(-time.Hour),
 	})
@@ -91,9 +92,10 @@ func TestBuildFreezesCompiledTurnAndCapabilities(t *testing.T) {
 	var input struct {
 		Provider         string   `json:"provider"`
 		Models           []string `json:"models"`
+		Instructions     string   `json:"instructions"`
 		MaximumToolSteps int      `json:"maximum_tool_steps"`
 	}
-	if err := json.Unmarshal(command.Request.Input, &input); err != nil || input.Provider != "openai" || input.MaximumToolSteps != 1 || !slices.Equal(input.Models, []string{"gpt-test", "gpt-fallback"}) {
+	if err := json.Unmarshal(command.Request.Input, &input); err != nil || input.Provider != "openai" || input.MaximumToolSteps != 1 || !slices.Equal(input.Models, []string{"gpt-test", "gpt-fallback"}) || !strings.Contains(input.Instructions, "work.create") {
 		t.Fatalf("input=%s decoded=%v err=%v", command.Request.Input, input, err)
 	}
 }
