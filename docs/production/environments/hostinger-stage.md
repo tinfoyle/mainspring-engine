@@ -36,6 +36,7 @@ previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-02/stage.env
 ```text
 <secret-set>/workload-ca/ca.crt
 <secret-set>/workload/{admission-api,app-router,mcp-gateway,app-api-a,app-api-b,tool-router}/{ca.crt,tls.crt,tls.key}
+<secret-set>/workload/{agent-dispatch-worker-a,agent-dispatch-worker-b,schedule-execution-worker-a,schedule-execution-worker-b}/{ca.crt,tls.crt,tls.key}
 <secret-set>/workload/{runner-controller-a,runner-controller-b}/{ca.crt,tls.crt,tls.key}
 <secret-set>/workload/{runner-broker-a,runner-broker-b}/{ca.crt,tls.crt,tls.key}
 <secret-set>/workload/{docker-runner-launcher-a,docker-runner-launcher-b,model-gateway}/{ca.crt,tls.crt,tls.key}
@@ -43,7 +44,7 @@ previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-02/stage.env
 <secret-set>/stage.env
 ```
 
-Workload private keys are mode `640` in mode-`750` identity directories. Their group is derived from the protected provider file and supplied only as a supplemental group to the 13 containers that mount workload identities; keys remain unreadable to every other host user and container. Writable per-cell runner identity directories are mode `770` under the same group, while `stage.env` remains mode `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The verifier checks certificate chains, key matches, group/mode contracts, seven-day minimum lifetime, exact DNS/SPIFFE/EKU contracts, immutable images, complete two-cell runner topology, provider-egress membership, internal runner networks, Docker socket ownership and absence of public port bindings.
+Workload private keys are mode `640` in mode-`750` identity directories. Their group is derived from the protected provider file and supplied only as a supplemental group to the 17 containers that mount workload identities; keys remain unreadable to every other host user and container. Writable per-cell runner identity directories are mode `770` under the same group, while `stage.env` remains mode `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The verifier checks certificate chains, key matches, group/mode contracts, seven-day minimum lifetime, exact DNS/SPIFFE/EKU contracts, immutable images, every application service's exact reviewed digest, complete two-cell runner topology, provider-egress membership, internal runner networks, Docker socket ownership and absence of public port bindings.
 
 ## Deployment
 

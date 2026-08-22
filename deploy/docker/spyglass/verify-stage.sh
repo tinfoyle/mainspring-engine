@@ -146,14 +146,22 @@ path, edge_network, application_image, website_image, secrets_gid = sys.argv[1:]
 with open(path, encoding="utf-8") as source:
     config = json.load(source)
 services = config["services"]
-application_services = {
+runner_services = {
     "tool-router", "runner-controller-a", "runner-controller-b",
     "runner-broker-a", "runner-broker-b", "docker-runner-launcher-a",
     "docker-runner-launcher-b", "model-gateway", "knowledge-document-worker-a",
     "knowledge-document-worker-b", "baseline-maintenance-worker-a",
     "baseline-maintenance-worker-b",
 }
-required = application_services | {"malware-scanner", "document-extractor"}
+application_services = runner_services | {
+    "account-api", "account-lifecycle-worker", "admission-api", "app-api-a", "app-api-b",
+    "app-router", "billing-worker", "cell-a-migrate", "cell-b-migrate", "entitlement-worker",
+    "global-migrate", "identity-maintenance-worker", "mcp-gateway", "notification-worker",
+    "work-reconciler-a", "work-reconciler-b", "route-receipt-worker-a", "route-receipt-worker-b",
+    "agent-dispatch-worker-a", "agent-dispatch-worker-b", "schedule-execution-worker-a",
+    "schedule-execution-worker-b", "agent-projection-worker-a", "agent-projection-worker-b",
+}
+required = runner_services | {"malware-scanner", "document-extractor"}
 missing = sorted(required - services.keys())
 if missing:
     raise SystemExit(f"stage runner topology is incomplete: {', '.join(missing)}")
