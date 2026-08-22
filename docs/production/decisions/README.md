@@ -8,6 +8,7 @@ This directory records decisions that constrain the Infinite Ocean: Spyglass pro
 | [ADR-0002](0002-system-identity-accounts-packages-and-billing.md) | System-wide Users, Spyglass Accounts, package entitlements, and asynchronous Stripe billing | Accepted |
 | [ADR-0003](0003-pooled-cell-runtime.md) | Shared workload-class deployments with account-isolated cells instead of per-customer containers | Accepted |
 | [ADR-0004](0004-knowledge-document-lifecycle.md) | Account-isolated document objects, immutable revisions, fail-closed processing, and environment storage mapping | Accepted |
+| [ADR-0005](0005-frozen-agent-run-plans.md) | Immutable Agent Run plans with bounded forward-only delegation and no model-driven expansion | Accepted |
 
 ## Record lifecycle
 
