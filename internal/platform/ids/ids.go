@@ -41,6 +41,7 @@ type BaselineAssessmentID string
 type BaselineRequirementID string
 type BaselinePlanID string
 type BaselineSourceGrantID string
+type ScheduleID string
 
 type Generator interface {
 	New() string
