@@ -1,6 +1,6 @@
 # Schedule Queue Operations
 
-Status: executable operator contract and applied local rehearsal complete; stage rehearsal and production role grants remain release gates
+Status: executable operator contract and applied local and Hostinger stage rehearsals complete; production role grants remain a release gate
 
 Recurring occurrences and trigger-now requests use independent identifier-only durable queues. A terminal row never retries forever and never disappears automatically. Operators can inspect one queue in one cell and, after correcting the underlying condition, requeue one exact recurring Schedule or trigger request.
 
@@ -35,6 +35,8 @@ spyglass schedule-queue-admin requeue
 
 Do not requeue deterministic authorization, package-access or validation failures until the underlying state has been reviewed. A recurring requeue retains its original `scheduled_for`; a trigger requeue retains its immutable request and `requested_for`. After requeue, confirm the relevant dead-letter gauge decreases, the ready gauge advances or the occurrence completes, and recurrence version/`next_run_at` changes only for a successful recurring occurrence.
 
-## Required production evidence
+## Stage certificate and production grant
 
-Before granting the role in production, exercise both queues against the stage cell: empty and populated inspection, exact requeue, wrong queue, wrong Account/Schedule/trigger, non-dead-letter conflict, duplicate authorization, immutable-event mutation, worker crash after requeue, Account erasure and restore replay. Archive the authorization ID, audit batch ID, bounded transition and monitoring evidence without customer content.
+The 2026-08-22 Hostinger rehearsal exercised populated and empty inspection for both queues, exact requeue, wrong-Account rejection, non-terminal/duplicate rejection, immutable-event mutation denial, worker restart/reclaim and Account erasure. Six successful audit batches and eight signed authorizations—including negative tests—were retained without customer content in `/opt/spyglass-stage/evidence/0.3.0-rc.1/schedule-queue-rehearsal.json`, SHA-256 `68a3e20c5a445ce21c1bdb33b01178af0b3af209550c2ba345180f2c4b795ae3`. The synthetic Account has zero remaining rows, the temporary operator role was dropped and both Schedule workers are healthy.
+
+Before production use, create the same execute-only role through the production secret/role workflow, run the one-shot image as a short-lived LKE Job and bind its authorization verifier to production operator key custody. Restore replay remains part of the complete production recovery game day rather than a reason to retain a standing queue credential.

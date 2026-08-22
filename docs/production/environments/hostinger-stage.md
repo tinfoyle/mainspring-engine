@@ -5,30 +5,32 @@
 - Application origin: `https://app.stage.infiniteocean.net`
 - Compose project: `spyglass-stage`
 
-## Verified host facts and live state (2026-08-21)
+## Verified host facts and live state (2026-08-22)
 
 The read-only inventory found Ubuntu kernel 7.0 on x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 storage with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user belongs to `docker` and has non-interactive sudo. The existing `infiniteocean` Compose project owns ports 80/443 through Caddy and owns the public mail ports through Stalwart. Spyglass must not replace, restart or bind over those services.
 
 The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the two stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs and the Account-scoped Work/Agent families without exposing any container port on the host.
 
-The active clean checkout is `/opt/spyglass-stage/releases/d127a4c7159b20329412b55436e0db4a98e0dfeb`, selected by `/opt/spyglass-stage/current`. The older RC.3 checkout remains rejected release history because its website image failed the later admission scan; do not select it. Both stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS.
+The active clean checkout is `/opt/spyglass-stage/releases/263bb16d5cde51c7ce35ce6d19c7139f1750ee2a`, selected by `/opt/spyglass-stage/current`. The older RC.3 checkout remains rejected release history because its website image failed the later admission scan; do not select it. Both stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS.
 
-The protected provider input exists at `/opt/spyglass-stage/provider-input/stage.providers.env` with directory mode 700 and file mode 600. SMTP, Stripe sandbox/webhook and non-production OpenAI values are present without disclosure. Stalwart implicit TLS is published on port 465 and healthy; the prior Compose file is retained as `/opt/infiniteocean/compose.yml.bak.20260821T143155Z.pre-smtps-465`. The admitted RC.5 application and website images run at their exact reviewed digests. There are 31 long-running Spyglass containers: all 30 healthchecked workloads are healthy and the internal edge is running. The three PostgreSQL services use persistent volumes.
+The protected provider input exists at `/opt/spyglass-stage/provider-input/stage.providers.env` with directory mode 700 and file mode 600. SMTP, Stripe sandbox/webhook, non-production OpenAI and the reviewed non-secret OpenAI model price book are present without disclosure. Stalwart implicit TLS is published on port 465 and healthy; the prior Compose file is retained as `/opt/infiniteocean/compose.yml.bak.20260821T143155Z.pre-smtps-465`. The Phase 3 RC.1 application and website images run at the exact reviewed digests recorded in `deploy/releases/0.3.0-rc.1.env`. There are 40 long-running Spyglass containers: all 39 healthchecked workloads are healthy and the internal edge is running without a healthcheck. The three PostgreSQL services retain their persistent volumes, and both cell Schedule workers are healthy.
 
 ## Files kept outside Git
 
-The mode-600 provider input and generated secrets remain outside Git. Active immutable secret set `2026-08-21-02` was generated after all provider values were supplied and is the only set used by the live stack. To rotate it, choose a new empty versioned target; never edit an existing set:
+The mode-600 provider input and generated secrets remain outside Git. Active immutable secret set `2026-08-22-02` was generated from provider input while carrying retained service credentials forward from `2026-08-21-02`; it is the only set used by the live stack. For an additive topology upgrade, choose a new empty versioned target and pass the previous active environment as the fourth argument:
 
 ```bash
 # Edit the provider input without printing it to logs.
 secret_set=/opt/spyglass-stage/secrets/YYYY-MM-DD-NN
+previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-02/stage.env
 ./prepare-stage-secrets.sh \
   /opt/spyglass-stage/provider-input/stage.providers.env \
   "$secret_set" \
-  infiniteocean_public
+  infiniteocean_public \
+  "$previous_stage_env"
 ```
 
-`prepare-stage-secrets.sh` reads the provider file as data, generates independent database passwords, per-cell runner encryption/signing keys, disjoint launcher tokens and a mode-600 `stage.env`, and refuses a non-empty target. It creates a temporary stage CA, issues exact DNS/SPIFFE/EKU leaves, then removes the CA private key. A new versioned target is required for rotation; an existing secret set is never edited in place. The generated tree contains:
+`prepare-stage-secrets.sh` reads both inputs as data, preserves every existing generated database, object-store, encryption, signing and service credential, generates only credentials absent from the previous set, refreshes provider values, creates a new workload CA and exact DNS/SPIFFE/EKU leaves, and refuses a non-empty target. It then removes the CA private key. Omitting the previous environment is valid only for fresh provisioning with empty persistent stores. A full rotation of credentials already bound into retained PostgreSQL or object-store state requires a separate coordinated credential-change procedure; creating a fresh file and restarting containers is not sufficient. An existing secret set is never edited in place. The generated tree contains:
 
 ```text
 <secret-set>/workload-ca/ca.crt
@@ -48,8 +50,8 @@ From the clean checkout selected by `current`:
 
 ```bash
 cd /opt/spyglass-stage/current/deploy/docker/spyglass
-release_file="$(realpath ../../releases/0.2.5-rc.5.env)"
-secret_set=/opt/spyglass-stage/secrets/2026-08-21-02
+release_file="$(realpath ../../releases/0.3.0-rc.1.env)"
+secret_set=/opt/spyglass-stage/secrets/2026-08-22-02
 ./verify-stage.sh "$release_file" "$secret_set/stage.env"
 ./deploy-stage.sh "$release_file" "$secret_set/stage.env"
 ```
@@ -58,7 +60,7 @@ The initial shared-edge merge is complete. For future edge changes, validate the
 
 Record both image digests, Git revisions, Catalog version and the three restore checkpoints before promotion. Database backup hooks and schedules are supplied by the owner after the containers are in place. Rollback selects the preceding recorded digest pair and reruns the same verifier/deployer; the successful RC.5 -> RC.4 -> RC.5 rehearsal did not restore or replace database volumes. Database restoration, when required, is quarantined and follows signed erasure-checkpoint replay.
 
-## Phase 2.5 evidence retained on the VPS
+## Evidence retained on the VPS
 
 Evidence files are mode 600 under `/opt/spyglass-stage/evidence`:
 
@@ -68,5 +70,6 @@ Evidence files are mode 600 under `/opt/spyglass-stage/evidence`:
 | `0.2.5-rc.5/anonymous-boundary-post-rollback.json` | `83d680e9a215ed47cb943d32157ac817c91e35fa6ab64dae604f61e041af1d3f` |
 | `0.2.5-rc.5/app-api-replica-restart.json` | `8201f58712c0752aa42c5faeb5a09308aa34eb87f1593835f4130a95f4ec95cf` |
 | `0.2.5-rc.5/provider-readiness.json` | `73a53bcbd690685565fad59c6da7aa43e216bbf72e927c183d5a057c45ee529d` |
+| `0.3.0-rc.1/schedule-queue-rehearsal.json` | `68a3e20c5a445ce21c1bdb33b01178af0b3af209550c2ba345180f2c4b795ae3` |
 
-Stage currently has zero users, Accounts, provider-price mappings, billing profiles and subscriptions. Phase 3 creates final Catalog mappings through signed operator authorization and then adds revocable synthetic customer fixtures for email/passkey/Stripe certification.
+The Schedule recovery fixture and temporary execute-only database role were erased after certification. Stage otherwise remains reserved for revocable synthetic acceptance fixtures. Phase 3 creates final Catalog mappings through signed operator authorization before customer/provider journey certification.

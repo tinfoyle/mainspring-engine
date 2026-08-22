@@ -1,6 +1,6 @@
 # Scheduling module
 
-- Status: recurrence, customer lifecycle/trigger surfaces, workload-authorized occurrence runtime and audited dead-letter recovery constructed; applied local rehearsal complete and stage rehearsal remains
+- Status: recurrence, customer lifecycle/trigger surfaces, workload-authorized occurrence runtime and audited dead-letter recovery constructed; applied local and Hostinger stage rehearsals complete; production role grants remain a release-time gate
 - Owner: Scheduling application module
 - Package boundary: schedule definitions use the package of their target; the first target is Agents
 
@@ -52,7 +52,9 @@ The customer Schedule surface now publishes stable cursor list/get, create, full
 
 The persistent `spyglass-local` stack has applied migrations 53–55 and the current binary. A synthetic due row exercised live worker retry, was moved to terminal failure for the recovery drill, was inspected and requeued by the real one-shot command under distinct production-format signed authorizations and an execute-only role, and was reclaimed by the live worker. Soft deletion then removed the due row, the temporary credential was dropped, immutable evidence remained, and the complete local smoke certificate passed. The fresh PostgreSQL integration gate separately proves successful recurring and trigger occurrence dispatch.
 
-The corresponding Hostinger stage failure rehearsal remains before this module is operationally complete.
+The Hostinger stage stack applied migrations 53–55 and ran the immutable `0.3.0-rc.1` application image (`sha256:f37b9927870d7f697e639d7becdc6aa5b00bca793a601fac4b74a29873b48253`, source revision `9f87fd2482b77eafe53c832cfde703db027d71a2`) with both Schedule workers healthy. Synthetic recurring and trigger rows exercised real worker retry, were forced terminal and then inspected and requeued by the real one-shot image under separate short-lived Ed25519 authorizations and a temporary execute-only/no-table-read role. Wrong-Account targeting, duplicate requeue and immutable-audit mutation failed closed; both requeued rows were reclaimed after worker restart. Cleanup used the ordinary Account erasure fence, removed every synthetic row and dropped the temporary role. The mode-600 content-free certificate is `/opt/spyglass-stage/evidence/0.3.0-rc.1/schedule-queue-rehearsal.json`, SHA-256 `68a3e20c5a445ce21c1bdb33b01178af0b3af209550c2ba345180f2c4b795ae3`.
+
+Scheduling is therefore operationally complete in local Docker and Hostinger stage. Production still requires creation of the same narrow execute-only role, an LKE Job wrapper for the one-shot image and environment-specific authorization/key custody during release preparation; those are deployment grants, not missing application behavior.
 
 ## Invariants
 

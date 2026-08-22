@@ -48,18 +48,18 @@ Cross-cell Account movement uses the same short-lived `account-move-admin` image
 
 The existing root `Dockerfile` remains the shared Go image. Process arguments select Account API, router, cell API, workers, brokers, migrations and short-lived operator jobs. The release workflow publishes AMD64/ARM64 GHCR images with attached BuildKit SBOM/provenance and a keyless Cosign signature.
 
-Current active Phase 2.5 platform pair:
+Current active Phase 3 stage candidate:
 
 | Artifact | Tag | Immutable manifest |
 |---|---|---|
-| Application | `spyglass-v0.2.5-rc.5` | `ghcr.io/tinfoyle/spyglass-engine@sha256:ebb385049702f6948ff6618c8b3d5e6fe07ff81c8c2b8f5b73ba478835b5f435` |
-| Website | `website-v0.2.5-rc.5` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:d9d7c941c655197c5fca88a0825ce4bb3a2fa76ca60e6b476d3b00ef4552dbff` |
+| Application | `spyglass-v0.3.0-rc.1` | `ghcr.io/tinfoyle/spyglass-engine@sha256:f37b9927870d7f697e639d7becdc6aa5b00bca793a601fac4b74a29873b48253` |
+| Website | `website-v0.3.0-rc.1` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:2bd61f89e9ec049e92bd408fef780cc6c109aa2be99d752a14b39d4aa7e887ab` |
 
-Both were built from `4bd276c6f96f6e9c4feef811864403c5fa36a1bb`, completed their keyless Cosign steps, expose attached per-platform SPDX/SLSA attestations, and independently passed exact-workflow Cosign verification plus Trivy 0.74.0 scans with zero high, critical or secret findings on AMD64 and ARM64. The application identity/tool-router fail-closed check, non-root website runtime, absence of npm/Corepack/Yarn and website readiness also passed from `ubunturojo`. The exact pair is tracked in `deploy/releases/0.2.5-rc.5.env`.
+Both were built from `9f87fd2482b77eafe53c832cfde703db027d71a2`, passed the release workflows and are tracked in `deploy/releases/0.3.0-rc.1.env`. Application run `32591754241` and website run `32591754027` completed successfully; the ordinary main verification run `32591550152` also passed. The pair is immutable stage evidence for the completed Scheduling slice, not the final production release.
 
 RC.2 predates the admission gate. RC.3 is signed but its website image failed the later independent scan with 5 critical and 48 high findings per platform. Both remain immutable history and neither is an approved rollback target. Admitted RC.4 is retained as the RC.5 rollback pair. `git diff --name-only spyglass-v0.2.5-rc.4..spyglass-v0.2.5-rc.5` contains no application, website, migration or Catalog code; the connected environment rehearsal confirmed the expected compatibility.
 
-The actual connected-stage RC.5 -> RC.4 -> RC.5 rehearsal completed successfully against retained PostgreSQL volumes. RC.4 and the restored RC.5 each passed the same 11-check exact-origin/Catalog boundary certificate. RC.5 remains active. Phase 3 will publish a new final-product pair; RC.5 is not predeclared as the production release.
+The actual connected-stage RC.5 -> RC.4 -> RC.5 rehearsal completed successfully against retained PostgreSQL volumes. RC.4 and the restored RC.5 each passed the same 11-check exact-origin/Catalog boundary certificate. RC.5 remains the Phase 2.5 platform rollback baseline, while Phase 3 RC.1 is active on stage. The final complete-product release will be a later immutable pair; neither is predeclared as the production release.
 
 ### Website image
 
@@ -98,6 +98,7 @@ deploy/releases/
   0.2.5-rc.3.env
   0.2.5-rc.4.env
   0.2.5-rc.5.env
+  0.3.0-rc.1.env
 deploy/kubernetes/overlays/
   linode-common/
   linode-preproduction/
@@ -166,11 +167,11 @@ The implementation must provide these documented operations through Compose and/
 
 The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 
-On 2026-08-21 both stage names resolved to the VPS public address and the shared Caddy routes were activated with the repository's shared security-header policy, including HSTS. The active clean checkout is `/opt/spyglass-stage/releases/d127a4c7159b20329412b55436e0db4a98e0dfeb`; `/opt/spyglass-stage/current` selects it atomically. The immutable RC.5 images are deployed, 31 long-running containers are present, all 30 healthchecked workloads are healthy, the internal edge is running, and the global/cell A/cell B PostgreSQL services retain their volumes.
+On 2026-08-21 both stage names resolved to the VPS public address and the shared Caddy routes were activated with the repository's shared security-header policy, including HSTS. On 2026-08-22 the active clean checkout became `/opt/spyglass-stage/releases/263bb16d5cde51c7ce35ce6d19c7139f1750ee2a`; `/opt/spyglass-stage/current` selects it atomically. The immutable Phase 3 RC.1 images are deployed, 40 long-running containers are present, all 39 healthchecked workloads are healthy, the internal edge is running, and the global/cell A/cell B PostgreSQL services retain their volumes at migrations 53–55.
 
-The provider input remains mode 600 outside Git. Generated secret set `/opt/spyglass-stage/secrets/2026-08-21-02` passes its mode, identity, certificate and restore-checkpoint verifier. Stripe sandbox access and webhook endpoint `we_1U6uGAPokWCfkh4CBSN0SjNI`, non-production OpenAI access, Stalwart implicit TLS and model-gateway health all passed the content-free provider certificate. RC.4 rollback and RC.5 restoration completed without database restoration. Owner-managed backup destinations/schedules and external disk/certificate alerting remain environment operations, as agreed; they are not application-construction blockers.
+The provider input remains mode 600 outside Git. Generated secret set `/opt/spyglass-stage/secrets/2026-08-22-02` passes its mode, identity, certificate and restore-checkpoint verifier while carrying retained database/service credentials forward from `2026-08-21-02`. This corrected a failed first upgrade attempt that regenerated passwords already bound into persistent PostgreSQL volumes. Future additive topology upgrades must supply the previous active environment to `prepare-stage-secrets.sh`; full credential rotation needs coordinated datastore changes. Stripe sandbox access and webhook endpoint `we_1U6uGAPokWCfkh4CBSN0SjNI`, non-production OpenAI access, Stalwart implicit TLS and model-gateway health all passed the content-free provider certificate. RC.4 rollback and RC.5 restoration completed without database restoration. Owner-managed backup destinations/schedules and external disk/certificate alerting remain environment operations, as agreed; they are not application-construction blockers.
 
-The next Phase 3 release adds one required provider input, `SPYGLASS_OPENAI_MODEL_PRICING_JSON`, containing reviewed current prices for every exact model enabled in immutable Personas. Stage secret preparation and the LKE model-gateway Secret fail closed when it is absent or malformed; no actual price or provider credential belongs in Git. This is a release-preparation requirement only and does not mutate the currently active RC.5 stage deployment.
+The required non-secret `SPYGLASS_OPENAI_MODEL_PRICING_JSON` provider input now contains reviewed current prices for every exact model enabled in immutable Personas. Stage secret preparation and the LKE model-gateway Secret fail closed when it is absent or malformed; neither actual prices nor provider credentials belong in Git because prices are environment-reviewed operational input.
 
 ### Stage topology
 
@@ -215,6 +216,8 @@ The completed Phase 2.5 Hostinger gate proves:
 - process topology, isolated cell runner networks and persistent database placement;
 - interruption-free application replica recovery;
 - clean-checkout activation with secrets kept outside Git;
+
+The 2026-08-22 Phase 3 Scheduling checkpoint additionally proves both identifier-only queues through real retry/terminal failure, signed inspection, exact requeue, worker restart/reclaim, negative authorization and immutable-audit checks, followed by erasure-fenced fixture cleanup. Its mode-600 certificate is `/opt/spyglass-stage/evidence/0.3.0-rc.1/schedule-queue-rehearsal.json`, SHA-256 `68a3e20c5a445ce21c1bdb33b01178af0b3af209550c2ba345180f2c4b795ae3`.
 
 The final Phase 3 Hostinger release gate additionally proves:
 

@@ -87,4 +87,4 @@ Do not create provider-price mappings by direct SQL or weaken the signed operato
 6. run connected journeys and archive artifact hashes;
 7. clean up or retain synthetic fixtures under the reviewed test-data policy.
 
-The current RC.5 stage database remains intentionally pristine until this governed Phase 3 sequence is ready.
+The active Phase 3 RC.1 stage database contains no retained synthetic customer Account after the Scheduling recovery drill. Customer/Catalog/Stripe journey fixtures remain deferred until this governed sequence is ready; operational queue evidence does not substitute for that acceptance plan.
