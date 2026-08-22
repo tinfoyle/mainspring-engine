@@ -224,9 +224,23 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 	if _, err := repository.GetLedger(ctx, otherAccountID, ledgerID); !errors.Is(err, financeapp.ErrNotFound) {
 		t.Fatalf("cross-Account ledger err=%v", err)
 	}
+	ledgerRevisionEvent := "fc400000-0000-4000-8000-000000000002"
+	ledgerRevision := financedomain.LedgerRevision{Name: "Primary operating ledger", Code: "ops", Description: "Internal operations", ExpectedVersion: 1,
+		Actor: actor, Role: accounts.RoleOwner, At: now.Add(30 * time.Second)}
+	ledger, err = repository.ReviseLedger(ctx, accountID, ledgerID, ledgerRevision, mutation(ledgerRevisionEvent, "revised", ledgerRevision.At))
+	if err != nil || ledger.Version != 2 || ledger.Code != "OPS" {
+		t.Fatalf("revised ledger=%+v err=%v", ledger, err)
+	}
+	retryLedgerRevision := ledgerRevision
+	retryLedgerRevision.At = now.Add(45 * time.Second)
+	replayedLedger, err := repository.ReviseLedger(ctx, accountID, ledgerID, retryLedgerRevision, mutation(ledgerRevisionEvent, "revised", retryLedgerRevision.At))
+	if err != nil || replayedLedger.Version != ledger.Version || replayedLedger.UpdatedAt != ledger.UpdatedAt {
+		t.Fatalf("ledger revision replay=%+v err=%v", replayedLedger, err)
+	}
 
 	cashID := ids.FinanceAccountID("fc500000-0000-4000-8000-000000000001")
 	revenueID := ids.FinanceAccountID("fc500000-0000-4000-8000-000000000002")
+	assetRootID := ids.FinanceAccountID("fc500000-0000-4000-8000-000000000003")
 	for index, value := range []struct {
 		id      ids.FinanceAccountID
 		code    string
@@ -234,13 +248,33 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 		kind    financedomain.AccountType
 		eventID string
 	}{{cashID, "1000", "Cash", financedomain.AccountAsset, "fc600000-0000-4000-8000-000000000001"},
-		{revenueID, "4000", "Revenue", financedomain.AccountIncome, "fc600000-0000-4000-8000-000000000002"}} {
+		{revenueID, "4000", "Revenue", financedomain.AccountIncome, "fc600000-0000-4000-8000-000000000002"},
+		{assetRootID, "100", "Assets", financedomain.AccountAsset, "fc600000-0000-4000-8000-000000000003"}} {
 		_, created, err := repository.CreatePostingAccount(ctx, financedomain.PostingAccountDraft{ID: value.id, AccountID: accountID, LedgerID: ledgerID,
-			Code: value.code, Name: value.name, Type: value.kind, AllowPosting: true, CreatedBy: actor, CreatedAt: now.Add(time.Duration(index+1) * time.Minute)},
+			Code: value.code, Name: value.name, Type: value.kind, AllowPosting: value.id != assetRootID, CreatedBy: actor, CreatedAt: now.Add(time.Duration(index+1) * time.Minute)},
 			accounts.RoleOwner, mutation(value.eventID, "created", now.Add(time.Duration(index+1)*time.Minute)))
 		if err != nil || !created {
 			t.Fatalf("account %s created=%v err=%v", value.code, created, err)
 		}
+	}
+	accountRevisionEvent := "fc600000-0000-4000-8000-000000000004"
+	accountRevision := financedomain.PostingAccountRevision{ParentAccountID: assetRootID, Code: "1010", Name: "Operating cash", Description: "Available cash",
+		AllowPosting: true, ExpectedVersion: 1, Actor: actor, Role: accounts.RoleAdministrator, At: now.Add(4 * time.Minute)}
+	revisedCash, err := repository.RevisePostingAccount(ctx, accountID, cashID, accountRevision, mutation(accountRevisionEvent, "revised", accountRevision.At))
+	if err != nil || revisedCash.Version != 2 || revisedCash.ParentAccountID != assetRootID || revisedCash.Code != "1010" {
+		t.Fatalf("revised cash=%+v err=%v", revisedCash, err)
+	}
+	retryAccountRevision := accountRevision
+	retryAccountRevision.At = now.Add(4*time.Minute + 15*time.Second)
+	replayedCash, err := repository.RevisePostingAccount(ctx, accountID, cashID, retryAccountRevision, mutation(accountRevisionEvent, "revised", retryAccountRevision.At))
+	if err != nil || replayedCash.Version != revisedCash.Version || replayedCash.UpdatedAt != revisedCash.UpdatedAt {
+		t.Fatalf("account revision replay=%+v err=%v", replayedCash, err)
+	}
+	cycleRevision := financedomain.PostingAccountRevision{ParentAccountID: cashID, Code: "100", Name: "Assets", ExpectedVersion: 1,
+		Actor: actor, Role: accounts.RoleOwner, At: now.Add(4*time.Minute + 30*time.Second)}
+	if _, err := repository.RevisePostingAccount(ctx, accountID, assetRootID, cycleRevision,
+		mutation("fc600000-0000-4000-8000-000000000005", "revised", cycleRevision.At)); !errors.Is(err, financeapp.ErrInvalid) {
+		t.Fatalf("cycle revision err=%v", err)
 	}
 
 	entryID := ids.FinanceEntryID("fc700000-0000-4000-8000-000000000001")
@@ -258,6 +292,10 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 	replayedEntry, created, err := repository.CreateEntry(ctx, retryEntryDraft, accounts.RoleMember, mutation(entryEvent, "created", entryAt.Add(time.Minute)))
 	if err != nil || created || !reflect.DeepEqual(replayedEntry, entry) {
 		t.Fatalf("entry replay=%+v created=%v err=%v", replayedEntry, created, err)
+	}
+	if _, err := repository.ArchivePostingAccount(ctx, accountID, cashID, 2, actor, accounts.RoleOwner,
+		mutation("fc600000-0000-4000-8000-000000000006", "archived", now.Add(4*time.Minute+45*time.Second))); !errors.Is(err, financeapp.ErrInvalid) {
+		t.Fatalf("posting account with draft entry archive err=%v", err)
 	}
 	postAt := now.Add(5 * time.Minute)
 	postEvent := "fc800000-0000-4000-8000-000000000002"
@@ -307,5 +345,50 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 		mutation("fca00000-0000-4000-8000-000000000003", "reconciliation_confirmed", reverseAt.Add(3*time.Minute)))
 	if err != nil || confirmed.State != financedomain.ReconciliationConfirmed {
 		t.Fatalf("confirmed=%+v err=%v", confirmed, err)
+	}
+
+	closeAt := now.Add(10 * time.Minute)
+	closeEvent := "fcb00000-0000-4000-8000-000000000001"
+	closeCommand := financedomain.ClosePeriodCommand{Through: asOf, Evidence: []ids.KnowledgeEvidenceID{evidenceID}, Actor: actor,
+		Role: accounts.RoleOwner, ExpectedVersion: 2, At: closeAt}
+	closed, err := repository.CloseLedgerPeriod(ctx, accountID, ledgerID, closeCommand, mutation(closeEvent, "period_closed", closeAt))
+	if err != nil || closed.Version != 3 || closed.ClosedThrough == nil || !closed.ClosedThrough.Equal(time.Date(asOf.Year(), asOf.Month(), asOf.Day(), 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("closed ledger=%+v err=%v", closed, err)
+	}
+	retryClose := closeCommand
+	retryClose.At = closeAt.Add(time.Minute)
+	replayedClose, err := repository.CloseLedgerPeriod(ctx, accountID, ledgerID, retryClose, mutation(closeEvent, "period_closed", retryClose.At))
+	if err != nil || replayedClose.Version != closed.Version || replayedClose.UpdatedAt != closed.UpdatedAt {
+		t.Fatalf("close replay=%+v err=%v", replayedClose, err)
+	}
+	if _, err := repository.ArchiveLedger(ctx, accountID, ledgerID, 3, actor, accounts.RoleOwner,
+		mutation("fcb00000-0000-4000-8000-000000000002", "archived", closeAt.Add(2*time.Minute))); !errors.Is(err, financeapp.ErrInvalid) {
+		t.Fatalf("ledger with active accounts archive err=%v", err)
+	}
+	archiveAccount := func(id ids.FinanceAccountID, expected uint64, eventID string, at time.Time) financedomain.PostingAccount {
+		value, err := repository.ArchivePostingAccount(ctx, accountID, id, expected, actor, accounts.RoleAdministrator, mutation(eventID, "archived", at))
+		if err != nil || value.State != financedomain.LedgerArchived || value.AllowPosting {
+			t.Fatalf("archived account=%+v err=%v", value, err)
+		}
+		return value
+	}
+	archivedCash := archiveAccount(cashID, 2, "fcb00000-0000-4000-8000-000000000003", closeAt.Add(3*time.Minute))
+	archiveAccount(revenueID, 1, "fcb00000-0000-4000-8000-000000000004", closeAt.Add(4*time.Minute))
+	archiveAccount(assetRootID, 1, "fcb00000-0000-4000-8000-000000000005", closeAt.Add(5*time.Minute))
+	replayedArchive, err := repository.ArchivePostingAccount(ctx, accountID, cashID, 2, actor, accounts.RoleAdministrator,
+		mutation("fcb00000-0000-4000-8000-000000000003", "archived", closeAt.Add(6*time.Minute)))
+	if err != nil || replayedArchive.Version != archivedCash.Version || replayedArchive.UpdatedAt != archivedCash.UpdatedAt {
+		t.Fatalf("account archive replay=%+v err=%v", replayedArchive, err)
+	}
+	archiveLedgerEvent := "fcb00000-0000-4000-8000-000000000006"
+	archivedLedger, err := repository.ArchiveLedger(ctx, accountID, ledgerID, 3, actor, accounts.RoleOwner,
+		mutation(archiveLedgerEvent, "archived", closeAt.Add(7*time.Minute)))
+	if err != nil || archivedLedger.State != financedomain.LedgerArchived || archivedLedger.Version != 4 {
+		t.Fatalf("archived ledger=%+v err=%v", archivedLedger, err)
+	}
+	replayedArchivedLedger, err := repository.ArchiveLedger(ctx, accountID, ledgerID, 3, actor, accounts.RoleOwner,
+		mutation(archiveLedgerEvent, "archived", closeAt.Add(8*time.Minute)))
+	if err != nil || replayedArchivedLedger.Version != archivedLedger.Version || replayedArchivedLedger.UpdatedAt != archivedLedger.UpdatedAt {
+		t.Fatalf("ledger archive replay=%+v err=%v", replayedArchivedLedger, err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -79,6 +80,160 @@ func (repository *FinanceRepository) GetLedger(ctx context.Context, accountID id
 	return result, classifyFinance(err)
 }
 
+func (repository *FinanceRepository) ReviseLedger(ctx context.Context, accountID ids.AccountID, ledgerID ids.FinanceLedgerID, command domain.LedgerRevision, mutation financeapp.Mutation) (domain.Ledger, error) {
+	if !mutation.Valid() || mutation.Kind != "revised" || mutation.Actor != command.Actor || !mutation.At.UTC().Equal(command.At.UTC()) {
+		return domain.Ledger{}, financeapp.ErrInvalid
+	}
+	var result domain.Ledger
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		current, err := loadFinanceLedger(ctx, tx, accountID, ledgerID, true)
+		if err != nil {
+			return err
+		}
+		if current.Version == command.ExpectedVersion+1 {
+			matched, err := financeEventMatches(ctx, tx, accountID, mutation.EventID, "ledger", string(ledgerID), mutation.Kind, command.ExpectedVersion, current.Version)
+			if err != nil || !matched || current.Name != strings.TrimSpace(command.Name) || current.Code != strings.ToUpper(strings.TrimSpace(command.Code)) ||
+				current.Description != strings.TrimSpace(command.Description) {
+				if err != nil {
+					return err
+				}
+				return financeapp.ErrConflict
+			}
+			result = current
+			return nil
+		}
+		if current.Version != command.ExpectedVersion {
+			return financeapp.ErrConflict
+		}
+		revised, err := current.Revise(command)
+		if err != nil {
+			return err
+		}
+		updated, err := tx.Exec(ctx, `UPDATE spyglass.finance_ledgers SET name=$3,code=$4,description=$5,version=$6,updated_at=$7
+			WHERE account_id=$1 AND id=$2 AND version=$8`, accountID, ledgerID, revised.Name, revised.Code, revised.Description, revised.Version, revised.UpdatedAt, command.ExpectedVersion)
+		if err != nil {
+			return err
+		}
+		if updated.RowsAffected() != 1 {
+			return financeapp.ErrConflict
+		}
+		if err := insertFinanceEvent(ctx, tx, accountID, "ledger", string(ledgerID), command.ExpectedVersion, mutation,
+			map[string]any{"code": revised.Code, "currency": revised.Currency, "state": revised.State}); err != nil {
+			return err
+		}
+		result = revised
+		return nil
+	})
+	return result, classifyFinance(err)
+}
+
+func (repository *FinanceRepository) CloseLedgerPeriod(ctx context.Context, accountID ids.AccountID, ledgerID ids.FinanceLedgerID, command domain.ClosePeriodCommand, mutation financeapp.Mutation) (domain.Ledger, error) {
+	if !mutation.Valid() || mutation.Kind != "period_closed" || mutation.Actor != command.Actor || !mutation.At.UTC().Equal(command.At.UTC()) {
+		return domain.Ledger{}, financeapp.ErrInvalid
+	}
+	var result domain.Ledger
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		current, err := loadFinanceLedger(ctx, tx, accountID, ledgerID, true)
+		if err != nil {
+			return err
+		}
+		if current.Version == command.ExpectedVersion+1 {
+			matched, err := financeEventMatches(ctx, tx, accountID, mutation.EventID, "ledger", string(ledgerID), mutation.Kind, command.ExpectedVersion, current.Version)
+			if err != nil || !matched || current.ClosedThrough == nil || !sameFinanceDate(*current.ClosedThrough, command.Through) || !sameFinanceEvidence(current.CloseEvidence, command.Evidence) {
+				if err != nil {
+					return err
+				}
+				return financeapp.ErrConflict
+			}
+			result = current
+			return nil
+		}
+		if current.Version != command.ExpectedVersion {
+			return financeapp.ErrConflict
+		}
+		closed, err := current.ClosePeriod(command)
+		if err != nil {
+			return err
+		}
+		for _, evidenceID := range closed.CloseEvidence {
+			if _, err := tx.Exec(ctx, `INSERT INTO spyglass.finance_ledger_close_evidence
+				(account_id,ledger_id,ledger_version,evidence_id,closed_through,created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
+				accountID, ledgerID, closed.Version, evidenceID, closed.ClosedThrough, closed.UpdatedAt); err != nil {
+				return err
+			}
+		}
+		updated, err := tx.Exec(ctx, `UPDATE spyglass.finance_ledgers SET closed_through=$3,version=$4,updated_at=$5
+			WHERE account_id=$1 AND id=$2 AND version=$6`, accountID, ledgerID, closed.ClosedThrough, closed.Version, closed.UpdatedAt, command.ExpectedVersion)
+		if err != nil {
+			return err
+		}
+		if updated.RowsAffected() != 1 {
+			return financeapp.ErrConflict
+		}
+		if err := insertFinanceEvent(ctx, tx, accountID, "ledger", string(ledgerID), command.ExpectedVersion, mutation,
+			map[string]any{"closed_through": closed.ClosedThrough, "evidence_count": len(closed.CloseEvidence), "state": closed.State}); err != nil {
+			return err
+		}
+		result = closed
+		return nil
+	})
+	return result, classifyFinance(err)
+}
+
+func (repository *FinanceRepository) ArchiveLedger(ctx context.Context, accountID ids.AccountID, ledgerID ids.FinanceLedgerID, expected uint64, actor domain.Actor, role accounts.MembershipRole, mutation financeapp.Mutation) (domain.Ledger, error) {
+	if !mutation.Valid() || mutation.Kind != "archived" || mutation.Actor != actor {
+		return domain.Ledger{}, financeapp.ErrInvalid
+	}
+	var result domain.Ledger
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		current, err := loadFinanceLedger(ctx, tx, accountID, ledgerID, true)
+		if err != nil {
+			return err
+		}
+		if current.Version == expected+1 && current.State == domain.LedgerArchived {
+			matched, err := financeEventMatches(ctx, tx, accountID, mutation.EventID, "ledger", string(ledgerID), mutation.Kind, expected, current.Version)
+			if err != nil || !matched {
+				if err != nil {
+					return err
+				}
+				return financeapp.ErrConflict
+			}
+			result = current
+			return nil
+		}
+		if current.Version != expected {
+			return financeapp.ErrConflict
+		}
+		var blocked bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM spyglass.finance_accounts WHERE account_id=$1 AND ledger_id=$2 AND state='active') OR
+			EXISTS(SELECT 1 FROM spyglass.finance_entries WHERE account_id=$1 AND ledger_id=$2 AND state='draft')`, accountID, ledgerID).Scan(&blocked); err != nil {
+			return err
+		}
+		if blocked {
+			return financeapp.ErrInvalid
+		}
+		archived, err := current.Archive(expected, actor, role, mutation.At)
+		if err != nil {
+			return err
+		}
+		updated, err := tx.Exec(ctx, `UPDATE spyglass.finance_ledgers SET state='archived',version=$3,updated_at=$4
+			WHERE account_id=$1 AND id=$2 AND version=$5`, accountID, ledgerID, archived.Version, archived.UpdatedAt, expected)
+		if err != nil {
+			return err
+		}
+		if updated.RowsAffected() != 1 {
+			return financeapp.ErrConflict
+		}
+		if err := insertFinanceEvent(ctx, tx, accountID, "ledger", string(ledgerID), expected, mutation,
+			map[string]any{"currency": archived.Currency, "state": archived.State}); err != nil {
+			return err
+		}
+		result = archived
+		return nil
+	})
+	return result, classifyFinance(err)
+}
+
 func (repository *FinanceRepository) CreatePostingAccount(ctx context.Context, draft domain.PostingAccountDraft, role accounts.MembershipRole, mutation financeapp.Mutation) (domain.PostingAccount, bool, error) {
 	value, err := domain.NewPostingAccount(draft, role)
 	if err != nil || !mutation.Valid() || mutation.Kind != "created" || mutation.Actor != value.CreatedBy || !mutation.At.UTC().Equal(value.CreatedAt) {
@@ -135,6 +290,130 @@ func (repository *FinanceRepository) CreatePostingAccount(ctx context.Context, d
 		return nil
 	})
 	return result, created, classifyFinance(err)
+}
+
+func (repository *FinanceRepository) RevisePostingAccount(ctx context.Context, accountID ids.AccountID, postingAccountID ids.FinanceAccountID, command domain.PostingAccountRevision, mutation financeapp.Mutation) (domain.PostingAccount, error) {
+	if !mutation.Valid() || mutation.Kind != "revised" || mutation.Actor != command.Actor || !mutation.At.UTC().Equal(command.At.UTC()) {
+		return domain.PostingAccount{}, financeapp.ErrInvalid
+	}
+	var result domain.PostingAccount
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		current, err := loadFinancePostingAccount(ctx, tx, accountID, postingAccountID, true)
+		if err != nil {
+			return err
+		}
+		if current.Version == command.ExpectedVersion+1 {
+			matched, err := financeEventMatches(ctx, tx, accountID, mutation.EventID, "account", string(postingAccountID), mutation.Kind, command.ExpectedVersion, current.Version)
+			if err != nil || !matched || current.ParentAccountID != command.ParentAccountID || current.Code != strings.ToUpper(strings.TrimSpace(command.Code)) ||
+				current.Name != strings.TrimSpace(command.Name) || current.Description != strings.TrimSpace(command.Description) || current.AllowPosting != command.AllowPosting {
+				if err != nil {
+					return err
+				}
+				return financeapp.ErrConflict
+			}
+			result = current
+			return nil
+		}
+		if current.Version != command.ExpectedVersion {
+			return financeapp.ErrConflict
+		}
+		if command.ParentAccountID != "" {
+			parent, err := loadFinancePostingAccount(ctx, tx, accountID, command.ParentAccountID, true)
+			if err != nil || parent.LedgerID != current.LedgerID || parent.State != domain.LedgerActive {
+				if err != nil {
+					return err
+				}
+				return financeapp.ErrInvalid
+			}
+			var cyclic bool
+			if err := tx.QueryRow(ctx, `WITH RECURSIVE ancestors AS (
+				SELECT id,parent_account_id FROM spyglass.finance_accounts WHERE account_id=$1 AND ledger_id=$2 AND id=$3
+				UNION ALL
+				SELECT a.id,a.parent_account_id FROM spyglass.finance_accounts a JOIN ancestors p ON a.account_id=$1 AND a.ledger_id=$2 AND a.id=p.parent_account_id
+			) SELECT EXISTS(SELECT 1 FROM ancestors WHERE id=$4)`, accountID, current.LedgerID, command.ParentAccountID, postingAccountID).Scan(&cyclic); err != nil {
+				return err
+			}
+			if cyclic {
+				return financeapp.ErrInvalid
+			}
+		}
+		revised, err := current.Revise(command)
+		if err != nil {
+			return err
+		}
+		updated, err := tx.Exec(ctx, `UPDATE spyglass.finance_accounts SET parent_account_id=$3,code=$4,name=$5,description=$6,allow_posting=$7,version=$8,updated_at=$9
+			WHERE account_id=$1 AND id=$2 AND version=$10`, accountID, postingAccountID, nullableFinanceAccountID(revised.ParentAccountID), revised.Code,
+			revised.Name, revised.Description, revised.AllowPosting, revised.Version, revised.UpdatedAt, command.ExpectedVersion)
+		if err != nil {
+			return err
+		}
+		if updated.RowsAffected() != 1 {
+			return financeapp.ErrConflict
+		}
+		if err := insertFinanceEvent(ctx, tx, accountID, "account", string(postingAccountID), command.ExpectedVersion, mutation,
+			map[string]any{"ledger_id": revised.LedgerID, "code": revised.Code, "allow_posting": revised.AllowPosting, "state": revised.State}); err != nil {
+			return err
+		}
+		result = revised
+		return nil
+	})
+	return result, classifyFinance(err)
+}
+
+func (repository *FinanceRepository) ArchivePostingAccount(ctx context.Context, accountID ids.AccountID, postingAccountID ids.FinanceAccountID, expected uint64, actor domain.Actor, role accounts.MembershipRole, mutation financeapp.Mutation) (domain.PostingAccount, error) {
+	if !mutation.Valid() || mutation.Kind != "archived" || mutation.Actor != actor {
+		return domain.PostingAccount{}, financeapp.ErrInvalid
+	}
+	var result domain.PostingAccount
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		current, err := loadFinancePostingAccount(ctx, tx, accountID, postingAccountID, true)
+		if err != nil {
+			return err
+		}
+		if current.Version == expected+1 && current.State == domain.LedgerArchived {
+			matched, err := financeEventMatches(ctx, tx, accountID, mutation.EventID, "account", string(postingAccountID), mutation.Kind, expected, current.Version)
+			if err != nil || !matched {
+				if err != nil {
+					return err
+				}
+				return financeapp.ErrConflict
+			}
+			result = current
+			return nil
+		}
+		if current.Version != expected {
+			return financeapp.ErrConflict
+		}
+		var blocked bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM spyglass.finance_accounts
+			WHERE account_id=$1 AND ledger_id=$2 AND parent_account_id=$3 AND state='active') OR EXISTS(
+				SELECT 1 FROM spyglass.finance_entry_lines l JOIN spyglass.finance_entries e ON e.account_id=l.account_id AND e.id=l.entry_id
+				WHERE l.account_id=$1 AND l.ledger_id=$2 AND l.posting_account_id=$3 AND e.state='draft')`, accountID, current.LedgerID, postingAccountID).Scan(&blocked); err != nil {
+			return err
+		}
+		if blocked {
+			return financeapp.ErrInvalid
+		}
+		archived, err := current.Archive(expected, actor, role, mutation.At)
+		if err != nil {
+			return err
+		}
+		updated, err := tx.Exec(ctx, `UPDATE spyglass.finance_accounts SET allow_posting=false,state='archived',version=$3,updated_at=$4
+			WHERE account_id=$1 AND id=$2 AND version=$5`, accountID, postingAccountID, archived.Version, archived.UpdatedAt, expected)
+		if err != nil {
+			return err
+		}
+		if updated.RowsAffected() != 1 {
+			return financeapp.ErrConflict
+		}
+		if err := insertFinanceEvent(ctx, tx, accountID, "account", string(postingAccountID), expected, mutation,
+			map[string]any{"ledger_id": archived.LedgerID, "code": archived.Code, "allow_posting": archived.AllowPosting, "state": archived.State}); err != nil {
+			return err
+		}
+		result = archived
+		return nil
+	})
+	return result, classifyFinance(err)
 }
 
 func (repository *FinanceRepository) CreateEntry(ctx context.Context, draft domain.EntryDraft, role accounts.MembershipRole, mutation financeapp.Mutation) (domain.JournalEntry, bool, error) {

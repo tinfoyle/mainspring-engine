@@ -68,6 +68,73 @@ func (service *Service) GetLedger(ctx context.Context, actor access.Actor, accou
 	return service.store.GetLedger(ctx, accountID, ledgerID)
 }
 
+type ReviseLedgerCommand struct {
+	Actor           access.Actor
+	AccountID       ids.AccountID
+	RequestID       string
+	LedgerID        ids.FinanceLedgerID
+	ExpectedVersion uint64
+	Name            string
+	Code            string
+	Description     string
+}
+
+func (service *Service) ReviseLedger(ctx context.Context, command ReviseLedgerCommand) (domain.Ledger, error) {
+	authorized, actor, now, err := service.managementCommand(ctx, command.Actor, command.AccountID, command.RequestID, command.ExpectedVersion)
+	if err != nil || ids.Validate(string(command.LedgerID)) != nil {
+		if err != nil {
+			return domain.Ledger{}, err
+		}
+		return domain.Ledger{}, ErrInvalid
+	}
+	revision := domain.LedgerRevision{Name: command.Name, Code: command.Code, Description: command.Description, ExpectedVersion: command.ExpectedVersion,
+		Actor: actor, Role: authorized.Role, At: now}
+	return service.store.ReviseLedger(ctx, command.AccountID, command.LedgerID, revision, mutation(command.RequestID, "revised", actor, now))
+}
+
+type ClosePeriodCommand struct {
+	Actor           access.Actor
+	AccountID       ids.AccountID
+	RequestID       string
+	LedgerID        ids.FinanceLedgerID
+	ExpectedVersion uint64
+	Through         time.Time
+	Evidence        []ids.KnowledgeEvidenceID
+}
+
+func (service *Service) ClosePeriod(ctx context.Context, command ClosePeriodCommand) (domain.Ledger, error) {
+	authorized, actor, now, err := service.managementCommand(ctx, command.Actor, command.AccountID, command.RequestID, command.ExpectedVersion)
+	if err != nil || ids.Validate(string(command.LedgerID)) != nil {
+		if err != nil {
+			return domain.Ledger{}, err
+		}
+		return domain.Ledger{}, ErrInvalid
+	}
+	closeCommand := domain.ClosePeriodCommand{Through: command.Through, Evidence: command.Evidence, Actor: actor, Role: authorized.Role,
+		ExpectedVersion: command.ExpectedVersion, At: now}
+	return service.store.CloseLedgerPeriod(ctx, command.AccountID, command.LedgerID, closeCommand, mutation(command.RequestID, "period_closed", actor, now))
+}
+
+type LedgerTransitionCommand struct {
+	Actor           access.Actor
+	AccountID       ids.AccountID
+	RequestID       string
+	LedgerID        ids.FinanceLedgerID
+	ExpectedVersion uint64
+}
+
+func (service *Service) ArchiveLedger(ctx context.Context, command LedgerTransitionCommand) (domain.Ledger, error) {
+	authorized, actor, now, err := service.managementCommand(ctx, command.Actor, command.AccountID, command.RequestID, command.ExpectedVersion)
+	if err != nil || ids.Validate(string(command.LedgerID)) != nil {
+		if err != nil {
+			return domain.Ledger{}, err
+		}
+		return domain.Ledger{}, ErrInvalid
+	}
+	return service.store.ArchiveLedger(ctx, command.AccountID, command.LedgerID, command.ExpectedVersion, actor, authorized.Role,
+		mutation(command.RequestID, "archived", actor, now))
+}
+
 type CreateAccountCommand struct {
 	Actor           access.Actor
 	AccountID       ids.AccountID
@@ -95,6 +162,52 @@ func (service *Service) CreatePostingAccount(ctx context.Context, command Create
 		LedgerID: command.LedgerID, ParentAccountID: command.ParentAccountID, Code: command.Code, Name: command.Name, Description: command.Description,
 		Type: command.Type, AllowPosting: command.AllowPosting, CreatedBy: actor, CreatedAt: now}, authorized.Role,
 		mutation(command.RequestID, "created", actor, now))
+}
+
+type RevisePostingAccountCommand struct {
+	Actor            access.Actor
+	AccountID        ids.AccountID
+	RequestID        string
+	PostingAccountID ids.FinanceAccountID
+	ExpectedVersion  uint64
+	ParentAccountID  ids.FinanceAccountID
+	Code             string
+	Name             string
+	Description      string
+	AllowPosting     bool
+}
+
+func (service *Service) RevisePostingAccount(ctx context.Context, command RevisePostingAccountCommand) (domain.PostingAccount, error) {
+	authorized, actor, now, err := service.managementCommand(ctx, command.Actor, command.AccountID, command.RequestID, command.ExpectedVersion)
+	if err != nil || ids.Validate(string(command.PostingAccountID)) != nil {
+		if err != nil {
+			return domain.PostingAccount{}, err
+		}
+		return domain.PostingAccount{}, ErrInvalid
+	}
+	revision := domain.PostingAccountRevision{ParentAccountID: command.ParentAccountID, Code: command.Code, Name: command.Name, Description: command.Description,
+		AllowPosting: command.AllowPosting, ExpectedVersion: command.ExpectedVersion, Actor: actor, Role: authorized.Role, At: now}
+	return service.store.RevisePostingAccount(ctx, command.AccountID, command.PostingAccountID, revision, mutation(command.RequestID, "revised", actor, now))
+}
+
+type PostingAccountTransitionCommand struct {
+	Actor            access.Actor
+	AccountID        ids.AccountID
+	RequestID        string
+	PostingAccountID ids.FinanceAccountID
+	ExpectedVersion  uint64
+}
+
+func (service *Service) ArchivePostingAccount(ctx context.Context, command PostingAccountTransitionCommand) (domain.PostingAccount, error) {
+	authorized, actor, now, err := service.managementCommand(ctx, command.Actor, command.AccountID, command.RequestID, command.ExpectedVersion)
+	if err != nil || ids.Validate(string(command.PostingAccountID)) != nil {
+		if err != nil {
+			return domain.PostingAccount{}, err
+		}
+		return domain.PostingAccount{}, ErrInvalid
+	}
+	return service.store.ArchivePostingAccount(ctx, command.AccountID, command.PostingAccountID, command.ExpectedVersion, actor, authorized.Role,
+		mutation(command.RequestID, "archived", actor, now))
 }
 
 type CreateEntryCommand struct {
@@ -250,6 +363,18 @@ func (service *Service) authorize(ctx context.Context, actor access.Actor, accou
 		}
 	}
 	return service.authorizer.Authorize(ctx, actor, accountID, requirement)
+}
+
+func (service *Service) managementCommand(ctx context.Context, actor access.Actor, accountID ids.AccountID, requestID string, expected uint64) (access.AccountContext, domain.Actor, time.Time, error) {
+	authorized, err := service.authorize(ctx, actor, accountID, true, true)
+	if err != nil {
+		return access.AccountContext{}, domain.Actor{}, time.Time{}, err
+	}
+	if ids.Validate(requestID) != nil || expected == 0 {
+		return access.AccountContext{}, domain.Actor{}, time.Time{}, ErrInvalid
+	}
+	now := service.clock.Now().UTC()
+	return authorized, userActor(actor), now, nil
 }
 
 func userActor(actor access.Actor) domain.Actor {

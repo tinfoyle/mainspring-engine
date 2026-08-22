@@ -37,7 +37,12 @@ func (mutation Mutation) Valid() bool {
 type Store interface {
 	CreateLedger(context.Context, domain.LedgerDraft, accounts.MembershipRole, Mutation) (domain.Ledger, bool, error)
 	GetLedger(context.Context, ids.AccountID, ids.FinanceLedgerID) (domain.Ledger, error)
+	ReviseLedger(context.Context, ids.AccountID, ids.FinanceLedgerID, domain.LedgerRevision, Mutation) (domain.Ledger, error)
+	CloseLedgerPeriod(context.Context, ids.AccountID, ids.FinanceLedgerID, domain.ClosePeriodCommand, Mutation) (domain.Ledger, error)
+	ArchiveLedger(context.Context, ids.AccountID, ids.FinanceLedgerID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.Ledger, error)
 	CreatePostingAccount(context.Context, domain.PostingAccountDraft, accounts.MembershipRole, Mutation) (domain.PostingAccount, bool, error)
+	RevisePostingAccount(context.Context, ids.AccountID, ids.FinanceAccountID, domain.PostingAccountRevision, Mutation) (domain.PostingAccount, error)
+	ArchivePostingAccount(context.Context, ids.AccountID, ids.FinanceAccountID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.PostingAccount, error)
 	CreateEntry(context.Context, domain.EntryDraft, accounts.MembershipRole, Mutation) (domain.JournalEntry, bool, error)
 	GetEntry(context.Context, ids.AccountID, ids.FinanceEntryID) (domain.JournalEntry, error)
 	PostEntry(context.Context, ids.AccountID, ids.FinanceEntryID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.JournalEntry, error)

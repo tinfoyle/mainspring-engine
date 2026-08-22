@@ -36,11 +36,14 @@ type financeTestClock struct{ now time.Time }
 func (clock financeTestClock) Now() time.Time { return clock.now }
 
 type financeTestStore struct {
-	ledgerDraft         domain.LedgerDraft
-	entryDraft          domain.EntryDraft
-	reverseCommand      domain.ReverseCommand
-	reconciliationDraft domain.ReconciliationDraft
-	mutation            Mutation
+	ledgerDraft            domain.LedgerDraft
+	ledgerRevision         domain.LedgerRevision
+	closeCommand           domain.ClosePeriodCommand
+	postingAccountRevision domain.PostingAccountRevision
+	entryDraft             domain.EntryDraft
+	reverseCommand         domain.ReverseCommand
+	reconciliationDraft    domain.ReconciliationDraft
+	mutation               Mutation
 }
 
 func (store *financeTestStore) CreateLedger(_ context.Context, draft domain.LedgerDraft, _ accounts.MembershipRole, mutation Mutation) (domain.Ledger, bool, error) {
@@ -50,8 +53,28 @@ func (store *financeTestStore) CreateLedger(_ context.Context, draft domain.Ledg
 func (*financeTestStore) GetLedger(context.Context, ids.AccountID, ids.FinanceLedgerID) (domain.Ledger, error) {
 	return domain.Ledger{}, nil
 }
+func (store *financeTestStore) ReviseLedger(_ context.Context, _ ids.AccountID, ledgerID ids.FinanceLedgerID, revision domain.LedgerRevision, mutation Mutation) (domain.Ledger, error) {
+	store.ledgerRevision, store.mutation = revision, mutation
+	return domain.Ledger{ID: ledgerID}, nil
+}
+func (store *financeTestStore) CloseLedgerPeriod(_ context.Context, _ ids.AccountID, ledgerID ids.FinanceLedgerID, command domain.ClosePeriodCommand, mutation Mutation) (domain.Ledger, error) {
+	store.closeCommand, store.mutation = command, mutation
+	return domain.Ledger{ID: ledgerID}, nil
+}
+func (store *financeTestStore) ArchiveLedger(_ context.Context, _ ids.AccountID, ledgerID ids.FinanceLedgerID, _ uint64, _ domain.Actor, _ accounts.MembershipRole, mutation Mutation) (domain.Ledger, error) {
+	store.mutation = mutation
+	return domain.Ledger{ID: ledgerID}, nil
+}
 func (*financeTestStore) CreatePostingAccount(context.Context, domain.PostingAccountDraft, accounts.MembershipRole, Mutation) (domain.PostingAccount, bool, error) {
 	return domain.PostingAccount{}, true, nil
+}
+func (store *financeTestStore) RevisePostingAccount(_ context.Context, _ ids.AccountID, postingAccountID ids.FinanceAccountID, revision domain.PostingAccountRevision, mutation Mutation) (domain.PostingAccount, error) {
+	store.postingAccountRevision, store.mutation = revision, mutation
+	return domain.PostingAccount{ID: postingAccountID}, nil
+}
+func (store *financeTestStore) ArchivePostingAccount(_ context.Context, _ ids.AccountID, postingAccountID ids.FinanceAccountID, _ uint64, _ domain.Actor, _ accounts.MembershipRole, mutation Mutation) (domain.PostingAccount, error) {
+	store.mutation = mutation
+	return domain.PostingAccount{ID: postingAccountID}, nil
 }
 func (store *financeTestStore) CreateEntry(_ context.Context, draft domain.EntryDraft, _ accounts.MembershipRole, mutation Mutation) (domain.JournalEntry, bool, error) {
 	store.entryDraft, store.mutation = draft, mutation
@@ -126,6 +149,46 @@ func TestFinanceServiceDerivesReversalAndDoesNotTrustLedgerBalance(t *testing.T)
 		StatementBalance: statement, Evidence: []ids.KnowledgeEvidenceID{"a0000000-0000-4000-8000-00000000000a"}})
 	if err != nil || store.reconciliationDraft.LedgerBalance != (domain.Money{}) || store.mutation.Kind != "reconciliation_proposed" {
 		t.Fatalf("reconciliation draft=%+v mutation=%+v err=%v", store.reconciliationDraft, store.mutation, err)
+	}
+}
+
+func TestFinanceServiceBuildsManagementLifecycleCommands(t *testing.T) {
+	now := time.Date(2026, 8, 22, 23, 0, 0, 0, time.UTC)
+	accountID := ids.AccountID("10000000-0000-4000-8000-000000000001")
+	actor := access.Actor{UserID: "20000000-0000-4000-8000-000000000002"}
+	ledgerID := ids.FinanceLedgerID("40000000-0000-4000-8000-000000000004")
+	postingAccountID := ids.FinanceAccountID("50000000-0000-4000-8000-000000000005")
+	parentID := ids.FinanceAccountID("60000000-0000-4000-8000-000000000006")
+	evidenceID := ids.KnowledgeEvidenceID("70000000-0000-4000-8000-000000000007")
+	authorizer := &financeTestAuthorizer{role: accounts.RoleAdministrator}
+	store := &financeTestStore{}
+	service, _ := New(authorizer, store, financeTestClock{now: now})
+
+	_, err := service.ReviseLedger(context.Background(), ReviseLedgerCommand{Actor: actor, AccountID: accountID,
+		RequestID: "80000000-0000-4000-8000-000000000008", LedgerID: ledgerID, ExpectedVersion: 1, Name: "Operating", Code: "main"})
+	if err != nil || store.ledgerRevision.Role != accounts.RoleAdministrator || store.ledgerRevision.Actor.Kind != domain.ActorUser || store.mutation.Kind != "revised" {
+		t.Fatalf("ledger revision=%+v mutation=%+v err=%v", store.ledgerRevision, store.mutation, err)
+	}
+	_, err = service.ClosePeriod(context.Background(), ClosePeriodCommand{Actor: actor, AccountID: accountID,
+		RequestID: "90000000-0000-4000-8000-000000000009", LedgerID: ledgerID, ExpectedVersion: 2, Through: now, Evidence: []ids.KnowledgeEvidenceID{evidenceID}})
+	if err != nil || store.closeCommand.ExpectedVersion != 2 || len(store.closeCommand.Evidence) != 1 || store.mutation.Kind != "period_closed" {
+		t.Fatalf("close command=%+v mutation=%+v err=%v", store.closeCommand, store.mutation, err)
+	}
+	_, err = service.RevisePostingAccount(context.Background(), RevisePostingAccountCommand{Actor: actor, AccountID: accountID,
+		RequestID: "a0000000-0000-4000-8000-00000000000a", PostingAccountID: postingAccountID, ExpectedVersion: 1,
+		ParentAccountID: parentID, Code: "1000", Name: "Cash", AllowPosting: true})
+	if err != nil || store.postingAccountRevision.ParentAccountID != parentID || store.postingAccountRevision.Role != accounts.RoleAdministrator || store.mutation.Kind != "revised" {
+		t.Fatalf("account revision=%+v mutation=%+v err=%v", store.postingAccountRevision, store.mutation, err)
+	}
+	_, err = service.ArchivePostingAccount(context.Background(), PostingAccountTransitionCommand{Actor: actor, AccountID: accountID,
+		RequestID: "b0000000-0000-4000-8000-00000000000b", PostingAccountID: postingAccountID, ExpectedVersion: 2})
+	if err != nil || store.mutation.Kind != "archived" {
+		t.Fatalf("account archive mutation=%+v err=%v", store.mutation, err)
+	}
+	_, err = service.ArchiveLedger(context.Background(), LedgerTransitionCommand{Actor: actor, AccountID: accountID,
+		RequestID: "c0000000-0000-4000-8000-00000000000c", LedgerID: ledgerID, ExpectedVersion: 3})
+	if err != nil || store.mutation.Kind != "archived" {
+		t.Fatalf("ledger archive mutation=%+v err=%v", store.mutation, err)
 	}
 }
 
