@@ -1,6 +1,6 @@
 # Scheduling module
 
-- Status: typed recurrence and Agent Run template foundation constructed; persistence, worker dispatch and customer surfaces remain
+- Status: typed recurrence/template and forced-RLS definition/lease foundation constructed; occurrence dispatch, customer surfaces and operations remain
 - Owner: Scheduling application module
 - Package boundary: schedule definitions use the package of their target; the first target is Agents
 
@@ -23,12 +23,20 @@ The first execution template creates a new dated Agent Conversation/Run through 
 ## Construction sequence
 
 1. Typed recurrence, timezone/DST behavior, missed-run policy and immutable Agent template. **Constructed.**
-2. Forced-RLS schedule definitions, immutable events and identifier-only due queue with lease fencing.
+2. Forced-RLS schedule definitions, immutable events and identifier-only due queue with lease fencing. **Constructed through definition create/get/pause/resume and claim/fail retry; occurrence completion/advance remains with step 3.**
 3. A workload-authorized occurrence command that reuses Agents admission and StartRun semantics without presenting a browser session or impersonating a User.
 4. Deterministic occurrence, Conversation, Run and operation identities derived from schedule plus scheduled instant.
 5. Pause, resume, update, delete and trigger-now commands; trigger-now is a separate occurrence and never changes recurrence state.
 6. HTTP, optional MCP and private UI surfaces with generated contracts and enabled/read-only/suspended package tests.
 7. Account movement, export, erasure, retention, dead-letter recovery, stage failure rehearsal and LKE scaling evidence.
+
+## Persistence checkpoint
+
+Migration `000051_scheduling_foundation.sql` adds Account-owned schedule definitions and immutable redacted events under forced RLS, plus a deliberately content-free cross-Account due queue. Customer definition access goes through a classified Account transaction repository: create is exact-replay idempotent, reads are Account isolated, pause/resume require the expected aggregate version, and Boardroom/Persona targets must be active and published in the same Account and Boardroom. Definitions cannot be edited through that repository in this slice.
+
+An active definition creates or refreshes exactly one queue row; pausing removes it. The worker role receives execute-only claim, failure and content-free statistics functions, never table access. Claims use `FOR UPDATE SKIP LOCKED`, an exact lease UUID, bounded expiry and monotonically increasing attempt count. Failure requires the exact Account, schedule, scheduled instant and live lease and converges to bounded retry or dead letter. No occurrence is created yet: successful completion, recurrence advance, `catch_up_one`, deterministic Run creation and workload authorization remain the next construction boundary.
+
+The new tables participate in Account movement write fencing and cascade-safe erasure counting. Fresh PostgreSQL integration proves repository replay, optimistic pause/resume, cross-Account denial, event immutability, due ordering, lease fencing, least privilege and pause cancellation. The complete `ubunturojo` Docker certificate passes normal and race suites, migrations, formatting, vet, API contracts, website build/lint/audit and object-policy checks.
 
 ## Invariants
 
