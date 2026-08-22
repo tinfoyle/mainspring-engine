@@ -42,11 +42,14 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	now = now.UTC()
 	accountA, accountB, accountC := "11000000-0000-4000-8000-000000000001", "12000000-0000-4000-8000-000000000002", "13000000-0000-4000-8000-000000000003"
 	invocationA, invocationB, invocationC := "61000000-0000-4000-8000-000000000001", "62000000-0000-4000-8000-000000000002", "63000000-0000-4000-8000-000000000003"
+	invocationA2, invocationC2 := "61000000-0000-4000-8000-000000000012", "63000000-0000-4000-8000-000000000013"
 	runnerDigestA, runnerDigestB, runnerDigestC := bytes.Repeat([]byte{0x31}, 32), bytes.Repeat([]byte{0x32}, 32), bytes.Repeat([]byte{0x33}, 32)
 	resultDigestA, resultDigestB := bytes.Repeat([]byte{0x41}, 32), bytes.Repeat([]byte{0x42}, 32)
 	seedAgentProjectionFixture(t, ctx, owner, accountA, "31000000-0000-4000-8000-000000000001", "41000000-0000-4000-8000-000000000001", "51000000-0000-4000-8000-000000000001", invocationA, runnerDigestA, "completed", now)
 	seedAgentProjectionFixture(t, ctx, owner, accountB, "32000000-0000-4000-8000-000000000002", "42000000-0000-4000-8000-000000000002", "52000000-0000-4000-8000-000000000002", invocationB, runnerDigestB, "completed", now)
 	seedAgentProjectionFixture(t, ctx, owner, accountC, "33000000-0000-4000-8000-000000000003", "43000000-0000-4000-8000-000000000003", "53000000-0000-4000-8000-000000000003", invocationC, runnerDigestC, "execution_failed", now)
+	seedSecondAgentTurn(t, ctx, owner, accountA, "31000000-0000-4000-8000-000000000001", "41000000-0000-4000-8000-000000000001", "51000000-0000-4000-8000-000000000001", invocationA2, now)
+	seedSecondAgentTurn(t, ctx, owner, accountC, "33000000-0000-4000-8000-000000000003", "43000000-0000-4000-8000-000000000003", "53000000-0000-4000-8000-000000000003", invocationC2, now)
 	// Seed one owner-only inconsistent message to force the projection's final
 	// insert to fail. The function must roll back its preceding sequence and
 	// invocation updates as one transaction.
@@ -105,9 +108,18 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 		accountA, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err != nil || !created {
 		t.Fatalf("project success created=%v err=%v", created, err)
 	}
+	var nextContext, nextDispatch int64
+	if err := owner.QueryRow(ctx, `SELECT
+		(SELECT context_sequence FROM spyglass.agent_invocation_execution_plans WHERE account_id=$1 AND invocation_id=$2),
+		(SELECT count(*) FROM spyglass.agent_dispatch_queue WHERE account_id=$1 AND invocation_id=$2)`, accountA, invocationA2).Scan(&nextContext, &nextDispatch); err != nil || nextContext != 1 || nextDispatch != 1 {
+		t.Fatalf("next turn context=%d dispatch=%d err=%v", nextContext, nextDispatch, err)
+	}
 	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','resp_a',$5,$6,$7::jsonb,$8,10,4,14,21,$9,$9)`,
 		accountA, invocationA, leaseA, messageA, runnerDigestA, resultDigestA, resultA, "Reconcile the backlog.", now.Add(time.Minute)).Scan(&created); err != nil || created {
 		t.Fatalf("idempotent success created=%v err=%v", created, err)
+	}
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.agent_dispatch_queue WHERE account_id=$1 AND invocation_id=$2`, accountA, invocationA2).Scan(&nextDispatch); err != nil || nextDispatch != 1 {
+		t.Fatalf("idempotent next turn dispatch=%d err=%v", nextDispatch, err)
 	}
 	cell, err := database.NewCellPool(owner)
 	if err != nil {
@@ -146,6 +158,12 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 		accountC, invocationC, leaseC, runnerDigestC, now.Add(time.Minute)).Scan(&created); err != nil || !created {
 		t.Fatalf("project failure created=%v err=%v", created, err)
 	}
+	var downstreamState, downstreamFailure, failedRunState string
+	if err := owner.QueryRow(ctx, `SELECT i.status,i.failure_code,r.state FROM spyglass.agent_invocations i
+		JOIN spyglass.agent_runs r ON r.account_id=i.account_id AND r.id=i.run_id
+		WHERE i.account_id=$1 AND i.id=$2`, accountC, invocationC2).Scan(&downstreamState, &downstreamFailure, &failedRunState); err != nil || downstreamState != "canceled" || downstreamFailure != "prior_turn_failed" || failedRunState != "failed" {
+		t.Fatalf("downstream state=%s failure=%s run=%s err=%v", downstreamState, downstreamFailure, failedRunState, err)
+	}
 
 	if _, err := reader.Exec(ctx, `SELECT set_config('app.account_id',$1,false)`, accountA); err != nil {
 		t.Fatal(err)
@@ -182,6 +200,31 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 		(SELECT terminal_payload_purged_at IS NOT NULL FROM spyglass.runner_invocation_exchanges WHERE account_id=$3 AND invocation_id=$6)`,
 		accountA, accountB, accountC, invocationA, invocationB, invocationC).Scan(&purgedA, &purgedB, &purgedC); err != nil || !purgedA || purgedB || !purgedC {
 		t.Fatalf("unexpected projection retention A=%v B=%v C=%v err=%v", purgedA, purgedB, purgedC, err)
+	}
+}
+
+func seedSecondAgentTurn(t *testing.T, ctx context.Context, owner interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, accountID, boardroomID, conversationID, runID, invocationID string, now time.Time) {
+	t.Helper()
+	personaID := strings.Replace(invocationID, "6", "8", 1)
+	versionID := strings.Replace(invocationID, "6", "9", 1)
+	modelOperationID := strings.Replace(invocationID, "6", "7", 1)
+	if _, err := owner.Exec(ctx, `
+		UPDATE spyglass.agent_runs SET turn_count=2 WHERE account_id=$1 AND id=$4;
+		INSERT INTO spyglass.agent_personas(account_id,id,boardroom_id,state,latest_version,created_at,updated_at)
+		VALUES ($1,$5,$2,'active',1,$8,$8);
+		INSERT INTO spyglass.agent_persona_versions(account_id,id,persona_id,version,name,role,description,system_instructions,policy,content_digest,created_by,created_at)
+		VALUES ($1,$6,$5,1,'Synthesis Lead','Synthesis','Synthesizes prior work','Synthesize prior Persona contributions into a clear decision.','{}'::jsonb,decode(repeat('12',32),'hex'),'20000000-0000-4000-8000-000000000002',$8);
+		INSERT INTO spyglass.agent_run_plan_turns(account_id,run_id,turn,persona_id,persona_version_id,persona_digest)
+		VALUES ($1,$4,2,$5,$6,decode(repeat('12',32),'hex'));
+		INSERT INTO spyglass.agent_invocations(account_id,id,run_id,turn,persona_version_id,status,expected_provider,requested_model,queued_at)
+		VALUES ($1,$7,$4,2,$6,'queued','openai','gpt-test',$8);
+		INSERT INTO spyglass.agent_invocation_execution_plans
+		(account_id,invocation_id,conversation_id,context_sequence,profile,model_operation_ids,tool_operation_ids,request_expires_at,created_at)
+		VALUES ($1,$7,$3,99,'agent-small',ARRAY[$9::uuid],ARRAY[]::uuid[],$8::timestamptz+interval '1 hour',$8)`,
+		pgx.QueryExecModeSimpleProtocol, accountID, boardroomID, conversationID, runID, personaID, versionID, invocationID, now, modelOperationID); err != nil {
+		t.Fatal(err)
 	}
 }
 

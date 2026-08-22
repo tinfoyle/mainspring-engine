@@ -4,6 +4,8 @@ Status: executable operator contract; connected-cell rehearsal and production ro
 
 Agent dispatch and result projection are independent durable queues. A terminal row never retries forever and never disappears automatically. Operators can inspect one queue in one cell and, after correcting the underlying condition, requeue exactly one Account/invocation pair.
 
+Ordered Run plans intentionally expose only their current Persona turn to dispatch. A successful projection enqueues the next turn atomically after its Conversation watermark includes the new Persona Message. An earlier terminal failure cancels undispatched later turns. Their absence from the dispatch queue is therefore expected and is not queue loss.
+
 ## Safety contract
 
 - Run `spyglass agent-queue-admin inspect|requeue` as a short-lived controlled Job, never as a standing service.

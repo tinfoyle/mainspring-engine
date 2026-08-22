@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -103,7 +104,7 @@ func (r *AgentDispatchRepository) Load(ctx context.Context, claim agentdispatch.
 		if err := rows.Err(); err != nil {
 			return err
 		}
-		if len(result.Messages) == 0 || result.Messages[len(result.Messages)-1].Role != "user" {
+		if len(result.Messages) == 0 || !slices.ContainsFunc(result.Messages, func(message modelgateway.Message) bool { return message.Role == "user" }) {
 			return agentdispatch.ErrInvalidSnapshot
 		}
 		return nil

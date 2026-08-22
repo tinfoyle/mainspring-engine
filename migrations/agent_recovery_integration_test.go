@@ -37,7 +37,9 @@ func TestAgentRunRecoveryPreservesHistoryAndExactRetryInputs(t *testing.T) {
 	userID := ids.UserID("21000000-0000-4000-8000-000000000001")
 	boardroomID := ids.BoardroomID("31000000-0000-4000-8000-000000000001")
 	personaID := ids.PersonaID("41000000-0000-4000-8000-000000000001")
+	personaID2 := ids.PersonaID("42000000-0000-4000-8000-000000000002")
 	versionID := ids.PersonaVersionID("51000000-0000-4000-8000-000000000001")
+	versionID2 := ids.PersonaVersionID("52000000-0000-4000-8000-000000000002")
 	sourceRunID := ids.RunID("61000000-0000-4000-8000-000000000001")
 	conversationID := ids.ConversationID("71000000-0000-4000-8000-000000000001")
 	userMessageID := ids.MessageID("81000000-0000-4000-8000-000000000001")
@@ -77,16 +79,34 @@ func TestAgentRunRecoveryPreservesHistoryAndExactRetryInputs(t *testing.T) {
 	if _, created, err := repository.PublishPersona(ctx, boardroomID, version, 0); err != nil || !created {
 		t.Fatalf("publish Persona created=%v err=%v", created, err)
 	}
+	version2, err := agentdomain.NewPersonaVersion(agentdomain.PersonaVersionDraft{
+		ID: versionID2, PersonaID: personaID2, AccountID: accountID, Version: 1, Name: "Synthesis Lead", Role: "Synthesis",
+		Description: "Synthesizes specialist work", SystemInstructions: "Synthesize the preceding contribution into a clear operational decision.",
+		Policy: agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-test", MaximumInputTokens: 100000, MaximumOutputTokens: 4000,
+			MaximumCostMicros: 100000, MaximumToolSteps: 0, CitationPolicy: "best_effort", ActionPolicy: "propose",
+			Tools: []agentdomain.ToolGrant{}, OutputSchema: json.RawMessage(agentdomain.ResultSchema())},
+		CreatedBy: userID, CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := repository.PublishPersona(ctx, boardroomID, version2, 0); err != nil || !created {
+		t.Fatalf("publish synthesis Persona created=%v err=%v", created, err)
+	}
 	source, created, err := repository.StartRun(ctx, agentapp.StartRunDraft{
 		Actor: actor, AccountID: accountID, BoardroomID: boardroomID, RunID: sourceRunID, ConversationID: conversationID,
 		CreateConversation: true, UserMessageID: userMessageID, Subject: "Weekly review", Prompt: "What should we prioritize?",
-		PersonaIDs: []ids.PersonaID{personaID}, EntitlementVersion: 3, MaximumConcurrentRun: 2, CreatedAt: now, RequestExpiresAt: now.Add(time.Hour),
+		PersonaIDs: []ids.PersonaID{personaID, personaID2}, EntitlementVersion: 3, MaximumConcurrentRun: 2, CreatedAt: now, RequestExpiresAt: now.Add(time.Hour),
 	})
-	if err != nil || !created || len(source.InvocationIDs) != 1 {
+	if err != nil || !created || len(source.InvocationIDs) != 2 {
 		t.Fatalf("start source Run created=%v run=%+v err=%v", created, source, err)
 	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_invocations SET status='failed',runner_result_digest=decode(repeat('ab',32),'hex'),failure_code='provider_unavailable',completed_at=$3
 		WHERE account_id=$1 AND id=$2`, accountID, source.InvocationIDs[0], now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_invocations SET status='canceled',failure_code='prior_turn_failed',completed_at=$3
+		WHERE account_id=$1 AND id=$2`, accountID, source.InvocationIDs[1], now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_runs SET state='failed',started_at=$3,completed_at=$3 WHERE account_id=$1 AND id=$2`,
@@ -103,7 +123,8 @@ func TestAgentRunRecoveryPreservesHistoryAndExactRetryInputs(t *testing.T) {
 	}
 	retry, err := repository.GetRun(ctx, accountID, retryRunID)
 	if err != nil || retry.State != "planned" || retry.Plan.EntitlementVersion != 9 || retry.Plan.PolicyVersion != source.Plan.PolicyVersion ||
-		len(retry.Plan.Turns) != 1 || retry.Plan.Turns[0].PersonaVersionID != versionID || len(retry.Invocations) != 1 || retry.Invocations[0].Status != "queued" {
+		len(retry.Plan.Turns) != 2 || retry.Plan.Turns[0].PersonaVersionID != versionID || retry.Plan.Turns[1].PersonaVersionID != versionID2 ||
+		len(retry.Invocations) != 2 || retry.Invocations[0].Status != "queued" || retry.Invocations[1].Status != "queued" {
 		t.Fatalf("retry Run=%+v err=%v", retry, err)
 	}
 	var sourceContext, retryContext, userMessages, retryDispatch int64
@@ -119,7 +140,8 @@ func TestAgentRunRecoveryPreservesHistoryAndExactRetryInputs(t *testing.T) {
 		t.Fatalf("retry context source=%d retry=%d user messages=%d dispatch=%d", sourceContext, retryContext, userMessages, retryDispatch)
 	}
 	source, err = repository.GetRun(ctx, accountID, sourceRunID)
-	if err != nil || source.State != "failed" || len(source.Resolutions) != 1 || source.Resolutions[0].RetryRunID != retryRunID || source.Invocations[0].Status != "failed" {
+	if err != nil || source.State != "failed" || len(source.Resolutions) != 1 || source.Resolutions[0].RetryRunID != retryRunID ||
+		len(source.Invocations) != 2 || source.Invocations[0].Status != "failed" || source.Invocations[1].Status != "canceled" {
 		t.Fatalf("immutable source Run=%+v err=%v", source, err)
 	}
 	if replay, replayed, err := repository.ResolveRun(ctx, draft); err != nil || replayed || replay.ID != resolution.ID || replay.RunID != resolution.RunID ||

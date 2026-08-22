@@ -497,7 +497,9 @@ func (r *AgentRepository) ResolveRun(ctx context.Context, draft agentapp.Resolve
 			turns := make([]agentdomain.PlannedTurn, 0, len(source.Invocations))
 			var contextSequence int64
 			for _, invocation := range source.Invocations {
-				if invocation.Status != "failed" {
+				retryableFailure := invocation.Status == "failed"
+				retryableSuccessor := invocation.Status == "canceled" && invocation.FailureCode == "prior_turn_failed"
+				if !retryableFailure && !retryableSuccessor {
 					continue
 				}
 				if invocation.Turn == 0 || int(invocation.Turn) > len(source.Plan.Turns) {
@@ -514,7 +516,7 @@ func (r *AgentRepository) ResolveRun(ctx context.Context, draft agentapp.Resolve
 				}
 				if contextSequence == 0 {
 					contextSequence = invocationContext
-				} else if contextSequence != invocationContext {
+				} else if retryableFailure && contextSequence != invocationContext {
 					return agentapp.ErrCorrupt
 				}
 				version, found, err := loadPersonaVersion(ctx, tx, draft.AccountID, invocation.PersonaVersionID)
