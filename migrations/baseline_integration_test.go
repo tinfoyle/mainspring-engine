@@ -2,7 +2,6 @@ package migrations_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -99,9 +98,9 @@ func TestBaselineRepositoryPersistsIsolatedImmutableLifecycle(t *testing.T) {
 	assessment = persistBaselineUpdate(t, ctx, repository, assessment, previous.Version, baselineapp.Transition{EventType: "evidence_decided", RequirementID: requirementID}, mutation(5, "evidence_reviewed"), err)
 	now = now.Add(time.Second)
 	previous = assessment
-	digest := sha256.Sum256([]byte("canonical baseline plan"))
-	assessment, err = assessment.SubmitPlan(baselinedomain.SubmitPlanCommand{Plan: baselinedomain.PlanBinding{ID: planID, ContentSHA256: digest, ProposedWorkCount: 1}, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now})
+	assessment, err = assessment.SubmitPlan(baselinedomain.SubmitPlanCommand{PlanID: planID, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now})
 	assessment = persistBaselineUpdate(t, ctx, repository, assessment, previous.Version, baselineapp.Transition{EventType: "plan_submitted", PlanID: planID}, mutation(6, "plan_submitted"), err)
+	digest := assessment.Plan.ContentSHA256
 	now = now.Add(time.Second)
 	previous = assessment
 	assessment, err = assessment.ApprovePlan(baselinedomain.ApprovePlanCommand{PlanID: planID, PlanSHA256: digest, AssessmentVersion: assessment.Plan.AssessmentVersion, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now})

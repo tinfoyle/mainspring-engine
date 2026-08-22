@@ -38,6 +38,7 @@ type Server struct {
 	actions          ActionRecoveryService
 	knowledge        KnowledgeService
 	documents        KnowledgeDocumentService
+	baseline         BaselineService
 	logger           *slog.Logger
 	version          string
 	maxBody          int64
@@ -74,6 +75,16 @@ func WithKnowledgeDocuments(service KnowledgeDocumentService) Option {
 			return errors.New("MCP Knowledge document service is required")
 		}
 		server.documents = service
+		return nil
+	}
+}
+
+func WithBaseline(service BaselineService) Option {
+	return func(server *Server) error {
+		if service == nil {
+			return errors.New("MCP Baseline service is required")
+		}
+		server.baseline = service
 		return nil
 	}
 }
@@ -147,6 +158,9 @@ func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 	}
 	if s.knowledge != nil {
 		s.registerKnowledge(server, actor)
+	}
+	if s.baseline != nil {
+		s.registerBaseline(server, actor)
 	}
 	return server
 }

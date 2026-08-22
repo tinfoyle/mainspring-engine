@@ -338,6 +338,13 @@ export interface AgentToolGrantInput {
   readonly "name": string;
 }
 
+export interface AnswerBaselineRequest {
+  readonly "fact"?: BaselineFactReference;
+  readonly "kind": "fact" | "unknown";
+  readonly "question_key": string;
+  readonly "reason"?: string;
+}
+
 export interface AnswerInformationRequestInput {
   readonly "fact_id": string;
   readonly "fact_version": number;
@@ -402,6 +409,12 @@ export interface ApprovalSummary {
   readonly "work_item_id"?: string;
 }
 
+export interface ApproveBaselinePlanRequest {
+  readonly "assessment_version": number;
+  readonly "content_sha256": string;
+  readonly "plan_id": string;
+}
+
 export interface AssignWorkRequest {
   readonly "assignment": WorkAssignmentInput;
   readonly "reason"?: string;
@@ -427,6 +440,87 @@ export interface AttentionReasonRequest {
 export type AuthenticationAssurance = "single_factor" | "user_verified_cryptographic";
 
 export type AuthenticationMethod = "password" | "passkey";
+
+export interface BaselineAnswer {
+  readonly "answered_at": string;
+  readonly "answered_by_user_id": string;
+  readonly "fact"?: BaselineFactReference;
+  readonly "kind": "fact" | "unknown";
+  readonly "question_key": string;
+  readonly "reason": string;
+}
+
+export interface BaselineAssessment {
+  readonly "account_id": string;
+  readonly "answers": ReadonlyArray<BaselineAnswer>;
+  readonly "catalog_version": string;
+  readonly "created_at": string;
+  readonly "created_by_user_id": string;
+  readonly "id": string;
+  readonly "plan"?: BaselinePlan;
+  readonly "requirements": ReadonlyArray<BaselineRequirement>;
+  readonly "scope_policy_version": string;
+  readonly "state": BaselineState;
+  readonly "superseded_by_assessment_id"?: string;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface BaselineEvidenceDecision {
+  readonly "decided_at": string;
+  readonly "decided_by_user_id": string;
+  readonly "decision": "accepted" | "rejected";
+  readonly "evidence_id": string;
+  readonly "reason": string;
+}
+
+export interface BaselineFactReference {
+  readonly "fact_id": string;
+  readonly "revision": number;
+}
+
+export interface BaselinePlan {
+  readonly "approved_at"?: string;
+  readonly "approved_by_user_id"?: string;
+  readonly "assessment_version": number;
+  readonly "content_sha256": string;
+  readonly "id": string;
+  readonly "proposed_work_count": number;
+}
+
+export interface BaselineReassessment {
+  readonly "archived": BaselineAssessment;
+  readonly "next": BaselineAssessment;
+}
+
+export interface BaselineRequirement {
+  readonly "catalog_version": string;
+  readonly "code": string;
+  readonly "disposition": "pending" | "satisfied" | "gap" | "not_applicable";
+  readonly "evidence": ReadonlyArray<BaselineEvidenceDecision>;
+  readonly "id": string;
+  readonly "reason": string;
+  readonly "renew_after_days": number;
+  readonly "renew_at"?: string;
+  readonly "responsibility": BaselineResponsibility;
+  readonly "scope_policy_version": string;
+  readonly "title": string;
+}
+
+export interface BaselineRequirementInput {
+  readonly "code": string;
+  readonly "id": string;
+  readonly "renew_after_days": number;
+  readonly "responsibility": BaselineResponsibility;
+  readonly "title": string;
+}
+
+export interface BaselineResponsibility {
+  readonly "id"?: string;
+  readonly "kind": "account" | "user" | "persona";
+}
+
+export type BaselineState = "interview" | "inventory" | "gap_review" | "plan_approval" | "active" | "ready" | "archived";
 
 export interface BeginContactChangeRequest {
   readonly "new_email": string;
@@ -519,6 +613,10 @@ export interface ChangeMembershipRoleRequest {
 export interface ChangeMembershipStateRequest {
   readonly "expected_version": number;
   readonly "reason": string;
+}
+
+export interface CompleteBaselineInventoryRequest {
+  readonly "requirements": ReadonlyArray<BaselineRequirementInput>;
 }
 
 export interface CompleteContactChangeRequest {
@@ -624,6 +722,13 @@ export interface DecideApprovalRequest {
   readonly "reason": string;
 }
 
+export interface DecideBaselineEvidenceRequest {
+  readonly "decision": "accepted" | "rejected";
+  readonly "evidence_id": string;
+  readonly "reason": string;
+  readonly "requirement_id": string;
+}
+
 export interface DecideKnowledgeClaimRequest {
   readonly "accept": boolean;
   readonly "reason": string;
@@ -633,6 +738,14 @@ export interface DecideWorkReviewRequest {
   readonly "decision": WorkReviewDecisionValue;
   readonly "reason": string;
 }
+
+export interface DispositionBaselineRequirementRequest {
+  readonly "disposition": "gap" | "not_applicable";
+  readonly "reason": string;
+  readonly "requirement_id": string;
+}
+
+export type EmptyObject = Readonly<Record<string, never>>;
 
 export type EntitlementGrantSource = "free_plan" | "subscription" | "trial" | "promotion" | "support_override" | "grandfathered";
 
@@ -1074,6 +1187,11 @@ export interface PublishKnowledgeDocumentRequest {
   readonly "revision_id": string;
 }
 
+export interface ReassessBaselineRequest {
+  readonly "catalog_version": string;
+  readonly "scope_policy_version": string;
+}
+
 export interface ReauthenticateRequest {
   readonly "password": string;
 }
@@ -1173,6 +1291,11 @@ export interface StartAgentRunRequest {
   readonly "persona_ids": ReadonlyArray<string>;
   readonly "prompt": string;
   readonly "subject"?: string;
+}
+
+export interface StartBaselineRequest {
+  readonly "catalog_version": string;
+  readonly "scope_policy_version": string;
 }
 
 export type StripeEvent = Readonly<Record<string, unknown>>;
@@ -1410,6 +1533,7 @@ export interface ApiSchemas {
   readonly AgentRunTurn: AgentRunTurn;
   readonly AgentToolGrant: AgentToolGrant;
   readonly AgentToolGrantInput: AgentToolGrantInput;
+  readonly AnswerBaselineRequest: AnswerBaselineRequest;
   readonly AnswerInformationRequestInput: AnswerInformationRequestInput;
   readonly Approval: Approval;
   readonly ApprovalDecision: ApprovalDecision;
@@ -1417,6 +1541,7 @@ export interface ApiSchemas {
   readonly ApprovalPage: ApprovalPage;
   readonly ApprovalState: ApprovalState;
   readonly ApprovalSummary: ApprovalSummary;
+  readonly ApproveBaselinePlanRequest: ApproveBaselinePlanRequest;
   readonly AssignWorkRequest: AssignWorkRequest;
   readonly AssignableMembershipRole: AssignableMembershipRole;
   readonly AttachWorkProvenanceRequest: AttachWorkProvenanceRequest;
@@ -1424,6 +1549,16 @@ export interface ApiSchemas {
   readonly AttentionReasonRequest: AttentionReasonRequest;
   readonly AuthenticationAssurance: AuthenticationAssurance;
   readonly AuthenticationMethod: AuthenticationMethod;
+  readonly BaselineAnswer: BaselineAnswer;
+  readonly BaselineAssessment: BaselineAssessment;
+  readonly BaselineEvidenceDecision: BaselineEvidenceDecision;
+  readonly BaselineFactReference: BaselineFactReference;
+  readonly BaselinePlan: BaselinePlan;
+  readonly BaselineReassessment: BaselineReassessment;
+  readonly BaselineRequirement: BaselineRequirement;
+  readonly BaselineRequirementInput: BaselineRequirementInput;
+  readonly BaselineResponsibility: BaselineResponsibility;
+  readonly BaselineState: BaselineState;
   readonly BeginContactChangeRequest: BeginContactChangeRequest;
   readonly BeginRecoveryRequest: BeginRecoveryRequest;
   readonly BeginRegistrationRequest: BeginRegistrationRequest;
@@ -1439,6 +1574,7 @@ export interface ApiSchemas {
   readonly ChangeAccountClosureRequest: ChangeAccountClosureRequest;
   readonly ChangeMembershipRoleRequest: ChangeMembershipRoleRequest;
   readonly ChangeMembershipStateRequest: ChangeMembershipStateRequest;
+  readonly CompleteBaselineInventoryRequest: CompleteBaselineInventoryRequest;
   readonly CompleteContactChangeRequest: CompleteContactChangeRequest;
   readonly CompletePasskeyLoginRequest: CompletePasskeyLoginRequest;
   readonly CompletePasskeyReauthenticationRequest: CompletePasskeyReauthenticationRequest;
@@ -1456,8 +1592,11 @@ export interface ApiSchemas {
   readonly CreateWorkRequest: CreateWorkRequest;
   readonly CreateWorkReviewRequest: CreateWorkReviewRequest;
   readonly DecideApprovalRequest: DecideApprovalRequest;
+  readonly DecideBaselineEvidenceRequest: DecideBaselineEvidenceRequest;
   readonly DecideKnowledgeClaimRequest: DecideKnowledgeClaimRequest;
   readonly DecideWorkReviewRequest: DecideWorkReviewRequest;
+  readonly DispositionBaselineRequirementRequest: DispositionBaselineRequirementRequest;
+  readonly EmptyObject: EmptyObject;
   readonly EntitlementGrantSource: EntitlementGrantSource;
   readonly EntitlementPackageAccess: EntitlementPackageAccess;
   readonly EntitlementSnapshot: EntitlementSnapshot;
@@ -1520,6 +1659,7 @@ export interface ApiSchemas {
   readonly PublicCatalog: PublicCatalog;
   readonly PublishAgentPersonaRequest: PublishAgentPersonaRequest;
   readonly PublishKnowledgeDocumentRequest: PublishKnowledgeDocumentRequest;
+  readonly ReassessBaselineRequest: ReassessBaselineRequest;
   readonly ReauthenticateRequest: ReauthenticateRequest;
   readonly RecoveryAccepted: RecoveryAccepted;
   readonly RecoveryCodeRotation: RecoveryCodeRotation;
@@ -1538,6 +1678,7 @@ export interface ApiSchemas {
   readonly SelectAccountRequest: SelectAccountRequest;
   readonly SelectedAccountContext: SelectedAccountContext;
   readonly StartAgentRunRequest: StartAgentRunRequest;
+  readonly StartBaselineRequest: StartBaselineRequest;
   readonly StripeEvent: StripeEvent;
   readonly StripeWebhookReceipt: StripeWebhookReceipt;
   readonly TransferOwnershipRequest: TransferOwnershipRequest;

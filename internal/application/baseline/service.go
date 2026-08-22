@@ -6,10 +6,12 @@ import (
 	"errors"
 	"time"
 
+	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -17,13 +19,35 @@ type Service struct {
 	authorizer Authorizer
 	repository Repository
 	clock      Clock
+	work       WorkCreator
 }
 
-func New(authorizer Authorizer, repository Repository, clock Clock) (*Service, error) {
+type Option func(*Service) error
+
+func WithWorkCreator(creator WorkCreator) Option {
+	return func(service *Service) error {
+		if creator == nil {
+			return errors.New("Baseline Work creator is required")
+		}
+		service.work = creator
+		return nil
+	}
+}
+
+func New(authorizer Authorizer, repository Repository, clock Clock, options ...Option) (*Service, error) {
 	if authorizer == nil || repository == nil || clock == nil {
 		return nil, errors.New("Baseline dependencies are required")
 	}
-	return &Service{authorizer: authorizer, repository: repository, clock: clock}, nil
+	service := &Service{authorizer: authorizer, repository: repository, clock: clock}
+	for _, option := range options {
+		if option == nil {
+			return nil, errors.New("Baseline option is required")
+		}
+		if err := option(service); err != nil {
+			return nil, err
+		}
+	}
+	return service, nil
 }
 
 type StartCommand struct {
@@ -140,15 +164,13 @@ func (s *Service) Disposition(ctx context.Context, command DispositionCommand) (
 
 type SubmitPlanCommand struct {
 	AdvanceCommand
-	PlanID            ids.BaselinePlanID
-	ContentSHA256     [sha256.Size]byte
-	ProposedWorkCount uint16
+	PlanID ids.BaselinePlanID
 }
 
 func (s *Service) SubmitPlan(ctx context.Context, command SubmitPlanCommand) (domain.Assessment, error) {
 	transition := Transition{EventType: "plan_submitted", PlanID: command.PlanID}
 	return s.change(ctx, command.Actor, command.AccountID, command.AssessmentID, command.ExpectedVersion, command.CorrelationID, "plan_submitted", func(current domain.Assessment, actor domain.Actor, role accounts.MembershipRole, now time.Time) (domain.Assessment, error) {
-		return current.SubmitPlan(domain.SubmitPlanCommand{Plan: domain.PlanBinding{ID: command.PlanID, ContentSHA256: command.ContentSHA256, ProposedWorkCount: command.ProposedWorkCount}, Actor: actor, Role: role, ExpectedVersion: command.ExpectedVersion, At: now})
+		return current.SubmitPlan(domain.SubmitPlanCommand{PlanID: command.PlanID, Actor: actor, Role: role, ExpectedVersion: command.ExpectedVersion, At: now})
 	}, transition)
 }
 
@@ -170,6 +192,79 @@ func (s *Service) MarkReady(ctx context.Context, command AdvanceCommand) (domain
 	return s.change(ctx, command.Actor, command.AccountID, command.AssessmentID, command.ExpectedVersion, command.CorrelationID, "assessment_ready", func(current domain.Assessment, actor domain.Actor, role accounts.MembershipRole, now time.Time) (domain.Assessment, error) {
 		return current.MarkReady(domain.MarkReadyCommand{Actor: actor, Role: role, ExpectedVersion: command.ExpectedVersion, At: now})
 	}, Transition{EventType: "assessment_ready"})
+}
+
+type MaterializePlanCommand struct {
+	AdvanceCommand
+	PlanID            ids.BaselinePlanID
+	ContentSHA256     [sha256.Size]byte
+	AssessmentVersion uint64
+}
+
+// MaterializePlan creates the exact approved gap plan through the Work-owned
+// command boundary. Every Work and correlation ID is derived from immutable
+// plan inputs, so a partial or unknown outcome is safely completed by retrying
+// this exact command.
+func (s *Service) MaterializePlan(ctx context.Context, command MaterializePlanCommand) ([]workdomain.Item, error) {
+	accountContext, actor, err := s.authorize(ctx, command.Actor, command.AccountID, command.AssessmentID, command.CorrelationID, true)
+	if err != nil {
+		return nil, err
+	}
+	if !canManage(accountContext.Role) {
+		return nil, roleDenied()
+	}
+	if s.work == nil || command.ExpectedVersion == 0 {
+		return nil, ErrRepository
+	}
+	assessment, err := s.repository.Get(ctx, command.AccountID, command.AssessmentID)
+	if err != nil {
+		return nil, err
+	}
+	if assessment.Version != command.ExpectedVersion {
+		return nil, ErrConflict
+	}
+	if (assessment.State != domain.StateActive && assessment.State != domain.StateReady) || assessment.Plan == nil || assessment.Plan.ApprovedAt == nil ||
+		assessment.Plan.ID != command.PlanID || assessment.Plan.ContentSHA256 != command.ContentSHA256 || assessment.Plan.AssessmentVersion != command.AssessmentVersion {
+		return nil, ErrConstraint
+	}
+	planned := assessment.PlannedWork()
+	if len(planned) != int(assessment.Plan.ProposedWorkCount) {
+		return nil, ErrRepository
+	}
+	result := make([]workdomain.Item, 0, len(planned))
+	for _, proposal := range planned {
+		workID, deriveErr := ids.Derive(string(assessment.Plan.ID), "baseline-work:"+string(proposal.RequirementID))
+		if deriveErr != nil {
+			return nil, ErrRepository
+		}
+		correlationID, deriveErr := ids.Derive(command.CorrelationID, "baseline-work:"+string(proposal.RequirementID))
+		if deriveErr != nil {
+			return nil, ErrInvalid
+		}
+		item, createErr := s.work.Create(ctx, workapp.CreateCommand{Actor: command.Actor, AccountID: command.AccountID, RequestID: workID, Kind: workdomain.KindTodo, Title: proposal.Title, Description: proposal.Description, Priority: workdomain.PriorityNormal, Assignment: workAssignment(proposal.Responsibility), Provenance: workdomain.Provenance{Source: workdomain.SourceBaseline, CreatedBy: workdomain.Actor{Kind: workdomain.ActorUser, ID: string(actor.UserID)}, BaselineRequirementID: string(proposal.RequirementID)}, Reason: "Approved Baseline gap plan", CorrelationID: correlationID})
+		if createErr != nil {
+			if errors.Is(createErr, workapp.ErrConflict) {
+				return nil, ErrConflict
+			}
+			if errors.Is(createErr, workapp.ErrInvalidCommand) || errors.Is(createErr, workapp.ErrConstraint) {
+				return nil, ErrConstraint
+			}
+			return nil, createErr
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func workAssignment(value domain.Responsibility) workdomain.Assignment {
+	switch value.Kind {
+	case domain.ResponsibilityUser:
+		return workdomain.Assignment{Responsibility: workdomain.ResponsibilityUser, UserID: ids.UserID(value.ID)}
+	case domain.ResponsibilityPersona:
+		return workdomain.Assignment{Responsibility: workdomain.ResponsibilityPersona, PersonaID: value.ID}
+	default:
+		return workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared}
+	}
 }
 
 type ReassessCommand struct {

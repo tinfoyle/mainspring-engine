@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -72,6 +74,10 @@ type Authorizer interface {
 }
 
 type Clock interface{ Now() time.Time }
+
+type WorkCreator interface {
+	Create(context.Context, workapp.CreateCommand) (workdomain.Item, error)
+}
 
 func validBase(actor access.Actor, accountID ids.AccountID, assessmentID ids.BaselineAssessmentID, correlationID string) bool {
 	return actor.UserID != "" && actor.WorkloadID == "" && ids.Validate(string(actor.UserID)) == nil && ids.Validate(string(accountID)) == nil &&

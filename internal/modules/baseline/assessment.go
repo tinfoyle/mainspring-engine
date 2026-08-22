@@ -1,6 +1,10 @@
 package baseline
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"hash"
+	"sort"
 	"strings"
 	"time"
 
@@ -78,6 +82,12 @@ func RestoreAssessment(assessment Assessment) (Assessment, error) {
 		}
 		requirementIDs[requirement.ID] = struct{}{}
 		requirementCodes[requirement.Code] = struct{}{}
+	}
+	if assessment.Plan != nil {
+		expected, err := assessment.derivedPlanAt(assessment.Plan.ID, assessment.Plan.AssessmentVersion)
+		if err != nil || expected.ContentSHA256 != assessment.Plan.ContentSHA256 || expected.ProposedWorkCount != assessment.Plan.ProposedWorkCount {
+			return Assessment{}, ErrInvalid
+		}
 	}
 	if !validAssessmentStateShape(assessment) {
 		return Assessment{}, ErrInvalid
@@ -297,7 +307,7 @@ func (assessment Assessment) DispositionRequirement(command DispositionRequireme
 }
 
 type SubmitPlanCommand struct {
-	Plan            PlanBinding
+	PlanID          ids.BaselinePlanID
 	Actor           Actor
 	Role            accounts.MembershipRole
 	ExpectedVersion uint64
@@ -308,9 +318,8 @@ func (assessment Assessment) SubmitPlan(command SubmitPlanCommand) (Assessment, 
 	if command.ExpectedVersion != assessment.Version {
 		return Assessment{}, ErrConflict
 	}
-	plan := command.Plan.normalized()
-	plan.AssessmentVersion = assessment.Version
-	if assessment.State != StateGapReview || !requirementsReviewed(assessment.Requirements) || !plan.valid(false) ||
+	plan, err := assessment.derivedPlan(command.PlanID)
+	if assessment.State != StateGapReview || !requirementsReviewed(assessment.Requirements) || err != nil ||
 		!command.Actor.valid() || command.At.IsZero() || command.At.Before(assessment.UpdatedAt) {
 		return Assessment{}, ErrState
 	}
@@ -323,6 +332,55 @@ func (assessment Assessment) SubmitPlan(command SubmitPlanCommand) (Assessment, 
 	result.Version++
 	result.UpdatedAt = command.At.UTC()
 	return RestoreAssessment(result)
+}
+
+// PlannedWork returns the stable, frozen Work proposals represented by the
+// assessment plan. Only explicit gaps create Work; satisfied and not-applicable
+// requirements remain evidence decisions rather than operational tasks.
+func (assessment Assessment) PlannedWork() []PlannedWork {
+	result := make([]PlannedWork, 0)
+	for _, requirement := range assessment.Requirements {
+		if requirement.Disposition == DispositionGap {
+			result = append(result, PlannedWork{RequirementID: requirement.ID, Title: requirement.Title, Description: requirement.Reason, Responsibility: requirement.Responsibility})
+		}
+	}
+	sort.Slice(result, func(left, right int) bool { return result[left].RequirementID < result[right].RequirementID })
+	return result
+}
+
+func (assessment Assessment) derivedPlan(planID ids.BaselinePlanID) (PlanBinding, error) {
+	return assessment.derivedPlanAt(planID, assessment.Version)
+}
+
+func (assessment Assessment) derivedPlanAt(planID ids.BaselinePlanID, assessmentVersion uint64) (PlanBinding, error) {
+	if ids.Validate(string(planID)) != nil {
+		return PlanBinding{}, ErrInvalid
+	}
+	work := assessment.PlannedWork()
+	digest := sha256.New()
+	for _, value := range []string{"spyglass-baseline-plan-v1", string(assessment.ID), string(assessment.AccountID), assessment.CatalogVersion, assessment.ScopePolicyVersion} {
+		writePlanValue(digest, value)
+	}
+	var version [8]byte
+	binary.BigEndian.PutUint64(version[:], assessmentVersion)
+	_, _ = digest.Write(version[:])
+	for _, value := range work {
+		writePlanValue(digest, string(value.RequirementID))
+		writePlanValue(digest, value.Title)
+		writePlanValue(digest, value.Description)
+		writePlanValue(digest, string(value.Responsibility.Kind))
+		writePlanValue(digest, value.Responsibility.ID)
+	}
+	var contentSHA256 [sha256.Size]byte
+	copy(contentSHA256[:], digest.Sum(nil))
+	return PlanBinding{ID: planID, AssessmentVersion: assessmentVersion, ContentSHA256: contentSHA256, ProposedWorkCount: uint16(len(work))}, nil
+}
+
+func writePlanValue(destination hash.Hash, value string) {
+	var size [8]byte
+	binary.BigEndian.PutUint64(size[:], uint64(len(value)))
+	_, _ = destination.Write(size[:])
+	_, _ = destination.Write([]byte(value))
 }
 
 type ApprovePlanCommand struct {

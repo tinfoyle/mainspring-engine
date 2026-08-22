@@ -47,11 +47,11 @@ func TestAssessmentLifecycleFreezesEvidenceAndPlanVersions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	planDigest := sha256.Sum256([]byte("canonical-plan"))
-	assessment, err = assessment.SubmitPlan(SubmitPlanCommand{Plan: PlanBinding{ID: testPlanID, ContentSHA256: planDigest}, Actor: actor, Role: accounts.RoleMember, ExpectedVersion: 6, At: now.Add(6 * time.Minute)})
+	assessment, err = assessment.SubmitPlan(SubmitPlanCommand{PlanID: testPlanID, Actor: actor, Role: accounts.RoleMember, ExpectedVersion: 6, At: now.Add(6 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
+	planDigest := assessment.Plan.ContentSHA256
 	if _, err := assessment.ApprovePlan(ApprovePlanCommand{PlanID: testPlanID, PlanSHA256: sha256.Sum256([]byte("changed")), AssessmentVersion: 6, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: 7, At: now.Add(7 * time.Minute)}); !errors.Is(err, ErrPlan) {
 		t.Fatalf("changed plan approved: %v", err)
 	}
@@ -76,19 +76,18 @@ func TestAssessmentLifecycleFreezesEvidenceAndPlanVersions(t *testing.T) {
 func TestAssessmentPlanRequiresExplicitGapReview(t *testing.T) {
 	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
 	assessment, actor := assessmentAtGapReview(t, now)
-	plan := PlanBinding{ID: testPlanID, ContentSHA256: sha256.Sum256([]byte("plan")), ProposedWorkCount: 1}
-	if _, err := assessment.SubmitPlan(SubmitPlanCommand{Plan: plan, Actor: actor, Role: accounts.RoleMember, ExpectedVersion: assessment.Version, At: now.Add(5 * time.Minute)}); !errors.Is(err, ErrState) {
+	if _, err := assessment.SubmitPlan(SubmitPlanCommand{PlanID: testPlanID, Actor: actor, Role: accounts.RoleMember, ExpectedVersion: assessment.Version, At: now.Add(5 * time.Minute)}); !errors.Is(err, ErrState) {
 		t.Fatalf("pending requirement accepted into a plan: %v", err)
 	}
 	assessment, err := assessment.DispositionRequirement(DispositionRequirementCommand{RequirementID: testRequirement, Disposition: DispositionGap, Reason: "Formation record is not available", Actor: actor, Role: accounts.RoleMember, ExpectedVersion: assessment.Version, At: now.Add(5 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	assessment, err = assessment.SubmitPlan(SubmitPlanCommand{Plan: plan, Actor: actor, Role: accounts.RoleMember, ExpectedVersion: assessment.Version, At: now.Add(6 * time.Minute)})
-	if err != nil || assessment.State != StatePlanApproval {
+	assessment, err = assessment.SubmitPlan(SubmitPlanCommand{PlanID: testPlanID, Actor: actor, Role: accounts.RoleMember, ExpectedVersion: assessment.Version, At: now.Add(6 * time.Minute)})
+	if err != nil || assessment.State != StatePlanApproval || assessment.Plan.ProposedWorkCount != 1 || len(assessment.PlannedWork()) != 1 {
 		t.Fatalf("gap plan=%+v err=%v", assessment, err)
 	}
-	assessment, err = assessment.ApprovePlan(ApprovePlanCommand{PlanID: testPlanID, PlanSHA256: plan.ContentSHA256, AssessmentVersion: assessment.Plan.AssessmentVersion, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(7 * time.Minute)})
+	assessment, err = assessment.ApprovePlan(ApprovePlanCommand{PlanID: testPlanID, PlanSHA256: assessment.Plan.ContentSHA256, AssessmentVersion: assessment.Plan.AssessmentVersion, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: assessment.Version, At: now.Add(7 * time.Minute)})
 	if err != nil {
 		t.Fatal(err)
 	}

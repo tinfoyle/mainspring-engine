@@ -262,6 +262,13 @@ type PlanBinding struct {
 	ApprovedAt        *time.Time
 }
 
+type PlannedWork struct {
+	RequirementID  ids.BaselineRequirementID
+	Title          string
+	Description    string
+	Responsibility Responsibility
+}
+
 func (plan PlanBinding) normalized() PlanBinding {
 	if plan.ApprovedBy != nil {
 		value := *plan.ApprovedBy

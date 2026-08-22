@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	agentapp "github.com/tinfoyle/spyglass-engine/internal/application/agents"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
+	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
@@ -155,6 +156,16 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
+	baselineRepository, err := postgres.NewBaselineRepository(cellPool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	baselineService, err := baselineapp.New(routeaccess.NewAuthorizer(), baselineRepository, clock, baselineapp.WithWorkCreator(workCommands))
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	documentService, err := knowledgeapp.NewDocumentService(routeaccess.NewAuthorizer(), knowledgeRepository, clock)
 	if err != nil {
 		pool.Close()
@@ -175,7 +186,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		return nil, err
 	}
 	documents := knowledgeDocumentRoutes{admission: documentAdmission, service: documentService}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents))
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService))
 	if err != nil {
 		pool.Close()
 		return nil, err

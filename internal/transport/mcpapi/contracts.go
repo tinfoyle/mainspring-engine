@@ -7,10 +7,13 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
+	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
+	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -51,6 +54,21 @@ type KnowledgeService interface {
 type KnowledgeDocumentService interface {
 	Retrieve(context.Context, access.Actor, ids.AccountID, knowledgeapp.DocumentRetrievalQuery) ([]knowledgeapp.DocumentCitation, error)
 	GetCitation(context.Context, access.Actor, ids.AccountID, ids.KnowledgeDocumentID, ids.KnowledgeDocumentRevisionID, ids.KnowledgeDocumentChunkID) (knowledgeapp.DocumentCitation, error)
+}
+
+type BaselineService interface {
+	Start(context.Context, baselineapp.StartCommand) (baselinedomain.Assessment, error)
+	Get(context.Context, access.Actor, ids.AccountID, ids.BaselineAssessmentID) (baselinedomain.Assessment, error)
+	Answer(context.Context, baselineapp.AnswerCommand) (baselinedomain.Assessment, error)
+	BeginInventory(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error)
+	CompleteInventory(context.Context, baselineapp.CompleteInventoryCommand) (baselinedomain.Assessment, error)
+	DecideEvidence(context.Context, baselineapp.DecideEvidenceCommand) (baselinedomain.Assessment, error)
+	Disposition(context.Context, baselineapp.DispositionCommand) (baselinedomain.Assessment, error)
+	SubmitPlan(context.Context, baselineapp.SubmitPlanCommand) (baselinedomain.Assessment, error)
+	ApprovePlan(context.Context, baselineapp.ApprovePlanCommand) (baselinedomain.Assessment, error)
+	MaterializePlan(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error)
+	MarkReady(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error)
+	Reassess(context.Context, baselineapp.ReassessCommand) (baselinedomain.Assessment, baselinedomain.Assessment, error)
 }
 
 type requirementInput struct {

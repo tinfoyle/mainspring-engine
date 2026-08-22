@@ -13,6 +13,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
+	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -87,6 +88,26 @@ func knowledgeError(err error) error {
 		return safeError(string(denied.Code))
 	default:
 		return safeError("knowledge_unavailable")
+	}
+}
+
+func baselineError(err error) error {
+	var denied *access.DeniedError
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, baselineapp.ErrInvalid):
+		return safeError("invalid_baseline_request")
+	case errors.Is(err, baselineapp.ErrNotFound):
+		return safeError("baseline_not_found")
+	case errors.Is(err, baselineapp.ErrConflict):
+		return safeError("baseline_conflict")
+	case errors.Is(err, baselineapp.ErrConstraint):
+		return safeError("baseline_rejected")
+	case errors.As(err, &denied):
+		return safeError(string(denied.Code))
+	default:
+		return safeError("baseline_unavailable")
 	}
 }
 

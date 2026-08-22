@@ -14,9 +14,12 @@ import (
 	"sync/atomic"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
+	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
+	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/requestbody"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -42,6 +45,7 @@ type Server struct {
 	actions   ActionRecoveryService
 	knowledge KnowledgeService
 	documents KnowledgeDocumentService
+	baseline  BaselineService
 	counters  routeCounters
 }
 
@@ -115,6 +119,25 @@ func WithKnowledgeDocuments(service KnowledgeDocumentService) Option {
 	return func(server *Server) { server.documents = service }
 }
 
+type BaselineService interface {
+	Start(context.Context, baselineapp.StartCommand) (baselinedomain.Assessment, error)
+	Get(context.Context, access.Actor, ids.AccountID, ids.BaselineAssessmentID) (baselinedomain.Assessment, error)
+	Answer(context.Context, baselineapp.AnswerCommand) (baselinedomain.Assessment, error)
+	BeginInventory(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error)
+	CompleteInventory(context.Context, baselineapp.CompleteInventoryCommand) (baselinedomain.Assessment, error)
+	DecideEvidence(context.Context, baselineapp.DecideEvidenceCommand) (baselinedomain.Assessment, error)
+	Disposition(context.Context, baselineapp.DispositionCommand) (baselinedomain.Assessment, error)
+	SubmitPlan(context.Context, baselineapp.SubmitPlanCommand) (baselinedomain.Assessment, error)
+	ApprovePlan(context.Context, baselineapp.ApprovePlanCommand) (baselinedomain.Assessment, error)
+	MaterializePlan(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error)
+	MarkReady(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error)
+	Reassess(context.Context, baselineapp.ReassessCommand) (baselinedomain.Assessment, baselinedomain.Assessment, error)
+}
+
+func WithBaseline(service BaselineService) Option {
+	return func(server *Server) { server.baseline = service }
+}
+
 func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
 	if acceptor == nil || logger == nil || maxBody <= 0 || maxBody > 16<<20 {
 		return nil, errors.New("cell API dependencies and bounded body size are required")
@@ -180,6 +203,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/claims", s.knowledgeClaimList)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/claims/{claimID}", s.knowledgeClaimGet)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/claims/{claimID}/decisions", s.knowledgeClaimDecide)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments", s.baselineStart)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}", s.baselineGet)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/answers", s.baselineAnswer)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/inventory-starts", s.baselineBeginInventory)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/inventories", s.baselineCompleteInventory)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/evidence-decisions", s.baselineDecideEvidence)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/dispositions", s.baselineDisposition)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/plans", s.baselineSubmitPlan)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/plan-approvals", s.baselineApprovePlan)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/work-materializations", s.baselineMaterializePlan)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/readiness", s.baselineMarkReady)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/reassessments", s.baselineReassess)
 	return s.recover(s.securityHeaders(mux))
 }
 
