@@ -1,6 +1,6 @@
 # Finance module
 
-- Status: typed kernel, forced-RLS persistence, governed lifecycle, stable query summaries and generated HTTP surface constructed; MCP/private product surfaces remain
+- Status: typed kernel, forced-RLS persistence, governed lifecycle, stable query summaries, generated HTTP and typed MCP transport constructed; private product surface and shared MCP production bootstrap remain
 - Package boundary: Finance
 - Decision: [ADR-0006](decisions/0006-finance-operational-ledger.md)
 
@@ -18,7 +18,7 @@ Agents and members may create and revise drafts under Finance mutation access. P
 2. Account-owned forced-RLS schema, immutable redacted events, per-ledger numbering, movement fencing and erasure/restore participation. **Constructed.**
 3. Classified repository and application service with idempotency, optimistic versions and exact Work/Run/Invocation/Evidence references. **Constructed for Ledger/Account lifecycle, balanced drafts, posting, reversal and reconciliation; query pages remain.**
 4. Stable query pages, summaries and bounded cursors. **Constructed.**
-5. Generated HTTP, optional MCP and private Finance surfaces with package/read-only/suspended behavior. **Generated HTTP constructed.**
+5. Generated HTTP, optional MCP and private Finance surfaces with package/read-only/suspended behavior. **Generated HTTP and typed MCP transport constructed.**
 6. Agent draft tools and Attention-governed proposals; no workload-direct posting.
 7. Prototype transformation, synthetic stage reconciliation/recovery and production role/retention grants.
 
@@ -53,3 +53,5 @@ Eight generated HTTP reads now expose those detail and page operations through t
 Thirteen generated HTTP commands complete the same lifecycle without introducing transport-owned authority or models. Every command binds its `Idempotency-Key` to signed route authority; every mutation of an existing aggregate requires the current weak `If-Match` ETag. Ledger creation/revision/close/archive, chart creation/revision/archive, draft creation/revision/post/reversal and reconciliation creation/confirmation all call the canonical application service. No-body transition routes cannot smuggle command fields, JSON routes reject unknown fields and reversals return both immutable outcomes with the new posting's canonical location. Generated Go/TypeScript contracts are drift-free and every command response validates against OpenAPI. MCP and private Finance surfaces are the next slice.
 
 Fresh-database certification now includes Finance in the complete cell-erasure inventory rather than testing its count triggers only in isolation. The suite seeds all ten Finance tables, grants only the erasure function role the required table access, proves exact per-table tombstone counts (including two journal lines), confirms zero residual rows for the erased Account, preserves another Account and proves replay/concurrent erasure convergence. Migration-ledger certification also counts migration 56 explicitly.
+
+The MCP transport now publishes 21 typed Finance tools over the identical query and command service: eight reads and thirteen governed mutations. OAuth bearer authority is rebound to the requested Account and Finance package for every call; mutation tools retain caller operation UUIDs and expected versions, expose bounded opaque cursor families, and map failures to a content-free Finance vocabulary. The MCP draft tool fixes provenance to `mcp` and cannot post implicitly. Close, archive, post and reverse tools advertise destructive semantics, while descriptions state the human-manager and evidence gates enforced by the canonical service. Tests prove the complete deterministic schema surface, routed authorization, MCP provenance, opaque pagination, missing-version rejection and backend-error redaction. A shared production MCP bootstrap and the private Finance UI remain rather than a Finance-specific duplicate server.

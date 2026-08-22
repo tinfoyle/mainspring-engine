@@ -39,6 +39,7 @@ type Server struct {
 	knowledge        KnowledgeService
 	documents        KnowledgeDocumentService
 	baseline         BaselineService
+	finance          FinanceService
 	logger           *slog.Logger
 	version          string
 	maxBody          int64
@@ -85,6 +86,16 @@ func WithBaseline(service BaselineService) Option {
 			return errors.New("MCP Baseline service is required")
 		}
 		server.baseline = service
+		return nil
+	}
+}
+
+func WithFinance(service FinanceService) Option {
+	return func(server *Server) error {
+		if service == nil {
+			return errors.New("MCP Finance service is required")
+		}
+		server.finance = service
 		return nil
 	}
 }
@@ -147,7 +158,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "infinite-ocean-spyglass", Version: s.version}, &mcp.ServerOptions{
-		Instructions: "Use the Account-bound Spyglass Attention tools. Read queue summaries before requesting sensitive detail and preserve operation IDs and expected versions across retries.",
+		Instructions: "Use only the Account-bound Spyglass tools exposed for the authenticated principal. Read summaries before sensitive detail, preserve operation IDs and expected versions across retries, and never treat Finance drafts as posted records or payment execution.",
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}}, SchemaCache: s.schemaCache,
 	})
 	s.registerInformation(server, actor)
@@ -161,6 +172,9 @@ func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 	}
 	if s.baseline != nil {
 		s.registerBaseline(server, actor)
+	}
+	if s.finance != nil {
+		s.registerFinance(server, actor)
 	}
 	return server
 }

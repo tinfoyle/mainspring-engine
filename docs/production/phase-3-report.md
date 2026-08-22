@@ -204,6 +204,8 @@ Finance-HTTP-command checkpoint (2026-08-22): thirteen generated operations now 
 
 Finance-erasure certification checkpoint (2026-08-22): the complete cell-erasure suite now inventories and seeds all ten Finance tables, grants their access only to the security-definer erasure role, attests exact tombstone counts, proves no Finance row survives for the erased Account, preserves a control Account and retains replay/concurrent convergence. A fresh isolated PostgreSQL 17 run passes the complete migrations suite with migration 56 included in the immutable ledger expectation.
 
+Finance-MCP checkpoint (2026-08-22): 21 typed tools now provide eight reads and all thirteen governed mutations over the same Finance service as HTTP. Each call rebinds OAuth actor, Account and Finance-package authority; commands preserve operation UUIDs and optimistic versions; pages use bounded, versioned opaque cursors. MCP-created journal drafts are explicitly marked with `mcp` provenance and never post implicitly. Tool annotations identify irreversible close/archive/post/reversal operations, while safe errors cannot leak persistence details. Protocol tests prove deterministic complete schemas, routed claims, command mapping, cursor opacity, missing-version rejection and backend-error redaction. The shared production MCP bootstrap and private Finance application remain.
+
 Complete every intended launch package rather than leaving preview shells:
 
 - Scheduling: durable definitions, time zones, missed-run policy, leases, pause/resume and idempotent dispatch.

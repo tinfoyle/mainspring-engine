@@ -8,10 +8,12 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
+	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
+	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
 	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -74,6 +76,30 @@ type BaselineService interface {
 	GrantSource(context.Context, baselineapp.GrantSourceCommand) (baselinedomain.SourceGrant, error)
 	ListSourceGrants(context.Context, baselineapp.ListSourceGrantsQuery) (baselineapp.SourceGrantPage, error)
 	RevokeSource(context.Context, baselineapp.RevokeSourceCommand) (baselinedomain.SourceGrant, error)
+}
+
+type FinanceService interface {
+	CreateLedger(context.Context, financeapp.CreateLedgerCommand) (financedomain.Ledger, bool, error)
+	GetLedger(context.Context, access.Actor, ids.AccountID, ids.FinanceLedgerID) (financedomain.Ledger, error)
+	ListLedgers(context.Context, access.Actor, ids.AccountID, financeapp.LedgerListQuery) (financeapp.LedgerPage, error)
+	ReviseLedger(context.Context, financeapp.ReviseLedgerCommand) (financedomain.Ledger, error)
+	ClosePeriod(context.Context, financeapp.ClosePeriodCommand) (financedomain.Ledger, error)
+	ArchiveLedger(context.Context, financeapp.LedgerTransitionCommand) (financedomain.Ledger, error)
+	CreatePostingAccount(context.Context, financeapp.CreateAccountCommand) (financedomain.PostingAccount, bool, error)
+	GetPostingAccount(context.Context, access.Actor, ids.AccountID, ids.FinanceAccountID) (financedomain.PostingAccount, error)
+	ListPostingAccounts(context.Context, access.Actor, ids.AccountID, financeapp.PostingAccountListQuery) (financeapp.PostingAccountPage, error)
+	RevisePostingAccount(context.Context, financeapp.RevisePostingAccountCommand) (financedomain.PostingAccount, error)
+	ArchivePostingAccount(context.Context, financeapp.PostingAccountTransitionCommand) (financedomain.PostingAccount, error)
+	CreateEntry(context.Context, financeapp.CreateEntryCommand) (financedomain.JournalEntry, bool, error)
+	GetEntry(context.Context, access.Actor, ids.AccountID, ids.FinanceEntryID) (financedomain.JournalEntry, error)
+	ListEntries(context.Context, access.Actor, ids.AccountID, financeapp.EntryListQuery) (financeapp.EntryPage, error)
+	ReviseEntry(context.Context, financeapp.ReviseEntryCommand) (financedomain.JournalEntry, error)
+	PostEntry(context.Context, financeapp.EntryTransitionCommand) (financedomain.JournalEntry, error)
+	ReverseEntry(context.Context, financeapp.ReverseEntryCommand) (financedomain.JournalEntry, financedomain.JournalEntry, error)
+	Reconcile(context.Context, financeapp.ReconcileCommand) (financedomain.Reconciliation, bool, error)
+	GetReconciliation(context.Context, access.Actor, ids.AccountID, ids.FinanceReconciliationID) (financedomain.Reconciliation, error)
+	ListReconciliations(context.Context, access.Actor, ids.AccountID, financeapp.ReconciliationListQuery) (financeapp.ReconciliationPage, error)
+	ConfirmReconciliation(context.Context, financeapp.ConfirmReconciliationCommand) (financedomain.Reconciliation, error)
 }
 
 type requirementInput struct {

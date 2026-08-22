@@ -14,6 +14,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
+	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -108,6 +109,26 @@ func baselineError(err error) error {
 		return safeError(string(denied.Code))
 	default:
 		return safeError("baseline_unavailable")
+	}
+}
+
+func financeError(err error) error {
+	var denied *access.DeniedError
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, financeapp.ErrInvalid):
+		return safeError("invalid_finance_request")
+	case errors.Is(err, financeapp.ErrNotFound):
+		return safeError("finance_not_found")
+	case errors.Is(err, financeapp.ErrConflict):
+		return safeError("finance_version_conflict")
+	case errors.Is(err, financeapp.ErrAggregateOverflow):
+		return safeError("finance_aggregate_overflow")
+	case errors.As(err, &denied):
+		return safeError(string(denied.Code))
+	default:
+		return safeError("finance_unavailable")
 	}
 }
 
