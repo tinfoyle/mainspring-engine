@@ -116,6 +116,25 @@ func TestMCPOAuthCodeRotationAudienceAndIdentityInvalidation(t *testing.T) {
 		t.Fatalf("refresh after related-token revocation = %v", err)
 	}
 
+	managed := issue("grant-management")
+	grants, err := service.Grants(ctx, userID)
+	if err != nil || len(grants) != 1 || grants[0].ClientID != clientID || grants[0].ClientName != "Integration Client" {
+		t.Fatalf("active grants = %+v, %v", grants, err)
+	}
+	grantRevoked, err := service.RevokeGrant(ctx, userID, grants[0].ID)
+	if err != nil || !grantRevoked {
+		t.Fatalf("grant revocation = %t, %v", grantRevoked, err)
+	}
+	if _, err = service.Authenticate(ctx, managed.AccessToken, mcpauth.TokenRequirement{Audience: resource, Scope: mcpauth.ScopeMCP}); !errors.Is(err, mcpauth.ErrAccessDenied) {
+		t.Fatalf("access after grant revocation = %v", err)
+	}
+	if _, err = service.Refresh(ctx, managed.RefreshToken, clientID, resource); !errors.Is(err, mcpauth.ErrAccessDenied) {
+		t.Fatalf("refresh after grant revocation = %v", err)
+	}
+	if grants, err = service.Grants(ctx, userID); err != nil || len(grants) != 0 {
+		t.Fatalf("active grants after revocation = %+v, %v", grants, err)
+	}
+
 	identityBound := issue("identity-version")
 	if _, err = pool.Exec(ctx, `UPDATE users SET security_version=security_version+1 WHERE id=$1`, userID); err != nil {
 		t.Fatal(err)

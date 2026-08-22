@@ -10,8 +10,11 @@ import (
 type Scope string
 
 const (
-	ScopeLogin    Scope = "identity_login"
-	ScopeRecovery Scope = "identity_recovery"
+	ScopeLogin            Scope = "identity_login"
+	ScopeRecovery         Scope = "identity_recovery"
+	ScopeMCPAuthorization Scope = "mcp_authorization"
+	ScopeMCPToken         Scope = "mcp_token"
+	ScopeMCPRevocation    Scope = "mcp_revocation"
 )
 
 type Policy struct {
@@ -20,8 +23,11 @@ type Policy struct {
 }
 
 var (
-	LoginPolicy    = Policy{Limit: 60, Window: 15 * time.Minute}
-	RecoveryPolicy = Policy{Limit: 10, Window: time.Hour}
+	LoginPolicy            = Policy{Limit: 60, Window: 15 * time.Minute}
+	RecoveryPolicy         = Policy{Limit: 10, Window: time.Hour}
+	MCPAuthorizationPolicy = Policy{Limit: 60, Window: 15 * time.Minute}
+	MCPTokenPolicy         = Policy{Limit: 600, Window: 15 * time.Minute}
+	MCPRevocationPolicy    = Policy{Limit: 120, Window: 15 * time.Minute}
 )
 
 type Limiter interface {

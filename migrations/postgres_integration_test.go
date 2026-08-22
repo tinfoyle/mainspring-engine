@@ -214,6 +214,10 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil || !allowedAfterWindow {
 		t.Fatalf("network limiter did not reset after window: allowed=%v err=%v", allowedAfterWindow, err)
 	}
+	mcpAllowed, err := networkLimiter.Consume(ctx, abuse.ScopeMCPToken, [32]byte{10}, now, abuse.MCPTokenPolicy)
+	if err != nil || !mcpAllowed {
+		t.Fatalf("MCP token limiter: allowed=%v err=%v", mcpAllowed, err)
+	}
 	notificationQueue := postgresadapter.NewNotificationOutbox(pool)
 	notificationCipher, err := notifications.NewCipher(bytes.Repeat([]byte{0x51}, 32), 1)
 	if err != nil {
@@ -939,7 +943,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 93 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 94 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)

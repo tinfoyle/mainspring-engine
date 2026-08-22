@@ -18,6 +18,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
@@ -76,6 +77,7 @@ type Server struct {
 	recoveryCodes       *recoverycodes.Service
 	contactChanges      *contactchange.Service
 	contactChangeTokens ContactChangeTokenSource
+	mcpGrants           *mcpauth.Service
 }
 
 type Option func(*Server)
@@ -112,6 +114,10 @@ func WithContactChanges(service *contactchange.Service, tokens ContactChangeToke
 		server.contactChanges = service
 		server.contactChangeTokens = tokens
 	}
+}
+
+func WithMCPGrants(service *mcpauth.Service) Option {
+	return func(server *Server) { server.mcpGrants = service }
 }
 
 func New(registrations *registration.Service, authenticationService *authentication.Service, sessionService *sessions.Service, accountService *accountaccess.Service, invitationService *invitations.Service, catalogSource func() catalog.PublishedCatalog, verificationTokens VerificationTokenSource, invitationTokens InvitationTokenSource, config Config, logger *slog.Logger, options ...Option) (*Server, error) {
@@ -184,6 +190,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /app/security/recovery-codes/consume", s.consumeRecoveryCode)
 	mux.HandleFunc("POST /app/security/sessions/revoke", s.revokeSession)
 	mux.HandleFunc("POST /app/security/sessions/revoke-all", s.revokeAllSessions)
+	mux.HandleFunc("POST /app/security/mcp-grants/revoke", s.revokeMCPGrant)
 	mux.HandleFunc("POST /app/account", s.selectAccount)
 	mux.HandleFunc("GET /app/account-closures", s.accountClosuresPage)
 	mux.HandleFunc("POST /app/account-closures/request", s.requestAccountClosure)
@@ -381,6 +388,8 @@ type pageData struct {
 	RecoveryCodes                                                                                      []string
 	RecoveryCodesConfigured                                                                            bool
 	ContactChangesConfigured                                                                           bool
+	MCPGrantsConfigured                                                                                bool
+	MCPGrants                                                                                          []mcpauth.GrantSummary
 	OwnerEnrollmentRequired                                                                            bool
 	WorkMode                                                                                           catalog.PackageMode
 	WorkAvailable, WorkReadOnly                                                                        bool
@@ -1018,6 +1027,8 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 		data.Notice = "Account owners must add a passkey and save recovery codes before entering an Account or performing owner duties."
 	case "revoked":
 		data.Notice = "The selected session has been signed out."
+	case "mcp_revoked":
+		data.Notice = "The connected MCP client has been revoked. Its access and refresh credentials no longer work."
 	case "reauth_required":
 		data.Notice = "Confirm your password before continuing with a sensitive action."
 	case "strong_reauth_required":
@@ -1035,7 +1046,7 @@ func (s *Server) securityPageData(r *http.Request, authenticated sessions.Authen
 	if err != nil {
 		return pageData{}, err
 	}
-	data := pageData{Title: "Identity security", ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil, ContactChangesConfigured: s.contactChanges != nil}
+	data := pageData{Title: "Identity security", ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil, ContactChangesConfigured: s.contactChanges != nil, MCPGrantsConfigured: s.mcpGrants != nil}
 	if s.contactChanges != nil {
 		user, loadErr := s.contactChanges.Current(r.Context(), authenticated.Session.UserID)
 		if loadErr != nil {
@@ -1052,6 +1063,12 @@ func (s *Server) securityPageData(r *http.Request, authenticated sessions.Authen
 	}
 	if s.recoveryCodes != nil {
 		data.RecoveryCodeStatus, err = s.recoveryCodes.Status(r.Context(), authenticated.Session)
+		if err != nil {
+			return pageData{}, err
+		}
+	}
+	if s.mcpGrants != nil {
+		data.MCPGrants, err = s.mcpGrants.Grants(r.Context(), authenticated.Session.UserID)
 		if err != nil {
 			return pageData{}, err
 		}
@@ -1323,6 +1340,27 @@ func (s *Server) revokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clearCookies(w)
 	http.Redirect(w, r, "/login?status=signed_out", http.StatusSeeOther)
+}
+
+func (s *Server) revokeMCPGrant(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.mcpGrants == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "MCP client revocation was not accepted.", http.StatusForbidden)
+		return
+	}
+	revoked, err := s.mcpGrants.RevokeGrant(r.Context(), authenticated.Session.UserID, r.FormValue("grant_id"))
+	if err != nil {
+		http.Error(w, "MCP client could not be revoked.", http.StatusServiceUnavailable)
+		return
+	}
+	if !revoked {
+		http.Error(w, "MCP client was not found.", http.StatusNotFound)
+		return
+	}
+	http.Redirect(w, r, "/app/security?status=mcp_revoked", http.StatusSeeOther)
 }
 
 func (s *Server) acceptInvitationPage(w http.ResponseWriter, r *http.Request) {

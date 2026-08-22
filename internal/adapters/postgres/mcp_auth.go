@@ -332,4 +332,70 @@ func (r *MCPAuthRepository) Revoke(ctx context.Context, hash [32]byte, clientID 
 	return tx.Commit(ctx)
 }
 
+func (r *MCPAuthRepository) ListGrants(ctx context.Context, userID ids.UserID, now time.Time) ([]mcpauth.GrantSummary, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT grant_record.id,grant_record.client_id,grant_record.client_name,
+		       grant_record.created_at,grant_record.last_used_at
+		FROM mcp_oauth_grants grant_record
+		JOIN users identity ON identity.id=grant_record.user_id
+		WHERE grant_record.user_id=$1 AND grant_record.revoked_at IS NULL
+		  AND identity.state='active'
+		  AND identity.security_version=grant_record.security_version
+		  AND (
+		    EXISTS (SELECT 1 FROM mcp_oauth_access_tokens access_token
+		            WHERE access_token.grant_id=grant_record.id AND access_token.revoked_at IS NULL AND access_token.expires_at>$2)
+		    OR EXISTS (SELECT 1 FROM mcp_oauth_refresh_tokens refresh_token
+		               WHERE refresh_token.grant_id=grant_record.id AND refresh_token.revoked_at IS NULL AND refresh_token.consumed_at IS NULL AND refresh_token.expires_at>$2)
+		  )
+		ORDER BY COALESCE(grant_record.last_used_at,grant_record.created_at) DESC,grant_record.id DESC`, userID, now.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	grants := make([]mcpauth.GrantSummary, 0)
+	for rows.Next() {
+		var grant mcpauth.GrantSummary
+		if err := rows.Scan(&grant.ID, &grant.ClientID, &grant.ClientName, &grant.CreatedAt, &grant.LastUsedAt); err != nil {
+			return nil, err
+		}
+		grants = append(grants, grant)
+	}
+	return grants, rows.Err()
+}
+
+func (r *MCPAuthRepository) RevokeGrant(ctx context.Context, userID ids.UserID, grantID string, now time.Time) (bool, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	command, err := tx.Exec(ctx, `
+		UPDATE mcp_oauth_grants
+		SET revoked_at=$3
+		WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`, grantID, userID, now.UTC())
+	if err != nil {
+		return false, err
+	}
+	if command.RowsAffected() == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+	if _, err = tx.Exec(ctx, `UPDATE mcp_oauth_refresh_tokens SET revoked_at=COALESCE(revoked_at,$2) WHERE grant_id=$1`, grantID, now.UTC()); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE mcp_oauth_access_tokens SET revoked_at=COALESCE(revoked_at,$2) WHERE grant_id=$1`, grantID, now.UTC()); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO mcp_oauth_events(user_id,grant_id,event_type,occurred_at) VALUES ($1,$2,'grant_revoked',$3)`, userID, grantID, now.UTC()); err != nil {
+		return false, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 var _ mcpauth.Repository = (*MCPAuthRepository)(nil)

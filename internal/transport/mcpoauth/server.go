@@ -11,17 +11,24 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
 )
 
 const defaultSessionCookie = "__Host-spyglass_session"
 
 type SessionAuthenticator interface {
 	Authenticate(context.Context, string) (sessions.Authenticated, error)
+}
+
+type RequestLimiter interface {
+	Allow(context.Context, abuse.Scope, [32]byte, time.Time, abuse.Policy) (bool, error)
 }
 
 type Config struct {
@@ -36,13 +43,15 @@ type Server struct {
 	service  *mcpauth.Service
 	sessions SessionAuthenticator
 	clients  ClientMetadataLoader
+	limiter  RequestLimiter
+	clock    mcpauth.Clock
 	config   Config
 	logger   *slog.Logger
 	template *template.Template
 }
 
-func New(service *mcpauth.Service, sessionAuthenticator SessionAuthenticator, clients ClientMetadataLoader, config Config, logger *slog.Logger) (*Server, error) {
-	if service == nil || sessionAuthenticator == nil || clients == nil || logger == nil || !validOrigin(config.Issuer) || !validOrigin(config.Resource) || config.TrustedOrigin != config.Issuer {
+func New(service *mcpauth.Service, sessionAuthenticator SessionAuthenticator, clients ClientMetadataLoader, limiter RequestLimiter, clock mcpauth.Clock, config Config, logger *slog.Logger) (*Server, error) {
+	if service == nil || sessionAuthenticator == nil || clients == nil || limiter == nil || clock == nil || logger == nil || !validOrigin(config.Issuer) || !validOrigin(config.Resource) || config.TrustedOrigin != config.Issuer {
 		return nil, errors.New("MCP OAuth transport dependencies and canonical origins are required")
 	}
 	if config.SessionCookieName == "" {
@@ -55,7 +64,7 @@ func New(service *mcpauth.Service, sessionAuthenticator SessionAuthenticator, cl
 	if err != nil {
 		return nil, err
 	}
-	return &Server{service: service, sessions: sessionAuthenticator, clients: clients, config: config, logger: logger, template: page}, nil
+	return &Server{service: service, sessions: sessionAuthenticator, clients: clients, limiter: limiter, clock: clock, config: config, logger: logger, template: page}, nil
 }
 
 func (s *Server) Handler(fallback http.Handler) http.Handler {
@@ -89,6 +98,9 @@ func (s *Server) metadata(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
+	if !s.allow(w, r, abuse.ScopeMCPAuthorization, abuse.MCPAuthorizationPolicy) {
+		return
+	}
 	authenticated, ok := s.currentSession(w, r)
 	if !ok {
 		http.Redirect(w, r, "/login?return_to="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
@@ -123,6 +135,9 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Origin") != s.config.TrustedOrigin {
 		s.oauthError(w, http.StatusForbidden, "access_denied")
+		return
+	}
+	if !s.allow(w, r, abuse.ScopeMCPAuthorization, abuse.MCPAuthorizationPolicy) {
 		return
 	}
 	authenticated, ok := s.currentSession(w, r)
@@ -164,6 +179,9 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) token(w http.ResponseWriter, r *http.Request) {
+	if !s.allow(w, r, abuse.ScopeMCPToken, abuse.MCPTokenPolicy) {
+		return
+	}
 	if err := requireForm(w, r); err != nil {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
@@ -195,6 +213,9 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
+	if !s.allow(w, r, abuse.ScopeMCPRevocation, abuse.MCPRevocationPolicy) {
+		return
+	}
 	if err := requireForm(w, r); err != nil {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
@@ -205,6 +226,22 @@ func (s *Server) revoke(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) allow(w http.ResponseWriter, r *http.Request, scope abuse.Scope, policy abuse.Policy) bool {
+	actor, _ := networkactor.FromContext(r.Context())
+	allowed, err := s.limiter.Allow(r.Context(), scope, actor, s.clock.Now(), policy)
+	if err != nil {
+		s.logger.Error("apply MCP OAuth request budget", "scope", scope, "error", err)
+		s.oauthError(w, http.StatusServiceUnavailable, "temporarily_unavailable")
+		return false
+	}
+	if !allowed {
+		w.Header().Set("Retry-After", strconv.FormatInt(int64(policy.Window/time.Second), 10))
+		s.oauthError(w, http.StatusTooManyRequests, "temporarily_unavailable")
+		return false
+	}
+	return true
 }
 
 func (s *Server) currentSession(w http.ResponseWriter, r *http.Request) (sessions.Authenticated, bool) {

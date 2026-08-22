@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
@@ -36,6 +37,12 @@ const (
 type transportClock struct{ now time.Time }
 
 func (c transportClock) Now() time.Time { return c.now }
+
+type transportLimiter struct{ allowed bool }
+
+func (l transportLimiter) Allow(context.Context, abuse.Scope, [32]byte, time.Time, abuse.Policy) (bool, error) {
+	return l.allowed, nil
+}
 
 type transportIDs struct{ values []string }
 
@@ -71,6 +78,12 @@ func (*transportRepository) AuthenticateAccess(context.Context, [32]byte, mcpaut
 	return access.Actor{UserID: testUser}, nil
 }
 func (*transportRepository) Revoke(context.Context, [32]byte, string, time.Time) error { return nil }
+func (*transportRepository) ListGrants(context.Context, ids.UserID, time.Time) ([]mcpauth.GrantSummary, error) {
+	return nil, nil
+}
+func (*transportRepository) RevokeGrant(context.Context, ids.UserID, string, time.Time) (bool, error) {
+	return true, nil
+}
 
 type transportSessions struct{ authenticated bool }
 
@@ -97,7 +110,7 @@ func TestAuthorizationMetadataConsentAndTokenExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := New(service, transportSessions{authenticated: true}, transportClients{}, Config{Issuer: testIssuer, Resource: testResource, TrustedOrigin: testIssuer}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server, err := New(service, transportSessions{authenticated: true}, transportClients{}, transportLimiter{allowed: true}, transportClock{now}, Config{Issuer: testIssuer, Resource: testResource, TrustedOrigin: testIssuer}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +172,7 @@ func TestAuthorizationRequiresSessionAndSameOriginDecision(t *testing.T) {
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	withoutSession, _ := New(service, transportSessions{}, transportClients{}, Config{Issuer: testIssuer, Resource: testResource, TrustedOrigin: testIssuer}, logger)
+	withoutSession, _ := New(service, transportSessions{}, transportClients{}, transportLimiter{allowed: true}, transportClock{now}, Config{Issuer: testIssuer, Resource: testResource, TrustedOrigin: testIssuer}, logger)
 	request := httptest.NewRequest(http.MethodGet, testIssuer+"/oauth/authorize?response_type=code", nil)
 	response := httptest.NewRecorder()
 	withoutSession.Handler(nil).ServeHTTP(response, request)
@@ -167,7 +180,7 @@ func TestAuthorizationRequiresSessionAndSameOriginDecision(t *testing.T) {
 		t.Fatalf("missing-session response = %d %q", response.Code, response.Header().Get("Location"))
 	}
 
-	withSession, _ := New(service, transportSessions{authenticated: true}, transportClients{}, Config{Issuer: testIssuer, Resource: testResource, TrustedOrigin: testIssuer}, logger)
+	withSession, _ := New(service, transportSessions{authenticated: true}, transportClients{}, transportLimiter{allowed: true}, transportClock{now}, Config{Issuer: testIssuer, Resource: testResource, TrustedOrigin: testIssuer}, logger)
 	form := url.Values{"pending_id": {testPending}, "decision": {"approve"}}
 	request = httptest.NewRequest(http.MethodPost, testIssuer+"/oauth/authorize", strings.NewReader(form.Encode()))
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -177,6 +190,25 @@ func TestAuthorizationRequiresSessionAndSameOriginDecision(t *testing.T) {
 	withSession.Handler(nil).ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("cross-origin decision response = %d", response.Code)
+	}
+}
+
+func TestTokenEndpointEnforcesDistributedRequestBudget(t *testing.T) {
+	now := time.Date(2026, 8, 22, 23, 0, 0, 0, time.UTC)
+	service, err := mcpauth.New(&transportRepository{}, &transportIDs{values: []string{testPending}}, mcpauth.RandomSecrets{}, transportClock{now}, testIssuer, testResource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(service, transportSessions{}, transportClients{}, transportLimiter{}, transportClock{now}, Config{Issuer: testIssuer, Resource: testResource, TrustedOrigin: testIssuer}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, testIssuer+"/oauth/token", strings.NewReader("grant_type=authorization_code"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	server.Handler(nil).ServeHTTP(response, request)
+	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != "900" || !strings.Contains(response.Body.String(), "temporarily_unavailable") {
+		t.Fatalf("limited response = %d retry=%q body=%s", response.Code, response.Header().Get("Retry-After"), response.Body.String())
 	}
 }
 

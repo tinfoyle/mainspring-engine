@@ -58,6 +58,7 @@ type repositoryStub struct {
 	requirement   TokenRequirement
 	revokedHash   [32]byte
 	revokedClient string
+	revokedGrant  string
 	error         error
 }
 
@@ -109,6 +110,18 @@ func (r *repositoryStub) Revoke(_ context.Context, hash [32]byte, clientID strin
 	return r.error
 }
 
+func (r *repositoryStub) ListGrants(_ context.Context, userID ids.UserID, _ time.Time) ([]GrantSummary, error) {
+	if r.error != nil {
+		return nil, r.error
+	}
+	return []GrantSummary{{ID: oauthGrant, ClientID: oauthClient, ClientName: "Trusted Client"}}, nil
+}
+
+func (r *repositoryStub) RevokeGrant(_ context.Context, userID ids.UserID, grantID string, _ time.Time) (bool, error) {
+	r.revokedGrant = grantID
+	return r.error == nil && userID == oauthUser && grantID == oauthGrant, r.error
+}
+
 func TestAuthorizationCodeAndRotatingTokenFlow(t *testing.T) {
 	now := time.Date(2026, 8, 22, 22, 0, 0, 0, time.UTC)
 	verifier := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"
@@ -157,6 +170,14 @@ func TestAuthorizationCodeAndRotatingTokenFlow(t *testing.T) {
 	}
 	if err := service.Revoke(context.Background(), refreshToken, oauthClient); err != nil || repository.revokedHash != sha256.Sum256([]byte(refreshToken)) || repository.revokedClient != oauthClient {
 		t.Fatalf("revoke hash=%x client=%s err=%v", repository.revokedHash, repository.revokedClient, err)
+	}
+	grants, err := service.Grants(context.Background(), oauthUser)
+	if err != nil || len(grants) != 1 || grants[0].ID != oauthGrant {
+		t.Fatalf("grants=%+v err=%v", grants, err)
+	}
+	revoked, err := service.RevokeGrant(context.Background(), oauthUser, oauthGrant)
+	if err != nil || !revoked || repository.revokedGrant != oauthGrant {
+		t.Fatalf("grant revoked=%t selected=%q err=%v", revoked, repository.revokedGrant, err)
 	}
 }
 

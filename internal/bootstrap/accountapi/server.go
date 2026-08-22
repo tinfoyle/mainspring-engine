@@ -244,12 +244,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithSecurityPosture(securityPosture),
 		httpapi.WithContactChanges(contactChangeService, nil, false),
 	).Handler()
-	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService), browserapp.WithContactChanges(contactChangeService, nil))
+	mcpAuthorization, err := mcpauth.New(postgres.NewMCPAuthRepository(pool), ids.RandomGenerator{}, mcpauth.RandomSecrets{}, clock, config.AppOrigin, config.MCPResourceOrigin)
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	mcpAuthorization, err := mcpauth.New(postgres.NewMCPAuthRepository(pool), ids.RandomGenerator{}, mcpauth.RandomSecrets{}, clock, config.AppOrigin, config.MCPResourceOrigin)
+	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService), browserapp.WithContactChanges(contactChangeService, nil), browserapp.WithMCPGrants(mcpAuthorization))
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -259,7 +259,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	oauth, err := mcpoauth.New(mcpAuthorization, sessionService, clientMetadata, mcpoauth.Config{Issuer: config.AppOrigin, Resource: config.MCPResourceOrigin, TrustedOrigin: config.AppOrigin, SecureCookies: true}, logger)
+	oauth, err := mcpoauth.New(mcpAuthorization, sessionService, clientMetadata, networkGuard, clock, mcpoauth.Config{Issuer: config.AppOrigin, Resource: config.MCPResourceOrigin, TrustedOrigin: config.AppOrigin, SecureCookies: true}, logger)
 	if err != nil {
 		pool.Close()
 		return nil, err

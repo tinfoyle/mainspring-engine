@@ -152,6 +152,14 @@ type TokenRequirement struct {
 	Scope    string
 }
 
+type GrantSummary struct {
+	ID         string
+	ClientID   string
+	ClientName string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+}
+
 type Repository interface {
 	CreateAuthorization(context.Context, PendingAuthorization) error
 	DecideAuthorization(context.Context, AuthorizationDecision, [32]byte, string, time.Time, time.Time) (PendingAuthorization, error)
@@ -159,6 +167,8 @@ type Repository interface {
 	RotateRefresh(context.Context, RefreshExchange) (IssuedAuthority, error)
 	AuthenticateAccess(context.Context, [32]byte, TokenRequirement, time.Time) (access.Actor, error)
 	Revoke(context.Context, [32]byte, string, time.Time) error
+	ListGrants(context.Context, ids.UserID, time.Time) ([]GrantSummary, error)
+	RevokeGrant(context.Context, ids.UserID, string, time.Time) (bool, error)
 }
 
 type Service struct {
@@ -289,6 +299,20 @@ func (s *Service) Revoke(ctx context.Context, token, clientID string) error {
 		return nil
 	}
 	return s.repository.Revoke(ctx, sha256.Sum256([]byte(token)), clientID, s.clock.Now().UTC())
+}
+
+func (s *Service) Grants(ctx context.Context, userID ids.UserID) ([]GrantSummary, error) {
+	if ids.Validate(string(userID)) != nil {
+		return nil, ErrInvalid
+	}
+	return s.repository.ListGrants(ctx, userID, s.clock.Now().UTC())
+}
+
+func (s *Service) RevokeGrant(ctx context.Context, userID ids.UserID, grantID string) (bool, error) {
+	if ids.Validate(string(userID)) != nil || ids.Validate(grantID) != nil {
+		return false, ErrInvalid
+	}
+	return s.repository.RevokeGrant(ctx, userID, grantID, s.clock.Now().UTC())
 }
 
 func tokenSet(accessToken, refreshToken string) TokenSet {
