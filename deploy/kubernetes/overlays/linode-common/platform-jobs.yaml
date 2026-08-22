@@ -1,3 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: spyglass-prototype-migration
+  namespace: spyglass-reference
+  labels: {app.kubernetes.io/name: spyglass-prototype-migration, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: prototype-migration}
+spec:
+  suspend: true
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: spyglass-prototype-migration, app.kubernetes.io/part-of: spyglass, spyglass.io/database-target: prototype-migration}
+    spec:
+      serviceAccountName: deployment-operator
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      restartPolicy: Never
+      containers:
+        - name: prototype-import
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          command: [/prototype-import]
+          args: [-bundle, /migration/bundle, -certificate, /migration/evidence/reconciliation.json]
+          envFrom: [{secretRef: {name: spyglass-prototype-migration-secrets}}]
+          volumeMounts: [{name: migration, mountPath: /migration}]
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+      volumes:
+        - name: migration
+          persistentVolumeClaim: {claimName: spyglass-prototype-migration}
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata: {name: deployment-operator, namespace: spyglass-reference}

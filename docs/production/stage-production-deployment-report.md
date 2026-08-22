@@ -175,7 +175,7 @@ The stage override uses the same service graph with production-mode process argu
 
 - application and website images pulled from GHCR by digest;
 - three PostgreSQL containers with private networks and persistent volumes;
-- private versioned MinIO document storage on a persistent volume with a generated static stage encryption key and distinct prefix-scoped admission/worker credentials; production replaces this service with Linode Object Storage and corresponding scoped credentials;
+- private versioned MinIO document storage on a persistent volume with a generated static stage encryption key and distinct prefix-scoped admission, worker and one-shot prototype-migration credentials; production replaces this service with Linode Object Storage and corresponding scoped credentials;
 - an internal Caddy router on the existing `infiniteocean_public` network; the existing Infinite Ocean Caddy remains the only public 80/443 and ACME owner;
 - Stripe test mode, TLS SMTP and non-production provider credentials;
 - a non-internal provider-egress network attached only to Account API, billing, notification and model-gateway workloads;
@@ -193,11 +193,12 @@ The two stage-only launchers own Docker Engine authority behind narrow mTLS and 
 3. Pull images by digest; never build on the VPS.
 4. Record database/restore checkpoints and run owner-configured backup hooks when available.
 5. Run global and cell migrations using separate one-shot credentials.
-6. Start internal services and workers; require readiness.
-7. Update router, Account API, website and edge only after internal health passes.
-8. Publish the reviewed stage Catalog and Stripe mappings through short-lived operator containers once the Phase 3 Catalog is acceptance-ready.
-9. Run exact-origin certification for every platform release and connected customer/provider certification for the Phase 3 product release.
-10. Archive the release record and content-free evidence outside Git.
+6. Provision the dedicated prototype-migration global/cell roles and source-write/extracted-read object policy, but keep the one-shot importer absent unless an approved sealed cohort is scheduled.
+7. Start internal services and workers; require readiness.
+8. Update router, Account API, website and edge only after internal health passes.
+9. Publish the reviewed stage Catalog and Stripe mappings through short-lived operator containers once the Phase 3 Catalog is acceptance-ready.
+10. Run exact-origin certification for every platform release and connected customer/provider certification for the Phase 3 product release.
+11. Archive the release record and content-free evidence outside Git.
 
 Deployments use an explicit Compose project name and `docker compose up -d --wait` or an equivalent health-gated sequence. They never copy a developer worktree or plaintext secrets.
 
@@ -266,7 +267,7 @@ The credential-free pre-production and production overlays currently provide:
 - a private TLS 1.3 `tool-router` Deployment and Service that admits only the exact cell runner-broker workload identities before routing a one-use signed tool context;
 - resource requests/limits, connection caps, PDBs and topology spread;
 - dedicated runner namespace and permissionless runner ServiceAccount;
-- suspended, separately credentialed migration/Catalog/release-identity Jobs.
+- suspended, separately credentialed schema-migration, prototype-migration, Catalog and release-identity Jobs. The prototype Job has no Kubernetes API token, requires an environment-created private `spyglass-prototype-migration` PVC for its sealed bundle/certificate and an absent-by-default `spyglass-prototype-migration-secrets` object, and is never unsuspended as part of ordinary release rollout.
 
 After the kubeconfig and production age recipient are furnished, the Phase 3 cluster inventory must resolve the actual CNI, storage class, API-server CIDR, ingress/add-on namespaces, encrypted workload Secrets, custom-metric adapter, observability backend, sandbox RuntimeClass/node pool and signature/admission controller. Those cluster-bound values are intentionally not fabricated in Phase 2.5.
 

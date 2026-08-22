@@ -94,6 +94,7 @@ spec:
                   - notification-worker
                   - work-reconciler
                   - baseline-maintenance-worker
+                  - spyglass-prototype-migration
       ports: [{protocol: TCP, port: 5432}]
     - from:
         - podSelector:
@@ -129,6 +130,10 @@ spec:
         - podSelector:
             matchLabels: {spyglass.io/database-target: cell-a}
       ports: [{protocol: TCP, port: 5432}]
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: spyglass-prototype-migration}
+      ports: [{protocol: TCP, port: 5432}]
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -158,6 +163,10 @@ spec:
     - from:
         - podSelector:
             matchLabels: {spyglass.io/database-target: cell-b}
+      ports: [{protocol: TCP, port: 5432}]
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: spyglass-prototype-migration}
       ports: [{protocol: TCP, port: 5432}]
 ---
 apiVersion: networking.k8s.io/v1
@@ -213,7 +222,7 @@ metadata: {name: provider-https-egress, namespace: spyglass-reference}
 spec:
   podSelector:
     matchExpressions:
-      - {key: app.kubernetes.io/name, operator: In, values: [account-api, billing-worker, model-gateway]}
+      - {key: app.kubernetes.io/name, operator: In, values: [account-api, billing-worker, model-gateway, spyglass-prototype-migration]}
   policyTypes: [Egress]
   egress:
     - to:

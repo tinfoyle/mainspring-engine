@@ -9,13 +9,20 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
 "${compose[@]}" run --rm --no-deps --entrypoint /bin/sh object-store-init -ec '
   mc alias set app http://object-store:9000 "$SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY" "$SPYGLASS_OBJECT_STORE_APP_SECRET_KEY" >/dev/null
   mc alias set worker http://object-store:9000 "$SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY" "$SPYGLASS_OBJECT_STORE_WORKER_SECRET_KEY" >/dev/null
+  mc alias set migration http://object-store:9000 "$SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY" "$SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY" >/dev/null
   mc alias set root http://object-store:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
   prefix="accounts/policy-certification/documents/document/revisions/revision"
   printf source | mc pipe "app/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null
   mc cat "worker/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null
   printf extracted | mc pipe "worker/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null
+  mc cat "migration/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null
+  printf migration-source | mc pipe "migration/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null
   if printf denied | mc pipe "app/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null 2>&1; then
     echo "app API object policy permitted an extracted-object write" >&2
+    exit 1
+  fi
+  if printf denied | mc pipe "migration/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null 2>&1; then
+    echo "prototype migration object policy permitted an extracted-object write" >&2
     exit 1
   fi
   mc rm --recursive --force --versions "root/$SPYGLASS_OBJECT_STORE_BUCKET/accounts/policy-certification" >/dev/null

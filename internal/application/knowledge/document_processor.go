@@ -147,7 +147,13 @@ func (processor *DocumentProcessor) extract(ctx context.Context, claim DocumentP
 	if err != nil {
 		return revision, err
 	}
-	result, extractErr := processor.extractor.Extract(ctx, TextExtractionRequest{Body: body, Size: revision.ByteSize, MediaType: revision.VerifiedType})
+	var result TextExtractionResult
+	var extractErr error
+	if revision.VerifiedType == "text/plain" {
+		result, extractErr = extractPlainTextIdentity(body, revision.ByteSize, revision.ContentSHA256)
+	} else {
+		result, extractErr = processor.extractor.Extract(ctx, TextExtractionRequest{Body: body, Size: revision.ByteSize, MediaType: revision.VerifiedType})
+	}
 	closeErr := body.Close()
 	if extractErr != nil || closeErr != nil {
 		return revision, errors.Join(extractErr, closeErr)
@@ -164,6 +170,20 @@ func (processor *DocumentProcessor) extract(ctx context.Context, claim DocumentP
 		return revision, errors.Join(err, fmt.Errorf("extracted-object cleanup failed: %w", cleanupErr))
 	}
 	return revision, err
+}
+
+func extractPlainTextIdentity(body io.Reader, size int64, digest [sha256.Size]byte) (TextExtractionResult, error) {
+	if body == nil || size < 1 || size > knowledgedomain.MaximumExtractedTextBytes || digest == ([sha256.Size]byte{}) {
+		return TextExtractionResult{}, ErrInvalid
+	}
+	text, err := io.ReadAll(io.LimitReader(body, size+1))
+	if err != nil || int64(len(text)) != size || sha256.Sum256(text) != digest {
+		return TextExtractionResult{}, errors.Join(err, errors.New("plain-text source failed its integrity check"))
+	}
+	if _, err := ChunkExtractedText(text); err != nil {
+		return TextExtractionResult{}, err
+	}
+	return TextExtractionResult{Text: text, TextSHA256: digest, Extractor: "Spyglass text/plain identity v1"}, nil
 }
 
 func (processor *DocumentProcessor) index(ctx context.Context, claim DocumentProcessingClaim, revision knowledgedomain.DocumentRevision, correlationID string) error {

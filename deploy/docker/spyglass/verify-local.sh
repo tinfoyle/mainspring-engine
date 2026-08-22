@@ -46,14 +46,18 @@ test "$cell_count" = "2"
 
 runtime_role_count="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
-  --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_account_api','spyglass_app_router','spyglass_admission_api','spyglass_billing_worker','spyglass_notification_worker','spyglass_entitlement_worker','spyglass_account_lifecycle_worker','spyglass_work_reconciler','spyglass_baseline_maintenance_worker') AND NOT rolsuper AND NOT rolbypassrls")"
-test "$runtime_role_count" = "9"
+  --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_account_api','spyglass_app_router','spyglass_admission_api','spyglass_billing_worker','spyglass_notification_worker','spyglass_entitlement_worker','spyglass_account_lifecycle_worker','spyglass_work_reconciler','spyglass_baseline_maintenance_worker','spyglass_prototype_migration') AND NOT rolsuper AND NOT rolbypassrls")"
+test "$runtime_role_count" = "10"
 
 for database in cell-a-db cell-b-db; do
   cell_runtime_role_count="$("${compose[@]}" exec --no-TTY "$database" psql \
     --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
-    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_app_api','spyglass_route_receipt_worker','spyglass_work_reconciler','spyglass_agent_dispatch_worker','spyglass_agent_projection_worker','spyglass_knowledge_document_worker','spyglass_baseline_maintenance_worker','spyglass_runner_controller','spyglass_runner_broker') AND NOT rolsuper AND NOT rolbypassrls")"
-  test "$cell_runtime_role_count" = "9"
+    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_app_api','spyglass_route_receipt_worker','spyglass_work_reconciler','spyglass_agent_dispatch_worker','spyglass_agent_projection_worker','spyglass_knowledge_document_worker','spyglass_baseline_maintenance_worker','spyglass_prototype_migration','spyglass_runner_controller','spyglass_runner_broker') AND NOT rolsuper AND NOT rolbypassrls")"
+  test "$cell_runtime_role_count" = "10"
+  document_event_privileges="$("${compose[@]}" exec --no-TTY "$database" psql \
+    --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+    --command="SELECT has_table_privilege('spyglass_knowledge_document_worker','spyglass.knowledge_document_events','SELECT,INSERT,UPDATE') AND NOT has_table_privilege('spyglass_knowledge_document_worker','spyglass.knowledge_document_events','DELETE') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='knowledge_document_events_immutable' AND tgenabled<>'D')")"
+  test "$document_event_privileges" = "t"
 done
 
 assert_role_denied() {
@@ -71,6 +75,7 @@ assert_role_denied global-db spyglass_entitlement_worker 'SELECT count(*) FROM u
 assert_role_denied global-db spyglass_account_lifecycle_worker 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_work_reconciler 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_baseline_maintenance_worker 'SELECT count(*) FROM users'
+assert_role_denied global-db spyglass_prototype_migration 'SELECT count(*) FROM users'
 for database in cell-a-db cell-b-db; do
   assert_role_denied "$database" spyglass_route_receipt_worker 'SELECT count(*) FROM spyglass.work_items'
   assert_role_denied "$database" spyglass_work_reconciler 'SELECT count(*) FROM spyglass.agent_invocations'
@@ -80,6 +85,8 @@ for database in cell-a-db cell-b-db; do
   assert_role_denied "$database" spyglass_knowledge_document_worker 'SELECT count(*) FROM spyglass.knowledge_claims'
   assert_role_denied "$database" spyglass_baseline_maintenance_worker 'SELECT count(*) FROM spyglass.knowledge_claims'
   assert_role_denied "$database" spyglass_baseline_maintenance_worker 'SELECT count(*) FROM spyglass.baseline_maintenance_queue'
+  assert_role_denied "$database" spyglass_prototype_migration 'SELECT count(*) FROM spyglass.work_items'
+  assert_role_denied "$database" spyglass_prototype_migration 'SELECT count(*) FROM spyglass.knowledge_facts'
   assert_role_denied "$database" spyglass_runner_controller 'SELECT count(*) FROM spyglass.work_items'
   assert_role_denied "$database" spyglass_runner_controller 'SELECT count(*) FROM spyglass.runner_invocation_exchanges'
   assert_role_denied "$database" spyglass_runner_broker 'SELECT count(*) FROM spyglass.runner_invocation_exchanges'

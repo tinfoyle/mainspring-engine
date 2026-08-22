@@ -117,7 +117,7 @@ func documentProcessorFixture(t *testing.T, source, extracted []byte) (*Document
 	documents, _, repository, clock := documentServiceFixture(t)
 	_, revision, err := documents.Admit(context.Background(), AdmitDocumentCommand{
 		Actor: knowledgedomainActorUser(), AccountID: appKnowledgeAccount, DocumentID: appKnowledgeDocument, RevisionID: appKnowledgeRevision,
-		Title: "Processor fixture", Sensitivity: knowledgedomain.SensitivityInternal, Filename: "fixture.txt", DeclaredType: "text/plain", VerifiedType: "text/plain",
+		Title: "Processor fixture", Sensitivity: knowledgedomain.SensitivityInternal, Filename: "fixture.pdf", DeclaredType: "application/pdf", VerifiedType: "application/pdf",
 		ByteSize: int64(len(source)), ContentSHA256: sha256.Sum256(source), ObjectKey: "accounts/" + string(appKnowledgeAccount) + "/documents/" + string(appKnowledgeDocument) + "/revisions/" + string(appKnowledgeRevision) + "/source", ObjectVersion: "source-version-1", ChangeSummary: "Initial", CorrelationID: appKnowledgeOperation,
 	})
 	if err != nil {
@@ -155,6 +155,22 @@ func TestDocumentProcessorCompletesCleanRestartSafePipeline(t *testing.T) {
 	result, err = processor.ProcessOne(context.Background())
 	if err == nil || result.Completed || scanner.calls != 1 || extractor.calls != 1 || objects.extractedPut != 1 {
 		t.Fatalf("ready replay result=%+v scanner=%d extractor=%d puts=%d err=%v", result, scanner.calls, extractor.calls, objects.extractedPut, err)
+	}
+}
+
+func TestDocumentProcessorPreservesScannedPlainTextBytesWithoutTikaNormalization(t *testing.T) {
+	source := []byte("first line\r\nsecond line\r\n")
+	processor, repository, queue, objects, scanner, extractor, clock := documentProcessorFixture(t, source, []byte("normalized by external extractor"))
+	repository.revision.Filename = "fixture.txt"
+	repository.revision.DeclaredType = "text/plain"
+	repository.revision.VerifiedType = "text/plain"
+	clock.now = clock.now.Add(time.Second)
+	result, err := processor.ProcessOne(context.Background())
+	if err != nil || !result.Completed || queue.completed != 1 || repository.revision.State != knowledgedomain.RevisionReady {
+		t.Fatalf("result=%+v completed=%d revision=%+v err=%v", result, queue.completed, repository.revision, err)
+	}
+	if scanner.calls != 1 || extractor.calls != 0 || objects.extractedPut != 1 || !bytes.Equal(objects.extracted, source) || repository.revision.TextBytes != int64(len(source)) || repository.revision.TextSHA256 != sha256.Sum256(source) || repository.revision.Extractor != "Spyglass text/plain identity v1" {
+		t.Fatalf("scanner=%d extractor=%d puts=%d extracted=%q revision=%+v", scanner.calls, extractor.calls, objects.extractedPut, objects.extracted, repository.revision)
 	}
 }
 

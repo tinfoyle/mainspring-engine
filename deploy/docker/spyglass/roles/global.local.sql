@@ -30,6 +30,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_baseline_maintenance_worker') THEN
     CREATE ROLE spyglass_baseline_maintenance_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_prototype_migration') THEN
+    CREATE ROLE spyglass_prototype_migration LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
 END
 $$;
 
@@ -43,6 +46,7 @@ $$;
 \getenv identity_maintenance_password SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD
 \getenv work_reconciler_password SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD
 \getenv baseline_maintenance_password SPYGLASS_BASELINE_MAINTENANCE_WORKER_DATABASE_PASSWORD
+\getenv prototype_migration_password SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD
 SELECT format('ALTER ROLE spyglass_account_api PASSWORD %L', :'account_api_password') \gexec
 SELECT format('ALTER ROLE spyglass_app_router PASSWORD %L', :'app_router_password') \gexec
 SELECT format('ALTER ROLE spyglass_admission_api PASSWORD %L', :'admission_password') \gexec
@@ -53,28 +57,29 @@ SELECT format('ALTER ROLE spyglass_account_lifecycle_worker PASSWORD %L', :'life
 SELECT format('ALTER ROLE spyglass_identity_maintenance_worker PASSWORD %L', :'identity_maintenance_password') \gexec
 SELECT format('ALTER ROLE spyglass_work_reconciler PASSWORD %L', :'work_reconciler_password') \gexec
 SELECT format('ALTER ROLE spyglass_baseline_maintenance_worker PASSWORD %L', :'baseline_maintenance_password') \gexec
+SELECT format('ALTER ROLE spyglass_prototype_migration PASSWORD %L', :'prototype_migration_password') \gexec
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
   spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_work_reconciler,
-  spyglass_baseline_maintenance_worker;
+  spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
 GRANT USAGE ON SCHEMA public TO spyglass_account_api, spyglass_app_router, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
   spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_work_reconciler,
-  spyglass_baseline_maintenance_worker;
+  spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
   spyglass_identity_maintenance_worker,
-  spyglass_work_reconciler, spyglass_baseline_maintenance_worker;
+  spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
   spyglass_identity_maintenance_worker,
-  spyglass_work_reconciler, spyglass_baseline_maintenance_worker;
+  spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
   spyglass_identity_maintenance_worker,
-  spyglass_work_reconciler, spyglass_baseline_maintenance_worker;
+  spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO spyglass_account_api;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO spyglass_account_api;
@@ -92,7 +97,7 @@ GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid) TO spy
 
 GRANT SELECT ON account_erasure_restore_ledger TO spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
-  spyglass_identity_maintenance_worker, spyglass_work_reconciler, spyglass_baseline_maintenance_worker;
+  spyglass_identity_maintenance_worker, spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration;
 
 GRANT SELECT, UPDATE ON billing_event_inbox TO spyglass_billing_worker;
 GRANT SELECT ON billing_profiles, offer_provider_prices, catalog_publications TO spyglass_billing_worker;
@@ -126,3 +131,5 @@ GRANT SELECT, INSERT, UPDATE ON entitlement_usage_counters, entitlement_usage_re
   TO spyglass_baseline_maintenance_worker;
 GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid)
   TO spyglass_baseline_maintenance_worker;
+
+GRANT SELECT ON accounts, entitlement_snapshots TO spyglass_prototype_migration;

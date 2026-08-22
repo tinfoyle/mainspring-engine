@@ -24,9 +24,11 @@ for environment in linode-preproduction linode-production; do
   grep -Fq 'name: public-ingress' "$temporary/$environment.yaml"
   grep -Fq 'name: runner-control-to-kubernetes-api' "$temporary/$environment.yaml"
   grep -Fq 'name: tool-router' "$temporary/$environment.yaml"
-  for job in spyglass-global-migration spyglass-cell-a-migration spyglass-cell-b-migration spyglass-catalog-publication spyglass-release-identity; do
+  for job in spyglass-prototype-migration spyglass-global-migration spyglass-cell-a-migration spyglass-cell-b-migration spyglass-catalog-publication spyglass-release-identity; do
     grep -Fq "name: $job" "$temporary/$environment.yaml"
   done
+  grep -Fq 'claimName: spyglass-prototype-migration' "$temporary/$environment.yaml"
+  grep -Fq 'name: spyglass-prototype-migration-secrets' "$temporary/$environment.yaml"
   if grep -Eq 'registry.invalid|sha256:0{64}|image: .+:latest([[:space:]]|$)|^kind: Secret$' "$temporary/$environment.yaml"; then
     echo "$environment contains an unpinned image or plaintext Secret" >&2
     exit 1

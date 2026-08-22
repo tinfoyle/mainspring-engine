@@ -29,6 +29,8 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/restoregate"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
 
 func main() {
@@ -45,6 +47,8 @@ type config struct {
 	objectEndpoint, objectRegion, objectBucket string
 	objectAccessKey, objectSecretKey           string
 	objectSecure, objectSSE                    bool
+	cellID                                     ids.CellID
+	globalCheckpoint, cellCheckpoint           restoregate.Checkpoint
 }
 
 func run(arguments []string, getenv func(string) string, stdout, stderr io.Writer) error {
@@ -79,6 +83,17 @@ func run(arguments []string, getenv func(string) string, stdout, stderr io.Write
 		return fmt.Errorf("open cell database: %w", err)
 	}
 	defer cellPool.Close()
+	globalGate, err := restoregate.New(globalPool, restoregate.Global, config.globalCheckpoint)
+	if err != nil {
+		return err
+	}
+	cellGate, err := restoregate.New(cellPool, restoregate.Cell, config.cellCheckpoint)
+	if err != nil {
+		return err
+	}
+	if err := errors.Join(globalGate.Ready(ctx), cellGate.Ready(ctx)); err != nil {
+		return fmt.Errorf("verify Account-erasure restore checkpoints: %w", err)
+	}
 	cell, err := database.NewCellPool(cellPool)
 	if err != nil {
 		return err
@@ -91,10 +106,11 @@ func run(arguments []string, getenv func(string) string, stdout, stderr io.Write
 		return err
 	}
 	accessRepository := postgres.NewAccessRepository(globalPool)
-	authorizer, err := access.NewWorkloadAuthorizer(accessRepository)
+	baseAuthorizer, err := access.NewWorkloadAuthorizer(accessRepository)
 	if err != nil {
 		return err
 	}
+	authorizer := prototypeImportAuthorizer{inner: baseAuthorizer, cellID: config.cellID}
 	clock := registration.SystemClock{}
 	knowledgeRepository, err := postgres.NewKnowledgeRepository(cell)
 	if err != nil {
@@ -176,8 +192,9 @@ func configFromEnvironment(getenv func(string) string) (config, error) {
 		objectBucket:      strings.TrimSpace(getenv("SPYGLASS_PROTOTYPE_IMPORT_OBJECT_BUCKET")),
 		objectAccessKey:   getenv("SPYGLASS_PROTOTYPE_IMPORT_OBJECT_ACCESS_KEY"),
 		objectSecretKey:   getenv("SPYGLASS_PROTOTYPE_IMPORT_OBJECT_SECRET_KEY"),
+		cellID:            ids.CellID(strings.TrimSpace(getenv("SPYGLASS_PROTOTYPE_IMPORT_CELL_ID"))),
 	}
-	if value.globalDatabaseURL == "" || value.cellDatabaseURL == "" || value.objectEndpoint == "" || value.objectBucket == "" || value.objectAccessKey == "" || value.objectSecretKey == "" {
+	if value.globalDatabaseURL == "" || value.cellDatabaseURL == "" || value.objectEndpoint == "" || value.objectBucket == "" || value.objectAccessKey == "" || value.objectSecretKey == "" || !routecontext.ValidCellID(value.cellID) {
 		return config{}, errors.New("prototype import database and object-store environment is incomplete")
 	}
 	var err error
@@ -186,6 +203,45 @@ func configFromEnvironment(getenv func(string) string) (config, error) {
 	}
 	if value.objectSSE, err = parseRequiredBool(getenv("SPYGLASS_PROTOTYPE_IMPORT_OBJECT_SSE"), "SPYGLASS_PROTOTYPE_IMPORT_OBJECT_SSE"); err != nil {
 		return config{}, err
+	}
+	if value.globalCheckpoint, err = importCheckpoint(getenv, "SPYGLASS_PROTOTYPE_IMPORT_GLOBAL_"); err != nil {
+		return config{}, err
+	}
+	if value.cellCheckpoint, err = importCheckpoint(getenv, "SPYGLASS_PROTOTYPE_IMPORT_CELL_"); err != nil {
+		return config{}, err
+	}
+	return value, nil
+}
+
+func importCheckpoint(getenv func(string) string, prefix string) (restoregate.Checkpoint, error) {
+	sequenceName, rootName := prefix+"ERASURE_CHECKPOINT_SEQUENCE", prefix+"ERASURE_CHECKPOINT_ROOT"
+	sequence, err := strconv.ParseUint(strings.TrimSpace(getenv(sequenceName)), 10, 64)
+	if err != nil {
+		return restoregate.Checkpoint{}, fmt.Errorf("%s must be an unsigned integer", sequenceName)
+	}
+	root, err := hex.DecodeString(strings.TrimSpace(getenv(rootName)))
+	if err != nil || len(root) != 32 {
+		return restoregate.Checkpoint{}, fmt.Errorf("%s must be exactly 64 hexadecimal characters", rootName)
+	}
+	checkpoint, err := restoregate.NewCheckpoint(sequence, root)
+	if err != nil {
+		return restoregate.Checkpoint{}, fmt.Errorf("%s restore checkpoint is invalid: %w", prefix, err)
+	}
+	return checkpoint, nil
+}
+
+type prototypeImportAuthorizer struct {
+	inner  *access.WorkloadAuthorizer
+	cellID ids.CellID
+}
+
+func (authorizer prototypeImportAuthorizer) Authorize(ctx context.Context, actor access.Actor, accountID ids.AccountID, requirement access.Requirement) (access.AccountContext, error) {
+	value, err := authorizer.inner.Authorize(ctx, actor, accountID, requirement)
+	if err != nil {
+		return access.AccountContext{}, err
+	}
+	if value.CellID != authorizer.cellID {
+		return access.AccountContext{}, &access.DeniedError{Code: access.DenialCorruptContext}
 	}
 	return value, nil
 }
