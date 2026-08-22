@@ -3,7 +3,6 @@
 package approuter
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,14 +18,18 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
+	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/requestbody"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
 
 const (
 	DefaultMaxRequestBody  = int64(1 << 20)
 	DefaultMaxResponseBody = int64(4 << 20)
+	documentUploadOverhead = int64(1 << 20)
+	documentUploadTimeout  = 2 * time.Minute
 )
 
 type SessionAuthenticator interface {
@@ -64,6 +67,7 @@ type Server struct {
 	config     Config
 	origins    map[string]struct{}
 	client     *http.Client
+	uploads    *http.Client
 	transport  transportCounters
 }
 
@@ -107,8 +111,10 @@ func New(sessionService SessionAuthenticator, authorizer Authorizer, directory A
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	client := &http.Client{Transport: transport, Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("cell redirects are not allowed") }}
-	return &Server{sessions: sessionService, authorizer: authorizer, directory: directory, signer: signer, ids: generator, logger: logger, config: config, origins: origins, client: client}, nil
+	rejectRedirect := func(*http.Request, []*http.Request) error { return errors.New("cell redirects are not allowed") }
+	client := &http.Client{Transport: transport, Timeout: 20 * time.Second, CheckRedirect: rejectRedirect}
+	uploads := &http.Client{Transport: transport, Timeout: documentUploadTimeout, CheckRedirect: rejectRedirect}
+	return &Server{sessions: sessionService, authorizer: authorizer, directory: directory, signer: signer, ids: generator, logger: logger, config: config, origins: origins, client: client, uploads: uploads}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -165,12 +171,22 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the assigned Spyglass cell route could not be verified")
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.config.MaxRequestBody))
+	maximumBody := s.config.MaxRequestBody
+	if isKnowledgeDocumentUpload(r.Method, r.PathValue("resource")) {
+		maximumBody = knowledgedomain.MaximumDocumentBytes + documentUploadOverhead
+	}
+	body, err := requestbody.Read(r.Body, maximumBody)
 	if err != nil {
-		writeProblem(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds the router limit")
+		if errors.Is(err, requestbody.ErrTooLarge) {
+			writeProblem(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds the router limit")
+			return
+		}
+		s.logger.Error("capture routed request body", "error", err)
+		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the routed request body could not be secured")
 		return
 	}
-	binding, err := routecontext.BindRequest(r, body)
+	defer body.Close()
+	binding, err := routecontext.BindRequestDigest(r, body.SHA256())
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", "request target is invalid")
 		return
@@ -192,7 +208,11 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the Account route could not be established")
 		return
 	}
-	response, err := s.client.Do(outbound)
+	client := s.client
+	if isKnowledgeDocumentUpload(r.Method, r.PathValue("resource")) {
+		client = s.uploads
+	}
+	response, err := client.Do(outbound)
 	if err != nil && response == nil && r.Context().Err() == nil {
 		s.transport.retryAttempts.Add(1)
 		requestID = s.ids.New()
@@ -202,7 +222,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the Account route could not be established")
 			return
 		}
-		response, err = s.client.Do(outbound)
+		response, err = client.Do(outbound)
 		if err == nil {
 			s.transport.retryRecovered.Add(1)
 		}
@@ -227,21 +247,31 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(responseBody)
 }
 
-func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body []byte, authority routecontext.Authority, binding routecontext.Binding, requestID string) (*http.Request, error) {
+func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body *requestbody.Capture, authority routecontext.Authority, binding routecontext.Binding, requestID string) (*http.Request, error) {
 	authority.RequestID = requestID
 	token, err := s.signer.Issue(routecontext.Audience(authority.CellID), authority, binding)
 	if err != nil {
 		return nil, err
 	}
 	origin.Path, origin.RawPath, origin.RawQuery = inbound.URL.Path, inbound.URL.RawPath, inbound.URL.RawQuery
-	outbound, err := http.NewRequestWithContext(inbound.Context(), inbound.Method, origin.String(), bytes.NewReader(body))
+	reader, err := body.Open()
 	if err != nil {
 		return nil, err
 	}
+	outbound, err := http.NewRequestWithContext(inbound.Context(), inbound.Method, origin.String(), reader)
+	if err != nil {
+		_ = reader.Close()
+		return nil, err
+	}
+	outbound.ContentLength = body.Size()
 	copyRequestHeader(outbound.Header, inbound.Header, "Accept", "Content-Type", "If-Match", "Idempotency-Key")
 	outbound.Header.Set(routecontext.HeaderName, token)
 	outbound.Header.Set("X-Request-ID", requestID)
 	return outbound, nil
+}
+
+func isKnowledgeDocumentUpload(method, resource string) bool {
+	return strings.EqualFold(method, http.MethodPost) && resource == "knowledge/documents"
 }
 
 func closeResponse(response *http.Response) {
@@ -302,6 +332,16 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 			return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, len(parts) == 2 && method == http.MethodPost
 		case "facts":
 			return access.Requirement{Package: catalog.PackageKnowledge}, len(parts) == 2 && method == http.MethodGet
+		case "documents":
+			if len(parts) == 2 {
+				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
+			}
+			if len(parts) == 3 && ids.Validate(parts[2]) == nil {
+				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: method == http.MethodDelete}, method == http.MethodGet || method == http.MethodDelete
+			}
+			if len(parts) == 4 && ids.Validate(parts[2]) == nil && parts[3] == "publications" {
+				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, method == http.MethodPost
+			}
 		case "claims":
 			if len(parts) == 2 {
 				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost

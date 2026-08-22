@@ -125,6 +125,7 @@ The common Compose definition models final process boundaries:
 - standalone public website;
 - global, cell A and cell B PostgreSQL 17 containers with distinct volumes;
 - private versioned MinIO document storage with server-side encryption and no host-published port;
+- cell app APIs admit routed document uploads through bounded private-disk spools and write only verified immutable source objects; per-cell workers consume the same private bucket for scanning, extraction and indexing;
 - migration jobs for each database target;
 - Account API, app router, two cell app APIs and private admission API;
 - notification, billing, entitlement, lifecycle, identity-maintenance, route-receipt and Work reconciliation workers;
@@ -173,7 +174,7 @@ The stage override uses the same service graph with production-mode process argu
 
 - application and website images pulled from GHCR by digest;
 - three PostgreSQL containers with private networks and persistent volumes;
-- private versioned MinIO document storage on a persistent volume with a generated static stage encryption key; production replaces this service with Linode Object Storage;
+- private versioned MinIO document storage on a persistent volume with a generated static stage encryption key and distinct prefix-scoped admission/worker credentials; production replaces this service with Linode Object Storage and corresponding scoped credentials;
 - an internal Caddy router on the existing `infiniteocean_public` network; the existing Infinite Ocean Caddy remains the only public 80/443 and ACME owner;
 - Stripe test mode, TLS SMTP and non-production provider credentials;
 - a non-internal provider-egress network attached only to Account API, billing, notification and model-gateway workloads;

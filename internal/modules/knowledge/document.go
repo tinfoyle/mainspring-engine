@@ -385,8 +385,16 @@ func validDocumentName(value string) bool {
 }
 
 func validMediaPair(filename, declared, verified string) bool {
-	expected, ok := documentMediaTypes[strings.ToLower(filepath.Ext(filename))]
+	expected, ok := ExpectedDocumentMediaType(filename)
 	return ok && expected == verified && (declared == "" || declared == "application/octet-stream" || declared == verified)
+}
+
+func ExpectedDocumentMediaType(filename string) (string, bool) {
+	if !validDocumentName(filename) {
+		return "", false
+	}
+	value, ok := documentMediaTypes[strings.ToLower(filepath.Ext(filename))]
+	return value, ok
 }
 
 var documentMediaTypes = map[string]string{

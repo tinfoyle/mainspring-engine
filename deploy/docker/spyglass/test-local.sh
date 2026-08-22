@@ -23,4 +23,5 @@ cleanup() {
 trap cleanup EXIT
 
 "${compose[@]}" build website-test go-test
+COMPOSE_PROJECT_NAME=spyglass-local SPYGLASS_ENV_FILE=env/local.env SPYGLASS_COMPOSE_OVERRIDE=compose.local.yml bash verify-object-policies.sh
 "${compose[@]}" run --rm go-test

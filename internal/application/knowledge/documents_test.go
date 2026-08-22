@@ -59,8 +59,14 @@ func (store *sourceObjectStore) Delete(_ context.Context, value SourceObjectIden
 func (repository *documentRepository) GetDocument(context.Context, ids.AccountID, ids.KnowledgeDocumentID) (knowledgedomain.Document, error) {
 	return repository.document, nil
 }
+func (repository *documentRepository) GetLatestDocumentRevision(context.Context, ids.AccountID, ids.KnowledgeDocumentID) (knowledgedomain.DocumentRevision, error) {
+	return repository.revision, nil
+}
 func (repository *documentRepository) GetDocumentRevision(context.Context, ids.AccountID, ids.KnowledgeDocumentRevisionID) (knowledgedomain.DocumentRevision, error) {
 	return repository.revision, nil
+}
+func (repository *documentRepository) ListDocuments(context.Context, ids.AccountID, DocumentListQuery) (DocumentPage, error) {
+	return DocumentPage{Items: []DocumentSummary{{ID: repository.document.ID, Title: repository.document.Title, Sensitivity: repository.document.Sensitivity, State: repository.document.State, Version: repository.document.Version, CreatedAt: repository.document.CreatedAt, UpdatedAt: repository.document.UpdatedAt}}}, nil
 }
 func (repository *documentRepository) SaveDocumentRevision(_ context.Context, value knowledgedomain.DocumentRevision, _ time.Time, _ string, mutation Mutation) (knowledgedomain.DocumentRevision, error) {
 	repository.revision, repository.mutation = value, mutation
@@ -153,6 +159,25 @@ func TestRestrictedDocumentReadRequiresManagingRole(t *testing.T) {
 	}
 }
 
+func TestDocumentDetailAndListApplySensitivityAuthorization(t *testing.T) {
+	service, authorizer, repository, _ := documentServiceFixture(t)
+	document, revision := admitDocumentFixture(t, service)
+	detail, err := service.GetDetail(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, document.ID)
+	if err != nil || detail.Document.ID != document.ID || detail.LatestRevision.ID != revision.ID {
+		t.Fatalf("detail=%+v err=%v", detail, err)
+	}
+	page, err := service.List(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, DocumentListQuery{})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("owner page=%+v err=%v", page, err)
+	}
+	authorizer.account.Role = accounts.RoleViewer
+	repository.document.Sensitivity = knowledgedomain.SensitivityRestricted
+	page, err = service.List(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, DocumentListQuery{})
+	if err != nil || len(page.Items) != 0 {
+		t.Fatalf("viewer page=%+v err=%v", page, err)
+	}
+}
+
 func TestUploadAuthorizesBeforeObjectWriteAndCleansNewOrphan(t *testing.T) {
 	documents, authorizer, repository, _ := documentServiceFixture(t)
 	objects := &sourceObjectStore{created: true}
@@ -161,7 +186,7 @@ func TestUploadAuthorizesBeforeObjectWriteAndCleansNewOrphan(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := []byte("source")
-	command := UploadDocumentCommand{Actor: access.Actor{UserID: appKnowledgeUser}, AccountID: appKnowledgeAccount, DocumentID: appKnowledgeDocument, RevisionID: appKnowledgeRevision, Title: "Operating plan", Sensitivity: knowledgedomain.SensitivityInternal, Filename: "plan.txt", DeclaredType: "text/plain", VerifiedType: "text/plain", ByteSize: int64(len(body)), ContentSHA256: sha256.Sum256(body), Body: bytes.NewReader(body), ChangeSummary: "Initial", CorrelationID: appKnowledgeOperation}
+	command := UploadDocumentCommand{Actor: access.Actor{UserID: appKnowledgeUser}, AccountID: appKnowledgeAccount, DocumentID: appKnowledgeDocument, RevisionID: appKnowledgeRevision, Title: "Operating plan", Sensitivity: knowledgedomain.SensitivityInternal, Filename: "plan.txt", DeclaredType: "text/plain", Body: bytes.NewReader(body), ChangeSummary: "Initial", CorrelationID: appKnowledgeOperation}
 	authorizer.account.Role = accounts.RoleViewer
 	if _, _, err := service.Upload(context.Background(), command); !access.IsDenied(err, access.DenialRole) || objects.puts != 0 {
 		t.Fatalf("unauthorized upload puts=%d err=%v", objects.puts, err)

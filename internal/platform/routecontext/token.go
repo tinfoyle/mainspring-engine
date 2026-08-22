@@ -59,21 +59,30 @@ type Binding struct {
 }
 
 func Bind(method, target string, body []byte) (Binding, error) {
+	digest := sha256.Sum256(body)
+	return bindDigest(method, target, digest)
+}
+
+func bindDigest(method, target string, digest [sha256.Size]byte) (Binding, error) {
 	method = strings.ToUpper(strings.TrimSpace(method))
 	if method == "" || strings.ContainsAny(method, " \t\r\n") || target == "" || len(target) > MaxTargetBytes || target[0] != '/' || strings.ContainsAny(target, "\r\n#") || strings.Contains(target, "://") {
 		return Binding{}, ErrInvalid
 	}
-	digest := sha256.Sum256(body)
 	return Binding{Method: method, Target: target, BodySHA256: hex.EncodeToString(digest[:])}, nil
 }
 
 // BindRequest also authenticates the small set of request headers that can
 // change command semantics. Hop-by-hop and presentation headers are excluded.
 func BindRequest(request *http.Request, body []byte) (Binding, error) {
+	digest := sha256.Sum256(body)
+	return BindRequestDigest(request, digest)
+}
+
+func BindRequestDigest(request *http.Request, digest [sha256.Size]byte) (Binding, error) {
 	if request == nil {
 		return Binding{}, ErrInvalid
 	}
-	binding, err := Bind(request.Method, Target(request), body)
+	binding, err := bindDigest(request.Method, Target(request), digest)
 	if err != nil {
 		return Binding{}, err
 	}
@@ -85,8 +94,8 @@ func BindRequest(request *http.Request, body []byte) (Binding, error) {
 	if values[0] == "" && values[1] == "" && values[2] == "" {
 		return binding, nil
 	}
-	digest := sha256.Sum256([]byte("content-type:" + values[0] + "\nidempotency-key:" + values[1] + "\nif-match:" + values[2] + "\n"))
-	binding.HeadersSHA256 = hex.EncodeToString(digest[:])
+	headerDigest := sha256.Sum256([]byte("content-type:" + values[0] + "\nidempotency-key:" + values[1] + "\nif-match:" + values[2] + "\n"))
+	binding.HeadersSHA256 = hex.EncodeToString(headerDigest[:])
 	return binding, nil
 }
 

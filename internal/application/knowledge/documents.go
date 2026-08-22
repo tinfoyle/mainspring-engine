@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -16,7 +18,9 @@ import (
 type DocumentRepository interface {
 	AdmitDocument(context.Context, knowledgedomain.Document, knowledgedomain.DocumentRevision, Mutation) (knowledgedomain.Document, knowledgedomain.DocumentRevision, error)
 	GetDocument(context.Context, ids.AccountID, ids.KnowledgeDocumentID) (knowledgedomain.Document, error)
+	GetLatestDocumentRevision(context.Context, ids.AccountID, ids.KnowledgeDocumentID) (knowledgedomain.DocumentRevision, error)
 	GetDocumentRevision(context.Context, ids.AccountID, ids.KnowledgeDocumentRevisionID) (knowledgedomain.DocumentRevision, error)
+	ListDocuments(context.Context, ids.AccountID, DocumentListQuery) (DocumentPage, error)
 	SaveDocumentRevision(context.Context, knowledgedomain.DocumentRevision, time.Time, string, Mutation) (knowledgedomain.DocumentRevision, error)
 	IndexDocumentRevision(context.Context, knowledgedomain.DocumentRevision, time.Time, []knowledgedomain.DocumentChunk, Mutation) (knowledgedomain.DocumentRevision, error)
 	PublishDocumentRevision(context.Context, ids.AccountID, ids.KnowledgeDocumentID, ids.KnowledgeDocumentRevisionID, uint64, Mutation) (knowledgedomain.Document, error)
@@ -27,6 +31,44 @@ type DocumentService struct {
 	authorizer Authorizer
 	repository DocumentRepository
 	clock      Clock
+}
+
+type DocumentSummary struct {
+	ID                ids.KnowledgeDocumentID
+	Title             string
+	Sensitivity       knowledgedomain.Sensitivity
+	CurrentRevisionID ids.KnowledgeDocumentRevisionID
+	CurrentRevision   uint64
+	State             knowledgedomain.DocumentState
+	RetainUntil       *time.Time
+	LegalHold         bool
+	Version           uint64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type DocumentCursor struct {
+	UpdatedAt time.Time
+	ID        ids.KnowledgeDocumentID
+}
+
+type DocumentListQuery struct {
+	State             knowledgedomain.DocumentState
+	TitlePrefix       string
+	AfterUpdatedAt    *time.Time
+	AfterID           ids.KnowledgeDocumentID
+	Limit             int
+	IncludeRestricted bool
+}
+
+type DocumentPage struct {
+	Items      []DocumentSummary
+	NextCursor *DocumentCursor
+}
+
+type DocumentDetail struct {
+	Document       knowledgedomain.Document
+	LatestRevision knowledgedomain.DocumentRevision
 }
 
 func NewDocumentService(authorizer Authorizer, repository DocumentRepository, clock Clock) (*DocumentService, error) {
@@ -276,6 +318,72 @@ func (s *DocumentService) Get(ctx context.Context, actor access.Actor, accountID
 		return knowledgedomain.Document{}, &access.DeniedError{Code: access.DenialRole, Package: catalog.PackageKnowledge}
 	}
 	return value, nil
+}
+
+func (s *DocumentService) GetDetail(ctx context.Context, actor access.Actor, accountID ids.AccountID, documentID ids.KnowledgeDocumentID) (DocumentDetail, error) {
+	if _, ok := domainActor(actor); !ok || ids.Validate(string(accountID)) != nil || ids.Validate(string(documentID)) != nil {
+		return DocumentDetail{}, ErrInvalid
+	}
+	accountContext, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: catalog.PackageKnowledge})
+	if err != nil {
+		return DocumentDetail{}, err
+	}
+	document, err := s.repository.GetDocument(ctx, accountID, documentID)
+	if err != nil {
+		return DocumentDetail{}, err
+	}
+	if !canReadSensitivity(accountContext.Role, document.Sensitivity) {
+		return DocumentDetail{}, &access.DeniedError{Code: access.DenialRole, Package: catalog.PackageKnowledge}
+	}
+	revision, err := s.repository.GetLatestDocumentRevision(ctx, accountID, documentID)
+	if err != nil {
+		return DocumentDetail{}, err
+	}
+	return DocumentDetail{Document: document, LatestRevision: revision}, nil
+}
+
+func (s *DocumentService) List(ctx context.Context, actor access.Actor, accountID ids.AccountID, query DocumentListQuery) (DocumentPage, error) {
+	if _, ok := domainActor(actor); !ok || ids.Validate(string(accountID)) != nil || !validDocumentListQuery(query) {
+		return DocumentPage{}, ErrInvalid
+	}
+	accountContext, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: catalog.PackageKnowledge})
+	if err != nil {
+		return DocumentPage{}, err
+	}
+	if query.Limit == 0 {
+		query.Limit = DefaultLimit
+	}
+	if query.Limit < 1 || query.Limit > MaximumLimit {
+		return DocumentPage{}, ErrInvalid
+	}
+	query.IncludeRestricted = accountContext.Role == accounts.RoleOwner || accountContext.Role == accounts.RoleAdministrator
+	page, err := s.repository.ListDocuments(ctx, accountID, query)
+	if err != nil {
+		return DocumentPage{}, err
+	}
+	visible := page.Items[:0]
+	for _, item := range page.Items {
+		if canReadSensitivity(accountContext.Role, item.Sensitivity) {
+			visible = append(visible, item)
+		}
+	}
+	page.Items = visible
+	return page, nil
+}
+
+func validDocumentListQuery(query DocumentListQuery) bool {
+	if len(query.TitlePrefix) > knowledgedomain.MaximumDocumentTitle || strings.ContainsRune(query.TitlePrefix, '\x00') || query.Limit < 0 || query.Limit > MaximumLimit {
+		return false
+	}
+	if (query.AfterUpdatedAt == nil) != (query.AfterID == "") || (query.AfterUpdatedAt != nil && (query.AfterUpdatedAt.IsZero() || ids.Validate(string(query.AfterID)) != nil)) {
+		return false
+	}
+	switch query.State {
+	case "", knowledgedomain.DocumentProcessing, knowledgedomain.DocumentReady, knowledgedomain.DocumentFailed, knowledgedomain.DocumentDeletionPending:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *DocumentService) authorizeMutation(ctx context.Context, accessActor access.Actor, accountID ids.AccountID, correlationID string) (knowledgedomain.Actor, access.AccountContext, error) {

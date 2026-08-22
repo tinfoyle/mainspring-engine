@@ -12,12 +12,15 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/admissionhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	agentapp "github.com/tinfoyle/spyglass-engine/internal/application/agents"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -34,6 +37,14 @@ type Config struct {
 	AdmissionOrigin    string
 	AdmissionTransport http.RoundTripper
 	AllowHTTPAdmission bool
+	ObjectEndpoint     string
+	ObjectRegion       string
+	ObjectBucket       string
+	ObjectAccessKey    string
+	ObjectSecretKey    string
+	ObjectSecure       bool
+	ObjectSSE          bool
+	ObjectTransport    http.RoundTripper
 }
 
 type Server struct {
@@ -144,12 +155,57 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService))
+	documentService, err := knowledgeapp.NewDocumentService(routeaccess.NewAuthorizer(), knowledgeRepository, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	objects, err := s3objects.New(s3objects.Config{Endpoint: config.ObjectEndpoint, Region: config.ObjectRegion, Bucket: config.ObjectBucket, AccessKey: config.ObjectAccessKey, SecretKey: config.ObjectSecretKey, Secure: config.ObjectSecure, ServerSideEncryption: config.ObjectSSE, Transport: config.ObjectTransport})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := objects.Verify(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	documentAdmission, err := knowledgeapp.NewDocumentAdmissionService(documentService, objects)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	documents := knowledgeDocumentRoutes{admission: documentAdmission, service: documentService}
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents))
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
 	return &Server{Handler: withHealth(pool, transport, capacity, transport.Handler()), pool: pool}, nil
+}
+
+type knowledgeDocumentRoutes struct {
+	admission *knowledgeapp.DocumentAdmissionService
+	service   *knowledgeapp.DocumentService
+}
+
+func (routes knowledgeDocumentRoutes) Upload(ctx context.Context, command knowledgeapp.UploadDocumentCommand) (knowledge.Document, knowledge.DocumentRevision, error) {
+	return routes.admission.Upload(ctx, command)
+}
+
+func (routes knowledgeDocumentRoutes) List(ctx context.Context, actor access.Actor, accountID ids.AccountID, query knowledgeapp.DocumentListQuery) (knowledgeapp.DocumentPage, error) {
+	return routes.service.List(ctx, actor, accountID, query)
+}
+
+func (routes knowledgeDocumentRoutes) GetDetail(ctx context.Context, actor access.Actor, accountID ids.AccountID, documentID ids.KnowledgeDocumentID) (knowledgeapp.DocumentDetail, error) {
+	return routes.service.GetDetail(ctx, actor, accountID, documentID)
+}
+
+func (routes knowledgeDocumentRoutes) Publish(ctx context.Context, command knowledgeapp.PublishDocumentCommand) (knowledge.Document, error) {
+	return routes.service.Publish(ctx, command)
+}
+
+func (routes knowledgeDocumentRoutes) Delete(ctx context.Context, command knowledgeapp.DeleteDocumentCommand) (knowledge.Document, error) {
+	return routes.service.Delete(ctx, command)
 }
 
 func (s *Server) Close() { s.pool.Close() }

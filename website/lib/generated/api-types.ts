@@ -787,6 +787,71 @@ export interface KnowledgeClaimSummary {
   readonly "version": number;
 }
 
+export interface KnowledgeDocument {
+  readonly "account_id": string;
+  readonly "created_at": string;
+  readonly "created_by": KnowledgeActor;
+  readonly "current_revision": number;
+  readonly "current_revision_id"?: string;
+  readonly "deleted_at"?: string;
+  readonly "deletion_requested_at"?: string;
+  readonly "id": string;
+  readonly "legal_hold": boolean;
+  readonly "retain_until"?: string;
+  readonly "sensitivity": KnowledgeSensitivity;
+  readonly "state": KnowledgeDocumentState;
+  readonly "title": string;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface KnowledgeDocumentDetail {
+  readonly "document": KnowledgeDocument;
+  readonly "latest_revision": KnowledgeDocumentRevision;
+}
+
+export interface KnowledgeDocumentPage {
+  readonly "items": ReadonlyArray<KnowledgeDocumentSummary>;
+  readonly "next_cursor"?: string;
+}
+
+export interface KnowledgeDocumentRevision {
+  readonly "byte_size": number;
+  readonly "change_summary": string;
+  readonly "chunk_count": number;
+  readonly "content_sha256": string;
+  readonly "created_at": string;
+  readonly "declared_media_type": string;
+  readonly "extraction_state": "pending" | "ready" | "failed";
+  readonly "failure_code": string;
+  readonly "filename": string;
+  readonly "id": string;
+  readonly "index_state": "pending" | "ready" | "failed";
+  readonly "number": number;
+  readonly "scan_state": "pending" | "clean" | "infected" | "error";
+  readonly "state": KnowledgeDocumentRevisionState;
+  readonly "updated_at": string;
+  readonly "verified_media_type": string;
+}
+
+export type KnowledgeDocumentRevisionState = "quarantined" | "extracting" | "ready" | "failed" | "deleted";
+
+export type KnowledgeDocumentState = "processing" | "ready" | "failed" | "deletion_pending" | "deleted";
+
+export interface KnowledgeDocumentSummary {
+  readonly "created_at": string;
+  readonly "current_revision": number;
+  readonly "current_revision_id"?: string;
+  readonly "id": string;
+  readonly "legal_hold": boolean;
+  readonly "retain_until"?: string;
+  readonly "sensitivity": KnowledgeSensitivity;
+  readonly "state": KnowledgeDocumentState;
+  readonly "title": string;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
 export interface KnowledgeEvidence {
   readonly "account_id": string;
   readonly "captured_at": string;
@@ -984,6 +1049,10 @@ export interface PublishAgentPersonaRequest {
   readonly "system_instructions": string;
 }
 
+export interface PublishKnowledgeDocumentRequest {
+  readonly "revision_id": string;
+}
+
 export interface ReauthenticateRequest {
   readonly "password": string;
 }
@@ -1097,6 +1166,14 @@ export interface TransferOwnershipRequest {
 export interface TransitionWorkRequest {
   readonly "reason"?: string;
   readonly "to": WorkState;
+}
+
+export interface UploadKnowledgeDocumentRequest {
+  readonly "change_summary"?: string;
+  readonly "file": string;
+  readonly "retain_until"?: string;
+  readonly "sensitivity": KnowledgeSensitivity;
+  readonly "title": string;
 }
 
 export interface WebAuthnAssertionCredential {
@@ -1377,6 +1454,13 @@ export interface ApiSchemas {
   readonly KnowledgeClaimPage: KnowledgeClaimPage;
   readonly KnowledgeClaimState: KnowledgeClaimState;
   readonly KnowledgeClaimSummary: KnowledgeClaimSummary;
+  readonly KnowledgeDocument: KnowledgeDocument;
+  readonly KnowledgeDocumentDetail: KnowledgeDocumentDetail;
+  readonly KnowledgeDocumentPage: KnowledgeDocumentPage;
+  readonly KnowledgeDocumentRevision: KnowledgeDocumentRevision;
+  readonly KnowledgeDocumentRevisionState: KnowledgeDocumentRevisionState;
+  readonly KnowledgeDocumentState: KnowledgeDocumentState;
+  readonly KnowledgeDocumentSummary: KnowledgeDocumentSummary;
   readonly KnowledgeEvidence: KnowledgeEvidence;
   readonly KnowledgeEvidenceRelation: KnowledgeEvidenceRelation;
   readonly KnowledgeFact: KnowledgeFact;
@@ -1407,6 +1491,7 @@ export interface ApiSchemas {
   readonly ProvisionedUser: ProvisionedUser;
   readonly PublicCatalog: PublicCatalog;
   readonly PublishAgentPersonaRequest: PublishAgentPersonaRequest;
+  readonly PublishKnowledgeDocumentRequest: PublishKnowledgeDocumentRequest;
   readonly ReauthenticateRequest: ReauthenticateRequest;
   readonly RecoveryAccepted: RecoveryAccepted;
   readonly RecoveryCodeRotation: RecoveryCodeRotation;
@@ -1428,6 +1513,7 @@ export interface ApiSchemas {
   readonly StripeWebhookReceipt: StripeWebhookReceipt;
   readonly TransferOwnershipRequest: TransferOwnershipRequest;
   readonly TransitionWorkRequest: TransitionWorkRequest;
+  readonly UploadKnowledgeDocumentRequest: UploadKnowledgeDocumentRequest;
   readonly WebAuthnAssertionCredential: WebAuthnAssertionCredential;
   readonly WebAuthnAssertionResponse: WebAuthnAssertionResponse;
   readonly WebAuthnCeremony: WebAuthnCeremony;

@@ -214,11 +214,18 @@ func TestKnowledgeRouteAllowlistMatchesCellSurface(t *testing.T) {
 		{http.MethodGet, "knowledge/claims", false, true},
 		{http.MethodGet, "knowledge/claims/" + routerRequest, false, true},
 		{http.MethodPost, "knowledge/claims/" + routerRequest + "/decisions", true, true},
+		{http.MethodGet, "knowledge/documents", false, true},
+		{http.MethodPost, "knowledge/documents", true, true},
+		{http.MethodGet, "knowledge/documents/" + routerRequest, false, true},
+		{http.MethodDelete, "knowledge/documents/" + routerRequest, true, true},
+		{http.MethodPost, "knowledge/documents/" + routerRequest + "/publications", true, true},
 		{http.MethodGet, "knowledge/evidence", false, false},
 		{http.MethodPost, "knowledge/facts", false, false},
 		{http.MethodGet, "knowledge/claims/not-a-uuid", false, false},
 		{http.MethodGet, "knowledge/claims/" + routerRequest + "/decisions", false, false},
 		{http.MethodDelete, "knowledge/claims/" + routerRequest, false, false},
+		{http.MethodPatch, "knowledge/documents/" + routerRequest, false, false},
+		{http.MethodPost, "knowledge/documents/not-a-uuid/publications", false, false},
 	}
 	for _, test := range tests {
 		t.Run(test.method+" "+test.resource, func(t *testing.T) {

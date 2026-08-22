@@ -18,6 +18,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/requestbody"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
 
@@ -40,6 +41,7 @@ type Server struct {
 	attention AttentionService
 	actions   ActionRecoveryService
 	knowledge KnowledgeService
+	documents KnowledgeDocumentService
 	counters  routeCounters
 }
 
@@ -95,8 +97,20 @@ type KnowledgeService interface {
 	ListFacts(context.Context, access.Actor, ids.AccountID, knowledgeapp.FactListQuery) (knowledgeapp.FactPage, error)
 }
 
+type KnowledgeDocumentService interface {
+	Upload(context.Context, knowledgeapp.UploadDocumentCommand) (knowledge.Document, knowledge.DocumentRevision, error)
+	List(context.Context, access.Actor, ids.AccountID, knowledgeapp.DocumentListQuery) (knowledgeapp.DocumentPage, error)
+	GetDetail(context.Context, access.Actor, ids.AccountID, ids.KnowledgeDocumentID) (knowledgeapp.DocumentDetail, error)
+	Publish(context.Context, knowledgeapp.PublishDocumentCommand) (knowledge.Document, error)
+	Delete(context.Context, knowledgeapp.DeleteDocumentCommand) (knowledge.Document, error)
+}
+
 func WithKnowledge(service KnowledgeService) Option {
 	return func(server *Server) { server.knowledge = service }
+}
+
+func WithKnowledgeDocuments(service KnowledgeDocumentService) Option {
+	return func(server *Server) { server.documents = service }
 }
 
 func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
@@ -152,6 +166,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/actions/{operationID}/resolution-requests", s.actionRecoveryRequest)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/attention/actions/{operationID}/resolutions/{resolutionID}/confirmations", s.actionRecoveryConfirm)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/evidence", s.knowledgeEvidenceRegister)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/documents", s.knowledgeDocumentList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/documents", s.knowledgeDocumentUpload)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/documents/{documentID}", s.knowledgeDocumentGet)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/knowledge/documents/{documentID}", s.knowledgeDocumentDelete)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/documents/{documentID}/publications", s.knowledgeDocumentPublish)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/facts", s.knowledgeFactList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/claims", s.knowledgeClaimPropose)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/claims", s.knowledgeClaimList)
@@ -201,6 +220,42 @@ func (s *Server) accept(w http.ResponseWriter, r *http.Request) (routecontext.Cl
 		writeProblem(w, http.StatusBadRequest, "invalid_request", "request target is invalid")
 		return routecontext.Claims{}, false
 	}
+	return s.acceptBinding(w, r, token, binding)
+}
+
+func (s *Server) acceptCaptured(w http.ResponseWriter, r *http.Request, maximum int64) (routecontext.Claims, *requestbody.Capture, bool) {
+	token := strings.TrimSpace(r.Header.Get(RouteContextHeader))
+	if token == "" {
+		s.counters.missing.Add(1)
+		writeProblem(w, http.StatusUnauthorized, "route_context_required", "trusted route context is required")
+		return routecontext.Claims{}, nil, false
+	}
+	body, err := requestbody.Read(r.Body, maximum)
+	if err != nil {
+		if errors.Is(err, requestbody.ErrTooLarge) {
+			writeProblem(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds the document upload limit")
+		} else {
+			s.logger.Error("capture routed document body", "error", err)
+			writeProblem(w, http.StatusServiceUnavailable, "route_boundary_unavailable", "the routed document body could not be secured")
+		}
+		return routecontext.Claims{}, nil, false
+	}
+	binding, err := routecontext.BindRequestDigest(r, body.SHA256())
+	if err != nil {
+		_ = body.Close()
+		s.counters.invalid.Add(1)
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "request target is invalid")
+		return routecontext.Claims{}, nil, false
+	}
+	claims, ok := s.acceptBinding(w, r, token, binding)
+	if !ok {
+		_ = body.Close()
+		return routecontext.Claims{}, nil, false
+	}
+	return claims, body, true
+}
+
+func (s *Server) acceptBinding(w http.ResponseWriter, r *http.Request, token string, binding routecontext.Binding) (routecontext.Claims, bool) {
 	claims, err := s.acceptor.Accept(r.Context(), token, binding)
 	if err != nil {
 		switch {

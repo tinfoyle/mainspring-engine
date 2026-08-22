@@ -72,6 +72,61 @@ func (r *KnowledgeRepository) GetDocumentRevision(ctx context.Context, accountID
 	return result, classifyKnowledge(err)
 }
 
+func (r *KnowledgeRepository) GetLatestDocumentRevision(ctx context.Context, accountID ids.AccountID, documentID ids.KnowledgeDocumentID) (knowledgedomain.DocumentRevision, error) {
+	var result knowledgedomain.DocumentRevision
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		var revisionID ids.KnowledgeDocumentRevisionID
+		if err := tx.QueryRow(ctx, `SELECT id FROM spyglass.knowledge_document_revisions WHERE account_id=$1 AND document_id=$2 ORDER BY revision DESC LIMIT 1`, accountID, documentID).Scan(&revisionID); errors.Is(err, pgx.ErrNoRows) {
+			return knowledgeapp.ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		value, err := getKnowledgeDocumentRevision(ctx, tx, accountID, revisionID, false)
+		result = value
+		return err
+	})
+	return result, classifyKnowledge(err)
+}
+
+func (r *KnowledgeRepository) ListDocuments(ctx context.Context, accountID ids.AccountID, query knowledgeapp.DocumentListQuery) (knowledgeapp.DocumentPage, error) {
+	page := knowledgeapp.DocumentPage{Items: make([]knowledgeapp.DocumentSummary, 0, query.Limit)}
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id,title,sensitivity,current_revision_id,current_revision,state,retain_until,legal_hold,version,created_at,updated_at
+			FROM spyglass.knowledge_documents WHERE account_id=$1 AND state<>'deleted' AND ($2='' OR state=$2)
+			AND ($3='' OR title ILIKE $3||'%') AND ($4::timestamptz IS NULL OR (updated_at,id)<($4,$5::uuid))
+			AND ($6 OR sensitivity<>'restricted') ORDER BY updated_at DESC,id DESC LIMIT $7`, accountID, query.State, query.TitlePrefix, query.AfterUpdatedAt, nullableKnowledgeID(string(query.AfterID)), query.IncludeRestricted, query.Limit+1)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var item knowledgeapp.DocumentSummary
+			var currentRevisionID *string
+			var currentRevision *uint64
+			if err := rows.Scan(&item.ID, &item.Title, &item.Sensitivity, &currentRevisionID, &currentRevision, &item.State, &item.RetainUntil, &item.LegalHold, &item.Version, &item.CreatedAt, &item.UpdatedAt); err != nil {
+				return err
+			}
+			if currentRevisionID != nil {
+				item.CurrentRevisionID = ids.KnowledgeDocumentRevisionID(*currentRevisionID)
+			}
+			if currentRevision != nil {
+				item.CurrentRevision = *currentRevision
+			}
+			page.Items = append(page.Items, item)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return knowledgeapp.DocumentPage{}, classifyKnowledge(err)
+	}
+	if len(page.Items) > query.Limit {
+		page.Items = page.Items[:query.Limit]
+		last := page.Items[len(page.Items)-1]
+		page.NextCursor = &knowledgeapp.DocumentCursor{UpdatedAt: last.UpdatedAt, ID: last.ID}
+	}
+	return page, nil
+}
+
 func (r *KnowledgeRepository) SaveDocumentRevision(ctx context.Context, value knowledgedomain.DocumentRevision, expectedUpdatedAt time.Time, eventType string, mutation knowledgeapp.Mutation) (knowledgedomain.DocumentRevision, error) {
 	err := r.cell.WithAccountTx(ctx, value.AccountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
 		if err := updateKnowledgeDocumentRevision(ctx, tx, value, expectedUpdatedAt); err != nil {

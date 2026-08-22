@@ -273,6 +273,14 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if _, _, err := repository.AdmitDocument(ctx, document, revision, mutation); err != nil {
 		t.Fatalf("replay document admission err=%v", err)
 	}
+	latest, err := repository.GetLatestDocumentRevision(ctx, accountID, documentID)
+	if err != nil || latest.ID != revisionID {
+		t.Fatalf("latest document revision=%+v err=%v", latest, err)
+	}
+	page, err := repository.ListDocuments(ctx, accountID, knowledgeapp.DocumentListQuery{State: knowledgedomain.DocumentProcessing, TitlePrefix: "Operating", Limit: 10})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != documentID || page.Items[0].Sensitivity != knowledgedomain.SensitivityConfidential {
+		t.Fatalf("document page=%+v err=%v", page, err)
+	}
 	queue, err := postgresadapter.NewKnowledgeDocumentProcessingQueue(owner)
 	if err != nil {
 		t.Fatal(err)
@@ -286,6 +294,9 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	}
 	if _, err := repository.GetDocument(ctx, otherAccountID, documentID); !errors.Is(err, knowledgeapp.ErrNotFound) {
 		t.Fatalf("cross-Account document read err=%v", err)
+	}
+	if page, err := repository.ListDocuments(ctx, otherAccountID, knowledgeapp.DocumentListQuery{Limit: 10}); err != nil || len(page.Items) != 0 {
+		t.Fatalf("cross-Account document page=%+v err=%v", page, err)
 	}
 	scanned, err := revision.RecordScan(knowledgedomain.ScanClean, "clamav/1.4.3", "daily.cvd:27810", now.Add(time.Second))
 	if err != nil {

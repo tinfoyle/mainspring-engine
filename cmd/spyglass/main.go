@@ -987,6 +987,22 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil || maxBody > 16<<20 {
 		return errors.New("SPYGLASS_MAX_REQUEST_BODY_BYTES must be between 1 and 16777216")
 	}
+	objectAccessKey, err := requiredEnv("SPYGLASS_OBJECT_STORE_ACCESS_KEY")
+	if err != nil {
+		return err
+	}
+	objectSecretKey, err := requiredEnv("SPYGLASS_OBJECT_STORE_SECRET_KEY")
+	if err != nil {
+		return err
+	}
+	objectSecure, err := boolEnv("SPYGLASS_OBJECT_STORE_SECURE", false)
+	if err != nil {
+		return err
+	}
+	objectSSE, err := boolEnv("SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", true)
+	if err != nil {
+		return err
+	}
 	var admissionTransport http.RoundTripper
 	var serverTLS *tls.Config
 	if !developmentMode {
@@ -1003,7 +1019,12 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	admissionTransport = observability.TracingFromContext(ctx).Transport(admissionTransport)
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := appapi.New(startup, appapi.Config{DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, AdmissionOrigin: admissionOrigin, AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode}, logger, registration.SystemClock{})
+	server, err := appapi.New(startup, appapi.Config{
+		DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody,
+		AdmissionOrigin: admissionOrigin, AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode,
+		ObjectEndpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), ObjectRegion: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), ObjectBucket: envOr("SPYGLASS_OBJECT_STORE_BUCKET", "spyglass-documents"),
+		ObjectAccessKey: objectAccessKey, ObjectSecretKey: objectSecretKey, ObjectSecure: objectSecure, ObjectSSE: objectSSE,
+	}, logger, registration.SystemClock{})
 	if err != nil {
 		return err
 	}
