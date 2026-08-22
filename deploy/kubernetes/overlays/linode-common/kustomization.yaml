@@ -23,7 +23,7 @@ patches:
                   - name: SPYGLASS_ADMISSION_CELL_IDS
                     value: cell-us-east-01,cell-us-west-01
                   - name: SPYGLASS_WORKLOAD_CLIENT_IDENTITIES
-                    value: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker
+                    value: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker
   - target: {group: apps, version: v1, kind: Deployment, name: tool-router}
     patch: |-
       apiVersion: apps/v1

@@ -11,11 +11,13 @@ import (
 	"testing"
 	"time"
 
+	scheduleapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	workagent "github.com/tinfoyle/spyglass-engine/internal/application/workagentexecution"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	scheduledomain "github.com/tinfoyle/spyglass-engine/internal/modules/scheduling"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/admissionapi"
@@ -140,6 +142,38 @@ func TestWorkAgentAuthorizerUsesWorkloadRequestWithoutRouteProof(t *testing.T) {
 	}
 	result, err := authorizer.Authorize(context.Background(), workagent.Snapshot{ExecutionID: executionID, AccountID: admissionAccount, UserID: admissionUser})
 	if err != nil || result.EntitlementVersion != 9 || result.MaximumConcurrentRun != 3 || calls != 1 {
+		t.Fatalf("authorization=%+v calls=%d err=%v", result, calls, err)
+	}
+}
+
+func TestScheduleExecutionAuthorizerBindsSnapshotAndContextPackages(t *testing.T) {
+	cellID := ids.CellID("cell-us-east-01")
+	scheduleID := ids.ScheduleID("70000000-0000-4000-8000-000000000007")
+	workID := ids.WorkItemID("71000000-0000-4000-8000-000000000007")
+	next := time.Date(2026, 8, 24, 13, 0, 0, 0, time.UTC)
+	schedule, err := scheduledomain.Restore(scheduledomain.Schedule{ID: scheduleID, AccountID: admissionAccount, Name: "Daily review", Timezone: "America/New_York",
+		Recurrence:      scheduledomain.Recurrence{Frequency: scheduledomain.FrequencyDaily, LocalHour: 9, GapPolicy: scheduledomain.GapSkip, OverlapPolicy: scheduledomain.OverlapFirst},
+		MissedRunPolicy: scheduledomain.MissedSkip, Template: scheduledomain.AgentRunTemplate{BoardroomID: "72000000-0000-4000-8000-000000000007", Mode: "selected", PersonaIDs: []ids.PersonaID{"73000000-0000-4000-8000-000000000007"}, Subject: "Daily review", Prompt: "Review priorities.", WorkItemIDs: []ids.WorkItemID{workID}},
+		State: scheduledomain.StateActive, Version: 1, NextRunAt: &next, CreatedBy: admissionUser, CreatedAt: next.Add(-time.Hour), UpdatedAt: next.Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	authorizer, err := NewScheduleExecutionAuthorizer("https://admission.test", cellID, false, roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		calls++
+		body, _ := io.ReadAll(request.Body)
+		if request.URL.Path != "/internal/v1/agents/schedule-executions:authorize" || request.Header.Get("Authorization") != "" ||
+			!strings.Contains(string(body), `"requires_work":true`) || !strings.Contains(string(body), `"requires_knowledge":false`) {
+			t.Fatalf("path=%q body=%s", request.URL.Path, body)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"cell_id":"cell-us-east-01","account_id":"` + admissionAccount + `","user_id":"` + admissionUser + `","schedule_id":"` + string(scheduleID) + `","entitlement_version":9,"maximum_concurrent_runs":3,"can_read_restricted":true}`))}, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := authorizer.Authorize(context.Background(), scheduleapp.ExecutionSnapshot{Schedule: schedule})
+	if err != nil || result.EntitlementVersion != 9 || result.MaximumConcurrentRun != 3 || !result.CanReadRestricted || calls != 1 {
 		t.Fatalf("authorization=%+v calls=%d err=%v", result, calls, err)
 	}
 }

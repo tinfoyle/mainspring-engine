@@ -25,6 +25,7 @@
 | Document extraction | Private digest-pinned Apache Tika service with no unsecure features, bounded parser lifecycle/resources and no host port; production replicas remain behind a ClusterIP |
 | Document processing, retrieval and deletion | Content-free per-cell PostgreSQL lease queues, Account-scoped PostgreSQL full-text retrieval/exact citations, exact-version manifests/receipts and least-privilege workers; Hostinger uses the `knowledge-processing` Compose profile and LKE will use one scalable worker Deployment per cell boundary |
 | Baseline state | Account-owned PostgreSQL cell tables with forced RLS, movement fencing and exact erasure/restore accounting; deployment is delivered by the ordinary cell migration job and adds no public service or alternate datastore |
+| Scheduled Agent runtime | One cell-specific `schedule-execution-worker` per cell with an execute-only queue role and SPIFFE client identity; it reaches only admission-api and its exact private app-api |
 | Backups | Configured and operated per environment by the project owner after application/database placement; deployment supplies hooks, checkpoints and restore tooling |
 | Secrets | Local/stage files outside Git; SOPS/age-encrypted production manifests with private keys outside Git |
 | Preview hosting | `.openai/hosting.json`, Sites/Cloudflare preview deployment and `chatgpt.site` are not release targets |

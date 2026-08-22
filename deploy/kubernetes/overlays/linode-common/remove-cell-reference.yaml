@@ -80,6 +80,21 @@ $patch: delete
 ---
 apiVersion: apps/v1
 kind: Deployment
+metadata: {name: schedule-execution-worker-cell-reference, namespace: spyglass-reference}
+$patch: delete
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: schedule-execution-worker-cell-reference, namespace: spyglass-reference}
+$patch: delete
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: schedule-execution-worker-cell-reference, namespace: spyglass-reference}
+$patch: delete
+---
+apiVersion: apps/v1
+kind: Deployment
 metadata: {name: agent-projection-worker-cell-reference, namespace: spyglass-reference}
 $patch: delete
 ---

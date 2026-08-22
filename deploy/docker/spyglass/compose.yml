@@ -627,6 +627,40 @@ services:
       admission-api: {condition: service_healthy}
     networks: [application, database]
 
+  schedule-execution-worker-a:
+    <<: *worker
+    command: [schedule-execution-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-east-01
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_A_SCHEDULE_EXECUTION_DATABASE_URL:?set SPYGLASS_CELL_A_SCHEDULE_EXECUTION_DATABASE_URL}
+      SPYGLASS_WORK_ADMISSION_ORIGIN: ${SPYGLASS_WORK_ADMISSION_ORIGIN:?set SPYGLASS_WORK_ADMISSION_ORIGIN}
+      SPYGLASS_CELL_EXECUTION_ORIGIN: ${SPYGLASS_CELL_A_ROUTE_ORIGIN:?set SPYGLASS_CELL_A_ROUTE_ORIGIN}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      cell-a-migrate: {condition: service_completed_successfully}
+      admission-api: {condition: service_healthy}
+      app-api-a: {condition: service_healthy}
+    networks: [application, database]
+
+  schedule-execution-worker-b:
+    <<: *worker
+    command: [schedule-execution-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-west-01
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_B_SCHEDULE_EXECUTION_DATABASE_URL:?set SPYGLASS_CELL_B_SCHEDULE_EXECUTION_DATABASE_URL}
+      SPYGLASS_WORK_ADMISSION_ORIGIN: ${SPYGLASS_WORK_ADMISSION_ORIGIN:?set SPYGLASS_WORK_ADMISSION_ORIGIN}
+      SPYGLASS_CELL_EXECUTION_ORIGIN: ${SPYGLASS_CELL_B_ROUTE_ORIGIN:?set SPYGLASS_CELL_B_ROUTE_ORIGIN}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      cell-b-migrate: {condition: service_completed_successfully}
+      admission-api: {condition: service_healthy}
+      app-api-b: {condition: service_healthy}
+    networks: [application, database]
+
   agent-projection-worker-a:
     <<: *worker
     command: [agent-projection-worker]

@@ -196,6 +196,54 @@ func TestWorkAgentAuthorizationBindsVerifiedIdentityToCell(t *testing.T) {
 	}
 }
 
+func TestScheduleAuthorizationChecksEveryReferencedPackageAndRole(t *testing.T) {
+	cellID := ids.CellID("cell-us-east-01")
+	authorizer := &testAgentAuthorizer{result: access.AccountContext{AccountID: testAccount, CellID: cellID, EntitlementVersion: 11,
+		Role: accounts.RoleOwner, PackageAccess: &entitlements.PackageAccess{Code: catalog.PackageAgents, Mode: catalog.ModeEnabled,
+			Limits: map[catalog.LimitCode]int64{"concurrent_runs": 5}}}}
+	server, err := New(&testUsage{}, map[ids.CellID]Verifier{cellID: testVerifier{}}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody,
+		WithAgentExecutionAuthorizer(authorizer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(scheduleExecutionAuthorizationRequest{CellID: cellID, AccountID: testAccount, UserID: testActor,
+		ScheduleID: testOperation, RequiresWork: true, RequiresKnowledge: true})
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/agents/schedule-executions:authorize", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || authorizer.calls != 3 || !bytes.Contains(response.Body.Bytes(), []byte(`"maximum_concurrent_runs":5`)) ||
+		!bytes.Contains(response.Body.Bytes(), []byte(`"can_read_restricted":true`)) {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, authorizer.calls, response.Body.String())
+	}
+}
+
+func TestScheduleAuthorizationBindsVerifiedWorkerToExactCell(t *testing.T) {
+	cellID := ids.CellID("cell-us-east-01")
+	authorizer := &testAgentAuthorizer{}
+	server, err := New(&testUsage{}, map[ids.CellID]Verifier{cellID: testVerifier{}}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody,
+		WithAgentExecutionAuthorizer(authorizer))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongIdentity := "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker"
+	secured, err := workloadidentity.RequireClientIdentity(server.Handler(), []string{wrongIdentity}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(scheduleExecutionAuthorizationRequest{CellID: cellID, AccountID: testAccount, UserID: testActor, ScheduleID: testOperation})
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/agents/schedule-executions:authorize", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	identityURI, _ := url.Parse(wrongIdentity)
+	certificate := &x509.Certificate{URIs: []*url.URL{identityURI}}
+	request.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{certificate}, VerifiedChains: [][]*x509.Certificate{{certificate}}}
+	response := httptest.NewRecorder()
+	secured.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || authorizer.calls != 0 {
+		t.Fatalf("status=%d calls=%d body=%s", response.Code, authorizer.calls, response.Body.String())
+	}
+}
+
 type testVerifier struct{ claims routecontext.Claims }
 
 func (v testVerifier) Verify(string, routecontext.Binding) (routecontext.Claims, error) {

@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
+	schedulingapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
@@ -35,18 +36,20 @@ type Acceptor interface {
 }
 
 type Server struct {
-	acceptor  Acceptor
-	logger    *slog.Logger
-	maxBody   int64
-	work      WorkQueries
-	commands  WorkCommands
-	agents    AgentService
-	attention AttentionService
-	actions   ActionRecoveryService
-	knowledge KnowledgeService
-	documents KnowledgeDocumentService
-	baseline  BaselineService
-	counters  routeCounters
+	acceptor               Acceptor
+	logger                 *slog.Logger
+	maxBody                int64
+	work                   WorkQueries
+	commands               WorkCommands
+	agents                 AgentService
+	attention              AttentionService
+	actions                ActionRecoveryService
+	knowledge              KnowledgeService
+	documents              KnowledgeDocumentService
+	baseline               BaselineService
+	schedules              ScheduleExecutionService
+	scheduleWorkerIdentity string
+	counters               routeCounters
 }
 
 type RouteStats struct {
@@ -143,6 +146,21 @@ func WithBaseline(service BaselineService) Option {
 	return func(server *Server) { server.baseline = service }
 }
 
+type ScheduleExecutionService interface {
+	Load(context.Context, schedulingapp.ExecutionClaim) (schedulingapp.ExecutionSnapshot, error)
+	Dispatch(context.Context, schedulingapp.OccurrenceCommand) (bool, error)
+	Skip(context.Context, schedulingapp.OccurrenceCommand) (bool, error)
+}
+
+func WithScheduleExecution(service ScheduleExecutionService, cellID ids.CellID) Option {
+	return func(server *Server) {
+		server.schedules = service
+		if routecontext.ValidCellID(cellID) {
+			server.scheduleWorkerIdentity = "spiffe://infiniteocean.net/spyglass/cells/" + string(cellID) + "/schedule-execution-worker"
+		}
+	}
+}
+
 func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
 	if acceptor == nil || logger == nil || maxBody <= 0 || maxBody > 16<<20 {
 		return nil, errors.New("cell API dependencies and bounded body size are required")
@@ -150,6 +168,9 @@ func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Optio
 	server := &Server{acceptor: acceptor, logger: logger, maxBody: maxBody}
 	for _, option := range options {
 		option(server)
+	}
+	if server.schedules != nil && server.scheduleWorkerIdentity == "" {
+		return nil, errors.New("Schedule execution requires a valid cell workload identity")
 	}
 	return server, nil
 }
@@ -226,6 +247,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", s.baselineSourceGrantList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", s.baselineSourceGrantCreate)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants/{grantID}/revocations", s.baselineSourceGrantRevoke)
+	mux.HandleFunc("POST /internal/v1/schedules/executions:load", s.scheduleExecutionLoad)
+	mux.HandleFunc("POST /internal/v1/schedules/executions:dispatch", s.scheduleExecutionDispatch)
+	mux.HandleFunc("POST /internal/v1/schedules/executions:skip", s.scheduleExecutionSkip)
 	return s.recover(s.securityHeaders(mux))
 }
 

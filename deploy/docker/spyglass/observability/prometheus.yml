@@ -34,5 +34,7 @@ scrape_configs:
           - route-receipt-worker-b:8081
           - agent-dispatch-worker-a:8081
           - agent-dispatch-worker-b:8081
+          - schedule-execution-worker-a:8081
+          - schedule-execution-worker-b:8081
           - agent-projection-worker-a:8081
           - agent-projection-worker-b:8081

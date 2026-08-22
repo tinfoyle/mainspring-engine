@@ -18,9 +18,10 @@ type autoscalingMetric struct {
 }
 
 var autoscalingMetrics = map[string]autoscalingMetric{
-	"agent-dispatch":    {Field: "ready", Name: "spyglass_agent_dispatch_ready", Help: "Agent dispatch records currently ready to be claimed."},
-	"agent-projection":  {Field: "ready", Name: "spyglass_agent_projection_ready", Help: "Agent result projections currently ready to be claimed."},
-	"runner-controller": {Field: "ready", Name: "spyglass_runner_ready", Help: "Runner invocations currently ready to be launched."},
+	"agent-dispatch":     {Field: "ready", Name: "spyglass_agent_dispatch_ready", Help: "Agent dispatch records currently ready to be claimed."},
+	"schedule-execution": {Field: "ready", Name: "spyglass_schedule_execution_ready", Help: "Schedule occurrences currently ready to be claimed."},
+	"agent-projection":   {Field: "ready", Name: "spyglass_agent_projection_ready", Help: "Agent result projections currently ready to be claimed."},
+	"runner-controller":  {Field: "ready", Name: "spyglass_runner_ready", Help: "Runner invocations currently ready to be launched."},
 }
 
 func RenderWorkerMetrics(worker string, status any) ([]byte, error) {

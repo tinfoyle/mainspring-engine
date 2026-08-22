@@ -1,6 +1,6 @@
 # Scheduling module
 
-- Status: typed recurrence/template and forced-RLS definition/lease foundation constructed; occurrence dispatch, customer surfaces and operations remain
+- Status: recurrence, persistence and workload-authorized occurrence runtime constructed; customer commands, surfaces and operator recovery remain
 - Owner: Scheduling application module
 - Package boundary: schedule definitions use the package of their target; the first target is Agents
 
@@ -24,7 +24,7 @@ The first execution template creates a new dated Agent Conversation/Run through 
 
 1. Typed recurrence, timezone/DST behavior, missed-run policy and immutable Agent template. **Constructed.**
 2. Forced-RLS schedule definitions, immutable events and identifier-only due queue with lease fencing. **Constructed through definition create/get/pause/resume and claim/fail retry; occurrence completion/advance remains with step 3.**
-3. A workload-authorized occurrence command that reuses Agents admission and StartRun semantics without presenting a browser session or impersonating a User. **Pure processor and atomic cell-side execution constructed; private workload transport and current global admission composition remain.**
+3. A workload-authorized occurrence command that reuses Agents admission and StartRun semantics without presenting a browser session or impersonating a User. **Constructed through private mTLS admission and cell execution boundaries plus a dedicated least-privilege worker.**
 4. Deterministic occurrence, Conversation, Run and operation identities derived from schedule plus scheduled instant. **Constructed for scheduled occurrences.**
 5. Pause, resume, update, delete and trigger-now commands; trigger-now is a separate occurrence and never changes recurrence state.
 6. HTTP, optional MCP and private UI surfaces with generated contracts and enabled/read-only/suspended package tests.
@@ -44,7 +44,9 @@ The execution processor now distinguishes the verified workload initiator from t
 
 The trusted cell-side repository holds one serializable transaction across lease validation, canonical Agent Run/context capture, immutable workload occurrence/event insertion, optimistic schedule advance and due-row refresh. Pause and dispatch lock the schedule and queue in the same order, so the operation linearizes before or after pause rather than leaving an orphan Run. The schedule creator remains `created_by` provenance; `schedule_occurrences.initiated_by_kind/id` records `workload/schedule-execution-worker`. Exact occurrence uniqueness and deterministic Run IDs make the transaction replay-safe.
 
-This is not yet a deployable worker checkpoint. The queue credential still requires a private mTLS client to the trusted cell-side execution boundary, and the admission service must resolve the creator's current Membership, placement, Agents mode, context-package modes, restricted-data role and concurrent-Run limit for that exact schedule claim. Until that transport/composition and its workload-certificate inventory are complete, no runtime polls this queue and `customer-schedule` remains absent.
+The `schedule-execution-worker` is now deployable in local and Hostinger Docker topology. Its database role can execute only claim, heartbeat, fail and content-free statistics functions. It loads definitions and commits dispatch/skip through the exact cell's private app-api mTLS boundary, while admission-api independently resolves the creator's current Membership, placement, Agents mutation mode, every referenced context package, restricted-data role and concurrent-Run limit. Stable requests retry once and the cell transaction reconciles unknown-commit replay by deterministic occurrence identity. Workload certificate identities are cell-specific and admitted by both private services.
+
+This runtime does not publish a customer Schedule surface. Update/delete/trigger-now commands, generated HTTP/UI contracts, dead-letter inspection/requeue and applied environment rehearsal remain; `customer-schedule` therefore stays absent from the package inventory.
 
 ## Invariants
 

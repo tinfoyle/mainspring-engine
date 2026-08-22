@@ -84,7 +84,88 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /internal/v1/work/capacity/release", s.release)
 	mux.HandleFunc("POST /internal/v1/attention/reviewers:resolve", s.resolveReviewer)
 	mux.HandleFunc("POST /internal/v1/agents/work-executions:authorize", s.authorizeWorkAgentExecution)
+	mux.HandleFunc("POST /internal/v1/agents/schedule-executions:authorize", s.authorizeScheduleExecution)
 	return s.recover(s.securityHeaders(mux))
+}
+
+type scheduleExecutionAuthorizationRequest struct {
+	CellID            ids.CellID     `json:"cell_id"`
+	AccountID         ids.AccountID  `json:"account_id"`
+	UserID            ids.UserID     `json:"user_id"`
+	ScheduleID        ids.ScheduleID `json:"schedule_id"`
+	RequiresWork      bool           `json:"requires_work"`
+	RequiresKnowledge bool           `json:"requires_knowledge"`
+}
+
+type scheduleExecutionAuthorizationResponse struct {
+	CellID                ids.CellID     `json:"cell_id"`
+	AccountID             ids.AccountID  `json:"account_id"`
+	UserID                ids.UserID     `json:"user_id"`
+	ScheduleID            ids.ScheduleID `json:"schedule_id"`
+	EntitlementVersion    uint64         `json:"entitlement_version"`
+	MaximumConcurrentRuns int64          `json:"maximum_concurrent_runs"`
+	CanReadRestricted     bool           `json:"can_read_restricted"`
+}
+
+func (s *Server) authorizeScheduleExecution(w http.ResponseWriter, r *http.Request) {
+	if s.agents == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "agent_authorization_unavailable", "Agent authorization is temporarily unavailable")
+		return
+	}
+	if mediaType := strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]); mediaType != "application/json" {
+		writeProblem(w, http.StatusUnsupportedMediaType, "json_required", "Schedule authorization requires application/json")
+		return
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxBody))
+	decoder.DisallowUnknownFields()
+	var request scheduleExecutionAuthorizationRequest
+	if err := decoder.Decode(&request); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_authorization", "the Schedule authorization request is invalid")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_authorization", "the Schedule authorization request is invalid")
+		return
+	}
+	if _, exists := s.verifiers[request.CellID]; !exists || ids.Validate(string(request.AccountID)) != nil ||
+		ids.Validate(string(request.UserID)) != nil || ids.Validate(string(request.ScheduleID)) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_authorization", "the Schedule authorization request is invalid")
+		return
+	}
+	if identity, verified := workloadidentity.ClientIdentityFromContext(r.Context()); verified {
+		expected := "spiffe://infiniteocean.net/spyglass/cells/" + string(request.CellID) + "/schedule-execution-worker"
+		if identity != expected {
+			writeProblem(w, http.StatusForbidden, "agent_workload_scope_denied", "the workload identity cannot authorize Schedules for this cell")
+			return
+		}
+	}
+	actor := access.Actor{UserID: request.UserID}
+	accountContext, err := s.agents.Authorize(r.Context(), actor, request.AccountID,
+		access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator, accounts.RoleMember}, Package: catalog.PackageAgents, Mutation: true})
+	if err == nil && request.RequiresWork {
+		_, err = s.agents.Authorize(r.Context(), actor, request.AccountID, access.Requirement{Package: catalog.PackageWork})
+	}
+	if err == nil && request.RequiresKnowledge {
+		_, err = s.agents.Authorize(r.Context(), actor, request.AccountID, access.Requirement{Package: catalog.PackageKnowledge})
+	}
+	if err != nil {
+		var denied *access.DeniedError
+		if errors.As(err, &denied) {
+			writeProblem(w, http.StatusForbidden, string(denied.Code), "the Schedule creator can no longer execute the configured packages for this Account")
+			return
+		}
+		s.logger.Error("Schedule Agent authorization failed", "error", err)
+		writeProblem(w, http.StatusServiceUnavailable, "agent_authorization_unavailable", "Schedule authorization is temporarily unavailable")
+		return
+	}
+	maximum, exists := accountContext.PackageAccess.Limits[catalog.LimitCode("concurrent_runs")]
+	if accountContext.CellID != request.CellID || accountContext.AccountID != request.AccountID || accountContext.EntitlementVersion == 0 || !exists || maximum < 1 {
+		writeProblem(w, http.StatusForbidden, "agent_authorization_stale", "the Account placement or Agent entitlement changed")
+		return
+	}
+	writeJSON(w, http.StatusOK, scheduleExecutionAuthorizationResponse{CellID: request.CellID, AccountID: request.AccountID,
+		UserID: request.UserID, ScheduleID: request.ScheduleID, EntitlementVersion: accountContext.EntitlementVersion,
+		MaximumConcurrentRuns: maximum, CanReadRestricted: accountContext.Role == accounts.RoleOwner || accountContext.Role == accounts.RoleAdministrator})
 }
 
 type workAgentAuthorizationRequest struct {

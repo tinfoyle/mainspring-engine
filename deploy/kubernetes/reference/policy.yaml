@@ -25,7 +25,7 @@ metadata: {name: app-router-to-cell-api, namespace: spyglass-reference}
 spec:
   podSelector:
     matchExpressions:
-      - {key: app.kubernetes.io/name, operator: In, values: [app-router, tool-router]}
+      - {key: app.kubernetes.io/name, operator: In, values: [app-router, tool-router, schedule-execution-worker]}
   policyTypes: [Egress]
   egress:
     - to:
@@ -45,7 +45,7 @@ spec:
     - from:
         - podSelector:
             matchExpressions:
-              - {key: app.kubernetes.io/name, operator: In, values: [app-router, tool-router]}
+              - {key: app.kubernetes.io/name, operator: In, values: [app-router, tool-router, schedule-execution-worker]}
       ports: [{protocol: TCP, port: 8080}]
 ---
 apiVersion: networking.k8s.io/v1
@@ -53,7 +53,8 @@ kind: NetworkPolicy
 metadata: {name: cell-api-to-admission-api, namespace: spyglass-reference}
 spec:
   podSelector:
-    matchLabels: {app.kubernetes.io/name: app-api}
+    matchExpressions:
+      - {key: app.kubernetes.io/name, operator: In, values: [app-api, schedule-execution-worker]}
   policyTypes: [Egress]
   egress:
     - to:
@@ -72,7 +73,7 @@ spec:
     - from:
         - podSelector:
             matchExpressions:
-              - {key: app.kubernetes.io/name, operator: In, values: [app-api, agent-dispatch-worker]}
+              - {key: app.kubernetes.io/name, operator: In, values: [app-api, agent-dispatch-worker, schedule-execution-worker]}
       ports: [{protocol: TCP, port: 8080}]
 ---
 apiVersion: networking.k8s.io/v1

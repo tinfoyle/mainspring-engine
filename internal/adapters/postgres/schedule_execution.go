@@ -23,18 +23,37 @@ import (
 // A production worker reaches Load/Dispatch/Skip through the private workload
 // transport; only claim/heartbeat/failure use its queue credential directly.
 type ScheduleExecutionRepository struct {
-	pool *pgxpool.Pool
-	cell *database.CellPool
+	queue *ScheduleExecutionQueueRepository
+	cell  *database.CellPool
 }
 
 func NewScheduleExecutionRepository(pool *pgxpool.Pool, cell *database.CellPool) (*ScheduleExecutionRepository, error) {
 	if pool == nil || cell == nil {
 		return nil, errors.New("Schedule execution repository dependencies are required")
 	}
-	return &ScheduleExecutionRepository{pool: pool, cell: cell}, nil
+	queue, err := NewScheduleExecutionQueueRepository(pool)
+	if err != nil {
+		return nil, err
+	}
+	return &ScheduleExecutionRepository{queue: queue, cell: cell}, nil
+}
+
+type ScheduleExecutionQueueRepository struct {
+	pool *pgxpool.Pool
+}
+
+func NewScheduleExecutionQueueRepository(pool *pgxpool.Pool) (*ScheduleExecutionQueueRepository, error) {
+	if pool == nil {
+		return nil, errors.New("Schedule execution queue repository database pool is required")
+	}
+	return &ScheduleExecutionQueueRepository{pool: pool}, nil
 }
 
 func (r *ScheduleExecutionRepository) Claim(ctx context.Context, leaseID string, now time.Time, lease time.Duration) (scheduleapp.ExecutionClaim, bool, error) {
+	return r.queue.Claim(ctx, leaseID, now, lease)
+}
+
+func (r *ScheduleExecutionQueueRepository) Claim(ctx context.Context, leaseID string, now time.Time, lease time.Duration) (scheduleapp.ExecutionClaim, bool, error) {
 	var claim scheduleapp.ExecutionClaim
 	err := r.pool.QueryRow(ctx, `SELECT account_id,schedule_id,schedule_version,scheduled_for,lease_id,attempt_count
 		FROM public.spyglass_claim_schedule_dispatch($1,$2,$3)`, leaseID, now.UTC(), int(lease/time.Second)).Scan(
@@ -81,6 +100,10 @@ func (r *ScheduleExecutionRepository) Load(ctx context.Context, claim scheduleap
 }
 
 func (r *ScheduleExecutionRepository) Heartbeat(ctx context.Context, claim scheduleapp.ExecutionClaim, now time.Time, lease time.Duration) error {
+	return r.queue.Heartbeat(ctx, claim, now, lease)
+}
+
+func (r *ScheduleExecutionQueueRepository) Heartbeat(ctx context.Context, claim scheduleapp.ExecutionClaim, now time.Time, lease time.Duration) error {
 	var accepted bool
 	err := r.pool.QueryRow(ctx, `SELECT public.spyglass_heartbeat_schedule_dispatch($1,$2,$3,$4,$5,$6)`,
 		claim.AccountID, claim.ScheduleID, claim.LeaseID, claim.ScheduledFor, now.UTC(), int(lease/time.Second)).Scan(&accepted)
@@ -165,10 +188,29 @@ func (r *ScheduleExecutionRepository) Skip(ctx context.Context, command schedule
 }
 
 func (r *ScheduleExecutionRepository) Fail(ctx context.Context, claim scheduleapp.ExecutionClaim, retry bool, next time.Time, code string, now time.Time, maxAttempts int) (string, error) {
+	return r.queue.Fail(ctx, claim, retry, next, code, now, maxAttempts)
+}
+
+func (r *ScheduleExecutionQueueRepository) Fail(ctx context.Context, claim scheduleapp.ExecutionClaim, retry bool, next time.Time, code string, now time.Time, maxAttempts int) (string, error) {
 	var state string
 	err := r.pool.QueryRow(ctx, `SELECT public.spyglass_fail_schedule_dispatch($1,$2,$3,$4,$5,$6,$7,$8,$9)`, claim.AccountID,
 		claim.ScheduleID, claim.LeaseID, claim.ScheduledFor, retry, next.UTC(), code, now.UTC(), maxAttempts).Scan(&state)
 	return state, classifyScheduleExecution(err)
+}
+
+func (r *ScheduleExecutionQueueRepository) Stats(ctx context.Context, now time.Time) (scheduleapp.ExecutionStats, error) {
+	var result scheduleapp.ExecutionStats
+	var oldest *time.Time
+	err := r.pool.QueryRow(ctx, `SELECT pending,ready,leased,retrying,dead_letter,oldest_ready_at
+		FROM public.spyglass_schedule_dispatch_stats($1)`, now.UTC()).Scan(&result.Pending, &result.Ready, &result.Leased,
+		&result.Retrying, &result.DeadLetter, &oldest)
+	if err != nil {
+		return scheduleapp.ExecutionStats{}, classifyScheduleExecution(err)
+	}
+	if oldest != nil && oldest.Before(now) {
+		result.OldestReadyAge = now.Sub(*oldest)
+	}
+	return result, nil
 }
 
 func lockScheduleExecution(ctx context.Context, tx pgx.Tx, command scheduleapp.OccurrenceCommand) (scheduledomain.Schedule, error) {

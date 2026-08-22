@@ -2,7 +2,7 @@
 
 - Status: executable Phase 2.5 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure/movement processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, private `tool-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `identity-maintenance-worker`, `work-reconciler`, `baseline-maintenance-worker`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, private `tool-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `identity-maintenance-worker`, `work-reconciler`, `baseline-maintenance-worker`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `schedule-execution-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 The revision-controlled machine contract is [`deploy/spyglass-process-inventory.json`](../../deploy/spyglass-process-inventory.json). Its verification script compares the complete mode set to the binary switch and fails local verification when they drift.
 
@@ -23,6 +23,7 @@ The revision-controlled machine contract is [`deploy/spyglass-process-inventory.
 | `work-reconciler` | Lease identifier-only terminal Work release jobs, idempotently release global capacity, and checkpoint the matching Account-scoped Work row | Serving traffic, Work content reads, capacity reservation, package mutation, Stripe or SMTP operations |
 | `model-gateway` | Translate one bounded provider-neutral model step, enforce strict sequential-tool/output controls, and normalize provider result/usage | Account database, browser/session identity, Kubernetes API, runner identity, business tools |
 | `agent-dispatch-worker` | Lease identifier-only Agent invocations, read their immutable Account-RLS plans, and provision exact encrypted runner requests | Browser/session authority, global database, provider credentials, Agent configuration mutation, plaintext queue storage |
+| `schedule-execution-worker` | Lease identifier-only due occurrences, obtain fresh global authorization, and invoke the exact cell's private atomic occurrence boundary | Browser/session authority, schedule/occurrence table reads, global database, provider credentials, arbitrary cell routing |
 | `agent-projection-worker` | Lease terminal Agent results, decrypt Pod-bound envelopes, validate results, and atomically project Account-visible outcomes | Browser/session authority, provider credentials, unencrypted result persistence, arbitrary Agent mutation |
 | `agent-queue-admin` | One audited bounded inspection or exact-target requeue of one cell's Agent dispatch/projection dead letters | Serving traffic, direct queue/content/exchange access, provider credentials, cross-cell discovery |
 | `work-release-admin` | One audited, bounded inspection or exact-target requeue of Work release dead letters | Serving traffic, customer Work content, direct queue table access, global capacity mutation |
@@ -400,6 +401,32 @@ GRANT EXECUTE ON FUNCTION public.spyglass_load_work_agent_execution(uuid,uuid,uu
 GRANT EXECUTE ON FUNCTION public.spyglass_heartbeat_work_agent_execution(uuid,uuid,uuid,timestamptz,integer) TO spyglass_agent_dispatcher;
 -- The matching fail, stats, and atomic start/link functions are granted with
 -- their exact signatures by the revision-controlled cell role script.
+```
+
+## Schedule execution worker values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_CELL_DATABASE_URL` | Required queue-function-only cell credential |
+| `SPYGLASS_CELL_ID` | Required exact cell identity and admission scope |
+| `SPYGLASS_WORK_ADMISSION_ORIGIN` | Required private global admission origin |
+| `SPYGLASS_CELL_EXECUTION_ORIGIN` | Required private app-api origin for this exact cell |
+| `SPYGLASS_WORKLOAD_CERT_FILE` / `SPYGLASS_WORKLOAD_KEY_FILE` / `SPYGLASS_WORKLOAD_CA_FILE` | Required outside development; certificate identity is `spiffe://infiniteocean.net/spyglass/cells/<cell>/schedule-execution-worker` |
+| `SPYGLASS_SCHEDULE_EXECUTION_POLL_INTERVAL` | Optional `100ms` through `1m`; defaults to `1s` |
+| `SPYGLASS_SCHEDULE_EXECUTION_LEASE` | Optional whole-second `1s` through `30m`; defaults to `30s` |
+| `SPYGLASS_SCHEDULE_EXECUTION_MAX_ATTEMPTS` | Optional integer 1 through 100; defaults to `12` |
+| `SPYGLASS_CELL_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `3` |
+| `SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE` / `SPYGLASS_ERASURE_CHECKPOINT_ROOT` | Required pinned cell restore checkpoint |
+| `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
+
+The role receives no table privilege. App-api, not the worker, reads the Account definition and owns the serializable Agent Run/occurrence transaction.
+
+```sql
+GRANT USAGE ON SCHEMA public TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_schedule_dispatch(uuid,timestamptz,integer) TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_heartbeat_schedule_dispatch(uuid,uuid,uuid,timestamptz,timestamptz,integer) TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_fail_schedule_dispatch(uuid,uuid,uuid,timestamptz,boolean,timestamptz,text,timestamptz,integer) TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_schedule_dispatch_stats(timestamptz) TO spyglass_schedule_execution_worker;
 ```
 
 ## Agent result projection worker values

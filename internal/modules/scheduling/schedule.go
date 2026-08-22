@@ -201,19 +201,19 @@ const (
 )
 
 type Schedule struct {
-	ID              ids.ScheduleID
-	AccountID       ids.AccountID
-	Name            string
-	Timezone        string
-	Recurrence      Recurrence
-	MissedRunPolicy MissedRunPolicy
-	Template        AgentRunTemplate
-	State           State
-	Version         uint64
-	NextRunAt       *time.Time
-	CreatedBy       ids.UserID
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID              ids.ScheduleID   `json:"id"`
+	AccountID       ids.AccountID    `json:"account_id"`
+	Name            string           `json:"name"`
+	Timezone        string           `json:"timezone"`
+	Recurrence      Recurrence       `json:"recurrence"`
+	MissedRunPolicy MissedRunPolicy  `json:"missed_run_policy"`
+	Template        AgentRunTemplate `json:"template"`
+	State           State            `json:"state"`
+	Version         uint64           `json:"version"`
+	NextRunAt       *time.Time       `json:"next_run_at"`
+	CreatedBy       ids.UserID       `json:"created_by"`
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
 }
 
 type Draft struct {

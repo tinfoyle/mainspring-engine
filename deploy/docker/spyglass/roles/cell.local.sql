@@ -12,6 +12,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_agent_dispatch_worker') THEN
     CREATE ROLE spyglass_agent_dispatch_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_schedule_execution_worker') THEN
+    CREATE ROLE spyglass_schedule_execution_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_agent_projection_worker') THEN
     CREATE ROLE spyglass_agent_projection_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
@@ -37,6 +40,7 @@ $$;
 \getenv route_receipt_password SPYGLASS_ROUTE_RECEIPT_WORKER_DATABASE_PASSWORD
 \getenv work_reconciler_password SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD
 \getenv agent_dispatch_password SPYGLASS_AGENT_DISPATCH_WORKER_DATABASE_PASSWORD
+\getenv schedule_execution_password SPYGLASS_SCHEDULE_EXECUTION_WORKER_DATABASE_PASSWORD
 \getenv agent_projection_password SPYGLASS_AGENT_PROJECTION_WORKER_DATABASE_PASSWORD
 \getenv knowledge_document_password SPYGLASS_KNOWLEDGE_DOCUMENT_WORKER_DATABASE_PASSWORD
 \getenv baseline_maintenance_password SPYGLASS_BASELINE_MAINTENANCE_WORKER_DATABASE_PASSWORD
@@ -47,6 +51,7 @@ SELECT format('ALTER ROLE spyglass_app_api PASSWORD %L', :'app_api_password') \g
 SELECT format('ALTER ROLE spyglass_route_receipt_worker PASSWORD %L', :'route_receipt_password') \gexec
 SELECT format('ALTER ROLE spyglass_work_reconciler PASSWORD %L', :'work_reconciler_password') \gexec
 SELECT format('ALTER ROLE spyglass_agent_dispatch_worker PASSWORD %L', :'agent_dispatch_password') \gexec
+SELECT format('ALTER ROLE spyglass_schedule_execution_worker PASSWORD %L', :'schedule_execution_password') \gexec
 SELECT format('ALTER ROLE spyglass_agent_projection_worker PASSWORD %L', :'agent_projection_password') \gexec
 SELECT format('ALTER ROLE spyglass_knowledge_document_worker PASSWORD %L', :'knowledge_document_password') \gexec
 SELECT format('ALTER ROLE spyglass_baseline_maintenance_worker PASSWORD %L', :'baseline_maintenance_password') \gexec
@@ -55,20 +60,20 @@ SELECT format('ALTER ROLE spyglass_runner_controller PASSWORD %L', :'runner_cont
 SELECT format('ALTER ROLE spyglass_runner_broker PASSWORD %L', :'runner_broker_password') \gexec
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_app_api, spyglass_route_receipt_worker,
-  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
+  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_schedule_execution_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
   spyglass_runner_controller, spyglass_runner_broker;
 GRANT USAGE ON SCHEMA public, spyglass TO spyglass_app_api, spyglass_route_receipt_worker,
-  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
+  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_schedule_execution_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
   spyglass_runner_controller, spyglass_runner_broker;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public, spyglass FROM spyglass_route_receipt_worker,
-  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
+  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_schedule_execution_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
   spyglass_runner_controller, spyglass_runner_broker;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public, spyglass FROM spyglass_route_receipt_worker,
-  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
+  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_schedule_execution_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
   spyglass_runner_controller, spyglass_runner_broker;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public, spyglass FROM spyglass_route_receipt_worker,
-  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
+  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_schedule_execution_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
   spyglass_runner_controller, spyglass_runner_broker;
 GRANT SELECT ON spyglass.account_erasure_restore_ledger TO spyglass_app_api;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA spyglass TO spyglass_app_api;
@@ -76,7 +81,7 @@ GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA spyglass TO spyglass_app_
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public, spyglass TO spyglass_app_api;
 
 GRANT SELECT ON spyglass.account_erasure_restore_ledger TO spyglass_route_receipt_worker,
-  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
+  spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_schedule_execution_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
   spyglass_runner_controller, spyglass_runner_broker;
 
 GRANT SELECT, UPDATE, DELETE ON spyglass.route_context_receipt_cleanup_queue,
@@ -111,6 +116,15 @@ GRANT EXECUTE ON FUNCTION public.spyglass_agent_dispatch_stats(timestamptz)
   TO spyglass_agent_dispatch_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_provision_runner_invocation(uuid,uuid,text,timestamptz,bytea,bytea,integer,bytea,timestamptz)
   TO spyglass_agent_dispatch_worker;
+
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_schedule_dispatch(uuid,timestamptz,integer)
+  TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_heartbeat_schedule_dispatch(uuid,uuid,uuid,timestamptz,timestamptz,integer)
+  TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_fail_schedule_dispatch(uuid,uuid,uuid,timestamptz,boolean,timestamptz,text,timestamptz,integer)
+  TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_schedule_dispatch_stats(timestamptz)
+  TO spyglass_schedule_execution_worker;
 
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection_v4(uuid,timestamptz,integer)
   TO spyglass_agent_projection_worker;

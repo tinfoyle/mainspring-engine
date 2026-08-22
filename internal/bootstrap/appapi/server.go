@@ -186,7 +186,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		return nil, err
 	}
 	documents := knowledgeDocumentRoutes{admission: documentAdmission, service: documentService}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService))
+	scheduleExecution, err := postgres.NewScheduleExecutionRepository(pool, cellPool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
 	if err != nil {
 		pool.Close()
 		return nil, err

@@ -10,6 +10,7 @@ test -s "$rendered"
 
 required_objects=(
   "name: agent-dispatch-worker-cell-reference"
+  "name: schedule-execution-worker-cell-reference"
   "name: agent-projection-worker-cell-reference"
   "name: baseline-maintenance-worker-cell-reference"
   "name: runner-controller-cell-reference"
@@ -20,6 +21,7 @@ required_objects=(
   "name: broker-to-model-gateway"
   "name: spyglass-reference-runner-token-reviewer"
   "name: spyglass_agent_dispatch_ready"
+  "name: spyglass_schedule_execution_ready"
   "name: spyglass_agent_projection_ready"
   "name: spyglass_runner_ready"
   "name: spyglass-runners-reference"

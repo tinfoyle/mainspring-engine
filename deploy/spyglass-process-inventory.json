@@ -198,6 +198,17 @@
       "dependencies": ["cell-postgresql", "admission-api"]
     },
     {
+      "mode": "schedule-execution-worker",
+      "kind": "worker",
+      "scope": "cell",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["cell.schedule-execution-worker"],
+      "configuration": ["SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_CELL_ID", "SPYGLASS_WORK_ADMISSION_ORIGIN", "SPYGLASS_CELL_EXECUTION_ORIGIN", "SPYGLASS_WORKLOAD_CERT_FILE", "SPYGLASS_WORKLOAD_KEY_FILE", "SPYGLASS_WORKLOAD_CA_FILE", "SPYGLASS_SCHEDULE_EXECUTION_POLL_INTERVAL", "SPYGLASS_SCHEDULE_EXECUTION_LEASE", "SPYGLASS_SCHEDULE_EXECUTION_MAX_ATTEMPTS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "cell_restore_gate", "workload_mtls_client"],
+      "dependencies": ["cell-postgresql", "admission-api", "app-api"]
+    },
+    {
       "mode": "agent-projection-worker",
       "kind": "worker",
       "scope": "cell",

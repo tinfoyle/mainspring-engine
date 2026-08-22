@@ -17,6 +17,7 @@ resources:
   - baseline-maintenance-worker.yaml
   - route-receipt-worker.yaml
   - agent-dispatch-worker.yaml
+  - schedule-execution-worker.yaml
   - agent-projection-worker.yaml
   - runner-controller.yaml
   - runner-broker.yaml

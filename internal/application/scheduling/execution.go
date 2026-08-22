@@ -31,12 +31,12 @@ var (
 )
 
 type ExecutionClaim struct {
-	AccountID       ids.AccountID
-	ScheduleID      ids.ScheduleID
-	ScheduleVersion uint64
-	ScheduledFor    time.Time
-	LeaseID         string
-	Attempt         int
+	AccountID       ids.AccountID  `json:"account_id"`
+	ScheduleID      ids.ScheduleID `json:"schedule_id"`
+	ScheduleVersion uint64         `json:"schedule_version"`
+	ScheduledFor    time.Time      `json:"scheduled_for"`
+	LeaseID         string         `json:"lease_id"`
+	Attempt         int            `json:"attempt"`
 }
 
 func (claim ExecutionClaim) Valid() bool {
@@ -45,7 +45,12 @@ func (claim ExecutionClaim) Valid() bool {
 }
 
 type ExecutionSnapshot struct {
-	Schedule domain.Schedule
+	Schedule domain.Schedule `json:"schedule"`
+}
+
+func (snapshot ExecutionSnapshot) ValidForAuthorization() bool {
+	value, err := domain.Restore(snapshot.Schedule)
+	return err == nil && value.State == domain.StateActive
 }
 
 func (snapshot ExecutionSnapshot) ValidFor(claim ExecutionClaim) bool {
@@ -55,9 +60,9 @@ func (snapshot ExecutionSnapshot) ValidFor(claim ExecutionClaim) bool {
 }
 
 type ExecutionAuthorization struct {
-	EntitlementVersion   uint64
-	MaximumConcurrentRun int64
-	CanReadRestricted    bool
+	EntitlementVersion   uint64 `json:"entitlement_version"`
+	MaximumConcurrentRun int64  `json:"maximum_concurrent_runs"`
+	CanReadRestricted    bool   `json:"can_read_restricted"`
 }
 
 func (authorization ExecutionAuthorization) Valid() bool {
@@ -65,17 +70,17 @@ func (authorization ExecutionAuthorization) Valid() bool {
 }
 
 type OccurrenceCommand struct {
-	Claim            ExecutionClaim
-	Schedule         domain.Schedule
-	OccurrenceID     string
-	RunID            ids.RunID
-	ConversationID   ids.ConversationID
-	UserMessageID    ids.MessageID
-	Subject          string
-	Authorization    ExecutionAuthorization
-	NextRunAt        time.Time
-	At               time.Time
-	RequestExpiresAt time.Time
+	Claim            ExecutionClaim         `json:"claim"`
+	Schedule         domain.Schedule        `json:"schedule"`
+	OccurrenceID     string                 `json:"occurrence_id"`
+	RunID            ids.RunID              `json:"run_id"`
+	ConversationID   ids.ConversationID     `json:"conversation_id"`
+	UserMessageID    ids.MessageID          `json:"user_message_id"`
+	Subject          string                 `json:"subject"`
+	Authorization    ExecutionAuthorization `json:"authorization"`
+	NextRunAt        time.Time              `json:"next_run_at"`
+	At               time.Time              `json:"at"`
+	RequestExpiresAt time.Time              `json:"request_expires_at"`
 }
 
 func (command OccurrenceCommand) Valid() bool {
@@ -86,13 +91,33 @@ func (command OccurrenceCommand) Valid() bool {
 		command.NextRunAt.After(command.Claim.ScheduledFor) && !command.At.IsZero() && command.RequestExpiresAt.After(command.At)
 }
 
-type ExecutionStore interface {
+type ExecutionQueue interface {
 	Claim(context.Context, string, time.Time, time.Duration) (ExecutionClaim, bool, error)
-	Load(context.Context, ExecutionClaim) (ExecutionSnapshot, error)
 	Heartbeat(context.Context, ExecutionClaim, time.Time, time.Duration) error
+	Fail(context.Context, ExecutionClaim, bool, time.Time, string, time.Time, int) (string, error)
+}
+
+type OccurrenceExecutor interface {
+	Load(context.Context, ExecutionClaim) (ExecutionSnapshot, error)
 	Dispatch(context.Context, OccurrenceCommand) (bool, error)
 	Skip(context.Context, OccurrenceCommand) (bool, error)
-	Fail(context.Context, ExecutionClaim, bool, time.Time, string, time.Time, int) (string, error)
+}
+
+type ExecutionStore interface {
+	ExecutionQueue
+	OccurrenceExecutor
+}
+
+type combinedExecutionStore struct {
+	ExecutionQueue
+	OccurrenceExecutor
+}
+
+func NewExecutionStore(queue ExecutionQueue, executor OccurrenceExecutor) (ExecutionStore, error) {
+	if queue == nil || executor == nil {
+		return nil, errors.New("Schedule execution queue and occurrence executor are required")
+	}
+	return combinedExecutionStore{ExecutionQueue: queue, OccurrenceExecutor: executor}, nil
 }
 
 // ExecutionAuthorizer resolves the creator's current Membership, Account
@@ -110,6 +135,15 @@ type ExecutionResult struct {
 	Skipped    bool
 	Reconciled bool
 	DeadLetter bool
+}
+
+type ExecutionStats struct {
+	Pending        uint64
+	Ready          uint64
+	Leased         uint64
+	Retrying       uint64
+	DeadLetter     uint64
+	OldestReadyAge time.Duration
 }
 
 type ExecutionProcessor struct {

@@ -10,6 +10,7 @@ sources=(
   baseline-maintenance-worker.yaml
   route-receipt-worker.yaml
   agent-dispatch-worker.yaml
+  schedule-execution-worker.yaml
   agent-projection-worker.yaml
   runner-controller.yaml
   runner-broker.yaml
@@ -40,6 +41,7 @@ generate_cell() {
         -e "s/cell-reference/cell-$suffix/g" \
         -e "s/spyglass.io\/cell: reference/spyglass.io\/cell: cell-$suffix/g" \
         -e "s/value: \"reference\"/value: \"$cell_id\"/g" \
+        -e "s|/cells/reference/|/cells/$cell_id/|g" \
         "$reference_dir/$source"
       separator=$'---\n'
     done
