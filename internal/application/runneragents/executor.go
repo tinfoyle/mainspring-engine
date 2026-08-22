@@ -45,7 +45,7 @@ type Tool struct {
 
 type TurnInput struct {
 	Provider            string                    `json:"provider"`
-	Model               string                    `json:"model"`
+	Models              []string                  `json:"models"`
 	ReasoningEffort     string                    `json:"reasoning_effort,omitempty"`
 	Instructions        string                    `json:"instructions"`
 	Messages            []modelgateway.Message    `json:"messages"`
@@ -73,13 +73,13 @@ type TurnExecutor struct{}
 // ValidateTurnOutput is the trusted persistence-boundary check for an Agent
 // turn. Expected values come from the immutable invocation plan, not from the
 // runner result being validated.
-func ValidateTurnOutput(output TurnOutput, expectedProvider, expectedModel string) (TurnOutput, error) {
+func ValidateTurnOutput(output TurnOutput, expectedProvider string, permittedModels []string) (TurnOutput, error) {
 	output.Provider = strings.TrimSpace(output.Provider)
 	output.RequestedModel = strings.TrimSpace(output.RequestedModel)
 	output.ResponseModel = strings.TrimSpace(output.ResponseModel)
 	output.ResponseID = strings.TrimSpace(output.ResponseID)
 	if !validProvider.MatchString(output.Provider) || output.Provider != expectedProvider ||
-		!validModel.MatchString(output.RequestedModel) || output.RequestedModel != expectedModel ||
+		!validModel.MatchString(output.RequestedModel) || !slices.Contains(permittedModels, output.RequestedModel) ||
 		!validModel.MatchString(output.ResponseModel) || output.ResponseID == "" || len(output.ResponseID) > 200 ||
 		strings.ContainsAny(output.ResponseID, " \t\r\n") || output.Usage.InputTokens < 0 || output.Usage.OutputTokens < 0 || output.Usage.CostMicros < 0 ||
 		output.Usage.TotalTokens < 0 || output.Usage.TotalTokens != output.Usage.InputTokens+output.Usage.OutputTokens {
@@ -99,8 +99,13 @@ func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execu
 	}
 	input, err := decodeExact[TurnInput](execution.Input)
 	if err != nil || input.MaximumInputTokens < 1 || input.MaximumInputTokens > 2_000_000 || input.MaximumOutputTokens < 1 || input.MaximumOutputTokens > modelgateway.MaximumOutputTokens || input.MaximumCostMicros < 0 || input.MaximumCostMicros > 1_000_000_000 || input.MaximumToolSteps < 0 || input.MaximumToolSteps > agents.MaximumToolSteps ||
-		len(input.ModelOperationIDs) != input.MaximumToolSteps+1 || len(input.ToolOperationIDs) != input.MaximumToolSteps {
+		len(input.Models) < 1 || len(input.Models) > agents.MaximumFallbackModels+1 || len(input.ModelOperationIDs) != (input.MaximumToolSteps+1)*len(input.Models) || len(input.ToolOperationIDs) != input.MaximumToolSteps {
 		return nil, coded("invalid_input", ErrInvalidInput)
+	}
+	for index, model := range input.Models {
+		if !validModel.MatchString(model) || slices.Contains(input.Models[:index], model) {
+			return nil, coded("invalid_input", ErrInvalidInput)
+		}
 	}
 	operations := append(append([]string(nil), input.ModelOperationIDs...), input.ToolOperationIDs...)
 	for index, operation := range operations {
@@ -123,16 +128,30 @@ func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execu
 	if (input.MaximumToolSteps == 0) != (len(input.Tools) == 0) {
 		return nil, coded("invalid_input", ErrInvalidInput)
 	}
-	request := modelgateway.Request{SchemaVersion: modelgateway.SchemaVersion, Provider: input.Provider, Model: input.Model, ReasoningEffort: input.ReasoningEffort, Instructions: input.Instructions, Messages: input.Messages, Tools: definitions, OutputFormat: input.OutputFormat, MaximumOutTokens: input.MaximumOutputTokens}
+	request := modelgateway.Request{SchemaVersion: modelgateway.SchemaVersion, Provider: input.Provider, ReasoningEffort: input.ReasoningEffort, Instructions: input.Instructions, Messages: input.Messages, Tools: definitions, OutputFormat: input.OutputFormat, MaximumOutTokens: input.MaximumOutputTokens}
 	var usage modelgateway.Usage
+	selectedModel := -1
 	for step := 0; ; step++ {
-		requestRaw, err := json.Marshal(request)
-		if err != nil {
-			return nil, coded("invalid_input", ErrInvalidInput)
+		var modelResult runnercapability.Result
+		attemptStart, attemptEnd := 0, len(input.Models)
+		if selectedModel >= 0 {
+			attemptStart, attemptEnd = selectedModel, selectedModel+1
 		}
-		modelResult, err := execution.Gateway.Invoke(ctx, runnercapability.Call{SchemaVersion: runnercapability.SchemaVersion, OperationID: input.ModelOperationIDs[step], Capability: modelgateway.ModelTurnCapability, Input: requestRaw})
-		if err != nil {
-			return nil, coded("model_step_failed", ErrModelFailed)
+		for target := attemptStart; target < attemptEnd; target++ {
+			request.Model = input.Models[target]
+			requestRaw, err := json.Marshal(request)
+			if err != nil {
+				return nil, coded("invalid_input", ErrInvalidInput)
+			}
+			modelResult, err = execution.Gateway.Invoke(ctx, runnercapability.Call{SchemaVersion: runnercapability.SchemaVersion, OperationID: input.ModelOperationIDs[step*len(input.Models)+target], Capability: modelgateway.ModelTurnCapability, Input: requestRaw})
+			if err == nil {
+				selectedModel = target
+				break
+			}
+			reason, transient := runnercapability.ExecutionFailureCode(err)
+			if selectedModel >= 0 || !transient || reason != "model_provider_unavailable" || target+1 == attemptEnd {
+				return nil, coded("model_step_failed", ErrModelFailed)
+			}
 		}
 		if modelResult.SchemaVersion != runnercapability.SchemaVersion {
 			return nil, coded("model_output_invalid", ErrInvalidModelOutput)
@@ -168,7 +187,7 @@ func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execu
 			if err != nil {
 				return nil, coded("model_output_invalid", ErrInvalidModelOutput)
 			}
-			turnOutput, err := ValidateTurnOutput(TurnOutput{Provider: result.Provider, RequestedModel: input.Model, ResponseModel: result.Model, ResponseID: result.ResponseID, Usage: usage, Result: structured}, input.Provider, input.Model)
+			turnOutput, err := ValidateTurnOutput(TurnOutput{Provider: result.Provider, RequestedModel: input.Models[selectedModel], ResponseModel: result.Model, ResponseID: result.ResponseID, Usage: usage, Result: structured}, input.Provider, input.Models)
 			if err != nil {
 				return nil, coded("model_output_invalid", ErrInvalidModelOutput)
 			}

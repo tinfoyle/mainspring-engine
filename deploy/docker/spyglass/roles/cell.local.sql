@@ -95,7 +95,7 @@ GRANT EXECUTE ON FUNCTION public.spyglass_heartbeat_work_agent_execution(uuid,uu
   TO spyglass_agent_dispatch_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_load_work_agent_execution(uuid,uuid,uuid,uuid)
   TO spyglass_agent_dispatch_worker;
-GRANT EXECUTE ON FUNCTION public.spyglass_start_link_work_agent_execution(uuid,uuid,uuid,bigint,bigint,bytea,uuid,uuid,uuid,text,uuid[],uuid[],timestamptz,timestamptz)
+GRANT EXECUTE ON FUNCTION public.spyglass_start_link_work_agent_execution(uuid,uuid,uuid,bigint,bigint,bytea,uuid,uuid,uuid,text,text[],uuid[],uuid[],timestamptz,timestamptz)
   TO spyglass_agent_dispatch_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_fail_work_agent_execution(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer)
   TO spyglass_agent_dispatch_worker;
@@ -114,7 +114,7 @@ GRANT EXECUTE ON FUNCTION public.spyglass_provision_runner_invocation(uuid,uuid,
 
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection(uuid,timestamptz,integer)
   TO spyglass_agent_projection_worker;
-GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success(uuid,uuid,uuid,uuid,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,bigint,timestamptz,timestamptz)
+GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success(uuid,uuid,uuid,uuid,text,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,bigint,timestamptz,timestamptz)
   TO spyglass_agent_projection_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_failure(uuid,uuid,uuid,bytea,text,timestamptz,timestamptz)
   TO spyglass_agent_projection_worker;

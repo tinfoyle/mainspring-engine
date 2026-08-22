@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func validSnapshot(t *testing.T, now time.Time) Snapshot {
 		ID: "51000000-0000-4000-8000-000000000001", PersonaID: "41000000-0000-4000-8000-000000000001",
 		AccountID: "11000000-0000-4000-8000-000000000001", Version: 1, Name: "Operations Lead", Role: "Operations",
 		Description: "Coordinates work.", SystemInstructions: "Coordinate operational work and report evidence clearly.",
-		Policy: agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-test", MaximumInputTokens: 100000, MaximumOutputTokens: 4000,
+		Policy: agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-test", FallbackModels: []string{"gpt-fallback"}, MaximumInputTokens: 100000, MaximumOutputTokens: 4000,
 			MaximumToolSteps: 1, CitationPolicy: "best_effort", ActionPolicy: "propose", OutputSchema: agentdomain.ResultSchema(),
 			Tools: []agentdomain.ToolGrant{{Name: "read_work", Capability: "work.summary.read", Description: "Read the Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)}}},
 		CreatedBy: "21000000-0000-4000-8000-000000000001", CreatedAt: now.Add(-time.Hour),
@@ -74,7 +75,7 @@ func validSnapshot(t *testing.T, now time.Time) Snapshot {
 	contextPayload := []byte(`{"schema_version":1,"items":[]}`)
 	return Snapshot{AccountID: version.AccountID, InvocationID: "61000000-0000-4000-8000-000000000001", Profile: "agent-medium", QueuedAt: now.Add(-time.Minute), RequestExpiresAt: now.Add(time.Hour), Persona: version,
 		Messages:          []modelgateway.Message{{Role: "user", Content: "What should we prioritize?"}},
-		ModelOperationIDs: []string{"71000000-0000-4000-8000-000000000001", "71000000-0000-4000-8000-000000000002"}, ToolOperationIDs: []string{"81000000-0000-4000-8000-000000000001"},
+		ModelOperationIDs: []string{"71000000-0000-4000-8000-000000000001", "71000000-0000-4000-8000-000000000002", "71000000-0000-4000-8000-000000000003", "71000000-0000-4000-8000-000000000004"}, ToolOperationIDs: []string{"81000000-0000-4000-8000-000000000001"},
 		ContextPayload: contextPayload, ContextDigest: sha256.Sum256(contextPayload)}
 }
 
@@ -87,8 +88,12 @@ func TestBuildFreezesCompiledTurnAndCapabilities(t *testing.T) {
 	if len(command.Request.Capabilities) != 2 || command.Request.Capabilities[0] != "agents.model.turn" || command.Request.Capabilities[1] != "work.summary.read" {
 		t.Fatalf("capabilities=%v", command.Request.Capabilities)
 	}
-	var input map[string]any
-	if err := json.Unmarshal(command.Request.Input, &input); err != nil || input["provider"] != "openai" || input["maximum_tool_steps"] != float64(1) {
+	var input struct {
+		Provider         string   `json:"provider"`
+		Models           []string `json:"models"`
+		MaximumToolSteps int      `json:"maximum_tool_steps"`
+	}
+	if err := json.Unmarshal(command.Request.Input, &input); err != nil || input.Provider != "openai" || input.MaximumToolSteps != 1 || !slices.Equal(input.Models, []string{"gpt-test", "gpt-fallback"}) {
 		t.Fatalf("input=%s decoded=%v err=%v", command.Request.Input, input, err)
 	}
 }

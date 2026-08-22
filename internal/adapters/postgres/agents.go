@@ -587,12 +587,12 @@ func insertAgentInvocation(ctx context.Context, tx pgx.Tx, accountID ids.Account
 		return "", err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_invocations
-		(account_id,id,run_id,turn,persona_version_id,status,expected_provider,requested_model,queued_at)
-		VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8)`, accountID, invocationID, runID, turnNumber,
-		turn.PersonaVersionID, version.Policy.Provider, version.Policy.Model, createdAt); err != nil {
+		(account_id,id,run_id,turn,persona_version_id,status,expected_provider,requested_model,permitted_models,queued_at)
+		VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8::text[],$9)`, accountID, invocationID, runID, turnNumber,
+		turn.PersonaVersionID, version.Policy.Provider, version.Policy.Model, version.Policy.ModelTargets(), createdAt); err != nil {
 		return "", err
 	}
-	modelIDs, toolIDs := make([]string, version.Policy.MaximumToolSteps+1), make([]string, version.Policy.MaximumToolSteps)
+	modelIDs, toolIDs := make([]string, (version.Policy.MaximumToolSteps+1)*len(version.Policy.ModelTargets())), make([]string, version.Policy.MaximumToolSteps)
 	for operation := range modelIDs {
 		modelIDs[operation], err = ids.Derive(invocationRaw, fmt.Sprintf("model/%d", operation+1))
 		if err != nil {
@@ -1034,6 +1034,7 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 		return agentapp.Run{}, false, err
 	}
 	rows, err := tx.Query(ctx, `SELECT t.turn,t.persona_id,t.persona_version_id,t.persona_digest,i.id,i.status,i.failure_code,i.started_at,i.completed_at,
+		CASE WHEN i.status='succeeded' THEN i.selected_model END,
 		CASE WHEN i.status='succeeded' THEN i.input_tokens END,CASE WHEN i.status='succeeded' THEN i.output_tokens END,
 		CASE WHEN i.status='succeeded' THEN i.total_tokens END,CASE WHEN i.status='succeeded' THEN i.cost_micros END
 		FROM spyglass.agent_run_plan_turns t JOIN spyglass.agent_invocations i
@@ -1050,10 +1051,10 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 		var turnNumber int
 		var rawDigest []byte
 		var invocation agentapp.RunInvocation
-		var failureCode *string
+		var failureCode, selectedModel *string
 		var inputTokens, outputTokens, totalTokens, costMicros *int64
 		if err := rows.Scan(&turnNumber, &turn.PersonaID, &turn.PersonaVersionID, &rawDigest, &invocation.ID, &invocation.Status, &failureCode, &invocation.StartedAt, &invocation.CompletedAt,
-			&inputTokens, &outputTokens, &totalTokens, &costMicros); err != nil || len(rawDigest) != len(turn.PersonaDigest) {
+			&selectedModel, &inputTokens, &outputTokens, &totalTokens, &costMicros); err != nil || len(rawDigest) != len(turn.PersonaDigest) {
 			return agentapp.Run{}, false, agentapp.ErrCorrupt
 		}
 		if turnNumber < 1 || !slices.Contains([]string{"queued", "running", "succeeded", "failed", "canceled"}, invocation.Status) ||
@@ -1061,7 +1062,7 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 			((invocation.Status == "queued") && (invocation.StartedAt != nil || invocation.CompletedAt != nil)) ||
 			((invocation.Status == "running") && (invocation.StartedAt == nil || invocation.CompletedAt != nil)) ||
 			(slices.Contains([]string{"succeeded", "failed", "canceled"}, invocation.Status) && invocation.CompletedAt == nil) ||
-			(invocation.Status == "succeeded") != (inputTokens != nil && outputTokens != nil && totalTokens != nil && costMicros != nil) {
+			(invocation.Status == "succeeded") != (selectedModel != nil && inputTokens != nil && outputTokens != nil && totalTokens != nil && costMicros != nil) {
 			return agentapp.Run{}, false, agentapp.ErrCorrupt
 		}
 		if invocation.Status == "succeeded" {
@@ -1069,6 +1070,7 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 				return agentapp.Run{}, false, agentapp.ErrCorrupt
 			}
 			invocation.Usage = &agentapp.RunUsage{InputTokens: *inputTokens, OutputTokens: *outputTokens, TotalTokens: *totalTokens, CostMicros: *costMicros}
+			invocation.SelectedModel = *selectedModel
 		}
 		if failureCode != nil {
 			invocation.FailureCode = *failureCode

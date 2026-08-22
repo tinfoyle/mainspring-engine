@@ -16,6 +16,8 @@ const (
 	modelOperation1 = "10000000-0000-4000-8000-000000000001"
 	toolOperation1  = "20000000-0000-4000-8000-000000000002"
 	modelOperation2 = "30000000-0000-4000-8000-000000000003"
+	modelOperation3 = "40000000-0000-4000-8000-000000000004"
+	modelOperation4 = "50000000-0000-4000-8000-000000000005"
 )
 
 func TestTurnExecutorRunsOneDeterministicToolLoopAndValidatesResult(t *testing.T) {
@@ -63,6 +65,40 @@ func TestTurnExecutorStopsAtImmutableCostCeiling(t *testing.T) {
 	}
 }
 
+func TestTurnExecutorSelectsFallbackOnlyForInitialProviderUnavailability(t *testing.T) {
+	result := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-fallback-2026", ResponseID: "resp_fallback", StopReason: "completed", Output: validStructuredResult(), Usage: modelgateway.Usage{InputTokens: 7, OutputTokens: 3, TotalTokens: 10, CostMicros: 4}}
+	input := validTurnInput()
+	input.Models = []string{"gpt-primary", "gpt-fallback"}
+	input.Tools, input.ToolOperationIDs, input.MaximumToolSteps = nil, nil, 0
+	input.ModelOperationIDs = []string{modelOperation1, modelOperation2}
+	gateway := &gatewayStub{results: []runnercapability.Result{{}, capabilityResult(result)}, errors: []error{runnercapability.NewExecutionFailure("model_provider_unavailable")}}
+	raw, _ := json.Marshal(input)
+	output, err := (TurnExecutor{}).Execute(context.Background(), runnerexecution.Execution{Kind: TurnExecutionKind, Input: raw, Capabilities: []string{modelgateway.ModelTurnCapability}, Gateway: gateway})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var turn TurnOutput
+	if err := json.Unmarshal(output, &turn); err != nil {
+		t.Fatal(err)
+	}
+	if turn.RequestedModel != "gpt-fallback" || len(gateway.calls) != 2 || gateway.calls[0].OperationID != modelOperation1 || gateway.calls[1].OperationID != modelOperation2 {
+		t.Fatalf("unexpected fallback output=%+v calls=%+v", turn, gateway.calls)
+	}
+}
+
+func TestTurnExecutorDoesNotFallbackForUnclassifiedFailure(t *testing.T) {
+	input := validTurnInput()
+	input.Models = []string{"gpt-primary", "gpt-fallback"}
+	input.Tools, input.ToolOperationIDs, input.MaximumToolSteps = nil, nil, 0
+	input.ModelOperationIDs = []string{modelOperation1, modelOperation2}
+	raw, _ := json.Marshal(input)
+	gateway := &gatewayStub{errors: []error{errors.New("network failed")}}
+	_, err := (TurnExecutor{}).Execute(context.Background(), runnerexecution.Execution{Kind: TurnExecutionKind, Input: raw, Capabilities: []string{modelgateway.ModelTurnCapability}, Gateway: gateway})
+	if !errors.Is(err, ErrModelFailed) || len(gateway.calls) != 1 {
+		t.Fatalf("expected terminal primary failure, calls=%d err=%v", len(gateway.calls), err)
+	}
+}
+
 func TestTurnExecutorRejectsUngrantableToolAndStepOverflow(t *testing.T) {
 	input := validTurnInput()
 	raw, _ := json.Marshal(input)
@@ -93,7 +129,7 @@ func TestTurnExecutorRejectsMissingStrictResultLists(t *testing.T) {
 }
 
 func validTurnInput() TurnInput {
-	return TurnInput{Provider: "openai", Model: "gpt-test", ReasoningEffort: "medium", Instructions: "Act as the operations lead.", Messages: []modelgateway.Message{{Role: "user", Content: "Review the backlog."}}, Tools: []Tool{{Name: "read_work", Capability: "work.summary.read", Description: "Read current Work summary.", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)}}, OutputFormat: modelgateway.OutputFormat{Name: "agent_result", Schema: json.RawMessage(`{"type":"object"}`)}, MaximumInputTokens: 100000, MaximumOutputTokens: 1000, MaximumCostMicros: 1000, MaximumToolSteps: 1, ModelOperationIDs: []string{modelOperation1, modelOperation2}, ToolOperationIDs: []string{toolOperation1}}
+	return TurnInput{Provider: "openai", Models: []string{"gpt-test"}, ReasoningEffort: "medium", Instructions: "Act as the operations lead.", Messages: []modelgateway.Message{{Role: "user", Content: "Review the backlog."}}, Tools: []Tool{{Name: "read_work", Capability: "work.summary.read", Description: "Read current Work summary.", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)}}, OutputFormat: modelgateway.OutputFormat{Name: "agent_result", Schema: json.RawMessage(`{"type":"object"}`)}, MaximumInputTokens: 100000, MaximumOutputTokens: 1000, MaximumCostMicros: 1000, MaximumToolSteps: 1, ModelOperationIDs: []string{modelOperation1, modelOperation2}, ToolOperationIDs: []string{toolOperation1}}
 }
 
 func validStructuredResult() json.RawMessage {

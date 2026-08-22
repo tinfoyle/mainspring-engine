@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
+	"slices"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneragents"
@@ -29,6 +31,7 @@ var (
 	ErrInvalidClaim   = errors.New("agent result projection claim is invalid")
 	ErrInvalidPayload = errors.New("agent runner result payload is invalid")
 	ErrLeaseLost      = errors.New("agent result projection lease was lost")
+	validClaimModel   = regexp.MustCompile(`^[a-z][a-z0-9._:-]{0,127}$`)
 )
 
 type Claim struct {
@@ -38,10 +41,19 @@ type Claim struct {
 	Attempt          int
 	ExpectedProvider string
 	RequestedModel   string
+	PermittedModels  []string
 	Result           runnerbroker.StoredResult
 }
 
 func (c Claim) Valid() bool {
+	if len(c.PermittedModels) < 1 || len(c.PermittedModels) > 3 || c.PermittedModels[0] != c.RequestedModel {
+		return false
+	}
+	for index, model := range c.PermittedModels {
+		if !validClaimModel.MatchString(model) || slices.Contains(c.PermittedModels[:index], model) {
+			return false
+		}
+	}
 	return ids.Validate(string(c.AccountID)) == nil && ids.Validate(c.InvocationID) == nil && ids.Validate(c.LeaseID) == nil &&
 		c.Attempt > 0 && c.ExpectedProvider != "" && c.RequestedModel != "" && c.Result.InvocationID == c.InvocationID &&
 		ids.Validate(c.Result.PodUID) == nil && !c.Result.SubmittedAt.IsZero()
@@ -51,6 +63,7 @@ type Success struct {
 	Claim              Claim
 	MessageID          string
 	Provider           string
+	SelectedModel      string
 	ResponseModel      string
 	ProviderResponseID string
 	RunnerDigest       [sha256.Size]byte
@@ -138,7 +151,7 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 	if err != nil {
 		return p.reject(ctx, claim, now, "turn_output_invalid", ErrInvalidPayload)
 	}
-	output, err = runneragents.ValidateTurnOutput(output, claim.ExpectedProvider, claim.RequestedModel)
+	output, err = runneragents.ValidateTurnOutput(output, claim.ExpectedProvider, claim.PermittedModels)
 	if err != nil {
 		return p.reject(ctx, claim, now, "turn_output_invalid", ErrInvalidPayload)
 	}
@@ -147,7 +160,7 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 		return p.reject(ctx, claim, now, "turn_output_invalid", ErrInvalidPayload)
 	}
 	success := Success{
-		Claim: claim, MessageID: p.ids.New(), Provider: output.Provider, ResponseModel: output.ResponseModel,
+		Claim: claim, MessageID: p.ids.New(), Provider: output.Provider, SelectedModel: output.RequestedModel, ResponseModel: output.ResponseModel,
 		ProviderResponseID: output.ResponseID, RunnerDigest: claim.Result.Digest, ResultDigest: sha256.Sum256(payload),
 		ResultPayload: payload, Body: output.Result.Contribution, InputTokens: output.Usage.InputTokens,
 		OutputTokens: output.Usage.OutputTokens, TotalTokens: output.Usage.TotalTokens,

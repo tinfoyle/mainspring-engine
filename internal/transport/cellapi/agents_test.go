@@ -134,7 +134,7 @@ func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testi
 		t.Fatalf("create command=%+v", service.createCommand)
 	}
 
-	personaBody := `{"persona_id":"` + agentPersona + `","expected_latest_version":0,"name":"Operations Lead","role":"Operations","description":"Coordinates work","system_instructions":"Review evidence and report a recommendation.","policy":{"provider":"openai","model":"gpt-5","maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose","tools":[]}}`
+	personaBody := `{"persona_id":"` + agentPersona + `","expected_latest_version":0,"name":"Operations Lead","role":"Operations","description":"Coordinates work","system_instructions":"Review evidence and report a recommendation.","policy":{"provider":"openai","model":"gpt-5","fallback_models":[],"maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose","tools":[]}}`
 	publish := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/personas", agentOperation, personaBody)
 	if publish.Code != http.StatusCreated || !strings.Contains(publish.Body.String(), `"persona_version_id":"`+agentOperation+`"`) ||
 		!strings.Contains(publish.Body.String(), `"tools":[]`) || !strings.Contains(publish.Body.String(), `"output_schema":{`) || service.publishCommand.VersionID != ids.PersonaVersionID(agentOperation) {
@@ -165,7 +165,7 @@ func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testi
 func TestPersonaPublicationRequiresVersionAndRejectsCallerOwnedOutputSchema(t *testing.T) {
 	service := &agentTransportService{now: time.Now().UTC()}
 	server, _ := New(claimAcceptor{claims: agentClaims()}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithAgents(service))
-	base := `{"persona_id":"` + agentPersona + `","name":"Operations Lead","role":"Operations","description":"Coordinates work","system_instructions":"Review evidence and report a recommendation.","policy":{"provider":"openai","model":"gpt-5","maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose","tools":[]`
+	base := `{"persona_id":"` + agentPersona + `","name":"Operations Lead","role":"Operations","description":"Coordinates work","system_instructions":"Review evidence and report a recommendation.","policy":{"provider":"openai","model":"gpt-5","fallback_models":[],"maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose","tools":[]`
 	missingVersion := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/personas", agentOperation, base+`}}`)
 	if missingVersion.Code != http.StatusBadRequest || service.publishCommand.PersonaID != "" {
 		t.Fatalf("missing version=%d body=%s command=%+v", missingVersion.Code, missingVersion.Body.String(), service.publishCommand)

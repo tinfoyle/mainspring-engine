@@ -27,10 +27,10 @@ func NewAgentProjectionRepository(pool *pgxpool.Pool) (*AgentProjectionRepositor
 func (r *AgentProjectionRepository) Claim(ctx context.Context, leaseID string, now time.Time, lease time.Duration) (agentprojection.Claim, bool, error) {
 	var claim agentprojection.Claim
 	var digest []byte
-	err := r.pool.QueryRow(ctx, `SELECT account_id,invocation_id,lease_id,attempt_count,expected_provider,requested_model,
+	err := r.pool.QueryRow(ctx, `SELECT account_id,invocation_id,lease_id,attempt_count,expected_provider,requested_model,permitted_models,
 		pod_uid,result_outcome,result_ciphertext,result_nonce,result_key_version,result_digest,result_submitted_at
 		FROM public.spyglass_claim_agent_result_projection($1,$2,$3)`, leaseID, now.UTC(), int(lease/time.Second)).Scan(
-		&claim.AccountID, &claim.InvocationID, &claim.LeaseID, &claim.Attempt, &claim.ExpectedProvider, &claim.RequestedModel,
+		&claim.AccountID, &claim.InvocationID, &claim.LeaseID, &claim.Attempt, &claim.ExpectedProvider, &claim.RequestedModel, &claim.PermittedModels,
 		&claim.Result.PodUID, &claim.Result.Outcome, &claim.Result.Ciphertext, &claim.Result.Nonce, &claim.Result.KeyVersion,
 		&digest, &claim.Result.SubmittedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -50,9 +50,9 @@ func (r *AgentProjectionRepository) Claim(ctx context.Context, leaseID string, n
 func (r *AgentProjectionRepository) ProjectSuccess(ctx context.Context, result agentprojection.Success) error {
 	var projected bool
 	err := r.pool.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success(
-		$1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16,$17)`,
+		$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14,$15,$16,$17,$18)`,
 		result.Claim.AccountID, result.Claim.InvocationID, result.Claim.LeaseID, result.MessageID, result.Provider,
-		result.ResponseModel, result.ProviderResponseID, result.RunnerDigest[:], result.ResultDigest[:], result.ResultPayload,
+		result.SelectedModel, result.ResponseModel, result.ProviderResponseID, result.RunnerDigest[:], result.ResultDigest[:], result.ResultPayload,
 		result.Body, result.InputTokens, result.OutputTokens, result.TotalTokens, result.CostMicros, result.CompletedAt.UTC(), result.ProjectedAt.UTC()).Scan(&projected)
 	if err != nil {
 		return mapAgentProjectionError("project agent invocation success", err)

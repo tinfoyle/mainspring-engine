@@ -124,7 +124,7 @@ func testProcessor(t *testing.T, queue *projectionQueue, cipher *runnerbroker.Ci
 func TestProcessorProjectsValidatedCompletedTurn(t *testing.T) {
 	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
 	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", validTurnOutput(t), "")
-	queue := &projectionQueue{found: true, claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 1, ExpectedProvider: "openai", RequestedModel: "gpt-test", Result: stored}}
+	queue := &projectionQueue{found: true, claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 1, ExpectedProvider: "openai", RequestedModel: "gpt-test", PermittedModels: []string{"gpt-test"}, Result: stored}}
 	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
 	if err != nil || !result.Projected || queue.success == nil || queue.failure != nil || queue.failed {
 		t.Fatalf("result=%+v success=%+v failure=%+v failed=%v err=%v", result, queue.success, queue.failure, queue.failed, err)
@@ -137,7 +137,7 @@ func TestProcessorProjectsValidatedCompletedTurn(t *testing.T) {
 func TestProcessorProjectsRunnerExecutionFailureWithoutModelPayload(t *testing.T) {
 	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
 	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "execution_failed", json.RawMessage(`{"retryable":false}`), "provider_denied")
-	queue := &projectionQueue{found: true, claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 1, ExpectedProvider: "openai", RequestedModel: "gpt-test", Result: stored}}
+	queue := &projectionQueue{found: true, claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 1, ExpectedProvider: "openai", RequestedModel: "gpt-test", PermittedModels: []string{"gpt-test"}, Result: stored}}
 	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
 	if err != nil || !result.Projected || queue.failure == nil || queue.failure.FailureCode != "provider_denied" || queue.success != nil {
 		t.Fatalf("result=%+v failure=%+v success=%+v err=%v", result, queue.failure, queue.success, err)
@@ -148,7 +148,7 @@ func TestProcessorDeadLettersTamperedOrSemanticallyInvalidResult(t *testing.T) {
 	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
 	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", validTurnOutput(t), "")
 	stored.Ciphertext[0] ^= 0xff
-	queue := &projectionQueue{found: true, claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 1, ExpectedProvider: "openai", RequestedModel: "gpt-test", Result: stored}}
+	queue := &projectionQueue{found: true, claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 1, ExpectedProvider: "openai", RequestedModel: "gpt-test", PermittedModels: []string{"gpt-test"}, Result: stored}}
 	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
 	if !errors.Is(err, ErrInvalidPayload) || !result.DeadLetter || queue.failureCode != "result_envelope_invalid" || queue.retry {
 		t.Fatalf("tampered result=%+v code=%s retry=%v err=%v", result, queue.failureCode, queue.retry, err)
@@ -158,7 +158,7 @@ func TestProcessorDeadLettersTamperedOrSemanticallyInvalidResult(t *testing.T) {
 func TestProcessorRetriesProjectionFailureWithBoundedBackoff(t *testing.T) {
 	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
 	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", validTurnOutput(t), "")
-	queue := &projectionQueue{found: true, projectErr: errors.New("database unavailable"), failureState: "retry", claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 3, ExpectedProvider: "openai", RequestedModel: "gpt-test", Result: stored}}
+	queue := &projectionQueue{found: true, projectErr: errors.New("database unavailable"), failureState: "retry", claim: Claim{AccountID: ids.AccountID("61000000-0000-4000-8000-000000000001"), InvocationID: stored.InvocationID, Attempt: 3, ExpectedProvider: "openai", RequestedModel: "gpt-test", PermittedModels: []string{"gpt-test"}, Result: stored}}
 	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
 	if err == nil || !result.Worked || result.DeadLetter || !queue.retry || queue.failureCode != "success_projection_failed" || queue.failureNext != now.Add(4*time.Second) {
 		t.Fatalf("result=%+v retry=%v code=%s next=%s err=%v", result, queue.retry, queue.failureCode, queue.failureNext, err)

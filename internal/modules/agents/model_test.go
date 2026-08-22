@@ -3,6 +3,7 @@ package agents
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -51,6 +52,24 @@ func TestPersonaVersionRejectsToolPolicyMismatchAndDuplicates(t *testing.T) {
 	draft.Policy.Tools = append(draft.Policy.Tools, draft.Policy.Tools[0])
 	if _, err := NewPersonaVersion(draft); !errors.Is(err, ErrInvalidPersona) {
 		t.Fatalf("expected duplicate tool rejection, got %v", err)
+	}
+}
+
+func TestPersonaVersionFreezesOrderedUniqueFallbackModels(t *testing.T) {
+	draft := personaDraft()
+	draft.Policy.FallbackModels = []string{" gpt-5.5 ", "gpt-5.4"}
+	version, err := NewPersonaVersion(draft)
+	if err != nil || !slices.Equal(version.Policy.ModelTargets(), []string{"gpt-5.6", "gpt-5.5", "gpt-5.4"}) {
+		t.Fatalf("targets=%v err=%v", version.Policy.ModelTargets(), err)
+	}
+	draft.Policy.FallbackModels[0] = "mutated"
+	if version.Policy.FallbackModels[0] != "gpt-5.5" {
+		t.Fatal("persona version retained caller-owned fallback slice")
+	}
+	draft = personaDraft()
+	draft.Policy.FallbackModels = []string{draft.Policy.Model}
+	if _, err := NewPersonaVersion(draft); !errors.Is(err, ErrInvalidPersona) {
+		t.Fatalf("expected duplicate model rejection, got %v", err)
 	}
 }
 

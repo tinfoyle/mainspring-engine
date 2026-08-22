@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -79,7 +80,7 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 		ID: personaVersionID, PersonaID: personaID, AccountID: accountID, Version: 1,
 		Name: "Operations analyst", Role: "Analyst", Description: "Executes assigned Work.",
 		SystemInstructions: "Analyze the assigned Work and return a clear, evidence-bound result.",
-		Policy: agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-5", ReasoningEffort: "medium",
+		Policy: agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-5", FallbackModels: []string{"gpt-4.1"}, ReasoningEffort: "medium",
 			MaximumInputTokens: 128000, MaximumOutputTokens: 4096, MaximumCostMicros: 500000, MaximumToolSteps: 1,
 			CitationPolicy: "best_effort", ActionPolicy: "propose", OutputSchema: agentdomain.ResultSchema(),
 			Tools: []agentdomain.ToolGrant{{Name: "read_work_summary", Capability: "work.summary.read", Description: "Read Work summary", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false}`)}}},
@@ -125,7 +126,7 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 		GRANT EXECUTE ON FUNCTION public.spyglass_claim_work_agent_execution(uuid,timestamptz,integer) TO `+workerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_heartbeat_work_agent_execution(uuid,uuid,uuid,timestamptz,integer) TO `+workerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_load_work_agent_execution(uuid,uuid,uuid,uuid) TO `+workerRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_start_link_work_agent_execution(uuid,uuid,uuid,bigint,bigint,bytea,uuid,uuid,uuid,text,uuid[],uuid[],timestamptz,timestamptz) TO `+workerRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_start_link_work_agent_execution(uuid,uuid,uuid,bigint,bigint,bytea,uuid,uuid,uuid,text,text[],uuid[],uuid[],timestamptz,timestamptz) TO `+workerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_fail_work_agent_execution(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer) TO `+workerRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_work_agent_execution_stats(timestamptz) TO `+workerRole); err != nil {
 		t.Fatal(err)
@@ -174,15 +175,19 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 	if err != nil || linked.State != workdomain.StateInProgress || linked.Provenance.RunID != string(snapshot.RunID) || linked.Provenance.ConversationID != string(snapshot.ConversationID) || linked.Version != assigned.Version+1 {
 		t.Fatalf("linked Work=%+v err=%v", linked, err)
 	}
-	var runs, dispatches, linkedExecutions int
+	var runs, dispatches, linkedExecutions, modelTargets, modelOperations int
+	var permittedModels []string
 	if err := owner.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM spyglass.agent_runs WHERE account_id=$1),
 		(SELECT count(*) FROM spyglass.agent_dispatch_queue WHERE account_id=$1),
-		(SELECT count(*) FROM spyglass.work_agent_execution_queue WHERE account_id=$1 AND state='linked')`, accountID).Scan(&runs, &dispatches, &linkedExecutions); err != nil {
+		(SELECT count(*) FROM spyglass.work_agent_execution_queue WHERE account_id=$1 AND state='linked'),
+		(SELECT cardinality(permitted_models) FROM spyglass.agent_invocations WHERE account_id=$1),
+		(SELECT cardinality(model_operation_ids) FROM spyglass.agent_invocation_execution_plans WHERE account_id=$1),
+		(SELECT permitted_models FROM spyglass.agent_invocations WHERE account_id=$1)`, accountID).Scan(&runs, &dispatches, &linkedExecutions, &modelTargets, &modelOperations, &permittedModels); err != nil {
 		t.Fatal(err)
 	}
-	if runs != 1 || dispatches != 1 || linkedExecutions != 1 {
-		t.Fatalf("runs=%d dispatches=%d linked executions=%d", runs, dispatches, linkedExecutions)
+	if runs != 1 || dispatches != 1 || linkedExecutions != 1 || modelTargets != 2 || modelOperations != 4 || !slices.Equal(permittedModels, []string{"gpt-5", "gpt-4.1"}) {
+		t.Fatalf("runs=%d dispatches=%d linked executions=%d models=%v", runs, dispatches, linkedExecutions, permittedModels)
 	}
 	if _, err := workerPool.Exec(ctx, `UPDATE spyglass.work_items SET title='forbidden'`); err == nil {
 		t.Fatal("Work Agent worker directly mutated Work")

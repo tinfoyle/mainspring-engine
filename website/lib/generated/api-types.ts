@@ -227,6 +227,7 @@ export interface AgentPersona {
 export interface AgentPersonaPolicy {
   readonly "action_policy": "none" | "propose";
   readonly "citation_policy": "none" | "required" | "best_effort";
+  readonly "fallback_models": ReadonlyArray<string>;
   readonly "maximum_cost_micros": number;
   readonly "maximum_input_tokens": number;
   readonly "maximum_output_tokens": number;
@@ -241,6 +242,7 @@ export interface AgentPersonaPolicy {
 export interface AgentPersonaPolicyInput {
   readonly "action_policy": "none" | "propose";
   readonly "citation_policy": "none" | "required" | "best_effort";
+  readonly "fallback_models": ReadonlyArray<string>;
   readonly "maximum_cost_micros": number;
   readonly "maximum_input_tokens": number;
   readonly "maximum_output_tokens": number;
@@ -313,6 +315,7 @@ export interface AgentRunInvocation {
   readonly "completed_at"?: string;
   readonly "id": string;
   readonly "persona_version_id": string;
+  readonly "selected_model"?: string;
   readonly "started_at"?: string;
   readonly "status": AgentRunInvocationState;
   readonly "turn": number;

@@ -48,6 +48,7 @@ type publishPersonaRequest struct {
 type personaPolicyRequest struct {
 	Provider            string              `json:"provider"`
 	Model               string              `json:"model"`
+	FallbackModels      []string            `json:"fallback_models"`
 	ReasoningEffort     string              `json:"reasoning_effort,omitempty"`
 	MaximumInputTokens  int64               `json:"maximum_input_tokens"`
 	MaximumOutputTokens int64               `json:"maximum_output_tokens"`
@@ -190,7 +191,7 @@ func (request personaPolicyRequest) domainPolicy() agentdomain.PersonaPolicy {
 		tools[index] = agentdomain.ToolGrant{Name: tool.Name, Capability: tool.Capability, Description: tool.Description, InputSchema: tool.InputSchema}
 	}
 	return agentdomain.PersonaPolicy{
-		Provider: request.Provider, Model: request.Model, ReasoningEffort: request.ReasoningEffort,
+		Provider: request.Provider, Model: request.Model, FallbackModels: request.FallbackModels, ReasoningEffort: request.ReasoningEffort,
 		MaximumInputTokens: request.MaximumInputTokens, MaximumOutputTokens: request.MaximumOutputTokens,
 		MaximumCostMicros: request.MaximumCostMicros, MaximumToolSteps: request.MaximumToolSteps,
 		CitationPolicy: request.CitationPolicy, ActionPolicy: request.ActionPolicy, Tools: tools,
@@ -598,6 +599,7 @@ type agentRunInvocationResponse struct {
 	Turn             uint32                 `json:"turn"`
 	PersonaVersionID ids.PersonaVersionID   `json:"persona_version_id"`
 	Status           string                 `json:"status"`
+	SelectedModel    string                 `json:"selected_model,omitempty"`
 	StartedAt        *time.Time             `json:"started_at,omitempty"`
 	CompletedAt      *time.Time             `json:"completed_at,omitempty"`
 	Usage            *agentRunUsageResponse `json:"usage,omitempty"`
@@ -651,7 +653,7 @@ func agentRunView(run agentapp.Run) agentRunResponse {
 	invocations := make([]agentRunInvocationResponse, len(run.Invocations))
 	for index, invocation := range run.Invocations {
 		invocations[index] = agentRunInvocationResponse{ID: invocation.ID, Turn: invocation.Turn, PersonaVersionID: invocation.PersonaVersionID,
-			Status: invocation.Status, StartedAt: invocation.StartedAt, CompletedAt: invocation.CompletedAt}
+			Status: invocation.Status, SelectedModel: invocation.SelectedModel, StartedAt: invocation.StartedAt, CompletedAt: invocation.CompletedAt}
 		if invocation.Usage != nil {
 			invocations[index].Usage = &agentRunUsageResponse{InputTokens: invocation.Usage.InputTokens, OutputTokens: invocation.Usage.OutputTokens,
 				TotalTokens: invocation.Usage.TotalTokens, CostMicros: invocation.Usage.CostMicros}

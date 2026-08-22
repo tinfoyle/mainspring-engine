@@ -145,6 +145,7 @@ type RunInvocation struct {
 	Turn             uint32
 	PersonaVersionID ids.PersonaVersionID
 	Status           string
+	SelectedModel    string
 	FailureCode      string
 	StartedAt        *time.Time
 	CompletedAt      *time.Time
