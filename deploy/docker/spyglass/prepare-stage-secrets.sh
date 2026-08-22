@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-provider_file="${1:?usage: prepare-stage-secrets.sh /absolute/path/to/stage.providers.env /absolute/path/to/secrets [edge-network]}"
-target="${2:?usage: prepare-stage-secrets.sh /absolute/path/to/stage.providers.env /absolute/path/to/secrets [edge-network]}"
+provider_file="${1:?usage: prepare-stage-secrets.sh /absolute/path/to/stage.providers.env /absolute/path/to/secrets [edge-network] [previous-stage.env]}"
+target="${2:?usage: prepare-stage-secrets.sh /absolute/path/to/stage.providers.env /absolute/path/to/secrets [edge-network] [previous-stage.env]}"
 edge_network="${3:-infiniteocean_public}"
+previous_env="${4:-}"
 
 fail() {
   echo "$*" >&2
@@ -16,6 +17,11 @@ fail() {
 test -f "$provider_file" || fail "provider file is missing"
 case "$(stat -c %a "$provider_file")" in 400|600) ;; *) fail "provider file must be mode 400 or 600";; esac
 secrets_gid="$(stat -c %g "$provider_file")"
+if [[ -n "$previous_env" ]]; then
+  [[ "$previous_env" = /* ]] || fail "previous stage environment path must be absolute"
+  test -f "$previous_env" || fail "previous stage environment is missing"
+  case "$(stat -c %a "$previous_env")" in 400|600) ;; *) fail "previous stage environment must be mode 400 or 600";; esac
+fi
 command -v openssl >/dev/null || fail "openssl is required"
 
 provider_value() {
@@ -66,51 +72,73 @@ random_password() { openssl rand -hex 32; }
 random_key() { openssl rand -base64 32 | tr -d '\n'; }
 random_token() { openssl rand -hex 32; }
 
-global_database_password="$(random_password)"
-cell_a_database_password="$(random_password)"
-cell_b_database_password="$(random_password)"
-account_api_password="$(random_password)"
-app_router_password="$(random_password)"
-admission_password="$(random_password)"
-billing_password="$(random_password)"
-notification_password="$(random_password)"
-entitlement_password="$(random_password)"
-account_lifecycle_password="$(random_password)"
-identity_maintenance_password="$(random_password)"
-work_reconciler_password="$(random_password)"
-app_api_password="$(random_password)"
-route_receipt_password="$(random_password)"
-agent_dispatch_password="$(random_password)"
-schedule_execution_password="$(random_password)"
-agent_projection_password="$(random_password)"
-knowledge_document_password="$(random_password)"
-baseline_maintenance_password="$(random_password)"
-prototype_migration_password="$(random_password)"
-runner_controller_a_password="$(random_password)"
-runner_controller_b_password="$(random_password)"
-runner_broker_a_password="$(random_password)"
-runner_broker_b_password="$(random_password)"
-object_store_access_key="$(openssl rand -hex 10)"
-object_store_secret_key="$(random_password)"
-object_store_app_access_key="$(openssl rand -hex 10)"
-object_store_app_secret_key="$(random_password)"
-object_store_worker_access_key="$(openssl rand -hex 10)"
-object_store_worker_secret_key="$(random_password)"
-object_store_migration_access_key="$(openssl rand -hex 10)"
-object_store_migration_secret_key="$(random_password)"
-object_store_kms_secret_key="spyglass:$(random_key)"
-notification_key="$(random_key)"
-network_actor_key="$(random_key)"
-passkey_key="$(random_key)"
-runner_a_key="$(random_key)"
-runner_b_key="$(random_key)"
-route_key="$(random_key)"
-tool_a_key="$(random_key)"
-tool_b_key="$(random_key)"
-launcher_controller_a_token="$(random_token)"
-launcher_broker_a_token="$(random_token)"
-launcher_controller_b_token="$(random_token)"
-launcher_broker_b_token="$(random_token)"
+secret_value() {
+  local name="$1" kind="$2" count candidate
+  if [[ -n "$previous_env" ]]; then
+    count="$(grep -c "^${name}=" "$previous_env" || true)"
+    [[ "$count" -le 1 ]] || fail "$name occurs more than once in the previous stage environment"
+    if [[ "$count" = 1 ]]; then
+      candidate="$(sed -n "s/^${name}=//p" "$previous_env")"
+      [[ -n "$candidate" && "$candidate" != *REPLACE* ]] || fail "$name is invalid in the previous stage environment"
+      printf '%s' "$candidate"
+      return
+    fi
+  fi
+  case "$kind" in
+    password|token) random_password ;;
+    key) random_key ;;
+    versioned_key) printf '1=%s' "$(random_key)" ;;
+    access) openssl rand -hex 10 ;;
+    kms) printf 'spyglass:%s' "$(random_key)" ;;
+    *) fail "unsupported generated secret kind for $name" ;;
+  esac
+}
+
+global_database_password="$(secret_value SPYGLASS_GLOBAL_DATABASE_PASSWORD password)"
+cell_a_database_password="$(secret_value SPYGLASS_CELL_A_DATABASE_PASSWORD password)"
+cell_b_database_password="$(secret_value SPYGLASS_CELL_B_DATABASE_PASSWORD password)"
+account_api_password="$(secret_value SPYGLASS_ACCOUNT_API_DATABASE_PASSWORD password)"
+app_router_password="$(secret_value SPYGLASS_APP_ROUTER_DATABASE_PASSWORD password)"
+admission_password="$(secret_value SPYGLASS_ADMISSION_DATABASE_PASSWORD password)"
+billing_password="$(secret_value SPYGLASS_BILLING_WORKER_DATABASE_PASSWORD password)"
+notification_password="$(secret_value SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD password)"
+entitlement_password="$(secret_value SPYGLASS_ENTITLEMENT_WORKER_DATABASE_PASSWORD password)"
+account_lifecycle_password="$(secret_value SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD password)"
+identity_maintenance_password="$(secret_value SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD password)"
+work_reconciler_password="$(secret_value SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD password)"
+app_api_password="$(secret_value SPYGLASS_APP_API_DATABASE_PASSWORD password)"
+route_receipt_password="$(secret_value SPYGLASS_ROUTE_RECEIPT_WORKER_DATABASE_PASSWORD password)"
+agent_dispatch_password="$(secret_value SPYGLASS_AGENT_DISPATCH_WORKER_DATABASE_PASSWORD password)"
+schedule_execution_password="$(secret_value SPYGLASS_SCHEDULE_EXECUTION_WORKER_DATABASE_PASSWORD password)"
+agent_projection_password="$(secret_value SPYGLASS_AGENT_PROJECTION_WORKER_DATABASE_PASSWORD password)"
+knowledge_document_password="$(secret_value SPYGLASS_KNOWLEDGE_DOCUMENT_WORKER_DATABASE_PASSWORD password)"
+baseline_maintenance_password="$(secret_value SPYGLASS_BASELINE_MAINTENANCE_WORKER_DATABASE_PASSWORD password)"
+prototype_migration_password="$(secret_value SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD password)"
+runner_controller_a_password="$(secret_value SPYGLASS_CELL_A_RUNNER_CONTROLLER_DATABASE_PASSWORD password)"
+runner_controller_b_password="$(secret_value SPYGLASS_CELL_B_RUNNER_CONTROLLER_DATABASE_PASSWORD password)"
+runner_broker_a_password="$(secret_value SPYGLASS_CELL_A_RUNNER_BROKER_DATABASE_PASSWORD password)"
+runner_broker_b_password="$(secret_value SPYGLASS_CELL_B_RUNNER_BROKER_DATABASE_PASSWORD password)"
+object_store_access_key="$(secret_value SPYGLASS_OBJECT_STORE_ACCESS_KEY access)"
+object_store_secret_key="$(secret_value SPYGLASS_OBJECT_STORE_SECRET_KEY password)"
+object_store_app_access_key="$(secret_value SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY access)"
+object_store_app_secret_key="$(secret_value SPYGLASS_OBJECT_STORE_APP_SECRET_KEY password)"
+object_store_worker_access_key="$(secret_value SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY access)"
+object_store_worker_secret_key="$(secret_value SPYGLASS_OBJECT_STORE_WORKER_SECRET_KEY password)"
+object_store_migration_access_key="$(secret_value SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY access)"
+object_store_migration_secret_key="$(secret_value SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY password)"
+object_store_kms_secret_key="$(secret_value SPYGLASS_OBJECT_STORE_KMS_SECRET_KEY kms)"
+notification_key="$(secret_value SPYGLASS_NOTIFICATION_ENCRYPTION_KEY key)"
+network_actor_key="$(secret_value SPYGLASS_NETWORK_ACTOR_KEY key)"
+passkey_keys="$(secret_value SPYGLASS_PASSKEY_ENCRYPTION_KEYS versioned_key)"
+runner_a_keys="$(secret_value SPYGLASS_CELL_A_RUNNER_ENCRYPTION_KEYS versioned_key)"
+runner_b_keys="$(secret_value SPYGLASS_CELL_B_RUNNER_ENCRYPTION_KEYS versioned_key)"
+route_key="$(secret_value SPYGLASS_ROUTE_SIGNING_KEY key)"
+tool_a_key="$(secret_value SPYGLASS_CELL_A_TOOL_CONTEXT_SIGNING_KEY key)"
+tool_b_key="$(secret_value SPYGLASS_CELL_B_TOOL_CONTEXT_SIGNING_KEY key)"
+launcher_controller_a_token="$(secret_value SPYGLASS_CELL_A_DOCKER_LAUNCHER_CONTROLLER_TOKEN token)"
+launcher_broker_a_token="$(secret_value SPYGLASS_CELL_A_DOCKER_LAUNCHER_BROKER_TOKEN token)"
+launcher_controller_b_token="$(secret_value SPYGLASS_CELL_B_DOCKER_LAUNCHER_CONTROLLER_TOKEN token)"
+launcher_broker_b_token="$(secret_value SPYGLASS_CELL_B_DOCKER_LAUNCHER_BROKER_TOKEN token)"
 
 cat >"$work/stage.env" <<EOF
 SPYGLASS_ENVIRONMENT=stage
@@ -203,11 +231,11 @@ SPYGLASS_STRIPE_SECRET_KEY=$stripe_secret_key
 SPYGLASS_STRIPE_MODE=test
 SPYGLASS_NOTIFICATION_ENCRYPTION_KEY=$notification_key
 SPYGLASS_NETWORK_ACTOR_KEY=$network_actor_key
-SPYGLASS_PASSKEY_ENCRYPTION_KEYS=1=$passkey_key
+SPYGLASS_PASSKEY_ENCRYPTION_KEYS=$passkey_keys
 SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION=1
-SPYGLASS_CELL_A_RUNNER_ENCRYPTION_KEYS=1=$runner_a_key
+SPYGLASS_CELL_A_RUNNER_ENCRYPTION_KEYS=$runner_a_keys
 SPYGLASS_CELL_A_RUNNER_ENCRYPTION_ACTIVE_VERSION=1
-SPYGLASS_CELL_B_RUNNER_ENCRYPTION_KEYS=1=$runner_b_key
+SPYGLASS_CELL_B_RUNNER_ENCRYPTION_KEYS=$runner_b_keys
 SPYGLASS_CELL_B_RUNNER_ENCRYPTION_ACTIVE_VERSION=1
 SPYGLASS_SMTP_ADDRESS=$smtp_address
 SPYGLASS_SMTP_SERVER_NAME=$smtp_server_name
