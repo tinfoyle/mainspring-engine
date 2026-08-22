@@ -717,6 +717,7 @@ func buildAgentContext(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, 
 			return nil, [sha256.Size]byte{}, nil, agentapp.ErrCorrupt
 		}
 		type documentChunk struct {
+			ID          string `json:"id"`
 			Index       int64  `json:"index"`
 			StartByte   int64  `json:"start_byte"`
 			EndByte     int64  `json:"end_byte"`
@@ -724,7 +725,7 @@ func buildAgentContext(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, 
 			ContentHash string `json:"content_sha256"`
 		}
 		chunks := make([]documentChunk, 0, chunkCount)
-		rows, err := tx.Query(ctx, `SELECT chunk_index,start_byte,end_byte,content,content_sha256
+		rows, err := tx.Query(ctx, `SELECT id,chunk_index,start_byte,end_byte,content,content_sha256
 			FROM spyglass.knowledge_document_chunks WHERE account_id=$1 AND revision_id=$2 AND index_generation=$3 ORDER BY chunk_index`, accountID, revisionID, indexGeneration)
 		if err != nil {
 			return nil, [sha256.Size]byte{}, nil, err
@@ -732,12 +733,12 @@ func buildAgentContext(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, 
 		for rows.Next() {
 			var chunk documentChunk
 			var contentDigest []byte
-			if err := rows.Scan(&chunk.Index, &chunk.StartByte, &chunk.EndByte, &chunk.Content, &contentDigest); err != nil {
+			if err := rows.Scan(&chunk.ID, &chunk.Index, &chunk.StartByte, &chunk.EndByte, &chunk.Content, &contentDigest); err != nil {
 				rows.Close()
 				return nil, [sha256.Size]byte{}, nil, err
 			}
 			computed := sha256.Sum256([]byte(chunk.Content))
-			if chunk.Index != int64(len(chunks)) || chunk.StartByte < 0 || chunk.EndByte <= chunk.StartByte || len(contentDigest) != sha256.Size || !bytes.Equal(contentDigest, computed[:]) {
+			if ids.Validate(chunk.ID) != nil || chunk.Index != int64(len(chunks)) || chunk.StartByte < 0 || chunk.EndByte <= chunk.StartByte || len(contentDigest) != sha256.Size || !bytes.Equal(contentDigest, computed[:]) {
 				rows.Close()
 				return nil, [sha256.Size]byte{}, nil, agentapp.ErrCorrupt
 			}

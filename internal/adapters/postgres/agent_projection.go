@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -11,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentresultpolicy"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 // AgentProjectionRepository has execute-only authority. Its pool must not be
@@ -27,10 +31,14 @@ func NewAgentProjectionRepository(pool *pgxpool.Pool) (*AgentProjectionRepositor
 func (r *AgentProjectionRepository) Claim(ctx context.Context, leaseID string, now time.Time, lease time.Duration) (agentprojection.Claim, bool, error) {
 	var claim agentprojection.Claim
 	var digest []byte
+	var resultPolicyVersion int64
+	var delegateIDs, citationBindings []string
 	err := r.pool.QueryRow(ctx, `SELECT account_id,invocation_id,lease_id,attempt_count,expected_provider,requested_model,permitted_models,
+		result_policy_version,citation_policy,action_policy,current_persona_id,delegate_persona_ids,citation_bindings,
 		pod_uid,result_outcome,result_ciphertext,result_nonce,result_key_version,result_digest,result_submitted_at
-		FROM public.spyglass_claim_agent_result_projection($1,$2,$3)`, leaseID, now.UTC(), int(lease/time.Second)).Scan(
+		FROM public.spyglass_claim_agent_result_projection_v2($1,$2,$3)`, leaseID, now.UTC(), int(lease/time.Second)).Scan(
 		&claim.AccountID, &claim.InvocationID, &claim.LeaseID, &claim.Attempt, &claim.ExpectedProvider, &claim.RequestedModel, &claim.PermittedModels,
+		&resultPolicyVersion, &claim.CitationPolicy, &claim.ActionPolicy, &claim.CurrentPersonaID, &delegateIDs, &citationBindings,
 		&claim.Result.PodUID, &claim.Result.Outcome, &claim.Result.Ciphertext, &claim.Result.Nonce, &claim.Result.KeyVersion,
 		&digest, &claim.Result.SubmittedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -40,8 +48,21 @@ func (r *AgentProjectionRepository) Claim(ctx context.Context, leaseID string, n
 		return agentprojection.Claim{}, false, mapAgentProjectionError("claim agent result projection", err)
 	}
 	claim.Result.InvocationID = claim.InvocationID
-	if len(digest) != len(claim.Result.Digest) {
+	if len(digest) != len(claim.Result.Digest) || resultPolicyVersion < 1 || resultPolicyVersion > math.MaxUint32 {
 		return claim, true, agentprojection.ErrInvalidClaim
+	}
+	claim.ResultPolicyVersion = uint32(resultPolicyVersion)
+	claim.DelegatePersonaIDs = make([]ids.PersonaID, len(delegateIDs))
+	for index, raw := range delegateIDs {
+		claim.DelegatePersonaIDs[index] = ids.PersonaID(raw)
+	}
+	claim.CitationBindings = make([]agentresultpolicy.CitationBinding, len(citationBindings))
+	for index, raw := range citationBindings {
+		documentID, chunkID, found := strings.Cut(raw, ":")
+		if !found {
+			return claim, true, agentprojection.ErrInvalidClaim
+		}
+		claim.CitationBindings[index] = agentresultpolicy.CitationBinding{DocumentID: documentID, ChunkID: chunkID}
 	}
 	copy(claim.Result.Digest[:], digest)
 	return claim, true, nil

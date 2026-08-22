@@ -15,6 +15,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentresultpolicy"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneragents"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -35,14 +36,20 @@ var (
 )
 
 type Claim struct {
-	AccountID        ids.AccountID
-	InvocationID     string
-	LeaseID          string
-	Attempt          int
-	ExpectedProvider string
-	RequestedModel   string
-	PermittedModels  []string
-	Result           runnerbroker.StoredResult
+	AccountID           ids.AccountID
+	InvocationID        string
+	LeaseID             string
+	Attempt             int
+	ExpectedProvider    string
+	RequestedModel      string
+	PermittedModels     []string
+	ResultPolicyVersion uint32
+	CitationPolicy      string
+	ActionPolicy        string
+	CurrentPersonaID    ids.PersonaID
+	DelegatePersonaIDs  []ids.PersonaID
+	CitationBindings    []agentresultpolicy.CitationBinding
+	Result              runnerbroker.StoredResult
 }
 
 func (c Claim) Valid() bool {
@@ -51,6 +58,20 @@ func (c Claim) Valid() bool {
 	}
 	for index, model := range c.PermittedModels {
 		if !validClaimModel.MatchString(model) || slices.Contains(c.PermittedModels[:index], model) {
+			return false
+		}
+	}
+	if c.ResultPolicyVersion != agentresultpolicy.CurrentVersion || ids.Validate(string(c.CurrentPersonaID)) != nil ||
+		!slices.Contains([]string{"none", "required", "best_effort"}, c.CitationPolicy) || !slices.Contains([]string{"none", "propose"}, c.ActionPolicy) {
+		return false
+	}
+	for index, personaID := range c.DelegatePersonaIDs {
+		if ids.Validate(string(personaID)) != nil || personaID == c.CurrentPersonaID || slices.Contains(c.DelegatePersonaIDs[:index], personaID) {
+			return false
+		}
+	}
+	for index, binding := range c.CitationBindings {
+		if ids.Validate(binding.DocumentID) != nil || ids.Validate(binding.ChunkID) != nil || slices.Contains(c.CitationBindings[:index], binding) {
 			return false
 		}
 	}
@@ -154,6 +175,11 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 	output, err = runneragents.ValidateTurnOutput(output, claim.ExpectedProvider, claim.PermittedModels)
 	if err != nil {
 		return p.reject(ctx, claim, now, "turn_output_invalid", ErrInvalidPayload)
+	}
+	if err := agentresultpolicy.Validate(agentresultpolicy.Policy{Version: claim.ResultPolicyVersion, CitationPolicy: claim.CitationPolicy,
+		ActionPolicy: claim.ActionPolicy, CurrentPersonaID: claim.CurrentPersonaID, DelegatePersonaIDs: claim.DelegatePersonaIDs,
+		CitationBindings: claim.CitationBindings}, output.Result); err != nil {
+		return p.reject(ctx, claim, now, "result_policy_denied", ErrInvalidPayload)
 	}
 	payload, err := json.Marshal(output.Result)
 	if err != nil {

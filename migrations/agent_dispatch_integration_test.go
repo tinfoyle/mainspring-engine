@@ -252,7 +252,7 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, err := dispatchRepository.Load(ctx, agentdispatch.Claim{AccountID: accountID, InvocationID: string(run.InvocationIDs[0]), LeaseID: leaseID, Attempt: 1})
-	if err != nil || snapshot.ContextItemCount != 2 || snapshot.ContextDigest == ([32]byte{}) || !bytes.Contains(snapshot.ContextPayload, []byte("Frozen attachment body")) || !bytes.Contains(snapshot.ContextPayload, []byte(documentContent)) || !bytes.Contains(snapshot.ContextPayload, []byte(`"kind":"knowledge_document"`)) {
+	if err != nil || snapshot.ContextItemCount != 2 || snapshot.ContextDigest == ([32]byte{}) || !bytes.Contains(snapshot.ContextPayload, []byte("Frozen attachment body")) || !bytes.Contains(snapshot.ContextPayload, []byte(documentContent)) || !bytes.Contains(snapshot.ContextPayload, []byte(`"kind":"knowledge_document"`)) || !bytes.Contains(snapshot.ContextPayload, []byte(`"id":"d3000000-0000-4000-8000-000000000003"`)) {
 		t.Fatalf("frozen context count=%d digest=%x payload=%s err=%v", snapshot.ContextItemCount, snapshot.ContextDigest, snapshot.ContextPayload, err)
 	}
 	brokerRepository, err := postgresadapter.NewRunnerBrokerRepository(dispatcher)

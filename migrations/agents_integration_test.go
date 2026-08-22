@@ -70,7 +70,7 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	readerRole := "spyglass_agent_reader_" + randomSuffix(t)
 	if _, err := owner.Exec(ctx, `CREATE ROLE `+projectorRole+` NOLOGIN NOBYPASSRLS; CREATE ROLE `+readerRole+` NOLOGIN NOBYPASSRLS;
 		GRANT USAGE ON SCHEMA public,spyglass TO `+projectorRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection(uuid,timestamptz,integer) TO `+projectorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection_v2(uuid,timestamptz,integer) TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_success(uuid,uuid,uuid,uuid,text,text,text,text,bytea,bytea,jsonb,text,bigint,bigint,bigint,bigint,timestamptz,timestamptz) TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_project_agent_invocation_failure(uuid,uuid,uuid,bytea,text,timestamptz,timestamptz) TO `+projectorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_result_projection(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer) TO `+projectorRole+`;
@@ -105,7 +105,13 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 	leaseA := "73000000-0000-4000-8000-000000000001"
 	var claimedAccount, claimedInvocation string
 	var claimedModels []string
-	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id,permitted_models FROM public.spyglass_claim_agent_result_projection($1,$2,300)`, leaseA, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation, &claimedModels); err != nil || claimedAccount != accountA || claimedInvocation != invocationA || !slices.Equal(claimedModels, []string{"gpt-test", "gpt-fallback"}) {
+	var policyVersion int64
+	var citationPolicy, actionPolicy, currentPersona string
+	var delegatePersonas, citationBindings []string
+	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id,permitted_models,result_policy_version,citation_policy,action_policy,current_persona_id,delegate_persona_ids,citation_bindings FROM public.spyglass_claim_agent_result_projection_v2($1,$2,300)`, leaseA, now.Add(45*time.Second)).Scan(
+		&claimedAccount, &claimedInvocation, &claimedModels, &policyVersion, &citationPolicy, &actionPolicy, &currentPersona, &delegatePersonas, &citationBindings); err != nil ||
+		claimedAccount != accountA || claimedInvocation != invocationA || !slices.Equal(claimedModels, []string{"gpt-test", "gpt-fallback"}) || policyVersion != 1 || citationPolicy != "none" || actionPolicy != "none" ||
+		currentPersona != "81000000-0000-4000-8000-000000000001" || !slices.Equal(delegatePersonas, []string{"81000000-0000-4000-8000-000000000012"}) || len(citationBindings) != 0 {
 		t.Fatalf("claim A account=%s invocation=%s err=%v", claimedAccount, claimedInvocation, err)
 	}
 	var created bool
@@ -149,7 +155,7 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 		t.Fatal("cross-Account invocation projection succeeded")
 	}
 	leaseB := "73000000-0000-4000-8000-000000000002"
-	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id FROM public.spyglass_claim_agent_result_projection($1,$2,300)`, leaseB, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation); err != nil || claimedAccount != accountB || claimedInvocation != invocationB {
+	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id FROM public.spyglass_claim_agent_result_projection_v2($1,$2,300)`, leaseB, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation); err != nil || claimedAccount != accountB || claimedInvocation != invocationB {
 		t.Fatalf("claim B account=%s invocation=%s err=%v", claimedAccount, claimedInvocation, err)
 	}
 	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success($1,$2,$3,$4,'openai','gpt-test','gpt-test','resp_b',$5,$6,$7::jsonb,$8,8,3,11,17,$9,$9)`,
@@ -157,7 +163,7 @@ func TestAgentsProjectionIsAccountIsolatedDigestBoundAndAtomic(t *testing.T) {
 		t.Fatal("duplicate message identity unexpectedly committed")
 	}
 	leaseC := "73000000-0000-4000-8000-000000000003"
-	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id FROM public.spyglass_claim_agent_result_projection($1,$2,300)`, leaseC, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation); err != nil || claimedAccount != accountC || claimedInvocation != invocationC {
+	if err := projector.QueryRow(ctx, `SELECT account_id,invocation_id FROM public.spyglass_claim_agent_result_projection_v2($1,$2,300)`, leaseC, now.Add(45*time.Second)).Scan(&claimedAccount, &claimedInvocation); err != nil || claimedAccount != accountC || claimedInvocation != invocationC {
 		t.Fatalf("claim C account=%s invocation=%s err=%v", claimedAccount, claimedInvocation, err)
 	}
 	if err := projector.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_failure($1,$2,$3,$4,'provider_denied',$5,$5)`,
