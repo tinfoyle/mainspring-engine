@@ -260,7 +260,13 @@ services:
         go run ./cmd/apicontract -check
     environment:
       SPYGLASS_POSTGRES_TEST_URL: postgres://postgres:spyglass-test-only@test-db:5432/postgres?sslmode=disable
+      SPYGLASS_S3_TEST_ENDPOINT: object-store:9000
+      SPYGLASS_S3_TEST_ACCESS_KEY: ${SPYGLASS_OBJECT_STORE_ACCESS_KEY}
+      SPYGLASS_S3_TEST_SECRET_KEY: ${SPYGLASS_OBJECT_STORE_SECRET_KEY}
+      SPYGLASS_S3_TEST_BUCKET: ${SPYGLASS_OBJECT_STORE_BUCKET}
     depends_on:
       test-db: {condition: service_healthy}
+      object-store-init: {condition: service_completed_successfully}
     networks:
+      - application
       - database

@@ -398,8 +398,18 @@ func normalizeMediaType(value string) string {
 }
 
 func validObjectIdentity(value DocumentRevision) bool {
-	expected := fmt.Sprintf("accounts/%s/documents/%s/revisions/%s/source", value.AccountID, value.DocumentID, value.ID)
+	expected, err := SourceObjectKey(value.AccountID, value.DocumentID, value.ID)
+	if err != nil {
+		return false
+	}
 	return value.ObjectKey == expected && len(value.ObjectKey) <= MaximumObjectKey && value.ObjectVersion != "" && len(value.ObjectVersion) <= 256
+}
+
+func SourceObjectKey(accountID ids.AccountID, documentID ids.KnowledgeDocumentID, revisionID ids.KnowledgeDocumentRevisionID) (string, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(string(documentID)) != nil || ids.Validate(string(revisionID)) != nil {
+		return "", ErrInvalid
+	}
+	return fmt.Sprintf("accounts/%s/documents/%s/revisions/%s/source", accountID, documentID, revisionID), nil
 }
 
 func validProcessor(value string) bool {

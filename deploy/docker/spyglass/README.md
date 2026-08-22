@@ -10,7 +10,7 @@ Stage deployment takes two inputs: a tracked, non-secret `deploy/releases/<versi
 make verify
 ```
 
-The default persistent stack includes Caddy, the website, the global database, two cell databases, one-shot migrations, local global seed data, account-api, admission-api, two app-api processes, app-router, all global workers, and per-cell Work reconciliation, route-receipt, Agent dispatch, and Agent projection workers. The verification builds and tests the standalone website image, builds the multi-mode Spyglass application image, waits for every persistent dependency, and exercises the public/private origins through Caddy's local CA on HTTPS port `8444` (`8088` is the HTTP redirect listener).
+The default persistent stack includes Caddy, the website, the global database, two cell databases, a private versioned MinIO object store, one-shot migrations and object-store initialization, local global seed data, account-api, admission-api, two app-api processes, app-router, all global workers, and per-cell Work reconciliation, route-receipt, Agent dispatch, and Agent projection workers. The verification builds and tests the standalone website image, builds the multi-mode Spyglass application image, waits for every persistent dependency, and exercises the public/private origins through Caddy's local CA on HTTPS port `8444` (`8088` is the HTTP redirect listener).
 
 The default topology deliberately sets `SPYGLASS_ENV=development` on its application processes, which permits plain HTTP only on the private Docker network. The separate secure-local gate runs the TLS-sensitive processes outside development in an isolated `spyglass-local-tls` Compose project:
 
@@ -28,11 +28,11 @@ make verify-docker-runner
 
 Only `docker-runner-launcher` receives `/var/run/docker.sock`. The controller and broker use distinct mTLS identities and bearer credentials for lifecycle and identity-verification authority. The gate launches one deterministic non-root, read-only, capability-free fixture on an isolated internal network; verifies its one-invocation token; restarts the launcher; reconciles the same invocation without creating a duplicate; cancels it; and verifies container and identity cleanup. The mutable fixture image and Windows-bind-mount permission accommodation are accepted only by `SPYGLASS_ENVIRONMENT=local-secure`; a real stage launcher requires a digest-pinned image and Unix permission enforcement. Use `make down-docker-runner` to stop this isolated verification project.
 
-`make test` uses a disposable PostgreSQL container and pinned Go build image. It runs the uncached Go suite (including PostgreSQL integration tests), race suite, vet, formatting check, OpenAPI generation/registration check, and the website build/render/accessibility/lint/audit gate without host Go or Node installations.
+`make test` uses a disposable PostgreSQL container, the private versioned MinIO service, and a pinned Go build image. It runs the uncached Go suite (including PostgreSQL and S3-compatible object-store integration tests), race suite, vet, formatting check, OpenAPI generation/registration check, and the website build/render/accessibility/lint/audit gate without host Go or Node installations.
 
 At `app.infiniteocean.localhost`, global/private routes go to account-api while cell-owned Work and Agent API families go through app-router. Browsers never reach a cell API directly.
 
-`env/local.env` contains intentionally public, local-only credentials and deterministic keys. It must never be copied to stage or production. Environment-specific secret files are supplied separately.
+`env/local.env` contains intentionally public, local-only credentials and deterministic keys. It must never be copied to stage or production. Environment-specific secret files are supplied separately. `prepare-stage-secrets.sh` generates the stage MinIO credentials and static server-side-encryption key; MinIO is never published at a host port, its bucket is initialized with versioning enabled, and its persistent volume survives ordinary stack shutdown. Production uses managed Linode Object Storage rather than this Compose service.
 
 The machine-readable [process inventory](../../spyglass-process-inventory.json) is checked against every executable `spyglass` mode before local verification. It records each process lifecycle, scope, port, health surface, database role family, configuration inputs, and dependencies.
 
@@ -48,7 +48,7 @@ make verify-observability
 
 The gate requires exactly 17 healthy scrape targets—five HTTP services and twelve workers—and exposes the local Prometheus UI only at `http://127.0.0.1:9090`. Its one-hour, tmpfs-backed TSDB is disposable and contains no customer-derived labels.
 
-Use `make down` to stop the stack while preserving all three database volumes. The destructive reset is deliberately explicit:
+Use `make down` to stop the stack while preserving all database and object-store volumes. The destructive reset is deliberately explicit:
 
 ```bash
 make reset CONFIRM=spyglass-local

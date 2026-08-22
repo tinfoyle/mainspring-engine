@@ -20,6 +20,7 @@
 | Website artifact | One standalone Node image: `ghcr.io/tinfoyle/infinite-ocean-website` |
 | Databases | Containerized PostgreSQL 17 in every environment |
 | Production database operator | CloudNativePG on LKE with LKE block storage and configurable replicas |
+| Document objects | Private versioned S3 contract: encrypted MinIO volumes in local/Hostinger stage and managed Linode Object Storage in production |
 | Backups | Configured and operated per environment by the project owner after application/database placement; deployment supplies hooks, checkpoints and restore tooling |
 | Secrets | Local/stage files outside Git; SOPS/age-encrypted production manifests with private keys outside Git |
 | Preview hosting | `.openai/hosting.json`, Sites/Cloudflare preview deployment and `chatgpt.site` are not release targets |
@@ -120,6 +121,7 @@ The common Compose definition models final process boundaries:
 - Caddy edge proxy;
 - standalone public website;
 - global, cell A and cell B PostgreSQL 17 containers with distinct volumes;
+- private versioned MinIO document storage with server-side encryption and no host-published port;
 - migration jobs for each database target;
 - Account API, app router, two cell app APIs and private admission API;
 - notification, billing, entitlement, lifecycle, identity-maintenance, route-receipt and Work reconciliation workers;
@@ -168,6 +170,7 @@ The stage override uses the same service graph with production-mode process argu
 
 - application and website images pulled from GHCR by digest;
 - three PostgreSQL containers with private networks and persistent volumes;
+- private versioned MinIO document storage on a persistent volume with a generated static stage encryption key; production replaces this service with Linode Object Storage;
 - an internal Caddy router on the existing `infiniteocean_public` network; the existing Infinite Ocean Caddy remains the only public 80/443 and ACME owner;
 - Stripe test mode, TLS SMTP and non-production provider credentials;
 - a non-internal provider-egress network attached only to Account API, billing, notification and model-gateway workloads;

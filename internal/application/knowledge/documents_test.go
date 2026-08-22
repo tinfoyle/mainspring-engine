@@ -1,9 +1,11 @@
 package knowledge
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -21,11 +23,38 @@ type documentRepository struct {
 	revision knowledgedomain.DocumentRevision
 	chunks   []knowledgedomain.DocumentChunk
 	mutation Mutation
+	admitErr error
 }
 
 func (repository *documentRepository) AdmitDocument(_ context.Context, document knowledgedomain.Document, revision knowledgedomain.DocumentRevision, mutation Mutation) (knowledgedomain.Document, knowledgedomain.DocumentRevision, error) {
 	repository.document, repository.revision, repository.mutation = document, revision, mutation
-	return document, revision, nil
+	return document, revision, repository.admitErr
+}
+
+type sourceObjectStore struct {
+	puts    int
+	deleted *SourceObjectIdentity
+	created bool
+}
+
+func (store *sourceObjectStore) Verify(context.Context) error { return nil }
+func (store *sourceObjectStore) PutImmutable(_ context.Context, value SourceObjectWrite) (SourceObjectWriteResult, error) {
+	store.puts++
+	key, err := value.Key()
+	if err != nil {
+		return SourceObjectWriteResult{}, err
+	}
+	if _, err := io.ReadAll(value.Body); err != nil {
+		return SourceObjectWriteResult{}, err
+	}
+	return SourceObjectWriteResult{Identity: SourceObjectIdentity{Key: key, Version: "object-version-1", Size: value.Size, ContentSHA256: value.ContentSHA256}, Created: store.created}, nil
+}
+func (store *sourceObjectStore) Open(context.Context, SourceObjectIdentity) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented")
+}
+func (store *sourceObjectStore) Delete(_ context.Context, value SourceObjectIdentity) error {
+	store.deleted = &value
+	return nil
 }
 func (repository *documentRepository) GetDocument(context.Context, ids.AccountID, ids.KnowledgeDocumentID) (knowledgedomain.Document, error) {
 	return repository.document, nil
@@ -118,5 +147,34 @@ func TestRestrictedDocumentReadRequiresManagingRole(t *testing.T) {
 	authorizer.account.Role = accounts.RoleMember
 	if _, err := service.Get(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, appKnowledgeDocument); !access.IsDenied(err, access.DenialRole) {
 		t.Fatalf("restricted document read err=%v", err)
+	}
+}
+
+func TestUploadAuthorizesBeforeObjectWriteAndCleansNewOrphan(t *testing.T) {
+	documents, authorizer, repository, _ := documentServiceFixture(t)
+	objects := &sourceObjectStore{created: true}
+	service, err := NewDocumentAdmissionService(documents, objects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte("source")
+	command := UploadDocumentCommand{Actor: access.Actor{UserID: appKnowledgeUser}, AccountID: appKnowledgeAccount, DocumentID: appKnowledgeDocument, RevisionID: appKnowledgeRevision, Title: "Operating plan", Sensitivity: knowledgedomain.SensitivityInternal, Filename: "plan.txt", DeclaredType: "text/plain", VerifiedType: "text/plain", ByteSize: int64(len(body)), ContentSHA256: sha256.Sum256(body), Body: bytes.NewReader(body), ChangeSummary: "Initial", CorrelationID: appKnowledgeOperation}
+	authorizer.account.Role = accounts.RoleViewer
+	if _, _, err := service.Upload(context.Background(), command); !access.IsDenied(err, access.DenialRole) || objects.puts != 0 {
+		t.Fatalf("unauthorized upload puts=%d err=%v", objects.puts, err)
+	}
+	authorizer.account.Role = accounts.RoleOwner
+	command.Body = bytes.NewReader(body)
+	document, revision, err := service.Upload(context.Background(), command)
+	if err != nil || objects.puts != 1 || document.ID != appKnowledgeDocument || revision.ObjectVersion != "object-version-1" {
+		t.Fatalf("upload document=%+v revision=%+v puts=%d err=%v", document, revision, objects.puts, err)
+	}
+	repository.admitErr = ErrConflict
+	command.DocumentID = "91000000-0000-4000-8000-000000000009"
+	command.RevisionID = "92000000-0000-4000-8000-000000000009"
+	command.CorrelationID = "93000000-0000-4000-8000-000000000009"
+	command.Body = bytes.NewReader(body)
+	if _, _, err := service.Upload(context.Background(), command); !errors.Is(err, ErrConflict) || objects.deleted == nil || objects.deleted.Version != "object-version-1" {
+		t.Fatalf("orphan cleanup=%+v err=%v", objects.deleted, err)
 	}
 }

@@ -56,26 +56,34 @@ type AdmitDocumentCommand struct {
 }
 
 func (s *DocumentService) Admit(ctx context.Context, command AdmitDocumentCommand) (knowledgedomain.Document, knowledgedomain.DocumentRevision, error) {
-	actor, accountContext, err := s.authorizeMutation(ctx, command.Actor, command.AccountID, command.CorrelationID)
+	document, revision, actor, err := s.buildAdmission(ctx, command)
 	if err != nil {
 		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, err
 	}
+	return s.repository.AdmitDocument(ctx, document, revision, Mutation{Actor: actor, CorrelationID: command.CorrelationID, ReasonCode: "document_admitted", At: document.CreatedAt})
+}
+
+func (s *DocumentService) buildAdmission(ctx context.Context, command AdmitDocumentCommand) (knowledgedomain.Document, knowledgedomain.DocumentRevision, knowledgedomain.Actor, error) {
+	actor, accountContext, err := s.authorizeMutation(ctx, command.Actor, command.AccountID, command.CorrelationID)
+	if err != nil {
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, err
+	}
 	if ids.Validate(string(command.DocumentID)) != nil || ids.Validate(string(command.RevisionID)) != nil {
-		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, ErrInvalid
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, ErrInvalid
 	}
 	if actor.Kind == knowledgedomain.ActorUser && !canContribute(accountContext.Role) {
-		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, &access.DeniedError{Code: access.DenialRole, Package: catalog.PackageKnowledge}
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, &access.DeniedError{Code: access.DenialRole, Package: catalog.PackageKnowledge}
 	}
 	now := s.clock.Now().UTC()
 	document, err := knowledgedomain.NewDocument(command.DocumentID, command.AccountID, command.Title, command.Sensitivity, command.RetainUntil, actor, now)
 	if err != nil {
-		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, ErrInvalid
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, ErrInvalid
 	}
 	revision, err := knowledgedomain.NewDocumentRevision(knowledgedomain.DocumentRevisionDraft{ID: command.RevisionID, DocumentID: command.DocumentID, AccountID: command.AccountID, Number: 1, Filename: command.Filename, DeclaredType: command.DeclaredType, VerifiedType: command.VerifiedType, ByteSize: command.ByteSize, ContentSHA256: command.ContentSHA256, ObjectKey: command.ObjectKey, ObjectVersion: command.ObjectVersion, ChangeSummary: command.ChangeSummary, CreatedBy: actor}, now)
 	if err != nil {
-		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, ErrInvalid
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, ErrInvalid
 	}
-	return s.repository.AdmitDocument(ctx, document, revision, Mutation{Actor: actor, CorrelationID: command.CorrelationID, ReasonCode: "document_admitted", At: now})
+	return document, revision, actor, nil
 }
 
 type RecordScanCommand struct {
