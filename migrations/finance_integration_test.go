@@ -312,6 +312,21 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 	if err != nil || created || !reflect.DeepEqual(replayedEntry, entry) {
 		t.Fatalf("entry replay=%+v created=%v err=%v", replayedEntry, created, err)
 	}
+	reviseEntryAt := now.Add(4*time.Minute + 15*time.Second)
+	reviseEntryEvent := "fc800000-0000-4000-8000-000000000004"
+	reviseEntry := financedomain.EntryRevision{EntryDate: now, Description: "Recognize revised revenue", Reference: "INV-1-R",
+		Lines:    []financedomain.JournalLine{{AccountID: cashID, Memo: "Revised receipt", DebitMinor: 12000}, {AccountID: revenueID, Memo: "Revised revenue", CreditMinor: 12000}},
+		Evidence: []ids.KnowledgeEvidenceID{evidenceID}, ExpectedVersion: 1, Actor: actor, Role: accounts.RoleMember, At: reviseEntryAt}
+	revisedEntry, err := repository.ReviseEntry(ctx, accountID, entryID, reviseEntry, mutation(reviseEntryEvent, "revised", reviseEntryAt))
+	if err != nil || revisedEntry.Version != 2 || revisedEntry.TotalMinor != 12000 || revisedEntry.Description != "Recognize revised revenue" {
+		t.Fatalf("revised entry=%+v err=%v", revisedEntry, err)
+	}
+	retryEntryRevision := reviseEntry
+	retryEntryRevision.At = reviseEntryAt.Add(10 * time.Second)
+	replayedEntryRevision, err := repository.ReviseEntry(ctx, accountID, entryID, retryEntryRevision, mutation(reviseEntryEvent, "revised", retryEntryRevision.At))
+	if err != nil || replayedEntryRevision.Version != revisedEntry.Version || replayedEntryRevision.UpdatedAt != revisedEntry.UpdatedAt || !reflect.DeepEqual(replayedEntryRevision.Lines, revisedEntry.Lines) {
+		t.Fatalf("entry revision replay=%+v err=%v", replayedEntryRevision, err)
+	}
 	ledgerPage, err := repository.ListLedgers(ctx, accountID, financeapp.LedgerListQuery{Limit: 1})
 	if err != nil || len(ledgerPage.Items) != 1 || ledgerPage.NextCursor == nil || ledgerPage.Items[0].ID != secondaryLedgerID {
 		t.Fatalf("ledger page=%+v err=%v", ledgerPage, err)
@@ -326,34 +341,34 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 	}
 	postAt := now.Add(5 * time.Minute)
 	postEvent := "fc800000-0000-4000-8000-000000000002"
-	posted, err := repository.PostEntry(ctx, accountID, entryID, 1, actor, accounts.RoleOwner, mutation(postEvent, "posted", postAt))
-	if err != nil || posted.State != financedomain.EntryStatePosted || posted.Version != 2 {
+	posted, err := repository.PostEntry(ctx, accountID, entryID, 2, actor, accounts.RoleOwner, mutation(postEvent, "posted", postAt))
+	if err != nil || posted.State != financedomain.EntryStatePosted || posted.Version != 3 {
 		t.Fatalf("posted=%+v err=%v", posted, err)
 	}
-	replayedPost, err := repository.PostEntry(ctx, accountID, entryID, 1, actor, accounts.RoleOwner, mutation(postEvent, "posted", postAt.Add(time.Minute)))
+	replayedPost, err := repository.PostEntry(ctx, accountID, entryID, 2, actor, accounts.RoleOwner, mutation(postEvent, "posted", postAt.Add(time.Minute)))
 	if err != nil || replayedPost.ID != posted.ID || replayedPost.Version != posted.Version || replayedPost.State != posted.State || replayedPost.PostedAt == nil || !replayedPost.PostedAt.Equal(*posted.PostedAt) {
 		t.Fatalf("post replay=%+v err=%v", replayedPost, err)
 	}
 	ledgersAfterPost, err := repository.ListLedgers(ctx, accountID, financeapp.LedgerListQuery{Limit: 10})
-	if err != nil || len(ledgersAfterPost.Items) != 2 || ledgersAfterPost.Items[1].ID != ledgerID || ledgersAfterPost.Items[1].IncomeMinor != 10000 || ledgersAfterPost.Items[1].NetMinor != 10000 {
+	if err != nil || len(ledgersAfterPost.Items) != 2 || ledgersAfterPost.Items[1].ID != ledgerID || ledgersAfterPost.Items[1].IncomeMinor != 12000 || ledgersAfterPost.Items[1].NetMinor != 12000 {
 		t.Fatalf("ledgers after post=%+v err=%v", ledgersAfterPost, err)
 	}
 	balancesAfterPost, err := repository.ListPostingAccounts(ctx, accountID, financeapp.PostingAccountListQuery{LedgerID: ledgerID, Limit: 10})
-	if err != nil || balancesAfterPost.Items[1].Account.ID != cashID || balancesAfterPost.Items[1].BalanceMinor != 10000 || balancesAfterPost.Items[2].BalanceMinor != 10000 {
+	if err != nil || balancesAfterPost.Items[1].Account.ID != cashID || balancesAfterPost.Items[1].BalanceMinor != 12000 || balancesAfterPost.Items[2].BalanceMinor != 12000 {
 		t.Fatalf("balances after post=%+v err=%v", balancesAfterPost, err)
 	}
 
 	reversalID := ids.FinanceEntryID("fc700000-0000-4000-8000-000000000002")
 	reverseEvent := "fc800000-0000-4000-8000-000000000003"
 	reverseAt := now.Add(6 * time.Minute)
-	reverseCommand := financedomain.ReverseCommand{ReversalID: reversalID, EntryDate: now.AddDate(0, 0, 1), Description: "Correct revenue", Evidence: []ids.KnowledgeEvidenceID{evidenceID}, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: 2, At: reverseAt}
-	original, reversal, err := repository.ReverseEntry(ctx, accountID, entryID, 2, reverseCommand, mutation(reverseEvent, "reversed", reverseAt))
+	reverseCommand := financedomain.ReverseCommand{ReversalID: reversalID, EntryDate: now.AddDate(0, 0, 1), Description: "Correct revenue", Evidence: []ids.KnowledgeEvidenceID{evidenceID}, Actor: actor, Role: accounts.RoleOwner, ExpectedVersion: 3, At: reverseAt}
+	original, reversal, err := repository.ReverseEntry(ctx, accountID, entryID, 3, reverseCommand, mutation(reverseEvent, "reversed", reverseAt))
 	if err != nil || original.State != financedomain.EntryStateReversed || reversal.State != financedomain.EntryStatePosted || reversal.Number != 2 {
 		t.Fatalf("original=%+v reversal=%+v err=%v", original, reversal, err)
 	}
 	retryReverseCommand := reverseCommand
 	retryReverseCommand.At = reverseAt.Add(time.Minute)
-	replayedOriginal, replayedReversal, err := repository.ReverseEntry(ctx, accountID, entryID, 2, retryReverseCommand, mutation(reverseEvent, "reversed", reverseAt.Add(time.Minute)))
+	replayedOriginal, replayedReversal, err := repository.ReverseEntry(ctx, accountID, entryID, 3, retryReverseCommand, mutation(reverseEvent, "reversed", reverseAt.Add(time.Minute)))
 	if err != nil || replayedOriginal.ID != original.ID || replayedOriginal.State != original.State || replayedOriginal.ReversedByID != original.ReversedByID ||
 		replayedReversal.ID != reversal.ID || replayedReversal.State != reversal.State || replayedReversal.ReversalOfID != reversal.ReversalOfID {
 		t.Fatalf("reverse replay original=%+v reversal=%+v err=%v", replayedOriginal, replayedReversal, err)

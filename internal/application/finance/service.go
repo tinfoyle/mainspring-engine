@@ -253,6 +253,34 @@ func (service *Service) GetEntry(ctx context.Context, actor access.Actor, accoun
 	return service.store.GetEntry(ctx, accountID, entryID)
 }
 
+type ReviseEntryCommand struct {
+	Actor           access.Actor
+	AccountID       ids.AccountID
+	RequestID       string
+	EntryID         ids.FinanceEntryID
+	ExpectedVersion uint64
+	EntryDate       time.Time
+	Description     string
+	Reference       string
+	Lines           []domain.JournalLine
+	Evidence        []ids.KnowledgeEvidenceID
+}
+
+func (service *Service) ReviseEntry(ctx context.Context, command ReviseEntryCommand) (domain.JournalEntry, error) {
+	authorized, err := service.authorize(ctx, command.Actor, command.AccountID, true, false)
+	if err != nil || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.EntryID)) != nil || command.ExpectedVersion == 0 {
+		if err != nil {
+			return domain.JournalEntry{}, err
+		}
+		return domain.JournalEntry{}, ErrInvalid
+	}
+	now := service.clock.Now().UTC()
+	actor := userActor(command.Actor)
+	revision := domain.EntryRevision{EntryDate: command.EntryDate, Description: command.Description, Reference: command.Reference, Lines: command.Lines,
+		Evidence: command.Evidence, ExpectedVersion: command.ExpectedVersion, Actor: actor, Role: authorized.Role, At: now}
+	return service.store.ReviseEntry(ctx, command.AccountID, command.EntryID, revision, mutation(command.RequestID, "revised", actor, now))
+}
+
 type EntryTransitionCommand struct {
 	Actor           access.Actor
 	AccountID       ids.AccountID

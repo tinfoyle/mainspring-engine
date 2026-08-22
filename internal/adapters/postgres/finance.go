@@ -488,6 +488,70 @@ func (repository *FinanceRepository) GetEntry(ctx context.Context, accountID ids
 	return result, classifyFinance(err)
 }
 
+func (repository *FinanceRepository) ReviseEntry(ctx context.Context, accountID ids.AccountID, entryID ids.FinanceEntryID, command domain.EntryRevision, mutation financeapp.Mutation) (domain.JournalEntry, error) {
+	if !mutation.Valid() || mutation.Kind != "revised" || mutation.Actor != command.Actor || !mutation.At.UTC().Equal(command.At.UTC()) {
+		return domain.JournalEntry{}, financeapp.ErrInvalid
+	}
+	var result domain.JournalEntry
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		current, err := loadFinanceEntry(ctx, tx, accountID, entryID, true)
+		if err != nil {
+			return err
+		}
+		ledger, err := loadFinanceLedger(ctx, tx, accountID, current.LedgerID, true)
+		if err != nil {
+			return err
+		}
+		if current.Version == command.ExpectedVersion+1 {
+			matched, err := financeEventMatches(ctx, tx, accountID, mutation.EventID, "entry", string(entryID), mutation.Kind, command.ExpectedVersion, current.Version)
+			if err != nil {
+				return err
+			}
+			shadow := current
+			shadow.Version, shadow.UpdatedAt = command.ExpectedVersion, shadow.CreatedAt
+			intended, reviseErr := shadow.Revise(command, ledger.ClosedThrough)
+			if reviseErr != nil || !matched || !sameFinanceEntryRevision(current, intended) {
+				return financeapp.ErrConflict
+			}
+			result = current
+			return nil
+		}
+		if current.Version != command.ExpectedVersion {
+			return financeapp.ErrConflict
+		}
+		revised, err := current.Revise(command, ledger.ClosedThrough)
+		if err != nil {
+			return err
+		}
+		updated, err := tx.Exec(ctx, `UPDATE spyglass.finance_entries SET entry_date=$3,description=$4,reference=$5,total_minor=$6,version=$7,updated_at=$8
+			WHERE account_id=$1 AND id=$2 AND version=$9`, accountID, entryID, revised.EntryDate, revised.Description, revised.Reference,
+			revised.TotalMinor, revised.Version, revised.UpdatedAt, command.ExpectedVersion)
+		if err != nil {
+			return err
+		}
+		if updated.RowsAffected() != 1 {
+			return financeapp.ErrConflict
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM spyglass.finance_entry_lines WHERE account_id=$1 AND entry_id=$2`, accountID, entryID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM spyglass.finance_entry_evidence WHERE account_id=$1 AND entry_id=$2`, accountID, entryID); err != nil {
+			return err
+		}
+		if err := insertFinanceEntryChildren(ctx, tx, revised); err != nil {
+			return err
+		}
+		if err := insertFinanceEvent(ctx, tx, accountID, "entry", string(entryID), command.ExpectedVersion, mutation,
+			map[string]any{"ledger_id": revised.LedgerID, "entry_number": revised.Number, "currency": revised.Currency, "total_minor": revised.TotalMinor,
+				"source": revised.Provenance.Source, "state": revised.State}); err != nil {
+			return err
+		}
+		result = revised
+		return nil
+	})
+	return result, classifyFinance(err)
+}
+
 func (repository *FinanceRepository) PostEntry(ctx context.Context, accountID ids.AccountID, entryID ids.FinanceEntryID, expected uint64, actor domain.Actor, role accounts.MembershipRole, mutation financeapp.Mutation) (domain.JournalEntry, error) {
 	if !mutation.Valid() || mutation.Kind != "posted" || mutation.Actor != actor || !mutation.At.UTC().Equal(mutation.At) {
 		return domain.JournalEntry{}, financeapp.ErrInvalid
@@ -1052,6 +1116,12 @@ func sameFinanceEvidence(left, right []ids.KnowledgeEvidenceID) bool {
 		}
 	}
 	return true
+}
+
+func sameFinanceEntryRevision(left, right domain.JournalEntry) bool {
+	return sameFinanceDate(left.EntryDate, right.EntryDate) && left.Description == right.Description && left.Reference == right.Reference &&
+		left.Currency == right.Currency && left.TotalMinor == right.TotalMinor && reflect.DeepEqual(left.Lines, right.Lines) &&
+		sameFinanceEvidence(left.Evidence, right.Evidence) && left.State == right.State && left.Provenance == right.Provenance
 }
 
 func financeNullableWorkItemID(value ids.WorkItemID) any {

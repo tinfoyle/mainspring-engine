@@ -50,6 +50,7 @@ type Store interface {
 	CreateEntry(context.Context, domain.EntryDraft, accounts.MembershipRole, Mutation) (domain.JournalEntry, bool, error)
 	GetEntry(context.Context, ids.AccountID, ids.FinanceEntryID) (domain.JournalEntry, error)
 	ListEntries(context.Context, ids.AccountID, EntryListQuery) (EntryPage, error)
+	ReviseEntry(context.Context, ids.AccountID, ids.FinanceEntryID, domain.EntryRevision, Mutation) (domain.JournalEntry, error)
 	PostEntry(context.Context, ids.AccountID, ids.FinanceEntryID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.JournalEntry, error)
 	ReverseEntry(context.Context, ids.AccountID, ids.FinanceEntryID, uint64, domain.ReverseCommand, Mutation) (domain.JournalEntry, domain.JournalEntry, error)
 	CreateReconciliation(context.Context, domain.ReconciliationDraft, accounts.MembershipRole, Mutation) (domain.Reconciliation, bool, error)

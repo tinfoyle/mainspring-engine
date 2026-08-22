@@ -41,6 +41,7 @@ type financeTestStore struct {
 	closeCommand           domain.ClosePeriodCommand
 	postingAccountRevision domain.PostingAccountRevision
 	entryDraft             domain.EntryDraft
+	entryRevision          domain.EntryRevision
 	reverseCommand         domain.ReverseCommand
 	reconciliationDraft    domain.ReconciliationDraft
 	ledgerQuery            LedgerListQuery
@@ -102,6 +103,10 @@ func (store *financeTestStore) ListEntries(_ context.Context, _ ids.AccountID, q
 	store.entryQuery = query
 	return EntryPage{}, nil
 }
+func (store *financeTestStore) ReviseEntry(_ context.Context, _ ids.AccountID, entryID ids.FinanceEntryID, revision domain.EntryRevision, mutation Mutation) (domain.JournalEntry, error) {
+	store.entryRevision, store.mutation = revision, mutation
+	return domain.JournalEntry{ID: entryID}, nil
+}
 func (store *financeTestStore) PostEntry(_ context.Context, _ ids.AccountID, entryID ids.FinanceEntryID, _ uint64, _ domain.Actor, _ accounts.MembershipRole, mutation Mutation) (domain.JournalEntry, error) {
 	store.mutation = mutation
 	return domain.JournalEntry{ID: entryID}, nil
@@ -148,6 +153,13 @@ func TestFinanceServiceSeparatesDraftAndManagementRoles(t *testing.T) {
 	}
 	if len(authorizer.requirement.Roles) != 3 || authorizer.requirement.Package != PackageCode || !authorizer.requirement.Mutation {
 		t.Fatalf("draft requirement=%+v", authorizer.requirement)
+	}
+	_, err = service.ReviseEntry(context.Background(), ReviseEntryCommand{Actor: actor, AccountID: accountID,
+		RequestID: "65000000-0000-4000-8000-000000000006", EntryID: entry.ID, ExpectedVersion: 1, EntryDate: now,
+		Description: "Revised draft", Lines: []domain.JournalLine{{AccountID: "50000000-0000-4000-8000-000000000005", DebitMinor: 2},
+			{AccountID: "60000000-0000-4000-8000-000000000006", CreditMinor: 2}}})
+	if err != nil || store.entryRevision.Role != accounts.RoleMember || store.entryRevision.ExpectedVersion != 1 || store.mutation.Kind != "revised" {
+		t.Fatalf("entry revision=%+v mutation=%+v err=%v", store.entryRevision, store.mutation, err)
 	}
 	if _, err := service.PostEntry(context.Background(), EntryTransitionCommand{Actor: actor, AccountID: accountID, RequestID: "70000000-0000-4000-8000-000000000007", EntryID: entry.ID, ExpectedVersion: 1}); !access.IsDenied(err, access.DenialRole) {
 		t.Fatalf("member post error=%v", err)
