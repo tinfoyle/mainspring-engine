@@ -14,10 +14,11 @@ import (
 )
 
 var (
-	ErrInvalid    = errors.New("finance command is invalid")
-	ErrNotFound   = errors.New("finance record was not found")
-	ErrConflict   = errors.New("finance command conflicts with durable state")
-	ErrRepository = errors.New("finance repository unavailable")
+	ErrInvalid           = errors.New("finance command is invalid")
+	ErrNotFound          = errors.New("finance record was not found")
+	ErrConflict          = errors.New("finance command conflicts with durable state")
+	ErrAggregateOverflow = errors.New("finance aggregate exceeds supported minor units")
+	ErrRepository        = errors.New("finance repository unavailable")
 )
 
 type Mutation struct {
@@ -37,22 +38,28 @@ func (mutation Mutation) Valid() bool {
 type Store interface {
 	CreateLedger(context.Context, domain.LedgerDraft, accounts.MembershipRole, Mutation) (domain.Ledger, bool, error)
 	GetLedger(context.Context, ids.AccountID, ids.FinanceLedgerID) (domain.Ledger, error)
+	ListLedgers(context.Context, ids.AccountID, LedgerListQuery) (LedgerPage, error)
 	ReviseLedger(context.Context, ids.AccountID, ids.FinanceLedgerID, domain.LedgerRevision, Mutation) (domain.Ledger, error)
 	CloseLedgerPeriod(context.Context, ids.AccountID, ids.FinanceLedgerID, domain.ClosePeriodCommand, Mutation) (domain.Ledger, error)
 	ArchiveLedger(context.Context, ids.AccountID, ids.FinanceLedgerID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.Ledger, error)
 	CreatePostingAccount(context.Context, domain.PostingAccountDraft, accounts.MembershipRole, Mutation) (domain.PostingAccount, bool, error)
+	GetPostingAccount(context.Context, ids.AccountID, ids.FinanceAccountID) (domain.PostingAccount, error)
+	ListPostingAccounts(context.Context, ids.AccountID, PostingAccountListQuery) (PostingAccountPage, error)
 	RevisePostingAccount(context.Context, ids.AccountID, ids.FinanceAccountID, domain.PostingAccountRevision, Mutation) (domain.PostingAccount, error)
 	ArchivePostingAccount(context.Context, ids.AccountID, ids.FinanceAccountID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.PostingAccount, error)
 	CreateEntry(context.Context, domain.EntryDraft, accounts.MembershipRole, Mutation) (domain.JournalEntry, bool, error)
 	GetEntry(context.Context, ids.AccountID, ids.FinanceEntryID) (domain.JournalEntry, error)
+	ListEntries(context.Context, ids.AccountID, EntryListQuery) (EntryPage, error)
 	PostEntry(context.Context, ids.AccountID, ids.FinanceEntryID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.JournalEntry, error)
 	ReverseEntry(context.Context, ids.AccountID, ids.FinanceEntryID, uint64, domain.ReverseCommand, Mutation) (domain.JournalEntry, domain.JournalEntry, error)
 	CreateReconciliation(context.Context, domain.ReconciliationDraft, accounts.MembershipRole, Mutation) (domain.Reconciliation, bool, error)
+	GetReconciliation(context.Context, ids.AccountID, ids.FinanceReconciliationID) (domain.Reconciliation, error)
+	ListReconciliations(context.Context, ids.AccountID, ReconciliationListQuery) (ReconciliationPage, error)
 	ConfirmReconciliation(context.Context, ids.AccountID, ids.FinanceReconciliationID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.Reconciliation, error)
 }
 
 func classify(err error) error {
-	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
+	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) || errors.Is(err, ErrAggregateOverflow) {
 		return err
 	}
 	if errors.Is(err, domain.ErrConflict) {

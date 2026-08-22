@@ -1008,7 +1008,7 @@ func financeEventMatches(ctx context.Context, tx pgx.Tx, accountID ids.AccountID
 }
 
 func classifyFinance(err error) error {
-	if err == nil || errors.Is(err, financeapp.ErrInvalid) || errors.Is(err, financeapp.ErrNotFound) || errors.Is(err, financeapp.ErrConflict) {
+	if err == nil || errors.Is(err, financeapp.ErrInvalid) || errors.Is(err, financeapp.ErrNotFound) || errors.Is(err, financeapp.ErrConflict) || errors.Is(err, financeapp.ErrAggregateOverflow) {
 		return err
 	}
 	var postgresError *pgconn.PgError

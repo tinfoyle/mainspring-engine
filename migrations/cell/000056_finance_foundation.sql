@@ -188,7 +188,9 @@ CREATE TABLE spyglass.finance_events (
 );
 
 CREATE INDEX finance_ledgers_list ON spyglass.finance_ledgers(account_id,state,code,id);
+CREATE INDEX finance_ledgers_keyset ON spyglass.finance_ledgers(account_id,code,id);
 CREATE INDEX finance_accounts_tree ON spyglass.finance_accounts(account_id,ledger_id,parent_account_id,code,id);
+CREATE INDEX finance_accounts_keyset ON spyglass.finance_accounts(account_id,ledger_id,code,id);
 CREATE INDEX finance_entries_journal ON spyglass.finance_entries(account_id,ledger_id,entry_date DESC,entry_number DESC);
 CREATE INDEX finance_entries_work ON spyglass.finance_entries(account_id,work_item_id) WHERE work_item_id IS NOT NULL;
 CREATE UNIQUE INDEX finance_entries_one_reversal ON spyglass.finance_entries(account_id,reversal_of_id) WHERE reversal_of_id IS NOT NULL;

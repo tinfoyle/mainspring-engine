@@ -43,6 +43,10 @@ type financeTestStore struct {
 	entryDraft             domain.EntryDraft
 	reverseCommand         domain.ReverseCommand
 	reconciliationDraft    domain.ReconciliationDraft
+	ledgerQuery            LedgerListQuery
+	postingAccountQuery    PostingAccountListQuery
+	entryQuery             EntryListQuery
+	reconciliationQuery    ReconciliationListQuery
 	mutation               Mutation
 }
 
@@ -52,6 +56,10 @@ func (store *financeTestStore) CreateLedger(_ context.Context, draft domain.Ledg
 }
 func (*financeTestStore) GetLedger(context.Context, ids.AccountID, ids.FinanceLedgerID) (domain.Ledger, error) {
 	return domain.Ledger{}, nil
+}
+func (store *financeTestStore) ListLedgers(_ context.Context, _ ids.AccountID, query LedgerListQuery) (LedgerPage, error) {
+	store.ledgerQuery = query
+	return LedgerPage{}, nil
 }
 func (store *financeTestStore) ReviseLedger(_ context.Context, _ ids.AccountID, ledgerID ids.FinanceLedgerID, revision domain.LedgerRevision, mutation Mutation) (domain.Ledger, error) {
 	store.ledgerRevision, store.mutation = revision, mutation
@@ -68,6 +76,13 @@ func (store *financeTestStore) ArchiveLedger(_ context.Context, _ ids.AccountID,
 func (*financeTestStore) CreatePostingAccount(context.Context, domain.PostingAccountDraft, accounts.MembershipRole, Mutation) (domain.PostingAccount, bool, error) {
 	return domain.PostingAccount{}, true, nil
 }
+func (*financeTestStore) GetPostingAccount(context.Context, ids.AccountID, ids.FinanceAccountID) (domain.PostingAccount, error) {
+	return domain.PostingAccount{}, nil
+}
+func (store *financeTestStore) ListPostingAccounts(_ context.Context, _ ids.AccountID, query PostingAccountListQuery) (PostingAccountPage, error) {
+	store.postingAccountQuery = query
+	return PostingAccountPage{}, nil
+}
 func (store *financeTestStore) RevisePostingAccount(_ context.Context, _ ids.AccountID, postingAccountID ids.FinanceAccountID, revision domain.PostingAccountRevision, mutation Mutation) (domain.PostingAccount, error) {
 	store.postingAccountRevision, store.mutation = revision, mutation
 	return domain.PostingAccount{ID: postingAccountID}, nil
@@ -83,6 +98,10 @@ func (store *financeTestStore) CreateEntry(_ context.Context, draft domain.Entry
 func (*financeTestStore) GetEntry(context.Context, ids.AccountID, ids.FinanceEntryID) (domain.JournalEntry, error) {
 	return domain.JournalEntry{}, nil
 }
+func (store *financeTestStore) ListEntries(_ context.Context, _ ids.AccountID, query EntryListQuery) (EntryPage, error) {
+	store.entryQuery = query
+	return EntryPage{}, nil
+}
 func (store *financeTestStore) PostEntry(_ context.Context, _ ids.AccountID, entryID ids.FinanceEntryID, _ uint64, _ domain.Actor, _ accounts.MembershipRole, mutation Mutation) (domain.JournalEntry, error) {
 	store.mutation = mutation
 	return domain.JournalEntry{ID: entryID}, nil
@@ -94,6 +113,13 @@ func (store *financeTestStore) ReverseEntry(_ context.Context, _ ids.AccountID, 
 func (store *financeTestStore) CreateReconciliation(_ context.Context, draft domain.ReconciliationDraft, _ accounts.MembershipRole, mutation Mutation) (domain.Reconciliation, bool, error) {
 	store.reconciliationDraft, store.mutation = draft, mutation
 	return domain.Reconciliation{ID: draft.ID}, true, nil
+}
+func (*financeTestStore) GetReconciliation(context.Context, ids.AccountID, ids.FinanceReconciliationID) (domain.Reconciliation, error) {
+	return domain.Reconciliation{}, nil
+}
+func (store *financeTestStore) ListReconciliations(_ context.Context, _ ids.AccountID, query ReconciliationListQuery) (ReconciliationPage, error) {
+	store.reconciliationQuery = query
+	return ReconciliationPage{}, nil
 }
 func (store *financeTestStore) ConfirmReconciliation(_ context.Context, _ ids.AccountID, reconciliationID ids.FinanceReconciliationID, _ uint64, _ domain.Actor, _ accounts.MembershipRole, mutation Mutation) (domain.Reconciliation, error) {
 	store.mutation = mutation
@@ -189,6 +215,35 @@ func TestFinanceServiceBuildsManagementLifecycleCommands(t *testing.T) {
 		RequestID: "c0000000-0000-4000-8000-00000000000c", LedgerID: ledgerID, ExpectedVersion: 3})
 	if err != nil || store.mutation.Kind != "archived" {
 		t.Fatalf("ledger archive mutation=%+v err=%v", store.mutation, err)
+	}
+}
+
+func TestFinanceServiceValidatesAndDefaultsStableQueries(t *testing.T) {
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	accountID := ids.AccountID("10000000-0000-4000-8000-000000000001")
+	actor := access.Actor{UserID: "20000000-0000-4000-8000-000000000002"}
+	ledgerID := ids.FinanceLedgerID("40000000-0000-4000-8000-000000000004")
+	store := &financeTestStore{}
+	service, _ := New(&financeTestAuthorizer{role: accounts.RoleViewer}, store, financeTestClock{now: now})
+
+	if _, err := service.ListLedgers(context.Background(), actor, accountID, LedgerListQuery{}); err != nil || store.ledgerQuery.Limit != DefaultPageSize {
+		t.Fatalf("ledger query=%+v err=%v", store.ledgerQuery, err)
+	}
+	if _, err := service.ListPostingAccounts(context.Background(), actor, accountID, PostingAccountListQuery{LedgerID: ledgerID}); err != nil || store.postingAccountQuery.Limit != DefaultPageSize {
+		t.Fatalf("account query=%+v err=%v", store.postingAccountQuery, err)
+	}
+	if _, err := service.ListEntries(context.Background(), actor, accountID, EntryListQuery{LedgerID: ledgerID}); err != nil || store.entryQuery.Limit != DefaultPageSize {
+		t.Fatalf("entry query=%+v err=%v", store.entryQuery, err)
+	}
+	if _, err := service.ListReconciliations(context.Background(), actor, accountID, ReconciliationListQuery{LedgerID: ledgerID}); err != nil || store.reconciliationQuery.Limit != DefaultPageSize {
+		t.Fatalf("reconciliation query=%+v err=%v", store.reconciliationQuery, err)
+	}
+	if _, err := service.ListLedgers(context.Background(), actor, accountID, LedgerListQuery{Limit: MaximumPageSize + 1}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversize Ledger query err=%v", err)
+	}
+	if _, err := service.ListEntries(context.Background(), actor, accountID, EntryListQuery{LedgerID: ledgerID, Limit: 1,
+		After: &EntryCursor{EntryDate: now.Add(time.Hour), Number: 1}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("non-normalized entry cursor err=%v", err)
 	}
 }
 

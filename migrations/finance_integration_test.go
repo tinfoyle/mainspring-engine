@@ -3,6 +3,7 @@ package migrations_test
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -237,6 +238,12 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 	if err != nil || replayedLedger.Version != ledger.Version || replayedLedger.UpdatedAt != ledger.UpdatedAt {
 		t.Fatalf("ledger revision replay=%+v err=%v", replayedLedger, err)
 	}
+	secondaryLedgerID := ids.FinanceLedgerID("fc300000-0000-4000-8000-000000000002")
+	if _, created, err := repository.CreateLedger(ctx, financedomain.LedgerDraft{ID: secondaryLedgerID, AccountID: accountID, Name: "Auxiliary ledger", Code: "AUX",
+		Currency: "USD", CreatedBy: actor, CreatedAt: now.Add(time.Minute)}, accounts.RoleOwner,
+		mutation("fc400000-0000-4000-8000-000000000003", "created", now.Add(time.Minute))); err != nil || !created {
+		t.Fatalf("secondary ledger created=%v err=%v", created, err)
+	}
 
 	cashID := ids.FinanceAccountID("fc500000-0000-4000-8000-000000000001")
 	revenueID := ids.FinanceAccountID("fc500000-0000-4000-8000-000000000002")
@@ -276,6 +283,18 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 		mutation("fc600000-0000-4000-8000-000000000005", "revised", cycleRevision.At)); !errors.Is(err, financeapp.ErrInvalid) {
 		t.Fatalf("cycle revision err=%v", err)
 	}
+	accountPage, err := repository.ListPostingAccounts(ctx, accountID, financeapp.PostingAccountListQuery{LedgerID: ledgerID, Limit: 2})
+	if err != nil || len(accountPage.Items) != 2 || accountPage.NextCursor == nil || accountPage.Items[0].Account.Code != "100" || accountPage.Items[1].Account.Code != "1010" {
+		t.Fatalf("account page=%+v err=%v", accountPage, err)
+	}
+	accountRemainder, err := repository.ListPostingAccounts(ctx, accountID, financeapp.PostingAccountListQuery{LedgerID: ledgerID, After: accountPage.NextCursor, Limit: 2})
+	if err != nil || len(accountRemainder.Items) != 1 || accountRemainder.NextCursor != nil || accountRemainder.Items[0].Account.Code != "4000" {
+		t.Fatalf("account remainder=%+v err=%v", accountRemainder, err)
+	}
+	loadedCash, err := repository.GetPostingAccount(ctx, accountID, cashID)
+	if err != nil || loadedCash.ParentAccountID != assetRootID || loadedCash.Version != 2 {
+		t.Fatalf("loaded cash=%+v err=%v", loadedCash, err)
+	}
 
 	entryID := ids.FinanceEntryID("fc700000-0000-4000-8000-000000000001")
 	entryEvent := "fc800000-0000-4000-8000-000000000001"
@@ -293,6 +312,14 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 	if err != nil || created || !reflect.DeepEqual(replayedEntry, entry) {
 		t.Fatalf("entry replay=%+v created=%v err=%v", replayedEntry, created, err)
 	}
+	ledgerPage, err := repository.ListLedgers(ctx, accountID, financeapp.LedgerListQuery{Limit: 1})
+	if err != nil || len(ledgerPage.Items) != 1 || ledgerPage.NextCursor == nil || ledgerPage.Items[0].ID != secondaryLedgerID {
+		t.Fatalf("ledger page=%+v err=%v", ledgerPage, err)
+	}
+	ledgerRemainder, err := repository.ListLedgers(ctx, accountID, financeapp.LedgerListQuery{After: ledgerPage.NextCursor, Limit: 1})
+	if err != nil || len(ledgerRemainder.Items) != 1 || ledgerRemainder.Items[0].ID != ledgerID || ledgerRemainder.Items[0].AccountCount != 3 || ledgerRemainder.Items[0].DraftCount != 1 {
+		t.Fatalf("ledger remainder=%+v err=%v", ledgerRemainder, err)
+	}
 	if _, err := repository.ArchivePostingAccount(ctx, accountID, cashID, 2, actor, accounts.RoleOwner,
 		mutation("fc600000-0000-4000-8000-000000000006", "archived", now.Add(4*time.Minute+45*time.Second))); !errors.Is(err, financeapp.ErrInvalid) {
 		t.Fatalf("posting account with draft entry archive err=%v", err)
@@ -306,6 +333,14 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 	replayedPost, err := repository.PostEntry(ctx, accountID, entryID, 1, actor, accounts.RoleOwner, mutation(postEvent, "posted", postAt.Add(time.Minute)))
 	if err != nil || replayedPost.ID != posted.ID || replayedPost.Version != posted.Version || replayedPost.State != posted.State || replayedPost.PostedAt == nil || !replayedPost.PostedAt.Equal(*posted.PostedAt) {
 		t.Fatalf("post replay=%+v err=%v", replayedPost, err)
+	}
+	ledgersAfterPost, err := repository.ListLedgers(ctx, accountID, financeapp.LedgerListQuery{Limit: 10})
+	if err != nil || len(ledgersAfterPost.Items) != 2 || ledgersAfterPost.Items[1].ID != ledgerID || ledgersAfterPost.Items[1].IncomeMinor != 10000 || ledgersAfterPost.Items[1].NetMinor != 10000 {
+		t.Fatalf("ledgers after post=%+v err=%v", ledgersAfterPost, err)
+	}
+	balancesAfterPost, err := repository.ListPostingAccounts(ctx, accountID, financeapp.PostingAccountListQuery{LedgerID: ledgerID, Limit: 10})
+	if err != nil || balancesAfterPost.Items[1].Account.ID != cashID || balancesAfterPost.Items[1].BalanceMinor != 10000 || balancesAfterPost.Items[2].BalanceMinor != 10000 {
+		t.Fatalf("balances after post=%+v err=%v", balancesAfterPost, err)
 	}
 
 	reversalID := ids.FinanceEntryID("fc700000-0000-4000-8000-000000000002")
@@ -322,6 +357,14 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 	if err != nil || replayedOriginal.ID != original.ID || replayedOriginal.State != original.State || replayedOriginal.ReversedByID != original.ReversedByID ||
 		replayedReversal.ID != reversal.ID || replayedReversal.State != reversal.State || replayedReversal.ReversalOfID != reversal.ReversalOfID {
 		t.Fatalf("reverse replay original=%+v reversal=%+v err=%v", replayedOriginal, replayedReversal, err)
+	}
+	entryPage, err := repository.ListEntries(ctx, accountID, financeapp.EntryListQuery{LedgerID: ledgerID, Limit: 1})
+	if err != nil || len(entryPage.Items) != 1 || entryPage.NextCursor == nil || entryPage.Items[0].ID != reversalID {
+		t.Fatalf("entry page=%+v err=%v", entryPage, err)
+	}
+	entryRemainder, err := repository.ListEntries(ctx, accountID, financeapp.EntryListQuery{LedgerID: ledgerID, After: entryPage.NextCursor, Limit: 1})
+	if err != nil || len(entryRemainder.Items) != 1 || entryRemainder.Items[0].ID != entryID || entryRemainder.Items[0].State != financedomain.EntryStateReversed {
+		t.Fatalf("entry remainder=%+v err=%v", entryRemainder, err)
 	}
 
 	asOf := now.AddDate(0, 0, 2)
@@ -345,6 +388,19 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 		mutation("fca00000-0000-4000-8000-000000000003", "reconciliation_confirmed", reverseAt.Add(3*time.Minute)))
 	if err != nil || confirmed.State != financedomain.ReconciliationConfirmed {
 		t.Fatalf("confirmed=%+v err=%v", confirmed, err)
+	}
+	reconciliationPage, err := repository.ListReconciliations(ctx, accountID, financeapp.ReconciliationListQuery{LedgerID: ledgerID, Limit: 1})
+	if err != nil || len(reconciliationPage.Items) != 1 || reconciliationPage.NextCursor == nil {
+		t.Fatalf("reconciliation page=%+v err=%v", reconciliationPage, err)
+	}
+	reconciliationRemainder, err := repository.ListReconciliations(ctx, accountID, financeapp.ReconciliationListQuery{LedgerID: ledgerID,
+		After: reconciliationPage.NextCursor, Limit: 1})
+	if err != nil || len(reconciliationRemainder.Items) != 1 || reconciliationRemainder.Items[0].ID == reconciliationPage.Items[0].ID {
+		t.Fatalf("reconciliation remainder=%+v err=%v", reconciliationRemainder, err)
+	}
+	loadedReconciliation, err := repository.GetReconciliation(ctx, accountID, matchedID)
+	if err != nil || loadedReconciliation.State != financedomain.ReconciliationConfirmed || len(loadedReconciliation.Evidence) != 1 {
+		t.Fatalf("loaded reconciliation=%+v err=%v", loadedReconciliation, err)
 	}
 
 	closeAt := now.Add(10 * time.Minute)
@@ -390,5 +446,46 @@ func TestFinanceRepositoryReplaysAndRestoresLifecycle(t *testing.T) {
 		mutation(archiveLedgerEvent, "archived", closeAt.Add(8*time.Minute)))
 	if err != nil || replayedArchivedLedger.Version != archivedLedger.Version || replayedArchivedLedger.UpdatedAt != archivedLedger.UpdatedAt {
 		t.Fatalf("ledger archive replay=%+v err=%v", replayedArchivedLedger, err)
+	}
+
+	overflowAssetID := ids.FinanceAccountID("fcc00000-0000-4000-8000-000000000001")
+	overflowIncomeID := ids.FinanceAccountID("fcc00000-0000-4000-8000-000000000002")
+	for index, value := range []struct {
+		id      ids.FinanceAccountID
+		code    string
+		kind    financedomain.AccountType
+		eventID string
+	}{{overflowAssetID, "1000", financedomain.AccountAsset, "fcc10000-0000-4000-8000-000000000001"},
+		{overflowIncomeID, "4000", financedomain.AccountIncome, "fcc10000-0000-4000-8000-000000000002"}} {
+		at := closeAt.Add(time.Duration(20+index) * time.Minute)
+		if _, created, err := repository.CreatePostingAccount(ctx, financedomain.PostingAccountDraft{ID: value.id, AccountID: accountID,
+			LedgerID: secondaryLedgerID, Code: value.code, Name: value.code, Type: value.kind, AllowPosting: true, CreatedBy: actor, CreatedAt: at},
+			accounts.RoleOwner, mutation(value.eventID, "created", at)); err != nil || !created {
+			t.Fatalf("overflow account created=%v err=%v", created, err)
+		}
+	}
+	for index := 0; index < 2; index++ {
+		entryID := ids.FinanceEntryID([]string{"fcc20000-0000-4000-8000-000000000001", "fcc20000-0000-4000-8000-000000000002"}[index])
+		createEvent := []string{"fcc30000-0000-4000-8000-000000000001", "fcc30000-0000-4000-8000-000000000002"}[index]
+		postEvent := []string{"fcc40000-0000-4000-8000-000000000001", "fcc40000-0000-4000-8000-000000000002"}[index]
+		createAt := closeAt.Add(time.Duration(22+index*2) * time.Minute)
+		value, created, err := repository.CreateEntry(ctx, financedomain.EntryDraft{ID: entryID, AccountID: accountID, LedgerID: secondaryLedgerID,
+			EntryDate: asOf.AddDate(0, 0, index+1), Description: "Aggregate boundary", Currency: "USD",
+			Lines:    []financedomain.JournalLine{{AccountID: overflowAssetID, DebitMinor: math.MaxInt64}, {AccountID: overflowIncomeID, CreditMinor: math.MaxInt64}},
+			Evidence: []ids.KnowledgeEvidenceID{evidenceID}, Provenance: financedomain.Provenance{Source: financedomain.SourceManual}, CreatedBy: actor, CreatedAt: createAt},
+			accounts.RoleMember, mutation(createEvent, "created", createAt))
+		if err != nil || !created {
+			t.Fatalf("overflow entry=%+v created=%v err=%v", value, created, err)
+		}
+		postAt := createAt.Add(time.Minute)
+		if _, err := repository.PostEntry(ctx, accountID, entryID, 1, actor, accounts.RoleOwner, mutation(postEvent, "posted", postAt)); err != nil {
+			t.Fatalf("overflow entry post err=%v", err)
+		}
+	}
+	if _, err := repository.ListPostingAccounts(ctx, accountID, financeapp.PostingAccountListQuery{LedgerID: secondaryLedgerID, Limit: 10}); !errors.Is(err, financeapp.ErrAggregateOverflow) {
+		t.Fatalf("posting-account aggregate overflow err=%v", err)
+	}
+	if _, err := repository.ListLedgers(ctx, accountID, financeapp.LedgerListQuery{Limit: 10}); !errors.Is(err, financeapp.ErrAggregateOverflow) {
+		t.Fatalf("Ledger aggregate overflow err=%v", err)
 	}
 }
