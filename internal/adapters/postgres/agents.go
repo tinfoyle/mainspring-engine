@@ -628,7 +628,7 @@ type frozenContextItem struct {
 }
 
 func buildAgentContext(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, selection agentapp.ContextSelection, canReadRestricted bool) ([]byte, [sha256.Size]byte, []agentapp.ContextReference, error) {
-	envelope := frozenContextEnvelope{SchemaVersion: 1, Items: make([]frozenContextItem, 0, len(selection.WorkItemIDs)+len(selection.KnowledgeFactIDs)+len(selection.BaselineAssessmentIDs))}
+	envelope := frozenContextEnvelope{SchemaVersion: 1, Items: make([]frozenContextItem, 0, len(selection.WorkItemIDs)+len(selection.KnowledgeFactIDs)+len(selection.KnowledgeDocumentIDs)+len(selection.BaselineAssessmentIDs))}
 	add := func(kind, id string, version uint64, content any) error {
 		raw, err := json.Marshal(content)
 		if err != nil || version == 0 {
@@ -693,6 +693,76 @@ func buildAgentContext(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, 
 			Sensitivity string          `json:"sensitivity"`
 		}{scope, key, state, canonical, confidence, sensitivity}
 		if err := add("knowledge_fact", string(id), uint64(revision), content); err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+	}
+	for _, id := range selection.KnowledgeDocumentIDs {
+		var revision, chunkCount int64
+		var revisionID, title, sensitivity, filename, mediaType, indexGeneration string
+		var textDigest []byte
+		err := tx.QueryRow(ctx, `SELECT d.current_revision,r.id,d.title,d.sensitivity,r.filename,r.verified_media_type,
+			r.text_sha256,r.index_generation,r.chunk_count
+			FROM spyglass.knowledge_documents d JOIN spyglass.knowledge_document_revisions r
+			ON r.account_id=d.account_id AND r.id=d.current_revision_id
+			WHERE d.account_id=$1 AND d.id=$2 AND d.state='ready' AND r.state='ready'
+			AND (d.sensitivity<>'restricted' OR $3) FOR SHARE OF d,r`, accountID, id, canReadRestricted).Scan(
+			&revision, &revisionID, &title, &sensitivity, &filename, &mediaType, &textDigest, &indexGeneration, &chunkCount)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrNotFound
+		}
+		if err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+		if revision < 1 || ids.Validate(revisionID) != nil || len(textDigest) != sha256.Size || chunkCount < 1 || chunkCount > 16384 {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrCorrupt
+		}
+		type documentChunk struct {
+			Index       int64  `json:"index"`
+			StartByte   int64  `json:"start_byte"`
+			EndByte     int64  `json:"end_byte"`
+			Content     string `json:"content"`
+			ContentHash string `json:"content_sha256"`
+		}
+		chunks := make([]documentChunk, 0, chunkCount)
+		rows, err := tx.Query(ctx, `SELECT chunk_index,start_byte,end_byte,content,content_sha256
+			FROM spyglass.knowledge_document_chunks WHERE account_id=$1 AND revision_id=$2 AND index_generation=$3 ORDER BY chunk_index`, accountID, revisionID, indexGeneration)
+		if err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+		for rows.Next() {
+			var chunk documentChunk
+			var contentDigest []byte
+			if err := rows.Scan(&chunk.Index, &chunk.StartByte, &chunk.EndByte, &chunk.Content, &contentDigest); err != nil {
+				rows.Close()
+				return nil, [sha256.Size]byte{}, nil, err
+			}
+			computed := sha256.Sum256([]byte(chunk.Content))
+			if chunk.Index != int64(len(chunks)) || chunk.StartByte < 0 || chunk.EndByte <= chunk.StartByte || len(contentDigest) != sha256.Size || !bytes.Equal(contentDigest, computed[:]) {
+				rows.Close()
+				return nil, [sha256.Size]byte{}, nil, agentapp.ErrCorrupt
+			}
+			chunk.ContentHash = hex.EncodeToString(contentDigest)
+			chunks = append(chunks, chunk)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, [sha256.Size]byte{}, nil, err
+		}
+		if int64(len(chunks)) != chunkCount {
+			return nil, [sha256.Size]byte{}, nil, agentapp.ErrCorrupt
+		}
+		content := struct {
+			Title           string          `json:"title"`
+			Sensitivity     string          `json:"sensitivity"`
+			RevisionID      string          `json:"revision_id"`
+			Filename        string          `json:"filename"`
+			MediaType       string          `json:"media_type"`
+			TextSHA256      string          `json:"text_sha256"`
+			IndexGeneration string          `json:"index_generation"`
+			Chunks          []documentChunk `json:"chunks"`
+		}{title, sensitivity, revisionID, filename, mediaType, hex.EncodeToString(textDigest), indexGeneration, chunks}
+		if err := add("knowledge_document", string(id), uint64(revision), content); err != nil {
 			return nil, [sha256.Size]byte{}, nil, err
 		}
 	}
@@ -763,12 +833,15 @@ func buildAgentContext(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, 
 }
 
 func contextSelectionMatches(references []agentapp.ContextReference, selection agentapp.ContextSelection) bool {
-	expected := make([]string, 0, len(selection.WorkItemIDs)+len(selection.KnowledgeFactIDs)+len(selection.BaselineAssessmentIDs))
+	expected := make([]string, 0, len(selection.WorkItemIDs)+len(selection.KnowledgeFactIDs)+len(selection.KnowledgeDocumentIDs)+len(selection.BaselineAssessmentIDs))
 	for _, id := range selection.WorkItemIDs {
 		expected = append(expected, "work_item:"+string(id))
 	}
 	for _, id := range selection.KnowledgeFactIDs {
 		expected = append(expected, "knowledge_fact:"+string(id))
+	}
+	for _, id := range selection.KnowledgeDocumentIDs {
+		expected = append(expected, "knowledge_document:"+string(id))
 	}
 	for _, id := range selection.BaselineAssessmentIDs {
 		expected = append(expected, "baseline_assessment:"+string(id))
@@ -804,7 +877,7 @@ func decodeAgentContext(raw, storedDigest []byte, expectedCount int) ([]agentapp
 		decoded, err := hex.DecodeString(item.Digest)
 		contentDigest := sha256.Sum256(item.Content)
 		if err != nil || len(decoded) != sha256.Size || !bytes.Equal(decoded, contentDigest[:]) || ids.Validate(item.ID) != nil || item.Version == 0 ||
-			!slices.Contains([]string{"work_item", "knowledge_fact", "baseline_assessment"}, item.Kind) || !json.Valid(item.Content) {
+			!slices.Contains([]string{"work_item", "knowledge_fact", "knowledge_document", "baseline_assessment"}, item.Kind) || !json.Valid(item.Content) {
 			return nil, [sha256.Size]byte{}, agentapp.ErrCorrupt
 		}
 		references[index] = agentapp.ContextReference{Kind: item.Kind, ID: item.ID, Version: item.Version, Digest: contentDigest}

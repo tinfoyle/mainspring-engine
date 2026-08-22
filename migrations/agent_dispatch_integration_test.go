@@ -3,6 +3,7 @@ package migrations_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"os"
@@ -56,6 +57,8 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	conversationID := ids.ConversationID("74000000-0000-4000-8000-000000000001")
 	messageID := ids.MessageID("84000000-0000-4000-8000-000000000001")
 	workItemID := ids.WorkItemID("86000000-0000-4000-8000-000000000001")
+	documentID := ids.KnowledgeDocumentID("d1000000-0000-4000-8000-000000000001")
+	documentRevisionID := ids.KnowledgeDocumentRevisionID("d2000000-0000-4000-8000-000000000002")
 	leaseID := "94000000-0000-4000-8000-000000000001"
 	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.account_namespaces(account_id,placement_generation,state,created_at)
 		VALUES ($1,1,'active',$3),($2,1,'active',$3)`, accountID, otherAccountID, now); err != nil {
@@ -65,6 +68,27 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 		(account_id,id,number,depth,kind,title,description,state,priority,responsibility,source,created_by_actor_kind,created_by_actor_id,capacity_reservation_id,version,created_at,updated_at)
 		VALUES ($1,$2,1,0,'ticket','Inspect reef dependency','Frozen attachment body','open','high','shared','manual','user',$3,$4,3,$5,$5)`,
 		accountID, workItemID, userID, "87000000-0000-4000-8000-000000000001", now); err != nil {
+		t.Fatal(err)
+	}
+	documentContent := "Frozen document evidence for the reef dependency."
+	documentContentDigest := sha256.Sum256([]byte(documentContent))
+	sourceDigest := sha256.Sum256([]byte("source object"))
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.knowledge_documents
+		(account_id,id,title,sensitivity,current_revision_id,current_revision,state,version,created_by_kind,created_by_id,created_at,updated_at)
+		VALUES ($1,$2,'Reef operating evidence','confidential',NULL,NULL,'processing',1,'user',$4,$5,$5);
+		INSERT INTO spyglass.knowledge_document_revisions
+		(account_id,id,document_id,revision,filename,declared_media_type,verified_media_type,byte_size,content_sha256,object_key,object_version,change_summary,
+		 state,scan_state,scan_engine,scan_signature,scanned_at,extraction_state,extractor,text_sha256,text_bytes,extracted_at,index_state,index_generation,chunk_count,indexed_at,
+		 failure_code,created_by_kind,created_by_id,created_at,updated_at,extracted_object_key,extracted_object_version)
+		VALUES ($1,$3,$2,1,'reef.txt','text/plain','text/plain',13,$6,'accounts/'||$1::text||'/documents/'||$2::text||'/revisions/'||$3::text||'/source','source-v1','Initial evidence',
+		 'ready','clean','clamav-test','',$5,'ready','tika-test',$7,$8,$5,'ready','knowledge-v1',1,$5,'','user',$4,$5,$5,
+		 'accounts/'||$1::text||'/documents/'||$2::text||'/revisions/'||$3::text||'/extracted/text','extracted-v1');
+		INSERT INTO spyglass.knowledge_document_chunks
+		(account_id,id,revision_id,chunk_index,start_byte,end_byte,content,content_sha256,token_count,index_generation,created_at)
+		VALUES ($1,'d3000000-0000-4000-8000-000000000003',$3,0,0,$8,$9,$7,8,'knowledge-v1',$5);
+		UPDATE spyglass.knowledge_documents SET current_revision_id=$3,current_revision=1,state='ready',version=2,updated_at=$5
+		WHERE account_id=$1 AND id=$2`,
+		pgx.QueryExecModeSimpleProtocol, accountID, documentID, documentRevisionID, userID, now, sourceDigest[:], documentContentDigest[:], len(documentContent), documentContent); err != nil {
 		t.Fatal(err)
 	}
 
@@ -127,11 +151,26 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	if _, _, err := repository.PublishPersona(ctx, boardroomID, conflictingVersion, 0); !errors.Is(err, agentapp.ErrConflict) {
 		t.Fatalf("persona identity/content conflict=%v", err)
 	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.knowledge_documents SET sensitivity='restricted',version=version+1 WHERE account_id=$1 AND id=$2`, accountID, documentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := repository.StartRun(ctx, agentapp.StartRunDraft{
+		Actor: access.Actor{UserID: userID}, AccountID: accountID, BoardroomID: boardroomID,
+		RunID: ids.RunID("65000000-0000-4000-8000-000000000005"), ConversationID: ids.ConversationID("75000000-0000-4000-8000-000000000005"), CreateConversation: true,
+		UserMessageID: ids.MessageID("85000000-0000-4000-8000-000000000005"), Subject: "Restricted evidence", Prompt: "This attachment must remain undisclosed.",
+		PersonaIDs: []ids.PersonaID{personaID}, Context: agentapp.ContextSelection{KnowledgeDocumentIDs: []ids.KnowledgeDocumentID{documentID}}, EntitlementVersion: 7,
+		MaximumConcurrentRun: 1, CanReadRestricted: false, CreatedAt: now, RequestExpiresAt: now.Add(time.Hour),
+	}); !errors.Is(err, agentapp.ErrNotFound) {
+		t.Fatalf("restricted document attachment=%v", err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.knowledge_documents SET sensitivity='confidential',version=version+1 WHERE account_id=$1 AND id=$2`, accountID, documentID); err != nil {
+		t.Fatal(err)
+	}
 	prompt := "Analyze the private reef backlog and identify the highest-risk dependency."
 	run, created, err := repository.StartRun(ctx, agentapp.StartRunDraft{
 		Actor: access.Actor{UserID: userID}, AccountID: accountID, BoardroomID: boardroomID,
 		RunID: runID, ConversationID: conversationID, CreateConversation: true, UserMessageID: messageID,
-		Subject: "Reef backlog", Prompt: prompt, PersonaIDs: []ids.PersonaID{personaID}, Context: agentapp.ContextSelection{WorkItemIDs: []ids.WorkItemID{workItemID}}, EntitlementVersion: 7,
+		Subject: "Reef backlog", Prompt: prompt, PersonaIDs: []ids.PersonaID{personaID}, Context: agentapp.ContextSelection{WorkItemIDs: []ids.WorkItemID{workItemID}, KnowledgeDocumentIDs: []ids.KnowledgeDocumentID{documentID}}, EntitlementVersion: 7,
 		MaximumConcurrentRun: 1, CreatedAt: now, RequestExpiresAt: now.Add(time.Hour),
 	})
 	if err != nil || !created || len(run.InvocationIDs) != 1 {
@@ -140,7 +179,7 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	if repeated, repeatedCreated, err := repository.StartRun(ctx, agentapp.StartRunDraft{
 		Actor: access.Actor{UserID: userID}, AccountID: accountID, BoardroomID: boardroomID,
 		RunID: runID, ConversationID: conversationID, CreateConversation: true, UserMessageID: messageID,
-		Subject: "Reef backlog", Prompt: prompt, PersonaIDs: []ids.PersonaID{personaID}, Context: agentapp.ContextSelection{WorkItemIDs: []ids.WorkItemID{workItemID}}, EntitlementVersion: 7,
+		Subject: "Reef backlog", Prompt: prompt, PersonaIDs: []ids.PersonaID{personaID}, Context: agentapp.ContextSelection{WorkItemIDs: []ids.WorkItemID{workItemID}, KnowledgeDocumentIDs: []ids.KnowledgeDocumentID{documentID}}, EntitlementVersion: 7,
 		MaximumConcurrentRun: 1, CreatedAt: now, RequestExpiresAt: now.Add(time.Hour),
 	}); err != nil || repeatedCreated || repeated.Plan.Digest != run.Plan.Digest {
 		t.Fatalf("idempotent run=%+v created=%v err=%v", repeated, repeatedCreated, err)
@@ -213,7 +252,7 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot, err := dispatchRepository.Load(ctx, agentdispatch.Claim{AccountID: accountID, InvocationID: string(run.InvocationIDs[0]), LeaseID: leaseID, Attempt: 1})
-	if err != nil || snapshot.ContextItemCount != 1 || snapshot.ContextDigest == ([32]byte{}) || !bytes.Contains(snapshot.ContextPayload, []byte("Frozen attachment body")) {
+	if err != nil || snapshot.ContextItemCount != 2 || snapshot.ContextDigest == ([32]byte{}) || !bytes.Contains(snapshot.ContextPayload, []byte("Frozen attachment body")) || !bytes.Contains(snapshot.ContextPayload, []byte(documentContent)) || !bytes.Contains(snapshot.ContextPayload, []byte(`"kind":"knowledge_document"`)) {
 		t.Fatalf("frozen context count=%d digest=%x payload=%s err=%v", snapshot.ContextItemCount, snapshot.ContextDigest, snapshot.ContextPayload, err)
 	}
 	brokerRepository, err := postgresadapter.NewRunnerBrokerRepository(dispatcher)

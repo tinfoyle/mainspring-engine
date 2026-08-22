@@ -142,10 +142,10 @@ func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testi
 	}
 
 	run := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/runs", agentOperation,
-		`{"subject":"Weekly review","prompt":"What should we prioritize?","persona_ids":["`+agentPersona+`"]}`)
+		`{"subject":"Weekly review","prompt":"What should we prioritize?","persona_ids":["`+agentPersona+`"],"context":{"knowledge_document_ids":["66000000-0000-4000-8000-000000000006"]}}`)
 	if run.Code != http.StatusAccepted || run.Header().Get("Location") != "/api/v1/accounts/"+agentAccount+"/agent-runs/"+agentOperation ||
 		service.runCommand.RequestID != agentOperation || !strings.Contains(run.Body.String(), `"state":"planned"`) ||
-		!strings.Contains(run.Body.String(), `"turns":[{`) || !strings.Contains(run.Body.String(), `"invocation_ids":["`+agentInvocation+`"]`) {
+		!strings.Contains(run.Body.String(), `"turns":[{`) || !strings.Contains(run.Body.String(), `"invocation_ids":["`+agentInvocation+`"]`) || len(service.runCommand.Context.KnowledgeDocumentIDs) != 1 {
 		t.Fatalf("run=%d location=%q body=%s command=%+v", run.Code, run.Header().Get("Location"), run.Body.String(), service.runCommand)
 	}
 

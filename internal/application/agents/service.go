@@ -129,6 +129,7 @@ type Run struct {
 type ContextSelection struct {
 	WorkItemIDs           []ids.WorkItemID
 	KnowledgeFactIDs      []ids.KnowledgeFactID
+	KnowledgeDocumentIDs  []ids.KnowledgeDocumentID
 	BaselineAssessmentIDs []ids.BaselineAssessmentID
 }
 
@@ -336,7 +337,7 @@ func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, b
 			return Run{}, false, err
 		}
 	}
-	if len(command.Context.KnowledgeFactIDs)+len(command.Context.BaselineAssessmentIDs) != 0 {
+	if len(command.Context.KnowledgeFactIDs)+len(command.Context.KnowledgeDocumentIDs)+len(command.Context.BaselineAssessmentIDs) != 0 {
 		if _, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Package: catalog.PackageKnowledge}); err != nil {
 			return Run{}, false, err
 		}
@@ -372,7 +373,7 @@ func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, b
 }
 
 func validContextSelection(selection ContextSelection) bool {
-	total := len(selection.WorkItemIDs) + len(selection.KnowledgeFactIDs) + len(selection.BaselineAssessmentIDs)
+	total := len(selection.WorkItemIDs) + len(selection.KnowledgeFactIDs) + len(selection.KnowledgeDocumentIDs) + len(selection.BaselineAssessmentIDs)
 	if total > MaximumContextItems {
 		return false
 	}
@@ -397,15 +398,19 @@ func validContextSelection(selection ContextSelection) bool {
 	for index, value := range selection.KnowledgeFactIDs {
 		facts[index] = string(value)
 	}
+	documents := make([]string, len(selection.KnowledgeDocumentIDs))
+	for index, value := range selection.KnowledgeDocumentIDs {
+		documents[index] = string(value)
+	}
 	baselines := make([]string, len(selection.BaselineAssessmentIDs))
 	for index, value := range selection.BaselineAssessmentIDs {
 		baselines[index] = string(value)
 	}
-	return validate(work) && validate(facts) && validate(baselines)
+	return validate(work) && validate(facts) && validate(documents) && validate(baselines)
 }
 
 func cloneContextSelection(selection ContextSelection) ContextSelection {
-	return ContextSelection{WorkItemIDs: slices.Clone(selection.WorkItemIDs), KnowledgeFactIDs: slices.Clone(selection.KnowledgeFactIDs), BaselineAssessmentIDs: slices.Clone(selection.BaselineAssessmentIDs)}
+	return ContextSelection{WorkItemIDs: slices.Clone(selection.WorkItemIDs), KnowledgeFactIDs: slices.Clone(selection.KnowledgeFactIDs), KnowledgeDocumentIDs: slices.Clone(selection.KnowledgeDocumentIDs), BaselineAssessmentIDs: slices.Clone(selection.BaselineAssessmentIDs)}
 }
 
 func (s *Service) ListBoardrooms(ctx context.Context, actor access.Actor, accountID ids.AccountID, limit int) ([]agentdomain.Boardroom, error) {

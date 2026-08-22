@@ -73,6 +73,7 @@ type startAgentRunRequest struct {
 type agentRunContextRequest struct {
 	WorkItemIDs           []ids.WorkItemID           `json:"work_item_ids"`
 	KnowledgeFactIDs      []ids.KnowledgeFactID      `json:"knowledge_fact_ids"`
+	KnowledgeDocumentIDs  []ids.KnowledgeDocumentID  `json:"knowledge_document_ids"`
 	BaselineAssessmentIDs []ids.BaselineAssessmentID `json:"baseline_assessment_ids"`
 }
 type resolveAgentRunRequest struct {
@@ -220,7 +221,7 @@ func (s *Server) agentRunStart(w http.ResponseWriter, r *http.Request) {
 	}
 	contextSelection := agentapp.ContextSelection{}
 	if request.Context != nil {
-		contextSelection = agentapp.ContextSelection{WorkItemIDs: request.Context.WorkItemIDs, KnowledgeFactIDs: request.Context.KnowledgeFactIDs, BaselineAssessmentIDs: request.Context.BaselineAssessmentIDs}
+		contextSelection = agentapp.ContextSelection{WorkItemIDs: request.Context.WorkItemIDs, KnowledgeFactIDs: request.Context.KnowledgeFactIDs, KnowledgeDocumentIDs: request.Context.KnowledgeDocumentIDs, BaselineAssessmentIDs: request.Context.BaselineAssessmentIDs}
 	}
 	run, created, err := s.agents.StartRun(routecontext.WithClaims(r.Context(), claims), agentapp.StartRunCommand{Actor: actor,
 		AccountID: accountID, RequestID: operationID, BoardroomID: boardroomID, ConversationID: request.ConversationID,

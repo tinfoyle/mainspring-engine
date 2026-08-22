@@ -297,6 +297,7 @@ export interface AgentRun {
 
 export interface AgentRunContextInput {
   readonly "baseline_assessment_ids"?: ReadonlyArray<string>;
+  readonly "knowledge_document_ids"?: ReadonlyArray<string>;
   readonly "knowledge_fact_ids"?: ReadonlyArray<string>;
   readonly "work_item_ids"?: ReadonlyArray<string>;
 }
@@ -304,7 +305,7 @@ export interface AgentRunContextInput {
 export interface AgentRunContextReference {
   readonly "digest": string;
   readonly "id": string;
-  readonly "kind": "work_item" | "knowledge_fact" | "baseline_assessment";
+  readonly "kind": "work_item" | "knowledge_fact" | "knowledge_document" | "baseline_assessment";
   readonly "version": number;
 }
 

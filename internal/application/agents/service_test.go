@@ -145,13 +145,14 @@ func TestPublishPersonaPinsOwnedResultSchemaAndCapabilityAllowlist(t *testing.T)
 
 func TestStartRunDerivesStableChildrenAndFreezesEntitlement(t *testing.T) {
 	service, _, repository, now := newAgentService(t)
-	command := StartRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, BoardroomID: testBoardroom, Subject: "Weekly operating review", Prompt: "What should we prioritize this week?", PersonaIDs: []ids.PersonaID{testPersona}}
+	documentID := ids.KnowledgeDocumentID("66000000-0000-4000-8000-000000000006")
+	command := StartRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, BoardroomID: testBoardroom, Subject: "Weekly operating review", Prompt: "What should we prioritize this week?", PersonaIDs: []ids.PersonaID{testPersona}, Context: ContextSelection{KnowledgeDocumentIDs: []ids.KnowledgeDocumentID{documentID}}}
 	_, created, err := service.StartRun(context.Background(), command)
 	if err != nil || !created {
 		t.Fatal(err)
 	}
 	draft := repository.runDraft
-	if !draft.CreateConversation || ids.Validate(string(draft.ConversationID)) != nil || ids.Validate(string(draft.UserMessageID)) != nil || draft.EntitlementVersion != 7 || draft.MaximumConcurrentRun != 2 || draft.RequestExpiresAt != now.Add(DefaultRunLifetime) {
+	if !draft.CreateConversation || ids.Validate(string(draft.ConversationID)) != nil || ids.Validate(string(draft.UserMessageID)) != nil || draft.EntitlementVersion != 7 || draft.MaximumConcurrentRun != 2 || draft.RequestExpiresAt != now.Add(DefaultRunLifetime) || len(draft.Context.KnowledgeDocumentIDs) != 1 || draft.Context.KnowledgeDocumentIDs[0] != documentID {
 		t.Fatalf("unexpected run draft: %+v", draft)
 	}
 	firstConversation, firstMessage := draft.ConversationID, draft.UserMessageID
