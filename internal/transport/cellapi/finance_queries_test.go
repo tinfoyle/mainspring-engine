@@ -171,4 +171,4 @@ func financeQueryClaims() routecontext.Claims {
 		PackageAccess: &routecontext.PackageAccess{Code: "finance", Version: 1, Mode: "enabled"}}}
 }
 
-var _ FinanceService = (*financeQueryTransportService)(nil)
+var _ FinanceQueryService = (*financeQueryTransportService)(nil)

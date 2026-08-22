@@ -669,6 +669,11 @@ export interface ChangeMembershipStateRequest {
   readonly "reason": string;
 }
 
+export interface CloseFinancePeriodRequest {
+  readonly "evidence": ReadonlyArray<string>;
+  readonly "through": string;
+}
+
 export interface CompleteContactChangeRequest {
   readonly "token": string;
 }
@@ -755,6 +760,38 @@ export interface CreateBaselineSourceGrantRequest {
 
 export interface CreateCheckoutSessionRequest {
   readonly "offer_code": string;
+}
+
+export interface CreateFinanceEntryRequest {
+  readonly "currency": FinanceCurrency;
+  readonly "description": string;
+  readonly "entry_date": string;
+  readonly "evidence": FinanceEvidenceList;
+  readonly "lines": ReadonlyArray<FinanceJournalLine>;
+  readonly "reference": string;
+}
+
+export interface CreateFinanceLedgerRequest {
+  readonly "code": string;
+  readonly "currency": FinanceCurrency;
+  readonly "description": string;
+  readonly "name": string;
+}
+
+export interface CreateFinancePostingAccountRequest {
+  readonly "allow_posting": boolean;
+  readonly "code": string;
+  readonly "description": string;
+  readonly "name": string;
+  readonly "parent_account_id"?: string;
+  readonly "type": FinanceAccountType;
+}
+
+export interface CreateFinanceReconciliationRequest {
+  readonly "as_of": string;
+  readonly "evidence": ReadonlyArray<string>;
+  readonly "posting_account_id": string;
+  readonly "statement_balance": FinanceMoney;
 }
 
 export interface CreateInformationRequestInput {
@@ -881,6 +918,8 @@ export interface FinanceEntrySummary {
   readonly "version": number;
 }
 
+export type FinanceEvidenceList = ReadonlyArray<string>;
+
 export interface FinanceJournalEntry {
   readonly "account_id": string;
   readonly "created_at": string;
@@ -888,7 +927,7 @@ export interface FinanceJournalEntry {
   readonly "currency": FinanceCurrency;
   readonly "description": string;
   readonly "entry_date": string;
-  readonly "evidence": ReadonlyArray<string> | null;
+  readonly "evidence": FinanceEvidenceList | null;
   readonly "id": string;
   readonly "ledger_id": string;
   readonly "lines": ReadonlyArray<FinanceJournalLine>;
@@ -916,7 +955,7 @@ export interface FinanceJournalLine {
 
 export interface FinanceLedger {
   readonly "account_id": string;
-  readonly "close_evidence"?: ReadonlyArray<string>;
+  readonly "close_evidence"?: FinanceEvidenceList;
   readonly "closed_through"?: string;
   readonly "code": string;
   readonly "created_at": string;
@@ -1035,6 +1074,11 @@ export interface FinanceReconciliationSummary {
   readonly "statement_balance": FinanceMoney;
   readonly "updated_at": string;
   readonly "version": number;
+}
+
+export interface FinanceReversal {
+  readonly "original": FinanceJournalEntry;
+  readonly "reversal": FinanceJournalEntry;
 }
 
 export interface HostedBillingSession {
@@ -1520,6 +1564,35 @@ export interface RetrieveKnowledgeDocumentsRequest {
   readonly "query": string;
 }
 
+export interface ReverseFinanceEntryRequest {
+  readonly "description": string;
+  readonly "entry_date": string;
+  readonly "evidence": ReadonlyArray<string>;
+  readonly "reference": string;
+}
+
+export interface ReviseFinanceEntryRequest {
+  readonly "description": string;
+  readonly "entry_date": string;
+  readonly "evidence": FinanceEvidenceList;
+  readonly "lines": ReadonlyArray<FinanceJournalLine>;
+  readonly "reference": string;
+}
+
+export interface ReviseFinanceLedgerRequest {
+  readonly "code": string;
+  readonly "description": string;
+  readonly "name": string;
+}
+
+export interface ReviseFinancePostingAccountRequest {
+  readonly "allow_posting": boolean;
+  readonly "code": string;
+  readonly "description": string;
+  readonly "name": string;
+  readonly "parent_account_id"?: string;
+}
+
 export interface ReviseScheduleRequest {
   readonly "expected_version": number;
   readonly "missed_run_policy": ScheduleMissedRunPolicy;
@@ -1925,6 +1998,7 @@ export interface ApiSchemas {
   readonly ChangeAccountClosureRequest: ChangeAccountClosureRequest;
   readonly ChangeMembershipRoleRequest: ChangeMembershipRoleRequest;
   readonly ChangeMembershipStateRequest: ChangeMembershipStateRequest;
+  readonly CloseFinancePeriodRequest: CloseFinancePeriodRequest;
   readonly CompleteContactChangeRequest: CompleteContactChangeRequest;
   readonly CompletePasskeyLoginRequest: CompletePasskeyLoginRequest;
   readonly CompletePasskeyReauthenticationRequest: CompletePasskeyReauthenticationRequest;
@@ -1940,6 +2014,10 @@ export interface ApiSchemas {
   readonly CreateApprovalRequest: CreateApprovalRequest;
   readonly CreateBaselineSourceGrantRequest: CreateBaselineSourceGrantRequest;
   readonly CreateCheckoutSessionRequest: CreateCheckoutSessionRequest;
+  readonly CreateFinanceEntryRequest: CreateFinanceEntryRequest;
+  readonly CreateFinanceLedgerRequest: CreateFinanceLedgerRequest;
+  readonly CreateFinancePostingAccountRequest: CreateFinancePostingAccountRequest;
+  readonly CreateFinanceReconciliationRequest: CreateFinanceReconciliationRequest;
   readonly CreateInformationRequestInput: CreateInformationRequestInput;
   readonly CreateInvitationRequest: CreateInvitationRequest;
   readonly CreateScheduleRequest: CreateScheduleRequest;
@@ -1961,6 +2039,7 @@ export interface ApiSchemas {
   readonly FinanceEntrySource: FinanceEntrySource;
   readonly FinanceEntryState: FinanceEntryState;
   readonly FinanceEntrySummary: FinanceEntrySummary;
+  readonly FinanceEvidenceList: FinanceEvidenceList;
   readonly FinanceJournalEntry: FinanceJournalEntry;
   readonly FinanceJournalLine: FinanceJournalLine;
   readonly FinanceLedger: FinanceLedger;
@@ -1977,6 +2056,7 @@ export interface ApiSchemas {
   readonly FinanceReconciliationPage: FinanceReconciliationPage;
   readonly FinanceReconciliationState: FinanceReconciliationState;
   readonly FinanceReconciliationSummary: FinanceReconciliationSummary;
+  readonly FinanceReversal: FinanceReversal;
   readonly HostedBillingSession: HostedBillingSession;
   readonly InformationAnswer: InformationAnswer;
   readonly InformationCompletion: InformationCompletion;
@@ -2047,6 +2127,10 @@ export interface ApiSchemas {
   readonly RequestActionResolutionRequest: RequestActionResolutionRequest;
   readonly ResolveAgentRunRequest: ResolveAgentRunRequest;
   readonly RetrieveKnowledgeDocumentsRequest: RetrieveKnowledgeDocumentsRequest;
+  readonly ReverseFinanceEntryRequest: ReverseFinanceEntryRequest;
+  readonly ReviseFinanceEntryRequest: ReviseFinanceEntryRequest;
+  readonly ReviseFinanceLedgerRequest: ReviseFinanceLedgerRequest;
+  readonly ReviseFinancePostingAccountRequest: ReviseFinancePostingAccountRequest;
   readonly ReviseScheduleRequest: ReviseScheduleRequest;
   readonly RevokeBaselineSourceGrantRequest: RevokeBaselineSourceGrantRequest;
   readonly Schedule: Schedule;

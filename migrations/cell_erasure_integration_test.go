@@ -53,6 +53,9 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	for _, table := range []string{"schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue", "schedule_queue_operator_events"} {
 		coveredTables[table] = true
 	}
+	for _, table := range []string{"finance_ledgers", "finance_ledger_close_evidence", "finance_accounts", "finance_entry_number_counters", "finance_entries", "finance_entry_lines", "finance_entry_evidence", "finance_reconciliations", "finance_reconciliation_evidence", "finance_events"} {
+		coveredTables[table] = true
+	}
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +104,11 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 			spyglass.agent_runs,spyglass.agent_run_plan_turns,spyglass.agent_invocations,spyglass.agent_messages,
 			spyglass.agent_result_projection_queue,spyglass.agent_user_messages,spyglass.agent_invocation_execution_plans,
 			spyglass.agent_dispatch_queue,spyglass.agent_queue_operator_events,spyglass.agent_run_resolutions,
-			spyglass.account_move_checkpoints TO `+functionRole+`;
+			spyglass.account_move_checkpoints,
+			spyglass.finance_ledgers,spyglass.finance_ledger_close_evidence,spyglass.finance_accounts,
+			spyglass.finance_entry_number_counters,spyglass.finance_entries,spyglass.finance_entry_lines,
+			spyglass.finance_entry_evidence,spyglass.finance_reconciliations,spyglass.finance_reconciliation_evidence,
+			spyglass.finance_events TO `+functionRole+`;
 		GRANT UPDATE ON spyglass.account_namespaces TO `+functionRole+`;
 		ALTER TABLE spyglass.account_erasure_tombstones OWNER TO `+functionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_control(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;
@@ -177,6 +184,16 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	expectedCounts["schedule_triggers"] = 1
 	expectedCounts["schedule_trigger_queue"] = 1
 	expectedCounts["schedule_queue_operator_events"] = 1
+	expectedCounts["finance_ledgers"] = 1
+	expectedCounts["finance_ledger_close_evidence"] = 1
+	expectedCounts["finance_accounts"] = 1
+	expectedCounts["finance_entry_number_counters"] = 1
+	expectedCounts["finance_entries"] = 1
+	expectedCounts["finance_entry_lines"] = 2
+	expectedCounts["finance_entry_evidence"] = 1
+	expectedCounts["finance_reconciliations"] = 1
+	expectedCounts["finance_reconciliation_evidence"] = 1
+	expectedCounts["finance_events"] = 1
 	for name, expected := range expectedCounts {
 		if tombstone.RowCounts[name] != expected {
 			t.Fatalf("row count %s=%d want=%d; all=%v", name, tombstone.RowCounts[name], expected, tombstone.RowCounts)
@@ -474,6 +491,39 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		VALUES ($1,$5,$2,'migration_started',0,1,'prototype-migration',$6,$7)`, pgx.QueryExecModeSimpleProtocol, accountID, prototypeRunID, prototypeTenantID, prototypeTargetID, prototypeEventID, prototypeCorrelationID, now); err != nil {
 		t.Fatal(err)
 	}
+	financeLedgerID := strings.Replace(rootID, "000000000001", "000000000801", 1)
+	financeAccountID := strings.Replace(rootID, "000000000001", "000000000802", 1)
+	financeEntryID := strings.Replace(rootID, "000000000001", "000000000803", 1)
+	financeReconciliationID := strings.Replace(rootID, "000000000001", "000000000804", 1)
+	financeEventID := strings.Replace(rootID, "000000000001", "000000000805", 1)
+	financeCorrelationID := strings.Replace(rootID, "000000000001", "000000000806", 1)
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.finance_ledgers
+		(account_id,id,name,code,description,currency,state,version,created_by_kind,created_by_id,created_at,updated_at)
+		VALUES ($1,$2,'Erasure Ledger','ERASURE','Finance erasure fixture','USD','active',1,'user',$7,$8,$8);
+		INSERT INTO spyglass.finance_ledger_close_evidence(account_id,ledger_id,ledger_version,evidence_id,closed_through,created_at)
+		VALUES ($1,$2,2,$6,$8::date-interval '1 day',$8);
+		UPDATE spyglass.finance_ledgers SET closed_through=($8::date-interval '1 day')::date,version=2,updated_at=$8 WHERE account_id=$1 AND id=$2;
+		INSERT INTO spyglass.finance_accounts
+		(account_id,id,ledger_id,code,name,description,account_type,normal_balance,allow_posting,state,version,created_by_kind,created_by_id,created_at,updated_at)
+		VALUES ($1,$3,$2,'1000','Erasure Cash','Finance erasure account','asset','debit',true,'active',1,'user',$7,$8,$8);
+		INSERT INTO spyglass.finance_entry_number_counters(account_id,ledger_id,next_number) VALUES ($1,$2,2);
+		INSERT INTO spyglass.finance_entries
+		(account_id,id,ledger_id,entry_number,entry_date,description,reference,currency,total_minor,source,state,version,created_by_kind,created_by_id,created_at,updated_at)
+		VALUES ($1,$4,$2,1,$8::date,'Erasure entry','ERASURE-1','USD',100,'manual','draft',1,'user',$7,$8,$8);
+		INSERT INTO spyglass.finance_entry_lines(account_id,entry_id,line_number,ledger_id,posting_account_id,memo,debit_minor,credit_minor)
+		VALUES ($1,$4,1,$2,$3,'Erasure debit',100,0),($1,$4,2,$2,$3,'Erasure credit',0,100);
+		INSERT INTO spyglass.finance_entry_evidence(account_id,entry_id,evidence_id) VALUES ($1,$4,$6);
+		INSERT INTO spyglass.finance_reconciliations
+		(account_id,id,ledger_id,posting_account_id,as_of,currency,statement_balance_minor,ledger_balance_minor,difference_minor,primary_evidence_id,state,version,created_by_user_id,created_at,updated_at)
+		VALUES ($1,$5,$2,$3,$8::date,'USD',0,0,0,$6,'proposed',1,$7,$8,$8);
+		INSERT INTO spyglass.finance_reconciliation_evidence(account_id,reconciliation_id,evidence_id) VALUES ($1,$5,$6);
+		INSERT INTO spyglass.finance_events
+		(account_id,id,aggregate_kind,aggregate_id,event_type,from_version,to_version,actor_kind,actor_id,correlation_id,redacted_payload,occurred_at)
+		VALUES ($1,$9,'ledger',$2,'created',0,1,'user',$7,$10,'{"state":"active"}',$8)`,
+		pgx.QueryExecModeSimpleProtocol, accountID, financeLedgerID, financeAccountID, financeEntryID, financeReconciliationID,
+		knowledgeEvidenceID, reviewerUserID, now, financeEventID, financeCorrelationID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.route_context_receipts(account_id,request_id,placement_generation,entitlement_version,actor_kind,actor_id,method,target_sha256,body_sha256,issued_at,expires_at,consumed_at) VALUES ($1,$2,3,1,'user','test-actor','GET',$3,$3,$4,$5,$4)`, accountID, strings.Replace(rootID, "000000000001", "000000000031", 1), bytes.Repeat([]byte{1}, 32), now, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +544,7 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 
 func assertCellAccountRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, accountID ids.AccountID, expected int) {
 	t.Helper()
-	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions", "attention_information_requests", "attention_work_reviews", "attention_consequential_approvals", "attention_events", "knowledge_evidence", "knowledge_claims", "knowledge_claim_citations", "knowledge_facts", "knowledge_fact_revisions", "knowledge_events", "baseline_assessments", "baseline_interview_answers", "baseline_requirements", "baseline_evidence_decisions", "baseline_plans", "baseline_plan_work", "baseline_events", "baseline_source_grants", "baseline_source_grant_events", "baseline_maintenance_queue", "prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events", "schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue", "schedule_queue_operator_events"} {
+	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions", "attention_information_requests", "attention_work_reviews", "attention_consequential_approvals", "attention_events", "knowledge_evidence", "knowledge_claims", "knowledge_claim_citations", "knowledge_facts", "knowledge_fact_revisions", "knowledge_events", "baseline_assessments", "baseline_interview_answers", "baseline_requirements", "baseline_evidence_decisions", "baseline_plans", "baseline_plan_work", "baseline_events", "baseline_source_grants", "baseline_source_grant_events", "baseline_maintenance_queue", "prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events", "schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue", "schedule_queue_operator_events", "finance_ledgers", "finance_ledger_close_evidence", "finance_accounts", "finance_entry_number_counters", "finance_entries", "finance_entry_lines", "finance_entry_evidence", "finance_reconciliations", "finance_reconciliation_evidence", "finance_events"} {
 		var count int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.`+table+` WHERE account_id=$1`, accountID).Scan(&count); err != nil || (expected == 0 && count != 0) || (expected == 1 && count == 0) {
 			t.Fatalf("table %s Account %s rows=%d expected-presence=%d err=%v", table, accountID, count, expected, err)

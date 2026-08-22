@@ -346,4 +346,4 @@ func (s *Server) writeFinanceError(w http.ResponseWriter, operation string, err 
 	}
 }
 
-var _ FinanceService = (*financeapp.Service)(nil)
+var _ FinanceQueryService = (*financeapp.Service)(nil)

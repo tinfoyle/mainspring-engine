@@ -213,7 +213,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithFinanceCommands(financeService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
 	if err != nil {
 		pool.Close()
 		return nil, err

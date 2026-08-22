@@ -50,7 +50,8 @@ type Server struct {
 	knowledge              KnowledgeService
 	documents              KnowledgeDocumentService
 	baseline               BaselineService
-	finance                FinanceService
+	finance                FinanceQueryService
+	financeCommands        FinanceCommandService
 	scheduling             SchedulingService
 	scheduleExecution      ScheduleExecutionService
 	scheduleWorkerIdentity string
@@ -151,7 +152,7 @@ func WithBaseline(service BaselineService) Option {
 	return func(server *Server) { server.baseline = service }
 }
 
-type FinanceService interface {
+type FinanceQueryService interface {
 	GetLedger(context.Context, access.Actor, ids.AccountID, ids.FinanceLedgerID) (financedomain.Ledger, error)
 	ListLedgers(context.Context, access.Actor, ids.AccountID, financeapp.LedgerListQuery) (financeapp.LedgerPage, error)
 	GetPostingAccount(context.Context, access.Actor, ids.AccountID, ids.FinanceAccountID) (financedomain.PostingAccount, error)
@@ -162,8 +163,28 @@ type FinanceService interface {
 	ListReconciliations(context.Context, access.Actor, ids.AccountID, financeapp.ReconciliationListQuery) (financeapp.ReconciliationPage, error)
 }
 
-func WithFinance(service FinanceService) Option {
+type FinanceCommandService interface {
+	CreateLedger(context.Context, financeapp.CreateLedgerCommand) (financedomain.Ledger, bool, error)
+	ReviseLedger(context.Context, financeapp.ReviseLedgerCommand) (financedomain.Ledger, error)
+	ClosePeriod(context.Context, financeapp.ClosePeriodCommand) (financedomain.Ledger, error)
+	ArchiveLedger(context.Context, financeapp.LedgerTransitionCommand) (financedomain.Ledger, error)
+	CreatePostingAccount(context.Context, financeapp.CreateAccountCommand) (financedomain.PostingAccount, bool, error)
+	RevisePostingAccount(context.Context, financeapp.RevisePostingAccountCommand) (financedomain.PostingAccount, error)
+	ArchivePostingAccount(context.Context, financeapp.PostingAccountTransitionCommand) (financedomain.PostingAccount, error)
+	CreateEntry(context.Context, financeapp.CreateEntryCommand) (financedomain.JournalEntry, bool, error)
+	ReviseEntry(context.Context, financeapp.ReviseEntryCommand) (financedomain.JournalEntry, error)
+	PostEntry(context.Context, financeapp.EntryTransitionCommand) (financedomain.JournalEntry, error)
+	ReverseEntry(context.Context, financeapp.ReverseEntryCommand) (financedomain.JournalEntry, financedomain.JournalEntry, error)
+	Reconcile(context.Context, financeapp.ReconcileCommand) (financedomain.Reconciliation, bool, error)
+	ConfirmReconciliation(context.Context, financeapp.ConfirmReconciliationCommand) (financedomain.Reconciliation, error)
+}
+
+func WithFinance(service FinanceQueryService) Option {
 	return func(server *Server) { server.finance = service }
+}
+
+func WithFinanceCommands(service FinanceCommandService) Option {
+	return func(server *Server) { server.financeCommands = service }
 }
 
 type SchedulingService interface {
@@ -283,13 +304,26 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", s.baselineSourceGrantCreate)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants/{grantID}/revocations", s.baselineSourceGrantRevoke)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers", s.financeLedgerList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/ledgers", s.financeLedgerCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}", s.financeLedgerGet)
+	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}", s.financeLedgerRevise)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}", s.financeLedgerArchive)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/period-closes", s.financePeriodClose)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/accounts", s.financeAccountList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/accounts", s.financeAccountCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/accounts/{postingAccountID}", s.financeAccountGet)
+	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/finance/accounts/{postingAccountID}", s.financeAccountRevise)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/finance/accounts/{postingAccountID}", s.financeAccountArchive)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/entries", s.financeEntryList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/entries", s.financeEntryCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/entries/{entryID}", s.financeEntryGet)
+	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/finance/entries/{entryID}", s.financeEntryRevise)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/entries/{entryID}/postings", s.financeEntryPost)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/entries/{entryID}/reversals", s.financeEntryReverse)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/reconciliations", s.financeReconciliationList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/reconciliations", s.financeReconciliationCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/reconciliations/{reconciliationID}", s.financeReconciliationGet)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/reconciliations/{reconciliationID}/confirmations", s.financeReconciliationConfirm)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleGet)
