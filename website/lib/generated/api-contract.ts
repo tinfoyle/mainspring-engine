@@ -47,6 +47,7 @@ export const apiRoutes = [
   { service: "account-api", method: "POST", path: "/api/v1/sessions", operationId: "login", authentication: "public", contract: "typed" },
   { service: "account-api", method: "POST", path: "/webhooks/stripe", operationId: "stripeWebhook", authentication: "stripeSignature", contract: "typed" },
   { service: "cell-api", method: "DELETE", path: "/api/v1/accounts/{accountID}/knowledge/documents/{documentID}", operationId: "knowledgeDocumentDelete", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "DELETE", path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}", operationId: "scheduleDelete", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/agent-boardrooms", operationId: "agentBoardrooms", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/conversations", operationId: "agentConversations", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/personas", operationId: "agentPersonas", authentication: "sessionCookie", contract: "typed" },
@@ -70,6 +71,8 @@ export const apiRoutes = [
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/knowledge/documents/{documentID}", operationId: "knowledgeDocumentGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/knowledge/documents/{documentID}/revisions/{revisionID}/chunks/{chunkID}", operationId: "knowledgeDocumentCitationGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/knowledge/facts", operationId: "knowledgeFactList", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/schedules", operationId: "scheduleList", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}", operationId: "scheduleGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/work-items", operationId: "workList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/work-items/summary", operationId: "workSummary", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/work-items/{itemID}", operationId: "workItem", authentication: "sessionCookie", contract: "typed" },
@@ -111,11 +114,16 @@ export const apiRoutes = [
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/knowledge/documents/{documentID}/publications", operationId: "knowledgeDocumentPublish", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/knowledge/evidence", operationId: "knowledgeEvidenceRegister", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/knowledge/retrieval", operationId: "knowledgeDocumentRetrieve", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/schedules", operationId: "scheduleCreate", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}/pauses", operationId: "schedulePause", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}/resumptions", operationId: "scheduleResume", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}/triggers", operationId: "scheduleTrigger", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/work-items", operationId: "workCreate", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/work-items/{itemID}/conversation-links", operationId: "workLinkConversation", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/work-items/{itemID}/provenance-links", operationId: "workAttachProvenance", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/work-items/{itemID}/transitions", operationId: "workTransition", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "PUT", path: "/api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/manager", operationId: "agentBoardroomManagerConfigure", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "PUT", path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}", operationId: "scheduleRevise", authentication: "sessionCookie", contract: "typed" },
 ] as const;
 
 export type ApiRoute = (typeof apiRoutes)[number];

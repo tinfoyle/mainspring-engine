@@ -1,6 +1,6 @@
 # Scheduling module
 
-- Status: recurrence, persistence and workload-authorized occurrence runtime constructed; customer commands, surfaces and operator recovery remain
+- Status: recurrence, customer lifecycle/trigger surfaces and workload-authorized occurrence runtime constructed; operator recovery and applied environment rehearsal remain
 - Owner: Scheduling application module
 - Package boundary: schedule definitions use the package of their target; the first target is Agents
 
@@ -26,8 +26,8 @@ The first execution template creates a new dated Agent Conversation/Run through 
 2. Forced-RLS schedule definitions, immutable events and identifier-only due queue with lease fencing. **Constructed through definition create/get/pause/resume and claim/fail retry; occurrence completion/advance remains with step 3.**
 3. A workload-authorized occurrence command that reuses Agents admission and StartRun semantics without presenting a browser session or impersonating a User. **Constructed through private mTLS admission and cell execution boundaries plus a dedicated least-privilege worker.**
 4. Deterministic occurrence, Conversation, Run and operation identities derived from schedule plus scheduled instant. **Constructed for scheduled occurrences.**
-5. Pause, resume, update, delete and trigger-now commands; trigger-now is a separate occurrence and never changes recurrence state.
-6. HTTP, optional MCP and private UI surfaces with generated contracts and enabled/read-only/suspended package tests.
+5. Pause, resume, update, delete and trigger-now commands; trigger-now is a separate occurrence and never changes recurrence state. **Constructed.**
+6. HTTP, optional MCP and private UI surfaces with generated contracts and enabled/read-only/suspended package tests. **HTTP/browser surfaces and package-mode enforcement constructed; production MCP remains intentionally absent.**
 7. Account movement, export, erasure, retention, dead-letter recovery, stage failure rehearsal and LKE scaling evidence.
 
 ## Persistence checkpoint
@@ -46,7 +46,9 @@ The trusted cell-side repository holds one serializable transaction across lease
 
 The `schedule-execution-worker` is now deployable in local and Hostinger Docker topology. Its database role can execute only claim, heartbeat, fail and content-free statistics functions. It loads definitions and commits dispatch/skip through the exact cell's private app-api mTLS boundary, while admission-api independently resolves the creator's current Membership, placement, Agents mutation mode, every referenced context package, restricted-data role and concurrent-Run limit. Stable requests retry once and the cell transaction reconciles unknown-commit replay by deterministic occurrence identity. Workload certificate identities are cell-specific and admitted by both private services.
 
-This runtime does not publish a customer Schedule surface. Update/delete/trigger-now commands, generated HTTP/UI contracts, dead-letter inspection/requeue and applied environment rehearsal remain; `customer-schedule` therefore stays absent from the package inventory.
+The customer Schedule surface now publishes stable cursor list/get, create, full revision, pause, resume, soft delete and trigger-now commands through the authenticated router. The browser workspace uses the same generated contract, resolves active Boardrooms and Personas, preserves command UUIDs across ambiguous network failure and removes mutation controls in read-only mode. Trigger-now persists an immutable request plus a separate identifier-only queue row, creates a `triggered` occurrence and deterministic Agent Run, and never changes the Schedule version or `next_run_at`. Pause, revision and deletion cancel stale queued triggers by version. `customer-schedule` is therefore executable and no longer appears in the absent-surface inventory.
+
+Operator dead-letter inspection/requeue and applied local/stage failure rehearsal remain before this module is operationally complete.
 
 ## Invariants
 

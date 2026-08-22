@@ -90,6 +90,32 @@ func TestExecutionProcessorDispatchesDeterministicOccurrence(t *testing.T) {
 	}
 }
 
+func TestExecutionProcessorDispatchesTriggerWithoutRecurrenceAdvance(t *testing.T) {
+	nextRun := time.Date(2026, 8, 24, 13, 0, 0, 0, time.UTC)
+	requestedAt := nextRun.Add(-6 * time.Hour)
+	schedule := executionSchedule(t, nextRun, domain.MissedSkip)
+	triggerID := "71000000-0000-4000-8000-000000000001"
+	claim := ExecutionClaim{AccountID: schedule.AccountID, ScheduleID: schedule.ID, ScheduleVersion: schedule.Version,
+		ScheduledFor: requestedAt, Kind: "triggered", TriggerID: triggerID, LeaseID: "81000000-0000-4000-8000-000000000001", Attempt: 1}
+	store := &executionStoreStub{claim: claim, snapshot: ExecutionSnapshot{Schedule: schedule}}
+	now := requestedAt.Add(time.Minute)
+	processor, err := NewExecutionProcessor(store, executionAuthorizerStub{value: ExecutionAuthorization{EntitlementVersion: 8, MaximumConcurrentRun: 4}},
+		&executionClockStub{values: []time.Time{now, now}}, executionIDStub{"91000000-0000-4000-8000-000000000001"}, DefaultExecutionLease, DefaultExecutionMaxAttempts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := processor.ProcessOne(context.Background())
+	if err != nil || !result.Dispatched || result.Skipped || len(store.dispatched) != 1 || len(store.skipped) != 0 {
+		t.Fatalf("result=%+v dispatched=%d skipped=%d err=%v", result, len(store.dispatched), len(store.skipped), err)
+	}
+	command := store.dispatched[0]
+	wantOccurrence, _ := ids.Derive(triggerID, "occurrence")
+	if command.OccurrenceID != wantOccurrence || command.Claim.ExecutionKind() != "triggered" || !command.NextRunAt.IsZero() ||
+		command.Subject != "Daily review — 2026-08-24" {
+		t.Fatalf("trigger command=%+v", command)
+	}
+}
+
 func TestExecutionProcessorAppliesSkipAndCatchUpOneWithoutBacklogReplay(t *testing.T) {
 	scheduledFor := time.Date(2026, 8, 20, 13, 0, 0, 0, time.UTC)
 	now := time.Date(2026, 8, 24, 15, 0, 0, 0, time.UTC)

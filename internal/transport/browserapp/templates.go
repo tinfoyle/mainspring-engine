@@ -23,7 +23,7 @@ const pageTemplates = `
       <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
       <button type="submit">Switch Account</button>
     </form>
-    <nav aria-label="Primary navigation"><p>OPERATE</p><a {{if eq .Page "app"}}class="active" aria-current="page"{{end}} href="/app"><i aria-hidden="true">⌂</i>Overview</a><a {{if eq .Page "your-turn"}}class="active" aria-current="page"{{end}} href="/app/your-turn"><i aria-hidden="true">!</i>Your Turn</a><a {{if eq .Page "work"}}class="active" aria-current="page"{{end}} href="/app/work"><i aria-hidden="true">✓</i>Work</a><a {{if eq .Page "agents"}}class="active" aria-current="page"{{end}} href="/app/agents"><i aria-hidden="true">◌</i>Agents</a><a {{if eq .Page "knowledge"}}class="active" aria-current="page"{{end}} href="/app/knowledge"><i aria-hidden="true">◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i aria-hidden="true">≋</i>Finance</a><a href="/app#marketing"><i aria-hidden="true">↗</i>Marketing</a><a href="/app#billing"><i aria-hidden="true">$</i>Billing</a><a href="/app#settings"><i aria-hidden="true">⚙</i>Account</a><a {{if eq .Page "closures"}}class="active" aria-current="page"{{end}} href="/app/account-closures"><i aria-hidden="true">○</i>Lifecycle</a><a href="/app/security"><i aria-hidden="true">◇</i>Security</a></nav>
+    <nav aria-label="Primary navigation"><p>OPERATE</p><a {{if eq .Page "app"}}class="active" aria-current="page"{{end}} href="/app"><i aria-hidden="true">⌂</i>Overview</a><a {{if eq .Page "your-turn"}}class="active" aria-current="page"{{end}} href="/app/your-turn"><i aria-hidden="true">!</i>Your Turn</a><a {{if eq .Page "work"}}class="active" aria-current="page"{{end}} href="/app/work"><i aria-hidden="true">✓</i>Work</a><a {{if eq .Page "agents"}}class="active" aria-current="page"{{end}} href="/app/agents"><i aria-hidden="true">◌</i>Agents</a><a {{if eq .Page "schedules"}}class="active" aria-current="page"{{end}} href="/app/schedules"><i aria-hidden="true">◷</i>Schedules</a><a {{if eq .Page "knowledge"}}class="active" aria-current="page"{{end}} href="/app/knowledge"><i aria-hidden="true">◇</i>Knowledge</a><p>BUSINESS</p><a href="/app#finance"><i aria-hidden="true">≋</i>Finance</a><a href="/app#marketing"><i aria-hidden="true">↗</i>Marketing</a><a href="/app#billing"><i aria-hidden="true">$</i>Billing</a><a href="/app#settings"><i aria-hidden="true">⚙</i>Account</a><a {{if eq .Page "closures"}}class="active" aria-current="page"{{end}} href="/app/account-closures"><i aria-hidden="true">○</i>Lifecycle</a><a href="/app/security"><i aria-hidden="true">◇</i>Security</a></nav>
     <form method="post" action="/logout"><button class="logout" type="submit">Sign out</button></form>
   </aside>
 {{end}}
@@ -306,6 +306,59 @@ const pageTemplates = `
             <button id="agents-more-messages" class="agents-more" type="button" hidden>Load later messages</button>
           </section>
         </section>
+      </section>
+      {{end}}
+    </div>
+  </main>
+</div></body></html>
+{{end}}
+
+{{define "schedules"}}
+{{template "head" .}}
+<div class="app-shell">
+  {{template "private-sidebar" .}}
+  <main class="workspace" id="main-content" tabindex="-1">
+    {{template "private-topbar" .}}
+    <div class="content schedules-content">
+      {{template "alert" .}}
+      {{if not .Selected}}
+      <section class="empty"><h1>No Spyglass Accounts yet.</h1><p>Create an Account or accept an invitation to begin.</p><a href="/signup">Create Account</a></section>
+      {{else if not .AgentsAvailable}}
+      <section class="agents-locked panel"><div><p class="eyebrow">AGENTS PACKAGE</p><h1>Put governed work<br><em>on a dependable rhythm.</em></h1><p>Schedules use the Agents package because every occurrence enters the same governed Boardroom Run boundary.</p><a href="/app#billing">Review Account plans →</a></div><div class="agents-locked-orbit" aria-hidden="true"><i></i><i></i><i></i><b>IO</b></div></section>
+      {{else}}
+      <section class="schedules-heading"><div><p class="eyebrow">SCHEDULES</p><h1>Give recurring work<br><em>a precise local time.</em></h1><p>Every occurrence creates a fresh, capacity-governed Agent conversation. Timezone, daylight-saving behavior, missed runs, Personas, and context remain explicit.</p></div><span class="work-mode">{{if .AgentsReadOnly}}READ-ONLY ACCESS{{else}}PACKAGE ENABLED{{end}}</span></section>
+      <section class="schedules-app" id="schedules-app" data-account-id="{{.Selected.AccountID}}" data-read-only="{{.AgentsReadOnly}}" aria-busy="true">
+        <section class="schedules-list panel">
+          <header><div><p class="eyebrow">DEFINITIONS</p><h2>Recurring Agent runs</h2></div><span id="schedules-count">Loading</span></header>
+          <div id="schedules-status" class="schedule-status" role="status">Loading Schedules…</div>
+          <div id="schedules-list" role="region" aria-label="Customer Schedules"></div>
+          <button id="schedules-more" class="schedules-more" type="button" hidden>Load more Schedules</button>
+        </section>
+        {{if not .AgentsReadOnly}}
+        <form id="schedule-form" class="schedule-form panel">
+          <header><div><p class="eyebrow" id="schedule-form-label">NEW SCHEDULE</p><h2 id="schedule-form-title">Create a recurring Run</h2></div><button id="schedule-cancel" class="secondary" type="button" hidden>Cancel edit</button></header>
+          <input id="schedule-version" name="expected_version" type="hidden">
+          <div class="schedule-form-grid">
+            <label>Name<input name="name" minlength="2" maxlength="160" required placeholder="Daily operating review"></label>
+            <label>IANA timezone<input name="timezone" maxlength="200" required placeholder="America/New_York"></label>
+            <label>Frequency<select name="frequency"><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label>
+            <label>Local time<input name="local_time" type="time" value="09:00" required></label>
+            <label>DST gap<select name="gap_policy"><option value="skip">Skip missing wall time</option><option value="next_valid">Use next valid time</option></select></label>
+            <label>DST overlap<select name="overlap_policy"><option value="first">First occurrence</option><option value="second">Second occurrence</option></select></label>
+            <label>Missed runs<select name="missed_run_policy"><option value="skip">Skip backlog</option><option value="catch_up_one">Catch up one</option></select></label>
+            <label>Boardroom<select id="schedule-boardroom" name="boardroom_id" required><option value="">Loading Boardrooms…</option></select></label>
+            <label>Run mode<select name="mode"><option value="selected">Selected Personas</option><option value="manager_led">Specialists, then manager</option></select></label>
+          </div>
+          <fieldset id="schedule-weekdays" hidden><legend>Weekly days</legend><div class="schedule-checks"><label><input type="checkbox" value="1">Mon</label><label><input type="checkbox" value="2">Tue</label><label><input type="checkbox" value="3">Wed</label><label><input type="checkbox" value="4">Thu</label><label><input type="checkbox" value="5">Fri</label><label><input type="checkbox" value="6">Sat</label><label><input type="checkbox" value="0">Sun</label></div></fieldset>
+          <fieldset><legend>Personas</legend><div id="schedule-personas" class="schedule-checks"><p>Select a Boardroom.</p></div></fieldset>
+          <label>Conversation subject<input name="subject" minlength="2" maxlength="240" required placeholder="Daily operating review"></label>
+          <label>Run prompt<textarea name="prompt" maxlength="65536" rows="5" required placeholder="Review the current priorities, risks, and next actions."></textarea></label>
+          <details><summary>Attach Account context by ID</summary><div class="schedule-form-grid"><label>Work items<input name="work_item_ids" placeholder="UUIDs separated by commas"></label><label>Knowledge facts<input name="knowledge_fact_ids" placeholder="UUIDs separated by commas"></label><label>Knowledge documents<input name="knowledge_document_ids" placeholder="UUIDs separated by commas"></label><label>Baseline assessments<input name="baseline_assessment_ids" placeholder="UUIDs separated by commas"></label></div></details>
+          <label>Change reason<input name="reason" maxlength="500" placeholder="Why this Schedule is being created or revised"></label>
+          <p id="schedule-form-error" class="agents-form-error" role="alert" hidden></p>
+          <footer><span>Optimistic versions prevent one browser from overwriting another.</span><button type="submit" id="schedule-submit">Create Schedule →</button></footer>
+        </form>
+        {{end}}
       </section>
       {{end}}
     </div>

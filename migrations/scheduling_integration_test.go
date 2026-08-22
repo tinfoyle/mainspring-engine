@@ -119,8 +119,48 @@ func TestScheduleRepositoryPersistsAndIsolatesDefinitions(t *testing.T) {
 	if err != nil || resumed.State != scheduledomain.StateActive || resumed.Version != 3 || resumed.NextRunAt == nil {
 		t.Fatalf("resumed=%+v err=%v", resumed, err)
 	}
+	revisedAt := now.Add(3 * time.Minute)
+	revised, err := resumed.Revise(resumed.Version, scheduledomain.Revision{Name: "Daily priorities", Timezone: resumed.Timezone,
+		Recurrence: resumed.Recurrence, MissedRunPolicy: scheduledomain.MissedSkip, Template: resumed.Template}, revisedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedMutation := scheduleapp.Mutation{EventID: "73000000-0000-4000-8000-000000000004", Kind: "updated", ActorUserID: userID, Reason: "Updated daily review", CorrelationID: "schedule-update", At: revisedAt}
+	revised, err = repository.Update(ctx, revised, resumed.Version, updatedMutation)
+	if err != nil || revised.Version != 4 || revised.Name != "Daily priorities" || revised.NextRunAt == nil || !revised.NextRunAt.After(revisedAt) {
+		t.Fatalf("revised=%+v err=%v", revised, err)
+	}
+	retryValue := revised
+	retryValue.UpdatedAt = revisedAt.Add(time.Minute)
+	retryMutation := updatedMutation
+	retryMutation.At = retryValue.UpdatedAt
+	replayedRevision, err := repository.Update(ctx, retryValue, resumed.Version, retryMutation)
+	if err != nil || !reflect.DeepEqual(replayedRevision, revised) {
+		t.Fatalf("replayed revision=%+v err=%v", replayedRevision, err)
+	}
+	page, err := repository.List(ctx, accountID, scheduleapp.ListQuery{Limit: 10})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != scheduleID {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+	deletedAt := now.Add(5 * time.Minute)
+	deleted, err := revised.Delete(revised.Version, deletedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err = repository.Update(ctx, deleted, revised.Version, scheduleapp.Mutation{EventID: "73000000-0000-4000-8000-000000000005", Kind: "deleted", ActorUserID: userID, Reason: "Deleted daily review", CorrelationID: "schedule-delete", At: deletedAt})
+	if err != nil || deleted.State != scheduledomain.StateDeleted || deleted.NextRunAt != nil || deleted.Version != 5 {
+		t.Fatalf("deleted=%+v err=%v", deleted, err)
+	}
+	page, err = repository.List(ctx, accountID, scheduleapp.ListQuery{Limit: 10})
+	if err != nil || len(page.Items) != 0 {
+		t.Fatalf("deleted page=%+v err=%v", page, err)
+	}
+	var dueCount int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.schedule_dispatch_queue WHERE account_id=$1 AND schedule_id=$2`, accountID, scheduleID).Scan(&dueCount); err != nil || dueCount != 0 {
+		t.Fatalf("deleted due rows=%d err=%v", dueCount, err)
+	}
 	var eventCount int
-	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.schedule_events WHERE account_id=$1 AND schedule_id=$2`, accountID, scheduleID).Scan(&eventCount); err != nil || eventCount != 3 {
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.schedule_events WHERE account_id=$1 AND schedule_id=$2`, accountID, scheduleID).Scan(&eventCount); err != nil || eventCount != 5 {
 		t.Fatalf("event count=%d err=%v", eventCount, err)
 	}
 }
@@ -230,6 +270,56 @@ func TestScheduleExecutionAtomicallyCreatesRunAndAdvancesDefinition(t *testing.T
 		(SELECT count(*) FROM spyglass.agent_dispatch_queue WHERE account_id=$1),
 		(SELECT count(*) FROM spyglass.schedule_dispatch_queue WHERE account_id=$1 AND schedule_id=$2 AND state='pending')`, accountID, scheduleID).Scan(&scheduleEvents, &agentDispatches, &dueRows); err != nil || scheduleEvents != 2 || agentDispatches != 1 || dueRows != 1 {
 		t.Fatalf("schedule events=%d agent dispatches=%d due=%d err=%v", scheduleEvents, agentDispatches, dueRows, err)
+	}
+
+	triggerID := "75000000-0000-4000-8000-000000000001"
+	triggerAt := processAt.Add(time.Minute)
+	triggerRequest := scheduleapp.TriggerRequest{ID: triggerID, AccountID: accountID, ScheduleID: scheduleID, ScheduleVersion: advanced.Version, RequestedBy: userID, RequestedAt: triggerAt}
+	triggerMutation := scheduleapp.Mutation{EventID: triggerID, Kind: "trigger_requested", ActorUserID: userID, Reason: "Run the review now", CorrelationID: triggerID, At: triggerAt}
+	trigger, created, err := definitions.EnqueueTrigger(ctx, triggerRequest, triggerMutation)
+	if err != nil || !created || !trigger.Valid() {
+		t.Fatalf("trigger=%+v created=%v err=%v", trigger, created, err)
+	}
+	replayRequest := triggerRequest
+	replayRequest.RequestedAt = triggerAt.Add(time.Minute)
+	replayMutation := triggerMutation
+	replayMutation.At = replayRequest.RequestedAt
+	if replayed, created, err := definitions.EnqueueTrigger(ctx, replayRequest, replayMutation); err != nil || created || replayed.ID != trigger.ID ||
+		replayed.ScheduleID != trigger.ScheduleID || replayed.ScheduleVersion != trigger.ScheduleVersion || !replayed.RequestedAt.Equal(trigger.RequestedAt) {
+		t.Fatalf("trigger replay=%+v created=%v err=%v", replayed, created, err)
+	}
+	triggerProcessor, err := scheduleapp.NewExecutionProcessor(executions,
+		scheduleExecutionAuthorizer{value: scheduleapp.ExecutionAuthorization{EntitlementVersion: 10, MaximumConcurrentRun: 4, CanReadRestricted: true}},
+		fixedClock{now: triggerAt.Add(time.Second)}, fixedIDGenerator{value: "85000000-0000-4000-8000-000000000001"}, scheduleapp.DefaultExecutionLease, scheduleapp.DefaultExecutionMaxAttempts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	triggerResult, err := triggerProcessor.ProcessOne(ctx)
+	if err != nil || !triggerResult.Worked || !triggerResult.Dispatched || triggerResult.Skipped {
+		t.Fatalf("trigger result=%+v err=%v", triggerResult, err)
+	}
+	afterTrigger, err := definitions.Get(ctx, accountID, scheduleID)
+	if err != nil || afterTrigger.Version != advanced.Version || afterTrigger.NextRunAt == nil || !afterTrigger.NextRunAt.Equal(*advanced.NextRunAt) {
+		t.Fatalf("trigger mutated recurrence: before=%+v after=%+v err=%v", advanced, afterTrigger, err)
+	}
+	triggerOccurrenceID, _ := ids.Derive(triggerID, "occurrence")
+	triggerRunID, _ := ids.Derive(triggerOccurrenceID, "run")
+	triggerRun, err := agents.GetRun(ctx, accountID, ids.RunID(triggerRunID))
+	if err != nil || triggerRun.Plan.EntitlementVersion != 10 || triggerRun.Plan.CreatedBy != userID {
+		t.Fatalf("trigger run=%+v err=%v", triggerRun, err)
+	}
+	var occurrenceKind, storedTrigger, requestedBy string
+	if err := owner.QueryRow(ctx, `SELECT occurrence_kind,trigger_id,requested_by_user_id FROM spyglass.schedule_occurrences
+		WHERE account_id=$1 AND id=$2`, accountID, triggerOccurrenceID).Scan(&occurrenceKind, &storedTrigger, &requestedBy); err != nil ||
+		occurrenceKind != "triggered" || storedTrigger != triggerID || requestedBy != string(userID) {
+		t.Fatalf("trigger occurrence kind=%s trigger=%s requester=%s err=%v", occurrenceKind, storedTrigger, requestedBy, err)
+	}
+	var triggerQueue, triggerEvents int
+	if err := owner.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM spyglass.schedule_trigger_queue WHERE account_id=$1 AND trigger_id=$2),
+		(SELECT count(*) FROM spyglass.schedule_events WHERE account_id=$1 AND schedule_id=$3 AND event_type IN ('trigger_requested','trigger_dispatched'))`,
+		accountID, triggerID, scheduleID).Scan(&triggerQueue, &triggerEvents); err != nil || triggerQueue != 0 || triggerEvents != 2 {
+		t.Fatalf("trigger queue=%d events=%d err=%v", triggerQueue, triggerEvents, err)
 	}
 }
 

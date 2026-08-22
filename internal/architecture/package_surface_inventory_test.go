@@ -38,15 +38,21 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 		if item.Executable && len(item.Boundaries) == 0 || !item.Executable && len(item.Boundaries) != 0 {
 			t.Fatalf("package %q has inconsistent boundaries %v", item.Code, item.Boundaries)
 		}
+		if item.Code == "agents" && !slices.Contains(item.Boundaries, "schedule-worker") {
+			t.Fatal("Agents must declare its customer Schedule worker boundary")
+		}
 	}
 	slices.Sort(packages)
 	if !slices.Equal(packages, wantPackages) {
 		t.Fatalf("packages=%v want=%v", packages, wantPackages)
 	}
-	for _, absent := range []string{"production-mcp", "customer-schedule", "connector-runtime", "customer-export-api", "search-vector-store", "analytics-export-store"} {
+	for _, absent := range []string{"production-mcp", "connector-runtime", "customer-export-api", "search-vector-store", "analytics-export-store"} {
 		if !slices.Contains(inventory.AbsentSurfaceKinds, absent) {
 			t.Errorf("absent surface %q is not declared", absent)
 		}
+	}
+	if slices.Contains(inventory.AbsentSurfaceKinds, "customer-schedule") {
+		t.Fatal("the executable customer Schedule surface cannot remain declared absent")
 	}
 	if len(inventory.EnabledExternalAccountStores) != 0 {
 		t.Fatal("an external Account store requires movement, export, erasure, attestation, and restore handlers before enablement")

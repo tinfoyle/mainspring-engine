@@ -82,6 +82,30 @@ func TestScheduleRejectsAmbiguousOrUnboundedInput(t *testing.T) {
 	}
 }
 
+func TestScheduleRevisionRecomputesFutureDueAndDeleteIsTerminal(t *testing.T) {
+	now := time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)
+	schedule, err := New(Draft{ID: "10000000-0000-4000-8000-000000000001", AccountID: "20000000-0000-4000-8000-000000000002",
+		Name: "Daily review", Timezone: "America/New_York", Recurrence: Recurrence{Frequency: FrequencyDaily, LocalHour: 9, GapPolicy: GapSkip, OverlapPolicy: OverlapFirst},
+		MissedRunPolicy: MissedSkip, Template: validTemplate(), CreatedBy: "30000000-0000-4000-8000-000000000003", CreatedAt: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisedAt := now.Add(time.Hour)
+	revised, err := schedule.Revise(1, Revision{Name: "Evening review", Timezone: "America/New_York",
+		Recurrence:      Recurrence{Frequency: FrequencyDaily, LocalHour: 17, GapPolicy: GapSkip, OverlapPolicy: OverlapFirst},
+		MissedRunPolicy: MissedCatchUpOne, Template: validTemplate()}, revisedAt)
+	if err != nil || revised.Version != 2 || revised.NextRunAt == nil || !revised.NextRunAt.After(revisedAt) {
+		t.Fatalf("revised=%+v err=%v", revised, err)
+	}
+	deleted, err := revised.Delete(2, revisedAt.Add(time.Hour))
+	if err != nil || deleted.State != StateDeleted || deleted.NextRunAt != nil || deleted.Version != 3 {
+		t.Fatalf("deleted=%+v err=%v", deleted, err)
+	}
+	if _, err := deleted.Resume(3, revisedAt.Add(2*time.Hour)); !errors.Is(err, ErrInvalidSchedule) {
+		t.Fatalf("deleted resume err=%v", err)
+	}
+}
+
 func validTemplate() AgentRunTemplate {
 	return AgentRunTemplate{BoardroomID: ids.BoardroomID("40000000-0000-4000-8000-000000000004"), Mode: "manager_led",
 		PersonaIDs: []ids.PersonaID{"50000000-0000-4000-8000-000000000005"}, Subject: "Scheduled operating review", Prompt: "Review current operating priorities."}

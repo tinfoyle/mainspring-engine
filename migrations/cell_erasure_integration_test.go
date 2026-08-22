@@ -50,7 +50,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	for _, table := range []string{"prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events"} {
 		coveredTables[table] = true
 	}
-	for _, table := range []string{"schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences"} {
+	for _, table := range []string{"schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue"} {
 		coveredTables[table] = true
 	}
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
@@ -174,6 +174,8 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 		t.Fatal(err)
 	}
 	expectedCounts := map[string]int64{"account_move_checkpoints": 1, "route_context_receipts": 1, "route_context_receipt_cleanup_queue": 1, "work_capacity_release_queue": 2, "work_item_events": 2, "work_items": 2, "work_item_number_counters": 1, "account_audit_events": 1, "work_capacity_release_operator_events": 1, "runner_invocation_queue": 1, "runner_account_scheduling": 1, "runner_invocation_exchanges": 1, "runner_capability_events": 1, "account_namespaces": 1, "agent_boardrooms": 1, "agent_personas": 1, "agent_persona_versions": 1, "agent_conversations": 1, "agent_runs": 1, "agent_run_plan_turns": 1, "agent_invocations": 1, "agent_messages": 1, "agent_result_projection_queue": 1, "agent_user_messages": 1, "agent_invocation_execution_plans": 1, "agent_dispatch_queue": 1, "agent_queue_operator_events": 1, "agent_run_resolutions": 1, "attention_information_requests": 1, "attention_work_reviews": 1, "attention_consequential_approvals": 1, "attention_events": 4, "knowledge_evidence": 1, "knowledge_claims": 1, "knowledge_claim_citations": 1, "knowledge_facts": 1, "knowledge_fact_revisions": 1, "knowledge_events": 3, "baseline_assessments": 1, "baseline_interview_answers": 1, "baseline_requirements": 1, "baseline_evidence_decisions": 1, "baseline_plans": 1, "baseline_plan_work": 1, "baseline_events": 1, "baseline_source_grants": 1, "baseline_source_grant_events": 1, "baseline_maintenance_queue": 1, "prototype_migration_runs": 1, "prototype_migration_receipts": 1, "prototype_migration_events": 1, "schedules": 1, "schedule_events": 1, "schedule_dispatch_queue": 1, "schedule_occurrences": 1}
+	expectedCounts["schedule_triggers"] = 1
+	expectedCounts["schedule_trigger_queue"] = 1
 	for name, expected := range expectedCounts {
 		if tombstone.RowCounts[name] != expected {
 			t.Fatalf("row count %s=%d want=%d; all=%v", name, tombstone.RowCounts[name], expected, tombstone.RowCounts)
@@ -318,6 +320,16 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		t.Fatal(err)
 	}
 	scheduleOccurrenceID := strings.Replace(rootID, "000000000001", "000000000721", 1)
+	scheduleTriggerID := strings.Replace(rootID, "000000000001", "000000000731", 1)
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.schedule_triggers
+		(account_id,id,schedule_id,schedule_version,requested_by_user_id,requested_at)
+		VALUES ($1,$2,$3,1,$4,$5);
+		INSERT INTO spyglass.schedule_trigger_queue
+		(account_id,trigger_id,schedule_id,schedule_version,requested_for,state,attempt_count,next_attempt_at,created_at,updated_at)
+		VALUES ($1,$2,$3,1,$5,'pending',0,$5,$5,$5)`, pgx.QueryExecModeSimpleProtocol, accountID, scheduleTriggerID, scheduleID,
+		strings.Replace(rootID, "000000000001", "000000000111", 1), now); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.schedule_occurrences
 		(account_id,id,schedule_id,schedule_version,scheduled_for,outcome,run_id,conversation_id,created_by_user_id,initiated_by_kind,initiated_by_id,occurred_at)
 		VALUES ($1,$2,$3,1,$4,'dispatched',$5,$6,$7,'workload','schedule-execution-worker',$4)`, accountID, scheduleOccurrenceID, scheduleID,
@@ -476,7 +488,7 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 
 func assertCellAccountRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, accountID ids.AccountID, expected int) {
 	t.Helper()
-	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions", "attention_information_requests", "attention_work_reviews", "attention_consequential_approvals", "attention_events", "knowledge_evidence", "knowledge_claims", "knowledge_claim_citations", "knowledge_facts", "knowledge_fact_revisions", "knowledge_events", "baseline_assessments", "baseline_interview_answers", "baseline_requirements", "baseline_evidence_decisions", "baseline_plans", "baseline_plan_work", "baseline_events", "baseline_source_grants", "baseline_source_grant_events", "baseline_maintenance_queue", "prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events", "schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences"} {
+	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions", "attention_information_requests", "attention_work_reviews", "attention_consequential_approvals", "attention_events", "knowledge_evidence", "knowledge_claims", "knowledge_claim_citations", "knowledge_facts", "knowledge_fact_revisions", "knowledge_events", "baseline_assessments", "baseline_interview_answers", "baseline_requirements", "baseline_evidence_decisions", "baseline_plans", "baseline_plan_work", "baseline_events", "baseline_source_grants", "baseline_source_grant_events", "baseline_maintenance_queue", "prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events", "schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue"} {
 		var count int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.`+table+` WHERE account_id=$1`, accountID).Scan(&count); err != nil || (expected == 0 && count != 0) || (expected == 1 && count == 0) {
 			t.Fatalf("table %s Account %s rows=%d expected-presence=%d err=%v", table, accountID, count, expected, err)

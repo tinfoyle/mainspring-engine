@@ -196,8 +196,9 @@ func validUniqueIDs[T ~string](values []T) bool {
 type State string
 
 const (
-	StateActive State = "active"
-	StatePaused State = "paused"
+	StateActive  State = "active"
+	StatePaused  State = "paused"
+	StateDeleted State = "deleted"
 )
 
 type Schedule struct {
@@ -253,7 +254,7 @@ func Restore(value Schedule) (Schedule, error) {
 	template, templateErr := NewAgentRunTemplate(value.Template)
 	if recurrenceErr != nil || templateErr != nil || ids.Validate(string(value.ID)) != nil || ids.Validate(string(value.AccountID)) != nil || ids.Validate(string(value.CreatedBy)) != nil ||
 		utf8.RuneCountInString(value.Name) < 2 || utf8.RuneCountInString(value.Name) > MaximumScheduleName || strings.TrimSpace(value.Timezone) != value.Timezone ||
-		(value.MissedRunPolicy != MissedSkip && value.MissedRunPolicy != MissedCatchUpOne) || (value.State != StateActive && value.State != StatePaused) ||
+		(value.MissedRunPolicy != MissedSkip && value.MissedRunPolicy != MissedCatchUpOne) || (value.State != StateActive && value.State != StatePaused && value.State != StateDeleted) ||
 		value.Version == 0 || value.CreatedAt.IsZero() || value.UpdatedAt.Before(value.CreatedAt) ||
 		(value.State == StateActive) != (value.NextRunAt != nil) {
 		return Schedule{}, ErrInvalidSchedule
@@ -280,8 +281,14 @@ func (s Schedule) Pause(expectedVersion uint64, at time.Time) (Schedule, error) 
 	if expectedVersion != s.Version {
 		return Schedule{}, ErrVersionConflict
 	}
+	if at.Before(s.UpdatedAt) {
+		return Schedule{}, ErrInvalidSchedule
+	}
 	if s.State == StatePaused {
 		return s, nil
+	}
+	if s.State != StateActive {
+		return Schedule{}, ErrInvalidSchedule
 	}
 	s.State, s.Version, s.NextRunAt, s.UpdatedAt = StatePaused, s.Version+1, nil, at.UTC()
 	return Restore(s)
@@ -291,14 +298,62 @@ func (s Schedule) Resume(expectedVersion uint64, at time.Time) (Schedule, error)
 	if expectedVersion != s.Version {
 		return Schedule{}, ErrVersionConflict
 	}
+	if at.Before(s.UpdatedAt) {
+		return Schedule{}, ErrInvalidSchedule
+	}
 	if s.State == StateActive {
 		return s, nil
+	}
+	if s.State != StatePaused {
+		return Schedule{}, ErrInvalidSchedule
 	}
 	next, err := s.Recurrence.Next(at, s.Timezone)
 	if err != nil {
 		return Schedule{}, err
 	}
 	s.State, s.Version, s.NextRunAt, s.UpdatedAt = StateActive, s.Version+1, &next, at.UTC()
+	return Restore(s)
+}
+
+type Revision struct {
+	Name            string
+	Timezone        string
+	Recurrence      Recurrence
+	MissedRunPolicy MissedRunPolicy
+	Template        AgentRunTemplate
+}
+
+func (s Schedule) Revise(expectedVersion uint64, revision Revision, at time.Time) (Schedule, error) {
+	if expectedVersion != s.Version {
+		return Schedule{}, ErrVersionConflict
+	}
+	if s.State == StateDeleted || at.Before(s.UpdatedAt) {
+		return Schedule{}, ErrInvalidSchedule
+	}
+	s.Name, s.Timezone, s.Recurrence = revision.Name, revision.Timezone, revision.Recurrence
+	s.MissedRunPolicy, s.Template = revision.MissedRunPolicy, revision.Template
+	if s.State == StateActive {
+		next, err := s.Recurrence.Next(at, s.Timezone)
+		if err != nil {
+			return Schedule{}, err
+		}
+		s.NextRunAt = &next
+	}
+	s.Version, s.UpdatedAt = s.Version+1, at.UTC()
+	return Restore(s)
+}
+
+func (s Schedule) Delete(expectedVersion uint64, at time.Time) (Schedule, error) {
+	if expectedVersion != s.Version {
+		return Schedule{}, ErrVersionConflict
+	}
+	if at.Before(s.UpdatedAt) {
+		return Schedule{}, ErrInvalidSchedule
+	}
+	if s.State == StateDeleted {
+		return s, nil
+	}
+	s.State, s.Version, s.NextRunAt, s.UpdatedAt = StateDeleted, s.Version+1, nil, at.UTC()
 	return Restore(s)
 }
 

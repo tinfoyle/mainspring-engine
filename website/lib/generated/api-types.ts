@@ -768,6 +768,15 @@ export interface CreateInvitationRequest {
   readonly "role": AssignableMembershipRole;
 }
 
+export interface CreateScheduleRequest {
+  readonly "missed_run_policy": ScheduleMissedRunPolicy;
+  readonly "name": string;
+  readonly "reason"?: string;
+  readonly "recurrence": ScheduleRecurrence;
+  readonly "template": ScheduleAgentRunTemplate;
+  readonly "timezone": string;
+}
+
 export interface CreateWorkRequest {
   readonly "assignment": WorkAssignmentInput;
   readonly "description"?: string;
@@ -1319,8 +1328,80 @@ export interface RetrieveKnowledgeDocumentsRequest {
   readonly "query": string;
 }
 
+export interface ReviseScheduleRequest {
+  readonly "expected_version": number;
+  readonly "missed_run_policy": ScheduleMissedRunPolicy;
+  readonly "name": string;
+  readonly "reason"?: string;
+  readonly "recurrence": ScheduleRecurrence;
+  readonly "template": ScheduleAgentRunTemplate;
+  readonly "timezone": string;
+}
+
 export interface RevokeBaselineSourceGrantRequest {
   readonly "reason": string;
+}
+
+export interface Schedule {
+  readonly "account_id": string;
+  readonly "created_at": string;
+  readonly "created_by": string;
+  readonly "id": string;
+  readonly "missed_run_policy": ScheduleMissedRunPolicy;
+  readonly "name": string;
+  readonly "next_run_at": string | null;
+  readonly "recurrence": ScheduleRecurrence;
+  readonly "state": ScheduleState;
+  readonly "template": ScheduleAgentRunTemplate;
+  readonly "timezone": string;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface ScheduleAgentRunTemplate {
+  readonly "baseline_assessment_ids": ReadonlyArray<string> | null;
+  readonly "boardroom_id": string;
+  readonly "knowledge_document_ids": ReadonlyArray<string> | null;
+  readonly "knowledge_fact_ids": ReadonlyArray<string> | null;
+  readonly "mode": "selected" | "manager_led";
+  readonly "persona_ids": ReadonlyArray<string>;
+  readonly "prompt": string;
+  readonly "subject": string;
+  readonly "work_item_ids": ReadonlyArray<string> | null;
+}
+
+export type ScheduleFrequency = "daily" | "weekly";
+
+export type ScheduleGapPolicy = "skip" | "next_valid";
+
+export type ScheduleMissedRunPolicy = "skip" | "catch_up_one";
+
+export type ScheduleOverlapPolicy = "first" | "second";
+
+export interface SchedulePage {
+  readonly "items": ReadonlyArray<Schedule>;
+  readonly "next_cursor"?: string;
+}
+
+export interface ScheduleRecurrence {
+  readonly "frequency": ScheduleFrequency;
+  readonly "gap_policy": ScheduleGapPolicy;
+  readonly "local_hour": number;
+  readonly "local_minute": number;
+  readonly "overlap_policy": ScheduleOverlapPolicy;
+  readonly "weekdays": ReadonlyArray<number> | null;
+}
+
+export type ScheduleState = "active" | "paused" | "deleted";
+
+export interface ScheduleTrigger {
+  readonly "account_id": string;
+  readonly "id": string;
+  readonly "requested_at": string;
+  readonly "requested_by": string;
+  readonly "schedule_id": string;
+  readonly "schedule_version": number;
+  readonly "state": "accepted";
 }
 
 export interface SecurityEvent {
@@ -1376,6 +1457,11 @@ export interface TransferOwnershipRequest {
   readonly "expected_target_version": number;
   readonly "reason": string;
   readonly "target_membership_id": string;
+}
+
+export interface TransitionScheduleRequest {
+  readonly "expected_version": number;
+  readonly "reason"?: string;
 }
 
 export interface TransitionWorkRequest {
@@ -1664,6 +1750,7 @@ export interface ApiSchemas {
   readonly CreateCheckoutSessionRequest: CreateCheckoutSessionRequest;
   readonly CreateInformationRequestInput: CreateInformationRequestInput;
   readonly CreateInvitationRequest: CreateInvitationRequest;
+  readonly CreateScheduleRequest: CreateScheduleRequest;
   readonly CreateWorkRequest: CreateWorkRequest;
   readonly CreateWorkReviewRequest: CreateWorkReviewRequest;
   readonly DecideApprovalRequest: DecideApprovalRequest;
@@ -1745,7 +1832,18 @@ export interface ApiSchemas {
   readonly RequestActionResolutionRequest: RequestActionResolutionRequest;
   readonly ResolveAgentRunRequest: ResolveAgentRunRequest;
   readonly RetrieveKnowledgeDocumentsRequest: RetrieveKnowledgeDocumentsRequest;
+  readonly ReviseScheduleRequest: ReviseScheduleRequest;
   readonly RevokeBaselineSourceGrantRequest: RevokeBaselineSourceGrantRequest;
+  readonly Schedule: Schedule;
+  readonly ScheduleAgentRunTemplate: ScheduleAgentRunTemplate;
+  readonly ScheduleFrequency: ScheduleFrequency;
+  readonly ScheduleGapPolicy: ScheduleGapPolicy;
+  readonly ScheduleMissedRunPolicy: ScheduleMissedRunPolicy;
+  readonly ScheduleOverlapPolicy: ScheduleOverlapPolicy;
+  readonly SchedulePage: SchedulePage;
+  readonly ScheduleRecurrence: ScheduleRecurrence;
+  readonly ScheduleState: ScheduleState;
+  readonly ScheduleTrigger: ScheduleTrigger;
   readonly SecurityEvent: SecurityEvent;
   readonly SecurityEventType: SecurityEventType;
   readonly SecurityEvents: SecurityEvents;
@@ -1756,6 +1854,7 @@ export interface ApiSchemas {
   readonly StripeEvent: StripeEvent;
   readonly StripeWebhookReceipt: StripeWebhookReceipt;
   readonly TransferOwnershipRequest: TransferOwnershipRequest;
+  readonly TransitionScheduleRequest: TransitionScheduleRequest;
   readonly TransitionWorkRequest: TransitionWorkRequest;
   readonly UploadKnowledgeDocumentRequest: UploadKnowledgeDocumentRequest;
   readonly WebAuthnAssertionCredential: WebAuthnAssertionCredential;

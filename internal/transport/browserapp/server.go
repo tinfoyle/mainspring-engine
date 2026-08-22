@@ -154,6 +154,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /assets/work.js", s.workScript)
 	mux.HandleFunc("GET /assets/attention.js", s.attentionScript)
 	mux.HandleFunc("GET /assets/agents.js", s.agentScript)
+	mux.HandleFunc("GET /assets/schedules.js", s.scheduleScript)
 	mux.HandleFunc("GET /assets/knowledge.js", s.knowledgeScript)
 	mux.HandleFunc("GET /assets/passkeys.js", s.passkeyScript)
 	mux.HandleFunc("GET /login", s.loginPage)
@@ -172,6 +173,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /app/work", s.workPage)
 	mux.HandleFunc("GET /app/your-turn", s.yourTurnPage)
 	mux.HandleFunc("GET /app/agents", s.agentsPage)
+	mux.HandleFunc("GET /app/schedules", s.schedulesPage)
 	mux.HandleFunc("GET /app/knowledge", s.knowledgePage)
 	mux.HandleFunc("GET /app/security", s.securityPage)
 	mux.HandleFunc("POST /app/security/reauthenticate", s.reauthenticate)
@@ -267,6 +269,9 @@ func (s *Server) styles(w http.ResponseWriter, _ *http.Request) {
 	if extra, err := assets.ReadFile("assets/shell.css"); err == nil {
 		_, _ = w.Write(extra)
 	}
+	if schedules, err := assets.ReadFile("assets/schedules.css"); err == nil {
+		_, _ = w.Write(schedules)
+	}
 }
 
 func (s *Server) workScript(w http.ResponseWriter, _ *http.Request) {
@@ -293,6 +298,17 @@ func (s *Server) attentionScript(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) agentScript(w http.ResponseWriter, _ *http.Request) {
 	raw, err := assets.ReadFile("assets/agents.js")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(raw)
+}
+
+func (s *Server) scheduleScript(w http.ResponseWriter, _ *http.Request) {
+	raw, err := assets.ReadFile("assets/schedules.js")
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -662,6 +678,18 @@ func (s *Server) agentsPage(w http.ResponseWriter, r *http.Request) {
 		data.Script = "/assets/agents.js"
 	}
 	s.render(w, http.StatusOK, "agents", data)
+}
+
+func (s *Server) schedulesPage(w http.ResponseWriter, r *http.Request) {
+	data, _, ok := s.appPageData(w, r)
+	if !ok {
+		return
+	}
+	data.Title = "Schedules"
+	if data.AgentsAvailable {
+		data.Script = "/assets/schedules.js"
+	}
+	s.render(w, http.StatusOK, "schedules", data)
 }
 
 func (s *Server) knowledgePage(w http.ResponseWriter, r *http.Request) {

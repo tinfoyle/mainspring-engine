@@ -9,7 +9,7 @@
     {
       "code": "agents",
       "executable": true,
-      "boundaries": ["browser", "http", "dispatch-worker", "runner", "result-projection-worker"]
+      "boundaries": ["browser", "http", "dispatch-worker", "runner", "result-projection-worker", "schedule-worker"]
     },
     {"code": "knowledge", "executable": true, "boundaries": ["browser", "http", "document-processing-worker"]},
     {"code": "finance", "executable": false, "boundaries": []},
@@ -18,7 +18,6 @@
   ],
   "absent_surface_kinds": [
     "production-mcp",
-    "customer-schedule",
     "connector-runtime",
     "customer-export-api",
     "search-vector-store",

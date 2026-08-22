@@ -19,6 +19,7 @@ import (
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
+	schedulingapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
@@ -186,12 +187,22 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		return nil, err
 	}
 	documents := knowledgeDocumentRoutes{admission: documentAdmission, service: documentService}
+	scheduleRepository, err := postgres.NewScheduleRepository(cellPool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	scheduleService, err := schedulingapp.New(routeaccess.NewAuthorizer(), scheduleRepository, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	scheduleExecution, err := postgres.NewScheduleExecutionRepository(pool, cellPool)
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
 	if err != nil {
 		pool.Close()
 		return nil, err

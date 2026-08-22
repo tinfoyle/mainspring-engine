@@ -35,13 +35,24 @@ type ExecutionClaim struct {
 	ScheduleID      ids.ScheduleID `json:"schedule_id"`
 	ScheduleVersion uint64         `json:"schedule_version"`
 	ScheduledFor    time.Time      `json:"scheduled_for"`
+	Kind            string         `json:"kind,omitempty"`
+	TriggerID       string         `json:"trigger_id,omitempty"`
 	LeaseID         string         `json:"lease_id"`
 	Attempt         int            `json:"attempt"`
 }
 
 func (claim ExecutionClaim) Valid() bool {
-	return ids.Validate(string(claim.AccountID)) == nil && ids.Validate(string(claim.ScheduleID)) == nil &&
+	kind := claim.ExecutionKind()
+	validIdentity := (kind == "scheduled" && claim.TriggerID == "") || (kind == "triggered" && ids.Validate(claim.TriggerID) == nil)
+	return validIdentity && ids.Validate(string(claim.AccountID)) == nil && ids.Validate(string(claim.ScheduleID)) == nil &&
 		claim.ScheduleVersion > 0 && !claim.ScheduledFor.IsZero() && ids.Validate(claim.LeaseID) == nil && claim.Attempt > 0
+}
+
+func (claim ExecutionClaim) ExecutionKind() string {
+	if claim.Kind == "" {
+		return "scheduled"
+	}
+	return claim.Kind
 }
 
 type ExecutionSnapshot struct {
@@ -55,8 +66,10 @@ func (snapshot ExecutionSnapshot) ValidForAuthorization() bool {
 
 func (snapshot ExecutionSnapshot) ValidFor(claim ExecutionClaim) bool {
 	value, err := domain.Restore(snapshot.Schedule)
-	return err == nil && value.AccountID == claim.AccountID && value.ID == claim.ScheduleID && value.Version == claim.ScheduleVersion &&
-		value.State == domain.StateActive && value.NextRunAt != nil && value.NextRunAt.Equal(claim.ScheduledFor.UTC())
+	if err != nil || value.AccountID != claim.AccountID || value.ID != claim.ScheduleID || value.Version != claim.ScheduleVersion || value.State != domain.StateActive {
+		return false
+	}
+	return claim.ExecutionKind() == "triggered" || (value.NextRunAt != nil && value.NextRunAt.Equal(claim.ScheduledFor.UTC()))
 }
 
 type ExecutionAuthorization struct {
@@ -84,11 +97,13 @@ type OccurrenceCommand struct {
 }
 
 func (command OccurrenceCommand) Valid() bool {
-	return command.Claim.Valid() && ExecutionSnapshot{Schedule: command.Schedule}.ValidFor(command.Claim) &&
+	validNext := command.Claim.ExecutionKind() == "triggered" && command.NextRunAt.IsZero() ||
+		command.Claim.ExecutionKind() == "scheduled" && command.NextRunAt.After(command.Claim.ScheduledFor)
+	return validNext && command.Claim.Valid() && ExecutionSnapshot{Schedule: command.Schedule}.ValidFor(command.Claim) &&
 		ids.Validate(command.OccurrenceID) == nil && ids.Validate(string(command.RunID)) == nil &&
 		ids.Validate(string(command.ConversationID)) == nil && ids.Validate(string(command.UserMessageID)) == nil &&
 		len(strings.TrimSpace(command.Subject)) >= 2 && len([]rune(command.Subject)) <= 240 && command.Authorization.Valid() &&
-		command.NextRunAt.After(command.Claim.ScheduledFor) && !command.At.IsZero() && command.RequestExpiresAt.After(command.At)
+		!command.At.IsZero() && command.RequestExpiresAt.After(command.At)
 }
 
 type ExecutionQueue interface {
@@ -217,6 +232,13 @@ func (processor *ExecutionProcessor) ProcessOne(ctx context.Context) (ExecutionR
 }
 
 func buildOccurrenceCommand(claim ExecutionClaim, schedule domain.Schedule, authorization ExecutionAuthorization, now time.Time) (OccurrenceCommand, bool, error) {
+	if claim.ExecutionKind() == "triggered" {
+		occurrenceID, err := ids.Derive(claim.TriggerID, "occurrence")
+		if err != nil {
+			return OccurrenceCommand{}, false, err
+		}
+		return derivedOccurrenceCommand(claim, schedule, authorization, now, occurrenceID, time.Time{})
+	}
 	nextSelected, err := schedule.Recurrence.Next(claim.ScheduledFor, schedule.Timezone)
 	if err != nil {
 		return OccurrenceCommand{}, false, err
@@ -234,6 +256,11 @@ func buildOccurrenceCommand(claim ExecutionClaim, schedule domain.Schedule, auth
 	if err != nil {
 		return OccurrenceCommand{}, false, err
 	}
+	command, _, err := derivedOccurrenceCommand(claim, schedule, authorization, now, occurrenceID, nextRunAt)
+	return command, missed, err
+}
+
+func derivedOccurrenceCommand(claim ExecutionClaim, schedule domain.Schedule, authorization ExecutionAuthorization, now time.Time, occurrenceID string, nextRunAt time.Time) (OccurrenceCommand, bool, error) {
 	runID, err := ids.Derive(occurrenceID, "run")
 	if err != nil {
 		return OccurrenceCommand{}, false, err
@@ -249,7 +276,7 @@ func buildOccurrenceCommand(claim ExecutionClaim, schedule domain.Schedule, auth
 	return OccurrenceCommand{Claim: claim, Schedule: schedule, OccurrenceID: occurrenceID, RunID: ids.RunID(runID),
 		ConversationID: ids.ConversationID(conversationID), UserMessageID: ids.MessageID(messageID),
 		Subject: datedSubject(schedule.Template.Subject, claim.ScheduledFor, schedule.Timezone), Authorization: authorization,
-		NextRunAt: nextRunAt, At: now, RequestExpiresAt: now.Add(executionRunLifetime)}, missed, nil
+		NextRunAt: nextRunAt, At: now, RequestExpiresAt: now.Add(executionRunLifetime)}, false, nil
 }
 
 func datedSubject(subject string, scheduledFor time.Time, timezone string) string {

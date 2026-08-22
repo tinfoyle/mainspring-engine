@@ -125,6 +125,14 @@ GRANT EXECUTE ON FUNCTION public.spyglass_fail_schedule_dispatch(uuid,uuid,uuid,
   TO spyglass_schedule_execution_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_schedule_dispatch_stats(timestamptz)
   TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_schedule_trigger(uuid,timestamptz,integer)
+  TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_heartbeat_schedule_trigger(uuid,uuid,uuid,timestamptz,timestamptz,integer)
+  TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_fail_schedule_trigger(uuid,uuid,uuid,timestamptz,boolean,timestamptz,text,timestamptz,integer)
+  TO spyglass_schedule_execution_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_schedule_trigger_stats(timestamptz)
+  TO spyglass_schedule_execution_worker;
 
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_result_projection_v4(uuid,timestamptz,integer)
   TO spyglass_agent_projection_worker;

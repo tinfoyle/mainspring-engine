@@ -39,7 +39,7 @@ func (s *Server) scheduleExecutionLoad(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_schedule_execution", "the Schedule execution claim is invalid")
 		return
 	}
-	snapshot, err := s.schedules.Load(r.Context(), request.Claim)
+	snapshot, err := s.scheduleExecution.Load(r.Context(), request.Claim)
 	if err != nil {
 		s.writeScheduleExecutionError(w, err)
 		return
@@ -76,9 +76,9 @@ func (s *Server) scheduleExecutionCommand(w http.ResponseWriter, r *http.Request
 		err        error
 	)
 	if skip {
-		reconciled, err = s.schedules.Skip(r.Context(), request.Command)
+		reconciled, err = s.scheduleExecution.Skip(r.Context(), request.Command)
 	} else {
-		reconciled, err = s.schedules.Dispatch(r.Context(), request.Command)
+		reconciled, err = s.scheduleExecution.Dispatch(r.Context(), request.Command)
 	}
 	if err != nil {
 		s.writeScheduleExecutionError(w, err)
@@ -88,7 +88,7 @@ func (s *Server) scheduleExecutionCommand(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) acceptScheduleWorker(w http.ResponseWriter, r *http.Request) bool {
-	if s.schedules == nil {
+	if s.scheduleExecution == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "schedule_execution_unavailable", "Schedule execution is temporarily unavailable")
 		return false
 	}

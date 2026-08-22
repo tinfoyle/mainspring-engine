@@ -20,6 +20,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
+	schedulingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/scheduling"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/requestbody"
@@ -47,7 +48,8 @@ type Server struct {
 	knowledge              KnowledgeService
 	documents              KnowledgeDocumentService
 	baseline               BaselineService
-	schedules              ScheduleExecutionService
+	scheduling             SchedulingService
+	scheduleExecution      ScheduleExecutionService
 	scheduleWorkerIdentity string
 	counters               routeCounters
 }
@@ -146,6 +148,21 @@ func WithBaseline(service BaselineService) Option {
 	return func(server *Server) { server.baseline = service }
 }
 
+type SchedulingService interface {
+	Create(context.Context, schedulingapp.CreateCommand) (schedulingdomain.Schedule, bool, error)
+	Get(context.Context, schedulingapp.GetQuery) (schedulingdomain.Schedule, error)
+	List(context.Context, schedulingapp.ListCommand) (schedulingapp.Page, error)
+	Revise(context.Context, schedulingapp.ReviseCommand) (schedulingdomain.Schedule, error)
+	Pause(context.Context, schedulingapp.TransitionCommand) (schedulingdomain.Schedule, error)
+	Resume(context.Context, schedulingapp.TransitionCommand) (schedulingdomain.Schedule, error)
+	Delete(context.Context, schedulingapp.TransitionCommand) (schedulingdomain.Schedule, error)
+	TriggerNow(context.Context, schedulingapp.TransitionCommand) (schedulingapp.Trigger, bool, error)
+}
+
+func WithScheduling(service SchedulingService) Option {
+	return func(server *Server) { server.scheduling = service }
+}
+
 type ScheduleExecutionService interface {
 	Load(context.Context, schedulingapp.ExecutionClaim) (schedulingapp.ExecutionSnapshot, error)
 	Dispatch(context.Context, schedulingapp.OccurrenceCommand) (bool, error)
@@ -154,7 +171,7 @@ type ScheduleExecutionService interface {
 
 func WithScheduleExecution(service ScheduleExecutionService, cellID ids.CellID) Option {
 	return func(server *Server) {
-		server.schedules = service
+		server.scheduleExecution = service
 		if routecontext.ValidCellID(cellID) {
 			server.scheduleWorkerIdentity = "spiffe://infiniteocean.net/spyglass/cells/" + string(cellID) + "/schedule-execution-worker"
 		}
@@ -169,7 +186,7 @@ func New(acceptor Acceptor, logger *slog.Logger, maxBody int64, options ...Optio
 	for _, option := range options {
 		option(server)
 	}
-	if server.schedules != nil && server.scheduleWorkerIdentity == "" {
+	if server.scheduleExecution != nil && server.scheduleWorkerIdentity == "" {
 		return nil, errors.New("Schedule execution requires a valid cell workload identity")
 	}
 	return server, nil
@@ -247,6 +264,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", s.baselineSourceGrantList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", s.baselineSourceGrantCreate)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants/{grantID}/revocations", s.baselineSourceGrantRevoke)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleGet)
+	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleRevise)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules/{scheduleID}/pauses", s.schedulePause)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules/{scheduleID}/resumptions", s.scheduleResume)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules/{scheduleID}/triggers", s.scheduleTrigger)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleDelete)
 	mux.HandleFunc("POST /internal/v1/schedules/executions:load", s.scheduleExecutionLoad)
 	mux.HandleFunc("POST /internal/v1/schedules/executions:dispatch", s.scheduleExecutionDispatch)
 	mux.HandleFunc("POST /internal/v1/schedules/executions:skip", s.scheduleExecutionSkip)
