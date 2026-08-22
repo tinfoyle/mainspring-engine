@@ -144,6 +144,7 @@ export interface ActiveSessions {
 export interface AgentBoardroom {
   readonly "created_at": string;
   readonly "id": string;
+  readonly "manager_persona_id"?: string;
   readonly "name": string;
   readonly "purpose": string;
   readonly "state": AgentBoardroomState;
@@ -287,6 +288,7 @@ export interface AgentRun {
   readonly "id": string;
   readonly "invocation_ids": ReadonlyArray<string>;
   readonly "invocations": ReadonlyArray<AgentRunInvocation>;
+  readonly "mode": AgentRunMode;
   readonly "plan_digest": string;
   readonly "policy_version": number;
   readonly "prompt": string;
@@ -323,6 +325,8 @@ export interface AgentRunInvocation {
 }
 
 export type AgentRunInvocationState = "queued" | "running" | "succeeded" | "failed" | "canceled";
+
+export type AgentRunMode = "selected" | "manager_led";
 
 export interface AgentRunResolution {
   readonly "action": AgentRunResolutionAction;
@@ -689,6 +693,11 @@ export interface CompleteRecoveryRequest {
 export interface CompleteRegistrationRequest {
   readonly "password": string;
   readonly "token": string;
+}
+
+export interface ConfigureAgentBoardroomManagerRequest {
+  readonly "expected_version": number;
+  readonly "manager_persona_id": string;
 }
 
 export interface ConfirmBaselineWorkEvidenceRequest {
@@ -1347,6 +1356,7 @@ export interface SelectedAccountContext {
 export interface StartAgentRunRequest {
   readonly "context"?: AgentRunContextInput;
   readonly "conversation_id"?: string;
+  readonly "mode": AgentRunMode;
   readonly "persona_ids": ReadonlyArray<string>;
   readonly "prompt": string;
   readonly "subject"?: string;
@@ -1583,6 +1593,7 @@ export interface ApiSchemas {
   readonly AgentRunContextReference: AgentRunContextReference;
   readonly AgentRunInvocation: AgentRunInvocation;
   readonly AgentRunInvocationState: AgentRunInvocationState;
+  readonly AgentRunMode: AgentRunMode;
   readonly AgentRunResolution: AgentRunResolution;
   readonly AgentRunResolutionAction: AgentRunResolutionAction;
   readonly AgentRunState: AgentRunState;
@@ -1640,6 +1651,7 @@ export interface ApiSchemas {
   readonly CompletePasskeyRegistrationRequest: CompletePasskeyRegistrationRequest;
   readonly CompleteRecoveryRequest: CompleteRecoveryRequest;
   readonly CompleteRegistrationRequest: CompleteRegistrationRequest;
+  readonly ConfigureAgentBoardroomManagerRequest: ConfigureAgentBoardroomManagerRequest;
   readonly ConfirmBaselineWorkEvidenceRequest: ConfirmBaselineWorkEvidenceRequest;
   readonly ConsumeRecoveryCodeRequest: ConsumeRecoveryCodeRequest;
   readonly ContactChangeAccepted: ContactChangeAccepted;

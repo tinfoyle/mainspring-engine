@@ -34,6 +34,7 @@ const (
 
 type agentTransportService struct {
 	createCommand     agentapp.CreateBoardroomCommand
+	managerCommand    agentapp.ConfigureBoardroomManagerCommand
 	publishCommand    agentapp.PublishPersonaCommand
 	runCommand        agentapp.StartRunCommand
 	resolveCommand    agentapp.ResolveRunCommand
@@ -45,6 +46,11 @@ type agentTransportService struct {
 func (service *agentTransportService) CreateBoardroom(_ context.Context, command agentapp.CreateBoardroomCommand) (agentdomain.Boardroom, bool, error) {
 	service.createCommand = command
 	return agentdomain.Boardroom{ID: ids.BoardroomID(command.RequestID), AccountID: command.AccountID, Name: command.Name, Purpose: command.Purpose, State: agentdomain.BoardroomActive, Version: 1, CreatedAt: service.now, UpdatedAt: service.now}, true, nil
+}
+
+func (service *agentTransportService) ConfigureBoardroomManager(_ context.Context, command agentapp.ConfigureBoardroomManagerCommand) (agentdomain.Boardroom, bool, error) {
+	service.managerCommand = command
+	return agentdomain.Boardroom{ID: command.BoardroomID, AccountID: command.AccountID, ManagerPersonaID: command.ManagerPersonaID, Name: "Operations Boardroom", Purpose: "Coordinate operational work", State: agentdomain.BoardroomActive, Version: command.ExpectedVersion + 1, CreatedAt: service.now, UpdatedAt: service.now}, true, nil
 }
 
 func (service *agentTransportService) PublishPersona(_ context.Context, command agentapp.PublishPersonaCommand) (agentapp.PersonaSummary, bool, error) {
@@ -64,7 +70,7 @@ func (service *agentTransportService) StartRun(_ context.Context, command agenta
 	return agentapp.Run{Plan: agentdomain.RunPlan{RunID: ids.RunID(command.RequestID), AccountID: command.AccountID,
 		BoardroomID: command.BoardroomID, ConversationID: ids.ConversationID(agentConversation), EntitlementVersion: 3,
 		PolicyVersion: 1, Turns: []agentdomain.PlannedTurn{{Turn: 1, PersonaID: ids.PersonaID(agentPersona), PersonaVersionID: ids.PersonaVersionID(agentOperation)}},
-		CreatedBy: command.Actor.UserID, CreatedAt: service.now, Digest: [32]byte{1}}, State: "planned",
+		CreatedBy: command.Actor.UserID, CreatedAt: service.now, Digest: [32]byte{1}}, Mode: command.Mode, State: "planned",
 		Subject: command.Subject, Prompt: command.Prompt, UserMessageID: ids.MessageID("81000000-0000-4000-8000-000000000001"),
 		InvocationIDs: []ids.AgentInvocationID{ids.AgentInvocationID(agentInvocation)}, Invocations: []agentapp.RunInvocation{{ID: ids.AgentInvocationID(agentInvocation), Turn: 1, PersonaVersionID: ids.PersonaVersionID(agentOperation), Status: "queued"}}, Resolutions: []agentapp.RunResolution{}}, true, nil
 }
@@ -107,7 +113,7 @@ func (service *agentTransportService) GetRun(_ context.Context, _ access.Actor, 
 	return agentapp.Run{Plan: agentdomain.RunPlan{RunID: runID, AccountID: accountID, BoardroomID: ids.BoardroomID(agentBoardroom),
 		ConversationID: ids.ConversationID(agentConversation), EntitlementVersion: 3, PolicyVersion: 1,
 		Turns:     []agentdomain.PlannedTurn{{Turn: 1, PersonaID: ids.PersonaID(agentPersona), PersonaVersionID: ids.PersonaVersionID(agentOperation)}},
-		CreatedBy: ids.UserID(agentUser), CreatedAt: service.now, Digest: [32]byte{1}}, State: "planned", Subject: "Weekly review",
+		CreatedBy: ids.UserID(agentUser), CreatedAt: service.now, Digest: [32]byte{1}}, Mode: agentapp.RunModeSelected, State: "planned", Subject: "Weekly review",
 		Prompt: "What should we prioritize?", UserMessageID: ids.MessageID("81000000-0000-4000-8000-000000000001"),
 		InvocationIDs: []ids.AgentInvocationID{ids.AgentInvocationID(agentInvocation)}, Invocations: []agentapp.RunInvocation{{ID: ids.AgentInvocationID(agentInvocation), Turn: 1, PersonaVersionID: ids.PersonaVersionID(agentOperation), Status: "queued"}}, Resolutions: []agentapp.RunResolution{}}, nil
 }
@@ -133,6 +139,15 @@ func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testi
 	if service.createCommand.RequestID != agentOperation || service.createCommand.Actor.UserID != ids.UserID(agentUser) {
 		t.Fatalf("create command=%+v", service.createCommand)
 	}
+	managerTarget := "/api/v1/accounts/" + agentAccount + "/agent-boardrooms/" + agentBoardroom + "/manager"
+	manager := agentCommandRequest(server.Handler(), http.MethodPut, managerTarget, agentOperation,
+		`{"manager_persona_id":"`+agentPersona+`","expected_version":1}`)
+	if manager.Code != http.StatusOK || service.managerCommand.ExpectedVersion != 1 || service.managerCommand.ManagerPersonaID != ids.PersonaID(agentPersona) || !strings.Contains(manager.Body.String(), `"manager_persona_id":"`+agentPersona+`"`) {
+		t.Fatalf("manager=%d body=%s command=%+v", manager.Code, manager.Body.String(), service.managerCommand)
+	}
+	if err := contract.ValidateResponse(http.MethodPut, managerTarget, manager.Code, manager.Header(), manager.Body.Bytes()); err != nil {
+		t.Fatal(err)
+	}
 
 	personaBody := `{"persona_id":"` + agentPersona + `","expected_latest_version":0,"name":"Operations Lead","role":"Operations","description":"Coordinates work","system_instructions":"Review evidence and report a recommendation.","policy":{"provider":"openai","model":"gpt-5","fallback_models":[],"maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose","tools":[]}}`
 	publish := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/personas", agentOperation, personaBody)
@@ -142,10 +157,10 @@ func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testi
 	}
 
 	run := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/runs", agentOperation,
-		`{"subject":"Weekly review","prompt":"What should we prioritize?","persona_ids":["`+agentPersona+`"],"context":{"knowledge_document_ids":["66000000-0000-4000-8000-000000000006"]}}`)
+		`{"subject":"Weekly review","prompt":"What should we prioritize?","mode":"selected","persona_ids":["`+agentPersona+`"],"context":{"knowledge_document_ids":["66000000-0000-4000-8000-000000000006"]}}`)
 	if run.Code != http.StatusAccepted || run.Header().Get("Location") != "/api/v1/accounts/"+agentAccount+"/agent-runs/"+agentOperation ||
 		service.runCommand.RequestID != agentOperation || !strings.Contains(run.Body.String(), `"state":"planned"`) ||
-		!strings.Contains(run.Body.String(), `"turns":[{`) || !strings.Contains(run.Body.String(), `"invocation_ids":["`+agentInvocation+`"]`) || len(service.runCommand.Context.KnowledgeDocumentIDs) != 1 {
+		!strings.Contains(run.Body.String(), `"turns":[{`) || !strings.Contains(run.Body.String(), `"invocation_ids":["`+agentInvocation+`"]`) || service.runCommand.Mode != agentapp.RunModeSelected || len(service.runCommand.Context.KnowledgeDocumentIDs) != 1 {
 		t.Fatalf("run=%d location=%q body=%s command=%+v", run.Code, run.Header().Get("Location"), run.Body.String(), service.runCommand)
 	}
 
@@ -189,23 +204,33 @@ func TestAgentCommandsRequireExplicitEmptyCapableFields(t *testing.T) {
 	if missingTools.Code != http.StatusBadRequest || service.publishCommand.PersonaID != "" {
 		t.Fatalf("missing tools=%d body=%s command=%+v", missingTools.Code, missingTools.Body.String(), service.publishCommand)
 	}
+	missingManagerVersion := agentCommandRequest(server.Handler(), http.MethodPut, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/manager", agentOperation,
+		`{"manager_persona_id":"`+agentPersona+`"}`)
+	if missingManagerVersion.Code != http.StatusBadRequest || service.managerCommand.BoardroomID != "" {
+		t.Fatalf("missing manager version=%d body=%s command=%+v", missingManagerVersion.Code, missingManagerVersion.Body.String(), service.managerCommand)
+	}
+	missingMode := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/runs", agentOperation,
+		`{"subject":"Weekly review","prompt":"Review priorities","persona_ids":["`+agentPersona+`"]}`)
+	if missingMode.Code != http.StatusBadRequest || service.runCommand.RequestID != "" {
+		t.Fatalf("missing run mode=%d body=%s command=%+v", missingMode.Code, missingMode.Body.String(), service.runCommand)
+	}
 }
 
 func TestAgentRunSubjectBelongsOnlyToNewConversation(t *testing.T) {
 	service := &agentTransportService{now: time.Now().UTC()}
 	server, _ := New(claimAcceptor{claims: agentClaims()}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithAgents(service))
 	target := "/api/v1/accounts/" + agentAccount + "/agent-boardrooms/" + agentBoardroom + "/runs"
-	missing := agentCommandRequest(server.Handler(), http.MethodPost, target, agentOperation, `{"prompt":"Review priorities","persona_ids":["`+agentPersona+`"]}`)
+	missing := agentCommandRequest(server.Handler(), http.MethodPost, target, agentOperation, `{"prompt":"Review priorities","mode":"selected","persona_ids":["`+agentPersona+`"]}`)
 	if missing.Code != http.StatusBadRequest || service.runCommand.RequestID != "" {
 		t.Fatalf("new conversation without subject=%d body=%s", missing.Code, missing.Body.String())
 	}
 	ambiguous := agentCommandRequest(server.Handler(), http.MethodPost, target, agentOperation,
-		`{"conversation_id":"`+agentConversation+`","subject":"Ignored subject","prompt":"Review priorities","persona_ids":["`+agentPersona+`"]}`)
+		`{"conversation_id":"`+agentConversation+`","subject":"Ignored subject","prompt":"Review priorities","mode":"selected","persona_ids":["`+agentPersona+`"]}`)
 	if ambiguous.Code != http.StatusBadRequest || service.runCommand.RequestID != "" {
 		t.Fatalf("existing conversation with subject=%d body=%s", ambiguous.Code, ambiguous.Body.String())
 	}
 	existing := agentCommandRequest(server.Handler(), http.MethodPost, target, agentOperation,
-		`{"conversation_id":"`+agentConversation+`","prompt":"Review priorities","persona_ids":["`+agentPersona+`"]}`)
+		`{"conversation_id":"`+agentConversation+`","prompt":"Review priorities","mode":"selected","persona_ids":["`+agentPersona+`"]}`)
 	if existing.Code != http.StatusAccepted || service.runCommand.ConversationID != ids.ConversationID(agentConversation) || service.runCommand.Subject != "" {
 		t.Fatalf("existing conversation=%d body=%s command=%+v", existing.Code, existing.Body.String(), service.runCommand)
 	}

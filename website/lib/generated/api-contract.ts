@@ -115,6 +115,7 @@ export const apiRoutes = [
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/work-items/{itemID}/conversation-links", operationId: "workLinkConversation", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/work-items/{itemID}/provenance-links", operationId: "workAttachProvenance", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/work-items/{itemID}/transitions", operationId: "workTransition", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "PUT", path: "/api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/manager", operationId: "agentBoardroomManagerConfigure", authentication: "sessionCookie", contract: "typed" },
 ] as const;
 
 export type ApiRoute = (typeof apiRoutes)[number];

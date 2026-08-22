@@ -115,6 +115,7 @@ type MessagePage struct {
 
 type Run struct {
 	Plan          agentdomain.RunPlan
+	Mode          RunMode
 	State         string
 	Subject       string
 	Prompt        string
@@ -125,6 +126,13 @@ type Run struct {
 	Context       []ContextReference
 	ContextDigest [32]byte
 }
+
+type RunMode string
+
+const (
+	RunModeSelected   RunMode = "selected"
+	RunModeManagerLed RunMode = "manager_led"
+)
 
 type ContextSelection struct {
 	WorkItemIDs           []ids.WorkItemID
@@ -192,6 +200,7 @@ type ResolveRunDraft struct {
 
 type Repository interface {
 	CreateBoardroom(context.Context, agentdomain.Boardroom) (agentdomain.Boardroom, bool, error)
+	ConfigureBoardroomManager(context.Context, ids.AccountID, ids.BoardroomID, ids.PersonaID, uint64, time.Time) (agentdomain.Boardroom, bool, error)
 	ListBoardrooms(context.Context, ids.AccountID, int) ([]agentdomain.Boardroom, error)
 	GetBoardroom(context.Context, ids.AccountID, ids.BoardroomID) (agentdomain.Boardroom, error)
 	PublishPersona(context.Context, ids.BoardroomID, agentdomain.PersonaVersion, uint64) (PersonaSummary, bool, error)
@@ -237,6 +246,26 @@ func (s *Service) CreateBoardroom(ctx context.Context, command CreateBoardroomCo
 		return agentdomain.Boardroom{}, false, ErrInvalidCommand
 	}
 	return s.repository.CreateBoardroom(ctx, boardroom)
+}
+
+type ConfigureBoardroomManagerCommand struct {
+	Actor            access.Actor
+	AccountID        ids.AccountID
+	RequestID        string
+	BoardroomID      ids.BoardroomID
+	ManagerPersonaID ids.PersonaID
+	ExpectedVersion  uint64
+}
+
+func (s *Service) ConfigureBoardroomManager(ctx context.Context, command ConfigureBoardroomManagerCommand) (agentdomain.Boardroom, bool, error) {
+	if !command.Actor.Valid() || command.Actor.UserID == "" || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.AccountID)) != nil ||
+		ids.Validate(string(command.BoardroomID)) != nil || ids.Validate(string(command.ManagerPersonaID)) != nil || command.ExpectedVersion == 0 || command.ExpectedVersion == ^uint64(0) {
+		return agentdomain.Boardroom{}, false, ErrInvalidCommand
+	}
+	if _, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Roles: configureRoles(), Package: PackageCode, Mutation: true}); err != nil {
+		return agentdomain.Boardroom{}, false, err
+	}
+	return s.repository.ConfigureBoardroomManager(ctx, command.AccountID, command.BoardroomID, command.ManagerPersonaID, command.ExpectedVersion, s.clock.Now().UTC())
 }
 
 type PublishPersonaCommand struct {
@@ -288,6 +317,7 @@ type StartRunDraft struct {
 	UserMessageID        ids.MessageID
 	Subject              string
 	Prompt               string
+	Mode                 RunMode
 	PersonaIDs           []ids.PersonaID
 	Context              ContextSelection
 	EntitlementVersion   uint64
@@ -305,15 +335,24 @@ type StartRunCommand struct {
 	ConversationID ids.ConversationID
 	Subject        string
 	Prompt         string
+	Mode           RunMode
 	PersonaIDs     []ids.PersonaID
 	Context        ContextSelection
 }
 
 func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, bool, error) {
 	subject := strings.TrimSpace(command.Subject)
+	mode := command.Mode
+	if mode == "" {
+		mode = RunModeSelected
+	}
+	maximumPersonas := agentdomain.MaximumPersonasPerRun
+	if mode == RunModeManagerLed {
+		maximumPersonas--
+	}
 	if !command.Actor.Valid() || command.Actor.UserID == "" || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.AccountID)) != nil || ids.Validate(string(command.BoardroomID)) != nil ||
 		(command.ConversationID != "" && ids.Validate(string(command.ConversationID)) != nil) || (command.ConversationID == "" && (utf8.RuneCountInString(subject) < 2 || utf8.RuneCountInString(subject) > 240)) || (command.ConversationID != "" && subject != "") ||
-		len(command.PersonaIDs) == 0 || len(command.PersonaIDs) > agentdomain.MaximumPersonasPerRun || len(strings.TrimSpace(command.Prompt)) == 0 || len(strings.TrimSpace(command.Prompt)) > 65536 {
+		(mode != RunModeSelected && mode != RunModeManagerLed) || len(command.PersonaIDs) == 0 || len(command.PersonaIDs) > maximumPersonas || len(strings.TrimSpace(command.Prompt)) == 0 || len(strings.TrimSpace(command.Prompt)) > 65536 {
 		return Run{}, false, ErrInvalidCommand
 	}
 	personas := append([]ids.PersonaID(nil), command.PersonaIDs...)
@@ -360,7 +399,7 @@ func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, b
 	draft := StartRunDraft{
 		Actor: command.Actor, AccountID: command.AccountID, BoardroomID: command.BoardroomID,
 		RunID: ids.RunID(command.RequestID), ConversationID: conversationID, CreateConversation: createConversation,
-		UserMessageID: ids.MessageID(messageID), Subject: subject, Prompt: strings.TrimSpace(command.Prompt),
+		UserMessageID: ids.MessageID(messageID), Subject: subject, Prompt: strings.TrimSpace(command.Prompt), Mode: mode,
 		PersonaIDs: personas, Context: cloneContextSelection(command.Context), EntitlementVersion: accountContext.EntitlementVersion, MaximumConcurrentRun: maximum,
 		CanReadRestricted: accountContext.Role == accounts.RoleOwner || accountContext.Role == accounts.RoleAdministrator,
 		CreatedAt:         now, RequestExpiresAt: now.Add(DefaultRunLifetime),

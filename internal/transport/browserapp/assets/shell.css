@@ -303,9 +303,10 @@
 .agents-persona.inactive { opacity: .58; }.agents-persona > span,.agents-persona-option > span { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 50%; background: #dfe9e3; color: #486056; font-size: .5rem; font-weight: 850; }
 .agents-persona > div { display: grid; gap: 2px; }.agents-persona strong { font-size: .61rem; }.agents-persona small { color: var(--muted); font-size: .51rem; }.agents-persona em { color: var(--green); font-size: .49rem; font-style: normal; font-weight: 800; }
 .agents-composer { display: grid; gap: 13px; padding-bottom: 16px; }
+.agents-manager-form { display: grid; grid-template-columns: minmax(180px,1fr) auto; align-items: end; gap: 9px; border-top: 1px solid var(--line); padding: 13px 17px 16px; }.agents-manager-form label { display: grid; gap: 6px; color: #58675f; font-size: .55rem; font-weight: 780; }.agents-manager-form select { min-height: 38px; }.agents-manager-form button { min-height: 38px; border: 0; border-radius: 8px; background: var(--green); padding: 0 14px; color: #fff; cursor: pointer; font-size: .57rem; font-weight: 800; }.agents-manager-form .agents-form-error { grid-column: 1/-1; }
 .agents-composer > header { margin-bottom: 1px; padding-bottom: 13px; }
 .agents-composer > label,.agents-composer fieldset { display: grid; gap: 6px; margin: 0 17px; color: #58675f; font-size: .55rem; font-weight: 780; }
-.agents-composer input,.agents-composer textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: #fafbf9; padding: 11px 12px; color: var(--ink); font: 500 .67rem/1.55 var(--sans); }
+.agents-composer input,.agents-composer textarea,.agents-composer select { width: 100%; border: 1px solid var(--line); border-radius: 10px; background: #fafbf9; padding: 11px 12px; color: var(--ink); font: 500 .67rem/1.55 var(--sans); }
 .agents-composer textarea { resize: vertical; }.agents-composer input:focus,.agents-composer textarea:focus { border-color: #79b497; box-shadow: 0 0 0 3px #20a67316; outline: none; }
 .agents-composer fieldset { border: 0; padding: 0; }.agents-composer legend { margin-bottom: 7px; }
 #agents-persona-picker { display: flex; flex-wrap: wrap; gap: 7px; }

@@ -316,6 +316,8 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 			return access.Requirement{Package: catalog.PackageAgents}, method == http.MethodGet
 		case "runs":
 			return access.Requirement{Package: catalog.PackageAgents, Mutation: true}, method == http.MethodPost
+		case "manager":
+			return access.Requirement{Package: catalog.PackageAgents, Mutation: true}, method == http.MethodPut
 		}
 	}
 	if len(parts) >= 2 && len(parts) <= 3 && parts[0] == "agent-conversations" && ids.Validate(parts[1]) == nil {

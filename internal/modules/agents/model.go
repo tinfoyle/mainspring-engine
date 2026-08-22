@@ -45,14 +45,15 @@ const (
 )
 
 type Boardroom struct {
-	ID        ids.BoardroomID
-	AccountID ids.AccountID
-	Name      string
-	Purpose   string
-	State     BoardroomState
-	Version   uint64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID               ids.BoardroomID
+	AccountID        ids.AccountID
+	ManagerPersonaID ids.PersonaID
+	Name             string
+	Purpose          string
+	State            BoardroomState
+	Version          uint64
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 func NewBoardroom(id ids.BoardroomID, accountID ids.AccountID, name, purpose string, now time.Time) (Boardroom, error) {
@@ -63,7 +64,7 @@ func NewBoardroom(id ids.BoardroomID, accountID ids.AccountID, name, purpose str
 func RestoreBoardroom(boardroom Boardroom) (Boardroom, error) {
 	boardroom.Name, boardroom.Purpose = strings.TrimSpace(boardroom.Name), strings.TrimSpace(boardroom.Purpose)
 	boardroom.CreatedAt, boardroom.UpdatedAt = boardroom.CreatedAt.UTC(), boardroom.UpdatedAt.UTC()
-	if ids.Validate(string(boardroom.ID)) != nil || ids.Validate(string(boardroom.AccountID)) != nil || len(boardroom.Name) < 2 || len(boardroom.Name) > 160 || len(boardroom.Purpose) > 2000 ||
+	if ids.Validate(string(boardroom.ID)) != nil || ids.Validate(string(boardroom.AccountID)) != nil || (boardroom.ManagerPersonaID != "" && ids.Validate(string(boardroom.ManagerPersonaID)) != nil) || len(boardroom.Name) < 2 || len(boardroom.Name) > 160 || len(boardroom.Purpose) > 2000 ||
 		(boardroom.State != BoardroomActive && boardroom.State != BoardroomArchived) || boardroom.Version == 0 || boardroom.CreatedAt.IsZero() || boardroom.UpdatedAt.Before(boardroom.CreatedAt) {
 		return Boardroom{}, ErrInvalidBoardroom
 	}

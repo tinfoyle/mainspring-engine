@@ -42,7 +42,7 @@ func (r *AgentRepository) CreateBoardroom(ctx context.Context, boardroom agentdo
 			return err
 		}
 		created = tag.RowsAffected() == 1
-		loaded, err := scanBoardroom(tx.QueryRow(ctx, `SELECT account_id,id,name,purpose,state,version,created_at,updated_at
+		loaded, err := scanBoardroom(tx.QueryRow(ctx, `SELECT account_id,id,manager_persona_id,name,purpose,state,version,created_at,updated_at
 			FROM spyglass.agent_boardrooms WHERE account_id=$1 AND id=$2`, boardroom.AccountID, boardroom.ID))
 		if err != nil {
 			return err
@@ -60,10 +60,60 @@ func (r *AgentRepository) CreateBoardroom(ctx context.Context, boardroom agentdo
 	return result, created, nil
 }
 
+func (r *AgentRepository) ConfigureBoardroomManager(ctx context.Context, accountID ids.AccountID, boardroomID ids.BoardroomID, managerPersonaID ids.PersonaID, expectedVersion uint64, at time.Time) (agentdomain.Boardroom, bool, error) {
+	var result agentdomain.Boardroom
+	updated := false
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{}, func(ctx context.Context, tx pgx.Tx) error {
+		current, err := scanBoardroom(tx.QueryRow(ctx, `SELECT account_id,id,manager_persona_id,name,purpose,state,version,created_at,updated_at
+			FROM spyglass.agent_boardrooms WHERE account_id=$1 AND id=$2 FOR UPDATE`, accountID, boardroomID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			return agentapp.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if current.State != agentdomain.BoardroomActive {
+			return agentapp.ErrConstraint
+		}
+		if current.Version == expectedVersion+1 && current.ManagerPersonaID == managerPersonaID {
+			result = current
+			return nil
+		}
+		if current.Version != expectedVersion {
+			return agentapp.ErrConflict
+		}
+		var state string
+		var latestVersion uint64
+		if err := tx.QueryRow(ctx, `SELECT state,latest_version FROM spyglass.agent_personas
+			WHERE account_id=$1 AND id=$2 AND boardroom_id=$3 FOR SHARE`, accountID, managerPersonaID, boardroomID).Scan(&state, &latestVersion); errors.Is(err, pgx.ErrNoRows) {
+			return agentapp.ErrNotFound
+		} else if err != nil {
+			return err
+		} else if state != "active" || latestVersion == 0 {
+			return agentapp.ErrConstraint
+		}
+		if current.ManagerPersonaID == managerPersonaID {
+			result = current
+			return nil
+		}
+		if at.Before(current.UpdatedAt) {
+			return agentapp.ErrConstraint
+		}
+		current.ManagerPersonaID, current.Version, current.UpdatedAt = managerPersonaID, current.Version+1, at.UTC()
+		if _, err := tx.Exec(ctx, `UPDATE spyglass.agent_boardrooms SET manager_persona_id=$3,version=$4,updated_at=$5
+			WHERE account_id=$1 AND id=$2`, accountID, boardroomID, managerPersonaID, current.Version, current.UpdatedAt); err != nil {
+			return err
+		}
+		updated, result = true, current
+		return nil
+	})
+	return result, updated, classifyAgentError(err)
+}
+
 func (r *AgentRepository) ListBoardrooms(ctx context.Context, accountID ids.AccountID, limit int) ([]agentdomain.Boardroom, error) {
 	result := make([]agentdomain.Boardroom, 0, limit)
 	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT account_id,id,name,purpose,state,version,created_at,updated_at
+		rows, err := tx.Query(ctx, `SELECT account_id,id,manager_persona_id,name,purpose,state,version,created_at,updated_at
 			FROM spyglass.agent_boardrooms WHERE account_id=$1 ORDER BY updated_at DESC,id LIMIT $2`, accountID, limit)
 		if err != nil {
 			return err
@@ -84,7 +134,7 @@ func (r *AgentRepository) ListBoardrooms(ctx context.Context, accountID ids.Acco
 func (r *AgentRepository) GetBoardroom(ctx context.Context, accountID ids.AccountID, boardroomID ids.BoardroomID) (agentdomain.Boardroom, error) {
 	var result agentdomain.Boardroom
 	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
-		item, err := scanBoardroom(tx.QueryRow(ctx, `SELECT account_id,id,name,purpose,state,version,created_at,updated_at
+		item, err := scanBoardroom(tx.QueryRow(ctx, `SELECT account_id,id,manager_persona_id,name,purpose,state,version,created_at,updated_at
 			FROM spyglass.agent_boardrooms WHERE account_id=$1 AND id=$2`, accountID, boardroomID))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return agentapp.ErrNotFound
@@ -307,14 +357,21 @@ func (r *AgentRepository) ListMessages(ctx context.Context, accountID ids.Accoun
 }
 
 func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunDraft) (agentapp.Run, bool, error) {
+	if draft.Mode == "" {
+		draft.Mode = agentapp.RunModeSelected
+	}
 	var result agentapp.Run
 	created := false
 	err := r.cell.WithAccountTx(ctx, draft.AccountID, pgx.TxOptions{IsoLevel: pgx.RepeatableRead}, func(ctx context.Context, tx pgx.Tx) error {
 		if existing, found, err := loadAgentRun(ctx, tx, draft.AccountID, draft.RunID); err != nil {
 			return err
 		} else if found {
-			if existing.Plan.BoardroomID != draft.BoardroomID || existing.Plan.ConversationID != draft.ConversationID || existing.Prompt != draft.Prompt || existing.Plan.CreatedBy != draft.Actor.UserID ||
-				existing.Plan.EntitlementVersion != draft.EntitlementVersion || len(existing.Plan.Turns) != len(draft.PersonaIDs) || (draft.CreateConversation && existing.Subject != draft.Subject) || !contextSelectionMatches(existing.Context, draft.Context) {
+			expectedTurns := len(draft.PersonaIDs)
+			if draft.Mode == agentapp.RunModeManagerLed {
+				expectedTurns++
+			}
+			if existing.Plan.BoardroomID != draft.BoardroomID || existing.Plan.ConversationID != draft.ConversationID || existing.Prompt != draft.Prompt || existing.Plan.CreatedBy != draft.Actor.UserID || existing.Mode != draft.Mode ||
+				existing.Plan.EntitlementVersion != draft.EntitlementVersion || len(existing.Plan.Turns) != expectedTurns || (draft.CreateConversation && existing.Subject != draft.Subject) || !contextSelectionMatches(existing.Context, draft.Context) {
 				return agentapp.ErrConflict
 			}
 			for index, personaID := range draft.PersonaIDs {
@@ -337,7 +394,8 @@ func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunD
 		}
 		var boardroomVersion uint64
 		var boardroomState string
-		if err := tx.QueryRow(ctx, `SELECT version,state FROM spyglass.agent_boardrooms WHERE account_id=$1 AND id=$2 FOR SHARE`, draft.AccountID, draft.BoardroomID).Scan(&boardroomVersion, &boardroomState); errors.Is(err, pgx.ErrNoRows) {
+		var managerPersonaID *string
+		if err := tx.QueryRow(ctx, `SELECT version,state,manager_persona_id::text FROM spyglass.agent_boardrooms WHERE account_id=$1 AND id=$2 FOR SHARE`, draft.AccountID, draft.BoardroomID).Scan(&boardroomVersion, &boardroomState, &managerPersonaID); errors.Is(err, pgx.ErrNoRows) {
 			return agentapp.ErrNotFound
 		} else if err != nil {
 			return err
@@ -375,9 +433,20 @@ func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunD
 			draft.AccountID, draft.UserMessageID, draft.ConversationID, contextSequence, draft.Prompt, draft.Actor.UserID, draft.CreatedAt); err != nil {
 			return err
 		}
-		versions := make([]agentdomain.PersonaVersion, len(draft.PersonaIDs))
-		turns := make([]agentdomain.PlannedTurn, len(draft.PersonaIDs))
-		for index, personaID := range draft.PersonaIDs {
+		executionPersonas := slices.Clone(draft.PersonaIDs)
+		if draft.Mode == agentapp.RunModeManagerLed {
+			if managerPersonaID == nil || ids.Validate(*managerPersonaID) != nil {
+				return agentapp.ErrConstraint
+			}
+			managerID := ids.PersonaID(*managerPersonaID)
+			if slices.Contains(executionPersonas, managerID) {
+				return agentapp.ErrConstraint
+			}
+			executionPersonas = append(executionPersonas, managerID)
+		}
+		versions := make([]agentdomain.PersonaVersion, len(executionPersonas))
+		turns := make([]agentdomain.PlannedTurn, len(executionPersonas))
+		for index, personaID := range executionPersonas {
 			version, found, err := loadLatestPersonaVersion(ctx, tx, draft.AccountID, draft.BoardroomID, personaID)
 			if err != nil {
 				return err
@@ -399,9 +468,9 @@ func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunD
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_runs
-			(account_id,id,boardroom_id,conversation_id,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at,context_payload,context_digest,context_item_count)
-			VALUES ($1,$2,$3,$4,'planned',$5,$6,$7,$8,$9,$10,$11,$12,$13)`, draft.AccountID, draft.RunID, draft.BoardroomID,
-			draft.ConversationID, draft.EntitlementVersion, boardroomVersion, plan.Digest[:], len(turns), draft.Actor.UserID, draft.CreatedAt,
+			(account_id,id,boardroom_id,conversation_id,mode,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at,context_payload,context_digest,context_item_count)
+			VALUES ($1,$2,$3,$4,$5,'planned',$6,$7,$8,$9,$10,$11,$12,$13,$14)`, draft.AccountID, draft.RunID, draft.BoardroomID,
+			draft.ConversationID, draft.Mode, draft.EntitlementVersion, boardroomVersion, plan.Digest[:], len(turns), draft.Actor.UserID, draft.CreatedAt,
 			contextPayload, contextDigest[:], len(contextReferences)); err != nil {
 			return err
 		}
@@ -414,7 +483,7 @@ func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunD
 			invocationIDs[index] = invocationID
 		}
 		created = true
-		result = agentapp.Run{Plan: plan, State: "planned", Subject: draft.Subject, Prompt: draft.Prompt, UserMessageID: draft.UserMessageID, InvocationIDs: invocationIDs, Context: contextReferences, ContextDigest: contextDigest}
+		result = agentapp.Run{Plan: plan, Mode: draft.Mode, State: "planned", Subject: draft.Subject, Prompt: draft.Prompt, UserMessageID: draft.UserMessageID, InvocationIDs: invocationIDs, Context: contextReferences, ContextDigest: contextDigest}
 		return nil
 	})
 	if err != nil {
@@ -545,9 +614,9 @@ func (r *AgentRepository) ResolveRun(ctx context.Context, draft agentapp.Resolve
 				return err
 			}
 			if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_runs
-				(account_id,id,boardroom_id,conversation_id,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at,context_payload,context_digest,context_item_count)
-				VALUES ($1,$2,$3,$4,'planned',$5,$6,$7,$8,$9,$10,$11,$12,$13)`, draft.AccountID, draft.RetryRunID, plan.BoardroomID,
-				plan.ConversationID, plan.EntitlementVersion, plan.PolicyVersion, plan.Digest[:], len(turns), draft.Actor.UserID, draft.CreatedAt,
+				(account_id,id,boardroom_id,conversation_id,mode,state,entitlement_version,policy_version,plan_digest,turn_count,created_by,created_at,context_payload,context_digest,context_item_count)
+				VALUES ($1,$2,$3,$4,$5,'planned',$6,$7,$8,$9,$10,$11,$12,$13,$14)`, draft.AccountID, draft.RetryRunID, plan.BoardroomID,
+				plan.ConversationID, source.Mode, plan.EntitlementVersion, plan.PolicyVersion, plan.Digest[:], len(turns), draft.Actor.UserID, draft.CreatedAt,
 				retryContextPayload, retryContextDigest, retryContextCount); err != nil {
 				return err
 			}
@@ -902,8 +971,12 @@ func (e *accessLimitError) Error() string { return "agent concurrent run limit r
 
 func scanBoardroom(row interface{ Scan(...any) error }) (agentdomain.Boardroom, error) {
 	var item agentdomain.Boardroom
-	if err := row.Scan(&item.AccountID, &item.ID, &item.Name, &item.Purpose, &item.State, &item.Version, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	var managerPersonaID *string
+	if err := row.Scan(&item.AccountID, &item.ID, &managerPersonaID, &item.Name, &item.Purpose, &item.State, &item.Version, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return agentdomain.Boardroom{}, err
+	}
+	if managerPersonaID != nil {
+		item.ManagerPersonaID = ids.PersonaID(*managerPersonaID)
 	}
 	validated, err := agentdomain.RestoreBoardroom(item)
 	if err != nil {
@@ -1007,17 +1080,18 @@ func loadLatestPersonaVersion(ctx context.Context, tx pgx.Tx, accountID ids.Acco
 func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID ids.RunID) (agentapp.Run, bool, error) {
 	var plan agentdomain.RunPlan
 	var state, subject, prompt string
+	var mode agentapp.RunMode
 	var digest, contextPayload, contextDigest []byte
 	var contextItemCount int
 	var contextSequence int64
 	plan.AccountID, plan.RunID = accountID, runID
-	err := tx.QueryRow(ctx, `SELECT r.boardroom_id,r.conversation_id,r.state,r.entitlement_version,r.policy_version,r.plan_digest,r.created_by,r.created_at,
+	err := tx.QueryRow(ctx, `SELECT r.boardroom_id,r.conversation_id,r.mode,r.state,r.entitlement_version,r.policy_version,r.plan_digest,r.created_by,r.created_at,
 		c.subject,e.context_sequence,u.body,r.context_payload,r.context_digest,r.context_item_count
 		FROM spyglass.agent_runs r JOIN spyglass.agent_conversations c ON c.account_id=r.account_id AND c.id=r.conversation_id
 		JOIN spyglass.agent_invocations i ON i.account_id=r.account_id AND i.run_id=r.id AND i.turn=1
 		JOIN spyglass.agent_invocation_execution_plans e ON e.account_id=i.account_id AND e.invocation_id=i.id
 		JOIN spyglass.agent_user_messages u ON u.account_id=r.account_id AND u.conversation_id=r.conversation_id AND u.sequence=e.context_sequence
-		WHERE r.account_id=$1 AND r.id=$2`, accountID, runID).Scan(&plan.BoardroomID, &plan.ConversationID, &state,
+	WHERE r.account_id=$1 AND r.id=$2`, accountID, runID).Scan(&plan.BoardroomID, &plan.ConversationID, &mode, &state,
 		&plan.EntitlementVersion, &plan.PolicyVersion, &digest, &plan.CreatedBy, &plan.CreatedAt, &subject, &contextSequence, &prompt,
 		&contextPayload, &contextDigest, &contextItemCount)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1116,7 +1190,10 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 	if len(resolutions) > 1 {
 		return agentapp.Run{}, false, agentapp.ErrCorrupt
 	}
-	return agentapp.Run{Plan: validated, State: state, Subject: subject, Prompt: prompt, UserMessageID: messageID, InvocationIDs: invocations, Invocations: invocationViews, Resolutions: resolutions, Context: contextReferences, ContextDigest: validatedContextDigest}, true, nil
+	if mode != agentapp.RunModeSelected && mode != agentapp.RunModeManagerLed {
+		return agentapp.Run{}, false, agentapp.ErrCorrupt
+	}
+	return agentapp.Run{Plan: validated, Mode: mode, State: state, Subject: subject, Prompt: prompt, UserMessageID: messageID, InvocationIDs: invocations, Invocations: invocationViews, Resolutions: resolutions, Context: contextReferences, ContextDigest: validatedContextDigest}, true, nil
 }
 
 func loadRunResolution(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, resolutionID ids.RunResolutionID) (agentapp.RunResolution, bool, error) {

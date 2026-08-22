@@ -168,6 +168,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/work-items/{itemID}/conversation-links", s.workLinkConversation)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-boardrooms", s.agentBoardrooms)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-boardrooms", s.agentBoardroomCreate)
+	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/manager", s.agentBoardroomManagerConfigure)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/personas", s.agentPersonas)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/personas", s.agentPersonaPublish)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/conversations", s.agentConversations)

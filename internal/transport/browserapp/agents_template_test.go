@@ -28,7 +28,7 @@ func TestAgentsTemplateExposesRoutedBoardroomWorkspaceForAvailablePackage(t *tes
 	}
 	body := rendered.String()
 	for _, expected := range []string{
-		`src="/assets/agents.js?v=2"`,
+		`src="/assets/agents.js?v=3"`,
 		`class="active" aria-current="page" href="/app/agents"`,
 		`data-account-id="01J00000000000000000000000"`,
 		`data-read-only="false"`,
@@ -36,6 +36,10 @@ func TestAgentsTemplateExposesRoutedBoardroomWorkspaceForAvailablePackage(t *tes
 		`id="agents-personas"`,
 		`id="agents-run-form"`,
 		`id="agents-persona-picker"`,
+		`id="agents-manager-form"`,
+		`id="agents-manager-persona"`,
+		`id="agents-run-mode"`,
+		`value="manager_led"`,
 		`id="agents-conversation-list"`,
 		`id="agents-message-list"`,
 		`id="agents-run-recovery"`,
@@ -65,7 +69,7 @@ func TestAgentsTemplateKeepsRunControlsOutOfReadOnlyAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := rendered.String()
-	if !strings.Contains(body, `data-read-only="true"`) || !strings.Contains(body, `id="agents-message-list"`) || strings.Contains(body, `id="agents-run-form"`) || strings.Contains(body, `id="agents-new-conversation"`) || strings.Contains(body, `id="agents-run-recovery"`) {
+	if !strings.Contains(body, `data-read-only="true"`) || !strings.Contains(body, `id="agents-message-list"`) || strings.Contains(body, `id="agents-run-form"`) || strings.Contains(body, `id="agents-manager-form"`) || strings.Contains(body, `id="agents-new-conversation"`) || strings.Contains(body, `id="agents-run-recovery"`) {
 		t.Fatalf("read-only Agents mutation surface: %s", body)
 	}
 }
@@ -84,6 +88,9 @@ func TestAgentsScriptUsesSafeRoutedBrowserBoundary(t *testing.T) {
 		`/resolutions`,
 		`"retry_failed"`,
 		`"accept_failure"`,
+		`manager_persona_id`,
+		`expected_version`,
+		`"manager_led"`,
 		"document.createElement",
 		"textContent",
 	} {

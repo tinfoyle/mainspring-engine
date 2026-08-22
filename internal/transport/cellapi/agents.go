@@ -21,6 +21,7 @@ import (
 
 type AgentService interface {
 	CreateBoardroom(context.Context, agentapp.CreateBoardroomCommand) (agentdomain.Boardroom, bool, error)
+	ConfigureBoardroomManager(context.Context, agentapp.ConfigureBoardroomManagerCommand) (agentdomain.Boardroom, bool, error)
 	PublishPersona(context.Context, agentapp.PublishPersonaCommand) (agentapp.PersonaSummary, bool, error)
 	StartRun(context.Context, agentapp.StartRunCommand) (agentapp.Run, bool, error)
 	ResolveRun(context.Context, agentapp.ResolveRunCommand) (agentapp.RunResolution, bool, error)
@@ -35,6 +36,10 @@ type AgentService interface {
 type createBoardroomRequest struct {
 	Name    string  `json:"name"`
 	Purpose *string `json:"purpose"`
+}
+type configureBoardroomManagerRequest struct {
+	ManagerPersonaID ids.PersonaID `json:"manager_persona_id"`
+	ExpectedVersion  *uint64       `json:"expected_version"`
 }
 type publishPersonaRequest struct {
 	PersonaID             ids.PersonaID        `json:"persona_id"`
@@ -68,6 +73,7 @@ type startAgentRunRequest struct {
 	ConversationID ids.ConversationID      `json:"conversation_id,omitempty"`
 	Subject        *string                 `json:"subject"`
 	Prompt         string                  `json:"prompt"`
+	Mode           *agentapp.RunMode       `json:"mode"`
 	PersonaIDs     []ids.PersonaID         `json:"persona_ids"`
 	Context        *agentRunContextRequest `json:"context,omitempty"`
 }
@@ -127,6 +133,35 @@ func (s *Server) agentBoardroomCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Location", fmt.Sprintf("/api/v1/accounts/%s/agent-boardrooms/%s", accountID, item.ID))
 	writeJSON(w, status, agentBoardroomView(item))
+}
+
+func (s *Server) agentBoardroomManagerConfigure(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, operationID, ok := s.agentRequest(w, r, true)
+	if !ok {
+		return
+	}
+	boardroomID := ids.BoardroomID(r.PathValue("boardroomID"))
+	var request configureBoardroomManagerRequest
+	if len(r.URL.Query()) != 0 || ids.Validate(string(boardroomID)) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_command", "Agent Boardroom manager target is invalid")
+		return
+	}
+	if !decodeAgentJSON(w, r, &request) {
+		return
+	}
+	if request.ExpectedVersion == nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_command", "expected_version is required")
+		return
+	}
+	item, _, err := s.agents.ConfigureBoardroomManager(routecontext.WithClaims(r.Context(), claims), agentapp.ConfigureBoardroomManagerCommand{
+		Actor: actor, AccountID: accountID, RequestID: operationID, BoardroomID: boardroomID,
+		ManagerPersonaID: request.ManagerPersonaID, ExpectedVersion: *request.ExpectedVersion,
+	})
+	if err != nil {
+		s.writeAgentError(w, "configure_boardroom_manager", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agentBoardroomView(item))
 }
 
 func (s *Server) agentPersonas(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +251,10 @@ func (s *Server) agentRunStart(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_agent_command", "subject is required only when creating a conversation")
 		return
 	}
+	if request.Mode == nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_agent_command", "mode is required")
+		return
+	}
 	subject := ""
 	if request.Subject != nil {
 		subject = *request.Subject
@@ -226,7 +265,7 @@ func (s *Server) agentRunStart(w http.ResponseWriter, r *http.Request) {
 	}
 	run, created, err := s.agents.StartRun(routecontext.WithClaims(r.Context(), claims), agentapp.StartRunCommand{Actor: actor,
 		AccountID: accountID, RequestID: operationID, BoardroomID: boardroomID, ConversationID: request.ConversationID,
-		Subject: subject, Prompt: request.Prompt, PersonaIDs: request.PersonaIDs, Context: contextSelection})
+		Subject: subject, Prompt: request.Prompt, Mode: *request.Mode, PersonaIDs: request.PersonaIDs, Context: contextSelection})
 	if err != nil {
 		s.writeAgentError(w, "start_run", err)
 		return
@@ -553,17 +592,18 @@ func (s *Server) writeAgentError(w http.ResponseWriter, operation string, err er
 }
 
 type agentBoardroomResponse struct {
-	ID        ids.BoardroomID            `json:"id"`
-	Name      string                     `json:"name"`
-	Purpose   string                     `json:"purpose"`
-	State     agentdomain.BoardroomState `json:"state"`
-	Version   uint64                     `json:"version"`
-	CreatedAt time.Time                  `json:"created_at"`
-	UpdatedAt time.Time                  `json:"updated_at"`
+	ID               ids.BoardroomID            `json:"id"`
+	ManagerPersonaID ids.PersonaID              `json:"manager_persona_id,omitempty"`
+	Name             string                     `json:"name"`
+	Purpose          string                     `json:"purpose"`
+	State            agentdomain.BoardroomState `json:"state"`
+	Version          uint64                     `json:"version"`
+	CreatedAt        time.Time                  `json:"created_at"`
+	UpdatedAt        time.Time                  `json:"updated_at"`
 }
 
 func agentBoardroomView(item agentdomain.Boardroom) agentBoardroomResponse {
-	return agentBoardroomResponse{ID: item.ID, Name: item.Name, Purpose: item.Purpose, State: item.State, Version: item.Version, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
+	return agentBoardroomResponse{ID: item.ID, ManagerPersonaID: item.ManagerPersonaID, Name: item.Name, Purpose: item.Purpose, State: item.State, Version: item.Version, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
 }
 
 type agentPersonaResponse struct {
@@ -624,6 +664,7 @@ type agentRunResponse struct {
 	BoardroomID        ids.BoardroomID                    `json:"boardroom_id"`
 	ConversationID     ids.ConversationID                 `json:"conversation_id"`
 	State              string                             `json:"state"`
+	Mode               agentapp.RunMode                   `json:"mode"`
 	Subject            string                             `json:"subject"`
 	Prompt             string                             `json:"prompt"`
 	UserMessageID      ids.MessageID                      `json:"user_message_id"`
@@ -668,7 +709,7 @@ func agentRunView(run agentapp.Run) agentRunResponse {
 		contextReferences[index] = agentRunContextReferenceResponse{Kind: reference.Kind, ID: reference.ID, Version: reference.Version, Digest: hex.EncodeToString(reference.Digest[:])}
 	}
 	return agentRunResponse{ID: run.Plan.RunID, BoardroomID: run.Plan.BoardroomID, ConversationID: run.Plan.ConversationID,
-		State: run.State, Subject: run.Subject, Prompt: run.Prompt, UserMessageID: run.UserMessageID,
+		State: run.State, Mode: run.Mode, Subject: run.Subject, Prompt: run.Prompt, UserMessageID: run.UserMessageID,
 		EntitlementVersion: run.Plan.EntitlementVersion, PolicyVersion: run.Plan.PolicyVersion,
 		PlanDigest: hex.EncodeToString(run.Plan.Digest[:]), Turns: turns, InvocationIDs: run.InvocationIDs,
 		Invocations: invocations, Resolutions: resolutions, CreatedAt: run.Plan.CreatedAt,

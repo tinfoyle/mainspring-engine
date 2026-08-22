@@ -62,12 +62,21 @@ type serviceRepository struct {
 	messageConversation   ids.ConversationID
 	resolutionDraft       ResolveRunDraft
 	resolution            RunResolution
+	managerAccount        ids.AccountID
+	managerBoardroom      ids.BoardroomID
+	managerPersona        ids.PersonaID
+	managerExpected       uint64
+	managerAt             time.Time
 	err                   error
 }
 
 func (r *serviceRepository) CreateBoardroom(_ context.Context, item agentdomain.Boardroom) (agentdomain.Boardroom, bool, error) {
 	r.boardroom = item
 	return item, true, r.err
+}
+func (r *serviceRepository) ConfigureBoardroomManager(_ context.Context, accountID ids.AccountID, boardroomID ids.BoardroomID, personaID ids.PersonaID, expected uint64, at time.Time) (agentdomain.Boardroom, bool, error) {
+	r.managerAccount, r.managerBoardroom, r.managerPersona, r.managerExpected, r.managerAt = accountID, boardroomID, personaID, expected, at
+	return agentdomain.Boardroom{ID: boardroomID, AccountID: accountID, ManagerPersonaID: personaID, Name: "Operations", Purpose: "Coordinate work.", State: agentdomain.BoardroomActive, Version: expected + 1, CreatedAt: at, UpdatedAt: at}, true, r.err
 }
 func (*serviceRepository) ListBoardrooms(context.Context, ids.AccountID, int) ([]agentdomain.Boardroom, error) {
 	return nil, nil
@@ -130,6 +139,20 @@ func TestCreateBoardroomRequiresConfigureRoleAndEnabledPackage(t *testing.T) {
 	}
 }
 
+func TestConfigureBoardroomManagerRequiresOptimisticVersionAndPublishedPersonaIdentity(t *testing.T) {
+	service, authorizer, repository, now := newAgentService(t)
+	item, updated, err := service.ConfigureBoardroomManager(context.Background(), ConfigureBoardroomManagerCommand{
+		Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest,
+		BoardroomID: testBoardroom, ManagerPersonaID: testPersona, ExpectedVersion: 3,
+	})
+	if err != nil || !updated || item.ManagerPersonaID != testPersona || item.Version != 4 || repository.managerAccount != testAccount || repository.managerBoardroom != testBoardroom || repository.managerPersona != testPersona || repository.managerExpected != 3 || repository.managerAt != now || !authorizer.last.Mutation {
+		t.Fatalf("item=%+v updated=%v repository=%+v requirement=%+v err=%v", item, updated, repository, authorizer.last, err)
+	}
+	if _, _, err := service.ConfigureBoardroomManager(context.Background(), ConfigureBoardroomManagerCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, BoardroomID: testBoardroom, ManagerPersonaID: testPersona}); !errors.Is(err, ErrInvalidCommand) {
+		t.Fatalf("missing expected version=%v", err)
+	}
+}
+
 func TestPublishPersonaPinsOwnedResultSchemaAndCapabilityAllowlist(t *testing.T) {
 	service, _, repository, _ := newAgentService(t)
 	policy := agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-5.6", ReasoningEffort: "medium", MaximumInputTokens: 100000, MaximumOutputTokens: 4000, MaximumCostMicros: 100000, MaximumToolSteps: 1, CitationPolicy: "best_effort", ActionPolicy: "propose", Tools: []agentdomain.ToolGrant{{Name: "read_work", Capability: "work.summary.read", Description: "Read the Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)}}}
@@ -146,13 +169,13 @@ func TestPublishPersonaPinsOwnedResultSchemaAndCapabilityAllowlist(t *testing.T)
 func TestStartRunDerivesStableChildrenAndFreezesEntitlement(t *testing.T) {
 	service, _, repository, now := newAgentService(t)
 	documentID := ids.KnowledgeDocumentID("66000000-0000-4000-8000-000000000006")
-	command := StartRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, BoardroomID: testBoardroom, Subject: "Weekly operating review", Prompt: "What should we prioritize this week?", PersonaIDs: []ids.PersonaID{testPersona}, Context: ContextSelection{KnowledgeDocumentIDs: []ids.KnowledgeDocumentID{documentID}}}
+	command := StartRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest, BoardroomID: testBoardroom, Subject: "Weekly operating review", Prompt: "What should we prioritize this week?", Mode: RunModeManagerLed, PersonaIDs: []ids.PersonaID{testPersona}, Context: ContextSelection{KnowledgeDocumentIDs: []ids.KnowledgeDocumentID{documentID}}}
 	_, created, err := service.StartRun(context.Background(), command)
 	if err != nil || !created {
 		t.Fatal(err)
 	}
 	draft := repository.runDraft
-	if !draft.CreateConversation || ids.Validate(string(draft.ConversationID)) != nil || ids.Validate(string(draft.UserMessageID)) != nil || draft.EntitlementVersion != 7 || draft.MaximumConcurrentRun != 2 || draft.RequestExpiresAt != now.Add(DefaultRunLifetime) || len(draft.Context.KnowledgeDocumentIDs) != 1 || draft.Context.KnowledgeDocumentIDs[0] != documentID {
+	if !draft.CreateConversation || draft.Mode != RunModeManagerLed || ids.Validate(string(draft.ConversationID)) != nil || ids.Validate(string(draft.UserMessageID)) != nil || draft.EntitlementVersion != 7 || draft.MaximumConcurrentRun != 2 || draft.RequestExpiresAt != now.Add(DefaultRunLifetime) || len(draft.Context.KnowledgeDocumentIDs) != 1 || draft.Context.KnowledgeDocumentIDs[0] != documentID {
 		t.Fatalf("unexpected run draft: %+v", draft)
 	}
 	firstConversation, firstMessage := draft.ConversationID, draft.UserMessageID

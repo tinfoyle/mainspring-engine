@@ -4,7 +4,7 @@ const pageTemplates = `
 {{define "head"}}
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{.Title}} · Infinite Ocean: Spyglass</title><meta name="description" content="Infinite Ocean: Spyglass business operating system">
-<link rel="stylesheet" href="/assets/spyglass.css?v=2">{{if .Script}}<script src="{{.Script}}?v=2" defer></script>{{end}}</head><body><a class="skip-link" href="#main-content">Skip to main content</a>
+<link rel="stylesheet" href="/assets/spyglass.css?v=3">{{if .Script}}<script src="{{.Script}}?v=3" defer></script>{{end}}</head><body><a class="skip-link" href="#main-content">Skip to main content</a>
 {{end}}
 
 {{define "brand"}}
@@ -276,11 +276,13 @@ const pageTemplates = `
           <section class="agents-roster panel">
             <header><div><p class="eyebrow">CURRENT BOARDROOM</p><h2 id="agents-room-name">Select a Boardroom</h2><p id="agents-room-purpose">Choose an operating room to inspect its team and conversations.</p></div><span id="agents-room-policy"></span></header>
             <div id="agents-personas" class="agents-personas" role="region" aria-label="Boardroom Personas"></div>
+            {{if not .AgentsReadOnly}}<form id="agents-manager-form" class="agents-manager-form" hidden><label>Synthesis manager<select id="agents-manager-persona" name="manager_persona_id" required></select></label><button type="submit">Set manager</button><p id="agents-manager-error" class="agents-form-error" role="alert" hidden></p></form>{{end}}
           </section>
           {{if not .AgentsReadOnly}}<form class="agents-composer panel" id="agents-run-form" hidden>
             <header><div><p class="eyebrow" id="agents-compose-label">NEW CONVERSATION</p><h2 id="agents-compose-title">Convene this Boardroom</h2></div><button class="agents-new-conversation" id="agents-new-conversation" type="button" hidden>New conversation</button></header>
             <label id="agents-subject-field">Subject<input name="subject" minlength="2" maxlength="240" required placeholder="What decision or situation needs a clear view?"></label>
             <label>Your question<textarea name="prompt" maxlength="65536" required rows="5" placeholder="Give the Boardroom the context, constraints, and outcome you need."></textarea></label>
+            <label>Run mode<select id="agents-run-mode" name="mode"><option value="selected">Selected Personas</option><option value="manager_led">Specialists, then synthesis manager</option></select></label>
             <fieldset><legend>Invite Personas</legend><div id="agents-persona-picker"></div></fieldset>
             <p class="agents-form-error" id="agents-form-error" role="alert" hidden></p>
             <footer><span>Runs are immutable, capacity-governed, and Account-bound.</span><button type="submit">Convene Boardroom →</button></footer>

@@ -14,6 +14,9 @@
   const roomPurpose = document.getElementById("agents-room-purpose");
   const roomPolicy = document.getElementById("agents-room-policy");
   const personasNode = document.getElementById("agents-personas");
+  const managerForm = document.getElementById("agents-manager-form");
+  const managerPersona = document.getElementById("agents-manager-persona");
+  const managerError = document.getElementById("agents-manager-error");
   const conversationList = document.getElementById("agents-conversation-list");
   const conversationStatus = document.getElementById("agents-conversation-status");
   const conversationCount = document.getElementById("agents-conversation-count");
@@ -31,6 +34,7 @@
   const recoveryError = document.getElementById("agents-recovery-error");
   const form = document.getElementById("agents-run-form");
   const personaPicker = document.getElementById("agents-persona-picker");
+  const runMode = document.getElementById("agents-run-mode");
   const subjectField = document.getElementById("agents-subject-field");
   const composeLabel = document.getElementById("agents-compose-label");
   const composeTitle = document.getElementById("agents-compose-title");
@@ -160,6 +164,7 @@
       if (generation !== loadGeneration) return;
       personas = personaPage.items || [];
       renderPersonas();
+      renderManagerConfiguration();
       if (form) {
         form.hidden = personas.filter((item) => item.state === "active").length === 0;
         resetComposer();
@@ -186,6 +191,25 @@
       const version = node("em", "", `v${persona.latest_version}`);
       card.append(avatar, copy, version);
       personasNode.append(card);
+    }
+  }
+
+  function renderManagerConfiguration() {
+    if (!managerForm || !managerPersona || !selectedRoom) return;
+    const active = personas.filter((item) => item.state === "active");
+    managerPersona.replaceChildren(...active.map((persona) => {
+      const option = document.createElement("option");
+      option.value = persona.id;
+      option.textContent = `${persona.name} · v${persona.latest_version}`;
+      option.selected = persona.id === selectedRoom.manager_persona_id;
+      return option;
+    }));
+    managerForm.hidden = active.length === 0;
+    managerError.hidden = true;
+    if (runMode) {
+      const managerOption = runMode.querySelector('option[value="manager_led"]');
+      managerOption.disabled = !selectedRoom.manager_persona_id;
+      if (!selectedRoom.manager_persona_id && runMode.value === "manager_led") runMode.value = "selected";
     }
   }
 
@@ -250,7 +274,8 @@
   function renderPersonaPicker() {
     if (!personaPicker) return;
     personaPicker.replaceChildren();
-    for (const persona of personas.filter((item) => item.state === "active")) {
+    const mode = runMode ? runMode.value : "selected";
+    for (const persona of personas.filter((item) => item.state === "active" && (mode !== "manager_led" || item.id !== selectedRoom.manager_persona_id))) {
       const label = node("label", "agents-persona-option");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
@@ -264,6 +289,43 @@
       personaPicker.append(label);
     }
   }
+
+  if (runMode) runMode.addEventListener("change", renderPersonaPicker);
+
+  if (managerForm) managerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!selectedRoom || !managerPersona.value) return;
+    const body = JSON.stringify({ manager_persona_id: managerPersona.value, expected_version: selectedRoom.version });
+    const fingerprint = `manager ${selectedRoom.id} ${body}`;
+    let operationID = pendingOperations.get(fingerprint);
+    if (!operationID) {
+      operationID = crypto.randomUUID();
+      pendingOperations.set(fingerprint, operationID);
+    }
+    const submit = managerForm.querySelector('button[type="submit"]');
+    submit.disabled = true;
+    managerError.hidden = true;
+    try {
+      const updated = await requestJSON(`${baseURL}/agent-boardrooms/${encodeURIComponent(selectedRoom.id)}/manager`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": operationID },
+        body,
+      });
+      pendingOperations.delete(fingerprint);
+      Object.assign(selectedRoom, updated);
+      roomPolicy.textContent = `${selectedRoom.state} · policy v${selectedRoom.version}`;
+      renderManagerConfiguration();
+      renderPersonaPicker();
+    } catch (error) {
+      if (error.status && error.status < 500) pendingOperations.delete(fingerprint);
+      managerError.textContent = error.status === 409
+        ? "The Boardroom changed. Reload before setting its manager."
+        : error.message;
+      managerError.hidden = false;
+    } finally {
+      submit.disabled = false;
+    }
+  });
 
   function continueComposer(item) {
     if (!form) return;
@@ -465,7 +527,13 @@
         formError.hidden = false;
         return;
       }
-      const payload = { prompt: String(values.get("prompt") || "").trim(), persona_ids: personaIDs };
+      const mode = String(values.get("mode") || "selected");
+      if (mode === "manager_led" && !selectedRoom.manager_persona_id) {
+        formError.textContent = "Configure a synthesis manager before starting a manager-led run.";
+        formError.hidden = false;
+        return;
+      }
+      const payload = { prompt: String(values.get("prompt") || "").trim(), mode, persona_ids: personaIDs };
       if (selectedConversation) payload.conversation_id = selectedConversation.id;
       else payload.subject = String(values.get("subject") || "").trim();
       const body = JSON.stringify(payload);

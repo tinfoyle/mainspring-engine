@@ -22,7 +22,7 @@ func TestKnowledgeTemplateExposesReviewQueueWithoutAuthoritativeAgentControls(t 
 		t.Fatal(err)
 	}
 	body := rendered.String()
-	for _, expected := range []string{`src="/assets/knowledge.js?v=2"`, `aria-current="page"`, `id="knowledge-claims"`, `id="knowledge-detail"`, `id="knowledge-facts"`, `data-read-only="false"`} {
+	for _, expected := range []string{`src="/assets/knowledge.js?v=3"`, `aria-current="page"`, `id="knowledge-claims"`, `id="knowledge-detail"`, `id="knowledge-facts"`, `data-read-only="false"`} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("Knowledge shell missing %q", expected)
 		}

@@ -119,4 +119,5 @@ var Routes = [...]Route{
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/work-items/{itemID}/conversation-links", OperationID: "workLinkConversation", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/work-items/{itemID}/provenance-links", OperationID: "workAttachProvenance", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/work-items/{itemID}/transitions", OperationID: "workTransition", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "cell-api", Method: "PUT", Path: "/api/v1/accounts/{accountID}/agent-boardrooms/{boardroomID}/manager", OperationID: "agentBoardroomManagerConfigure", Authentication: "sessionCookie", Contract: "typed"},
 }

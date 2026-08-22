@@ -133,6 +133,7 @@ func TestAgentRouteAllowlistMatchesCellSurface(t *testing.T) {
 		{http.MethodPost, "agent-boardrooms/" + routerRequest + "/personas", true, true},
 		{http.MethodGet, "agent-boardrooms/" + routerRequest + "/conversations", false, true},
 		{http.MethodPost, "agent-boardrooms/" + routerRequest + "/runs", true, true},
+		{http.MethodPut, "agent-boardrooms/" + routerRequest + "/manager", true, true},
 		{http.MethodGet, "agent-conversations/" + routerRequest, false, true},
 		{http.MethodGet, "agent-conversations/" + routerRequest + "/messages", false, true},
 		{http.MethodGet, "agent-runs/" + routerRequest, false, true},

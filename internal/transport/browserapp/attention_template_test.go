@@ -28,7 +28,7 @@ func TestYourTurnTemplatePublishesOnePackageAwareDecisionQueue(t *testing.T) {
 	}
 	body := rendered.String()
 	for _, expected := range []string{
-		`src="/assets/attention.js?v=2"`,
+		`src="/assets/attention.js?v=3"`,
 		`class="active" aria-current="page" href="/app/your-turn"`,
 		`id="attention-app"`,
 		`data-account-id="01J00000000000000000000000"`,
