@@ -332,6 +332,8 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 			return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, len(parts) == 2 && method == http.MethodPost
 		case "facts":
 			return access.Requirement{Package: catalog.PackageKnowledge}, len(parts) == 2 && method == http.MethodGet
+		case "retrieval":
+			return access.Requirement{Package: catalog.PackageKnowledge}, len(parts) == 2 && method == http.MethodPost
 		case "documents":
 			if len(parts) == 2 {
 				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
@@ -341,6 +343,9 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 			}
 			if len(parts) == 4 && ids.Validate(parts[2]) == nil && parts[3] == "publications" {
 				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, method == http.MethodPost
+			}
+			if len(parts) == 7 && ids.Validate(parts[2]) == nil && parts[3] == "revisions" && ids.Validate(parts[4]) == nil && parts[5] == "chunks" && ids.Validate(parts[6]) == nil {
+				return access.Requirement{Package: catalog.PackageKnowledge}, method == http.MethodGet
 			}
 		case "claims":
 			if len(parts) == 2 {

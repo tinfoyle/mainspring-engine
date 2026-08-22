@@ -338,6 +338,17 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if err != nil || published.State != knowledgedomain.DocumentReady || published.CurrentRevisionID != revisionID {
 		t.Fatalf("publish document=%+v err=%v", published, err)
 	}
+	retrieved, err := repository.RetrieveDocumentChunks(ctx, accountID, knowledgeapp.DocumentRetrievalQuery{Text: "operating plan", Limit: 10, IncludeRestricted: true})
+	if err != nil || len(retrieved) != 1 || retrieved[0].DocumentID != documentID || retrieved[0].RevisionID != revisionID || retrieved[0].ChunkID != chunk.ID || retrieved[0].Content != content || retrieved[0].Rank <= 0 {
+		t.Fatalf("document retrieval=%+v err=%v", retrieved, err)
+	}
+	citation, err := repository.GetDocumentCitation(ctx, accountID, documentID, revisionID, chunk.ID, true)
+	if err != nil || citation.ContentSHA256 != chunk.ContentSHA256 || citation.StartByte != chunk.StartByte || citation.EndByte != chunk.EndByte {
+		t.Fatalf("document citation=%+v err=%v", citation, err)
+	}
+	if results, err := repository.RetrieveDocumentChunks(ctx, otherAccountID, knowledgeapp.DocumentRetrievalQuery{Text: "operating plan", Limit: 10, IncludeRestricted: true}); err != nil || len(results) != 0 {
+		t.Fatalf("cross-Account document retrieval=%+v err=%v", results, err)
+	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.knowledge_document_revisions SET object_key='changed' WHERE account_id=$1 AND id=$2`, accountID, revisionID); err == nil || !strings.Contains(err.Error(), "revision identity is immutable") {
 		t.Fatalf("revision identity update=%v", err)
 	}
@@ -389,6 +400,9 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	deletedRevision, err := repository.GetDocumentRevision(ctx, accountID, revisionID)
 	if err != nil || deletedRevision.State != knowledgedomain.RevisionDeleted {
 		t.Fatalf("deleted revision=%+v err=%v", deletedRevision, err)
+	}
+	if _, err := repository.GetDocumentCitation(ctx, accountID, documentID, revisionID, chunk.ID, true); !errors.Is(err, knowledgeapp.ErrNotFound) {
+		t.Fatalf("deleted document citation err=%v", err)
 	}
 	var remainingChunks, deletionEvents int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.knowledge_document_chunks WHERE account_id=$1 AND revision_id=$2`, accountID, revisionID).Scan(&remainingChunks); err != nil || remainingChunks != 0 {

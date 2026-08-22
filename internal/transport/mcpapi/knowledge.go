@@ -72,6 +72,17 @@ type knowledgeClaimListInput struct {
 	Cursor    string                     `json:"cursor,omitempty"`
 	Limit     int                        `json:"limit,omitempty"`
 }
+type knowledgeDocumentRetrievalInput struct {
+	AccountID ids.AccountID `json:"account_id"`
+	Query     string        `json:"query"`
+	Limit     int           `json:"limit,omitempty"`
+}
+type knowledgeDocumentCitationGetInput struct {
+	AccountID  ids.AccountID                   `json:"account_id"`
+	DocumentID ids.KnowledgeDocumentID         `json:"document_id"`
+	RevisionID ids.KnowledgeDocumentRevisionID `json:"revision_id"`
+	ChunkID    ids.KnowledgeDocumentChunkID    `json:"chunk_id"`
+}
 
 type knowledgeActorOutput struct {
 	Kind knowledgedomain.ActorKind `json:"kind"`
@@ -158,6 +169,25 @@ type knowledgeDecisionResultOutput struct {
 type knowledgeFactPageOutput struct {
 	Items      []knowledgeFactOutput `json:"items"`
 	NextCursor string                `json:"next_cursor,omitempty"`
+}
+type knowledgeDocumentCitationOutput struct {
+	AccountID       ids.AccountID                   `json:"account_id"`
+	DocumentID      ids.KnowledgeDocumentID         `json:"document_id"`
+	RevisionID      ids.KnowledgeDocumentRevisionID `json:"revision_id"`
+	ChunkID         ids.KnowledgeDocumentChunkID    `json:"chunk_id"`
+	DocumentTitle   string                          `json:"document_title"`
+	Sensitivity     knowledgedomain.Sensitivity     `json:"sensitivity"`
+	Revision        uint64                          `json:"revision"`
+	ChunkIndex      uint32                          `json:"chunk_index"`
+	StartByte       int64                           `json:"start_byte"`
+	EndByte         int64                           `json:"end_byte"`
+	Content         string                          `json:"content"`
+	ContentSHA256   string                          `json:"content_sha256"`
+	IndexGeneration string                          `json:"index_generation"`
+	Rank            float64                         `json:"rank,omitempty"`
+}
+type knowledgeDocumentRetrievalOutput struct {
+	Items []knowledgeDocumentCitationOutput `json:"items"`
 }
 
 func (s *Server) registerKnowledge(server *mcp.Server, actor access.Actor) {
@@ -308,6 +338,47 @@ func (s *Server) registerKnowledge(server *mcp.Server, actor access.Actor) {
 		}
 		return nil, output, nil
 	})
+
+	if s.documents != nil {
+		mcp.AddTool(server, &mcp.Tool{Name: "spyglass_knowledge_document_retrieve", Title: "Retrieve Knowledge documents", Description: "Search currently published document chunks and return bounded exact-revision citations.", Annotations: toolAnnotations(true, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input knowledgeDocumentRetrievalInput) (*mcp.CallToolResult, knowledgeDocumentRetrievalOutput, error) {
+			ctx, err := s.toolContext(ctx, actor, input.AccountID, read)
+			if err != nil {
+				return nil, knowledgeDocumentRetrievalOutput{}, err
+			}
+			bounded := input.Limit
+			if bounded == 0 {
+				bounded = knowledgeapp.MaximumDocumentRetrievalLimit
+			}
+			if bounded < 1 || bounded > knowledgeapp.MaximumDocumentRetrievalLimit {
+				return nil, knowledgeDocumentRetrievalOutput{}, safeError("invalid_limit")
+			}
+			items, err := s.documents.Retrieve(ctx, actor, input.AccountID, knowledgeapp.DocumentRetrievalQuery{Text: input.Query, Limit: bounded})
+			if err != nil {
+				return nil, knowledgeDocumentRetrievalOutput{}, knowledgeError(err)
+			}
+			output := knowledgeDocumentRetrievalOutput{Items: make([]knowledgeDocumentCitationOutput, 0, len(items))}
+			for _, item := range items {
+				output.Items = append(output.Items, knowledgeDocumentCitationView(item))
+			}
+			return nil, output, nil
+		})
+
+		mcp.AddTool(server, &mcp.Tool{Name: "spyglass_knowledge_document_citation_get", Title: "Validate Knowledge document citation", Description: "Resolve an exact chunk only while its revision remains the currently published ready revision.", Annotations: toolAnnotations(true, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input knowledgeDocumentCitationGetInput) (*mcp.CallToolResult, knowledgeDocumentCitationOutput, error) {
+			ctx, err := s.toolContext(ctx, actor, input.AccountID, read)
+			if err != nil {
+				return nil, knowledgeDocumentCitationOutput{}, err
+			}
+			item, err := s.documents.GetCitation(ctx, actor, input.AccountID, input.DocumentID, input.RevisionID, input.ChunkID)
+			if err != nil {
+				return nil, knowledgeDocumentCitationOutput{}, knowledgeError(err)
+			}
+			return nil, knowledgeDocumentCitationView(item), nil
+		})
+	}
+}
+
+func knowledgeDocumentCitationView(value knowledgeapp.DocumentCitation) knowledgeDocumentCitationOutput {
+	return knowledgeDocumentCitationOutput{AccountID: value.AccountID, DocumentID: value.DocumentID, RevisionID: value.RevisionID, ChunkID: value.ChunkID, DocumentTitle: value.DocumentTitle, Sensitivity: value.Sensitivity, Revision: value.Revision, ChunkIndex: value.ChunkIndex, StartByte: value.StartByte, EndByte: value.EndByte, Content: value.Content, ContentSHA256: hex.EncodeToString(value.ContentSHA256[:]), IndexGeneration: value.IndexGeneration, Rank: value.Rank}
 }
 
 func knowledgeEvidenceView(value knowledgedomain.Evidence) knowledgeEvidenceOutput {

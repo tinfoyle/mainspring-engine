@@ -19,11 +19,25 @@ const appKnowledgeDocument ids.KnowledgeDocumentID = "60000000-0000-4000-8000-00
 const appKnowledgeRevision ids.KnowledgeDocumentRevisionID = "70000000-0000-4000-8000-000000000007"
 
 type documentRepository struct {
-	document knowledgedomain.Document
-	revision knowledgedomain.DocumentRevision
-	chunks   []knowledgedomain.DocumentChunk
-	mutation Mutation
-	admitErr error
+	document          knowledgedomain.Document
+	revision          knowledgedomain.DocumentRevision
+	chunks            []knowledgedomain.DocumentChunk
+	mutation          Mutation
+	admitErr          error
+	retrievalQuery    DocumentRetrievalQuery
+	retrievalItems    []DocumentCitation
+	citation          DocumentCitation
+	includeRestricted bool
+}
+
+func (repository *documentRepository) RetrieveDocumentChunks(_ context.Context, _ ids.AccountID, query DocumentRetrievalQuery) ([]DocumentCitation, error) {
+	repository.retrievalQuery = query
+	return repository.retrievalItems, nil
+}
+
+func (repository *documentRepository) GetDocumentCitation(_ context.Context, _ ids.AccountID, _ ids.KnowledgeDocumentID, _ ids.KnowledgeDocumentRevisionID, _ ids.KnowledgeDocumentChunkID, includeRestricted bool) (DocumentCitation, error) {
+	repository.includeRestricted = includeRestricted
+	return repository.citation, nil
 }
 
 func (repository *documentRepository) AdmitDocument(_ context.Context, document knowledgedomain.Document, revision knowledgedomain.DocumentRevision, mutation Mutation) (knowledgedomain.Document, knowledgedomain.DocumentRevision, error) {
@@ -124,6 +138,23 @@ func TestDocumentAdmissionBindsAccountObjectIdentityAndPackageMutation(t *testin
 	document, revision := admitDocumentFixture(t, service)
 	if document.State != knowledgedomain.DocumentProcessing || revision.State != knowledgedomain.RevisionQuarantined || revision.ObjectKey != "accounts/"+string(appKnowledgeAccount)+"/documents/"+string(appKnowledgeDocument)+"/revisions/"+string(appKnowledgeRevision)+"/source" || !authorizer.requirement.Mutation || authorizer.requirement.Package != "knowledge" || repository.mutation.ReasonCode != "document_admitted" {
 		t.Fatalf("document=%+v revision=%+v requirement=%+v mutation=%+v", document, revision, authorizer.requirement, repository.mutation)
+	}
+}
+
+func TestDocumentRetrievalIsBoundedAuthorizedAndSensitivityScoped(t *testing.T) {
+	service, authorizer, repository, _ := documentServiceFixture(t)
+	repository.retrievalItems = []DocumentCitation{{AccountID: appKnowledgeAccount, DocumentID: appKnowledgeDocument, RevisionID: appKnowledgeRevision, ChunkID: "71000000-0000-4000-8000-000000000007", Content: "operating plan"}}
+	items, err := service.Retrieve(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, DocumentRetrievalQuery{Text: " operating plan "})
+	if err != nil || len(items) != 1 || repository.retrievalQuery.Limit != MaximumDocumentRetrievalLimit || !repository.retrievalQuery.IncludeRestricted || authorizer.requirement.Mutation || authorizer.requirement.Package != "knowledge" {
+		t.Fatalf("items=%+v query=%+v requirement=%+v err=%v", items, repository.retrievalQuery, authorizer.requirement, err)
+	}
+	authorizer.account.Role = accounts.RoleMember
+	repository.citation = items[0]
+	if _, err := service.GetCitation(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, appKnowledgeDocument, appKnowledgeRevision, items[0].ChunkID); err != nil || repository.includeRestricted {
+		t.Fatalf("member citation includeRestricted=%v err=%v", repository.includeRestricted, err)
+	}
+	if _, err := service.Retrieve(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, DocumentRetrievalQuery{Text: ""}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("empty retrieval query err=%v", err)
 	}
 }
 

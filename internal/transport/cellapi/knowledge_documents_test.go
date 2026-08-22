@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -20,11 +21,13 @@ import (
 )
 
 type knowledgeDocumentServiceStub struct {
-	upload  func(context.Context, knowledgeapp.UploadDocumentCommand) (knowledgedomain.Document, knowledgedomain.DocumentRevision, error)
-	list    func(context.Context, access.Actor, ids.AccountID, knowledgeapp.DocumentListQuery) (knowledgeapp.DocumentPage, error)
-	detail  func(context.Context, access.Actor, ids.AccountID, ids.KnowledgeDocumentID) (knowledgeapp.DocumentDetail, error)
-	publish func(context.Context, knowledgeapp.PublishDocumentCommand) (knowledgedomain.Document, error)
-	delete  func(context.Context, knowledgeapp.DeleteDocumentCommand) (knowledgedomain.Document, error)
+	upload   func(context.Context, knowledgeapp.UploadDocumentCommand) (knowledgedomain.Document, knowledgedomain.DocumentRevision, error)
+	list     func(context.Context, access.Actor, ids.AccountID, knowledgeapp.DocumentListQuery) (knowledgeapp.DocumentPage, error)
+	detail   func(context.Context, access.Actor, ids.AccountID, ids.KnowledgeDocumentID) (knowledgeapp.DocumentDetail, error)
+	publish  func(context.Context, knowledgeapp.PublishDocumentCommand) (knowledgedomain.Document, error)
+	delete   func(context.Context, knowledgeapp.DeleteDocumentCommand) (knowledgedomain.Document, error)
+	retrieve func(context.Context, access.Actor, ids.AccountID, knowledgeapp.DocumentRetrievalQuery) ([]knowledgeapp.DocumentCitation, error)
+	citation func(context.Context, access.Actor, ids.AccountID, ids.KnowledgeDocumentID, ids.KnowledgeDocumentRevisionID, ids.KnowledgeDocumentChunkID) (knowledgeapp.DocumentCitation, error)
 }
 
 func (stub knowledgeDocumentServiceStub) Upload(ctx context.Context, command knowledgeapp.UploadDocumentCommand) (knowledgedomain.Document, knowledgedomain.DocumentRevision, error) {
@@ -41,6 +44,12 @@ func (stub knowledgeDocumentServiceStub) Publish(ctx context.Context, command kn
 }
 func (stub knowledgeDocumentServiceStub) Delete(ctx context.Context, command knowledgeapp.DeleteDocumentCommand) (knowledgedomain.Document, error) {
 	return stub.delete(ctx, command)
+}
+func (stub knowledgeDocumentServiceStub) Retrieve(ctx context.Context, actor access.Actor, accountID ids.AccountID, query knowledgeapp.DocumentRetrievalQuery) ([]knowledgeapp.DocumentCitation, error) {
+	return stub.retrieve(ctx, actor, accountID, query)
+}
+func (stub knowledgeDocumentServiceStub) GetCitation(ctx context.Context, actor access.Actor, accountID ids.AccountID, documentID ids.KnowledgeDocumentID, revisionID ids.KnowledgeDocumentRevisionID, chunkID ids.KnowledgeDocumentChunkID) (knowledgeapp.DocumentCitation, error) {
+	return stub.citation(ctx, actor, accountID, documentID, revisionID, chunkID)
 }
 
 func TestKnowledgeDocumentUploadUsesMultipartFileAndRoutedIdentity(t *testing.T) {
@@ -123,6 +132,43 @@ func TestKnowledgeDocumentListDetailPublishAndDeleteContracts(t *testing.T) {
 	deleted := attentionMutation(t, handler, http.MethodDelete, "/api/v1/accounts/"+attentionAccount+"/knowledge/documents/"+string(document.ID), "", attentionOperation, `W/"1"`)
 	if deleted.Code != http.StatusAccepted {
 		t.Fatalf("delete=%d %s", deleted.Code, deleted.Body.String())
+	}
+}
+
+func TestKnowledgeDocumentRetrievalReturnsExactBoundedCitation(t *testing.T) {
+	documentID := ids.KnowledgeDocumentID(attentionFact)
+	revisionID := ids.KnowledgeDocumentRevisionID(attentionInvocation)
+	chunkID := ids.KnowledgeDocumentChunkID("ef000000-0000-4000-8000-00000000000f")
+	digest := sha256.Sum256([]byte("operating plan evidence"))
+	citation := knowledgeapp.DocumentCitation{AccountID: attentionAccount, DocumentID: documentID, RevisionID: revisionID, ChunkID: chunkID, DocumentTitle: "Operating plan", Sensitivity: knowledgedomain.SensitivityInternal, Revision: 1, ChunkIndex: 2, StartByte: 16, EndByte: 39, Content: "operating plan evidence", ContentSHA256: digest, IndexGeneration: "spyglass/utf8-window-v1", Rank: 0.75}
+	service := knowledgeDocumentServiceStub{
+		retrieve: func(_ context.Context, actor access.Actor, accountID ids.AccountID, query knowledgeapp.DocumentRetrievalQuery) ([]knowledgeapp.DocumentCitation, error) {
+			if actor.UserID != attentionUser || accountID != attentionAccount || query.Text != "operating plan" || query.Limit != 3 {
+				t.Fatalf("actor=%+v account=%s query=%+v", actor, accountID, query)
+			}
+			return []knowledgeapp.DocumentCitation{citation}, nil
+		},
+		citation: func(_ context.Context, _ access.Actor, accountID ids.AccountID, document ids.KnowledgeDocumentID, revision ids.KnowledgeDocumentRevisionID, chunk ids.KnowledgeDocumentChunkID) (knowledgeapp.DocumentCitation, error) {
+			if accountID != attentionAccount || document != documentID || revision != revisionID || chunk != chunkID {
+				t.Fatalf("citation target=%s/%s/%s/%s", accountID, document, revision, chunk)
+			}
+			exact := citation
+			exact.Rank = 0
+			return exact, nil
+		},
+	}
+	handler := newKnowledgeDocumentServer(t, service).Handler()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/accounts/"+attentionAccount+"/knowledge/retrieval", strings.NewReader(`{"query":"operating plan","limit":3}`))
+	request.Header.Set(RouteContextHeader, "accepted-by-test-boundary")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"content":"operating plan evidence"`) || !strings.Contains(response.Body.String(), `"rank":0.75`) {
+		t.Fatalf("retrieval=%d %s", response.Code, response.Body.String())
+	}
+	exact := attentionRead(t, handler, "/api/v1/accounts/"+attentionAccount+"/knowledge/documents/"+string(documentID)+"/revisions/"+string(revisionID)+"/chunks/"+string(chunkID))
+	if exact.Code != http.StatusOK || strings.Contains(exact.Body.String(), `"rank"`) || !strings.Contains(exact.Body.String(), hex.EncodeToString(digest[:])) {
+		t.Fatalf("citation=%d %s", exact.Code, exact.Body.String())
 	}
 }
 

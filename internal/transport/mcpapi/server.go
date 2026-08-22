@@ -37,6 +37,7 @@ type Server struct {
 	attention        AttentionService
 	actions          ActionRecoveryService
 	knowledge        KnowledgeService
+	documents        KnowledgeDocumentService
 	logger           *slog.Logger
 	version          string
 	maxBody          int64
@@ -63,6 +64,16 @@ func WithKnowledge(service KnowledgeService) Option {
 			return errors.New("MCP Knowledge service is required")
 		}
 		server.knowledge = service
+		return nil
+	}
+}
+
+func WithKnowledgeDocuments(service KnowledgeDocumentService) Option {
+	return func(server *Server) error {
+		if service == nil {
+			return errors.New("MCP Knowledge document service is required")
+		}
+		server.documents = service
 		return nil
 	}
 }

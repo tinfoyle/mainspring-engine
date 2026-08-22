@@ -48,6 +48,11 @@ type KnowledgeService interface {
 	ListFacts(context.Context, access.Actor, ids.AccountID, knowledgeapp.FactListQuery) (knowledgeapp.FactPage, error)
 }
 
+type KnowledgeDocumentService interface {
+	Retrieve(context.Context, access.Actor, ids.AccountID, knowledgeapp.DocumentRetrievalQuery) ([]knowledgeapp.DocumentCitation, error)
+	GetCitation(context.Context, access.Actor, ids.AccountID, ids.KnowledgeDocumentID, ids.KnowledgeDocumentRevisionID, ids.KnowledgeDocumentChunkID) (knowledgeapp.DocumentCitation, error)
+}
+
 type requirementInput struct {
 	Key     string                           `json:"key"`
 	Scope   attentiondomain.InformationScope `json:"scope"`

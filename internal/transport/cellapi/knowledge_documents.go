@@ -22,6 +22,56 @@ type knowledgeDocumentPublishRequest struct {
 	RevisionID ids.KnowledgeDocumentRevisionID `json:"revision_id"`
 }
 
+type knowledgeDocumentRetrievalRequest struct {
+	Query string `json:"query"`
+	Limit int    `json:"limit,omitempty"`
+}
+
+func (s *Server) knowledgeDocumentRetrieve(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, ok := s.knowledgeDocumentRequestContext(w, r, false)
+	if !ok {
+		return
+	}
+	if len(r.URL.Query()) != 0 {
+		writeProblem(w, http.StatusBadRequest, "invalid_knowledge_query", "Knowledge retrieval does not accept URL query parameters")
+		return
+	}
+	var body knowledgeDocumentRetrievalRequest
+	if !decodeKnowledgeJSON(w, r, &body) {
+		return
+	}
+	items, err := s.documents.Retrieve(routecontext.WithClaims(r.Context(), claims), actor, accountID, knowledgeapp.DocumentRetrievalQuery{Text: body.Query, Limit: body.Limit})
+	if err != nil {
+		s.writeKnowledgeError(w, "retrieve document chunks", err)
+		return
+	}
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, knowledgeDocumentCitationView(item))
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": result})
+}
+
+func (s *Server) knowledgeDocumentCitationGet(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, ok := s.knowledgeDocumentRequestContext(w, r, true)
+	if !ok {
+		return
+	}
+	documentID := ids.KnowledgeDocumentID(r.PathValue("documentID"))
+	revisionID := ids.KnowledgeDocumentRevisionID(r.PathValue("revisionID"))
+	chunkID := ids.KnowledgeDocumentChunkID(r.PathValue("chunkID"))
+	if ids.Validate(string(documentID)) != nil || ids.Validate(string(revisionID)) != nil || ids.Validate(string(chunkID)) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_document_citation", "the Knowledge document citation is invalid")
+		return
+	}
+	item, err := s.documents.GetCitation(routecontext.WithClaims(r.Context(), claims), actor, accountID, documentID, revisionID, chunkID)
+	if err != nil {
+		s.writeKnowledgeError(w, "get document citation", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, knowledgeDocumentCitationView(item))
+}
+
 func (s *Server) knowledgeDocumentUpload(w http.ResponseWriter, r *http.Request) {
 	claims, captured, ok := s.acceptCaptured(w, r, maximumKnowledgeDocumentUploadEnvelope)
 	if !ok {
@@ -336,4 +386,17 @@ func knowledgeDocumentDetailView(value knowledgeapp.DocumentDetail) map[string]a
 		"extraction_state": revision.Extraction, "index_state": revision.Index, "chunk_count": revision.ChunkCount,
 		"failure_code": revision.FailureCode, "created_at": revision.CreatedAt, "updated_at": revision.UpdatedAt,
 	}}
+}
+
+func knowledgeDocumentCitationView(value knowledgeapp.DocumentCitation) map[string]any {
+	result := map[string]any{
+		"account_id": value.AccountID, "document_id": value.DocumentID, "revision_id": value.RevisionID, "chunk_id": value.ChunkID,
+		"document_title": value.DocumentTitle, "sensitivity": value.Sensitivity, "revision": value.Revision,
+		"chunk_index": value.ChunkIndex, "start_byte": value.StartByte, "end_byte": value.EndByte, "content": value.Content,
+		"content_sha256": hex.EncodeToString(value.ContentSHA256[:]), "index_generation": value.IndexGeneration,
+	}
+	if value.Rank > 0 {
+		result["rank"] = value.Rank
+	}
+	return result
 }

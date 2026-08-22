@@ -208,6 +208,14 @@ func (routes knowledgeDocumentRoutes) Delete(ctx context.Context, command knowle
 	return routes.service.Delete(ctx, command)
 }
 
+func (routes knowledgeDocumentRoutes) Retrieve(ctx context.Context, actor access.Actor, accountID ids.AccountID, query knowledgeapp.DocumentRetrievalQuery) ([]knowledgeapp.DocumentCitation, error) {
+	return routes.service.Retrieve(ctx, actor, accountID, query)
+}
+
+func (routes knowledgeDocumentRoutes) GetCitation(ctx context.Context, actor access.Actor, accountID ids.AccountID, documentID ids.KnowledgeDocumentID, revisionID ids.KnowledgeDocumentRevisionID, chunkID ids.KnowledgeDocumentChunkID) (knowledgeapp.DocumentCitation, error) {
+	return routes.service.GetCitation(ctx, actor, accountID, documentID, revisionID, chunkID)
+}
+
 func (s *Server) Close() { s.pool.Close() }
 
 func withHealth(pool *pgxpool.Pool, routes *cellapi.Server, admission *admissionhttp.Client, next http.Handler) http.Handler {

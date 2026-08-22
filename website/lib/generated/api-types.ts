@@ -805,6 +805,23 @@ export interface KnowledgeDocument {
   readonly "version": number;
 }
 
+export interface KnowledgeDocumentCitation {
+  readonly "account_id": string;
+  readonly "chunk_id": string;
+  readonly "chunk_index": number;
+  readonly "content": string;
+  readonly "content_sha256": string;
+  readonly "document_id": string;
+  readonly "document_title": string;
+  readonly "end_byte": number;
+  readonly "index_generation": string;
+  readonly "rank"?: number;
+  readonly "revision": number;
+  readonly "revision_id": string;
+  readonly "sensitivity": KnowledgeSensitivity;
+  readonly "start_byte": number;
+}
+
 export interface KnowledgeDocumentDetail {
   readonly "document": KnowledgeDocument;
   readonly "latest_revision": KnowledgeDocumentRevision;
@@ -813,6 +830,10 @@ export interface KnowledgeDocumentDetail {
 export interface KnowledgeDocumentPage {
   readonly "items": ReadonlyArray<KnowledgeDocumentSummary>;
   readonly "next_cursor"?: string;
+}
+
+export interface KnowledgeDocumentRetrieval {
+  readonly "items": ReadonlyArray<KnowledgeDocumentCitation>;
 }
 
 export interface KnowledgeDocumentRevision {
@@ -1108,6 +1129,11 @@ export interface RequestActionResolutionRequest {
 export interface ResolveAgentRunRequest {
   readonly "action": AgentRunResolutionAction;
   readonly "note": string;
+}
+
+export interface RetrieveKnowledgeDocumentsRequest {
+  readonly "limit"?: number;
+  readonly "query": string;
 }
 
 export interface SecurityEvent {
@@ -1455,8 +1481,10 @@ export interface ApiSchemas {
   readonly KnowledgeClaimState: KnowledgeClaimState;
   readonly KnowledgeClaimSummary: KnowledgeClaimSummary;
   readonly KnowledgeDocument: KnowledgeDocument;
+  readonly KnowledgeDocumentCitation: KnowledgeDocumentCitation;
   readonly KnowledgeDocumentDetail: KnowledgeDocumentDetail;
   readonly KnowledgeDocumentPage: KnowledgeDocumentPage;
+  readonly KnowledgeDocumentRetrieval: KnowledgeDocumentRetrieval;
   readonly KnowledgeDocumentRevision: KnowledgeDocumentRevision;
   readonly KnowledgeDocumentRevisionState: KnowledgeDocumentRevisionState;
   readonly KnowledgeDocumentState: KnowledgeDocumentState;
@@ -1502,6 +1530,7 @@ export interface ApiSchemas {
   readonly RenamePasskeyRequest: RenamePasskeyRequest;
   readonly RequestActionResolutionRequest: RequestActionResolutionRequest;
   readonly ResolveAgentRunRequest: ResolveAgentRunRequest;
+  readonly RetrieveKnowledgeDocumentsRequest: RetrieveKnowledgeDocumentsRequest;
   readonly SecurityEvent: SecurityEvent;
   readonly SecurityEventType: SecurityEventType;
   readonly SecurityEvents: SecurityEvents;

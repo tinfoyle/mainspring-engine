@@ -30,6 +30,7 @@ type DocumentRepository interface {
 type DocumentService struct {
 	authorizer Authorizer
 	repository DocumentRepository
+	retrieval  DocumentRetrievalRepository
 	clock      Clock
 }
 
@@ -75,7 +76,11 @@ func NewDocumentService(authorizer Authorizer, repository DocumentRepository, cl
 	if authorizer == nil || repository == nil || clock == nil {
 		return nil, errors.New("Knowledge document dependencies are required")
 	}
-	return &DocumentService{authorizer: authorizer, repository: repository, clock: clock}, nil
+	retrieval, ok := repository.(DocumentRetrievalRepository)
+	if !ok {
+		return nil, errors.New("Knowledge document retrieval repository is required")
+	}
+	return &DocumentService{authorizer: authorizer, repository: repository, retrieval: retrieval, clock: clock}, nil
 }
 
 type AdmitDocumentCommand struct {

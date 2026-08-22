@@ -103,6 +103,8 @@ type KnowledgeDocumentService interface {
 	GetDetail(context.Context, access.Actor, ids.AccountID, ids.KnowledgeDocumentID) (knowledgeapp.DocumentDetail, error)
 	Publish(context.Context, knowledgeapp.PublishDocumentCommand) (knowledge.Document, error)
 	Delete(context.Context, knowledgeapp.DeleteDocumentCommand) (knowledge.Document, error)
+	Retrieve(context.Context, access.Actor, ids.AccountID, knowledgeapp.DocumentRetrievalQuery) ([]knowledgeapp.DocumentCitation, error)
+	GetCitation(context.Context, access.Actor, ids.AccountID, ids.KnowledgeDocumentID, ids.KnowledgeDocumentRevisionID, ids.KnowledgeDocumentChunkID) (knowledgeapp.DocumentCitation, error)
 }
 
 func WithKnowledge(service KnowledgeService) Option {
@@ -168,7 +170,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/evidence", s.knowledgeEvidenceRegister)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/documents", s.knowledgeDocumentList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/documents", s.knowledgeDocumentUpload)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/retrieval", s.knowledgeDocumentRetrieve)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/documents/{documentID}", s.knowledgeDocumentGet)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/documents/{documentID}/revisions/{revisionID}/chunks/{chunkID}", s.knowledgeDocumentCitationGet)
 	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/knowledge/documents/{documentID}", s.knowledgeDocumentDelete)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/documents/{documentID}/publications", s.knowledgeDocumentPublish)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/facts", s.knowledgeFactList)
