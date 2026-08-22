@@ -23,21 +23,53 @@ func (value SourceObjectWrite) Key() (string, error) {
 	return knowledgedomain.SourceObjectKey(value.AccountID, value.DocumentID, value.RevisionID)
 }
 
-type SourceObjectIdentity struct {
+type DocumentObjectIdentity struct {
 	Key           string
 	Version       string
 	Size          int64
 	ContentSHA256 [sha256.Size]byte
 }
 
+type SourceObjectIdentity = DocumentObjectIdentity
+
 type SourceObjectWriteResult struct {
-	Identity SourceObjectIdentity
+	Identity DocumentObjectIdentity
 	Created  bool
 }
 
 type SourceObjectStore interface {
 	Verify(context.Context) error
 	PutImmutable(context.Context, SourceObjectWrite) (SourceObjectWriteResult, error)
-	Open(context.Context, SourceObjectIdentity) (io.ReadCloser, error)
-	Delete(context.Context, SourceObjectIdentity) error
+	Open(context.Context, DocumentObjectIdentity) (io.ReadCloser, error)
+	Delete(context.Context, DocumentObjectIdentity) error
+}
+
+type ExtractedObjectWrite struct {
+	AccountID     ids.AccountID
+	DocumentID    ids.KnowledgeDocumentID
+	RevisionID    ids.KnowledgeDocumentRevisionID
+	Size          int64
+	ContentSHA256 [sha256.Size]byte
+	Body          io.Reader
+}
+
+func (value ExtractedObjectWrite) Key() (string, error) {
+	return knowledgedomain.ExtractedObjectKey(value.AccountID, value.DocumentID, value.RevisionID)
+}
+
+type ExtractedObjectWriteResult struct {
+	Identity DocumentObjectIdentity
+	Created  bool
+}
+
+type ExtractedObjectStore interface {
+	Verify(context.Context) error
+	PutExtractedImmutable(context.Context, ExtractedObjectWrite) (ExtractedObjectWriteResult, error)
+	Open(context.Context, DocumentObjectIdentity) (io.ReadCloser, error)
+	Delete(context.Context, DocumentObjectIdentity) error
+}
+
+type DocumentObjectStore interface {
+	SourceObjectStore
+	ExtractedObjectStore
 }

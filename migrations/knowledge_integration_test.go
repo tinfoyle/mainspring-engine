@@ -284,7 +284,7 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if err != nil {
 		t.Fatal(err)
 	}
-	extracted, err := scanned.RecordExtraction(sha256.Sum256([]byte("Extracted operating plan")), 24, "spyglass/text-v1", now.Add(2*time.Second))
+	extracted, err := scanned.RecordExtraction(sha256.Sum256([]byte("Extracted operating plan")), 24, "spyglass/text-v1", "accounts/"+string(accountID)+"/documents/"+string(documentID)+"/revisions/"+string(revisionID)+"/extracted/text", "extracted-version-1", now.Add(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,6 +311,9 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.knowledge_document_revisions SET object_key='changed' WHERE account_id=$1 AND id=$2`, accountID, revisionID); err == nil || !strings.Contains(err.Error(), "revision identity is immutable") {
 		t.Fatalf("revision identity update=%v", err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.knowledge_document_revisions SET extracted_object_version='changed' WHERE account_id=$1 AND id=$2`, accountID, revisionID); err == nil || !strings.Contains(err.Error(), "extracted object identity is immutable") {
+		t.Fatalf("extracted object identity update=%v", err)
 	}
 	var unsafeEvents int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.knowledge_document_events WHERE account_id=$1 AND redacted_payload::text LIKE '%Operating plan%'`, accountID).Scan(&unsafeEvents); err != nil || unsafeEvents != 0 {

@@ -153,6 +153,31 @@ services:
       - no-new-privileges:true
     networks: [application]
 
+  document-extractor:
+    profiles: [test, knowledge-processing]
+    image: apache/tika@sha256:2a565f1ea1290bdcb74a7d35957d16a989ed44ef98790dcdcc28121d728fa583
+    restart: unless-stopped
+    command: [-c, /etc/tika/tika-config.xml]
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777,uid=35002,gid=35002
+    volumes:
+      - ./tika/tika-config.xml:/etc/tika/tika-config.xml:ro
+    expose: ["9998"]
+    healthcheck:
+      test: [CMD, /usr/bin/bash, -ec, "exec 3<>/dev/tcp/127.0.0.1/9998; printf 'GET /version HTTP/1.0\r\nHost: localhost\r\n\r\n' >&3; grep -q '200 OK' <&3"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+    mem_limit: 1536m
+    cpus: 2.0
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [application]
+
   global-migrate:
     <<: *application
     restart: "no"

@@ -16,6 +16,7 @@ import (
 
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 var (
@@ -103,26 +104,39 @@ func (store *Store) PutImmutable(ctx context.Context, request knowledgeapp.Sourc
 	if err != nil || request.Body == nil || request.Size <= 0 || request.Size > knowledgedomain.MaximumDocumentBytes || request.ContentSHA256 == ([sha256.Size]byte{}) || normalizeMediaType(request.MediaType) == "" {
 		return knowledgeapp.SourceObjectWriteResult{}, knowledgeapp.ErrInvalid
 	}
-	digestHex := hex.EncodeToString(request.ContentSHA256[:])
-	options := minio.PutObjectOptions{ContentType: normalizeMediaType(request.MediaType), SendContentMd5: true, ServerSideEncryption: store.sse, UserMetadata: map[string]string{"spyglass-sha256": digestHex, "spyglass-account-id": string(request.AccountID)}}
+	return store.putImmutable(ctx, key, request.AccountID, "source", normalizeMediaType(request.MediaType), request.Size, request.ContentSHA256, request.Body)
+}
+
+func (store *Store) PutExtractedImmutable(ctx context.Context, request knowledgeapp.ExtractedObjectWrite) (knowledgeapp.ExtractedObjectWriteResult, error) {
+	key, err := request.Key()
+	if err != nil || request.Body == nil || request.Size <= 0 || request.Size > knowledgedomain.MaximumExtractedTextBytes || request.ContentSHA256 == ([sha256.Size]byte{}) {
+		return knowledgeapp.ExtractedObjectWriteResult{}, knowledgeapp.ErrInvalid
+	}
+	result, err := store.putImmutable(ctx, key, request.AccountID, "extracted-text", "text/plain; charset=utf-8", request.Size, request.ContentSHA256, request.Body)
+	return knowledgeapp.ExtractedObjectWriteResult{Identity: result.Identity, Created: result.Created}, err
+}
+
+func (store *Store) putImmutable(ctx context.Context, key string, accountID ids.AccountID, kind, mediaType string, size int64, digest [sha256.Size]byte, body io.Reader) (knowledgeapp.SourceObjectWriteResult, error) {
+	digestHex := hex.EncodeToString(digest[:])
+	options := minio.PutObjectOptions{ContentType: mediaType, SendContentMd5: true, ServerSideEncryption: store.sse, UserMetadata: map[string]string{"spyglass-sha256": digestHex, "spyglass-account-id": string(accountID), "spyglass-object-kind": kind}}
 	options.SetMatchETagExcept("*")
 	hasher := sha256.New()
-	limited := &io.LimitedReader{R: request.Body, N: request.Size}
-	info, err := store.client.PutObject(ctx, store.bucket, key, io.TeeReader(limited, hasher), request.Size, options)
+	limited := &io.LimitedReader{R: body, N: size}
+	info, err := store.client.PutObject(ctx, store.bucket, key, io.TeeReader(limited, hasher), size, options)
 	if err != nil {
 		if isPrecondition(err) {
-			identity, existingErr := store.existing(ctx, key, request.Size, request.ContentSHA256)
+			identity, existingErr := store.existing(ctx, key, size, digest)
 			return knowledgeapp.SourceObjectWriteResult{Identity: identity}, existingErr
 		}
 		return knowledgeapp.SourceObjectWriteResult{}, fmt.Errorf("%w: put object: %v", ErrUnavailable, err)
 	}
-	identity := knowledgeapp.SourceObjectIdentity{Key: key, Version: info.VersionID, Size: info.Size, ContentSHA256: request.ContentSHA256}
-	if limited.N != 0 || info.Size != request.Size || !equalDigest(hasher.Sum(nil), request.ContentSHA256) {
+	identity := knowledgeapp.DocumentObjectIdentity{Key: key, Version: info.VersionID, Size: info.Size, ContentSHA256: digest}
+	if limited.N != 0 || info.Size != size || !equalDigest(hasher.Sum(nil), digest) {
 		store.cleanup(ctx, identity)
 		return knowledgeapp.SourceObjectWriteResult{}, ErrIntegrity
 	}
 	var extra [1]byte
-	count, readErr := request.Body.Read(extra[:])
+	count, readErr := body.Read(extra[:])
 	if count != 0 || (readErr != nil && !errors.Is(readErr, io.EOF)) {
 		store.cleanup(ctx, identity)
 		return knowledgeapp.SourceObjectWriteResult{}, knowledgeapp.ErrInvalid
@@ -134,7 +148,7 @@ func (store *Store) PutImmutable(ctx context.Context, request knowledgeapp.Sourc
 	return knowledgeapp.SourceObjectWriteResult{Identity: identity, Created: true}, nil
 }
 
-func (store *Store) Open(ctx context.Context, identity knowledgeapp.SourceObjectIdentity) (io.ReadCloser, error) {
+func (store *Store) Open(ctx context.Context, identity knowledgeapp.DocumentObjectIdentity) (io.ReadCloser, error) {
 	if err := validateIdentity(identity); err != nil {
 		return nil, err
 	}
@@ -153,7 +167,7 @@ func (store *Store) Open(ctx context.Context, identity knowledgeapp.SourceObject
 	return object, nil
 }
 
-func (store *Store) Delete(ctx context.Context, identity knowledgeapp.SourceObjectIdentity) error {
+func (store *Store) Delete(ctx context.Context, identity knowledgeapp.DocumentObjectIdentity) error {
 	if err := validateIdentity(identity); err != nil {
 		return err
 	}
@@ -163,21 +177,21 @@ func (store *Store) Delete(ctx context.Context, identity knowledgeapp.SourceObje
 	return nil
 }
 
-func (store *Store) existing(ctx context.Context, key string, size int64, digest [sha256.Size]byte) (knowledgeapp.SourceObjectIdentity, error) {
+func (store *Store) existing(ctx context.Context, key string, size int64, digest [sha256.Size]byte) (knowledgeapp.DocumentObjectIdentity, error) {
 	info, err := store.client.StatObject(ctx, store.bucket, key, minio.StatObjectOptions{ServerSideEncryption: store.sse})
 	if err != nil {
-		return knowledgeapp.SourceObjectIdentity{}, fmt.Errorf("%w: stat existing object: %v", ErrUnavailable, err)
+		return knowledgeapp.DocumentObjectIdentity{}, fmt.Errorf("%w: stat existing object: %v", ErrUnavailable, err)
 	}
 	if info.VersionID == "" {
-		return knowledgeapp.SourceObjectIdentity{}, fmt.Errorf("%w: object version identity is required", ErrConfiguration)
+		return knowledgeapp.DocumentObjectIdentity{}, fmt.Errorf("%w: object version identity is required", ErrConfiguration)
 	}
 	if !matches(info, size, digest) {
-		return knowledgeapp.SourceObjectIdentity{}, ErrConflict
+		return knowledgeapp.DocumentObjectIdentity{}, ErrConflict
 	}
-	return knowledgeapp.SourceObjectIdentity{Key: key, Version: info.VersionID, Size: info.Size, ContentSHA256: digest}, nil
+	return knowledgeapp.DocumentObjectIdentity{Key: key, Version: info.VersionID, Size: info.Size, ContentSHA256: digest}, nil
 }
 
-func (store *Store) cleanup(ctx context.Context, identity knowledgeapp.SourceObjectIdentity) {
+func (store *Store) cleanup(ctx context.Context, identity knowledgeapp.DocumentObjectIdentity) {
 	if identity.Version != "" {
 		_ = store.client.RemoveObject(ctx, store.bucket, identity.Key, minio.RemoveObjectOptions{VersionID: identity.Version})
 	}
@@ -191,7 +205,7 @@ func matches(info minio.ObjectInfo, size int64, digest [sha256.Size]byte) bool {
 	return info.Size == size && strings.EqualFold(stored, hex.EncodeToString(digest[:]))
 }
 
-func validateIdentity(identity knowledgeapp.SourceObjectIdentity) error {
+func validateIdentity(identity knowledgeapp.DocumentObjectIdentity) error {
 	if identity.Key == "" || len(identity.Key) > knowledgedomain.MaximumObjectKey || !strings.HasPrefix(identity.Key, "accounts/") || strings.Contains(identity.Key, "..") || identity.Version == "" || identity.Size <= 0 || identity.Size > knowledgedomain.MaximumDocumentBytes || identity.ContentSHA256 == ([sha256.Size]byte{}) {
 		return knowledgeapp.ErrInvalid
 	}
@@ -211,4 +225,4 @@ func normalizeMediaType(value string) string {
 	return strings.ToLower(strings.TrimSpace(strings.SplitN(value, ";", 2)[0]))
 }
 
-var _ knowledgeapp.SourceObjectStore = (*Store)(nil)
+var _ knowledgeapp.DocumentObjectStore = (*Store)(nil)

@@ -39,7 +39,7 @@ func TestDocumentRevisionFailClosedLifecycleAndPublication(t *testing.T) {
 	if _, err := revision.RecordIndex("knowledge-v1", 1, now.Add(2*time.Second)); !errors.Is(err, ErrState) {
 		t.Fatalf("revision indexed before extraction: %v", err)
 	}
-	revision, err = revision.RecordExtraction(sha256.Sum256([]byte("extracted text")), 14, "spyglass/pdf-v1", now.Add(2*time.Second))
+	revision, err = revision.RecordExtraction(sha256.Sum256([]byte("extracted text")), 14, "spyglass/pdf-v1", "accounts/a1000000-0000-4000-8000-000000000001/documents/a2000000-0000-4000-8000-000000000002/revisions/a3000000-0000-4000-8000-000000000003/extracted/text", "extracted-version-1", now.Add(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestDocumentRevisionRejectsMediaObjectAndMalwareFailures(t *testing.T) {
 	if err != nil || revision.State != RevisionFailed || revision.FailureCode != "malware_scan_infected" {
 		t.Fatalf("infected=%+v err=%v", revision, err)
 	}
-	if _, err := revision.RecordExtraction(sha256.Sum256([]byte("never")), 5, "extractor", now.Add(2*time.Second)); !errors.Is(err, ErrState) {
+	if _, err := revision.RecordExtraction(sha256.Sum256([]byte("never")), 5, "extractor", "invalid", "version", now.Add(2*time.Second)); !errors.Is(err, ErrState) {
 		t.Fatalf("infected revision extracted: %v", err)
 	}
 }
@@ -104,7 +104,10 @@ func TestDocumentRevisionCanFailAfterSuccessfulExtraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision, err = revision.RecordExtraction(sha256.Sum256([]byte("text")), 4, "text-v1", now.Add(2*time.Second))
+	if _, invalidErr := revision.RecordExtraction(sha256.Sum256([]byte("text")), 4, "text-v1", "accounts/other/extracted/text", "v1", now.Add(2*time.Second)); !errors.Is(invalidErr, ErrInvalid) {
+		t.Fatalf("wrong extracted object identity err=%v", invalidErr)
+	}
+	revision, err = revision.RecordExtraction(sha256.Sum256([]byte("text")), 4, "text-v1", "accounts/e1000000-0000-4000-8000-000000000001/documents/e2000000-0000-4000-8000-000000000002/revisions/e3000000-0000-4000-8000-000000000003/extracted/text", "extracted-v1", now.Add(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}

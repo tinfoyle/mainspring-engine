@@ -210,36 +210,38 @@ type DocumentRevisionDraft struct {
 }
 
 type DocumentRevision struct {
-	ID              ids.KnowledgeDocumentRevisionID
-	DocumentID      ids.KnowledgeDocumentID
-	AccountID       ids.AccountID
-	Number          uint64
-	Filename        string
-	DeclaredType    string
-	VerifiedType    string
-	ByteSize        int64
-	ContentSHA256   [sha256.Size]byte
-	ObjectKey       string
-	ObjectVersion   string
-	ChangeSummary   string
-	State           RevisionState
-	ScanState       ScanState
-	ScanEngine      string
-	ScanSignature   string
-	ScannedAt       *time.Time
-	Extraction      ExtractionState
-	Extractor       string
-	TextSHA256      [sha256.Size]byte
-	TextBytes       int64
-	ExtractedAt     *time.Time
-	Index           IndexState
-	IndexGeneration string
-	ChunkCount      uint32
-	IndexedAt       *time.Time
-	FailureCode     string
-	CreatedBy       Actor
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID                     ids.KnowledgeDocumentRevisionID
+	DocumentID             ids.KnowledgeDocumentID
+	AccountID              ids.AccountID
+	Number                 uint64
+	Filename               string
+	DeclaredType           string
+	VerifiedType           string
+	ByteSize               int64
+	ContentSHA256          [sha256.Size]byte
+	ObjectKey              string
+	ObjectVersion          string
+	ChangeSummary          string
+	State                  RevisionState
+	ScanState              ScanState
+	ScanEngine             string
+	ScanSignature          string
+	ScannedAt              *time.Time
+	Extraction             ExtractionState
+	Extractor              string
+	TextSHA256             [sha256.Size]byte
+	TextBytes              int64
+	ExtractedObjectKey     string
+	ExtractedObjectVersion string
+	ExtractedAt            *time.Time
+	Index                  IndexState
+	IndexGeneration        string
+	ChunkCount             uint32
+	IndexedAt              *time.Time
+	FailureCode            string
+	CreatedBy              Actor
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type DocumentChunk struct {
@@ -273,10 +275,11 @@ func NewDocumentRevision(draft DocumentRevisionDraft, now time.Time) (DocumentRe
 func RestoreDocumentRevision(value DocumentRevision) (DocumentRevision, error) {
 	value.Filename, value.DeclaredType, value.VerifiedType = strings.TrimSpace(value.Filename), normalizeMediaType(value.DeclaredType), normalizeMediaType(value.VerifiedType)
 	value.ObjectKey, value.ObjectVersion, value.ChangeSummary = strings.TrimSpace(value.ObjectKey), strings.TrimSpace(value.ObjectVersion), strings.TrimSpace(value.ChangeSummary)
+	value.ExtractedObjectKey, value.ExtractedObjectVersion = strings.TrimSpace(value.ExtractedObjectKey), strings.TrimSpace(value.ExtractedObjectVersion)
 	value.ScanEngine, value.ScanSignature, value.Extractor, value.IndexGeneration, value.FailureCode = strings.TrimSpace(value.ScanEngine), strings.TrimSpace(value.ScanSignature), strings.TrimSpace(value.Extractor), strings.TrimSpace(value.IndexGeneration), strings.TrimSpace(value.FailureCode)
 	value.CreatedAt, value.UpdatedAt = value.CreatedAt.UTC(), value.UpdatedAt.UTC()
 	value.ScannedAt, value.ExtractedAt, value.IndexedAt = utcTimePointer(value.ScannedAt), utcTimePointer(value.ExtractedAt), utcTimePointer(value.IndexedAt)
-	if ids.Validate(string(value.ID)) != nil || ids.Validate(string(value.DocumentID)) != nil || ids.Validate(string(value.AccountID)) != nil || value.Number == 0 || !validDocumentName(value.Filename) || !validMediaPair(value.Filename, value.DeclaredType, value.VerifiedType) || value.ByteSize <= 0 || value.ByteSize > MaximumDocumentBytes || value.ContentSHA256 == ([sha256.Size]byte{}) || !validObjectIdentity(value) || len(value.ChangeSummary) > MaximumChangeSummary || !value.CreatedBy.Valid() || value.CreatedAt.IsZero() || value.UpdatedAt.Before(value.CreatedAt) {
+	if ids.Validate(string(value.ID)) != nil || ids.Validate(string(value.DocumentID)) != nil || ids.Validate(string(value.AccountID)) != nil || value.Number == 0 || !validDocumentName(value.Filename) || !validMediaPair(value.Filename, value.DeclaredType, value.VerifiedType) || value.ByteSize <= 0 || value.ByteSize > MaximumDocumentBytes || value.ContentSHA256 == ([sha256.Size]byte{}) || !validObjectIdentity(value) || !validExtractedObjectIdentity(value) || len(value.ChangeSummary) > MaximumChangeSummary || !value.CreatedBy.Valid() || value.CreatedAt.IsZero() || value.UpdatedAt.Before(value.CreatedAt) {
 		return DocumentRevision{}, ErrInvalid
 	}
 	if !validProcessor(value.ScanEngine) || !validProcessor(value.ScanSignature) || !validProcessor(value.Extractor) || !validProcessor(value.IndexGeneration) || !validFailureCode(value.FailureCode) {
@@ -302,12 +305,12 @@ func (value DocumentRevision) RecordScan(state ScanState, engine, signature stri
 	return RestoreDocumentRevision(value)
 }
 
-func (value DocumentRevision) RecordExtraction(textSHA256 [sha256.Size]byte, textBytes int64, extractor string, now time.Time) (DocumentRevision, error) {
+func (value DocumentRevision) RecordExtraction(textSHA256 [sha256.Size]byte, textBytes int64, extractor, objectKey, objectVersion string, now time.Time) (DocumentRevision, error) {
 	if value.State != RevisionExtracting || value.ScanState != ScanClean || value.Extraction != ExtractionPending || textSHA256 == ([sha256.Size]byte{}) || textBytes <= 0 || textBytes > MaximumExtractedTextBytes || now.IsZero() || now.Before(value.UpdatedAt) {
 		return DocumentRevision{}, ErrState
 	}
 	now = now.UTC()
-	value.Extraction, value.TextSHA256, value.TextBytes, value.Extractor, value.ExtractedAt, value.UpdatedAt = ExtractionReady, textSHA256, textBytes, strings.TrimSpace(extractor), &now, now
+	value.Extraction, value.TextSHA256, value.TextBytes, value.Extractor, value.ExtractedObjectKey, value.ExtractedObjectVersion, value.ExtractedAt, value.UpdatedAt = ExtractionReady, textSHA256, textBytes, strings.TrimSpace(extractor), strings.TrimSpace(objectKey), strings.TrimSpace(objectVersion), &now, now
 	return RestoreDocumentRevision(value)
 }
 
@@ -410,6 +413,21 @@ func SourceObjectKey(accountID ids.AccountID, documentID ids.KnowledgeDocumentID
 		return "", ErrInvalid
 	}
 	return fmt.Sprintf("accounts/%s/documents/%s/revisions/%s/source", accountID, documentID, revisionID), nil
+}
+
+func ExtractedObjectKey(accountID ids.AccountID, documentID ids.KnowledgeDocumentID, revisionID ids.KnowledgeDocumentRevisionID) (string, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(string(documentID)) != nil || ids.Validate(string(revisionID)) != nil {
+		return "", ErrInvalid
+	}
+	return fmt.Sprintf("accounts/%s/documents/%s/revisions/%s/extracted/text", accountID, documentID, revisionID), nil
+}
+
+func validExtractedObjectIdentity(value DocumentRevision) bool {
+	if value.Extraction != ExtractionReady {
+		return value.ExtractedObjectKey == "" && value.ExtractedObjectVersion == ""
+	}
+	expected, err := ExtractedObjectKey(value.AccountID, value.DocumentID, value.ID)
+	return err == nil && value.ExtractedObjectKey == expected && len(value.ExtractedObjectKey) <= MaximumObjectKey && value.ExtractedObjectVersion != "" && len(value.ExtractedObjectVersion) <= 256
 }
 
 func validProcessor(value string) bool {

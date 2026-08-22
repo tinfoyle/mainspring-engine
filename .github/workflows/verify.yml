@@ -17,6 +17,7 @@ jobs:
       SPYGLASS_S3_TEST_ACCESS_KEY: spyglass-ci-object
       SPYGLASS_S3_TEST_SECRET_KEY: spyglass-ci-object-secret
       SPYGLASS_S3_TEST_BUCKET: spyglass-documents
+      SPYGLASS_TIKA_TEST_ENDPOINT: http://127.0.0.1:9998
     services:
       postgres:
         image: postgres:17.11-alpine3.24@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
@@ -54,6 +55,25 @@ jobs:
             --entrypoint /bin/sh \
             minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727 \
             -ec 'mc alias set spyglass http://127.0.0.1:9000 spyglass-ci-object spyglass-ci-object-secret && mc mb --ignore-existing spyglass/spyglass-documents && mc version enable spyglass/spyglass-documents'
+      - name: Start constrained document extractor
+        run: |
+          docker run --detach --name spyglass-ci-tika \
+            --publish 127.0.0.1:9998:9998 \
+            --memory 1536m \
+            --cpus 2 \
+            --pids-limit 256 \
+            --read-only \
+            --tmpfs /tmp:size=256m,mode=1777,uid=35002,gid=35002 \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --volume "$PWD/deploy/docker/spyglass/tika/tika-config.xml:/etc/tika/tika-config.xml:ro" \
+            apache/tika@sha256:2a565f1ea1290bdcb74a7d35957d16a989ed44ef98790dcdcc28121d728fa583 \
+            -c /etc/tika/tika-config.xml
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9998/version >/dev/null; then break; fi
+            test "$attempt" != 60
+            sleep 1
+          done
       - run: go test ./...
       - run: go test -race ./...
       - run: go vet ./...

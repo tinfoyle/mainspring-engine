@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+  <server>
+    <params>
+      <returnStackTrace>false</returnStackTrace>
+      <noFork>false</noFork>
+      <taskTimeoutMillis>120000</taskTimeoutMillis>
+      <maxForkedStartupMillis>120000</maxForkedStartupMillis>
+      <maxRestarts>5</maxRestarts>
+      <maxFiles>1000</maxFiles>
+      <forkedJvmArgs>
+        <arg>-Xms128m</arg>
+        <arg>-Xmx1024m</arg>
+      </forkedJvmArgs>
+      <enableUnsecureFeatures>false</enableUnsecureFeatures>
+    </params>
+  </server>
+</properties>

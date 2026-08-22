@@ -54,6 +54,21 @@ func TestS3StoreStreamsImmutableVersionedObjects(t *testing.T) {
 	if _, err := store.PutImmutable(ctx, write); !errors.Is(err, ErrConflict) {
 		t.Fatalf("conflicting immutable put err=%v", err)
 	}
+	extractedBody := []byte("normalized extracted text")
+	extracted, err := store.PutExtractedImmutable(ctx, knowledgeapp.ExtractedObjectWrite{AccountID: write.AccountID, DocumentID: write.DocumentID, RevisionID: write.RevisionID, Size: int64(len(extractedBody)), ContentSHA256: sha256.Sum256(extractedBody), Body: bytes.NewReader(extractedBody)})
+	if err != nil || !extracted.Created || extracted.Identity.Version == "" {
+		t.Fatalf("put extracted result=%+v err=%v", extracted, err)
+	}
+	defer store.Delete(context.Background(), extracted.Identity)
+	extractedReader, err := store.Open(ctx, extracted.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readExtracted, readExtractedErr := io.ReadAll(extractedReader)
+	closeExtractedErr := extractedReader.Close()
+	if readExtractedErr != nil || closeExtractedErr != nil || !bytes.Equal(readExtracted, extractedBody) {
+		t.Fatalf("read extracted=%q readErr=%v closeErr=%v", readExtracted, readExtractedErr, closeExtractedErr)
+	}
 	if err := store.Delete(ctx, identity); err != nil {
 		t.Fatal(err)
 	}

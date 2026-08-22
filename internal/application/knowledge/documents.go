@@ -119,12 +119,15 @@ func (s *DocumentService) RecordScan(ctx context.Context, command RecordScanComm
 }
 
 type RecordExtractionCommand struct {
-	Actor                    access.Actor
-	AccountID                ids.AccountID
-	RevisionID               ids.KnowledgeDocumentRevisionID
-	TextSHA256               [sha256.Size]byte
-	TextBytes                int64
-	Extractor, CorrelationID string
+	Actor         access.Actor
+	AccountID     ids.AccountID
+	RevisionID    ids.KnowledgeDocumentRevisionID
+	TextSHA256    [sha256.Size]byte
+	TextBytes     int64
+	Extractor     string
+	ObjectKey     string
+	ObjectVersion string
+	CorrelationID string
 }
 
 func (s *DocumentService) RecordExtraction(ctx context.Context, command RecordExtractionCommand) (knowledgedomain.DocumentRevision, error) {
@@ -140,7 +143,7 @@ func (s *DocumentService) RecordExtraction(ctx context.Context, command RecordEx
 		return knowledgedomain.DocumentRevision{}, err
 	}
 	now := s.clock.Now().UTC()
-	result, err := current.RecordExtraction(command.TextSHA256, command.TextBytes, command.Extractor, now)
+	result, err := current.RecordExtraction(command.TextSHA256, command.TextBytes, command.Extractor, command.ObjectKey, command.ObjectVersion, now)
 	if err != nil {
 		return knowledgedomain.DocumentRevision{}, classifyDocumentDomain(err)
 	}

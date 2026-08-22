@@ -130,7 +130,7 @@ func TestDocumentProcessingRequiresWorkloadAndIndexesStableChunks(t *testing.T) 
 		t.Fatal(err)
 	}
 	clock.now = clock.now.Add(time.Second)
-	revision, err = service.RecordExtraction(context.Background(), RecordExtractionCommand{Actor: access.Actor{WorkloadID: "worker:document-admission"}, AccountID: appKnowledgeAccount, RevisionID: revision.ID, TextSHA256: sha256.Sum256([]byte("first second")), TextBytes: 12, Extractor: "spyglass/text-v1", CorrelationID: "82000000-0000-4000-8000-000000000008"})
+	revision, err = service.RecordExtraction(context.Background(), RecordExtractionCommand{Actor: access.Actor{WorkloadID: "worker:document-admission"}, AccountID: appKnowledgeAccount, RevisionID: revision.ID, TextSHA256: sha256.Sum256([]byte("first second")), TextBytes: 12, Extractor: "spyglass/text-v1", ObjectKey: "accounts/" + string(appKnowledgeAccount) + "/documents/" + string(appKnowledgeDocument) + "/revisions/" + string(appKnowledgeRevision) + "/extracted/text", ObjectVersion: "extracted-version-1", CorrelationID: "82000000-0000-4000-8000-000000000008"})
 	if err != nil {
 		t.Fatal(err)
 	}

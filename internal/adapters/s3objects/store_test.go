@@ -22,6 +22,7 @@ type fakeClient struct {
 	statInfo   minio.ObjectInfo
 	statErr    error
 	putBody    []byte
+	putKey     string
 	putOptions minio.PutObjectOptions
 	removed    minio.RemoveObjectOptions
 }
@@ -32,10 +33,24 @@ func (client *fakeClient) BucketExists(context.Context, string) (bool, error) {
 func (client *fakeClient) GetBucketVersioning(context.Context, string) (minio.BucketVersioningConfiguration, error) {
 	return client.versioning, nil
 }
-func (client *fakeClient) PutObject(_ context.Context, _, _ string, reader io.Reader, _ int64, options minio.PutObjectOptions) (minio.UploadInfo, error) {
+func (client *fakeClient) PutObject(_ context.Context, _, key string, reader io.Reader, _ int64, options minio.PutObjectOptions) (minio.UploadInfo, error) {
+	client.putKey = key
 	client.putOptions = options
 	client.putBody, _ = io.ReadAll(reader)
 	return client.putInfo, client.putErr
+}
+
+func TestPutExtractedImmutableBindsDerivedIdentity(t *testing.T) {
+	body := []byte("normalized extracted text")
+	client := &fakeClient{putInfo: minio.UploadInfo{Size: int64(len(body)), VersionID: "extracted-version-1"}}
+	store, _ := newStore(client, "spyglass-documents", nil)
+	result, err := store.PutExtractedImmutable(context.Background(), knowledgeapp.ExtractedObjectWrite{
+		AccountID: "a1000000-0000-4000-8000-000000000001", DocumentID: "a2000000-0000-4000-8000-000000000002", RevisionID: "a3000000-0000-4000-8000-000000000003",
+		Size: int64(len(body)), ContentSHA256: sha256.Sum256(body), Body: bytes.NewReader(body),
+	})
+	if err != nil || !result.Created || result.Identity.Key != "accounts/a1000000-0000-4000-8000-000000000001/documents/a2000000-0000-4000-8000-000000000002/revisions/a3000000-0000-4000-8000-000000000003/extracted/text" || client.putKey != result.Identity.Key || client.putOptions.UserMetadata["spyglass-object-kind"] != "extracted-text" || client.putOptions.ContentType != "text/plain; charset=utf-8" {
+		t.Fatalf("result=%+v key=%q options=%+v err=%v", result, client.putKey, client.putOptions, err)
+	}
 }
 func (client *fakeClient) StatObject(context.Context, string, string, minio.StatObjectOptions) (minio.ObjectInfo, error) {
 	return client.statInfo, client.statErr
