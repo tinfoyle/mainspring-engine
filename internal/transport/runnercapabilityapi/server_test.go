@@ -67,3 +67,16 @@ func TestGatewayTransportMapsCancellationAndDenialWithoutDetails(t *testing.T) {
 		}
 	}
 }
+
+func TestGatewayTransportReturnsOnlyBoundedExecutionReason(t *testing.T) {
+	gateway := &fakeGateway{err: runnercapability.NewExecutionFailure("model_provider_unavailable")}
+	body := `{"schema_version":1,"operation_id":"41000000-0000-4000-8000-000000000001","capability":"agents.model.turn","input":{}}`
+	request := httptest.NewRequest(http.MethodPost, "/internal/v1/runner/invocations/11000000-0000-4000-8000-000000000001/capabilities:invoke", bytes.NewBufferString(body))
+	request.Header.Set("Authorization", "Bearer pod-token")
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	capabilityHandler(t, gateway).ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadGateway || !bytes.Contains(recorder.Body.Bytes(), []byte(`"code":"capability_execution_failed"`)) || !bytes.Contains(recorder.Body.Bytes(), []byte(`"reason_code":"model_provider_unavailable"`)) {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}

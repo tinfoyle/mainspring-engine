@@ -98,13 +98,22 @@ func (s *Server) writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, runnercapability.ErrActionUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "capability_action_unavailable", "consequential action state is temporarily unavailable")
 	case errors.Is(err, runnercapability.ErrExecutionFailed):
-		writeProblem(w, http.StatusBadGateway, "capability_execution_failed", "the capability could not be completed")
+		writeExecutionProblem(w, err)
 	case errors.Is(err, runnercapability.ErrAuditUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "capability_audit_unavailable", "capability audit is temporarily unavailable")
 	default:
 		s.logger.Error("Runner capability gateway failed", "error", err)
 		writeProblem(w, http.StatusServiceUnavailable, "capability_gateway_unavailable", "the capability gateway is temporarily unavailable")
 	}
+}
+
+func writeExecutionProblem(w http.ResponseWriter, err error) {
+	reason, ok := runnercapability.ExecutionFailureCode(err)
+	if !ok {
+		reason = "execution_failed"
+	}
+	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+	writeJSON(w, http.StatusBadGateway, map[string]any{"type": "https://infiniteocean.net/problems/capability_execution_failed", "title": http.StatusText(http.StatusBadGateway), "status": http.StatusBadGateway, "code": "capability_execution_failed", "detail": "the capability could not be completed", "reason_code": reason})
 }
 
 func bearerToken(r *http.Request) (string, bool) {

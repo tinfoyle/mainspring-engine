@@ -53,6 +53,30 @@ type Result struct {
 	Output        json.RawMessage `json:"output"`
 }
 
+// ExecutionFailure preserves one bounded, content-free handler classification
+// across the private runner transport while retaining ErrExecutionFailed for
+// ordinary error handling. It never carries provider response text.
+type ExecutionFailure struct{ code string }
+
+func (failure *ExecutionFailure) Error() string { return failure.code }
+func (failure *ExecutionFailure) Unwrap() error { return ErrExecutionFailed }
+func (failure *ExecutionFailure) Code() string  { return failure.code }
+
+func NewExecutionFailure(code string) error {
+	if !validMachineCode.MatchString(code) {
+		code = "execution_failed"
+	}
+	return &ExecutionFailure{code: code}
+}
+
+func ExecutionFailureCode(err error) (string, bool) {
+	var failure *ExecutionFailure
+	if !errors.As(err, &failure) || !validMachineCode.MatchString(failure.code) {
+		return "", false
+	}
+	return failure.code, true
+}
+
 type AuthorizedCall struct {
 	Grant       runnerbroker.CapabilityGrant
 	OperationID string
@@ -265,7 +289,7 @@ func (s *Service) Invoke(ctx context.Context, token, invocationID string, call C
 		if err := s.auditAfterExecution(ctx, grant, call, "failed", code); err != nil {
 			return Result{}, err
 		}
-		return Result{}, ErrExecutionFailed
+		return Result{}, NewExecutionFailure(code)
 	}
 	if authorized.Action != nil && actionOutcome != ActionSucceeded {
 		code := "action_" + string(actionOutcome)
@@ -275,7 +299,7 @@ func (s *Service) Invoke(ctx context.Context, token, invocationID string, call C
 		if err := s.auditAfterExecution(ctx, grant, call, "failed", code); err != nil {
 			return Result{}, err
 		}
-		return Result{}, ErrExecutionFailed
+		return Result{}, NewExecutionFailure(code)
 	}
 	canonicalOutput, err := canonicalObject(output, MaximumOutputBytes)
 	if err != nil {
@@ -287,7 +311,7 @@ func (s *Service) Invoke(ctx context.Context, token, invocationID string, call C
 		if auditErr := s.auditAfterExecution(ctx, grant, call, "failed", "invalid_output"); auditErr != nil {
 			return Result{}, auditErr
 		}
-		return Result{}, ErrExecutionFailed
+		return Result{}, NewExecutionFailure("invalid_output")
 	}
 	if authorized.Action != nil {
 		if err := s.completeAction(ctx, *authorized.Action, ActionSucceeded, ""); err != nil {

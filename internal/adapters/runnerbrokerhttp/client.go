@@ -204,7 +204,8 @@ func decodeJSON(response *http.Response, target any) error {
 
 func decodeError(response *http.Response) error {
 	var problem struct {
-		Code string `json:"code"`
+		Code       string `json:"code"`
+		ReasonCode string `json:"reason_code"`
 	}
 	_ = json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&problem)
 	switch problem.Code {
@@ -231,7 +232,7 @@ func decodeError(response *http.Response) error {
 	case "capability_action_unavailable":
 		return runnercapability.ErrActionUnavailable
 	case "capability_execution_failed":
-		return runnercapability.ErrExecutionFailed
+		return runnercapability.NewExecutionFailure(problem.ReasonCode)
 	case "capability_audit_unavailable":
 		return runnercapability.ErrAuditUnavailable
 	default:

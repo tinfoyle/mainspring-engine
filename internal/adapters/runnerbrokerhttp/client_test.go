@@ -132,6 +132,28 @@ func TestClientMapsContentFreeProblems(t *testing.T) {
 	}
 }
 
+func TestClientPreservesBoundedCapabilityExecutionReason(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("valid-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"code":"capability_execution_failed","reason_code":"model_provider_unavailable","detail":"private provider detail must not cross"}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BrokerURL: server.URL, InvocationID: "11000000-0000-4000-8000-000000000001", IdentityTokenFile: tokenFile, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Invoke(context.Background(), runnercapability.Call{SchemaVersion: 1, OperationID: "41000000-0000-4000-8000-000000000001", Capability: "agents.model.turn", Input: json.RawMessage(`{}`)})
+	code, ok := runnercapability.ExecutionFailureCode(err)
+	if !errors.Is(err, runnercapability.ErrExecutionFailed) || !ok || code != "model_provider_unavailable" || bytes.Contains([]byte(err.Error()), []byte("private provider detail")) {
+		t.Fatalf("code=%q classified=%v err=%v", code, ok, err)
+	}
+}
+
 func TestClientRejectsInvalidTokenAndRedirect(t *testing.T) {
 	tokenFile := filepath.Join(t.TempDir(), "token")
 	if err := os.WriteFile(tokenFile, []byte("token with spaces"), 0o600); err != nil {
