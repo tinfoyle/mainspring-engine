@@ -32,13 +32,13 @@
 
 ## Chosen origins
 
-| Environment | Public website | Private application |
-|---|---|---|
-| Local | `https://web.infiniteocean.localhost:8444` | `https://app.infiniteocean.localhost:8444` |
-| Stage | `https://stage.infiniteocean.net` | `https://app.stage.infiniteocean.net` |
-| Production | `https://www.infiniteocean.net` | `https://app.infiniteocean.net` |
+| Environment | Public website | Private application | MCP resource server |
+|---|---|---|---|
+| Local | `https://web.infiniteocean.localhost:8444` | `https://app.infiniteocean.localhost:8444` | `https://mcp.infiniteocean.localhost:8444` |
+| Stage | `https://stage.infiniteocean.net` | `https://app.stage.infiniteocean.net` | `https://mcp.stage.infiniteocean.net` |
+| Production | `https://www.infiniteocean.net` | `https://app.infiniteocean.net` | `https://mcp.infiniteocean.net` |
 
-`https://infiniteocean.net` redirects to `https://www.infiniteocean.net`. Only the public website and private application origins are internet-facing. Internal APIs, databases, brokers, workers, model gateway, runners, metrics and administration jobs remain private.
+`https://infiniteocean.net` redirects to `https://www.infiniteocean.net`. Only the public website, private application, and protected MCP resource origins are internet-facing. Internal cell APIs, databases, brokers, workers, model gateway, runners, metrics and administration jobs remain private.
 
 Cross-cell Account movement uses the same short-lived `account-move-admin` image in Docker stage and Kubernetes production. It is never a standing service and never infers endpoints from DNS. The operator supplies separate global/source/destination credentials and exact cell identities under a signed authorization; see [Account movement operations](account-movement.md).
 

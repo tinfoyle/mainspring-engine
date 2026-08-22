@@ -102,6 +102,11 @@ func TestBaselineMCPUsesCanonicalAuthorizedService(t *testing.T) {
 	if err != nil || len(tools.Tools) != 20 {
 		t.Fatalf("tools=%d err=%v", len(tools.Tools), err)
 	}
+	for _, tool := range tools.Tools {
+		if _, ok := ToolRequirement(tool.Name); !ok {
+			t.Fatalf("tool %q has no global routing requirement", tool.Name)
+		}
+	}
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_baseline_start", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation}})
 	if err != nil || result.IsError || !strings.Contains(result.Content[0].(*mcp.TextContent).Text, `"state":"interview"`) || service.start.AssessmentID != ids.BaselineAssessmentID(mcpOperation) {
 		t.Fatalf("result=%+v start=%+v err=%v", result, service.start, err)

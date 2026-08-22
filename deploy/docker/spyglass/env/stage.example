@@ -4,6 +4,7 @@ SPYGLASS_ENVIRONMENT=stage
 SPYGLASS_PROCESS_ENV=stage
 SPYGLASS_PUBLIC_ORIGIN=https://stage.infiniteocean.net
 SPYGLASS_APP_ORIGIN=https://app.stage.infiniteocean.net
+SPYGLASS_MCP_RESOURCE_METADATA_URL=https://mcp.stage.infiniteocean.net/.well-known/oauth-protected-resource
 SPYGLASS_PASSKEY_RP_ID=app.stage.infiniteocean.net
 SPYGLASS_CELL_A_ROUTE_ORIGIN=https://app-api-a:8443
 SPYGLASS_CELL_B_ROUTE_ORIGIN=https://app-api-b:8443

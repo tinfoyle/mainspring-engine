@@ -37,6 +37,11 @@ func TestActionRecoveryMCPPublishesRedactedDualControlSurface(t *testing.T) {
 	if len(tools.Tools) != 19 {
 		t.Fatalf("tool count=%d", len(tools.Tools))
 	}
+	for _, tool := range tools.Tools {
+		if _, ok := ToolRequirement(tool.Name); !ok {
+			t.Fatalf("tool %q has no global routing requirement", tool.Name)
+		}
+	}
 
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_attention_action_get", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation}})
 	if err != nil || result.IsError {

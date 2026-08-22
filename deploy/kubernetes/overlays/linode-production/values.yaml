@@ -30,6 +30,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata: {name: spyglass-cell-a-runtime, namespace: spyglass-reference}
 data:
+  SPYGLASS_MCP_RESOURCE_METADATA_URL: https://mcp.infiniteocean.net/.well-known/oauth-protected-resource
   SPYGLASS_ENV: production
   SPYGLASS_ENVIRONMENT: production
   SPYGLASS_CELL_ID: cell-us-east-01
@@ -40,6 +41,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata: {name: spyglass-cell-b-runtime, namespace: spyglass-reference}
 data:
+  SPYGLASS_MCP_RESOURCE_METADATA_URL: https://mcp.infiniteocean.net/.well-known/oauth-protected-resource
   SPYGLASS_ENV: production
   SPYGLASS_ENVIRONMENT: production
   SPYGLASS_CELL_ID: cell-us-west-01

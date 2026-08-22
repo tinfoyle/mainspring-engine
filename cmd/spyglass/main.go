@@ -1083,6 +1083,10 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	mcpResourceMetadataURL, err := requiredEnv("SPYGLASS_MCP_RESOURCE_METADATA_URL")
+	if err != nil {
+		return err
+	}
 	var admissionTransport http.RoundTripper
 	var serverTLS *tls.Config
 	if !developmentMode {
@@ -1104,6 +1108,7 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 		AdmissionOrigin: admissionOrigin, AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode,
 		ObjectEndpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), ObjectRegion: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), ObjectBucket: envOr("SPYGLASS_OBJECT_STORE_BUCKET", "spyglass-documents"),
 		ObjectAccessKey: objectAccessKey, ObjectSecretKey: objectSecretKey, ObjectSecure: objectSecure, ObjectSSE: objectSSE,
+		MCPVersion: buildinfo.Current().Version, MCPResourceMetadataURL: mcpResourceMetadataURL,
 	}, logger, registration.SystemClock{})
 	if err != nil {
 		return err

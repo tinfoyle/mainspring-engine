@@ -44,6 +44,9 @@ func TestAttentionMCPPublishesTypedDeterministicToolSurface(t *testing.T) {
 	names := make([]string, 0, len(result.Tools))
 	for _, tool := range result.Tools {
 		names = append(names, tool.Name)
+		if _, ok := ToolRequirement(tool.Name); !ok {
+			t.Fatalf("tool %q has no global routing requirement", tool.Name)
+		}
 		if tool.InputSchema == nil || tool.OutputSchema == nil || tool.Annotations == nil {
 			t.Fatalf("incomplete tool contract: %+v", tool)
 		}

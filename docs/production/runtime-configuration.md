@@ -104,6 +104,7 @@ Each account-api replica holds one immutable Catalog snapshot. It polls for the 
 | `SPYGLASS_CELL_ID` | App API, route canary | Exact cell identity used as token audience and deployment identity |
 | `SPYGLASS_SESSION_COOKIE_NAME` | App router | Optional; defaults to `__Host-spyglass_session` |
 | `SPYGLASS_MAX_REQUEST_BODY_BYTES` | App API | Optional positive limit up to 16 MiB; defaults to 1 MiB |
+| `SPYGLASS_MCP_RESOURCE_METADATA_URL` | App API | Canonical public HTTPS RFC 9728 metadata URL used only in private routed-MCP authentication failures; stage uses `https://mcp.stage.infiniteocean.net/.well-known/oauth-protected-resource`, production uses `https://mcp.infiniteocean.net/.well-known/oauth-protected-resource` |
 | `SPYGLASS_WORK_ADMISSION_ORIGIN` | App API | Exact private admission-api origin; HTTPS is the fail-closed default |
 | `SPYGLASS_WORKLOAD_CERT_FILE` | App router, app API, admission API, route canary | PEM workload certificate path; app-api certificates need server and client usage |
 | `SPYGLASS_WORKLOAD_KEY_FILE` | App router, app API, admission API, route canary | PEM private-key path readable only by the workload |

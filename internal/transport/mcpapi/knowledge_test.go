@@ -74,6 +74,11 @@ func TestKnowledgeMCPPublishesBoundedSensitivityAwareSurface(t *testing.T) {
 	if err != nil || len(tools.Tools) != 23 {
 		t.Fatalf("tools=%d err=%v", len(tools.Tools), err)
 	}
+	for _, tool := range tools.Tools {
+		if _, ok := ToolRequirement(tool.Name); !ok {
+			t.Fatalf("tool %q has no global routing requirement", tool.Name)
+		}
+	}
 	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_knowledge_fact_list", Arguments: map[string]any{"account_id": mcpAccount, "scope": map[string]any{"kind": "account"}, "key_prefix": "organization.", "limit": 5}})
 	if err != nil || result.IsError || !strings.Contains(result.Content[0].(*mcp.TextContent).Text, "organization.name") {
 		t.Fatalf("result=%+v err=%v", result, err)

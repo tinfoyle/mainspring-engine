@@ -21,6 +21,7 @@ spec:
             - {name: SPYGLASS_HTTP_ADDRESS, value: ":8080"}
             - {name: SPYGLASS_CELL_ID, value: "cell-us-west-01"}
             - {name: SPYGLASS_WORK_ADMISSION_ORIGIN, value: "https://admission-api.spyglass-reference.svc.cluster.local"}
+            - {name: SPYGLASS_MCP_RESOURCE_METADATA_URL, value: "https://mcp.invalid/.well-known/oauth-protected-resource"}
             - {name: SPYGLASS_WORKLOAD_CERT_FILE, value: "/var/run/secrets/spyglass/workload/tls.crt"}
             - {name: SPYGLASS_WORKLOAD_KEY_FILE, value: "/var/run/secrets/spyglass/workload/tls.key"}
             - {name: SPYGLASS_WORKLOAD_CA_FILE, value: "/var/run/secrets/spyglass/workload/ca.crt"}

@@ -28,26 +28,29 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/cellapi"
+	"github.com/tinfoyle/spyglass-engine/internal/transport/mcpapi"
 )
 
 type Config struct {
-	DatabaseURL        string
-	CellID             ids.CellID
-	RouteIssuer        string
-	RouteVerifyKeys    map[string][]byte
-	MaxDatabaseConns   int32
-	MaxRequestBody     int64
-	AdmissionOrigin    string
-	AdmissionTransport http.RoundTripper
-	AllowHTTPAdmission bool
-	ObjectEndpoint     string
-	ObjectRegion       string
-	ObjectBucket       string
-	ObjectAccessKey    string
-	ObjectSecretKey    string
-	ObjectSecure       bool
-	ObjectSSE          bool
-	ObjectTransport    http.RoundTripper
+	DatabaseURL            string
+	CellID                 ids.CellID
+	RouteIssuer            string
+	RouteVerifyKeys        map[string][]byte
+	MaxDatabaseConns       int32
+	MaxRequestBody         int64
+	AdmissionOrigin        string
+	AdmissionTransport     http.RoundTripper
+	AllowHTTPAdmission     bool
+	ObjectEndpoint         string
+	ObjectRegion           string
+	ObjectBucket           string
+	ObjectAccessKey        string
+	ObjectSecretKey        string
+	ObjectSecure           bool
+	ObjectSSE              bool
+	ObjectTransport        http.RoundTripper
+	MCPVersion             string
+	MCPResourceMetadataURL string
 }
 
 type Server struct {
@@ -218,7 +221,20 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	return &Server{Handler: withHealth(pool, transport, capacity, transport.Handler()), pool: pool}, nil
+	mcpTransport, err := mcpapi.New(mcpapi.NewRoutedAuthority(), attentionService, logger, mcpapi.Config{Version: config.MCPVersion, MaxBody: maxBody, ResourceMetadataURL: config.MCPResourceMetadataURL}, mcpapi.WithActionRecovery(actionRecoveryService), mcpapi.WithKnowledge(knowledgeService), mcpapi.WithKnowledgeDocuments(documents), mcpapi.WithBaseline(baselineService), mcpapi.WithFinance(financeService))
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	routedMCP, err := mcpapi.RoutedHandler(acceptor, mcpTransport.Handler(), maxBody)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/internal/v1/mcp", routedMCP)
+	mux.Handle("/", transport.Handler())
+	return &Server{Handler: withHealth(pool, transport, capacity, mux), pool: pool}, nil
 }
 
 type knowledgeDocumentRoutes struct {

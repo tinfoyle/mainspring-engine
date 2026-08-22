@@ -136,6 +136,9 @@ func TestFinanceMCPPublishesCompleteTypedSurface(t *testing.T) {
 	financeCount := 0
 	for _, tool := range result.Tools {
 		names = append(names, tool.Name)
+		if _, ok := ToolRequirement(tool.Name); !ok {
+			t.Fatalf("tool %q has no global routing requirement", tool.Name)
+		}
 		if strings.HasPrefix(tool.Name, "spyglass_finance_") {
 			financeCount++
 			if tool.InputSchema == nil || tool.OutputSchema == nil || tool.Annotations == nil {
