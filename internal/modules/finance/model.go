@@ -32,7 +32,7 @@ var (
 	ErrUnbalanced   = errors.New("journal entry is not balanced")
 	ErrOverflow     = errors.New("finance amount overflow")
 	ErrPeriodClosed = errors.New("journal date is in a closed period")
-	ErrEvidence     = errors.New("accepted finance evidence is required")
+	ErrEvidence     = errors.New("finance evidence is required")
 	ErrMismatch     = errors.New("reconciliation has a non-zero difference")
 )
 

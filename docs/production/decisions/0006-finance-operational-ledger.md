@@ -18,8 +18,8 @@ Finance is an Account-owned internal operational ledger, not a formal general-le
 2. Account codes and entry numbers are unique only inside their Account-owned ledger. Every aggregate is optimistic and forced-RLS scoped.
 3. Agents and ordinary members may prepare balanced drafts when package/object policy allows. Only an independently authenticated Owner or Administrator may post, reverse, close a period or confirm a reconciliation.
 4. A posted entry and its lines are immutable. Correction creates a separately numbered, linked reversal; it never edits or deletes the original history.
-5. Posting requires accepted Knowledge Evidence. Period close is monotonic: entries dated on or before the close date cannot be posted or revised into that period. Reopening is not a launch capability; a documented correction is posted in an open period.
-6. Reconciliation binds one posting account, an as-of date, external statement balance, calculated ledger balance and accepted Evidence. A mismatch remains explicit and cannot be falsely confirmed.
+5. Posting requires immutable Knowledge Evidence reviewed by the human poster. Period close is monotonic: entries dated on or before the close date cannot be created, posted or revised into that period. Reopening is not a launch capability; a documented correction is posted in an open period.
+6. Reconciliation binds one posting account, an as-of date, external statement balance, calculated ledger balance and immutable Knowledge Evidence. A mismatch remains explicit and cannot be falsely confirmed.
 7. Finance events are immutable and content-redacted. They retain identifiers, versions, amounts, currency, action and evidence identities—not descriptions, memos or arbitrary before/after payloads.
 8. External payment, transfer, email or provider mutations are proposals consumed by Attention and the action ledger. Finance records the resulting evidence/reference after reconciliation but never executes the effect itself.
 9. Prototype entries are transformed into reviewable drafts. A legacy posted row is not admitted as authoritative until its balance, Account scope, evidence and period placement are reviewed.
