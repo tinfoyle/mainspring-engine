@@ -12,7 +12,7 @@
       "boundaries": ["browser", "http", "dispatch-worker", "runner", "result-projection-worker", "schedule-worker"]
     },
     {"code": "knowledge", "executable": true, "boundaries": ["browser", "http", "document-processing-worker"]},
-    {"code": "finance", "executable": true, "boundaries": ["browser", "http", "agent-tool"]},
+    {"code": "finance", "executable": true, "boundaries": ["browser", "http", "agent-tool", "approved-action-worker"]},
     {"code": "marketing", "executable": false, "boundaries": []},
     {"code": "integrations", "executable": false, "boundaries": []}
   ],

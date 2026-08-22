@@ -209,5 +209,12 @@ GRANT EXECUTE ON FUNCTION public.spyglass_begin_runner_action_v2(uuid,uuid,uuid,
   TO spyglass_runner_broker;
 GRANT EXECUTE ON FUNCTION public.spyglass_complete_runner_action_v2(uuid,uuid,uuid,uuid,text,bytea,text,uuid,timestamptz,text,text,timestamptz)
   TO spyglass_runner_broker;
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_approved_runner_action(uuid,timestamptz,timestamptz)
+  TO spyglass_runner_broker;
 GRANT EXECUTE ON FUNCTION public.spyglass_runner_action_stats(timestamptz)
   TO spyglass_runner_broker;
+GRANT SELECT ON spyglass.finance_ledgers, spyglass.finance_entries,
+  spyglass.finance_entry_lines, spyglass.finance_entry_evidence TO spyglass_runner_broker;
+GRANT UPDATE (state,version,posted_by_user_id,posted_at,updated_at)
+  ON spyglass.finance_entries TO spyglass_runner_broker;
+GRANT INSERT ON spyglass.finance_events TO spyglass_runner_broker;

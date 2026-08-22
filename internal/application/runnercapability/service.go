@@ -25,6 +25,7 @@ const (
 	FinanceLedgersReadCapability  = "finance.ledgers.read"
 	FinanceAccountsReadCapability = "finance.accounts.read"
 	FinanceEntryDraftCapability   = "finance.entry.draft"
+	FinanceEntryPostCapability    = "finance.entry.post"
 )
 
 var (
@@ -86,7 +87,10 @@ type AuthorizedCall struct {
 	OperationID string
 	Input       json.RawMessage
 	InputDigest [sha256.Size]byte
-	Action      *ActionLease
+	// ApprovedByUserID is populated only by the post-approval broker worker.
+	// Interactive runner calls never get to assert this value.
+	ApprovedByUserID ids.UserID
+	Action           *ActionLease
 }
 
 type Handler interface {

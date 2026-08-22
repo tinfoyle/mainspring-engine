@@ -42,7 +42,7 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 			t.Fatal("Agents must declare its customer Schedule worker boundary")
 		}
 		if item.Code == "finance" {
-			for _, boundary := range []string{"browser", "http", "agent-tool"} {
+			for _, boundary := range []string{"browser", "http", "agent-tool", "approved-action-worker"} {
 				if !slices.Contains(item.Boundaries, boundary) {
 					t.Fatalf("Finance must declare its %s boundary", boundary)
 				}

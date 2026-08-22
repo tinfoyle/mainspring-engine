@@ -1811,6 +1811,7 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer server.Close()
+	go server.RunApprovedActions(ctx, logger)
 	return serveHTTPSWithWriteTimeout(ctx, "runner-broker", httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), serverTLS, modelGatewayWriteTimeout, logger)
 }
 

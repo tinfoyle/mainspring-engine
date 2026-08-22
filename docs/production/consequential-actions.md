@@ -1,21 +1,27 @@
 # Consequential action execution
 
-Status: versioned executor/retry registry, definite-failure retry, unknown reconciliation, dual-controlled resolution, first Stripe adapter, content-free operational signals and authorized redacted HTTP/MCP/Your Turn recovery surfaces implemented
+Status: durable post-approval execution worker, versioned executor/retry registry, definite-failure retry, bounded unknown reconciliation, dual-controlled resolution, Stripe and Finance adapters, content-free operational signals and authorized redacted HTTP/MCP/Your Turn recovery surfaces implemented
 
-Attention owns the human approval aggregate and projects only an exact execute-only authorization. The runner action boundary consumes that projection; it never infers approval from an inbox state or accepts approval fields from a runner.
+Attention owns the human approval aggregate and projects only an exact execute-only authorization. A broker-owned worker consumes that projection after the proposing runner has terminated; it never infers approval from an inbox state, accepts approval fields from a runner or depends on an expired runner identity.
 
 ## Execution and recovery contract
 
 - The cell registry binds a capability to an immutable executor version and retry-policy version. A new action requires the one enabled version. Existing actions retain their exact version for reconciliation even after a successor is enabled.
+- Approval inserts a content-free Account/operation queue item. The security-definer claim locks one due item across Accounts, sets the Account RLS scope, verifies the immutable Attention/authorization digest binding and returns the frozen payload to the broker. The broker independently hashes the returned bytes before execution.
+- A durable proposal's approval window is independent of the runner credential lifetime. Authorization still proves that the originating invocation exchange exists and binds its exact identifiers/digests, but the worker never reuses that exchange or its expired pod identity.
 - The operation UUID is also the provider idempotency key. First admission uses `execute`; a lost response, explicit unknown outcome, or expired execution lease can use only the handler's side-effect-free `reconcile` method.
 - A handler may classify an error as definite only when the provider proved that no effect occurred. Only stable codes in the frozen registry policy enter `retry_wait`, with bounded exponential delay and attempt count. Other definite failures are terminal. Transport, 5xx, malformed-response and uncertain provider outcomes reconcile rather than execute again.
-- Automatic reconciliation that remains unknown may enter manual resolution. One eligible human requests the exact `succeeded` or `failed` outcome with a SHA-256 evidence digest; a different eligible human must confirm it. The database rejects self-confirmation, changed replay and direct worker-table access.
+- Automatic reconciliation is delayed and bounded to three total attempts. An action that remains unknown then leaves the execution queue and can only enter manual resolution. One eligible human requests the exact `succeeded` or `failed` outcome with a SHA-256 evidence digest; a different eligible human must confirm it. The database rejects self-confirmation, changed replay and direct worker-table access.
 
 ## First provider executor
 
 `stripe.customer.create` validates a bounded email/name object, creates the Customer with the operation UUID in Stripe's `Idempotency-Key`, and binds Account, operation and capability metadata. Its reconciliation path performs only an exact Stripe Customer Search for the Account and operation metadata. Zero results remain unknown because Stripe search can be eventually consistent; multiple or mismatched results fail closed. Only an HTTP 429 and request-level 4xx response are treated as proven no-effect outcomes, and only the registered rate-limit code is retryable.
 
 The Stripe key exists only in the runner-broker process. Runner Jobs receive no provider, database or customer credential. Docker stage attaches brokers to the explicit provider-egress network; Kubernetes environments must supply reviewed Stripe egress in their overlay while the reference remains default-deny.
+
+## First internal executor
+
+`finance.entry.post` accepts only an entry UUID and expected draft version. It is available to a Persona as a proposed-action kind, not as a directly callable runner tool. After approval, the worker posts through the canonical Finance repository, records the approving User as the posting actor and uses the operation UUID as the Finance event UUID. Its reconciliation path performs only an exact lookup for that event, entry and version transition. Because the Finance transaction commits the state transition and event atomically, an absent event proves that the effect did not occur; a database read failure remains unknown.
 
 ## Operations
 

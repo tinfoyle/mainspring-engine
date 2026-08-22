@@ -15,11 +15,14 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripeaction"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/toolrouterhttp"
+	"github.com/tinfoyle/spyglass-engine/internal/application/approvedaction"
+	"github.com/tinfoyle/spyglass-engine/internal/application/financeaction"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneraction"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/observability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
@@ -46,8 +49,11 @@ type Config struct {
 }
 
 type Server struct {
-	Handler http.Handler
-	pool    *pgxpool.Pool
+	Handler         http.Handler
+	pool            *pgxpool.Pool
+	approvedActions interface {
+		ProcessOne(context.Context) (bool, error)
+	}
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, error) {
@@ -129,6 +135,26 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	cellPool, err := database.NewCellPool(pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	financeRepository, err := postgres.NewFinanceRepository(cellPool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	financeActionStore, err := postgres.NewFinanceActionStore(cellPool, financeRepository, registration.SystemClock{})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	financePostHandler, err := financeaction.NewEntryPostHandler(financeActionStore)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	auditor, err := postgres.NewRunnerCapabilityAuditor(pool, ids.RandomGenerator{})
 	if err != nil {
 		pool.Close()
@@ -156,6 +182,19 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	approvedRepository, err := postgres.NewApprovedActionRepository(pool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	approvedActions, err := approvedaction.New(approvedRepository, ids.RandomGenerator{}, registration.SystemClock{}, approvedaction.DefaultLease, []approvedaction.Definition{
+		{Capability: stripeaction.CustomerCreateCapability, Timeout: 20 * time.Second, Handler: stripeCustomerHandler},
+		{Capability: financeaction.EntryPostCapability, Timeout: 15 * time.Second, Handler: financePostHandler},
+	})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	capabilityAPI, err := capabilitytransport.New(capabilities, logger, capabilitytransport.DefaultMaxBody)
 	if err != nil {
 		pool.Close()
@@ -169,7 +208,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		}
 		brokerHandler.ServeHTTP(w, r)
 	})
-	return &Server{Handler: withHealth(pool, combined), pool: pool}, nil
+	return &Server{Handler: withHealth(pool, combined), pool: pool, approvedActions: approvedActions}, nil
 }
 
 func clientFor(transport http.RoundTripper) *http.Client {
@@ -187,6 +226,30 @@ func modelClientFor(transport http.RoundTripper) *http.Client {
 }
 
 func (s *Server) Close() { s.pool.Close() }
+
+func (s *Server) RunApprovedActions(ctx context.Context, logger *slog.Logger) {
+	for {
+		worked, err := s.approvedActions.ProcessOne(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			logger.Error("Process approved action", "error", err)
+		}
+		if worked {
+			continue
+		}
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+	}
+}
 
 func withHealth(pool *pgxpool.Pool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

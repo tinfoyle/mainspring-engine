@@ -1,6 +1,6 @@
 # Finance module
 
-- Status: typed kernel, forced-RLS persistence, governed lifecycle, stable query summaries, generated HTTP, typed MCP transport, private package-aware workspace and least-authority Agent draft tools constructed; shared MCP production bootstrap, Attention-governed posting proposals and migration certification remain
+- Status: typed kernel, forced-RLS persistence, governed lifecycle, stable query summaries, generated HTTP, typed MCP transport, private package-aware workspace, least-authority Agent draft tools and Attention-governed posting execution constructed; shared MCP production bootstrap, prototype transformation and applied certification remain
 - Package boundary: Finance
 - Decision: [ADR-0006](decisions/0006-finance-operational-ledger.md)
 
@@ -19,7 +19,7 @@ Agents and members may create and revise drafts under Finance mutation access. P
 3. Classified repository and application service with idempotency, optimistic versions and exact Work/Run/Invocation/Evidence references. **Constructed for Ledger/Account lifecycle, balanced drafts, posting, reversal and reconciliation; query pages remain.**
 4. Stable query pages, summaries and bounded cursors. **Constructed.**
 5. Generated HTTP, optional MCP and private Finance surfaces with package/read-only/suspended behavior. **Constructed.**
-6. Agent draft tools and Attention-governed proposals; no workload-direct posting. **Least-authority Ledger/chart reads and draft creation constructed; Attention-governed posting proposals remain.**
+6. Agent draft tools and Attention-governed proposals; no workload-direct posting. **Constructed, including durable post-approval execution and exact Finance-event reconciliation.**
 7. Prototype transformation, synthetic stage reconciliation/recovery and production role/retention grants.
 
 ## Invariants
@@ -67,3 +67,11 @@ Enabled users can create and revise Ledgers, bind evidence to monotonic period c
 Published Personas may now receive three narrowly defined Finance capabilities: list Ledger summaries, list the active chart for one Ledger and create one balanced journal draft. The runner broker records the reads as read-only and the draft as an additive mutation; the global tool router independently reauthorizes the Finance package for each call, resolves current placement and forwards only a fresh signed Account/cell proof. Bearer or pod credentials never cross into the cell.
 
 Draft creation uses a private cell route, fixes source to `agent`, derives the invocation from authenticated runner identity and requires an explicit Run ID. Migration `000057_finance_agent_provenance.sql` adds a composite database foreign key that proves the invocation belongs to that exact Run, defeating a valid-but-mismatched provenance pair even under direct SQL. The Finance service accepts workloads only at its read and draft boundaries; Ledger/chart management, reconciliation and all posting/reversal commands remain user-only. Fresh PostgreSQL 17 certification passes the complete migration suite, including matched provenance acceptance and mismatched Run/invocation rejection.
+
+## Agent posting checkpoint
+
+Published Personas may separately receive `finance.entry.post` as a proposed-action capability. It is not a runner tool and cannot be invoked directly. A proposal freezes only `{entry_id, expected_version}` in Attention; an Owner or Administrator must approve that exact payload before the runner-broker's post-approval worker can lease it. The approving User is recorded as the journal posting actor, while the approval operation UUID is reused as both the runner-action idempotency key and immutable Finance event/correlation UUID.
+
+Migration `000058_approved_action_execution_queue.sql` closes the previously missing handoff between approval and execution. It also decouples the durable approval window from the expired runner exchange while retaining the exact invocation/digest binding. Its cross-Account queue contains identifiers and timing only; the broker receives customer payload bytes solely through an execute-only security-definer claim, then re-hashes them before calling any handler. The first lease may execute once. A lost response or expired lease can invoke only Finance's exact event lookup, never `PostEntry` again. A missing exact event is a proven no-effect result for the transactional Finance store; database uncertainty remains unknown. Unknown reconciliation is delayed and bounded to three total attempts before the existing dual-control manual-resolution surface becomes the only resolution path.
+
+The broker database role gains only the claim/completion functions plus the RLS-scoped Finance columns and child rows required to validate and post a journal entry. Runner containers receive no database authority. Integration tests prove that an approved action is claimable after its originating runner is terminal, concurrent/early claims stay unavailable, retries switch permanently to reconciliation and unresolved effects stop automatically after the bounded attempt count.

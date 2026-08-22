@@ -296,6 +296,13 @@ func (s *Service) PublishPersona(ctx context.Context, command PublishPersonaComm
 			return PersonaSummary{}, false, ErrInvalidCommand
 		}
 	}
+	for _, capability := range command.Policy.ActionCapabilities {
+		switch capability {
+		case "stripe.customer.create", "finance.entry.post":
+		default:
+			return PersonaSummary{}, false, ErrInvalidCommand
+		}
+	}
 	command.Policy.OutputSchema = agentdomain.ResultSchema()
 	version, err := agentdomain.NewPersonaVersion(agentdomain.PersonaVersionDraft{
 		ID: command.VersionID, PersonaID: command.PersonaID, AccountID: command.AccountID,
