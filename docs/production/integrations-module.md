@@ -16,7 +16,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 2. Account-owned forced-RLS persistence, immutable revisions/attempts/events, claim leasing, movement fencing and exact erasure/restore participation. **Constructed.**
 3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
-5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel, current authority, payload assembler, one-operation broker boundary and local mocks constructed; production object/secret adapters and bootstrap remain.**
+5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel/bootstrap, current authority, payload assembler, one-operation broker boundary and local mocks constructed; executable/Docker composition and production object/secret adapters remain.**
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution.
 7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
 
@@ -83,6 +83,12 @@ The provider envelope is versioned and bounded to 16 MiB. It contains the execut
 The worker now requests a credential lease only after current global authority and exact payload integrity succeed. The request binds Account, execution, attempt, mode, capability, connection, credential identity/generation and the database lease expiry. The broker returns at most 64 KiB of runtime material for that operation; the service copies it into the single connector call, zeroes the connector-visible slice immediately after return and closes the broker lease on every normal or panic path. A release failure is surfaced operationally without rewriting a valid provider outcome.
 
 The local broker copies configured mock material, rejects unconfigured generations and records only execution/attempt/credential identities. Tests prove broker denial cannot reach a connector, the lease closes, the connector's retained view is zeroed and no material enters call history. Production still needs the environment-backed secret adapter and workload grant; neither the generic app nor Agent runtime receives the broker interface.
+
+## Worker bootstrap checkpoint
+
+The per-cell connector bootstrap now opens separate bounded global and cell pools, composes current global authority with the execute-only cell repository, exact payload assembler, injected broker/content boundaries and closed connector definitions, and owns polling, readiness, content-free processed/failure counters and shutdown. It has no browser, app API, tool router, Agent runner or generic outbound client fallback. Tests cover fail-fast composition, bounded idle polling, cancellation and content-free outcome accounting.
+
+The reusable bootstrap deliberately does not select mock versus production adapters. The executable command, private mock configuration, restore gates and local Docker service remain the next slice; until they are present, no deployed process can invoke this worker.
 
 ## Invariants
 
