@@ -67,6 +67,40 @@ func TestServiceRejectsProviderScopeDriftWithoutAdvancingCursor(t *testing.T) {
 	}
 }
 
+func TestServiceResolvesRemovedFileToPriorAuthorizedFolder(t *testing.T) {
+	now := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
+	claim := syncClaim(now)
+	repository := &fakeSyncRepository{claim: claim, found: true, priorFolder: "folder-a", priorFound: true}
+	provider := &fakeDriveProvider{page: ProviderPage{NextCursor: []byte("next-page"), Changes: []ProviderChange{{
+		ObjectID: "removed-object", RevisionID: "removed-at-page-7", Deleted: true}}}}
+	sink := &fakeCaptureSink{}
+	service, err := New(repository, &fakeSyncAuthority{}, &fakeSyncBroker{material: []byte("credential")}, &fakeCursorCipher{}, provider,
+		sink, fixedSyncIDs{id: string(claim.SyncID)}, fixedSyncClock{now}, time.Minute, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worked, err := service.ProcessOne(context.Background())
+	if err != nil || !worked || repository.completed == nil || len(repository.completed.Captures) != 1 ||
+		repository.resolvedObject != sha256.Sum256([]byte("removed-object")) || sink.input.FolderID != "folder-a" || !sink.input.Deleted {
+		t.Fatalf("worked=%v resolved=%x sink=%+v completion=%+v err=%v", worked, repository.resolvedObject, sink.input, repository.completed, err)
+	}
+}
+
+func TestServiceIgnoresUnknownRemovalAndAdvancesCursor(t *testing.T) {
+	now := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
+	claim := syncClaim(now)
+	repository := &fakeSyncRepository{claim: claim, found: true}
+	provider := &fakeDriveProvider{page: ProviderPage{NextCursor: []byte("next-page"), Changes: []ProviderChange{{
+		ObjectID: "unknown-object", RevisionID: "removed-at-page-8", Deleted: true}}}}
+	sink := &fakeCaptureSink{}
+	service, _ := New(repository, &fakeSyncAuthority{}, &fakeSyncBroker{material: []byte("credential")}, &fakeCursorCipher{}, provider,
+		sink, fixedSyncIDs{id: string(claim.SyncID)}, fixedSyncClock{now}, time.Minute, 30*time.Second)
+	worked, err := service.ProcessOne(context.Background())
+	if err != nil || !worked || repository.completed == nil || len(repository.completed.Captures) != 0 || sink.input.Claim.AccountID != "" {
+		t.Fatalf("worked=%v sink=%+v completion=%+v err=%v", worked, sink.input, repository.completed, err)
+	}
+}
+
 func syncClaim(now time.Time) Claim {
 	return Claim{AccountID: "d1000000-0000-4000-8000-000000000001", SyncID: "d2000000-0000-4000-8000-000000000002",
 		GrantID: "d3000000-0000-4000-8000-000000000003", ConnectionID: "d4000000-0000-4000-8000-000000000004",
@@ -76,13 +110,20 @@ func syncClaim(now time.Time) Claim {
 }
 
 type fakeSyncRepository struct {
-	claim     Claim
-	found     bool
-	completed *Completion
+	claim          Claim
+	found          bool
+	priorFolder    string
+	priorFound     bool
+	resolvedObject [sha256.Size]byte
+	completed      *Completion
 }
 
 func (value *fakeSyncRepository) Claim(context.Context, ids.IntegrationSourceSyncID, time.Time, time.Time) (Claim, bool, error) {
 	return value.claim, value.found, nil
+}
+func (value *fakeSyncRepository) ResolvePriorFolder(_ context.Context, _ Claim, digest [sha256.Size]byte) (string, bool, error) {
+	value.resolvedObject = digest
+	return value.priorFolder, value.priorFound, nil
 }
 func (value *fakeSyncRepository) Complete(_ context.Context, completion Completion) error {
 	value.completed = &completion

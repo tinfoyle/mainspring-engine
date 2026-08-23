@@ -159,12 +159,23 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 	defer wipePage(page)
 	capturedAt := service.clock.Now().UTC()
 	receipts := make([]CaptureReceipt, 0, len(page.Changes))
-	for _, change := range page.Changes {
+	for index := range page.Changes {
+		change := &page.Changes[index]
 		objectDigest, revisionDigest := sha256.Sum256([]byte(change.ObjectID)), sha256.Sum256([]byte(change.RevisionID))
+		if change.Deleted && change.FolderID == "" {
+			priorFolder, found, resolveErr := service.repository.ResolvePriorFolder(ctx, claim, objectDigest)
+			if resolveErr != nil {
+				return true, errors.Join(ErrUnavailable, resolveErr)
+			}
+			if !found {
+				continue
+			}
+			change.FolderID = priorFolder
+		}
 		receipt, err := service.sink.Capture(ctx, CaptureInput{Claim: claim, FolderID: change.FolderID,
 			ProviderObjectSHA256: objectDigest, ProviderRevisionSHA256: revisionDigest, Title: change.Title, Filename: change.Filename,
 			MediaType: change.MediaType, Deleted: change.Deleted, Content: change.Content, CapturedAt: capturedAt})
-		if err != nil || !receiptMatches(receipt, claim, change, objectDigest, revisionDigest) {
+		if err != nil || !receiptMatches(receipt, claim, *change, objectDigest, revisionDigest) {
 			if err == nil {
 				err = ErrInvalid
 			}
@@ -211,14 +222,14 @@ func validPage(page ProviderPage, claim Claim) bool {
 }
 
 func validChange(change ProviderChange, claim Claim) bool {
-	if !contains(claim.FolderIDs, change.FolderID) || !boundedText(change.ObjectID, MaximumProviderIdentityBytes, true) ||
-		!boundedText(change.RevisionID, MaximumProviderIdentityBytes, true) {
+	if !boundedText(change.ObjectID, MaximumProviderIdentityBytes, true) || !boundedText(change.RevisionID, MaximumProviderIdentityBytes, true) {
 		return false
 	}
 	if change.Deleted {
-		return change.Title == "" && change.Filename == "" && change.MediaType == "" && len(change.Content) == 0
+		return (change.FolderID == "" || contains(claim.FolderIDs, change.FolderID)) && change.Title == "" &&
+			change.Filename == "" && change.MediaType == "" && len(change.Content) == 0
 	}
-	return boundedText(change.Title, MaximumTitleBytes, true) && boundedText(change.Filename, MaximumFilenameBytes, true) &&
+	return contains(claim.FolderIDs, change.FolderID) && boundedText(change.Title, MaximumTitleBytes, true) && boundedText(change.Filename, MaximumFilenameBytes, true) &&
 		!strings.ContainsAny(change.Filename, `/\`) && len(change.MediaType) <= MaximumMediaTypeBytes && validMediaType.MatchString(change.MediaType) &&
 		len(change.Content) > 0 && len(change.Content) <= MaximumChangeBytes
 }

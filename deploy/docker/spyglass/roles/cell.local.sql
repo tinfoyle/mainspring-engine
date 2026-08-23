@@ -109,6 +109,7 @@ GRANT EXECUTE ON FUNCTION public.spyglass_claim_integration_execution(uuid,times
   public.spyglass_claim_integration_health_probe(uuid,timestamptz,timestamptz),
   public.spyglass_complete_integration_health_probe(uuid,uuid,uuid,uuid,bigint,uuid,bigint,text,text,integer,timestamptz),
   public.spyglass_claim_integration_source_sync(uuid,timestamptz,timestamptz),
+  public.spyglass_resolve_integration_source_folder(uuid,uuid,uuid,bytea),
   public.spyglass_complete_integration_source_sync(uuid,uuid,uuid,uuid,bigint,uuid,bigint,bytea,bytea,boolean,uuid[],text[],bytea[],bytea[],text[],uuid[],uuid[],bytea[],timestamptz)
   TO spyglass_integration_connector_worker;
 

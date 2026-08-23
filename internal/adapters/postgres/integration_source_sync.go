@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"time"
 
@@ -42,6 +43,23 @@ func (repository *IntegrationSourceSyncRepository) Claim(ctx context.Context, sy
 	copy(claim.CredentialReferenceSHA256[:], credentialDigest)
 	copy(claim.CursorSHA256[:], cursorDigest)
 	return claim, true, nil
+}
+
+func (repository *IntegrationSourceSyncRepository) ResolvePriorFolder(ctx context.Context, claim integrationsync.Claim,
+	providerObjectSHA256 [sha256.Size]byte) (string, bool, error) {
+	if !claim.Valid(claim.LeaseExpiresAt.Add(-time.Nanosecond)) || providerObjectSHA256 == ([sha256.Size]byte{}) {
+		return "", false, integrationsync.ErrInvalid
+	}
+	var folderID string
+	err := repository.pool.QueryRow(ctx, `SELECT folder_id FROM public.spyglass_resolve_integration_source_folder($1,$2,$3,$4)`,
+		claim.AccountID, claim.GrantID, claim.SyncID, providerObjectSHA256[:]).Scan(&folderID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, errors.Join(integrationsync.ErrUnavailable, err)
+	}
+	return folderID, true, nil
 }
 
 func (repository *IntegrationSourceSyncRepository) Complete(ctx context.Context, completion integrationsync.Completion) error {

@@ -105,6 +105,13 @@ func TestIntegrationSourceSyncPersistsBoundedCursorAndCaptureReceipts(t *testing
 	if err != nil || !found || string(next.CursorCiphertext) != "sealed-page-token" || next.CursorSHA256 != completion.CursorSHA256 {
 		t.Fatalf("next claim=%+v found=%v err=%v", next, found, err)
 	}
+	priorFolder, found, err := repository.ResolvePriorFolder(ctx, next, capture.ProviderObjectSHA256)
+	if err != nil || !found || priorFolder != "folder-a" {
+		t.Fatalf("prior folder=%q found=%v err=%v", priorFolder, found, err)
+	}
+	if priorFolder, found, err := repository.ResolvePriorFolder(ctx, next, sha256.Sum256([]byte("unknown-object"))); err != nil || found || priorFolder != "" {
+		t.Fatalf("unknown prior folder=%q found=%v err=%v", priorFolder, found, err)
+	}
 	emptyPage := integrationsync.Completion{Claim: next, CursorCiphertext: []byte("sealed-next-page-token"),
 		CursorSHA256: sha256.Sum256([]byte("next-page-token")), HasMore: true, CompletedAt: completedAt.Add(2 * time.Second)}
 	if err := repository.Complete(ctx, emptyPage); err != nil {
@@ -123,6 +130,9 @@ func TestIntegrationSourceSyncPersistsBoundedCursorAndCaptureReceipts(t *testing
 	stale := completion
 	stale.Claim = finalClaim
 	stale.CompletedAt = completedAt.Add(5 * time.Second)
+	if _, _, err := repository.ResolvePriorFolder(ctx, finalClaim, capture.ProviderObjectSHA256); err == nil || !errors.Is(err, integrationsync.ErrUnavailable) {
+		t.Fatalf("revoked-grant membership lookup error=%v", err)
+	}
 	if err := repository.Complete(ctx, stale); err == nil || !errors.Is(err, integrationsync.ErrUnavailable) {
 		t.Fatalf("revoked-grant completion error=%v", err)
 	}

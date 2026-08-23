@@ -132,5 +132,6 @@ func (completion Completion) Valid() bool {
 
 type Repository interface {
 	Claim(context.Context, ids.IntegrationSourceSyncID, time.Time, time.Time) (Claim, bool, error)
+	ResolvePriorFolder(context.Context, Claim, [sha256.Size]byte) (string, bool, error)
 	Complete(context.Context, Completion) error
 }
