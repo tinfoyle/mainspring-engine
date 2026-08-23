@@ -758,10 +758,10 @@ func loadIntegrationRevision(ctx context.Context, tx pgx.Tx, accountID ids.Accou
 	var kind domain.ConnectorKind
 	err := tx.QueryRow(ctx, `SELECT revision.id,revision.account_id,revision.connection_id,revision.revision,revision.capabilities,
 		revision.email_address,revision.audience_reference,revision.https_origin,revision.path_prefix,revision.created_by_user_id::text,revision.created_at,
-		connection.connector_kind FROM spyglass.integration_connection_revisions revision JOIN spyglass.integration_connections connection
+		revision.drive_folder_ids,connection.connector_kind FROM spyglass.integration_connection_revisions revision JOIN spyglass.integration_connections connection
 		ON connection.account_id=revision.account_id AND connection.id=revision.connection_id WHERE revision.account_id=$1 AND revision.id=$2`, accountID, revisionID).
 		Scan(&value.ID, &value.AccountID, &value.ConnectionID, &value.Revision, &capabilities, &value.Scope.EmailAddress, &value.Scope.AudienceReference,
-			&value.Scope.HTTPSOrigin, &value.Scope.PathPrefix, &value.CreatedBy.UserID, &value.CreatedAt, &kind)
+			&value.Scope.HTTPSOrigin, &value.Scope.PathPrefix, &value.CreatedBy.UserID, &value.CreatedAt, &value.Scope.DriveFolderIDs, &kind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ConnectionRevision{}, integrationsapp.ErrNotFound
 	}
@@ -910,10 +910,14 @@ func insertIntegrationRevision(ctx context.Context, tx pgx.Tx, value domain.Conn
 	for index, capability := range value.Capabilities {
 		capabilities[index] = string(capability)
 	}
+	driveFolderIDs := value.Scope.DriveFolderIDs
+	if driveFolderIDs == nil {
+		driveFolderIDs = []string{}
+	}
 	_, err := tx.Exec(ctx, `INSERT INTO spyglass.integration_connection_revisions
-		(account_id,id,connection_id,revision,capabilities,email_address,audience_reference,https_origin,path_prefix,created_by_user_id,created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, value.AccountID, value.ID, value.ConnectionID, value.Revision, capabilities,
-		value.Scope.EmailAddress, value.Scope.AudienceReference, value.Scope.HTTPSOrigin, value.Scope.PathPrefix, value.CreatedBy.UserID, value.CreatedAt)
+		(account_id,id,connection_id,revision,capabilities,email_address,audience_reference,https_origin,path_prefix,drive_folder_ids,created_by_user_id,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, value.AccountID, value.ID, value.ConnectionID, value.Revision, capabilities,
+		value.Scope.EmailAddress, value.Scope.AudienceReference, value.Scope.HTTPSOrigin, value.Scope.PathPrefix, driveFolderIDs, value.CreatedBy.UserID, value.CreatedAt)
 	return err
 }
 

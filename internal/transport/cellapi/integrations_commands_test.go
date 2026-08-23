@@ -129,6 +129,11 @@ func TestIntegrationsMutationRoutesBindHumanAuthorityAndTypedContracts(t *testin
 				t.Fatalf("create=%+v", service.create)
 			}
 		}},
+		{name: "create Drive scope", method: http.MethodPost, target: base + "/connections", body: `{"name":"Baseline folders","kind":"google_drive","capabilities":["google_drive.read"],"scope":{"drive_folder_ids":["folder-a","folder_0"]}}`, check: func() {
+			if service.create.Kind != integrationsdomain.ConnectorGoogleDrive || len(service.create.Scope.DriveFolderIDs) != 2 || service.create.Scope.DriveFolderIDs[1] != "folder_0" {
+				t.Fatalf("Drive create=%+v", service.create)
+			}
+		}},
 		{name: "revise", method: http.MethodPut, target: base + "/connections/" + integrationsConnectionID, version: `W/"4"`, body: `{"name":"Campaign email v2","capabilities":["email.send"],"scope":{"email_address":"launch@example.com","audience_reference":"audience:customers-v2"}}`, check: func() {
 			if service.revise.ExpectedVersion != 4 {
 				t.Fatalf("revise=%+v", service.revise)

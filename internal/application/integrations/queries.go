@@ -42,7 +42,8 @@ func (query ConnectionListQuery) normalized() (ConnectionListQuery, error) {
 		}
 	}
 	for index, kind := range query.Kinds {
-		if (index > 0 && query.Kinds[index-1] == kind) || (kind != domain.ConnectorEmail && kind != domain.ConnectorWebPublish) {
+		if (index > 0 && query.Kinds[index-1] == kind) ||
+			(kind != domain.ConnectorEmail && kind != domain.ConnectorGoogleDrive && kind != domain.ConnectorWebPublish) {
 			return ConnectionListQuery{}, ErrInvalid
 		}
 	}

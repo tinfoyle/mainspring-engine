@@ -25,7 +25,8 @@ func TestIntegrationsTemplateExposesGovernedWorkspaceAndDualControl(t *testing.T
 	body := rendered.String()
 	for _, expected := range []string{`src="/assets/integrations.js?v=3"`, `href="/app/integrations"`, `aria-current="page"`,
 		`id="integrations-app"`, `data-user-id="9b200000-0000-4000-8000-000000000002"`, `id="integrations-connection-list"`,
-		`id="integrations-execution-list"`, `id="integrations-resolution-form"`, `DUAL-CONTROLLED RECOVERY`, `This does not resend the operation.`} {
+		`id="integrations-execution-list"`, `id="integrations-resolution-form"`, `value="google_drive"`, `name="drive_folder_ids"`,
+		`DUAL-CONTROLLED RECOVERY`, `This does not resend the operation.`} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("Integrations shell missing %q", expected)
 		}
@@ -52,7 +53,7 @@ func TestIntegrationsClientUsesRoutedContentFreeDualControl(t *testing.T) {
 	}
 	script := string(raw)
 	for _, expected := range []string{"/integrations`;", `"If-Match"`, `"Idempotency-Key": crypto.randomUUID()`,
-		`/resolution-requests`, `/resolutions/${resolutionID}/confirmations`, `evidence_sha256`, `requested_outcome`, `textContent`} {
+		`/resolution-requests`, `/resolutions/${resolutionID}/confirmations`, `drive_folder_ids`, `evidence_sha256`, `requested_outcome`, `textContent`} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("Integrations client missing %q", expected)
 		}

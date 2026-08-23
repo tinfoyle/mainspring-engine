@@ -142,6 +142,13 @@ func TestIntegrationsMCPBindsMutationDigestAndOpaqueExecutionOutput(t *testing.T
 	if err != nil || created.IsError || stub.create.RequestID != mcpOperation {
 		t.Fatalf("created=%+v err=%v command=%+v", created, err, stub.create)
 	}
+	driveCreated, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_integrations_connection_create", Arguments: map[string]any{
+		"account_id": mcpAccount, "operation_id": "d1000000-0000-4000-8000-000000000001", "name": "Baseline folders", "kind": "google_drive",
+		"capabilities": []any{"google_drive.read"}, "scope": map[string]any{"drive_folder_ids": []any{"folder-a", "folder_0"}},
+	}})
+	if err != nil || driveCreated.IsError || stub.create.Kind != integrationsdomain.ConnectorGoogleDrive || len(stub.create.Scope.DriveFolderIDs) != 2 {
+		t.Fatalf("Drive created=%+v err=%v command=%+v", driveCreated, err, stub.create)
+	}
 	bound, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_integrations_credential_activate", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation, "connection_id": mcpIntegrationConnection, "expected_version": 1, "provider": "smtp_primary", "reference_sha256": strings.Repeat("11", 32)}})
 	if err != nil || bound.IsError || stub.credential.ReferenceSHA256[0] != 0x11 {
 		t.Fatalf("bound=%+v err=%v command=%+v", bound, err, stub.credential)
@@ -162,7 +169,7 @@ func TestIntegrationsMCPBindsMutationDigestAndOpaqueExecutionOutput(t *testing.T
 	if err != nil || confirmed.IsError || stub.resolutionConfirm.ResolutionID != mcpOperation {
 		t.Fatalf("confirmed=%+v err=%v command=%+v", confirmed, err, stub.resolutionConfirm)
 	}
-	if len(authority.requirements) != 5 || !authority.requirements[0].Mutation || !authority.requirements[1].Mutation || authority.requirements[2].Mutation || !authority.requirements[3].Mutation || !authority.requirements[4].Mutation {
+	if len(authority.requirements) != 6 || !authority.requirements[0].Mutation || !authority.requirements[1].Mutation || !authority.requirements[2].Mutation || authority.requirements[3].Mutation || !authority.requirements[4].Mutation || !authority.requirements[5].Mutation {
 		t.Fatalf("requirements=%+v", authority.requirements)
 	}
 }

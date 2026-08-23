@@ -1,6 +1,6 @@
 # Integrations module
 
-- Status: provider-neutral kernel, governed persistence, real SMTP/HTTPS provider adapters, Stage/LKE worker composition and complete current-lifecycle HTTP/MCP/private surfaces constructed; applied provider certification pending
+- Status: provider-neutral kernel, governed persistence, Google Drive folder-scope authority, real SMTP/HTTPS provider adapters, Stage/LKE worker composition and complete current-lifecycle HTTP/MCP/private surfaces constructed; applied delivery-provider certification and Drive sync remain
 - Package boundary: Integrations
 - Decision: [ADR-0008](decisions/0008-integration-connector-execution.md)
 
@@ -18,7 +18,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
 5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel/bootstrap, current authority, payload assembler, exact-version S3 reader, mounted broker and closed SMTP/HTTPS adapters are composed; applied provider certification remains.**
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution. **Constructed for the current email-send/web-publish lifecycle.**
-7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
+7. Email inbound/threading, Google Drive and hardened web research, retention, Stage recovery/erasure and production role grants. **Google Drive connection folder-scope authority is constructed; OAuth/credential exchange, incremental capture and deletion remain.**
 
 ## Kernel checkpoint
 
@@ -117,6 +117,12 @@ Cell migration `000064_integration_execution_resolution.sql` adds one forced-RLS
 Two generated HTTP commands and two matching MCP tools expose this boundary, bringing the typed customer contract to 176 operations and the Integrations MCP surface to fifteen tools. Exact execution detail includes only the resolution identity, outcome, digest, actors, timestamps and state. Fresh PostgreSQL 17 tests prove exact replay, same-actor rejection, terminal transition, immutable evidence, event count, RLS and erasure participation.
 
 The selected-Account `/app/integrations` workspace now exposes connection filters, exact non-secret scope and health, connection lifecycle controls, external-execution evidence and preparation, and the dual-controlled resolution flow. Read-only mode omits every mutation form; a locked Account receives no script. Customer values render through DOM text nodes, credential setup accepts only a broker-reference digest, and the recovery view explicitly states that resolution does not resend the effect. Construction step 6 is complete for email send and web publication. Applied provider/recovery/erasure certification and later inbound/sync/research lifecycles remain, so Marketing and Integrations stay non-executable until the first delivery pair is certified.
+
+## Google Drive scope checkpoint
+
+Google Drive connections now freeze one immutable `google_drive.read` scope containing one-to-fifty canonical opaque folder identities. The scope stores no folder names, file identities, OAuth state, access/refresh token, provider payload or sync cursor. IDs are bounded ASCII provider identifiers, sorted into one canonical order and rejected on duplication; changing access creates the next immutable connection revision rather than widening an existing one.
+
+Cell migration `000068` adds the scope to the existing forced-RLS revision record and independently enforces kind/capability/field separation plus canonical folder order. The PostgreSQL repository, Account-portability projection, generated OpenAPI/TypeScript contract, HTTP/MCP lifecycle commands and private Integrations form all carry the same field. Fresh PostgreSQL 17 coverage proves persisted restoration and database rejection of unsorted scope. This is authorization construction, not provider activation: OAuth state/callback brokering, token rotation/revocation, incremental sync cursors, exact source-grant capture, document admission, deletion and health remain closed.
 
 ## Invariants
 

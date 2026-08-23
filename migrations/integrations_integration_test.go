@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -417,6 +418,21 @@ func TestIntegrationsRepositoryReplaysRestoresAndIsolatesConnectionLifecycle(t *
 	remainder, err := repository.ListConnections(ctx, accountID, integrationsapp.ConnectionListQuery{After: page.NextCursor, Limit: 1})
 	if err != nil || len(remainder.Items) != 1 || remainder.Items[0].ID != connectionID || remainder.NextCursor != nil {
 		t.Fatalf("remainder=%+v err=%v", remainder, err)
+	}
+	driveID := ids.IntegrationConnectionID("97100000-0000-4000-8000-000000000001")
+	driveInput := integrationsdomain.ConnectionInput{ID: driveID, RevisionID: "97200000-0000-4000-8000-000000000002", AccountID: accountID,
+		Name: "Baseline Drive folders", Kind: integrationsdomain.ConnectorGoogleDrive, Capabilities: []integrationsdomain.Capability{integrationsdomain.CapabilityDriveRead},
+		Scope: integrationsdomain.ConnectionScope{DriveFolderIDs: []string{"folder_z", "folder-a", "folder_0"}}, CreatedBy: actor, CreatedAt: now.Add(21 * time.Minute)}
+	if _, created, err := repository.CreateConnection(ctx, driveInput, accounts.RoleOwner, mutation(string(driveID), "connection_created", driveInput.CreatedAt)); err != nil || !created {
+		t.Fatalf("Drive connection created=%t err=%v", created, err)
+	}
+	driveDetail, err := repository.GetConnectionDetail(ctx, accountID, driveID)
+	if err != nil || !slices.Equal(driveDetail.Revision.Scope.DriveFolderIDs, []string{"folder-a", "folder_0", "folder_z"}) {
+		t.Fatalf("Drive detail=%+v err=%v", driveDetail, err)
+	}
+	var validDriveScope bool
+	if err := owner.QueryRow(ctx, `SELECT spyglass.valid_google_drive_folder_ids(ARRAY['folder_z','folder-a']::text[])`).Scan(&validDriveScope); err != nil || validDriveScope {
+		t.Fatalf("unsorted Drive scope valid=%t err=%v", validDriveScope, err)
 	}
 }
 

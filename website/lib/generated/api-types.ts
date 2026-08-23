@@ -1227,7 +1227,7 @@ export type IntegrationAttemptMode = "execute" | "reconcile";
 
 export type IntegrationAttemptOutcome = "succeeded" | "not_applied" | "failed" | "unknown";
 
-export type IntegrationCapability = "email.read" | "email.send" | "web.publish";
+export type IntegrationCapability = "email.read" | "email.send" | "google_drive.read" | "web.publish";
 
 export interface IntegrationConnection {
   readonly "account_id": string;
@@ -1284,6 +1284,7 @@ export interface IntegrationConnectionRevisionRequest {
 
 export interface IntegrationConnectionScope {
   readonly "audience_reference"?: string;
+  readonly "drive_folder_ids"?: ReadonlyArray<string>;
   readonly "email_address"?: string;
   readonly "https_origin"?: string;
   readonly "path_prefix"?: string;
@@ -1291,7 +1292,7 @@ export interface IntegrationConnectionScope {
 
 export type IntegrationConnectionState = "pending" | "active" | "disabled" | "revoked";
 
-export type IntegrationConnectorKind = "email" | "web_publish";
+export type IntegrationConnectorKind = "email" | "google_drive" | "web_publish";
 
 export interface IntegrationCredentialBindingRequest {
   readonly "expires_at"?: string;

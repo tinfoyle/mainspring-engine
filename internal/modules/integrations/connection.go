@@ -4,6 +4,7 @@ import (
 	"net/mail"
 	"net/url"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -11,6 +12,13 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
+
+const (
+	MaximumDriveFolders       = 50
+	MaximumDriveFolderIDBytes = 200
+)
+
+var validDriveFolderID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 type ConnectorKind string
 
@@ -43,10 +51,11 @@ const (
 // ConnectionScope contains only non-secret, customer-visible authorization.
 // Provider-specific settings and credentials live behind the credential broker.
 type ConnectionScope struct {
-	EmailAddress      string `json:"email_address,omitempty"`
-	AudienceReference string `json:"audience_reference,omitempty"`
-	HTTPSOrigin       string `json:"https_origin,omitempty"`
-	PathPrefix        string `json:"path_prefix,omitempty"`
+	EmailAddress      string   `json:"email_address,omitempty"`
+	AudienceReference string   `json:"audience_reference,omitempty"`
+	HTTPSOrigin       string   `json:"https_origin,omitempty"`
+	PathPrefix        string   `json:"path_prefix,omitempty"`
+	DriveFolderIDs    []string `json:"drive_folder_ids,omitempty"`
 }
 
 func (scope ConnectionScope) normalize(kind ConnectorKind, capabilities []Capability) (ConnectionScope, error) {
@@ -54,9 +63,10 @@ func (scope ConnectionScope) normalize(kind ConnectorKind, capabilities []Capabi
 	scope.AudienceReference = strings.TrimSpace(scope.AudienceReference)
 	scope.HTTPSOrigin = strings.TrimSpace(scope.HTTPSOrigin)
 	scope.PathPrefix = strings.TrimSpace(scope.PathPrefix)
+	scope.DriveFolderIDs = append([]string(nil), scope.DriveFolderIDs...)
 	switch kind {
 	case ConnectorEmail:
-		if scope.HTTPSOrigin != "" || scope.PathPrefix != "" || !validText(scope.EmailAddress, 320, true) || !validText(scope.AudienceReference, MaximumReferenceBytes, slices.Contains(capabilities, CapabilityEmailSend)) {
+		if scope.HTTPSOrigin != "" || scope.PathPrefix != "" || len(scope.DriveFolderIDs) != 0 || !validText(scope.EmailAddress, 320, true) || !validText(scope.AudienceReference, MaximumReferenceBytes, slices.Contains(capabilities, CapabilityEmailSend)) {
 			return ConnectionScope{}, ErrInvalid
 		}
 		address, err := mail.ParseAddress(scope.EmailAddress)
@@ -68,8 +78,19 @@ func (scope ConnectionScope) normalize(kind ConnectorKind, capabilities []Capabi
 			return ConnectionScope{}, ErrInvalid
 		}
 		scope.EmailAddress = address.Address[:separator+1] + strings.ToLower(address.Address[separator+1:])
+	case ConnectorGoogleDrive:
+		if scope.EmailAddress != "" || scope.AudienceReference != "" || scope.HTTPSOrigin != "" || scope.PathPrefix != "" ||
+			len(capabilities) != 1 || capabilities[0] != CapabilityDriveRead || len(scope.DriveFolderIDs) == 0 || len(scope.DriveFolderIDs) > MaximumDriveFolders {
+			return ConnectionScope{}, ErrInvalid
+		}
+		for index, folderID := range scope.DriveFolderIDs {
+			if folderID != strings.TrimSpace(folderID) || len(folderID) == 0 || len(folderID) > MaximumDriveFolderIDBytes || !validDriveFolderID.MatchString(folderID) || slices.Contains(scope.DriveFolderIDs[:index], folderID) {
+				return ConnectionScope{}, ErrInvalid
+			}
+		}
+		slices.Sort(scope.DriveFolderIDs)
 	case ConnectorWebPublish:
-		if scope.EmailAddress != "" || scope.AudienceReference != "" || !validText(scope.HTTPSOrigin, MaximumReferenceBytes, true) || !validText(scope.PathPrefix, MaximumReferenceBytes, true) {
+		if scope.EmailAddress != "" || scope.AudienceReference != "" || len(scope.DriveFolderIDs) != 0 || !validText(scope.HTTPSOrigin, MaximumReferenceBytes, true) || !validText(scope.PathPrefix, MaximumReferenceBytes, true) {
 			return ConnectionScope{}, ErrInvalid
 		}
 		parsed, err := url.Parse(scope.HTTPSOrigin)
@@ -84,7 +105,7 @@ func (scope ConnectionScope) normalize(kind ConnectorKind, capabilities []Capabi
 		}
 		scope.PathPrefix = clean
 	default:
-		// Drive and research receive their reviewed scope shapes in later slices.
+		// Research receives its reviewed scope shape in a later slice.
 		return ConnectionScope{}, ErrCapability
 	}
 	return scope, nil

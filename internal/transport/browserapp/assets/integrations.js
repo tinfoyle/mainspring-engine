@@ -59,7 +59,7 @@
 
   function scopeLines(detail) {
     const scope = detail.revision.scope || {};
-    return [["Email address", scope.email_address], ["Audience reference", scope.audience_reference], ["HTTPS origin", scope.https_origin], ["Path prefix", scope.path_prefix]].filter((item) => item[1]);
+    return [["Email address", scope.email_address], ["Audience reference", scope.audience_reference], ["Google Drive folder IDs", (scope.drive_folder_ids || []).join(" · ")], ["HTTPS origin", scope.https_origin], ["Path prefix", scope.path_prefix]].filter((item) => item[1]);
   }
 
   function renderConnection() {
@@ -142,13 +142,18 @@
   const values = (form) => Object.fromEntries(new FormData(form));
   const showFormError = (form, error) => { const target = form.querySelector(".integrations-error"); target.textContent = error.message; target.hidden = false; };
   const selectedCapabilities = (form) => [...form.elements.capabilities.selectedOptions].map((option) => option.value);
-  const scopeBody = (data) => ({ email_address: data.email_address || "", audience_reference: data.audience_reference || "", https_origin: data.https_origin || "", path_prefix: data.path_prefix || "" });
+  const scopeBody = (data) => {
+    const scope = { email_address: data.email_address || "", audience_reference: data.audience_reference || "", https_origin: data.https_origin || "", path_prefix: data.path_prefix || "" };
+    const folders = (data.drive_folder_ids || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+    if (folders.length) scope.drive_folder_ids = folders;
+    return scope;
+  };
 
   function openConnection(detail) {
     editingConnection = detail || null; const form = document.getElementById("integrations-connection-form"); form.reset();
     document.getElementById("integrations-connection-form-title").textContent = detail ? "Revise connection" : "New connection";
     form.elements.kind.disabled = Boolean(detail);
-    if (detail) { const value = detail.connection, revision = detail.revision, scope = revision.scope || {}; form.elements.name.value = value.name; form.elements.kind.value = value.kind; for (const option of form.elements.capabilities.options) option.selected = revision.capabilities.includes(option.value); for (const field of ["email_address", "audience_reference", "https_origin", "path_prefix"]) form.elements[field].value = scope[field] || ""; }
+    if (detail) { const value = detail.connection, revision = detail.revision, scope = revision.scope || {}; form.elements.name.value = value.name; form.elements.kind.value = value.kind; for (const option of form.elements.capabilities.options) option.selected = revision.capabilities.includes(option.value); for (const field of ["email_address", "audience_reference", "https_origin", "path_prefix"]) form.elements[field].value = scope[field] || ""; form.elements.drive_folder_ids.value = (scope.drive_folder_ids || []).join("\n"); }
     openDialog(document.getElementById("integrations-connection-dialog"), form);
   }
 

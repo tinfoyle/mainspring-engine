@@ -3,6 +3,7 @@ package integrations
 import (
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -57,6 +58,30 @@ func TestConnectionFreezesNormalizedScopeAndManagerAuthority(t *testing.T) {
 	input.Scope.PathPrefix = "/campaigns/../admin"
 	if _, _, err := NewConnection(input, accounts.RoleOwner); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unsafe path error=%v", err)
+	}
+	input.Kind, input.Capabilities = ConnectorGoogleDrive, []Capability{CapabilityDriveRead}
+	input.Scope = ConnectionScope{DriveFolderIDs: []string{"folder_Z", "folder-a", "folder_0"}}
+	_, driveRevision, err := NewConnection(input, accounts.RoleOwner)
+	if err != nil || len(driveRevision.Scope.DriveFolderIDs) != 3 || driveRevision.Scope.DriveFolderIDs[0] != "folder-a" || driveRevision.Scope.DriveFolderIDs[2] != "folder_Z" {
+		t.Fatalf("drive revision=%+v error=%v", driveRevision, err)
+	}
+	for name, folders := range map[string][]string{
+		"missing":   nil,
+		"duplicate": {"folder-a", "folder-a"},
+		"trimmed":   {" folder-a"},
+		"unsafe":    {"folder/a"},
+	} {
+		input.Scope = ConnectionScope{DriveFolderIDs: folders}
+		if _, _, err := NewConnection(input, accounts.RoleOwner); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s folders error=%v", name, err)
+		}
+	}
+	input.Scope = ConnectionScope{DriveFolderIDs: make([]string, MaximumDriveFolders+1)}
+	for index := range input.Scope.DriveFolderIDs {
+		input.Scope.DriveFolderIDs[index] = fmt.Sprintf("folder-%02d", index)
+	}
+	if _, _, err := NewConnection(input, accounts.RoleOwner); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("oversized folder scope error=%v", err)
 	}
 }
 
