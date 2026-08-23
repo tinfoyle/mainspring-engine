@@ -163,6 +163,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /assets/schedules.js", s.scheduleScript)
 	mux.HandleFunc("GET /assets/knowledge.js", s.knowledgeScript)
 	mux.HandleFunc("GET /assets/finance.js", s.financeScript)
+	mux.HandleFunc("GET /assets/marketing.js", s.marketingScript)
 	mux.HandleFunc("GET /assets/passkeys.js", s.passkeyScript)
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
@@ -183,6 +184,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /app/schedules", s.schedulesPage)
 	mux.HandleFunc("GET /app/knowledge", s.knowledgePage)
 	mux.HandleFunc("GET /app/finance", s.financePage)
+	mux.HandleFunc("GET /app/marketing", s.marketingPage)
 	mux.HandleFunc("GET /app/security", s.securityPage)
 	mux.HandleFunc("POST /app/security/reauthenticate", s.reauthenticate)
 	mux.HandleFunc("POST /app/security/contact-change", s.beginContactChange)
@@ -284,6 +286,9 @@ func (s *Server) styles(w http.ResponseWriter, _ *http.Request) {
 	if finance, err := assets.ReadFile("assets/finance.css"); err == nil {
 		_, _ = w.Write(finance)
 	}
+	if marketing, err := assets.ReadFile("assets/marketing.css"); err == nil {
+		_, _ = w.Write(marketing)
+	}
 }
 
 func (s *Server) workScript(w http.ResponseWriter, _ *http.Request) {
@@ -352,6 +357,17 @@ func (s *Server) financeScript(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(raw)
 }
 
+func (s *Server) marketingScript(w http.ResponseWriter, _ *http.Request) {
+	raw, err := assets.ReadFile("assets/marketing.js")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(raw)
+}
+
 func (s *Server) passkeyScript(w http.ResponseWriter, _ *http.Request) {
 	raw, err := assets.ReadFile("assets/passkeys.js")
 	if err != nil {
@@ -397,6 +413,7 @@ type pageData struct {
 	AgentsAvailable, AgentsReadOnly                                                                    bool
 	KnowledgeAvailable, KnowledgeReadOnly                                                              bool
 	FinanceAvailable, FinanceReadOnly                                                                  bool
+	MarketingAvailable, MarketingReadOnly                                                              bool
 	AttentionAvailable, ApprovalsAvailable                                                             bool
 	Script                                                                                             string
 }
@@ -746,6 +763,18 @@ func (s *Server) financePage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "finance", data)
 }
 
+func (s *Server) marketingPage(w http.ResponseWriter, r *http.Request) {
+	data, _, ok := s.appPageData(w, r)
+	if !ok {
+		return
+	}
+	data.Title = "Marketing"
+	if data.MarketingAvailable {
+		data.Script = "/assets/marketing.js"
+	}
+	s.render(w, http.StatusOK, "marketing", data)
+}
+
 func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, sessions.Authenticated, bool) {
 	authenticated, ok := s.requireSession(w, r)
 	if !ok {
@@ -767,6 +796,7 @@ func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, 
 	agentsMode := modes[catalog.PackageAgents]
 	knowledgeMode := modes[catalog.PackageKnowledge]
 	financeMode := modes[catalog.PackageFinance]
+	marketingMode := modes[catalog.PackageMarketing]
 	canApprove := selected != nil && (selected.Role == accounts.RoleOwner || selected.Role == accounts.RoleAdministrator)
 	data := pageData{
 		Title:                   "Spyglass",
@@ -787,6 +817,8 @@ func (s *Server) appPageData(w http.ResponseWriter, r *http.Request) (pageData, 
 		KnowledgeReadOnly:       knowledgeMode == catalog.ModeReadOnly,
 		FinanceAvailable:        financeMode == catalog.ModeEnabled || financeMode == catalog.ModeReadOnly,
 		FinanceReadOnly:         financeMode == catalog.ModeReadOnly,
+		MarketingAvailable:      marketingMode == catalog.ModeEnabled || marketingMode == catalog.ModeReadOnly,
+		MarketingReadOnly:       marketingMode == catalog.ModeReadOnly,
 		ApprovalsAvailable:      canApprove && (agentsMode == catalog.ModeEnabled || agentsMode == catalog.ModeReadOnly),
 		AttentionAvailable:      workMode == catalog.ModeEnabled || workMode == catalog.ModeReadOnly || (canApprove && (agentsMode == catalog.ModeEnabled || agentsMode == catalog.ModeReadOnly)),
 	}

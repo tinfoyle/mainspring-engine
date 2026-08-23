@@ -23,7 +23,7 @@ const pageTemplates = `
       <label>ACTIVE ACCOUNT<select name="account_id">{{range .Choices}}<option value="{{.AccountID}}" {{if $.Selected}}{{if eq .AccountID $.Selected.AccountID}}selected{{end}}{{end}}>{{.DisplayName}}</option>{{end}}</select></label>
       <button type="submit">Switch Account</button>
     </form>
-    <nav aria-label="Primary navigation"><p>OPERATE</p><a {{if eq .Page "app"}}class="active" aria-current="page"{{end}} href="/app"><i aria-hidden="true">⌂</i>Overview</a><a {{if eq .Page "your-turn"}}class="active" aria-current="page"{{end}} href="/app/your-turn"><i aria-hidden="true">!</i>Your Turn</a><a {{if eq .Page "work"}}class="active" aria-current="page"{{end}} href="/app/work"><i aria-hidden="true">✓</i>Work</a><a {{if eq .Page "agents"}}class="active" aria-current="page"{{end}} href="/app/agents"><i aria-hidden="true">◌</i>Agents</a><a {{if eq .Page "schedules"}}class="active" aria-current="page"{{end}} href="/app/schedules"><i aria-hidden="true">◷</i>Schedules</a><a {{if eq .Page "knowledge"}}class="active" aria-current="page"{{end}} href="/app/knowledge"><i aria-hidden="true">◇</i>Knowledge</a><p>BUSINESS</p><a {{if eq .Page "finance"}}class="active" aria-current="page"{{end}} href="/app/finance"><i aria-hidden="true">≋</i>Finance</a><a href="/app#marketing"><i aria-hidden="true">↗</i>Marketing</a><a href="/app#billing"><i aria-hidden="true">$</i>Billing</a><a href="/app#settings"><i aria-hidden="true">⚙</i>Account</a><a {{if eq .Page "closures"}}class="active" aria-current="page"{{end}} href="/app/account-closures"><i aria-hidden="true">○</i>Lifecycle</a><a href="/app/security"><i aria-hidden="true">◇</i>Security</a></nav>
+    <nav aria-label="Primary navigation"><p>OPERATE</p><a {{if eq .Page "app"}}class="active" aria-current="page"{{end}} href="/app"><i aria-hidden="true">⌂</i>Overview</a><a {{if eq .Page "your-turn"}}class="active" aria-current="page"{{end}} href="/app/your-turn"><i aria-hidden="true">!</i>Your Turn</a><a {{if eq .Page "work"}}class="active" aria-current="page"{{end}} href="/app/work"><i aria-hidden="true">✓</i>Work</a><a {{if eq .Page "agents"}}class="active" aria-current="page"{{end}} href="/app/agents"><i aria-hidden="true">◌</i>Agents</a><a {{if eq .Page "schedules"}}class="active" aria-current="page"{{end}} href="/app/schedules"><i aria-hidden="true">◷</i>Schedules</a><a {{if eq .Page "knowledge"}}class="active" aria-current="page"{{end}} href="/app/knowledge"><i aria-hidden="true">◇</i>Knowledge</a><p>BUSINESS</p><a {{if eq .Page "finance"}}class="active" aria-current="page"{{end}} href="/app/finance"><i aria-hidden="true">≋</i>Finance</a><a {{if eq .Page "marketing"}}class="active" aria-current="page"{{end}} href="/app/marketing"><i aria-hidden="true">↗</i>Marketing</a><a href="/app#billing"><i aria-hidden="true">$</i>Billing</a><a href="/app#settings"><i aria-hidden="true">⚙</i>Account</a><a {{if eq .Page "closures"}}class="active" aria-current="page"{{end}} href="/app/account-closures"><i aria-hidden="true">○</i>Lifecycle</a><a href="/app/security"><i aria-hidden="true">◇</i>Security</a></nav>
     <form method="post" action="/logout"><button class="logout" type="submit">Sign out</button></form>
   </aside>
 {{end}}
@@ -202,6 +202,44 @@ const pageTemplates = `
         </div>
         <section class="panel knowledge-facts"><header><div><p class="eyebrow">ACCEPTED PROJECTION</p><h2>Current facts</h2></div><span id="knowledge-facts-count">Loading</span></header><div id="knowledge-facts" class="knowledge-list"></div></section>
       </section>
+      {{end}}
+    </div>
+  </main>
+</div></body></html>
+{{end}}
+
+{{define "marketing"}}
+{{template "head" .}}
+<div class="app-shell">
+  {{template "private-sidebar" .}}
+  <main class="workspace" id="main-content" tabindex="-1">
+    {{template "private-topbar" .}}
+    <div class="content marketing-content">
+      {{template "alert" .}}
+      {{if not .Selected}}
+      <section class="empty"><h1>No Spyglass Accounts yet.</h1><p>Create an Account or accept an invitation to begin.</p><a href="/signup">Create Account</a></section>
+      {{else if not .MarketingAvailable}}
+      <section class="work-locked panel"><div><p class="eyebrow">MARKETING PACKAGE</p><h1>Prepare the message.<br><em>Govern the release.</em></h1><p>Marketing becomes available when this Account has the package. Drafts stay provider-neutral and no activation sends externally.</p><a href="/app#billing">Review Account plans →</a></div></section>
+      {{else}}
+      <section class="marketing-heading"><div><p class="eyebrow">MARKETING</p><h1>Campaign intent,<br><em>released by judgment.</em></h1><p>Freeze creative revisions and approve one exact release before any Integration can deliver it.</p></div><div class="marketing-toolbar"><span class="work-mode">{{if .MarketingReadOnly}}READ-ONLY ACCESS{{else}}PACKAGE ENABLED{{end}}</span><button id="marketing-refresh" type="button">Refresh</button>{{if not .MarketingReadOnly}}<button id="marketing-new-campaign" type="button">New campaign</button>{{end}}</div></section>
+      <section class="marketing-app" id="marketing-app" data-account-id="{{.Selected.AccountID}}" data-read-only="{{.MarketingReadOnly}}" aria-busy="true">
+        <p class="sr-only" id="marketing-command-status" role="status" aria-live="polite" aria-atomic="true"></p>
+        <div class="marketing-layout">
+          <section class="panel marketing-campaigns"><header><div><p class="eyebrow">CAMPAIGNS</p><h2>Intent and state</h2></div><label><span class="sr-only">Campaign state</span><select id="marketing-state"><option value="">All states</option><option value="draft">Draft</option><option value="active">Active</option><option value="paused">Paused</option><option value="completed">Completed</option><option value="archived">Archived</option></select></label></header><p id="marketing-campaign-status" class="marketing-status" role="status">Loading campaigns…</p><div id="marketing-campaign-list" class="marketing-list"></div></section>
+          <section class="marketing-stage">
+            <article class="panel marketing-detail" id="marketing-campaign-detail" tabindex="-1" aria-live="polite"><p class="eyebrow">CAMPAIGN DETAIL</p><h2>Select a campaign</h2><p>Inspect its frozen channel intent, creative revisions and governed releases.</p></article>
+            <div class="marketing-columns">
+              <section class="panel marketing-collection"><header><div><p class="eyebrow">CREATIVE</p><h2>Asset revisions</h2></div>{{if not .MarketingReadOnly}}<button id="marketing-new-asset" type="button" disabled>Add revision</button>{{end}}</header><p id="marketing-asset-status" class="marketing-status">Select a campaign.</p><div id="marketing-asset-list" class="marketing-list"></div></section>
+              <section class="panel marketing-collection"><header><div><p class="eyebrow">RELEASES</p><h2>Approval snapshots</h2></div>{{if not .MarketingReadOnly}}<button id="marketing-new-release" type="button" disabled>Build release</button>{{end}}</header><p id="marketing-release-status" class="marketing-status">Select a campaign.</p><div id="marketing-release-list" class="marketing-list"></div></section>
+            </div>
+          </section>
+        </div>
+      </section>
+      {{if not .MarketingReadOnly}}
+      <dialog class="marketing-dialog" id="marketing-campaign-dialog"><form id="marketing-campaign-form"><header><div><p class="eyebrow">CAMPAIGN</p><h2 id="marketing-campaign-form-title">New campaign</h2></div><button type="button" data-close-marketing aria-label="Close">×</button></header><label>Name<input name="name" maxlength="160" required></label><label>Objective<textarea name="objective" maxlength="4000" rows="3" required></textarea></label><label>Audience<textarea name="audience" maxlength="4000" rows="3" required></textarea></label><fieldset><legend>Channels</legend><label><input type="checkbox" name="channel" value="email"> Email</label><label><input type="checkbox" name="channel" value="web"> Web</label></fieldset><p class="marketing-error" role="alert" hidden></p><footer><button type="button" data-close-marketing>Cancel</button><button type="submit">Save campaign</button></footer></form></dialog>
+      <dialog class="marketing-dialog" id="marketing-asset-dialog"><form id="marketing-asset-form"><header><div><p class="eyebrow">IMMUTABLE CREATIVE</p><h2>Add asset revision</h2></div><button type="button" data-close-marketing aria-label="Close">×</button></header><label>Asset ID<input name="asset_id" pattern="[0-9a-fA-F-]{36}" required></label><div class="marketing-form-grid"><label>Kind<select name="kind"><option value="copy">Copy</option><option value="image">Image</option><option value="document">Document</option></select></label><label>Media type<input name="media_type" placeholder="text/plain" maxlength="100" required></label></div><label>Title<input name="title" maxlength="240" required></label><label>Content reference<input name="content_reference" maxlength="500" required></label><label>SHA-256<input name="content_sha256" pattern="[0-9a-f]{64}" required></label><label>Bytes<input type="number" name="content_bytes" min="1" required></label><label>Alternative text<textarea name="alternative_text" maxlength="1000" rows="2"></textarea></label><p class="marketing-error" role="alert" hidden></p><footer><button type="button" data-close-marketing>Cancel</button><button type="submit">Append revision</button></footer></form></dialog>
+      <dialog class="marketing-dialog" id="marketing-release-dialog"><form id="marketing-release-form"><header><div><p class="eyebrow">RELEASE SNAPSHOT</p><h2>Build release</h2></div><button type="button" data-close-marketing aria-label="Close">×</button></header><label>Name<input name="name" maxlength="160" required></label><fieldset><legend>Channels</legend><label><input type="checkbox" name="channel" value="email"> Email</label><label><input type="checkbox" name="channel" value="web"> Web</label></fieldset><label>Asset revision IDs<textarea name="asset_revision_ids" rows="3" placeholder="UUIDs separated by commas" required></textarea></label><p class="marketing-error" role="alert" hidden></p><footer><button type="button" data-close-marketing>Cancel</button><button type="submit">Create release</button></footer></form></dialog>
+      {{end}}
       {{end}}
     </div>
   </main>
