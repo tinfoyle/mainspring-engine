@@ -16,7 +16,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 2. Account-owned forced-RLS persistence, immutable revisions/attempts/events, claim leasing, movement fencing and exact erasure/restore participation. **Constructed.**
 3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
-5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel, current authority and local mock constructed; payload, broker and bootstrap adapters remain.**
+5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel, current authority, payload assembler and local mocks constructed; production object reader, broker and bootstrap remain.**
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution.
 7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
 
@@ -70,7 +70,13 @@ The local mock connector is deterministic, thread-safe and performs no network I
 
 The concrete current-authority adapter reads one global workload snapshot per claim rather than independently reading each package. It requires an active Account assigned to the worker's exact cell, a positive placement generation, matching Account/snapshot entitlement versions and exactly one enabled Marketing plus Integrations package. Read-only, suspended, absent, duplicate or malformed package authority and cross-cell drift fail before payload access. No Membership role or browser/Agent identity enters this workload boundary. Step 5 remains open for manifest/payload reconstruction, one-operation secret brokering, worker bootstrap and local Docker wiring.
 
-The canonical content-free delivery manifest is now a single shared byte-level builder used by preparation and reserved for runtime reconstruction. It validates every frozen release, connector revision and credential identity, requires one-to-100 unique immutable asset revision digests, sorts assets by revision identity and emits fixed-order JSON before SHA-256. A golden-byte test prevents field-order or encoding drift, and applied preparation now uses the same builder with a genuine content-bound Marketing asset fixture. Runtime asset loading and provider-payload assembly remain open; the builder alone does not expose creative content.
+The canonical content-free delivery manifest is now a single shared byte-level builder used by preparation and runtime reconstruction. It validates every frozen release, connector revision and credential identity, requires one-to-100 unique immutable asset revision digests, sorts assets by revision identity and emits fixed-order JSON before SHA-256. A golden-byte test prevents field-order or encoding drift, and applied preparation now uses the same builder with a genuine content-bound Marketing asset fixture. The builder alone does not expose creative content.
+
+## Delivery payload checkpoint
+
+The runtime payload assembler now loads one repeatable-read Account-RLS snapshot of the exact approved release, approval, frozen connector revision and immutable asset revisions. It restores each typed revision, sorts assets, opens only its opaque content reference, bounds the aggregate and each read, requires the exact declared byte count and SHA-256, then rebuilds the shared manifest and compares it with the claimed digest. Any release, Account, scope, content or digest drift fails before connector invocation.
+
+The provider envelope is versioned and bounded to 16 MiB. It contains the execution idempotency identity, closed capability, immutable non-secret connector scope and verified creative bytes; it excludes storage references, credentials and operational database fields. The local content reader copies a fixed object set and performs no network I/O, so local ambiguity/reconciliation certification cannot accidentally reach customer infrastructure. Applied PostgreSQL coverage proves exact snapshot restoration and stale release-version rejection. A production immutable-object reader and governed Marketing upload/reference lifecycle remain required before real provider execution.
 
 ## Invariants
 

@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
+	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
+	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -56,4 +58,69 @@ func (repository *IntegrationExecutionRepository) Complete(ctx context.Context, 
 	return nil
 }
 
+func (repository *IntegrationExecutionRepository) LoadDelivery(ctx context.Context, claim integrationexecution.Claim) (integrationexecution.DeliverySnapshot, error) {
+	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.account_id',$1::text,true)`, claim.AccountID); err != nil {
+		return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+	}
+	var releaseVersion uint64
+	var approvalID ids.ConsequentialApprovalID
+	var releaseState string
+	if err := tx.QueryRow(ctx, `SELECT version,approval_id,state FROM spyglass.marketing_release_plans WHERE account_id=$1 AND id=$2`,
+		claim.AccountID, claim.ReleaseID).Scan(&releaseVersion, &approvalID, &releaseState); err != nil {
+		return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+	}
+	if releaseVersion != claim.ReleaseVersion || approvalID != claim.ApprovalID || releaseState != "approved" {
+		return integrationexecution.DeliverySnapshot{}, integrationexecution.ErrInvalid
+	}
+	var kind integrationsdomain.ConnectorKind
+	if err := tx.QueryRow(ctx, `SELECT connector_kind FROM spyglass.integration_connections WHERE account_id=$1 AND id=$2`,
+		claim.AccountID, claim.ConnectionID).Scan(&kind); err != nil {
+		return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+	}
+	revision, err := loadIntegrationRevision(ctx, tx, claim.AccountID, claim.ConnectionRevisionID)
+	if err != nil {
+		return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+	}
+	if revision.ConnectionID != claim.ConnectionID || revision.Revision != claim.ConnectionRevision {
+		return integrationexecution.DeliverySnapshot{}, integrationexecution.ErrInvalid
+	}
+	rows, err := tx.Query(ctx, `SELECT asset_revision_id FROM spyglass.marketing_release_assets
+		WHERE account_id=$1 AND release_id=$2 ORDER BY asset_revision_id`, claim.AccountID, claim.ReleaseID)
+	if err != nil {
+		return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+	}
+	var assetIDs []ids.MarketingAssetRevisionID
+	for rows.Next() {
+		var assetID ids.MarketingAssetRevisionID
+		if err := rows.Scan(&assetID); err != nil {
+			rows.Close()
+			return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+		}
+		assetIDs = append(assetIDs, assetID)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+	}
+	snapshot := integrationexecution.DeliverySnapshot{ConnectorKind: kind, Revision: revision, Assets: make([]marketingdomain.AssetRevision, 0, len(assetIDs))}
+	for _, assetID := range assetIDs {
+		asset, err := loadMarketingAssetRevision(ctx, tx, claim.AccountID, assetID)
+		if err != nil {
+			return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+		}
+		snapshot.Assets = append(snapshot.Assets, asset)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return integrationexecution.DeliverySnapshot{}, errors.Join(integrationexecution.ErrUnavailable, err)
+	}
+	return snapshot, nil
+}
+
 var _ integrationexecution.Repository = (*IntegrationExecutionRepository)(nil)
+var _ integrationexecution.DeliverySource = (*IntegrationExecutionRepository)(nil)

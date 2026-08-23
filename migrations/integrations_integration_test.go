@@ -119,6 +119,16 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 	if err != nil || !found || first.Mode != integrationsdomain.AttemptExecute || first.ExecutionID != ids.IntegrationExecutionID(fixture.executionID) || first.CredentialID != ids.IntegrationCredentialID(fixture.credentialID) {
 		t.Fatalf("first claim=%+v", first)
 	}
+	delivery, err := executionRepository.LoadDelivery(ctx, first)
+	if err != nil || delivery.ConnectorKind != integrationsdomain.ConnectorEmail || delivery.Revision.ID != first.ConnectionRevisionID ||
+		len(delivery.Assets) != 1 || delivery.Assets[0].ID != "83900000-0000-4000-8000-000000000009" {
+		t.Fatalf("delivery=%+v err=%v", delivery, err)
+	}
+	staleDeliveryClaim := first
+	staleDeliveryClaim.ReleaseVersion++
+	if _, err := executionRepository.LoadDelivery(ctx, staleDeliveryClaim); !errors.Is(err, integrationexecution.ErrInvalid) {
+		t.Fatalf("stale delivery claim=%v", err)
+	}
 	if err := executionRepository.Complete(ctx, integrationexecution.Completion{Claim: first, Outcome: integrationsdomain.AttemptUnknown,
 		ErrorCode: "provider_timeout", CompletedAt: firstAt.Add(10 * time.Second)}); err != nil {
 		t.Fatal(err)
