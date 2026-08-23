@@ -1,7 +1,7 @@
 package cellapi
 
 import (
-	"encoding/hex"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -24,7 +25,10 @@ type marketingCampaignDefinitionRequest struct {
 	Channels  []marketingdomain.Channel `json:"channels"`
 }
 
-const maximumMarketingAssetUploadEnvelope = int64(marketingdomain.MaximumContentBytes) + int64(1<<20)
+const (
+	maximumMarketingAssetUploadEnvelope = int64(marketingdomain.MaximumContentBytes) + int64(1<<20)
+	maximumAgentMarketingCopyBytes      = 64 << 10
+)
 
 type marketingReleaseDefinitionRequest struct {
 	CampaignVersion  uint64                         `json:"campaign_version"`
@@ -54,15 +58,10 @@ type marketingAgentCampaignDefinitionRequest struct {
 }
 
 type marketingAgentAssetRevisionDefinitionRequest struct {
-	RunID            ids.RunID                 `json:"run_id"`
-	AssetID          ids.MarketingAssetID      `json:"asset_id"`
-	Kind             marketingdomain.AssetKind `json:"kind"`
-	Title            string                    `json:"title"`
-	MediaType        string                    `json:"media_type"`
-	ContentReference string                    `json:"content_reference"`
-	ContentSHA256    string                    `json:"content_sha256"`
-	ContentBytes     uint64                    `json:"content_bytes"`
-	AlternativeText  string                    `json:"alternative_text,omitempty"`
+	RunID   ids.RunID            `json:"run_id"`
+	AssetID ids.MarketingAssetID `json:"asset_id"`
+	Title   string               `json:"title"`
+	Content string               `json:"content"`
 }
 
 type marketingAgentReleaseDefinitionRequest struct {
@@ -262,15 +261,14 @@ func (s *Server) marketingAgentAssetRevisionDraft(w http.ResponseWriter, r *http
 	if !decodeMarketingJSON(w, r, &body) {
 		return
 	}
-	digest, ok := decodeMarketingDigest(body.ContentSHA256)
-	if !ok {
+	if !validAgentMarketingCopy(body.Content) {
 		s.writeMarketingError(w, "create Agent asset revision", marketingapp.ErrInvalid)
 		return
 	}
-	value, created, err := s.marketingCommands.CreateAssetRevision(routecontext.WithClaims(r.Context(), claims), marketingapp.CreateAssetRevisionCommand{
-		Actor: actor, AccountID: accountID, RequestID: requestID, CampaignID: campaignID, AssetID: body.AssetID, Kind: body.Kind,
-		Title: body.Title, MediaType: body.MediaType, ContentReference: body.ContentReference, ContentSHA256: digest, ContentBytes: body.ContentBytes,
-		AlternativeText: body.AlternativeText, Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginAgent, RunID: body.RunID, InvocationID: invocationID},
+	value, created, err := s.marketingCommands.UploadAssetRevision(routecontext.WithClaims(r.Context(), claims), marketingapp.UploadAssetRevisionCommand{
+		Actor: actor, AccountID: accountID, RequestID: requestID, CampaignID: campaignID, AssetID: body.AssetID,
+		Kind: marketingdomain.AssetCopy, Title: body.Title, MediaType: "text/plain", Body: bytes.NewReader([]byte(body.Content)),
+		Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginAgent, RunID: body.RunID, InvocationID: invocationID},
 	})
 	if err != nil {
 		s.writeMarketingError(w, "create Agent asset revision", err)
@@ -469,14 +467,9 @@ func (s *Server) marketingAgentDraftRequest(w http.ResponseWriter, r *http.Reque
 	return claims, actor, accountID, requestID, ids.AgentInvocationID(invocationRaw), true
 }
 
-func decodeMarketingDigest(value string) ([32]byte, bool) {
-	raw, err := hex.DecodeString(value)
-	if err != nil || len(raw) != 32 || value != strings.ToLower(value) {
-		return [32]byte{}, false
-	}
-	digest := [32]byte{}
-	copy(digest[:], raw)
-	return digest, true
+func validAgentMarketingCopy(value string) bool {
+	return value != "" && len(value) <= maximumAgentMarketingCopyBytes && utf8.ValidString(value) &&
+		strings.IndexFunc(value, func(current rune) bool { return current == 0 || current == 0x7f }) == -1
 }
 
 func (s *Server) marketingReleaseTransitionRequest(w http.ResponseWriter, r *http.Request) (routecontext.Claims, access.Actor, ids.AccountID, string, ids.MarketingReleaseID, uint64, bool) {

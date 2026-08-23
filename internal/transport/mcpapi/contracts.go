@@ -111,7 +111,7 @@ type MarketingService interface {
 	GetCampaign(context.Context, access.Actor, ids.AccountID, ids.MarketingCampaignID) (marketingdomain.Campaign, error)
 	ListCampaigns(context.Context, access.Actor, ids.AccountID, marketingapp.CampaignListQuery) (marketingapp.CampaignPage, error)
 	ReviseCampaign(context.Context, marketingapp.ReviseCampaignCommand) (marketingdomain.Campaign, error)
-	CreateAssetRevision(context.Context, marketingapp.CreateAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error)
+	UploadAssetRevision(context.Context, marketingapp.UploadAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error)
 	ListAssetRevisions(context.Context, access.Actor, ids.AccountID, marketingapp.AssetRevisionListQuery) (marketingapp.AssetRevisionPage, error)
 	CreateRelease(context.Context, marketingapp.CreateReleaseCommand) (marketingdomain.ReleasePlan, bool, error)
 	GetRelease(context.Context, access.Actor, ids.AccountID, ids.MarketingReleaseID) (marketingdomain.ReleasePlan, error)

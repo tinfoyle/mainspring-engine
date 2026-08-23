@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
@@ -31,6 +32,7 @@ const (
 	ContextHeader                    = toolcontext.HeaderName
 	DefaultMaxRequestBody            = int64(256 << 10)
 	DefaultMaxResponseBody           = int64(256 << 10)
+	maximumMarketingAgentCopyBytes   = 64 << 10
 	WorkSummaryCapability            = runnercapability.WorkSummaryCapability
 	FinanceLedgersReadCapability     = runnercapability.FinanceLedgersReadCapability
 	FinanceAccountsReadCapability    = runnercapability.FinanceAccountsReadCapability
@@ -94,16 +96,11 @@ type marketingAssetsInput struct {
 }
 
 type marketingAssetInput struct {
-	RunID            ids.RunID                 `json:"run_id"`
-	CampaignID       ids.MarketingCampaignID   `json:"campaign_id"`
-	AssetID          ids.MarketingAssetID      `json:"asset_id"`
-	Kind             marketingdomain.AssetKind `json:"kind"`
-	Title            string                    `json:"title"`
-	MediaType        string                    `json:"media_type"`
-	ContentReference string                    `json:"content_reference"`
-	ContentSHA256    string                    `json:"content_sha256"`
-	ContentBytes     uint64                    `json:"content_bytes"`
-	AlternativeText  string                    `json:"alternative_text,omitempty"`
+	RunID      ids.RunID               `json:"run_id"`
+	CampaignID ids.MarketingCampaignID `json:"campaign_id"`
+	AssetID    ids.MarketingAssetID    `json:"asset_id"`
+	Title      string                  `json:"title"`
+	Content    string                  `json:"content"`
 }
 
 type marketingReleasesInput struct {
@@ -128,15 +125,10 @@ type marketingCampaignDraftBody struct {
 }
 
 type marketingAssetDraftBody struct {
-	RunID            ids.RunID                 `json:"run_id"`
-	AssetID          ids.MarketingAssetID      `json:"asset_id"`
-	Kind             marketingdomain.AssetKind `json:"kind"`
-	Title            string                    `json:"title"`
-	MediaType        string                    `json:"media_type"`
-	ContentReference string                    `json:"content_reference"`
-	ContentSHA256    string                    `json:"content_sha256"`
-	ContentBytes     uint64                    `json:"content_bytes"`
-	AlternativeText  string                    `json:"alternative_text,omitempty"`
+	RunID   ids.RunID            `json:"run_id"`
+	AssetID ids.MarketingAssetID `json:"asset_id"`
+	Title   string               `json:"title"`
+	Content string               `json:"content"`
 }
 
 type marketingReleaseDraftBody struct {
@@ -393,10 +385,10 @@ func dispatchCapability(capability string, accountID ids.AccountID, raw []byte) 
 		return dispatch{method: http.MethodPost, target: "/internal/v1/accounts/" + string(accountID) + "/marketing/campaigns:draft", body: body, requirement: access.Requirement{Package: catalog.PackageMarketing, Mutation: true}, createdOK: true}, true
 	case MarketingAssetDraftCapability:
 		var input marketingAssetInput
-		if !decodeToolInput(raw, &input) || ids.Validate(string(input.RunID)) != nil || ids.Validate(string(input.CampaignID)) != nil || ids.Validate(string(input.AssetID)) != nil {
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.RunID)) != nil || ids.Validate(string(input.CampaignID)) != nil || ids.Validate(string(input.AssetID)) != nil || !validMarketingAgentCopy(input.Content) {
 			return dispatch{}, false
 		}
-		body, err := json.Marshal(marketingAssetDraftBody{RunID: input.RunID, AssetID: input.AssetID, Kind: input.Kind, Title: input.Title, MediaType: input.MediaType, ContentReference: input.ContentReference, ContentSHA256: input.ContentSHA256, ContentBytes: input.ContentBytes, AlternativeText: input.AlternativeText})
+		body, err := json.Marshal(marketingAssetDraftBody{RunID: input.RunID, AssetID: input.AssetID, Title: input.Title, Content: input.Content})
 		if err != nil {
 			return dispatch{}, false
 		}
@@ -424,6 +416,11 @@ func decodeToolInput(raw []byte, destination any) bool {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(destination) == nil && errors.Is(decoder.Decode(&struct{}{}), io.EOF)
+}
+
+func validMarketingAgentCopy(value string) bool {
+	return value != "" && len(value) <= maximumMarketingAgentCopyBytes && utf8.ValidString(value) &&
+		strings.IndexFunc(value, func(current rune) bool { return current == 0 || current == 0x7f }) == -1
 }
 
 func emptyJSONObject(raw []byte) bool {

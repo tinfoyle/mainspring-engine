@@ -211,7 +211,6 @@ type MarketingCommandService interface {
 	CreateCampaign(context.Context, marketingapp.CreateCampaignCommand) (marketingdomain.Campaign, bool, error)
 	ReviseCampaign(context.Context, marketingapp.ReviseCampaignCommand) (marketingdomain.Campaign, error)
 	UploadAssetRevision(context.Context, marketingapp.UploadAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error)
-	CreateAssetRevision(context.Context, marketingapp.CreateAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error)
 	CreateRelease(context.Context, marketingapp.CreateReleaseCommand) (marketingdomain.ReleasePlan, bool, error)
 	SubmitRelease(context.Context, marketingapp.ReleaseTransitionCommand) (marketingdomain.ReleasePlan, error)
 	ApproveRelease(context.Context, marketingapp.ReleaseTransitionCommand) (marketingdomain.ReleasePlan, error)

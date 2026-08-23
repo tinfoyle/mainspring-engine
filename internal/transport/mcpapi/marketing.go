@@ -76,19 +76,19 @@ type marketingAssetRevisionListInput struct {
 }
 
 type marketingAssetRevisionCreateInput struct {
-	AccountID        ids.AccountID             `json:"account_id"`
-	OperationID      string                    `json:"operation_id"`
-	RunID            ids.RunID                 `json:"run_id,omitempty"`
-	CampaignID       ids.MarketingCampaignID   `json:"campaign_id"`
-	AssetID          ids.MarketingAssetID      `json:"asset_id"`
-	Kind             marketingdomain.AssetKind `json:"kind"`
-	Title            string                    `json:"title"`
-	MediaType        string                    `json:"media_type"`
-	ContentReference string                    `json:"content_reference"`
-	ContentSHA256    string                    `json:"content_sha256"`
-	ContentBytes     uint64                    `json:"content_bytes"`
-	AlternativeText  string                    `json:"alternative_text,omitempty"`
+	AccountID       ids.AccountID             `json:"account_id"`
+	OperationID     string                    `json:"operation_id"`
+	RunID           ids.RunID                 `json:"run_id,omitempty"`
+	CampaignID      ids.MarketingCampaignID   `json:"campaign_id"`
+	AssetID         ids.MarketingAssetID      `json:"asset_id"`
+	Kind            marketingdomain.AssetKind `json:"kind"`
+	Title           string                    `json:"title"`
+	MediaType       string                    `json:"media_type"`
+	ContentBase64   string                    `json:"content_base64"`
+	AlternativeText string                    `json:"alternative_text,omitempty"`
 }
+
+const maximumMCPMarketingAssetBytes = 512 << 10
 
 type marketingReleaseTargetInput struct {
 	AccountID ids.AccountID          `json:"account_id"`
@@ -263,16 +263,16 @@ func (s *Server) registerMarketing(server *mcp.Server, actor access.Actor) {
 		return nil, output, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_marketing_asset_revision_create_draft", Title: "Create Marketing asset revision draft", Description: "Append immutable asset metadata. Agent callers must supply the exact Run.", Annotations: toolAnnotations(false, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input marketingAssetRevisionCreateInput) (*mcp.CallToolResult, marketingAssetRevisionOutput, error) {
+	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_marketing_asset_revision_create_draft", Title: "Create Marketing asset revision draft", Description: "Upload a base64-encoded immutable asset of at most 512 KiB. Agent callers must supply the exact Run.", Annotations: toolAnnotations(false, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input marketingAssetRevisionCreateInput) (*mcp.CallToolResult, marketingAssetRevisionOutput, error) {
 		ctx, op, provenance, err := s.marketingDraftContext(ctx, actor, input.AccountID, input.OperationID, input.RunID, mutation)
 		if err != nil {
 			return nil, marketingAssetRevisionOutput{}, err
 		}
-		digest, err := marketingDigest(input.ContentSHA256)
+		body, err := marketingAssetBody(input.ContentBase64)
 		if err != nil {
 			return nil, marketingAssetRevisionOutput{}, err
 		}
-		value, _, err := s.marketing.CreateAssetRevision(ctx, marketingapp.CreateAssetRevisionCommand{Actor: actor, AccountID: input.AccountID, RequestID: op, CampaignID: input.CampaignID, AssetID: input.AssetID, Kind: input.Kind, Title: input.Title, MediaType: input.MediaType, ContentReference: input.ContentReference, ContentSHA256: digest, ContentBytes: input.ContentBytes, AlternativeText: input.AlternativeText, Provenance: provenance})
+		value, _, err := s.marketing.UploadAssetRevision(ctx, marketingapp.UploadAssetRevisionCommand{Actor: actor, AccountID: input.AccountID, RequestID: op, CampaignID: input.CampaignID, AssetID: input.AssetID, Kind: input.Kind, Title: input.Title, MediaType: input.MediaType, AlternativeText: input.AlternativeText, Body: body, Provenance: provenance})
 		return nil, marketingAssetOutput(value), marketingError(err)
 	})
 
@@ -434,14 +434,16 @@ func marketingLimit(value int) (int, error) {
 	return value, nil
 }
 
-func marketingDigest(raw string) ([32]byte, error) {
-	decoded, err := hex.DecodeString(raw)
-	if err != nil || len(decoded) != 32 || raw != strings.ToLower(raw) {
-		return [32]byte{}, safeError("invalid_marketing_digest")
+func marketingAssetBody(raw string) (*bytes.Reader, error) {
+	if raw == "" || len(raw) > base64.StdEncoding.EncodedLen(maximumMCPMarketingAssetBytes) {
+		return nil, safeError("invalid_marketing_asset_content")
 	}
-	value := [32]byte{}
-	copy(value[:], decoded)
-	return value, nil
+	decoded := make([]byte, base64.StdEncoding.DecodedLen(len(raw)))
+	n, err := base64.StdEncoding.Strict().Decode(decoded, []byte(raw))
+	if err != nil || n == 0 || n > maximumMCPMarketingAssetBytes || base64.StdEncoding.EncodeToString(decoded[:n]) != raw {
+		return nil, safeError("invalid_marketing_asset_content")
+	}
+	return bytes.NewReader(decoded[:n]), nil
 }
 
 func marketingAssetOutput(value marketingdomain.AssetRevision) marketingAssetRevisionOutput {
@@ -486,5 +488,3 @@ func decodeMarketingMCPCursor(raw, kind string) (marketingMCPCursor, error) {
 	}
 	return value, nil
 }
-
-var _ MarketingService = (*marketingapp.Service)(nil)

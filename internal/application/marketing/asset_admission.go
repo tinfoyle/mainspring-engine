@@ -84,7 +84,7 @@ func (service *AssetAdmissionService) Upload(ctx context.Context, command Upload
 		}
 		return domain.AssetRevision{}, false, ErrInvalid
 	}
-	value, created, err := service.marketing.CreateAssetRevision(ctx, CreateAssetRevisionCommand{Actor: command.Actor, AccountID: command.AccountID,
+	value, created, err := service.marketing.createAssetRevision(ctx, createAssetRevisionCommand{Actor: command.Actor, AccountID: command.AccountID,
 		RequestID: command.RequestID, CampaignID: command.CampaignID, AssetID: command.AssetID, Kind: command.Kind, Title: command.Title,
 		MediaType: mediaType, ContentReference: write.Identity.Reference, ContentSHA256: write.Identity.ContentSHA256,
 		ContentBytes: uint64(write.Identity.Size), AlternativeText: command.AlternativeText, Provenance: provenance})

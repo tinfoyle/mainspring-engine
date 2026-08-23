@@ -217,9 +217,15 @@ func TestMarketingDispatchUsesBoundedReadsAndDraftOnlyMutationRoutes(t *testing.
 	if !ok || campaign.target != "/internal/v1/accounts/"+testAccount+"/marketing/campaigns:draft" || !campaign.requirement.Mutation || strings.Contains(string(campaign.body), `"campaign_id"`) {
 		t.Fatalf("campaign draft=%+v body=%s ok=%v", campaign, campaign.body, ok)
 	}
-	asset, ok := dispatchCapability(MarketingAssetDraftCapability, testAccount, []byte(`{"run_id":"`+runID+`","campaign_id":"`+campaignID+`","asset_id":"`+assetID+`","kind":"copy","title":"Launch copy","media_type":"text/plain","content_reference":"objects/copy","content_sha256":"`+strings.Repeat("11", 32)+`","content_bytes":20}`))
+	asset, ok := dispatchCapability(MarketingAssetDraftCapability, testAccount, []byte(`{"run_id":"`+runID+`","campaign_id":"`+campaignID+`","asset_id":"`+assetID+`","title":"Launch copy","content":"A precise launch message."}`))
 	if !ok || asset.target != "/internal/v1/accounts/"+testAccount+"/marketing/campaigns/"+campaignID+"/asset-revisions:draft" || !asset.requirement.Mutation || strings.Contains(string(asset.body), `"campaign_id"`) {
 		t.Fatalf("asset draft=%+v body=%s ok=%v", asset, asset.body, ok)
+	}
+	if strings.Contains(string(asset.body), "content_reference") || strings.Contains(string(asset.body), "content_sha256") || strings.Contains(string(asset.body), "media_type") {
+		t.Fatalf("asset draft exposes internal object metadata: %s", asset.body)
+	}
+	if _, ok := dispatchCapability(MarketingAssetDraftCapability, testAccount, []byte(`{"run_id":"`+runID+`","campaign_id":"`+campaignID+`","asset_id":"`+assetID+`","title":"Legacy","content":"copy","content_reference":"objects/copy"}`)); ok {
+		t.Fatal("legacy caller-supplied object reference was routed")
 	}
 	release, ok := dispatchCapability(MarketingReleaseDraftCapability, testAccount, []byte(`{"run_id":"`+runID+`","campaign_id":"`+campaignID+`","campaign_version":2,"name":"Release","channels":["email"],"asset_revision_ids":["`+revisionID+`"]}`))
 	if !ok || release.target != "/internal/v1/accounts/"+testAccount+"/marketing/campaigns/"+campaignID+"/releases:draft" || !release.requirement.Mutation || strings.Contains(string(release.body), `"campaign_id"`) {

@@ -109,7 +109,7 @@ func (service *Service) ReviseCampaign(ctx context.Context, command ReviseCampai
 	return service.store.ReviseCampaign(ctx, command.AccountID, command.CampaignID, revision, mutation(command.RequestID, "revised", actor, now))
 }
 
-type CreateAssetRevisionCommand struct {
+type createAssetRevisionCommand struct {
 	Actor            access.Actor
 	AccountID        ids.AccountID
 	RequestID        string
@@ -125,9 +125,10 @@ type CreateAssetRevisionCommand struct {
 	Provenance       domain.Provenance
 }
 
-func (service *Service) CreateAssetRevision(ctx context.Context, command CreateAssetRevisionCommand) (domain.AssetRevision, bool, error) {
+func (service *Service) createAssetRevision(ctx context.Context, command createAssetRevisionCommand) (domain.AssetRevision, bool, error) {
 	authorized, err := service.authorizeDraft(ctx, command.Actor, command.AccountID)
-	if err != nil || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.CampaignID)) != nil || ids.Validate(string(command.AssetID)) != nil {
+	_, referenceErr := domain.ObjectVersionFromContentReference(command.ContentReference)
+	if err != nil || referenceErr != nil || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.CampaignID)) != nil || ids.Validate(string(command.AssetID)) != nil {
 		if err != nil {
 			return domain.AssetRevision{}, false, err
 		}

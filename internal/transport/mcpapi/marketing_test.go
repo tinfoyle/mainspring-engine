@@ -1,7 +1,11 @@
 package mcpapi
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,7 +38,8 @@ const (
 type marketingMCPStub struct {
 	now            time.Time
 	campaignCreate marketingapp.CreateCampaignCommand
-	assetCreate    marketingapp.CreateAssetRevisionCommand
+	assetUpload    marketingapp.UploadAssetRevisionCommand
+	assetBody      []byte
 	campaignQuery  marketingapp.CampaignListQuery
 	approveError   error
 }
@@ -71,9 +76,16 @@ func (stub *marketingMCPStub) ListCampaigns(_ context.Context, _ access.Actor, _
 func (stub *marketingMCPStub) ReviseCampaign(context.Context, marketingapp.ReviseCampaignCommand) (marketingdomain.Campaign, error) {
 	return stub.campaign(), nil
 }
-func (stub *marketingMCPStub) CreateAssetRevision(_ context.Context, command marketingapp.CreateAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error) {
-	stub.assetCreate = command
-	return stub.asset(), true, nil
+func (stub *marketingMCPStub) UploadAssetRevision(_ context.Context, command marketingapp.UploadAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error) {
+	body, err := io.ReadAll(command.Body)
+	if err != nil {
+		return marketingdomain.AssetRevision{}, false, err
+	}
+	stub.assetUpload, stub.assetBody = command, body
+	value := stub.asset()
+	value.ContentSHA256, value.ContentBytes = sha256.Sum256(body), uint64(len(body))
+	value.ContentReference, _ = marketingdomain.ContentReferenceForObjectVersion("mcp-test-version-1")
+	return value, true, nil
 }
 func (stub *marketingMCPStub) ListAssetRevisions(context.Context, access.Actor, ids.AccountID, marketingapp.AssetRevisionListQuery) (marketingapp.AssetRevisionPage, error) {
 	return marketingapp.AssetRevisionPage{Items: []marketingdomain.AssetRevision{stub.asset()}}, nil
@@ -134,10 +146,33 @@ func TestMarketingMCPPublishesCompleteTypedSurface(t *testing.T) {
 			if tool.InputSchema == nil || tool.OutputSchema == nil || tool.Annotations == nil {
 				t.Fatalf("incomplete Marketing tool: %+v", tool)
 			}
+			if tool.Name == "spyglass_marketing_asset_revision_create_draft" {
+				schema, _ := json.Marshal(tool.InputSchema)
+				if !bytes.Contains(schema, []byte(`"content_base64"`)) || bytes.Contains(schema, []byte(`"content_reference"`)) || bytes.Contains(schema, []byte(`"content_sha256"`)) || bytes.Contains(schema, []byte(`"content_bytes"`)) {
+					t.Fatalf("unsafe Marketing asset input schema: %s", schema)
+				}
+			}
 		}
 	}
 	if count != 16 || !slices.IsSorted(names) {
 		t.Fatalf("marketing tools=%d sorted=%v names=%v", count, slices.IsSorted(names), names)
+	}
+}
+
+func TestMarketingAssetBodyRequiresCanonicalBoundedBase64(t *testing.T) {
+	want := []byte("launch copy")
+	body, err := marketingAssetBody(base64.StdEncoding.EncodeToString(want))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(body)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("body=%q want=%q", got, want)
+	}
+	for _, invalid := range []string{"", "not base64", base64.RawStdEncoding.EncodeToString(want), base64.StdEncoding.EncodeToString(make([]byte, maximumMCPMarketingAssetBytes+1))} {
+		if _, err := marketingAssetBody(invalid); err == nil {
+			t.Fatalf("accepted invalid body length=%d", len(invalid))
+		}
 	}
 }
 
@@ -150,9 +185,11 @@ func TestMarketingMCPUsesCanonicalServiceCursorAndDigest(t *testing.T) {
 	if err != nil || created.IsError || stub.campaignCreate.Provenance.Origin != marketingdomain.OriginHuman || stub.campaignCreate.RequestID != mcpOperation {
 		t.Fatalf("create err=%v result=%+v command=%+v", err, created, stub.campaignCreate)
 	}
-	asset, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_marketing_asset_revision_create_draft", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation, "campaign_id": mcpMarketingCampaign, "asset_id": mcpMarketingAsset, "kind": "image", "title": "Hero", "media_type": "image/png", "content_reference": "objects/hero", "content_sha256": strings.Repeat("11", 32), "content_bytes": 100, "alternative_text": "Hero"}})
-	if err != nil || asset.IsError || stub.assetCreate.ContentSHA256[0] != 0x11 || !strings.Contains(asset.Content[0].(*mcp.TextContent).Text, `"content_sha256":"1111`) {
-		t.Fatalf("asset err=%v result=%+v command=%+v", err, asset, stub.assetCreate)
+	body := []byte("synthetic image bytes")
+	asset, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_marketing_asset_revision_create_draft", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation, "campaign_id": mcpMarketingCampaign, "asset_id": mcpMarketingAsset, "kind": "image", "title": "Hero", "media_type": "image/png", "content_base64": base64.StdEncoding.EncodeToString(body), "alternative_text": "Hero"}})
+	wantDigest := sha256.Sum256(body)
+	if err != nil || asset.IsError || !bytes.Equal(stub.assetBody, body) || stub.assetUpload.Provenance.Origin != marketingdomain.OriginHuman || !strings.Contains(asset.Content[0].(*mcp.TextContent).Text, `"content_sha256":"`+fmt.Sprintf("%x", wantDigest)) {
+		t.Fatalf("asset err=%v result=%+v command=%+v body=%q", err, asset, stub.assetUpload, stub.assetBody)
 	}
 	listed, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_marketing_campaign_list", Arguments: map[string]any{"account_id": mcpAccount, "limit": 25}})
 	if err != nil || listed.IsError || stub.campaignQuery.Limit != 25 {

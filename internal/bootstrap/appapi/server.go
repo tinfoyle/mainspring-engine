@@ -250,7 +250,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	mcpTransport, err := mcpapi.New(mcpapi.NewRoutedAuthority(), attentionService, logger, mcpapi.Config{Version: config.MCPVersion, MaxBody: maxBody, ResourceMetadataURL: config.MCPResourceMetadataURL}, mcpapi.WithActionRecovery(actionRecoveryService), mcpapi.WithKnowledge(knowledgeService), mcpapi.WithKnowledgeDocuments(documents), mcpapi.WithBaseline(baselineService), mcpapi.WithFinance(financeService), mcpapi.WithMarketing(marketingService), mcpapi.WithIntegrations(integrationsService))
+	mcpTransport, err := mcpapi.New(mcpapi.NewRoutedAuthority(), attentionService, logger, mcpapi.Config{Version: config.MCPVersion, MaxBody: maxBody, ResourceMetadataURL: config.MCPResourceMetadataURL}, mcpapi.WithActionRecovery(actionRecoveryService), mcpapi.WithKnowledge(knowledgeService), mcpapi.WithKnowledgeDocuments(documents), mcpapi.WithBaseline(baselineService), mcpapi.WithFinance(financeService), mcpapi.WithMarketing(marketingCommands), mcpapi.WithIntegrations(integrationsService))
 	if err != nil {
 		pool.Close()
 		return nil, err

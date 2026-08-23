@@ -35,6 +35,9 @@ type marketingCommandTransportService struct {
 	releaseID  ids.MarketingReleaseID
 	approvalID ids.ConsequentialApprovalID
 	assetID    ids.MarketingAssetID
+	assetKind  marketingdomain.AssetKind
+	mediaType  string
+	assetBody  []byte
 }
 
 func marketingCommandCampaign(version uint64) marketingdomain.Campaign {
@@ -64,21 +67,13 @@ func (service *marketingCommandTransportService) ReviseCampaign(_ context.Contex
 	return marketingCommandCampaign(command.ExpectedVersion + 1), nil
 }
 
-func (service *marketingCommandTransportService) CreateAssetRevision(_ context.Context, command marketingapp.CreateAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error) {
-	service.called, service.digest, service.provenance, service.assetID = "asset_create", command.ContentSHA256, command.Provenance, command.AssetID
-	value := marketingdomain.AssetRevision{ID: marketingAssetRevisionID, AccountID: marketingAccountID, CampaignID: marketingCampaignID, AssetID: command.AssetID,
-		Revision: 1, Kind: command.Kind, Title: command.Title, MediaType: command.MediaType, ContentReference: command.ContentReference,
-		ContentSHA256: command.ContentSHA256, ContentBytes: command.ContentBytes, AlternativeText: command.AlternativeText,
-		CreatedBy: marketingdomain.Actor{Kind: marketingdomain.ActorUser, ID: marketingUserID}, Provenance: command.Provenance, CreatedAt: time.Date(2026, 8, 23, 2, 0, 0, 0, time.UTC)}
-	return value, true, nil
-}
-
 func (service *marketingCommandTransportService) UploadAssetRevision(_ context.Context, command marketingapp.UploadAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error) {
 	body, err := io.ReadAll(command.Body)
 	if err != nil {
 		return marketingdomain.AssetRevision{}, false, err
 	}
 	service.called, service.digest, service.provenance, service.assetID = "asset_upload", sha256.Sum256(body), command.Provenance, command.AssetID
+	service.assetKind, service.mediaType, service.assetBody = command.Kind, command.MediaType, body
 	reference, _ := marketingdomain.ContentReferenceForObjectVersion("transport-version-1")
 	return marketingdomain.AssetRevision{ID: marketingAssetRevisionID, AccountID: marketingAccountID, CampaignID: marketingCampaignID,
 		AssetID: command.AssetID, Revision: 1, Kind: command.Kind, Title: command.Title, MediaType: command.MediaType, ContentReference: reference,
@@ -211,12 +206,11 @@ func TestMarketingAgentDraftRoutesDeriveInvocationAndRequireRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	runID := "aa000000-0000-4000-8000-00000000000a"
-	digest := strings.Repeat("11", 32)
 	tests := []struct {
 		name, target, body, wantCall string
 	}{
 		{name: "campaign", target: "/internal/v1/accounts/" + marketingAccountID + "/marketing/campaigns:draft", body: `{"run_id":"` + runID + `","name":"Autumn launch","objective":"Introduce the governed release","audience":"Existing operators","channels":["email","web"]}`, wantCall: "campaign_create"},
-		{name: "asset", target: "/internal/v1/accounts/" + marketingAccountID + "/marketing/campaigns/" + marketingCampaignID + "/asset-revisions:draft", body: `{"run_id":"` + runID + `","asset_id":"` + marketingAssetID + `","kind":"image","title":"Campaign hero","media_type":"image/png","content_reference":"objects/marketing/hero.png","content_sha256":"` + digest + `","content_bytes":2048,"alternative_text":"Spyglass campaign hero"}`, wantCall: "asset_create"},
+		{name: "asset", target: "/internal/v1/accounts/" + marketingAccountID + "/marketing/campaigns/" + marketingCampaignID + "/asset-revisions:draft", body: `{"run_id":"` + runID + `","asset_id":"` + marketingAssetID + `","title":"Launch copy","content":"A precise launch message."}`, wantCall: "asset_upload"},
 		{name: "release", target: "/internal/v1/accounts/" + marketingAccountID + "/marketing/campaigns/" + marketingCampaignID + "/releases:draft", body: `{"run_id":"` + runID + `","campaign_version":2,"name":"Autumn release","channels":["email","web"],"asset_revision_ids":["` + marketingAssetRevisionID + `"]}`, wantCall: "release_create"},
 	}
 	for _, test := range tests {
@@ -227,6 +221,9 @@ func TestMarketingAgentDraftRoutesDeriveInvocationAndRequireRun(t *testing.T) {
 			}
 			if service.provenance.Origin != marketingdomain.OriginAgent || service.provenance.RunID != ids.RunID(runID) || service.provenance.InvocationID != ids.AgentInvocationID(invocationID) {
 				t.Fatalf("Agent provenance=%+v", service.provenance)
+			}
+			if test.name == "asset" && (service.assetKind != marketingdomain.AssetCopy || service.mediaType != "text/plain" || string(service.assetBody) != "A precise launch message.") {
+				t.Fatalf("Agent asset kind=%s media=%s body=%q", service.assetKind, service.mediaType, service.assetBody)
 			}
 		})
 	}

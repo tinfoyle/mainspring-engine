@@ -93,16 +93,17 @@ func TestAgentDraftBindsAuthenticatedInvocationAndRejectsSpoof(t *testing.T) {
 	}
 	service, _ := New(authorizer, store, fixedClock{now: testNow})
 	digest := sha256.Sum256([]byte("launch copy"))
-	command := CreateAssetRevisionCommand{Actor: access.Actor{WorkloadID: "runner-invocation:" + string(testInvocation)}, AccountID: testAccountID,
+	reference, _ := domain.ContentReferenceForObjectVersion("service-test-version-1")
+	command := createAssetRevisionCommand{Actor: access.Actor{WorkloadID: "runner-invocation:" + string(testInvocation)}, AccountID: testAccountID,
 		RequestID: "70000000-0000-4000-8000-000000000007", CampaignID: testCampaignID, AssetID: testAssetID, Kind: domain.AssetCopy,
-		Title: "Launch copy", MediaType: "text/plain", ContentReference: "marketing/launch/copy/v1", ContentSHA256: digest, ContentBytes: 11,
+		Title: "Launch copy", MediaType: "text/plain", ContentReference: reference, ContentSHA256: digest, ContentBytes: 11,
 		Provenance: domain.Provenance{Origin: domain.OriginAgent, RunID: testRunID, InvocationID: testInvocation}}
-	if _, created, err := service.CreateAssetRevision(context.Background(), command); err != nil || !created || !called || len(authorizer.requirement.Roles) != 0 {
+	if _, created, err := service.createAssetRevision(context.Background(), command); err != nil || !created || !called || len(authorizer.requirement.Roles) != 0 {
 		t.Fatalf("created=%t called=%t requirement=%+v err=%v", created, called, authorizer.requirement, err)
 	}
 	called = false
 	command.Provenance.InvocationID = "80000000-0000-4000-8000-000000000008"
-	if _, _, err := service.CreateAssetRevision(context.Background(), command); !errors.Is(err, ErrInvalid) || called {
+	if _, _, err := service.createAssetRevision(context.Background(), command); !errors.Is(err, ErrInvalid) || called {
 		t.Fatalf("spoof error=%v called=%t", err, called)
 	}
 }
