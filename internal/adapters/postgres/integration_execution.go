@@ -26,22 +26,25 @@ func NewIntegrationExecutionRepository(pool *pgxpool.Pool) (*IntegrationExecutio
 func (repository *IntegrationExecutionRepository) Claim(ctx context.Context, attemptID ids.IntegrationAttemptID, now, leaseExpiresAt time.Time) (integrationexecution.Claim, bool, error) {
 	var claim integrationexecution.Claim
 	var digest []byte
+	var referenceDigest []byte
 	err := repository.pool.QueryRow(ctx, `SELECT account_id,execution_id,attempt_id,mode,capability,release_id,release_version,approval_id,
-		connection_id,connection_revision_id,connection_revision,credential_id,credential_generation,payload_sha256,idempotency_key,lease_expires_at
-		FROM public.spyglass_claim_integration_execution($1,$2,$3)`, attemptID, now.UTC(), leaseExpiresAt.UTC()).Scan(&claim.AccountID,
+		connection_id,connection_revision_id,connection_revision,credential_id,credential_generation,credential_provider,
+		credential_reference_sha256,payload_sha256,idempotency_key,lease_expires_at
+		FROM public.spyglass_claim_integration_execution_v2($1,$2,$3)`, attemptID, now.UTC(), leaseExpiresAt.UTC()).Scan(&claim.AccountID,
 		&claim.ExecutionID, &claim.AttemptID, &claim.Mode, &claim.Capability, &claim.ReleaseID, &claim.ReleaseVersion, &claim.ApprovalID,
 		&claim.ConnectionID, &claim.ConnectionRevisionID, &claim.ConnectionRevision, &claim.CredentialID, &claim.CredentialGeneration,
-		&digest, &claim.IdempotencyKey, &claim.LeaseExpiresAt)
+		&claim.CredentialProvider, &referenceDigest, &digest, &claim.IdempotencyKey, &claim.LeaseExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return integrationexecution.Claim{}, false, nil
 	}
 	if err != nil {
 		return integrationexecution.Claim{}, false, errors.Join(integrationexecution.ErrUnavailable, err)
 	}
-	if len(digest) != len(claim.ManifestSHA256) {
+	if len(digest) != len(claim.ManifestSHA256) || len(referenceDigest) != len(claim.CredentialReferenceSHA256) {
 		return claim, true, integrationexecution.ErrInvalid
 	}
 	copy(claim.ManifestSHA256[:], digest)
+	copy(claim.CredentialReferenceSHA256[:], referenceDigest)
 	return claim, true, nil
 }
 

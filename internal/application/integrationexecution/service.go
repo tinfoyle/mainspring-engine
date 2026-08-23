@@ -28,29 +28,32 @@ var (
 )
 
 type Claim struct {
-	AccountID            ids.AccountID
-	ExecutionID          ids.IntegrationExecutionID
-	AttemptID            ids.IntegrationAttemptID
-	Mode                 domain.AttemptMode
-	Capability           domain.Capability
-	ReleaseID            ids.MarketingReleaseID
-	ReleaseVersion       uint64
-	ApprovalID           ids.ConsequentialApprovalID
-	ConnectionID         ids.IntegrationConnectionID
-	ConnectionRevisionID ids.IntegrationConnectionRevisionID
-	ConnectionRevision   uint64
-	CredentialID         ids.IntegrationCredentialID
-	CredentialGeneration uint64
-	ManifestSHA256       [sha256.Size]byte
-	IdempotencyKey       ids.IntegrationExecutionID
-	LeaseExpiresAt       time.Time
+	AccountID                 ids.AccountID
+	ExecutionID               ids.IntegrationExecutionID
+	AttemptID                 ids.IntegrationAttemptID
+	Mode                      domain.AttemptMode
+	Capability                domain.Capability
+	ReleaseID                 ids.MarketingReleaseID
+	ReleaseVersion            uint64
+	ApprovalID                ids.ConsequentialApprovalID
+	ConnectionID              ids.IntegrationConnectionID
+	ConnectionRevisionID      ids.IntegrationConnectionRevisionID
+	ConnectionRevision        uint64
+	CredentialID              ids.IntegrationCredentialID
+	CredentialGeneration      uint64
+	CredentialProvider        string
+	CredentialReferenceSHA256 [sha256.Size]byte
+	ManifestSHA256            [sha256.Size]byte
+	IdempotencyKey            ids.IntegrationExecutionID
+	LeaseExpiresAt            time.Time
 }
 
 func (claim Claim) Valid(now time.Time) bool {
 	return ids.Validate(string(claim.AccountID)) == nil && ids.Validate(string(claim.ExecutionID)) == nil && ids.Validate(string(claim.AttemptID)) == nil &&
 		ids.Validate(string(claim.ReleaseID)) == nil && ids.Validate(string(claim.ApprovalID)) == nil && ids.Validate(string(claim.ConnectionID)) == nil &&
 		ids.Validate(string(claim.ConnectionRevisionID)) == nil && ids.Validate(string(claim.CredentialID)) == nil && claim.ReleaseVersion > 0 &&
-		claim.ConnectionRevision > 0 && claim.CredentialGeneration > 0 && claim.ManifestSHA256 != [sha256.Size]byte{} &&
+		claim.ConnectionRevision > 0 && claim.CredentialGeneration > 0 && validCode.MatchString(claim.CredentialProvider) &&
+		claim.CredentialReferenceSHA256 != [sha256.Size]byte{} && claim.ManifestSHA256 != [sha256.Size]byte{} &&
 		claim.IdempotencyKey == claim.ExecutionID && (claim.Mode == domain.AttemptExecute || claim.Mode == domain.AttemptReconcile) &&
 		(claim.Capability == domain.CapabilityEmailSend || claim.Capability == domain.CapabilityWebPublish) && claim.LeaseExpiresAt.After(now.UTC())
 }
@@ -92,6 +95,8 @@ type CredentialRequest struct {
 	ConnectionID         ids.IntegrationConnectionID
 	CredentialID         ids.IntegrationCredentialID
 	CredentialGeneration uint64
+	CredentialProvider   string
+	ReferenceSHA256      [sha256.Size]byte
 	ExpiresAt            time.Time
 }
 
@@ -188,7 +193,8 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 	}
 	credentialLease, err := service.broker.Acquire(ctx, CredentialRequest{AccountID: claim.AccountID, ExecutionID: claim.ExecutionID,
 		AttemptID: claim.AttemptID, Mode: claim.Mode, Capability: claim.Capability, ConnectionID: claim.ConnectionID,
-		CredentialID: claim.CredentialID, CredentialGeneration: claim.CredentialGeneration, ExpiresAt: claim.LeaseExpiresAt})
+		CredentialID: claim.CredentialID, CredentialGeneration: claim.CredentialGeneration, CredentialProvider: claim.CredentialProvider,
+		ReferenceSHA256: claim.CredentialReferenceSHA256, ExpiresAt: claim.LeaseExpiresAt})
 	if err != nil || credentialLease == nil {
 		if err == nil {
 			err = ErrInvalid

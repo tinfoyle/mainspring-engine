@@ -313,3 +313,9 @@ There is no reduced-scope production shortcut. All intended application phases m
 - Stage rollback uses the retained Compose/release record; production rollback uses Kubernetes rollout by digest and recorded compatible configuration.
 
 Both Hostinger and LKE rollback paths must be rehearsed before general availability.
+
+## Integration provider-secret placement
+
+The constructed mounted credential broker uses the same workload-private filesystem contract in both environments; see [integration-credential-broker.md](integration-credential-broker.md). Hostinger will mount its owner-managed credential directory read-only into only the per-cell connector workers. LKE will project an environment Secret or secret-store CSI volume into only those workers, with no generic Kubernetes Secret-read RBAC. The approved opaque reference's SHA-256 is stored in Spyglass and is rejoined to provider code inside the execute-only claim; material remains outside PostgreSQL, images, Compose environment files and Git.
+
+This is deployment preparation, not an enablement decision. Stage and production connector workers remain closed until the immutable Marketing object lifecycle, exact email/web adapters, egress policy and applied provider certification are complete. Production promotion remains gated on all Phase 3 construction.

@@ -61,8 +61,9 @@ func (lease *executionCredentialLease) Close() error {
 }
 
 type executionCredentialBroker struct {
-	lease *executionCredentialLease
-	err   error
+	lease   *executionCredentialLease
+	err     error
+	request integrationexecution.CredentialRequest
 }
 
 type credentialInspectingConnector struct{ material []byte }
@@ -77,7 +78,8 @@ func (connector *credentialInspectingConnector) Reconcile(_ context.Context, cal
 	return integrationexecution.ConnectorResult{Outcome: domain.AttemptSucceeded}
 }
 
-func (broker *executionCredentialBroker) Acquire(context.Context, integrationexecution.CredentialRequest) (integrationexecution.CredentialLease, error) {
+func (broker *executionCredentialBroker) Acquire(_ context.Context, request integrationexecution.CredentialRequest) (integrationexecution.CredentialLease, error) {
+	broker.request = request
 	if broker.err != nil {
 		return nil, broker.err
 	}
@@ -106,6 +108,9 @@ func TestProcessOneExecutesAndSettlesScriptedConnectorOutcome(t *testing.T) {
 	worked, err := service.ProcessOne(context.Background())
 	if err != nil || !worked || repository.completion == nil || repository.completion.Outcome != domain.AttemptSucceeded || len(connector.Calls()) != 1 || broker.lease == nil || !broker.lease.closed {
 		t.Fatalf("worked=%t completion=%+v calls=%v err=%v", worked, repository.completion, connector.Calls(), err)
+	}
+	if broker.request.CredentialProvider != claim.CredentialProvider || broker.request.ReferenceSHA256 != claim.CredentialReferenceSHA256 {
+		t.Fatalf("broker request did not preserve credential attestation: %+v", broker.request)
 	}
 }
 
@@ -203,6 +208,7 @@ func executionClaim(manifest []byte, mode domain.AttemptMode) integrationexecuti
 		ApprovalID: "a1400000-0000-4000-8000-000000000004", ConnectionID: "a1500000-0000-4000-8000-000000000005",
 		ConnectionRevisionID: "a1600000-0000-4000-8000-000000000006", ConnectionRevision: 1,
 		CredentialID: "a1700000-0000-4000-8000-000000000007", CredentialGeneration: 1,
+		CredentialProvider: "mock_smtp", CredentialReferenceSHA256: sha256.Sum256([]byte("env://local/mock-smtp")),
 		ManifestSHA256: sha256.Sum256(manifest), IdempotencyKey: "a1200000-0000-4000-8000-000000000002"}
 }
 

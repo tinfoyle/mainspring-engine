@@ -119,6 +119,13 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 	if err != nil || !found || first.Mode != integrationsdomain.AttemptExecute || first.ExecutionID != ids.IntegrationExecutionID(fixture.executionID) || first.CredentialID != ids.IntegrationCredentialID(fixture.credentialID) {
 		t.Fatalf("first claim=%+v", first)
 	}
+	var expectedReference [sha256.Size]byte
+	for index := range expectedReference {
+		expectedReference[index] = 0x71
+	}
+	if first.CredentialProvider != "mock_smtp" || first.CredentialReferenceSHA256 != expectedReference {
+		t.Fatalf("credential attestation missing from claim: %+v", first)
+	}
 	delivery, err := executionRepository.LoadDelivery(ctx, first)
 	if err != nil || delivery.ConnectorKind != integrationsdomain.ConnectorEmail || delivery.Revision.ID != first.ConnectionRevisionID ||
 		len(delivery.Assets) != 1 || delivery.Assets[0].ID != "83900000-0000-4000-8000-000000000009" {
@@ -492,8 +499,9 @@ func seedIntegrationConnection(t *testing.T, ctx context.Context, owner *pgxpool
 
 type integrationClaim struct {
 	accountID, executionID, attemptID, mode, capability, releaseID, approvalID, connectionID, revisionID, credentialID string
+	credentialProvider                                                                                                 string
 	releaseVersion, revision, credentialGeneration                                                                     int64
-	payload                                                                                                            []byte
+	credentialReference, payload                                                                                       []byte
 	idempotencyKey                                                                                                     string
 	lease                                                                                                              time.Time
 }
@@ -509,9 +517,10 @@ func claimIntegrationExecution(t *testing.T, ctx context.Context, owner *pgxpool
 
 func tryClaimIntegrationExecution(ctx context.Context, owner *pgxpool.Pool, attemptID string, at, lease time.Time) (integrationClaim, error) {
 	var value integrationClaim
-	err := owner.QueryRow(ctx, `SELECT * FROM public.spyglass_claim_integration_execution($1,$2,$3)`, attemptID, at, lease).Scan(
+	err := owner.QueryRow(ctx, `SELECT * FROM public.spyglass_claim_integration_execution_v2($1,$2,$3)`, attemptID, at, lease).Scan(
 		&value.accountID, &value.executionID, &value.attemptID, &value.mode, &value.capability, &value.releaseID, &value.releaseVersion, &value.approvalID,
-		&value.connectionID, &value.revisionID, &value.revision, &value.credentialID, &value.credentialGeneration, &value.payload, &value.idempotencyKey, &value.lease)
+		&value.connectionID, &value.revisionID, &value.revision, &value.credentialID, &value.credentialGeneration, &value.credentialProvider,
+		&value.credentialReference, &value.payload, &value.idempotencyKey, &value.lease)
 	return value, err
 }
 
