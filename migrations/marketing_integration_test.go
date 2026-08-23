@@ -217,6 +217,20 @@ func TestMarketingRepositoryReplaysRestoresAndIsolatesDraftLifecycle(t *testing.
 	if err != nil || campaign.Version != 2 || campaign.Objective != "Announce the final release" {
 		t.Fatalf("revised campaign=%+v err=%v", campaign, err)
 	}
+	secondaryCampaignID := ids.MarketingCampaignID("f4100000-0000-4000-8000-000000000004")
+	secondaryDraft := draft
+	secondaryDraft.ID, secondaryDraft.Name, secondaryDraft.CreatedAt = secondaryCampaignID, "Secondary launch", now.Add(90*time.Second)
+	if _, created, err := repository.CreateCampaign(ctx, secondaryDraft, accounts.RoleMember, mutation(string(secondaryCampaignID), "created", secondaryDraft.CreatedAt)); err != nil || !created {
+		t.Fatalf("secondary campaign created=%t err=%v", created, err)
+	}
+	campaignPage, err := repository.ListCampaigns(ctx, accountID, marketingapp.CampaignListQuery{Limit: 1})
+	if err != nil || len(campaignPage.Items) != 1 || campaignPage.Items[0].ID != campaignID || campaignPage.NextCursor == nil {
+		t.Fatalf("campaign page=%+v err=%v", campaignPage, err)
+	}
+	campaignRemainder, err := repository.ListCampaigns(ctx, accountID, marketingapp.CampaignListQuery{After: campaignPage.NextCursor, Limit: 1})
+	if err != nil || len(campaignRemainder.Items) != 1 || campaignRemainder.Items[0].ID != secondaryCampaignID || campaignRemainder.NextCursor != nil {
+		t.Fatalf("campaign remainder=%+v err=%v", campaignRemainder, err)
+	}
 
 	assetID := ids.MarketingAssetID("f6000000-0000-4000-8000-000000000006")
 	digest1 := sha256.Sum256([]byte("launch copy one"))
@@ -241,6 +255,20 @@ func TestMarketingRepositoryReplaysRestoresAndIsolatesDraftLifecycle(t *testing.
 	release, created, err := repository.CreateReleasePlan(ctx, releaseInput, accounts.RoleMember, mutation(string(releaseID), "created", releaseInput.CreatedAt))
 	if err != nil || !created || release.State != marketingdomain.ReleaseDraft {
 		t.Fatalf("release=%+v created=%t err=%v", release, created, err)
+	}
+	secondaryReleaseID := ids.MarketingReleaseID("f9100000-0000-4000-8000-000000000009")
+	secondaryReleaseInput := releaseInput
+	secondaryReleaseInput.ID, secondaryReleaseInput.Name, secondaryReleaseInput.CreatedAt = secondaryReleaseID, "Secondary release", now.Add(330*time.Second)
+	if _, created, err := repository.CreateReleasePlan(ctx, secondaryReleaseInput, accounts.RoleMember, mutation(string(secondaryReleaseID), "created", secondaryReleaseInput.CreatedAt)); err != nil || !created {
+		t.Fatalf("secondary release created=%t err=%v", created, err)
+	}
+	releasePage, err := repository.ListReleasePlans(ctx, accountID, marketingapp.ReleaseListQuery{CampaignID: campaignID, Limit: 1})
+	if err != nil || len(releasePage.Items) != 1 || releasePage.Items[0].ID != secondaryReleaseID || releasePage.NextCursor == nil {
+		t.Fatalf("release page=%+v err=%v", releasePage, err)
+	}
+	releaseRemainder, err := repository.ListReleasePlans(ctx, accountID, marketingapp.ReleaseListQuery{CampaignID: campaignID, After: releasePage.NextCursor, Limit: 1})
+	if err != nil || len(releaseRemainder.Items) != 1 || releaseRemainder.Items[0].ID != releaseID || releaseRemainder.NextCursor != nil {
+		t.Fatalf("release remainder=%+v err=%v", releaseRemainder, err)
 	}
 	submitEvent := "fa000000-0000-4000-8000-00000000000a"
 	release, err = repository.SubmitRelease(ctx, accountID, releaseID, 1, campaign.Version, actor, accounts.RoleMember,

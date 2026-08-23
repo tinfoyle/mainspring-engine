@@ -1,6 +1,6 @@
 # Marketing module
 
-- Status: provider-neutral kernel, forced-RLS persistence and classified command/detail application boundary constructed; list queries and every executable transport remain closed
+- Status: provider-neutral kernel, forced-RLS persistence, classified lifecycle and stable campaign/release pages constructed; asset queries and every executable transport remain closed
 - Package boundary: Marketing
 - Decision: [ADR-0007](decisions/0007-marketing-governed-release.md)
 
@@ -16,7 +16,7 @@ A release freezes one campaign version, sorted unique asset revisions and its ex
 
 1. Typed campaign lifecycle, immutable creative revisions, Agent provenance and exact approval-bound release snapshots. **Constructed.**
 2. Account-owned forced-RLS persistence, immutable redacted events, optimistic replay, movement fencing and exact erasure/restore participation. **Constructed.**
-3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Command/detail lifecycle constructed; stable list pages remain.**
+3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Campaign/release detail and stable pages constructed; asset pages remain.**
 4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace.
 5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery.
 6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability.
@@ -44,7 +44,13 @@ The Marketing application service now applies the canonical package requirement 
 
 The classified PostgreSQL repository executes every command in an Account-scoped transaction. Campaign and release creation, campaign revision, asset revision, release submit/approve/cancel and campaign activate/pause/complete/archive preserve immutable event UUIDs and exact retry outcomes. Conflicting request-ID reuse, altered replay input, stale versions, cross-Account reads, mismatched asset/campaign references and unsupported state transitions fail closed. Release creation resolves every exact asset revision inside the campaign; activation locks both campaign and release before the database rechecks current Attention approval.
 
-Fresh PostgreSQL 17 coverage runs the complete draft-to-submitted-to-approved-to-active lifecycle, rejects cancellation while active, pauses then cancels, restores exact snapshots, advances two content revisions, proves replay and hides the Account from another Account. Stable list pages and bounded cursors remain before generated transports can be added.
+Fresh PostgreSQL 17 coverage runs the complete draft-to-submitted-to-approved-to-active lifecycle, rejects cancellation while active, pauses then cancels, restores exact snapshots, advances two content revisions, proves replay and hides the Account from another Account. Stable asset/revision pages remain before generated transports can be added.
+
+## Query checkpoint
+
+The read boundary now exposes bounded campaign pages ordered by stable `(updated_at DESC,id)` and per-campaign release pages ordered by `(created_at DESC,id)`. Optional campaign-state filtering is validated against the closed lifecycle vocabulary. Defaults and hard maxima are application-owned, cursors are structurally complete, and the repository fetches one extra identity so `NextCursor` is emitted only when another row actually exists. Each selected aggregate is restored through the typed kernel under the same read-only Account transaction.
+
+Fresh PostgreSQL 17 traversal tests create two campaigns and two releases, prove exact first/remainder pages without duplicates and preserve the complete channel/asset snapshot. Asset/revision query pages remain before the generated transport contract.
 
 ## Invariants
 

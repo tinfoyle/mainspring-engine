@@ -81,6 +81,53 @@ func (repository *MarketingRepository) GetCampaign(ctx context.Context, accountI
 	return result, classifyMarketing(err)
 }
 
+func (repository *MarketingRepository) ListCampaigns(ctx context.Context, accountID ids.AccountID, query marketingapp.CampaignListQuery) (marketingapp.CampaignPage, error) {
+	query, err := normalizeMarketingCampaignQuery(query)
+	if err != nil {
+		return marketingapp.CampaignPage{}, err
+	}
+	var page marketingapp.CampaignPage
+	err = repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id FROM spyglass.marketing_campaigns
+			WHERE account_id=$1 AND ($2='' OR state=$2) AND ($3::timestamptz IS NULL OR updated_at<$3 OR (updated_at=$3 AND id>$4))
+			ORDER BY updated_at DESC,id LIMIT $5`, accountID, query.State, marketingCampaignCursorTime(query.After), marketingCampaignCursorID(query.After), query.Limit+1)
+		if err != nil {
+			return err
+		}
+		var idsPage []ids.MarketingCampaignID
+		for rows.Next() {
+			var id ids.MarketingCampaignID
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			idsPage = append(idsPage, id)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		hasMore := len(idsPage) > query.Limit
+		if hasMore {
+			idsPage = idsPage[:query.Limit]
+		}
+		for _, id := range idsPage {
+			value, err := loadMarketingCampaign(ctx, tx, accountID, id, false)
+			if err != nil {
+				return err
+			}
+			page.Items = append(page.Items, value)
+		}
+		if hasMore {
+			last := page.Items[len(page.Items)-1]
+			page.NextCursor = &marketingapp.CampaignCursor{UpdatedAt: last.UpdatedAt, ID: last.ID}
+		}
+		return nil
+	})
+	return page, classifyMarketing(err)
+}
+
 func (repository *MarketingRepository) ReviseCampaign(ctx context.Context, accountID ids.AccountID, campaignID ids.MarketingCampaignID, command domain.CampaignRevision, mutation marketingapp.Mutation) (domain.Campaign, error) {
 	if !validMarketingMutation(mutation, "revised", command.Actor, command.At) {
 		return domain.Campaign{}, marketingapp.ErrInvalid
@@ -279,6 +326,53 @@ func (repository *MarketingRepository) GetReleasePlan(ctx context.Context, accou
 		return err
 	})
 	return result, classifyMarketing(err)
+}
+
+func (repository *MarketingRepository) ListReleasePlans(ctx context.Context, accountID ids.AccountID, query marketingapp.ReleaseListQuery) (marketingapp.ReleasePage, error) {
+	query, err := normalizeMarketingReleaseQuery(query)
+	if err != nil {
+		return marketingapp.ReleasePage{}, err
+	}
+	var page marketingapp.ReleasePage
+	err = repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id FROM spyglass.marketing_release_plans
+			WHERE account_id=$1 AND campaign_id=$2 AND ($3::timestamptz IS NULL OR created_at<$3 OR (created_at=$3 AND id>$4))
+			ORDER BY created_at DESC,id LIMIT $5`, accountID, query.CampaignID, marketingReleaseCursorTime(query.After), marketingReleaseCursorID(query.After), query.Limit+1)
+		if err != nil {
+			return err
+		}
+		var idsPage []ids.MarketingReleaseID
+		for rows.Next() {
+			var id ids.MarketingReleaseID
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			idsPage = append(idsPage, id)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		hasMore := len(idsPage) > query.Limit
+		if hasMore {
+			idsPage = idsPage[:query.Limit]
+		}
+		for _, id := range idsPage {
+			value, err := loadMarketingRelease(ctx, tx, accountID, id, false)
+			if err != nil {
+				return err
+			}
+			page.Items = append(page.Items, value)
+		}
+		if hasMore {
+			last := page.Items[len(page.Items)-1]
+			page.NextCursor = &marketingapp.ReleaseCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+		}
+		return nil
+	})
+	return page, classifyMarketing(err)
 }
 
 func (repository *MarketingRepository) SubmitRelease(ctx context.Context, accountID ids.AccountID, releaseID ids.MarketingReleaseID, expected, campaignVersion uint64, actor domain.Actor, role accounts.MembershipRole, mutation marketingapp.Mutation) (domain.ReleasePlan, error) {
@@ -625,4 +719,59 @@ func nullableActorID(actor *domain.Actor) any {
 		return nil
 	}
 	return actor.ID
+}
+
+func normalizeMarketingCampaignQuery(query marketingapp.CampaignListQuery) (marketingapp.CampaignListQuery, error) {
+	if query.Limit == 0 {
+		query.Limit = marketingapp.DefaultPageSize
+	}
+	if query.Limit < 1 || query.Limit > marketingapp.MaximumPageSize || (query.State != "" && query.State != domain.CampaignDraft && query.State != domain.CampaignActive &&
+		query.State != domain.CampaignPaused && query.State != domain.CampaignCompleted && query.State != domain.CampaignArchived) {
+		return marketingapp.CampaignListQuery{}, marketingapp.ErrInvalid
+	}
+	if query.After != nil && (query.After.UpdatedAt.IsZero() || ids.Validate(string(query.After.ID)) != nil) {
+		return marketingapp.CampaignListQuery{}, marketingapp.ErrInvalid
+	}
+	return query, nil
+}
+
+func normalizeMarketingReleaseQuery(query marketingapp.ReleaseListQuery) (marketingapp.ReleaseListQuery, error) {
+	if query.Limit == 0 {
+		query.Limit = marketingapp.DefaultPageSize
+	}
+	if query.Limit < 1 || query.Limit > marketingapp.MaximumPageSize || ids.Validate(string(query.CampaignID)) != nil {
+		return marketingapp.ReleaseListQuery{}, marketingapp.ErrInvalid
+	}
+	if query.After != nil && (query.After.CreatedAt.IsZero() || ids.Validate(string(query.After.ID)) != nil) {
+		return marketingapp.ReleaseListQuery{}, marketingapp.ErrInvalid
+	}
+	return query, nil
+}
+
+func marketingCampaignCursorTime(cursor *marketingapp.CampaignCursor) any {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.UpdatedAt.UTC()
+}
+
+func marketingCampaignCursorID(cursor *marketingapp.CampaignCursor) any {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.ID
+}
+
+func marketingReleaseCursorTime(cursor *marketingapp.ReleaseCursor) any {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.CreatedAt.UTC()
+}
+
+func marketingReleaseCursorID(cursor *marketingapp.ReleaseCursor) any {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.ID
 }

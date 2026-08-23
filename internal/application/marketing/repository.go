@@ -36,10 +36,12 @@ func (value Mutation) Valid() bool {
 type Store interface {
 	CreateCampaign(context.Context, domain.CampaignDraftInput, accounts.MembershipRole, Mutation) (domain.Campaign, bool, error)
 	GetCampaign(context.Context, ids.AccountID, ids.MarketingCampaignID) (domain.Campaign, error)
+	ListCampaigns(context.Context, ids.AccountID, CampaignListQuery) (CampaignPage, error)
 	ReviseCampaign(context.Context, ids.AccountID, ids.MarketingCampaignID, domain.CampaignRevision, Mutation) (domain.Campaign, error)
 	CreateAssetRevision(context.Context, domain.AssetRevisionInput, accounts.MembershipRole, Mutation) (domain.AssetRevision, bool, error)
 	CreateReleasePlan(context.Context, domain.ReleasePlanInput, accounts.MembershipRole, Mutation) (domain.ReleasePlan, bool, error)
 	GetReleasePlan(context.Context, ids.AccountID, ids.MarketingReleaseID) (domain.ReleasePlan, error)
+	ListReleasePlans(context.Context, ids.AccountID, ReleaseListQuery) (ReleasePage, error)
 	SubmitRelease(context.Context, ids.AccountID, ids.MarketingReleaseID, uint64, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.ReleasePlan, error)
 	ApproveRelease(context.Context, ids.AccountID, ids.MarketingReleaseID, uint64, ids.ConsequentialApprovalID, domain.Actor, accounts.MembershipRole, Mutation) (domain.ReleasePlan, error)
 	CancelRelease(context.Context, ids.AccountID, ids.MarketingReleaseID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.ReleasePlan, error)

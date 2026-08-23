@@ -73,6 +73,17 @@ func (service *Service) GetCampaign(ctx context.Context, actor access.Actor, acc
 	return service.store.GetCampaign(ctx, accountID, campaignID)
 }
 
+func (service *Service) ListCampaigns(ctx context.Context, actor access.Actor, accountID ids.AccountID, query CampaignListQuery) (CampaignPage, error) {
+	if _, err := service.authorize(ctx, actor, accountID, false, false); err != nil {
+		return CampaignPage{}, err
+	}
+	query, err := query.normalized()
+	if err != nil {
+		return CampaignPage{}, err
+	}
+	return service.store.ListCampaigns(ctx, accountID, query)
+}
+
 type ReviseCampaignCommand struct {
 	Actor           access.Actor
 	AccountID       ids.AccountID
@@ -172,6 +183,17 @@ func (service *Service) GetRelease(ctx context.Context, actor access.Actor, acco
 		return domain.ReleasePlan{}, ErrInvalid
 	}
 	return service.store.GetReleasePlan(ctx, accountID, releaseID)
+}
+
+func (service *Service) ListReleases(ctx context.Context, actor access.Actor, accountID ids.AccountID, query ReleaseListQuery) (ReleasePage, error) {
+	if _, err := service.authorize(ctx, actor, accountID, false, false); err != nil {
+		return ReleasePage{}, err
+	}
+	query, err := query.normalized()
+	if err != nil {
+		return ReleasePage{}, err
+	}
+	return service.store.ListReleasePlans(ctx, accountID, query)
 }
 
 type ReleaseTransitionCommand struct {
