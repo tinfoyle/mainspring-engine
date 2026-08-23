@@ -174,6 +174,29 @@ func TestDocumentProcessorPreservesScannedPlainTextBytesWithoutTikaNormalization
 	}
 }
 
+func TestDocumentProcessorPublishesOnlyIntegrationSourceRevision(t *testing.T) {
+	source := []byte("synced source document")
+	processor, repository, queue, _, _, _, clock := documentProcessorFixture(t, source, source)
+	repository.revision.CreatedBy = knowledgedomain.Actor{Kind: knowledgedomain.ActorWorkload, ID: IntegrationSourceSyncWorkloadID}
+	repository.publishErr = errors.New("publication transaction unavailable")
+	queue.state = "retry"
+	clock.now = clock.now.Add(time.Second)
+	result, err := processor.ProcessOne(context.Background())
+	if err == nil || !result.Worked || result.Completed || queue.failed != 1 || queue.failureCode != "source_publication_failed" ||
+		repository.revision.State != knowledgedomain.RevisionReady || repository.document.State != knowledgedomain.DocumentProcessing {
+		t.Fatalf("failed publication result=%+v document=%+v revision=%+v queue=%+v err=%v", result, repository.document,
+			repository.revision, queue, err)
+	}
+	repository.publishErr = nil
+	clock.now = clock.now.Add(time.Second)
+	result, err = processor.ProcessOne(context.Background())
+	if err != nil || !result.Completed || queue.completed != 1 || repository.document.State != knowledgedomain.DocumentReady ||
+		repository.document.CurrentRevisionID != repository.revision.ID || repository.mutation.ReasonCode != "source_revision_published" {
+		t.Fatalf("result=%+v document=%+v revision=%+v mutation=%+v completed=%d err=%v", result, repository.document,
+			repository.revision, repository.mutation, queue.completed, err)
+	}
+}
+
 func TestDocumentProcessorCompletesInfectedRevisionWithoutExtraction(t *testing.T) {
 	processor, repository, queue, objects, scanner, extractor, clock := documentProcessorFixture(t, []byte("infected fixture"), []byte("unused"))
 	scanner.result = MalwareScanResult{State: knowledgedomain.ScanInfected, Engine: "ClamAV 1.4.6", Signature: "Eicar-Signature"}

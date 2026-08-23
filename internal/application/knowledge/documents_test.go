@@ -28,6 +28,7 @@ type documentRepository struct {
 	retrievalItems    []DocumentCitation
 	citation          DocumentCitation
 	includeRestricted bool
+	publishErr        error
 }
 
 func (repository *documentRepository) RetrieveDocumentChunks(_ context.Context, _ ids.AccountID, query DocumentRetrievalQuery) ([]DocumentCitation, error) {
@@ -101,6 +102,9 @@ func (repository *documentRepository) IndexDocumentRevision(_ context.Context, v
 	return value, nil
 }
 func (repository *documentRepository) PublishDocumentRevision(_ context.Context, _ ids.AccountID, _ ids.KnowledgeDocumentID, _ ids.KnowledgeDocumentRevisionID, expected uint64, mutation Mutation) (knowledgedomain.Document, error) {
+	if repository.publishErr != nil {
+		return knowledgedomain.Document{}, repository.publishErr
+	}
 	result, err := repository.document.Publish(repository.revision, expected, mutation.At)
 	if err == nil {
 		repository.document, repository.mutation = result, mutation
@@ -297,6 +301,16 @@ func TestRevisionAdmissionIsReplaySafeAndAllowsOnlyOnePendingRevision(t *testing
 	if _, err := service.AdmitRevision(context.Background(), command); !errors.Is(err, ErrConstraint) {
 		t.Fatalf("second pending revision err=%v", err)
 	}
+	failed, err := revision.RecordScan(knowledgedomain.ScanInfected, "clamav", "Eicar-Signature", clock.now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.revision = failed
+	clock.now = clock.now.Add(2 * time.Second)
+	recovered, err := service.AdmitRevision(context.Background(), command)
+	if err != nil || recovered.Number != 3 || recovered.ID != command.RevisionID {
+		t.Fatalf("revision after failed pending version=%+v err=%v", recovered, err)
+	}
 }
 
 func TestUploadRevisionCleansNewObjectWhenAdmissionLosesRace(t *testing.T) {
@@ -315,6 +329,34 @@ func TestUploadRevisionCleansNewObjectWhenAdmissionLosesRace(t *testing.T) {
 	}
 	if _, err := service.UploadRevision(context.Background(), command); !errors.Is(err, ErrConflict) || objects.puts != 1 || objects.deleted == nil || objects.deleted.Version != "object-version-1" {
 		t.Fatalf("puts=%d orphan cleanup=%+v err=%v", objects.puts, objects.deleted, err)
+	}
+}
+
+func TestSourceDeletionRequiresWorkloadAndExactTerminalRevision(t *testing.T) {
+	service, authorizer, repository, clock := documentServiceFixture(t)
+	_, revision := readyDocumentFixture(t, service, repository, clock)
+	repository.document.Sensitivity = knowledgedomain.SensitivityRestricted
+	authorizer.account.Role = ""
+	actor := access.Actor{WorkloadID: "integration-source-sync"}
+	if detail, err := service.GetDetail(context.Background(), actor, appKnowledgeAccount, appKnowledgeDocument); err != nil || detail.LatestRevision.ID != revision.ID {
+		t.Fatalf("workload detail=%+v err=%v", detail, err)
+	}
+	command := DeleteSourceDocumentCommand{Actor: actor, AccountID: appKnowledgeAccount, DocumentID: appKnowledgeDocument,
+		RevisionID: revision.ID, ContentSHA256: sha256.Sum256([]byte("wrong")), CorrelationID: "99000000-0000-4000-8000-000000000009"}
+	if _, err := service.DeleteSource(context.Background(), command); !errors.Is(err, ErrConstraint) {
+		t.Fatalf("wrong source digest deletion err=%v", err)
+	}
+	command.ContentSHA256 = revision.ContentSHA256
+	detail, err := service.DeleteSource(context.Background(), command)
+	if err != nil || detail.Document.State != knowledgedomain.DocumentDeletionPending || detail.LatestRevision.ID != revision.ID || repository.mutation.ReasonCode != "source_deletion_requested" {
+		t.Fatalf("deletion detail=%+v mutation=%+v err=%v", detail, repository.mutation, err)
+	}
+	if replayed, err := service.DeleteSource(context.Background(), command); err != nil || replayed.Document.State != knowledgedomain.DocumentDeletionPending {
+		t.Fatalf("replayed source deletion=%+v err=%v", replayed, err)
+	}
+	command.Actor = access.Actor{UserID: appKnowledgeUser}
+	if _, err := service.DeleteSource(context.Background(), command); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("human source deletion err=%v", err)
 	}
 }
 

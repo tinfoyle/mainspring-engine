@@ -73,6 +73,8 @@ type DocumentProcessor struct {
 	actor       knowledgedomain.Actor
 }
 
+const IntegrationSourceSyncWorkloadID = "integration-source-sync"
+
 func NewDocumentProcessor(queue DocumentProcessingQueue, documents *DocumentService, objects DocumentObjectStore, scanner MalwareScanner, extractor TextExtractor, clock Clock, generator ids.Generator, lease time.Duration, maxAttempts int) (*DocumentProcessor, error) {
 	if queue == nil || documents == nil || objects == nil || scanner == nil || extractor == nil || clock == nil || generator == nil || lease < time.Second || lease > 30*time.Minute || maxAttempts < 1 || maxAttempts > MaximumDocumentProcessingMaxAttempts {
 		return nil, errors.New("Knowledge document processor dependencies or bounds are invalid")
@@ -111,15 +113,23 @@ func (processor *DocumentProcessor) ProcessOne(ctx context.Context) (DocumentPro
 		}
 	}
 	if revision.State == knowledgedomain.RevisionExtracting && revision.Extraction == knowledgedomain.ExtractionReady {
-		if err := processor.index(ctx, claim, revision, correlationID); err != nil {
+		revision, err = processor.index(ctx, claim, revision, correlationID)
+		if err != nil {
 			if errors.Is(err, ErrInvalid) {
 				return processor.reject(ctx, claim, "chunking_invalid", err)
 			}
 			return processor.retry(ctx, claim, "indexing_failed", err)
 		}
+	}
+	if revision.State == knowledgedomain.RevisionReady {
+		if revision.CreatedBy.Kind == knowledgedomain.ActorWorkload && revision.CreatedBy.ID == IntegrationSourceSyncWorkloadID {
+			if _, err := processor.documents.publishSourceRevision(ctx, processor.actor, claim.AccountID, revision.DocumentID, revision.ID); err != nil {
+				return processor.retry(ctx, claim, "source_publication_failed", err)
+			}
+		}
 		return processor.complete(ctx, claim)
 	}
-	if revision.State == knowledgedomain.RevisionReady || revision.State == knowledgedomain.RevisionFailed || revision.State == knowledgedomain.RevisionDeleted {
+	if revision.State == knowledgedomain.RevisionFailed || revision.State == knowledgedomain.RevisionDeleted {
 		return processor.complete(ctx, claim)
 	}
 	return processor.reject(ctx, claim, "revision_state_invalid", ErrDocumentProcessingClaim)
@@ -186,17 +196,16 @@ func extractPlainTextIdentity(body io.Reader, size int64, digest [sha256.Size]by
 	return TextExtractionResult{Text: text, TextSHA256: digest, Extractor: "Spyglass text/plain identity v1"}, nil
 }
 
-func (processor *DocumentProcessor) index(ctx context.Context, claim DocumentProcessingClaim, revision knowledgedomain.DocumentRevision, correlationID string) error {
+func (processor *DocumentProcessor) index(ctx context.Context, claim DocumentProcessingClaim, revision knowledgedomain.DocumentRevision, correlationID string) (knowledgedomain.DocumentRevision, error) {
 	text, err := processor.readExtracted(ctx, revision)
 	if err != nil {
-		return err
+		return revision, err
 	}
 	chunks, err := ChunkExtractedText(text)
 	if err != nil {
-		return err
+		return revision, err
 	}
-	_, err = processor.documents.index(ctx, processor.actor, claim.AccountID, claim.RevisionID, DocumentChunkGeneration, chunks, correlationID, processor.clock.Now().UTC())
-	return err
+	return processor.documents.index(ctx, processor.actor, claim.AccountID, claim.RevisionID, DocumentChunkGeneration, chunks, correlationID, processor.clock.Now().UTC())
 }
 
 func (processor *DocumentProcessor) readExtracted(ctx context.Context, revision knowledgedomain.DocumentRevision) ([]byte, error) {

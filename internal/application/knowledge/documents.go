@@ -159,7 +159,7 @@ func (s *DocumentService) buildRevisionAdmission(ctx context.Context, command Ad
 		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, existingErr
 	} else {
 		latest, latestErr := s.repository.GetLatestDocumentRevision(ctx, command.AccountID, command.DocumentID)
-		if latestErr != nil || latest.Number != document.CurrentRevision || document.State != knowledgedomain.DocumentReady {
+		if latestErr != nil || !canAdmitDocumentRevision(document, latest) {
 			if latestErr != nil {
 				return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, latestErr
 			}
@@ -177,6 +177,17 @@ func (s *DocumentService) buildRevisionAdmission(ctx context.Context, command Ad
 		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, ErrInvalid
 	}
 	return document, revision, actor, nil
+}
+
+func canAdmitDocumentRevision(document knowledgedomain.Document, latest knowledgedomain.DocumentRevision) bool {
+	if latest.AccountID != document.AccountID || latest.DocumentID != document.ID || latest.Number < document.CurrentRevision {
+		return false
+	}
+	if document.State == knowledgedomain.DocumentReady && latest.Number == document.CurrentRevision {
+		return latest.ID == document.CurrentRevisionID && latest.State == knowledgedomain.RevisionReady
+	}
+	return (document.State == knowledgedomain.DocumentReady || document.State == knowledgedomain.DocumentFailed) &&
+		latest.State == knowledgedomain.RevisionFailed
 }
 
 func (s *DocumentService) buildAdmission(ctx context.Context, command AdmitDocumentCommand) (knowledgedomain.Document, knowledgedomain.DocumentRevision, knowledgedomain.Actor, error) {
@@ -353,6 +364,35 @@ func (s *DocumentService) Publish(ctx context.Context, command PublishDocumentCo
 	return s.repository.PublishDocumentRevision(ctx, command.AccountID, command.DocumentID, command.RevisionID, command.ExpectedVersion, Mutation{Actor: actor, CorrelationID: command.CorrelationID, ReasonCode: "revision_published", At: now})
 }
 
+func (s *DocumentService) publishSourceRevision(ctx context.Context, actor knowledgedomain.Actor, accountID ids.AccountID,
+	documentID ids.KnowledgeDocumentID, revisionID ids.KnowledgeDocumentRevisionID) (knowledgedomain.Document, error) {
+	if actor.Kind != knowledgedomain.ActorWorkload || actor.ID != documentProcessingWorkloadID {
+		return knowledgedomain.Document{}, ErrInvalid
+	}
+	correlationID := string(revisionID)
+	if _, _, err := s.authorizeMutation(ctx, access.Actor{WorkloadID: actor.ID}, accountID, correlationID); err != nil {
+		return knowledgedomain.Document{}, err
+	}
+	document, err := s.repository.GetDocument(ctx, accountID, documentID)
+	if err != nil {
+		return knowledgedomain.Document{}, err
+	}
+	if document.State == knowledgedomain.DocumentReady && document.CurrentRevisionID == revisionID {
+		return document, nil
+	}
+	revision, err := s.repository.GetDocumentRevision(ctx, accountID, revisionID)
+	if err != nil {
+		return knowledgedomain.Document{}, err
+	}
+	if revision.DocumentID != documentID || revision.CreatedBy.Kind != knowledgedomain.ActorWorkload ||
+		revision.CreatedBy.ID != IntegrationSourceSyncWorkloadID || revision.State != knowledgedomain.RevisionReady {
+		return knowledgedomain.Document{}, ErrConstraint
+	}
+	now := s.clock.Now().UTC()
+	return s.repository.PublishDocumentRevision(ctx, accountID, documentID, revisionID, document.Version,
+		Mutation{Actor: actor, CorrelationID: correlationID, ReasonCode: "source_revision_published", At: now})
+}
+
 type DeleteDocumentCommand struct {
 	Actor           access.Actor
 	AccountID       ids.AccountID
@@ -376,8 +416,51 @@ func (s *DocumentService) Delete(ctx context.Context, command DeleteDocumentComm
 	return s.repository.RequestDocumentDeletion(ctx, command.AccountID, command.DocumentID, command.ExpectedVersion, Mutation{Actor: actor, CorrelationID: command.CorrelationID, ReasonCode: "deletion_requested", At: now})
 }
 
+type DeleteSourceDocumentCommand struct {
+	Actor         access.Actor
+	AccountID     ids.AccountID
+	DocumentID    ids.KnowledgeDocumentID
+	RevisionID    ids.KnowledgeDocumentRevisionID
+	ContentSHA256 [sha256.Size]byte
+	CorrelationID string
+}
+
+func (s *DocumentService) DeleteSource(ctx context.Context, command DeleteSourceDocumentCommand) (DocumentDetail, error) {
+	actor, _, err := s.authorizeMutation(ctx, command.Actor, command.AccountID, command.CorrelationID)
+	if err != nil {
+		return DocumentDetail{}, err
+	}
+	if actor.Kind != knowledgedomain.ActorWorkload || ids.Validate(string(command.DocumentID)) != nil ||
+		ids.Validate(string(command.RevisionID)) != nil || command.ContentSHA256 == ([sha256.Size]byte{}) {
+		return DocumentDetail{}, ErrInvalid
+	}
+	document, err := s.repository.GetDocument(ctx, command.AccountID, command.DocumentID)
+	if err != nil {
+		return DocumentDetail{}, err
+	}
+	revision, err := s.repository.GetLatestDocumentRevision(ctx, command.AccountID, command.DocumentID)
+	if err != nil {
+		return DocumentDetail{}, err
+	}
+	if revision.ID != command.RevisionID || revision.ContentSHA256 != command.ContentSHA256 ||
+		(revision.State != knowledgedomain.RevisionReady && revision.State != knowledgedomain.RevisionFailed && revision.State != knowledgedomain.RevisionDeleted) {
+		return DocumentDetail{}, ErrConstraint
+	}
+	if document.State == knowledgedomain.DocumentDeletionPending || document.State == knowledgedomain.DocumentDeleted {
+		return DocumentDetail{Document: document, LatestRevision: revision}, nil
+	}
+	now := s.clock.Now().UTC()
+	document, err = s.repository.RequestDocumentDeletion(ctx, command.AccountID, command.DocumentID, document.Version,
+		Mutation{Actor: actor, CorrelationID: command.CorrelationID, ReasonCode: "source_deletion_requested", At: now})
+	if err != nil {
+		return DocumentDetail{}, err
+	}
+	return DocumentDetail{Document: document, LatestRevision: revision}, nil
+}
+
 func (s *DocumentService) Get(ctx context.Context, actor access.Actor, accountID ids.AccountID, documentID ids.KnowledgeDocumentID) (knowledgedomain.Document, error) {
-	if _, ok := domainActor(actor); !ok || ids.Validate(string(accountID)) != nil || ids.Validate(string(documentID)) != nil {
+	resolvedActor, ok := domainActor(actor)
+	if !ok || ids.Validate(string(accountID)) != nil || ids.Validate(string(documentID)) != nil {
 		return knowledgedomain.Document{}, ErrInvalid
 	}
 	accountContext, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: catalog.PackageKnowledge})
@@ -388,14 +471,15 @@ func (s *DocumentService) Get(ctx context.Context, actor access.Actor, accountID
 	if err != nil {
 		return knowledgedomain.Document{}, err
 	}
-	if !canReadSensitivity(accountContext.Role, value.Sensitivity) {
+	if resolvedActor.Kind == knowledgedomain.ActorUser && !canReadSensitivity(accountContext.Role, value.Sensitivity) {
 		return knowledgedomain.Document{}, &access.DeniedError{Code: access.DenialRole, Package: catalog.PackageKnowledge}
 	}
 	return value, nil
 }
 
 func (s *DocumentService) GetDetail(ctx context.Context, actor access.Actor, accountID ids.AccountID, documentID ids.KnowledgeDocumentID) (DocumentDetail, error) {
-	if _, ok := domainActor(actor); !ok || ids.Validate(string(accountID)) != nil || ids.Validate(string(documentID)) != nil {
+	resolvedActor, ok := domainActor(actor)
+	if !ok || ids.Validate(string(accountID)) != nil || ids.Validate(string(documentID)) != nil {
 		return DocumentDetail{}, ErrInvalid
 	}
 	accountContext, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: catalog.PackageKnowledge})
@@ -406,7 +490,7 @@ func (s *DocumentService) GetDetail(ctx context.Context, actor access.Actor, acc
 	if err != nil {
 		return DocumentDetail{}, err
 	}
-	if !canReadSensitivity(accountContext.Role, document.Sensitivity) {
+	if resolvedActor.Kind == knowledgedomain.ActorUser && !canReadSensitivity(accountContext.Role, document.Sensitivity) {
 		return DocumentDetail{}, &access.DeniedError{Code: access.DenialRole, Package: catalog.PackageKnowledge}
 	}
 	revision, err := s.repository.GetLatestDocumentRevision(ctx, accountID, documentID)

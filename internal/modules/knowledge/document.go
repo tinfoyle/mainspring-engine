@@ -105,7 +105,7 @@ func (value Document) Publish(revision DocumentRevision, expectedVersion uint64,
 	if expectedVersion != value.Version {
 		return Document{}, ErrConflict
 	}
-	if (value.State != DocumentProcessing && value.State != DocumentReady) || revision.AccountID != value.AccountID || revision.DocumentID != value.ID || revision.State != RevisionReady || revision.Number != value.CurrentRevision+1 || now.IsZero() || now.Before(value.UpdatedAt) {
+	if (value.State != DocumentProcessing && value.State != DocumentReady && value.State != DocumentFailed) || revision.AccountID != value.AccountID || revision.DocumentID != value.ID || revision.State != RevisionReady || revision.Number <= value.CurrentRevision || now.IsZero() || now.Before(value.UpdatedAt) {
 		return Document{}, ErrState
 	}
 	result := value

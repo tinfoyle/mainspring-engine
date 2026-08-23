@@ -517,4 +517,16 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if err != nil || storedFailed.State != knowledgedomain.DocumentFailed || storedFailed.Version != 2 {
 		t.Fatalf("failed document=%+v err=%v", storedFailed, err)
 	}
+	recoveryRevisionID := ids.KnowledgeDocumentRevisionID("ed000000-0000-4000-8000-00000000000d")
+	recoveryRevision, err := knowledgedomain.NewDocumentRevision(knowledgedomain.DocumentRevisionDraft{
+		ID: recoveryRevisionID, DocumentID: failedDocumentID, AccountID: accountID, Number: 2, Filename: "recovered.txt", DeclaredType: "text/plain", VerifiedType: "text/plain",
+		ByteSize: 9, ContentSHA256: sha256.Sum256([]byte("recovered")), ObjectKey: "accounts/" + string(accountID) + "/documents/" + string(failedDocumentID) + "/revisions/" + string(recoveryRevisionID) + "/source", ObjectVersion: "version-recovered", ChangeSummary: "Provider supplied a clean replacement", CreatedBy: worker,
+	}, now.Add(14*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	admittedRecovery, err := repository.AdmitDocumentRevision(ctx, storedFailed, recoveryRevision, knowledgeapp.Mutation{Actor: worker, CorrelationID: "ee000000-0000-4000-8000-00000000000e", ReasonCode: "document_revision_admitted", At: recoveryRevision.CreatedAt})
+	if err != nil || admittedRecovery.ID != recoveryRevisionID || admittedRecovery.Number != 2 {
+		t.Fatalf("failed document recovery admission=%+v err=%v", admittedRecovery, err)
+	}
 }

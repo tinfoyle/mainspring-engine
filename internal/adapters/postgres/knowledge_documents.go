@@ -71,11 +71,15 @@ func (r *KnowledgeRepository) AdmitDocumentRevision(ctx context.Context, documen
 			return existingErr
 		}
 		var latest uint64
-		if err := tx.QueryRow(ctx, `SELECT max(revision) FROM spyglass.knowledge_document_revisions WHERE account_id=$1 AND document_id=$2`,
-			document.AccountID, document.ID).Scan(&latest); err != nil {
+		var latestID ids.KnowledgeDocumentRevisionID
+		var latestState knowledgedomain.RevisionState
+		if err := tx.QueryRow(ctx, `SELECT revision,id,state FROM spyglass.knowledge_document_revisions WHERE account_id=$1 AND document_id=$2 ORDER BY revision DESC LIMIT 1`,
+			document.AccountID, document.ID).Scan(&latest, &latestID, &latestState); err != nil {
 			return err
 		}
-		if current.State != knowledgedomain.DocumentReady || current.CurrentRevision != latest || revision.Number != latest+1 ||
+		currentIsLatest := current.State == knowledgedomain.DocumentReady && current.CurrentRevision == latest && current.CurrentRevisionID == latestID && latestState == knowledgedomain.RevisionReady
+		failedLatest := (current.State == knowledgedomain.DocumentReady || current.State == knowledgedomain.DocumentFailed) && latest >= current.CurrentRevision && latestState == knowledgedomain.RevisionFailed
+		if (!currentIsLatest && !failedLatest) || revision.Number != latest+1 ||
 			revision.DocumentID != current.ID || revision.AccountID != current.AccountID {
 			return knowledgeapp.ErrConstraint
 		}

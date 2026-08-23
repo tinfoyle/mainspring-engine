@@ -53,6 +53,48 @@ func TestDocumentRevisionFailClosedLifecycleAndPublication(t *testing.T) {
 	}
 }
 
+func TestDocumentPublicationCanRecoverAcrossFailedRevisionNumbers(t *testing.T) {
+	now := time.Date(2026, 8, 23, 18, 0, 0, 0, time.UTC)
+	accountID := ids.AccountID("f1000000-0000-4000-8000-000000000001")
+	documentID := ids.KnowledgeDocumentID("f2000000-0000-4000-8000-000000000002")
+	actor := Actor{Kind: ActorWorkload, ID: "integration-source-sync"}
+	document, err := RestoreDocument(Document{ID: documentID, AccountID: accountID, Title: "Synced plan", Sensitivity: SensitivityInternal,
+		CurrentRevisionID: "f3000000-0000-4000-8000-000000000003", CurrentRevision: 1, State: DocumentReady, Version: 2,
+		CreatedBy: actor, CreatedAt: now, UpdatedAt: now.Add(time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := NewDocumentRevision(DocumentRevisionDraft{ID: "f5000000-0000-4000-8000-000000000005", DocumentID: documentID,
+		AccountID: accountID, Number: 3, Filename: "plan.txt", DeclaredType: "text/plain", VerifiedType: "text/plain", ByteSize: 7,
+		ContentSHA256: sha256.Sum256([]byte("updated")), ObjectKey: "accounts/" + string(accountID) + "/documents/" + string(documentID) + "/revisions/f5000000-0000-4000-8000-000000000005/source",
+		ObjectVersion: "version-3", ChangeSummary: "Recovered after rejected provider version", CreatedBy: actor}, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err = revision.RecordScan(ScanClean, "clamav", "daily.cvd", now.Add(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err = revision.RecordExtraction(sha256.Sum256([]byte("updated")), 7, "text-v1", "accounts/"+string(accountID)+"/documents/"+string(documentID)+"/revisions/"+string(revision.ID)+"/extracted/text", "extracted-3", now.Add(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err = revision.RecordIndex("knowledge-v1", 1, now.Add(5*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err = document.Publish(revision, 2, now.Add(6*time.Second))
+	if err != nil || document.CurrentRevision != 3 || document.CurrentRevisionID != revision.ID || document.State != DocumentReady {
+		t.Fatalf("recovered document=%+v err=%v", document, err)
+	}
+	document.State, document.CurrentRevisionID, document.CurrentRevision, document.Version = DocumentFailed, "", 0, 2
+	if restored, restoreErr := RestoreDocument(document); restoreErr != nil {
+		t.Fatal(restoreErr)
+	} else if recovered, publishErr := restored.Publish(revision, restored.Version, now.Add(7*time.Second)); publishErr != nil || recovered.State != DocumentReady || recovered.CurrentRevision != 3 {
+		t.Fatalf("initial-failure recovery=%+v err=%v", recovered, publishErr)
+	}
+}
+
 func TestDocumentRevisionRejectsMediaObjectAndMalwareFailures(t *testing.T) {
 	now := time.Date(2026, 8, 21, 20, 0, 0, 0, time.UTC)
 	accountID := ids.AccountID("b1000000-0000-4000-8000-000000000001")
