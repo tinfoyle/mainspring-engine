@@ -160,6 +160,11 @@ func TestMarketingRepositoryReplaysRestoresAndIsolatesDraftLifecycle(t *testing.
 	runID := "f3500000-0000-4000-8000-000000000003"
 	invocationID := "f3600000-0000-4000-8000-000000000003"
 	approvalID := ids.ConsequentialApprovalID("f3700000-0000-4000-8000-000000000003")
+	operationID := "f3800000-0000-4000-8000-000000000003"
+	campaignID := ids.MarketingCampaignID("f4000000-0000-4000-8000-000000000004")
+	releaseID := ids.MarketingReleaseID("f9000000-0000-4000-8000-000000000009")
+	actionPayload := []byte(`{"campaign_id":"f4000000-0000-4000-8000-000000000004","campaign_version":2,"release_id":"f9000000-0000-4000-8000-000000000009","release_version":2}`)
+	actionDigest := sha256.Sum256(actionPayload)
 	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.agent_boardrooms(account_id,id,name,purpose,state,version,created_at,updated_at)
 		VALUES ($1,$3,'Marketing room','Verify Marketing approval provenance','active',1,$2,$2);
 		INSERT INTO spyglass.agent_personas(account_id,id,boardroom_id,state,latest_version,created_at,updated_at)
@@ -176,8 +181,8 @@ func TestMarketingRepositoryReplaysRestoresAndIsolatesDraftLifecycle(t *testing.
 		VALUES ($1,$9,$8,1,$5,'succeeded','openai','gpt-test','gpt-test','resp-marketing',decode(repeat('43',32),'hex'),decode(repeat('44',32),'hex'),'{}',1,1,2,$2,$2,$2);
 		INSERT INTO spyglass.attention_consequential_approvals
 		(account_id,id,operation_id,invocation_id,capability,canonical_payload,input_sha256,hash_version,evidence_sha256,proposer_kind,proposer_id,policy_version,require_independent_review,expires_at,state,decision,decision_reason,decided_by_user_id,decided_at,version,created_at,updated_at)
-		VALUES ($1,$10,'f3800000-0000-4000-8000-000000000003',$9,'marketing.release.activate',convert_to('{}','UTF8'),decode(repeat('45',32),'hex'),1,decode(repeat('46',32),'hex'),'workload','runner-invocation:'||$9::text,1,true,$2::timestamptz+interval '1 hour','approved','approve','approved exact Marketing release',$6,$2::timestamptz+interval '7 minutes',2,$2,$2::timestamptz+interval '7 minutes')`,
-		pgx.QueryExecModeSimpleProtocol, accountID, now, boardroomID, personaID, personaVersionID, userID, conversationID, runID, invocationID, approvalID); err != nil {
+		VALUES ($1,$10,$11,$9,'marketing.release.activate',$12,$13,1,decode(repeat('46',32),'hex'),'workload','runner-invocation:'||$9::text,1,true,$2::timestamptz+interval '1 hour','approved','approve','approved exact Marketing release',$6,$2::timestamptz+interval '7 minutes',2,$2,$2::timestamptz+interval '7 minutes')`,
+		pgx.QueryExecModeSimpleProtocol, accountID, now, boardroomID, personaID, personaVersionID, userID, conversationID, runID, invocationID, approvalID, operationID, actionPayload, actionDigest[:]); err != nil {
 		t.Fatal(err)
 	}
 	cell, err := database.NewCellPool(owner)
@@ -193,7 +198,6 @@ func TestMarketingRepositoryReplaysRestoresAndIsolatesDraftLifecycle(t *testing.
 		return marketingapp.Mutation{EventID: id, Kind: kind, Actor: actor, CorrelationID: id, At: at}
 	}
 
-	campaignID := ids.MarketingCampaignID("f4000000-0000-4000-8000-000000000004")
 	draft := marketingdomain.CampaignDraftInput{ID: campaignID, AccountID: accountID, Name: "Product launch", Objective: "Announce the release",
 		Audience: "Current customers", Channels: []marketingdomain.Channel{marketingdomain.ChannelWeb, marketingdomain.ChannelEmail}, CreatedBy: actor,
 		Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginHuman}, CreatedAt: now}
@@ -256,7 +260,6 @@ func TestMarketingRepositoryReplaysRestoresAndIsolatesDraftLifecycle(t *testing.
 		t.Fatalf("asset remainder=%+v err=%v", assetRemainder, err)
 	}
 
-	releaseID := ids.MarketingReleaseID("f9000000-0000-4000-8000-000000000009")
 	releaseInput := marketingdomain.ReleasePlanInput{ID: releaseID, AccountID: accountID, CampaignID: campaignID, CampaignVersion: campaign.Version,
 		Name: "Initial release", Channels: campaign.Channels, AssetRevisionIDs: []ids.MarketingAssetRevisionID{asset.ID}, CreatedBy: actor,
 		Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginHuman}, CreatedAt: now.Add(5 * time.Minute)}
@@ -284,15 +287,33 @@ func TestMarketingRepositoryReplaysRestoresAndIsolatesDraftLifecycle(t *testing.
 	if err != nil || release.State != marketingdomain.ReleaseSubmitted || release.Version != 2 {
 		t.Fatalf("submitted release=%+v err=%v", release, err)
 	}
-	approveEvent := "fb000000-0000-4000-8000-00000000000b"
-	release, err = repository.ApproveRelease(ctx, accountID, releaseID, 2, approvalID, actor, accounts.RoleAdministrator,
-		mutation(approveEvent, "approved", now.Add(8*time.Minute)))
+	var provisioned bool
+	if err := owner.QueryRow(ctx, `SELECT public.spyglass_provision_runner_invocation($1,$2,'default',$3,
+		decode(repeat('51',17),'hex'),decode(repeat('52',12),'hex'),1,decode(repeat('53',32),'hex'),$4)`,
+		invocationID, accountID, now, now.Add(time.Hour)).Scan(&provisioned); err != nil || !provisioned {
+		t.Fatalf("runner exchange provisioned=%t err=%v", provisioned, err)
+	}
+	var authorized bool
+	if err := owner.QueryRow(ctx, `SELECT public.spyglass_record_runner_action_authorization($1,$2,$3,$4,'marketing.release.activate',$5,1::smallint,
+		decode(repeat('46',32),'hex'),'workload','agent:marketing',$6,1::bigint,$7,$8)`, accountID, operationID, invocationID,
+		approvalID, actionDigest[:], userID, now.Add(7*time.Minute), now.Add(time.Hour)).Scan(&authorized); err != nil || !authorized {
+		t.Fatalf("Marketing action authorized=%t err=%v", authorized, err)
+	}
+	actionStore, err := postgresadapter.NewMarketingActionStore(cell, fixedClock{now: now.Add(8 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := actionStore.ActivateRelease(ctx, accountID, campaignID, 2, releaseID, 2, operationID, ids.UserID(userID)); err != nil {
+		t.Fatalf("approved Marketing activation=%v", err)
+	}
+	if applied, err := actionStore.ReleaseActivatedByEvent(ctx, accountID, campaignID, 2, releaseID, 2, operationID); err != nil || !applied {
+		t.Fatalf("Marketing activation reconciliation applied=%t err=%v", applied, err)
+	}
+	release, err = repository.GetReleasePlan(ctx, accountID, releaseID)
 	if err != nil || release.State != marketingdomain.ReleaseApproved || release.Version != 3 || release.ApprovalID != approvalID {
 		t.Fatalf("approved release=%+v err=%v", release, err)
 	}
-	activateEvent := "fc000000-0000-4000-8000-00000000000c"
-	campaign, err = repository.ActivateCampaign(ctx, accountID, campaignID, releaseID, 2, actor, accounts.RoleOwner,
-		mutation(activateEvent, "activated", now.Add(9*time.Minute)))
+	campaign, err = repository.GetCampaign(ctx, accountID, campaignID)
 	if err != nil || campaign.State != marketingdomain.CampaignActive || campaign.Version != 3 || campaign.ActiveReleaseID != releaseID {
 		t.Fatalf("active campaign=%+v err=%v", campaign, err)
 	}

@@ -63,14 +63,14 @@ func TestMarketingClientUsesRoutedVersionedLifecycleBoundaries(t *testing.T) {
 	script := string(raw)
 	for _, expected := range []string{
 		"/marketing`;", `"If-Match"`, `"Idempotency-Key": crypto.randomUUID()`, `textContent`,
-		`/asset-revisions`, `/releases`, `"submissions"`, `"approvals"`, `"cancellations"`,
+		`/asset-revisions`, `/releases`, `"submissions"`, `"cancellations"`, `/app/your-turn`,
 		`"activations"`, `"pauses"`, `"completions"`,
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("Marketing client missing %q", expected)
 		}
 	}
-	for _, forbidden := range []string{"innerHTML", "document.cookie", "localStorage", "sessionStorage"} {
+	for _, forbidden := range []string{"innerHTML", "document.cookie", "localStorage", "sessionStorage", "window.prompt"} {
 		if strings.Contains(script, forbidden) {
 			t.Fatalf("Marketing client contains %q", forbidden)
 		}

@@ -298,7 +298,7 @@ func (s *Service) PublishPersona(ctx context.Context, command PublishPersonaComm
 	}
 	for _, capability := range command.Policy.ActionCapabilities {
 		switch capability {
-		case "stripe.customer.create", "finance.entry.post":
+		case "stripe.customer.create", "finance.entry.post", "marketing.release.activate":
 		default:
 			return PersonaSummary{}, false, ErrInvalidCommand
 		}

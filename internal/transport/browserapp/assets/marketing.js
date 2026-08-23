@@ -88,15 +88,14 @@
 
   async function releaseTransition(value, kind) {
     let body; if (kind === "submit") body = { campaign_version: activeCampaign.version };
-    if (kind === "approve") { const approval = window.prompt("Approved Attention decision ID"); if (!approval) return; body = { approval_id: approval }; }
-    try { await command("POST", `${base}/releases/${value.id}/${kind === "submit" ? "submissions" : kind === "approve" ? "approvals" : "cancellations"}`, body, value.version); announce(`Release ${kind}d.`); await selectCampaign(activeCampaign.id); } catch (error) { announce(error.message); }
+    try { await command("POST", `${base}/releases/${value.id}/${kind === "submit" ? "submissions" : "cancellations"}`, body, value.version); announce(`Release ${kind}d.`); await selectCampaign(activeCampaign.id); } catch (error) { announce(error.message); }
   }
 
   function renderReleases() {
     status("marketing-release-status", `${releases.length} release snapshot${releases.length === 1 ? "" : "s"}.`);
     if (!releases.length) return empty(releaseList, "No release snapshots yet.");
     releaseList.replaceChildren(...releases.map((value) => { const row = node("article", "marketing-record"); row.append(node("strong", "", value.name), node("small", "", `${value.state} · campaign v${value.campaign_version} · ${value.asset_revision_ids.length} asset${value.asset_revision_ids.length === 1 ? "" : "s"}`));
-      if (!readOnly) { const controls = node("div", "marketing-record-actions"); if (value.state === "draft") controls.append(action("Submit", () => releaseTransition(value, "submit"))); if (value.state === "submitted") controls.append(action("Approve", () => releaseTransition(value, "approve"))); if (["submitted", "approved"].includes(value.state)) controls.append(action("Cancel", () => releaseTransition(value, "cancel"), "danger")); if (value.state === "approved" && ["draft", "paused"].includes(activeCampaign.state)) controls.append(action("Activate", () => runCampaignTransition("activate", value.id))); row.append(controls); } return row; }));
+      if (!readOnly) { const controls = node("div", "marketing-record-actions"); if (value.state === "draft") controls.append(action("Submit", () => releaseTransition(value, "submit"))); if (value.state === "submitted") { const waiting = node("a", "marketing-attention-link", "Awaiting governed approval →"); waiting.href = "/app/your-turn"; controls.append(waiting); } if (["submitted", "approved"].includes(value.state)) controls.append(action("Cancel", () => releaseTransition(value, "cancel"), "danger")); if (value.state === "approved" && ["draft", "paused"].includes(activeCampaign.state)) controls.append(action("Activate", () => runCampaignTransition("activate", value.id))); row.append(controls); } return row; }));
   }
 
   const openDialog = (dialog, form) => { form.querySelector(".marketing-error").hidden = true; dialog.showModal(); form.elements[0]?.focus(); };

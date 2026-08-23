@@ -17,15 +17,16 @@ import (
 )
 
 const (
-	SchemaVersion                 = 1
-	MaximumInputBytes             = 256 << 10
-	MaximumOutputBytes            = 256 << 10
-	MaximumDefinitions            = 64
-	WorkSummaryCapability         = "work.summary.read"
-	FinanceLedgersReadCapability  = "finance.ledgers.read"
-	FinanceAccountsReadCapability = "finance.accounts.read"
-	FinanceEntryDraftCapability   = "finance.entry.draft"
-	FinanceEntryPostCapability    = "finance.entry.post"
+	SchemaVersion                      = 1
+	MaximumInputBytes                  = 256 << 10
+	MaximumOutputBytes                 = 256 << 10
+	MaximumDefinitions                 = 64
+	WorkSummaryCapability              = "work.summary.read"
+	FinanceLedgersReadCapability       = "finance.ledgers.read"
+	FinanceAccountsReadCapability      = "finance.accounts.read"
+	FinanceEntryDraftCapability        = "finance.entry.draft"
+	FinanceEntryPostCapability         = "finance.entry.post"
+	MarketingReleaseActivateCapability = "marketing.release.activate"
 )
 
 var (

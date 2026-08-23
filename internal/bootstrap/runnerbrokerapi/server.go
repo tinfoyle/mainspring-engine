@@ -17,6 +17,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/toolrouterhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/application/approvedaction"
 	"github.com/tinfoyle/spyglass-engine/internal/application/financeaction"
+	"github.com/tinfoyle/spyglass-engine/internal/application/marketingaction"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneraction"
@@ -155,6 +156,16 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	marketingActionStore, err := postgres.NewMarketingActionStore(cellPool, registration.SystemClock{})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	marketingActivateHandler, err := marketingaction.NewReleaseActivateHandler(marketingActionStore)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	auditor, err := postgres.NewRunnerCapabilityAuditor(pool, ids.RandomGenerator{})
 	if err != nil {
 		pool.Close()
@@ -190,6 +201,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	approvedActions, err := approvedaction.New(approvedRepository, ids.RandomGenerator{}, registration.SystemClock{}, approvedaction.DefaultLease, []approvedaction.Definition{
 		{Capability: stripeaction.CustomerCreateCapability, Timeout: 20 * time.Second, Handler: stripeCustomerHandler},
 		{Capability: financeaction.EntryPostCapability, Timeout: 15 * time.Second, Handler: financePostHandler},
+		{Capability: marketingaction.ReleaseActivateCapability, Timeout: 15 * time.Second, Handler: marketingActivateHandler},
 	})
 	if err != nil {
 		pool.Close()

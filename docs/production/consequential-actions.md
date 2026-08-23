@@ -1,6 +1,6 @@
 # Consequential action execution
 
-Status: durable post-approval execution worker, versioned executor/retry registry, definite-failure retry, bounded unknown reconciliation, dual-controlled resolution, Stripe and Finance adapters, content-free operational signals and authorized redacted HTTP/MCP/Your Turn recovery surfaces implemented
+Status: durable post-approval execution worker, versioned executor/retry registry, definite-failure retry, bounded unknown reconciliation, dual-controlled resolution, Stripe, Finance and Marketing adapters, content-free operational signals and authorized redacted HTTP/MCP/Your Turn recovery surfaces implemented
 
 Attention owns the human approval aggregate and projects only an exact execute-only authorization. A broker-owned worker consumes that projection after the proposing runner has terminated; it never infers approval from an inbox state, accepts approval fields from a runner or depends on an expired runner identity.
 
@@ -22,6 +22,12 @@ The Stripe key exists only in the runner-broker process. Runner Jobs receive no 
 ## First internal executor
 
 `finance.entry.post` accepts only an entry UUID and expected draft version. It is available to a Persona as a proposed-action kind, not as a directly callable runner tool. After approval, the worker posts through the canonical Finance repository, records the approving User as the posting actor and uses the operation UUID as the Finance event UUID. Its reconciliation path performs only an exact lookup for that event, entry and version transition. Because the Finance transaction commits the state transition and event atomically, an absent event proves that the effect did not occur; a database read failure remains unknown.
+
+## Marketing activation executor
+
+`marketing.release.activate` accepts only an exact campaign identity/version and submitted release identity/version. It is a Persona proposed-action kind, never a directly callable runner tool. After an Owner or Administrator approves the Attention item, the worker derives two deterministic event identities from the approval operation, resolves the approval identity from the immutable authorization projection and atomically binds it to the release and activates the matching campaign. The database independently requires the same Account, campaign, frozen version and channel set, a still-approved/unexpired Attention decision and the approving User as actor.
+
+Approval and activation commit in one serializable Account transaction, so the worker can never leave an approved-but-unactivated partial effect. Reconciliation is side-effect-free and succeeds only when both exact immutable Marketing events exist with the proposed before/after versions. An absent pair proves no effect; a database read failure remains unknown. The browser no longer accepts pasted Approval UUIDs: submitted releases direct the User to Your Turn, and the durable worker applies the approved proposal.
 
 ## Operations
 

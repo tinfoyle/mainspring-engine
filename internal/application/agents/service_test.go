@@ -155,7 +155,7 @@ func TestConfigureBoardroomManagerRequiresOptimisticVersionAndPublishedPersonaId
 
 func TestPublishPersonaPinsOwnedResultSchemaAndCapabilityAllowlist(t *testing.T) {
 	service, _, repository, _ := newAgentService(t)
-	policy := agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-5.6", ReasoningEffort: "medium", MaximumInputTokens: 100000, MaximumOutputTokens: 4000, MaximumCostMicros: 100000, MaximumToolSteps: 1, CitationPolicy: "best_effort", ActionPolicy: "propose", ActionCapabilities: []string{"finance.entry.post"}, Tools: []agentdomain.ToolGrant{
+	policy := agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-5.6", ReasoningEffort: "medium", MaximumInputTokens: 100000, MaximumOutputTokens: 4000, MaximumCostMicros: 100000, MaximumToolSteps: 1, CitationPolicy: "best_effort", ActionPolicy: "propose", ActionCapabilities: []string{"finance.entry.post", "marketing.release.activate"}, Tools: []agentdomain.ToolGrant{
 		{Name: "read_work", Capability: "work.summary.read", Description: "Read the Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)},
 		{Name: "draft_finance_entry", Capability: "finance.entry.draft", Description: "Create a governed Finance draft.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)},
 	}}

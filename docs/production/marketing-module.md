@@ -18,7 +18,7 @@ A release freezes one campaign version, sorted unique asset revisions and its ex
 2. Account-owned forced-RLS persistence, immutable redacted events, optimistic replay, movement fencing and exact erasure/restore participation. **Constructed.**
 3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Constructed.**
 4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace. **Constructed.**
-5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery.
+5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery. **Attention-governed activation constructed; runner draft tools remain.**
 6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability.
 7. Catalog/entitlement lifecycle, retention, prototype reconciliation, Stage recovery/erasure and production role grants.
 
@@ -72,9 +72,15 @@ Human MCP drafts receive human provenance and reject a supplied Run. A workload 
 
 ## Private workspace checkpoint
 
-`/app/marketing` now gives the selected Account a package-aware browser workspace over the generated Marketing HTTP boundary. Enabled Accounts can create and revise campaign intent, append immutable creative revisions, freeze release snapshots and perform the human-governed lifecycle. Read-only Accounts retain campaign, asset and release inspection while every mutation control and form is omitted server-side; locked Accounts receive no Marketing client script. The shell keeps activation distinct from external delivery and does not hold provider credentials or creative bodies.
+`/app/marketing` now gives the selected Account a package-aware browser workspace over the generated Marketing HTTP boundary. Enabled Accounts can create and revise campaign intent, append immutable creative revisions, freeze release snapshots and perform the human-governed lifecycle. Submitted Agent-proposed activations lead to Your Turn; the browser never asks a User to paste an internal approval identity. Read-only Accounts retain campaign, asset and release inspection while every mutation control and form is omitted server-side; locked Accounts receive no Marketing client script. The shell keeps activation distinct from external delivery and does not hold provider credentials or creative bodies.
 
-Every existing-resource command uses the freshly loaded aggregate version in a weak `If-Match` precondition, and every mutation receives a new route-bound idempotency UUID. Creative digests remain canonical lowercase SHA-256 input. Customer values are rendered through DOM text nodes, and no session, customer or draft material is placed in browser storage. Template/client tests prove package and read-only gating, complete lifecycle endpoint coverage, version/idempotency preconditions and DOM/storage safety. This is a desktop-first construction checkpoint; the final supported-device and mobile visual pass remains part of the Phase 3 product-surface acceptance matrix. Attention proposal UX, Integration delivery, Catalog/retention and applied acceptance remain, so Marketing stays non-executable.
+Every existing-resource command uses the freshly loaded aggregate version in a weak `If-Match` precondition, and every mutation receives a new route-bound idempotency UUID. Creative digests remain canonical lowercase SHA-256 input. Customer values are rendered through DOM text nodes, and no session, customer or draft material is placed in browser storage. Template/client tests prove package and read-only gating, lifecycle endpoint coverage, version/idempotency preconditions and DOM/storage safety. This is a desktop-first construction checkpoint; the final supported-device and mobile visual pass remains part of the Phase 3 product-surface acceptance matrix.
+
+## Attention activation checkpoint
+
+Published Personas may now propose `marketing.release.activate` with only `{campaign_id,campaign_version,release_id,release_version}`. It is not a runner tool and neither the Agent nor the browser can provide an Approval identity. Approval projects the exact canonical payload into the existing durable approved-action queue; the post-run worker resolves the immutable Attention binding and performs release approval plus campaign activation atomically under Account RLS. The approving Owner or Administrator is recorded as both actors, while deterministic child event identities derive from the approval operation UUID.
+
+The worker refuses stale campaign or release versions, mismatched campaign ownership, changed channels, expired/canceled approval or a release outside the submitted state. Side-effect-free reconciliation requires both exact immutable events, so a lost transaction response cannot cause duplicate execution and a partial release/campaign transition cannot exist. Focused handler tests reject caller-supplied approval fields; a fresh PostgreSQL 17 test proves the exact authorization, atomic activation and reconciliation path. Narrow runner draft tools, Integration delivery, Catalog/retention and applied acceptance remain, so Marketing stays non-executable.
 
 ## Invariants
 
