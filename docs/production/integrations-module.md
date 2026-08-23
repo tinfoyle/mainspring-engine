@@ -16,7 +16,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 2. Account-owned forced-RLS persistence, immutable revisions/attempts/events, claim leasing, movement fencing and exact erasure/restore participation. **Constructed.**
 3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
-5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel, current authority, payload assembler and local mocks constructed; production object reader, broker and bootstrap remain.**
+5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel, current authority, payload assembler, one-operation broker boundary and local mocks constructed; production object/secret adapters and bootstrap remain.**
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution.
 7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
 
@@ -77,6 +77,12 @@ The canonical content-free delivery manifest is now a single shared byte-level b
 The runtime payload assembler now loads one repeatable-read Account-RLS snapshot of the exact approved release, approval, frozen connector revision and immutable asset revisions. It restores each typed revision, sorts assets, opens only its opaque content reference, bounds the aggregate and each read, requires the exact declared byte count and SHA-256, then rebuilds the shared manifest and compares it with the claimed digest. Any release, Account, scope, content or digest drift fails before connector invocation.
 
 The provider envelope is versioned and bounded to 16 MiB. It contains the execution idempotency identity, closed capability, immutable non-secret connector scope and verified creative bytes; it excludes storage references, credentials and operational database fields. The local content reader copies a fixed object set and performs no network I/O, so local ambiguity/reconciliation certification cannot accidentally reach customer infrastructure. Applied PostgreSQL coverage proves exact snapshot restoration and stale release-version rejection. A production immutable-object reader and governed Marketing upload/reference lifecycle remain required before real provider execution.
+
+## One-operation credential checkpoint
+
+The worker now requests a credential lease only after current global authority and exact payload integrity succeed. The request binds Account, execution, attempt, mode, capability, connection, credential identity/generation and the database lease expiry. The broker returns at most 64 KiB of runtime material for that operation; the service copies it into the single connector call, zeroes the connector-visible slice immediately after return and closes the broker lease on every normal or panic path. A release failure is surfaced operationally without rewriting a valid provider outcome.
+
+The local broker copies configured mock material, rejects unconfigured generations and records only execution/attempt/credential identities. Tests prove broker denial cannot reach a connector, the lease closes, the connector's retained view is zeroed and no material enters call history. Production still needs the environment-backed secret adapter and workload grant; neither the generic app nor Agent runtime receives the broker interface.
 
 ## Invariants
 

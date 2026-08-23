@@ -83,10 +83,32 @@ type PayloadSource interface {
 	Load(context.Context, Claim) (Payload, error)
 }
 
+type CredentialRequest struct {
+	AccountID            ids.AccountID
+	ExecutionID          ids.IntegrationExecutionID
+	AttemptID            ids.IntegrationAttemptID
+	Mode                 domain.AttemptMode
+	Capability           domain.Capability
+	ConnectionID         ids.IntegrationConnectionID
+	CredentialID         ids.IntegrationCredentialID
+	CredentialGeneration uint64
+	ExpiresAt            time.Time
+}
+
+type CredentialLease interface {
+	Material() []byte
+	Close() error
+}
+
+type CredentialBroker interface {
+	Acquire(context.Context, CredentialRequest) (CredentialLease, error)
+}
+
 type ConnectorCall struct {
-	Claim   Claim
-	Payload Payload
-	At      time.Time
+	Claim      Claim
+	Payload    Payload
+	Credential []byte
+	At         time.Time
 }
 
 type ConnectorResult struct {
@@ -112,14 +134,15 @@ type Service struct {
 	repository  Repository
 	authority   Authority
 	payloads    PayloadSource
+	broker      CredentialBroker
 	ids         ids.Generator
 	clock       Clock
 	lease       time.Duration
 	definitions map[domain.Capability]Definition
 }
 
-func New(repository Repository, authority Authority, payloads PayloadSource, generator ids.Generator, clock Clock, lease time.Duration, definitions []Definition) (*Service, error) {
-	if repository == nil || authority == nil || payloads == nil || generator == nil || clock == nil || lease < time.Second || lease > MaximumLease || len(definitions) == 0 || len(definitions) > 2 {
+func New(repository Repository, authority Authority, payloads PayloadSource, broker CredentialBroker, generator ids.Generator, clock Clock, lease time.Duration, definitions []Definition) (*Service, error) {
+	if repository == nil || authority == nil || payloads == nil || broker == nil || generator == nil || clock == nil || lease < time.Second || lease > MaximumLease || len(definitions) == 0 || len(definitions) > 2 {
 		return nil, ErrInvalid
 	}
 	registered := make(map[domain.Capability]Definition, len(definitions))
@@ -133,7 +156,7 @@ func New(repository Repository, authority Authority, payloads PayloadSource, gen
 		}
 		registered[definition.Capability] = definition
 	}
-	return &Service{repository: repository, authority: authority, payloads: payloads, ids: generator, clock: clock, lease: lease, definitions: registered}, nil
+	return &Service{repository: repository, authority: authority, payloads: payloads, broker: broker, ids: generator, clock: clock, lease: lease, definitions: registered}, nil
 }
 
 func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
@@ -163,15 +186,21 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 		}
 		return true, errors.Join(service.completeWithoutEffect(ctx, claim, "delivery_manifest_unavailable"), err)
 	}
-	executionContext, cancel := context.WithDeadline(ctx, minimum(now.Add(definition.Timeout), claim.LeaseExpiresAt))
-	defer cancel()
-	call := ConnectorCall{Claim: claim, Payload: payload, At: now}
-	var result ConnectorResult
-	if claim.Mode == domain.AttemptReconcile {
-		result = definition.Connector.Reconcile(executionContext, call)
-	} else {
-		result = definition.Connector.Execute(executionContext, call)
+	credentialLease, err := service.broker.Acquire(ctx, CredentialRequest{AccountID: claim.AccountID, ExecutionID: claim.ExecutionID,
+		AttemptID: claim.AttemptID, Mode: claim.Mode, Capability: claim.Capability, ConnectionID: claim.ConnectionID,
+		CredentialID: claim.CredentialID, CredentialGeneration: claim.CredentialGeneration, ExpiresAt: claim.LeaseExpiresAt})
+	if err != nil || credentialLease == nil {
+		if err == nil {
+			err = ErrInvalid
+		}
+		return true, errors.Join(service.completeWithoutEffect(ctx, claim, "credential_unavailable"), err)
 	}
+	material := credentialLease.Material()
+	if len(material) == 0 || len(material) > 64<<10 {
+		closeErr := credentialLease.Close()
+		return true, errors.Join(service.completeWithoutEffect(ctx, claim, "credential_unavailable"), ErrInvalid, closeErr)
+	}
+	result, releaseErr := invokeConnector(ctx, definition, claim, payload, credentialLease, material, now)
 	completedAt := service.clock.Now().UTC()
 	if !validResult(result, claim.Mode, completedAt) {
 		result = ConnectorResult{Outcome: domain.AttemptUnknown, ErrorCode: "connector_result_invalid"}
@@ -182,10 +211,30 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 	if err := service.repository.Complete(completionContext, completion); err != nil {
 		return true, fmt.Errorf("%w: settle: %v", ErrUnavailable, err)
 	}
+	if releaseErr != nil {
+		return true, fmt.Errorf("%w: release credential: %v", ErrUnavailable, releaseErr)
+	}
 	if result.Outcome != domain.AttemptSucceeded {
 		return true, fmt.Errorf("connector outcome %s: %w", result.Outcome, ErrUnavailable)
 	}
 	return true, nil
+}
+
+func invokeConnector(ctx context.Context, definition Definition, claim Claim, payload Payload, lease CredentialLease, material []byte, now time.Time) (result ConnectorResult, releaseErr error) {
+	credential := append([]byte(nil), material...)
+	defer func() {
+		for index := range credential {
+			credential[index] = 0
+		}
+		releaseErr = lease.Close()
+	}()
+	executionContext, cancel := context.WithDeadline(ctx, minimum(now.Add(definition.Timeout), claim.LeaseExpiresAt))
+	defer cancel()
+	call := ConnectorCall{Claim: claim, Payload: payload, Credential: credential, At: now}
+	if claim.Mode == domain.AttemptReconcile {
+		return definition.Connector.Reconcile(executionContext, call), nil
+	}
+	return definition.Connector.Execute(executionContext, call), nil
 }
 
 func (service *Service) completeWithoutEffect(ctx context.Context, claim Claim, errorCode string) error {

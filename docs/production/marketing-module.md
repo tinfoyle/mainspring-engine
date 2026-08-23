@@ -114,6 +114,8 @@ Preparation no longer owns a private copy of manifest serialization. A shared ca
 
 The dedicated payload source is now constructed through the provider-neutral boundary. It reloads the exact approved release and immutable revisions under Account RLS, verifies every object byte count and SHA-256, reproduces the frozen manifest and emits a bounded versioned connector envelope without exposing opaque storage references. Local certification uses an immutable no-network reader. Production still needs the governed immutable object upload/reader adapter; arbitrary external references are not considered executable.
 
+Provider credentials remain outside this envelope. The connector service now acquires one exact-operation lease only after Marketing/package/placement authority and creative integrity pass, binds it to the frozen credential generation and attempt expiry, then zeroes and releases it immediately after the connector returns. Marketing cannot request or observe that lease.
+
 ## Invariants
 
 - Every aggregate and revision is explicitly Account scoped.
