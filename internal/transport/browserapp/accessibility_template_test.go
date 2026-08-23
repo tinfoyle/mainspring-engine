@@ -61,6 +61,8 @@ func TestPrivateBrowserTemplatesHaveAccessiblePageFrames(t *testing.T) {
 		{name: "writable Agents", page: "agents", data: pageData{Title: "Agents", Page: "agents", Selected: &choice, Choices: []accountaccess.Choice{choice}, AgentsAvailable: true}, currentNav: true},
 		{name: "read-only Agents", page: "agents", data: pageData{Title: "Agents", Page: "agents", Selected: &choice, Choices: []accountaccess.Choice{choice}, AgentsAvailable: true, AgentsReadOnly: true}, currentNav: true},
 		{name: "Account lifecycle", page: "closures", data: pageData{Title: "Account lifecycle", Page: "closures"}, currentNav: true},
+		{name: "locked Account exports", page: "account-exports", data: pageData{Title: "Account exports", Page: "account-exports", Selected: &choice, Choices: []accountaccess.Choice{choice}}, currentNav: true},
+		{name: "Account exports", page: "account-exports", data: pageData{Title: "Account exports", Page: "account-exports", Selected: &choice, Choices: []accountaccess.Choice{choice}, CanManageExports: true}, currentNav: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

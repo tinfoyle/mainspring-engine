@@ -124,6 +124,33 @@ func (store *ExportStore) Delete(ctx context.Context, artifact accountexport.Art
 	return nil
 }
 
+// Open verifies the exact immutable object version, byte count, and digest
+// before returning the artifact stream. It requires only exact-key read access.
+func (store *ExportStore) Open(ctx context.Context, artifact accountexport.Artifact) (io.ReadCloser, error) {
+	exportID, versionID, err := parseExportReference(artifact.Reference)
+	if err != nil || !validExportArtifact(artifact) {
+		return nil, accountexport.ErrInvalid
+	}
+	key := exportObjectKey(exportID)
+	options := minio.GetObjectOptions{VersionID: versionID, ServerSideEncryption: store.sse, Checksum: true}
+	info, err := store.client.StatObject(ctx, store.bucket, key, options)
+	if err != nil {
+		return nil, fmt.Errorf("%w: stat export artifact: %v", ErrUnavailable, err)
+	}
+	if info.VersionID != versionID || !matches(info, artifact.Bytes, artifact.SHA256) {
+		return nil, errors.Join(ErrIntegrity, accountexport.ErrArtifactIntegrity)
+	}
+	object, err := store.client.GetObject(ctx, store.bucket, key, options)
+	if err != nil {
+		return nil, fmt.Errorf("%w: get export artifact: %v", ErrUnavailable, err)
+	}
+	return object, nil
+}
+
+func validExportArtifact(artifact accountexport.Artifact) bool {
+	return artifact.Bytes > 0 && artifact.Bytes <= accountexport.MaximumArtifactBytes && artifact.SHA256 != ([sha256.Size]byte{})
+}
+
 func (store *ExportStore) existing(ctx context.Context, exportID string, size int64, digest [sha256.Size]byte) (accountexport.Artifact, error) {
 	key := exportObjectKey(exportID)
 	info, err := store.client.StatObject(ctx, store.bucket, key, minio.StatObjectOptions{ServerSideEncryption: store.sse})
@@ -186,4 +213,5 @@ func isNotFound(err error) bool {
 var (
 	_ accountexport.ArtifactPublisher = (*ExportStore)(nil)
 	_ accountexport.ArtifactDeleter   = (*ExportStore)(nil)
+	_ accountexport.ArtifactReader    = (*ExportStore)(nil)
 )

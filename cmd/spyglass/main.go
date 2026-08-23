@@ -26,6 +26,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/mockconnector"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/runnerbrokerhttp"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
@@ -953,8 +954,38 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	defer restoreGate.Close()
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
+	exportKeys, err := routeVerifyKeysEnv("SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_KEYS")
+	if err != nil {
+		return err
+	}
+	exportKeyID, err := requiredEnv("SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_ACTIVE_KEY_ID")
+	if err != nil {
+		return err
+	}
+	exportLifetime, err := durationEnv("SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_CAPABILITY_LIFETIME", 2*time.Minute)
+	if err != nil || exportLifetime <= 0 || exportLifetime > 5*time.Minute {
+		return errors.New("SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_CAPABILITY_LIFETIME must be between 1ns and 5m")
+	}
+	objectSecure, err := boolEnv("SPYGLASS_OBJECT_STORE_SECURE", false)
+	if err != nil {
+		return err
+	}
+	objectSSE, err := boolEnv("SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", true)
+	if err != nil {
+		return err
+	}
+	exportObjectAccessKey, err := requiredEnv("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY")
+	if err != nil {
+		return err
+	}
+	exportObjectSecretKey, err := requiredEnv("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY")
+	if err != nil {
+		return err
+	}
 	stripeClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(nil), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval}, logger)
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval,
+		ExportObject:        s3objects.Config{Endpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: envOr("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "spyglass-account-exports"), AccessKey: exportObjectAccessKey, SecretKey: exportObjectSecretKey, Secure: objectSecure, ServerSideEncryption: objectSSE},
+		ExportDownloadKeyID: exportKeyID, ExportDownloadKeys: exportKeys, ExportDownloadLifetime: exportLifetime}, logger)
 	if err != nil {
 		return err
 	}

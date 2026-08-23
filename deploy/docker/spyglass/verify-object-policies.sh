@@ -14,6 +14,7 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
   mc alias set export-source http://object-store:9000 "$SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY" "$SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY" >/dev/null
   mc alias set export-build http://object-store:9000 "$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY" "$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY" >/dev/null
   mc alias set export-expiry http://object-store:9000 "$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY" "$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY" >/dev/null
+  mc alias set export-download http://object-store:9000 "$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY" "$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY" >/dev/null
   mc alias set root http://object-store:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
   prefix="accounts/policy-certification/documents/document/revisions/revision"
   printf source | mc pipe "app/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null
@@ -31,6 +32,7 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
   printf export | mc pipe "export-build/$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET/$export_prefix/artifact.zip" >/dev/null
   mc cat "export-build/$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET/$export_prefix/artifact.zip" >/dev/null
   mc cat "export-expiry/$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET/$export_prefix/artifact.zip" >/dev/null
+  mc cat "export-download/$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET/$export_prefix/artifact.zip" >/dev/null
   if printf denied | mc pipe "app/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null 2>&1; then
     echo "app API object policy permitted an extracted-object write" >&2
     exit 1
@@ -93,6 +95,18 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
   fi
   if mc ls "export-expiry/$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET" >/dev/null 2>&1; then
     echo "Account export expiry policy permitted bucket listing" >&2
+    exit 1
+  fi
+  if printf denied | mc pipe "export-download/$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET/exports/e9000000-0000-4000-8000-000000000010/artifact.zip" >/dev/null 2>&1; then
+    echo "Account export download policy permitted artifact creation" >&2
+    exit 1
+  fi
+  if mc rm --force "export-download/$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET/$export_prefix/artifact.zip" >/dev/null 2>&1; then
+    echo "Account export download policy permitted artifact deletion" >&2
+    exit 1
+  fi
+  if mc ls "export-download/$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET" >/dev/null 2>&1; then
+    echo "Account export download policy permitted bucket listing" >&2
     exit 1
   fi
   mc rm --force "export-expiry/$SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET/$export_prefix/artifact.zip" >/dev/null

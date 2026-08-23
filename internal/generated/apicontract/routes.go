@@ -5,6 +5,7 @@ type Route struct{ Service, Method, Path, OperationID, Authentication, Contract 
 
 var Routes = [...]Route{
 	{Service: "account-api", Method: "DELETE", Path: "/api/v1/accounts/{accountID}/closure", OperationID: "cancelAccountClosure", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "DELETE", Path: "/api/v1/accounts/{accountID}/exports/{exportID}", OperationID: "cancelAccountExport", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "DELETE", Path: "/api/v1/accounts/{accountID}/membership", OperationID: "leaveAccount", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "DELETE", Path: "/api/v1/accounts/{accountID}/memberships/{membershipID}", OperationID: "removeMembership", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "DELETE", Path: "/api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions", OperationID: "reactivateMembership", Authentication: "sessionCookie", Contract: "typed"},
@@ -13,7 +14,10 @@ var Routes = [...]Route{
 	{Service: "account-api", Method: "DELETE", Path: "/api/v1/sessions", OperationID: "logoutAll", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "DELETE", Path: "/api/v1/sessions/{sessionID}", OperationID: "revokeSession", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/account-closures", OperationID: "listAccountClosures", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "GET", Path: "/api/v1/account-exports/{exportID}/artifact", OperationID: "downloadAccountExport", Authentication: "exportDownloadCapability", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/billing", OperationID: "billingStatus", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/exports", OperationID: "listAccountExports", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/exports/{exportID}", OperationID: "getAccountExport", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/memberships", OperationID: "listMemberships", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/catalog/public", OperationID: "publicCatalog", Authentication: "public", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/passkeys", OperationID: "listPasskeys", Authentication: "sessionCookie", Contract: "typed"},
@@ -27,6 +31,8 @@ var Routes = [...]Route{
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/billing-portal-sessions", OperationID: "createBillingPortalSession", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/checkout-sessions", OperationID: "createCheckoutSession", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/closure", OperationID: "requestAccountClosure", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/exports", OperationID: "createAccountExport", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/exports/{exportID}/download-capabilities", OperationID: "createAccountExportDownloadCapability", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/invitations", OperationID: "createInvitation", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions", OperationID: "suspendMembership", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/ownership-transfers", OperationID: "transferOwnership", Authentication: "sessionCookie", Contract: "typed"},

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -41,6 +42,15 @@ func TestS3ExportStorePublishesAndDeletesExactVersion(t *testing.T) {
 	replayed, err := store.Publish(ctx, write)
 	if err != nil || replayed != artifact {
 		t.Fatalf("replay artifact=%+v want=%+v err=%v", replayed, artifact, err)
+	}
+	opened, err := store.Open(ctx, artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, readErr := io.ReadAll(opened)
+	closeErr := opened.Close()
+	if readErr != nil || closeErr != nil || !bytes.Equal(read, body) {
+		t.Fatalf("open body=%q read=%v close=%v", read, readErr, closeErr)
 	}
 	if err := store.Delete(ctx, artifact); err != nil {
 		t.Fatal(err)

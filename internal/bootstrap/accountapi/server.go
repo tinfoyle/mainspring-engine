@@ -11,9 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
 	stripeadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountexport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
@@ -32,6 +34,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/authn"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/exportcapability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/browserapp"
@@ -57,6 +60,10 @@ type Config struct {
 	PasskeyRPID               string
 	TrustedProxyCIDRs         []string
 	CatalogRefreshInterval    time.Duration
+	ExportObject              s3objects.Config
+	ExportDownloadKeyID       string
+	ExportDownloadKeys        map[string][]byte
+	ExportDownloadLifetime    time.Duration
 }
 
 type Server struct {
@@ -185,6 +192,44 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	exportRepository := postgres.NewAccountExportRepository(pool)
+	exportService, err := accountexport.NewService(exportRepository, authorizer, ids.RandomGenerator{}, clock, 7*24*time.Hour)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	exportObjects, err := s3objects.NewExport(config.ExportObject)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := exportObjects.VerifyReadOnly(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if config.ExportDownloadLifetime == 0 {
+		config.ExportDownloadLifetime = exportcapability.DefaultLifetime
+	}
+	activeExportKey, ok := config.ExportDownloadKeys[config.ExportDownloadKeyID]
+	if !ok {
+		pool.Close()
+		return nil, errors.New("active Account export download key is absent")
+	}
+	exportSigner, err := exportcapability.NewSigner(config.AppOrigin, config.ExportDownloadKeyID, activeExportKey, config.ExportDownloadLifetime, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	exportVerifier, err := exportcapability.NewVerifier(config.AppOrigin, config.ExportDownloadKeys, exportcapability.MaximumLifetime, time.Second, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	exportDownloads, err := accountexport.NewDownloadService(exportRepository, exportObjects, authorizer, exportSigner, exportVerifier, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	accountAccess, err := accountaccess.NewService(postgres.NewAccountAccessRepository(pool), authorizer, securityPosture)
 	if err != nil {
 		pool.Close()
@@ -235,6 +280,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithCommercialAccess(commercialService, config.AppOrigin),
 		httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Secure: true, Origin: config.AppOrigin}),
 		httpapi.WithAccountAccess(accountAccess),
+		httpapi.WithAccountExports(exportService, exportDownloads),
 		httpapi.WithAccountLifecycle(accountLifecycle),
 		httpapi.WithAccountMembers(memberService),
 		httpapi.WithInvitations(invitationService, nil, false),
@@ -249,7 +295,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService), browserapp.WithContactChanges(contactChangeService, nil), browserapp.WithMCPGrants(mcpAuthorization))
+	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService), browserapp.WithContactChanges(contactChangeService, nil), browserapp.WithMCPGrants(mcpAuthorization), browserapp.WithAccountExports(exportService, exportDownloads))
 	if err != nil {
 		pool.Close()
 		return nil, err

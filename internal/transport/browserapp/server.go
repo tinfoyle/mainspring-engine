@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountexport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
@@ -78,6 +79,8 @@ type Server struct {
 	contactChanges      *contactchange.Service
 	contactChangeTokens ContactChangeTokenSource
 	mcpGrants           *mcpauth.Service
+	accountExports      *accountexport.Service
+	exportDownloads     *accountexport.DownloadService
 }
 
 type Option func(*Server)
@@ -118,6 +121,10 @@ func WithContactChanges(service *contactchange.Service, tokens ContactChangeToke
 
 func WithMCPGrants(service *mcpauth.Service) Option {
 	return func(server *Server) { server.mcpGrants = service }
+}
+
+func WithAccountExports(service *accountexport.Service, downloads *accountexport.DownloadService) Option {
+	return func(server *Server) { server.accountExports, server.exportDownloads = service, downloads }
 }
 
 func New(registrations *registration.Service, authenticationService *authentication.Service, sessionService *sessions.Service, accountService *accountaccess.Service, invitationService *invitations.Service, catalogSource func() catalog.PublishedCatalog, verificationTokens VerificationTokenSource, invitationTokens InvitationTokenSource, config Config, logger *slog.Logger, options ...Option) (*Server, error) {
@@ -197,6 +204,10 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /app/security/mcp-grants/revoke", s.revokeMCPGrant)
 	mux.HandleFunc("POST /app/account", s.selectAccount)
 	mux.HandleFunc("GET /app/account-closures", s.accountClosuresPage)
+	mux.HandleFunc("GET /app/account-exports", s.accountExportsPage)
+	mux.HandleFunc("POST /app/account-exports/request", s.requestAccountExport)
+	mux.HandleFunc("POST /app/account-exports/cancel", s.cancelAccountExport)
+	mux.HandleFunc("POST /app/account-exports/download", s.downloadAccountExport)
 	mux.HandleFunc("POST /app/account-closures/request", s.requestAccountClosure)
 	mux.HandleFunc("POST /app/account-closures/cancel", s.cancelAccountClosure)
 	mux.HandleFunc("POST /app/invitations", s.createInvitation)
@@ -407,6 +418,8 @@ type pageData struct {
 	CanManageMembers, CanTransferOwnership, CanLeaveAccount                                            bool
 	CanCloseAccount                                                                                    bool
 	Closures                                                                                           []accountlifecycle.Status
+	Exports                                                                                            []accountexport.Status
+	CanManageExports                                                                                   bool
 	Members                                                                                            []memberView
 	ActorMembershipVersion                                                                             uint64
 	BillingConfigured, CanManageBilling, CanStartCheckout, HasBillingCustomer                          bool

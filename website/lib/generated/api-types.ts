@@ -61,6 +61,35 @@ export interface AccountContext {
   readonly "role": "owner" | "administrator" | "billing_admin" | "member" | "viewer";
 }
 
+export interface AccountExport {
+  readonly "account_id": string;
+  readonly "account_version": number;
+  readonly "artifact_bytes"?: number;
+  readonly "attempt_count": number;
+  readonly "available_at"?: string;
+  readonly "cell_id": string;
+  readonly "deleted_at"?: string;
+  readonly "error_code"?: string;
+  readonly "expires_at": string;
+  readonly "id": string;
+  readonly "placement_generation": number;
+  readonly "requested_at": string;
+  readonly "requested_by": string;
+  readonly "state": AccountExportState;
+  readonly "version": number;
+}
+
+export interface AccountExportDownloadCapability {
+  readonly "expires_at": string;
+  readonly "token": string;
+}
+
+export type AccountExportState = "queued" | "building" | "available" | "failed" | "deleting" | "deleted" | "canceled";
+
+export interface AccountExports {
+  readonly "exports": ReadonlyArray<AccountExport>;
+}
+
 export interface AccountSelected {
   readonly "account_context": SelectedAccountContext;
 }
@@ -618,6 +647,10 @@ export interface BillingSubscription {
 }
 
 export type BillingSubscriptionState = "incomplete" | "incomplete_expired" | "trialing" | "active" | "past_due" | "canceled" | "unpaid" | "paused";
+
+export interface CancelAccountExportRequest {
+  readonly "expected_version": number;
+}
 
 export interface CatalogFeaturePackage {
   readonly "code": CatalogPackageCode;
@@ -2219,6 +2252,10 @@ export interface ApiSchemas {
   readonly AccountClosure: AccountClosure;
   readonly AccountClosures: AccountClosures;
   readonly AccountContext: AccountContext;
+  readonly AccountExport: AccountExport;
+  readonly AccountExportDownloadCapability: AccountExportDownloadCapability;
+  readonly AccountExportState: AccountExportState;
+  readonly AccountExports: AccountExports;
   readonly AccountSelected: AccountSelected;
   readonly ActionRecoveryDetail: ActionRecoveryDetail;
   readonly ActionRecoveryPage: ActionRecoveryPage;
@@ -2297,6 +2334,7 @@ export interface ApiSchemas {
   readonly BillingStatus: BillingStatus;
   readonly BillingSubscription: BillingSubscription;
   readonly BillingSubscriptionState: BillingSubscriptionState;
+  readonly CancelAccountExportRequest: CancelAccountExportRequest;
   readonly CatalogFeaturePackage: CatalogFeaturePackage;
   readonly CatalogLimitDefinition: CatalogLimitDefinition;
   readonly CatalogOffer: CatalogOffer;

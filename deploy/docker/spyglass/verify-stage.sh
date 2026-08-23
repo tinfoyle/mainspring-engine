@@ -231,6 +231,15 @@ expiry_environment = services["account-export-expiry-worker"].get("environment",
 for name in ("SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE", "SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT"):
     if name not in expiry_environment:
         raise SystemExit(f"account-export-expiry-worker does not carry {name}")
+account_environment = services["account-api"].get("environment", {})
+for name in (
+    "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY",
+    "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY",
+    "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_KEYS",
+    "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_ACTIVE_KEY_ID",
+):
+    if name not in account_environment:
+        raise SystemExit(f"account-api does not carry {name}")
 if config["networks"]["host-edge"].get("name") != edge_network:
     raise SystemExit("stage host edge network does not match the reviewed secret file")
 PY

@@ -149,6 +149,7 @@ services:
         mc admin policy create spyglass spyglass-account-export-source-reader /etc/spyglass/minio/account-export-source-reader-policy.json
         mc admin policy create spyglass spyglass-account-export-build /etc/spyglass/minio/account-export-build-policy.json
         mc admin policy create spyglass spyglass-account-export-expiry /etc/spyglass/minio/account-export-expiry-policy.json
+        mc admin policy create spyglass spyglass-account-export-download /etc/spyglass/minio/account-export-download-policy.json
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_APP_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_WORKER_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_CONNECTOR_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY}"
@@ -156,6 +157,7 @@ services:
         mc admin user add spyglass "$${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY}" "$${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY}" "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY}" "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY}"
+        mc admin user add spyglass "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY}" "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY}"
         mc admin policy attach spyglass spyglass-app-api --user "$${SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-document-worker --user "$${SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-integration-connector --user "$${SPYGLASS_OBJECT_STORE_CONNECTOR_ACCESS_KEY}"
@@ -163,6 +165,7 @@ services:
         mc admin policy attach spyglass spyglass-account-export-source-reader --user "$${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-account-export-build --user "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-account-export-expiry --user "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY}"
+        mc admin policy attach spyglass spyglass-account-export-download --user "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY}"
     environment:
       MINIO_ROOT_USER: ${SPYGLASS_OBJECT_STORE_ACCESS_KEY:?set SPYGLASS_OBJECT_STORE_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${SPYGLASS_OBJECT_STORE_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_SECRET_KEY}
@@ -182,6 +185,8 @@ services:
       SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY}
       SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY}
       SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY}
       MC_CONFIG_DIR: /tmp/.mc
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -193,6 +198,7 @@ services:
       - ./minio/account-export-source-reader-policy.json:/etc/spyglass/minio/account-export-source-reader-policy.json:ro
       - ./minio/account-export-build-policy.json:/etc/spyglass/minio/account-export-build-policy.json:ro
       - ./minio/account-export-expiry-policy.json:/etc/spyglass/minio/account-export-expiry-policy.json:ro
+      - ./minio/account-export-download-policy.json:/etc/spyglass/minio/account-export-download-policy.json:ro
     depends_on:
       object-store: {condition: service_healthy}
     cap_drop: [ALL]
@@ -321,6 +327,15 @@ services:
       SPYGLASS_NETWORK_ACTOR_KEY: ${SPYGLASS_NETWORK_ACTOR_KEY:?set SPYGLASS_NETWORK_ACTOR_KEY}
       SPYGLASS_PASSKEY_ENCRYPTION_KEYS: ${SPYGLASS_PASSKEY_ENCRYPTION_KEYS:?set SPYGLASS_PASSKEY_ENCRYPTION_KEYS}
       SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION: ${SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION:?set SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION}
+      SPYGLASS_OBJECT_STORE_ENDPOINT: ${SPYGLASS_OBJECT_STORE_ENDPOINT:?set SPYGLASS_OBJECT_STORE_ENDPOINT}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY}
+      SPYGLASS_OBJECT_STORE_SECURE: ${SPYGLASS_OBJECT_STORE_SECURE:-false}
+      SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION: ${SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION:-true}
+      SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_KEYS: ${SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_KEYS:?set SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_KEYS}
+      SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_ACTIVE_KEY_ID: ${SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_ACTIVE_KEY_ID:?set SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_ACTIVE_KEY_ID}
+      SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_CAPABILITY_LIFETIME: ${SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_CAPABILITY_LIFETIME:-2m}
     expose: ["8080"]
     healthcheck:
       test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]
@@ -330,6 +345,7 @@ services:
       start_period: 10s
     depends_on:
       global-seed: {condition: service_completed_successfully}
+      object-store-init: {condition: service_completed_successfully}
     networks:
       - application
       - database

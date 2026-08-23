@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"time"
@@ -84,6 +85,19 @@ func (repository *AccountExportRepository) Get(ctx context.Context, accountID id
 		return accountexport.Status{}, accountexport.ErrNotFound
 	}
 	return status, classifyAccountExport(err)
+}
+
+func (repository *AccountExportRepository) GetArtifact(ctx context.Context, accountID ids.AccountID, id string) (accountexport.Status, accountexport.Artifact, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(id) != nil {
+		return accountexport.Status{}, accountexport.Artifact{}, accountexport.ErrInvalid
+	}
+	row := repository.pool.QueryRow(ctx, `SELECT `+accountExportStatusColumns+`,COALESCE(artifact_reference,''),artifact_sha256
+		FROM account_export_requests WHERE account_id=$1 AND id=$2`, accountID, id)
+	status, artifact, err := scanAccountExportArtifact(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return accountexport.Status{}, accountexport.Artifact{}, accountexport.ErrNotFound
+	}
+	return status, artifact, classifyAccountExport(err)
 }
 
 func (repository *AccountExportRepository) List(ctx context.Context, accountID ids.AccountID, limit uint64) ([]accountexport.Status, error) {
@@ -361,6 +375,20 @@ func scanAccountExport(scanner accountExportScanner) (accountexport.Status, erro
 	return status, err
 }
 
+func scanAccountExportArtifact(scanner accountExportScanner) (accountexport.Status, accountexport.Artifact, error) {
+	var status accountexport.Status
+	var artifact accountexport.Artifact
+	var digest []byte
+	err := scanner.Scan(&status.ID, &status.AccountID, &status.RequestedBy, &status.State, &status.CellID, &status.PlacementGeneration,
+		&status.AccountVersion, &status.AttemptCount, &status.ErrorCode, &status.ArtifactBytes, &status.Version,
+		&status.RequestedAt, &status.ExpiresAt, &status.AvailableAt, &status.DeletedAt, &artifact.Reference, &digest)
+	if len(digest) == sha256.Size {
+		copy(artifact.SHA256[:], digest)
+	}
+	artifact.Bytes = status.ArtifactBytes
+	return status, artifact, err
+}
+
 func insertAccountExportEvent(ctx context.Context, tx pgx.Tx, eventID string, status accountexport.Status, eventType, actorKind, actorID, errorCode string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO account_export_events(id,account_id,request_id,event_type,state,request_version,actor_kind,actor_id,error_code,occurred_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,''),statement_timestamp())`, eventID, status.AccountID, status.ID, eventType, status.State, status.Version, actorKind, actorID, errorCode)
@@ -432,5 +460,6 @@ func classifyAccountExport(err error) error {
 }
 
 var _ accountexport.RequestStore = (*AccountExportRepository)(nil)
+var _ accountexport.ArtifactStore = (*AccountExportRepository)(nil)
 var _ accountexport.BuildStore = (*AccountExportRepository)(nil)
 var _ accountexport.ExpiryStore = (*AccountExportRepository)(nil)

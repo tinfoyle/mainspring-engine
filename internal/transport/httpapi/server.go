@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountexport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
@@ -58,6 +59,8 @@ type Server struct {
 	contactChanges        *contactchange.Service
 	contactChangeTokens   ContactChangeTokenSource
 	exposeContactToken    bool
+	accountExports        *accountexport.Service
+	exportDownloads       *accountexport.DownloadService
 }
 
 type SessionCookie struct {
@@ -110,6 +113,10 @@ func WithAuthentication(service *authentication.Service, sessionService *session
 
 func WithAccountAccess(service *accountaccess.Service) Option {
 	return func(server *Server) { server.accounts = service }
+}
+
+func WithAccountExports(service *accountexport.Service, downloads *accountexport.DownloadService) Option {
+	return func(server *Server) { server.accountExports, server.exportDownloads = service, downloads }
 }
 
 func WithAccountLifecycle(service *accountlifecycle.Service) Option {
@@ -219,6 +226,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/checkout-sessions", s.createCheckoutSession)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/billing-portal-sessions", s.createBillingPortalSession)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/billing", s.billingStatus)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/exports", s.listAccountExports)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/exports", s.createAccountExport)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/exports/{exportID}", s.getAccountExport)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/exports/{exportID}", s.cancelAccountExport)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/exports/{exportID}/download-capabilities", s.createAccountExportDownloadCapability)
+	mux.HandleFunc("GET /api/v1/account-exports/{exportID}/artifact", s.downloadAccountExport)
 	mux.HandleFunc("POST /api/v1/invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
