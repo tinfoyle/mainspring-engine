@@ -178,6 +178,45 @@ func TestMarketingCommandsFailClosedOnAuthorityVersionAndDigest(t *testing.T) {
 	}
 }
 
+func TestMarketingAgentDraftRoutesDeriveInvocationAndRequireRun(t *testing.T) {
+	service := &marketingCommandTransportService{}
+	claims := marketingCommandClaims()
+	invocationID := "ab000000-0000-4000-8000-00000000000b"
+	claims.Authority.ActorKind = "workload"
+	claims.Authority.ActorID = "runner-invocation:" + invocationID
+	claims.Authority.Role = ""
+	server, err := New(claimAcceptor{claims: claims}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithMarketingCommands(service))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := "aa000000-0000-4000-8000-00000000000a"
+	digest := strings.Repeat("11", 32)
+	tests := []struct {
+		name, target, body, wantCall string
+	}{
+		{name: "campaign", target: "/internal/v1/accounts/" + marketingAccountID + "/marketing/campaigns:draft", body: `{"run_id":"` + runID + `","name":"Autumn launch","objective":"Introduce the governed release","audience":"Existing operators","channels":["email","web"]}`, wantCall: "campaign_create"},
+		{name: "asset", target: "/internal/v1/accounts/" + marketingAccountID + "/marketing/campaigns/" + marketingCampaignID + "/asset-revisions:draft", body: `{"run_id":"` + runID + `","asset_id":"` + marketingAssetID + `","kind":"image","title":"Campaign hero","media_type":"image/png","content_reference":"objects/marketing/hero.png","content_sha256":"` + digest + `","content_bytes":2048,"alternative_text":"Spyglass campaign hero"}`, wantCall: "asset_create"},
+		{name: "release", target: "/internal/v1/accounts/" + marketingAccountID + "/marketing/campaigns/" + marketingCampaignID + "/releases:draft", body: `{"run_id":"` + runID + `","campaign_version":2,"name":"Autumn release","channels":["email","web"],"asset_revision_ids":["` + marketingAssetRevisionID + `"]}`, wantCall: "release_create"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := marketingCommandRequest(server.Handler(), http.MethodPost, test.target, test.body, 0)
+			if response.Code != http.StatusCreated || service.called != test.wantCall {
+				t.Fatalf("status=%d body=%s called=%s", response.Code, response.Body.String(), service.called)
+			}
+			if service.provenance.Origin != marketingdomain.OriginAgent || service.provenance.RunID != ids.RunID(runID) || service.provenance.InvocationID != ids.AgentInvocationID(invocationID) {
+				t.Fatalf("Agent provenance=%+v", service.provenance)
+			}
+		})
+	}
+
+	humanServer, _ := New(claimAcceptor{claims: marketingCommandClaims()}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithMarketingCommands(service))
+	denied := marketingCommandRequest(humanServer.Handler(), http.MethodPost, tests[0].target, tests[0].body, 0)
+	if denied.Code != http.StatusForbidden {
+		t.Fatalf("human Agent draft status=%d body=%s", denied.Code, denied.Body.String())
+	}
+}
+
 func marketingCommandRequest(handler http.Handler, method, target, body string, version uint64) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
 	request.Header.Set(RouteContextHeader, "accepted-by-test-boundary")

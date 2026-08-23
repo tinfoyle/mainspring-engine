@@ -26,6 +26,12 @@ const (
 	FinanceAccountsReadCapability      = "finance.accounts.read"
 	FinanceEntryDraftCapability        = "finance.entry.draft"
 	FinanceEntryPostCapability         = "finance.entry.post"
+	MarketingCampaignsReadCapability   = "marketing.campaigns.read"
+	MarketingAssetsReadCapability      = "marketing.asset_revisions.read"
+	MarketingReleasesReadCapability    = "marketing.releases.read"
+	MarketingCampaignDraftCapability   = "marketing.campaign.draft"
+	MarketingAssetDraftCapability      = "marketing.asset_revision.draft"
+	MarketingReleaseDraftCapability    = "marketing.release.draft"
 	MarketingReleaseActivateCapability = "marketing.release.activate"
 )
 

@@ -291,7 +291,9 @@ func (s *Service) PublishPersona(ctx context.Context, command PublishPersonaComm
 	}
 	for _, tool := range command.Policy.Tools {
 		switch tool.Capability {
-		case "work.summary.read", "finance.ledgers.read", "finance.accounts.read", "finance.entry.draft":
+		case "work.summary.read", "finance.ledgers.read", "finance.accounts.read", "finance.entry.draft",
+			"marketing.campaigns.read", "marketing.asset_revisions.read", "marketing.releases.read",
+			"marketing.campaign.draft", "marketing.asset_revision.draft", "marketing.release.draft":
 		default:
 			return PersonaSummary{}, false, ErrInvalidCommand
 		}

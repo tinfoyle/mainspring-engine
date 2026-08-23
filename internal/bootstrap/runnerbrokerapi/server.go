@@ -186,6 +186,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		{Capability: toolrouter.FinanceLedgersReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
 		{Capability: toolrouter.FinanceAccountsReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
 		{Capability: toolrouter.FinanceEntryDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
+		{Capability: toolrouter.MarketingCampaignsReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
+		{Capability: toolrouter.MarketingAssetsReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
+		{Capability: toolrouter.MarketingReleasesReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
+		{Capability: toolrouter.MarketingCampaignDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
+		{Capability: toolrouter.MarketingAssetDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
+		{Capability: toolrouter.MarketingReleaseDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
 		{Capability: modelgateway.ModelTurnCapability, Effect: runnercapability.EffectReadOnly, Timeout: modelgateway.MaximumProviderTimeout, Handler: modelHandler},
 		{Capability: stripeaction.CustomerCreateCapability, Effect: runnercapability.EffectConsequential, Timeout: 20 * time.Second, Handler: stripeCustomerHandler},
 	})

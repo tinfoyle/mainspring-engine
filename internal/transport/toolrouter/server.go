@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,19 +21,26 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
 	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
+	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
 )
 
 const (
-	ContextHeader                 = toolcontext.HeaderName
-	DefaultMaxRequestBody         = int64(256 << 10)
-	DefaultMaxResponseBody        = int64(256 << 10)
-	WorkSummaryCapability         = runnercapability.WorkSummaryCapability
-	FinanceLedgersReadCapability  = runnercapability.FinanceLedgersReadCapability
-	FinanceAccountsReadCapability = runnercapability.FinanceAccountsReadCapability
-	FinanceEntryDraftCapability   = runnercapability.FinanceEntryDraftCapability
+	ContextHeader                    = toolcontext.HeaderName
+	DefaultMaxRequestBody            = int64(256 << 10)
+	DefaultMaxResponseBody           = int64(256 << 10)
+	WorkSummaryCapability            = runnercapability.WorkSummaryCapability
+	FinanceLedgersReadCapability     = runnercapability.FinanceLedgersReadCapability
+	FinanceAccountsReadCapability    = runnercapability.FinanceAccountsReadCapability
+	FinanceEntryDraftCapability      = runnercapability.FinanceEntryDraftCapability
+	MarketingCampaignsReadCapability = runnercapability.MarketingCampaignsReadCapability
+	MarketingAssetsReadCapability    = runnercapability.MarketingAssetsReadCapability
+	MarketingReleasesReadCapability  = runnercapability.MarketingReleasesReadCapability
+	MarketingCampaignDraftCapability = runnercapability.MarketingCampaignDraftCapability
+	MarketingAssetDraftCapability    = runnercapability.MarketingAssetDraftCapability
+	MarketingReleaseDraftCapability  = runnercapability.MarketingReleaseDraftCapability
 )
 
 type dispatch struct {
@@ -66,6 +74,77 @@ type financeEntryDraftBody struct {
 	Currency    string                      `json:"currency"`
 	Lines       []financedomain.JournalLine `json:"lines"`
 	Evidence    []ids.KnowledgeEvidenceID   `json:"evidence"`
+}
+
+type marketingCampaignsInput struct {
+	State marketingdomain.CampaignState `json:"state,omitempty"`
+}
+
+type marketingCampaignInput struct {
+	RunID     ids.RunID                 `json:"run_id"`
+	Name      string                    `json:"name"`
+	Objective string                    `json:"objective"`
+	Audience  string                    `json:"audience"`
+	Channels  []marketingdomain.Channel `json:"channels"`
+}
+
+type marketingAssetsInput struct {
+	CampaignID ids.MarketingCampaignID `json:"campaign_id"`
+	AssetID    ids.MarketingAssetID    `json:"asset_id,omitempty"`
+}
+
+type marketingAssetInput struct {
+	RunID            ids.RunID                 `json:"run_id"`
+	CampaignID       ids.MarketingCampaignID   `json:"campaign_id"`
+	AssetID          ids.MarketingAssetID      `json:"asset_id"`
+	Kind             marketingdomain.AssetKind `json:"kind"`
+	Title            string                    `json:"title"`
+	MediaType        string                    `json:"media_type"`
+	ContentReference string                    `json:"content_reference"`
+	ContentSHA256    string                    `json:"content_sha256"`
+	ContentBytes     uint64                    `json:"content_bytes"`
+	AlternativeText  string                    `json:"alternative_text,omitempty"`
+}
+
+type marketingReleasesInput struct {
+	CampaignID ids.MarketingCampaignID `json:"campaign_id"`
+}
+
+type marketingReleaseInput struct {
+	RunID            ids.RunID                      `json:"run_id"`
+	CampaignID       ids.MarketingCampaignID        `json:"campaign_id"`
+	CampaignVersion  uint64                         `json:"campaign_version"`
+	Name             string                         `json:"name"`
+	Channels         []marketingdomain.Channel      `json:"channels"`
+	AssetRevisionIDs []ids.MarketingAssetRevisionID `json:"asset_revision_ids"`
+}
+
+type marketingCampaignDraftBody struct {
+	RunID     ids.RunID                 `json:"run_id"`
+	Name      string                    `json:"name"`
+	Objective string                    `json:"objective"`
+	Audience  string                    `json:"audience"`
+	Channels  []marketingdomain.Channel `json:"channels"`
+}
+
+type marketingAssetDraftBody struct {
+	RunID            ids.RunID                 `json:"run_id"`
+	AssetID          ids.MarketingAssetID      `json:"asset_id"`
+	Kind             marketingdomain.AssetKind `json:"kind"`
+	Title            string                    `json:"title"`
+	MediaType        string                    `json:"media_type"`
+	ContentReference string                    `json:"content_reference"`
+	ContentSHA256    string                    `json:"content_sha256"`
+	ContentBytes     uint64                    `json:"content_bytes"`
+	AlternativeText  string                    `json:"alternative_text,omitempty"`
+}
+
+type marketingReleaseDraftBody struct {
+	RunID            ids.RunID                      `json:"run_id"`
+	CampaignVersion  uint64                         `json:"campaign_version"`
+	Name             string                         `json:"name"`
+	Channels         []marketingdomain.Channel      `json:"channels"`
+	AssetRevisionIDs []ids.MarketingAssetRevisionID `json:"asset_revision_ids"`
 }
 
 type Acceptor interface {
@@ -242,7 +321,9 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func knownCapability(capability string) bool {
-	return capability == WorkSummaryCapability || capability == FinanceLedgersReadCapability || capability == FinanceAccountsReadCapability || capability == FinanceEntryDraftCapability
+	return capability == WorkSummaryCapability || capability == FinanceLedgersReadCapability || capability == FinanceAccountsReadCapability || capability == FinanceEntryDraftCapability ||
+		capability == MarketingCampaignsReadCapability || capability == MarketingAssetsReadCapability || capability == MarketingReleasesReadCapability ||
+		capability == MarketingCampaignDraftCapability || capability == MarketingAssetDraftCapability || capability == MarketingReleaseDraftCapability
 }
 
 func dispatchCapability(capability string, accountID ids.AccountID, raw []byte) (dispatch, bool) {
@@ -274,9 +355,69 @@ func dispatchCapability(capability string, accountID ids.AccountID, raw []byte) 
 			return dispatch{}, false
 		}
 		return dispatch{method: http.MethodPost, target: "/internal/v1/accounts/" + string(accountID) + "/finance/ledgers/" + string(input.LedgerID) + "/entries:draft", body: body, requirement: access.Requirement{Package: catalog.PackageFinance, Mutation: true}, createdOK: true}, true
+	case MarketingCampaignsReadCapability:
+		var input marketingCampaignsInput
+		if !decodeToolInput(raw, &input) || !validMarketingCampaignState(input.State) {
+			return dispatch{}, false
+		}
+		query := url.Values{"limit": {"100"}}
+		if input.State != "" {
+			query.Set("state", string(input.State))
+		}
+		return dispatch{method: http.MethodGet, target: accountPath + "/marketing/campaigns?" + query.Encode(), requirement: access.Requirement{Package: catalog.PackageMarketing}}, true
+	case MarketingAssetsReadCapability:
+		var input marketingAssetsInput
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.CampaignID)) != nil || (input.AssetID != "" && ids.Validate(string(input.AssetID)) != nil) {
+			return dispatch{}, false
+		}
+		query := url.Values{"limit": {"100"}}
+		if input.AssetID != "" {
+			query.Set("asset_id", string(input.AssetID))
+		}
+		return dispatch{method: http.MethodGet, target: accountPath + "/marketing/campaigns/" + string(input.CampaignID) + "/asset-revisions?" + query.Encode(), requirement: access.Requirement{Package: catalog.PackageMarketing}}, true
+	case MarketingReleasesReadCapability:
+		var input marketingReleasesInput
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.CampaignID)) != nil {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodGet, target: accountPath + "/marketing/campaigns/" + string(input.CampaignID) + "/releases?limit=100", requirement: access.Requirement{Package: catalog.PackageMarketing}}, true
+	case MarketingCampaignDraftCapability:
+		var input marketingCampaignInput
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.RunID)) != nil {
+			return dispatch{}, false
+		}
+		body, err := json.Marshal(marketingCampaignDraftBody(input))
+		if err != nil {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodPost, target: "/internal/v1/accounts/" + string(accountID) + "/marketing/campaigns:draft", body: body, requirement: access.Requirement{Package: catalog.PackageMarketing, Mutation: true}, createdOK: true}, true
+	case MarketingAssetDraftCapability:
+		var input marketingAssetInput
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.RunID)) != nil || ids.Validate(string(input.CampaignID)) != nil || ids.Validate(string(input.AssetID)) != nil {
+			return dispatch{}, false
+		}
+		body, err := json.Marshal(marketingAssetDraftBody{RunID: input.RunID, AssetID: input.AssetID, Kind: input.Kind, Title: input.Title, MediaType: input.MediaType, ContentReference: input.ContentReference, ContentSHA256: input.ContentSHA256, ContentBytes: input.ContentBytes, AlternativeText: input.AlternativeText})
+		if err != nil {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodPost, target: "/internal/v1/accounts/" + string(accountID) + "/marketing/campaigns/" + string(input.CampaignID) + "/asset-revisions:draft", body: body, requirement: access.Requirement{Package: catalog.PackageMarketing, Mutation: true}, createdOK: true}, true
+	case MarketingReleaseDraftCapability:
+		var input marketingReleaseInput
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.RunID)) != nil || ids.Validate(string(input.CampaignID)) != nil || input.CampaignVersion == 0 {
+			return dispatch{}, false
+		}
+		body, err := json.Marshal(marketingReleaseDraftBody{RunID: input.RunID, CampaignVersion: input.CampaignVersion, Name: input.Name, Channels: input.Channels, AssetRevisionIDs: input.AssetRevisionIDs})
+		if err != nil {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodPost, target: "/internal/v1/accounts/" + string(accountID) + "/marketing/campaigns/" + string(input.CampaignID) + "/releases:draft", body: body, requirement: access.Requirement{Package: catalog.PackageMarketing, Mutation: true}, createdOK: true}, true
 	default:
 		return dispatch{}, false
 	}
+}
+
+func validMarketingCampaignState(state marketingdomain.CampaignState) bool {
+	return state == "" || state == marketingdomain.CampaignDraft || state == marketingdomain.CampaignActive || state == marketingdomain.CampaignPaused || state == marketingdomain.CampaignCompleted || state == marketingdomain.CampaignArchived
 }
 
 func decodeToolInput(raw []byte, destination any) bool {

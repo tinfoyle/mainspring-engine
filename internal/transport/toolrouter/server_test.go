@@ -195,3 +195,37 @@ func TestFinanceReadDispatchUsesBoundedAccountRoutes(t *testing.T) {
 		t.Fatal("invalid Finance Ledger was routed")
 	}
 }
+
+func TestMarketingDispatchUsesBoundedReadsAndDraftOnlyMutationRoutes(t *testing.T) {
+	campaignID := "81000000-0000-4000-8000-000000000008"
+	assetID := "82000000-0000-4000-8000-000000000008"
+	revisionID := "83000000-0000-4000-8000-000000000008"
+	runID := "84000000-0000-4000-8000-000000000008"
+	campaigns, ok := dispatchCapability(MarketingCampaignsReadCapability, testAccount, []byte(`{"state":"draft"}`))
+	if !ok || campaigns.target != "/api/v1/accounts/"+testAccount+"/marketing/campaigns?limit=100&state=draft" || campaigns.requirement.Package != catalog.PackageMarketing || campaigns.requirement.Mutation {
+		t.Fatalf("campaign dispatch=%+v ok=%v", campaigns, ok)
+	}
+	assets, ok := dispatchCapability(MarketingAssetsReadCapability, testAccount, []byte(`{"campaign_id":"`+campaignID+`","asset_id":"`+assetID+`"}`))
+	if !ok || assets.target != "/api/v1/accounts/"+testAccount+"/marketing/campaigns/"+campaignID+"/asset-revisions?asset_id="+assetID+"&limit=100" || assets.requirement.Package != catalog.PackageMarketing {
+		t.Fatalf("asset dispatch=%+v ok=%v", assets, ok)
+	}
+	releases, ok := dispatchCapability(MarketingReleasesReadCapability, testAccount, []byte(`{"campaign_id":"`+campaignID+`"}`))
+	if !ok || releases.target != "/api/v1/accounts/"+testAccount+"/marketing/campaigns/"+campaignID+"/releases?limit=100" || releases.requirement.Package != catalog.PackageMarketing {
+		t.Fatalf("release dispatch=%+v ok=%v", releases, ok)
+	}
+	campaign, ok := dispatchCapability(MarketingCampaignDraftCapability, testAccount, []byte(`{"run_id":"`+runID+`","name":"Launch","objective":"Announce","audience":"Customers","channels":["email"]}`))
+	if !ok || campaign.target != "/internal/v1/accounts/"+testAccount+"/marketing/campaigns:draft" || !campaign.requirement.Mutation || strings.Contains(string(campaign.body), `"campaign_id"`) {
+		t.Fatalf("campaign draft=%+v body=%s ok=%v", campaign, campaign.body, ok)
+	}
+	asset, ok := dispatchCapability(MarketingAssetDraftCapability, testAccount, []byte(`{"run_id":"`+runID+`","campaign_id":"`+campaignID+`","asset_id":"`+assetID+`","kind":"copy","title":"Launch copy","media_type":"text/plain","content_reference":"objects/copy","content_sha256":"`+strings.Repeat("11", 32)+`","content_bytes":20}`))
+	if !ok || asset.target != "/internal/v1/accounts/"+testAccount+"/marketing/campaigns/"+campaignID+"/asset-revisions:draft" || !asset.requirement.Mutation || strings.Contains(string(asset.body), `"campaign_id"`) {
+		t.Fatalf("asset draft=%+v body=%s ok=%v", asset, asset.body, ok)
+	}
+	release, ok := dispatchCapability(MarketingReleaseDraftCapability, testAccount, []byte(`{"run_id":"`+runID+`","campaign_id":"`+campaignID+`","campaign_version":2,"name":"Release","channels":["email"],"asset_revision_ids":["`+revisionID+`"]}`))
+	if !ok || release.target != "/internal/v1/accounts/"+testAccount+"/marketing/campaigns/"+campaignID+"/releases:draft" || !release.requirement.Mutation || strings.Contains(string(release.body), `"campaign_id"`) {
+		t.Fatalf("release draft=%+v body=%s ok=%v", release, release.body, ok)
+	}
+	if _, ok := dispatchCapability(MarketingCampaignsReadCapability, testAccount, []byte(`{"state":"invented"}`)); ok {
+		t.Fatal("invalid Marketing state was routed")
+	}
+}

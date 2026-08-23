@@ -53,6 +53,34 @@ type marketingCampaignActivationRequest struct {
 	ReleaseID ids.MarketingReleaseID `json:"release_id"`
 }
 
+type marketingAgentCampaignDefinitionRequest struct {
+	RunID     ids.RunID                 `json:"run_id"`
+	Name      string                    `json:"name"`
+	Objective string                    `json:"objective"`
+	Audience  string                    `json:"audience"`
+	Channels  []marketingdomain.Channel `json:"channels"`
+}
+
+type marketingAgentAssetRevisionDefinitionRequest struct {
+	RunID            ids.RunID                 `json:"run_id"`
+	AssetID          ids.MarketingAssetID      `json:"asset_id"`
+	Kind             marketingdomain.AssetKind `json:"kind"`
+	Title            string                    `json:"title"`
+	MediaType        string                    `json:"media_type"`
+	ContentReference string                    `json:"content_reference"`
+	ContentSHA256    string                    `json:"content_sha256"`
+	ContentBytes     uint64                    `json:"content_bytes"`
+	AlternativeText  string                    `json:"alternative_text,omitempty"`
+}
+
+type marketingAgentReleaseDefinitionRequest struct {
+	RunID            ids.RunID                      `json:"run_id"`
+	CampaignVersion  uint64                         `json:"campaign_version"`
+	Name             string                         `json:"name"`
+	Channels         []marketingdomain.Channel      `json:"channels"`
+	AssetRevisionIDs []ids.MarketingAssetRevisionID `json:"asset_revision_ids"`
+}
+
 func (s *Server) marketingCampaignCreate(w http.ResponseWriter, r *http.Request) {
 	claims, actor, accountID, requestID, ok := s.marketingCommandRequest(w, r)
 	if !ok {
@@ -68,6 +96,32 @@ func (s *Server) marketingCampaignCreate(w http.ResponseWriter, r *http.Request)
 	})
 	if err != nil {
 		s.writeMarketingError(w, "create campaign", err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/accounts/%s/marketing/campaigns/%s", accountID, value.ID))
+	writeMarketingVersion(w, value.Version)
+	writeJSON(w, status, value)
+}
+
+func (s *Server) marketingAgentCampaignDraft(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, requestID, invocationID, ok := s.marketingAgentDraftRequest(w, r)
+	if !ok {
+		return
+	}
+	var body marketingAgentCampaignDefinitionRequest
+	if !decodeMarketingJSON(w, r, &body) {
+		return
+	}
+	value, created, err := s.marketingCommands.CreateCampaign(routecontext.WithClaims(r.Context(), claims), marketingapp.CreateCampaignCommand{
+		Actor: actor, AccountID: accountID, RequestID: requestID, Name: body.Name, Objective: body.Objective, Audience: body.Audience,
+		Channels: body.Channels, Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginAgent, RunID: body.RunID, InvocationID: invocationID},
+	})
+	if err != nil {
+		s.writeMarketingError(w, "create Agent campaign draft", err)
 		return
 	}
 	status := http.StatusOK
@@ -150,6 +204,40 @@ func (s *Server) marketingAssetRevisionCreate(w http.ResponseWriter, r *http.Req
 	writeJSON(w, status, marketingAssetRevisionDTO(value))
 }
 
+func (s *Server) marketingAgentAssetRevisionDraft(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, requestID, invocationID, ok := s.marketingAgentDraftRequest(w, r)
+	if !ok {
+		return
+	}
+	campaignID, ok := marketingCommandTarget[ids.MarketingCampaignID](w, r, "campaignID")
+	if !ok {
+		return
+	}
+	var body marketingAgentAssetRevisionDefinitionRequest
+	if !decodeMarketingJSON(w, r, &body) {
+		return
+	}
+	digest, ok := decodeMarketingDigest(body.ContentSHA256)
+	if !ok {
+		s.writeMarketingError(w, "create Agent asset revision", marketingapp.ErrInvalid)
+		return
+	}
+	value, created, err := s.marketingCommands.CreateAssetRevision(routecontext.WithClaims(r.Context(), claims), marketingapp.CreateAssetRevisionCommand{
+		Actor: actor, AccountID: accountID, RequestID: requestID, CampaignID: campaignID, AssetID: body.AssetID, Kind: body.Kind,
+		Title: body.Title, MediaType: body.MediaType, ContentReference: body.ContentReference, ContentSHA256: digest, ContentBytes: body.ContentBytes,
+		AlternativeText: body.AlternativeText, Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginAgent, RunID: body.RunID, InvocationID: invocationID},
+	})
+	if err != nil {
+		s.writeMarketingError(w, "create Agent asset revision", err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, status, marketingAssetRevisionDTO(value))
+}
+
 func (s *Server) marketingReleaseCreate(w http.ResponseWriter, r *http.Request) {
 	claims, actor, accountID, requestID, ok := s.marketingCommandRequest(w, r)
 	if !ok {
@@ -169,6 +257,37 @@ func (s *Server) marketingReleaseCreate(w http.ResponseWriter, r *http.Request) 
 	})
 	if err != nil {
 		s.writeMarketingError(w, "create release", err)
+		return
+	}
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/accounts/%s/marketing/releases/%s", accountID, value.ID))
+	writeMarketingVersion(w, value.Version)
+	writeJSON(w, status, value)
+}
+
+func (s *Server) marketingAgentReleaseDraft(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, requestID, invocationID, ok := s.marketingAgentDraftRequest(w, r)
+	if !ok {
+		return
+	}
+	campaignID, ok := marketingCommandTarget[ids.MarketingCampaignID](w, r, "campaignID")
+	if !ok {
+		return
+	}
+	var body marketingAgentReleaseDefinitionRequest
+	if !decodeMarketingJSON(w, r, &body) {
+		return
+	}
+	value, created, err := s.marketingCommands.CreateRelease(routecontext.WithClaims(r.Context(), claims), marketingapp.CreateReleaseCommand{
+		Actor: actor, AccountID: accountID, RequestID: requestID, CampaignID: campaignID, CampaignVersion: body.CampaignVersion,
+		Name: body.Name, Channels: body.Channels, AssetRevisionIDs: body.AssetRevisionIDs,
+		Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginAgent, RunID: body.RunID, InvocationID: invocationID},
+	})
+	if err != nil {
+		s.writeMarketingError(w, "create Agent release draft", err)
 		return
 	}
 	status := http.StatusOK
@@ -286,6 +405,29 @@ func (s *Server) marketingCommandRequest(w http.ResponseWriter, r *http.Request)
 		actor.WorkloadID = claims.Authority.ActorID
 	}
 	return claims, actor, accountID, claims.Authority.OperationID, true
+}
+
+func (s *Server) marketingAgentDraftRequest(w http.ResponseWriter, r *http.Request) (routecontext.Claims, access.Actor, ids.AccountID, string, ids.AgentInvocationID, bool) {
+	claims, actor, accountID, requestID, ok := s.marketingCommandRequest(w, r)
+	if !ok {
+		return routecontext.Claims{}, access.Actor{}, "", "", "", false
+	}
+	invocationRaw := strings.TrimPrefix(actor.WorkloadID, "runner-invocation:")
+	if claims.Authority.ActorKind != "workload" || actor.UserID != "" || invocationRaw == actor.WorkloadID || ids.Validate(invocationRaw) != nil {
+		writeProblem(w, http.StatusForbidden, "marketing_agent_draft_denied", "the Marketing Agent draft boundary is unavailable")
+		return routecontext.Claims{}, access.Actor{}, "", "", "", false
+	}
+	return claims, actor, accountID, requestID, ids.AgentInvocationID(invocationRaw), true
+}
+
+func decodeMarketingDigest(value string) ([32]byte, bool) {
+	raw, err := hex.DecodeString(value)
+	if err != nil || len(raw) != 32 || value != strings.ToLower(value) {
+		return [32]byte{}, false
+	}
+	digest := [32]byte{}
+	copy(digest[:], raw)
+	return digest, true
 }
 
 func (s *Server) marketingReleaseTransitionRequest(w http.ResponseWriter, r *http.Request) (routecontext.Claims, access.Actor, ids.AccountID, string, ids.MarketingReleaseID, uint64, bool) {
