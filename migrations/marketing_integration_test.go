@@ -247,6 +247,14 @@ func TestMarketingRepositoryReplaysRestoresAndIsolatesDraftLifecycle(t *testing.
 	if err != nil || !created || asset.Revision != 2 {
 		t.Fatalf("asset revision=%+v created=%t err=%v", asset, created, err)
 	}
+	assetPage, err := repository.ListAssetRevisions(ctx, accountID, marketingapp.AssetRevisionListQuery{CampaignID: campaignID, AssetID: assetID, Limit: 1})
+	if err != nil || len(assetPage.Items) != 1 || assetPage.Items[0].Revision != 2 || assetPage.NextCursor == nil {
+		t.Fatalf("asset page=%+v err=%v", assetPage, err)
+	}
+	assetRemainder, err := repository.ListAssetRevisions(ctx, accountID, marketingapp.AssetRevisionListQuery{CampaignID: campaignID, AssetID: assetID, After: assetPage.NextCursor, Limit: 1})
+	if err != nil || len(assetRemainder.Items) != 1 || assetRemainder.Items[0].Revision != 1 || assetRemainder.NextCursor != nil {
+		t.Fatalf("asset remainder=%+v err=%v", assetRemainder, err)
+	}
 
 	releaseID := ids.MarketingReleaseID("f9000000-0000-4000-8000-000000000009")
 	releaseInput := marketingdomain.ReleasePlanInput{ID: releaseID, AccountID: accountID, CampaignID: campaignID, CampaignVersion: campaign.Version,

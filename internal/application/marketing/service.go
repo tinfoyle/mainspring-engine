@@ -144,6 +144,17 @@ func (service *Service) CreateAssetRevision(ctx context.Context, command CreateA
 	return service.store.CreateAssetRevision(ctx, input, authorized.Role, mutation(command.RequestID, "asset_revised", actor, now))
 }
 
+func (service *Service) ListAssetRevisions(ctx context.Context, actor access.Actor, accountID ids.AccountID, query AssetRevisionListQuery) (AssetRevisionPage, error) {
+	if _, err := service.authorize(ctx, actor, accountID, false, false); err != nil {
+		return AssetRevisionPage{}, err
+	}
+	query, err := query.normalized()
+	if err != nil {
+		return AssetRevisionPage{}, err
+	}
+	return service.store.ListAssetRevisions(ctx, accountID, query)
+}
+
 type CreateReleaseCommand struct {
 	Actor            access.Actor
 	AccountID        ids.AccountID

@@ -251,6 +251,54 @@ func (repository *MarketingRepository) CreateAssetRevision(ctx context.Context, 
 	return result, created, classifyMarketing(err)
 }
 
+func (repository *MarketingRepository) ListAssetRevisions(ctx context.Context, accountID ids.AccountID, query marketingapp.AssetRevisionListQuery) (marketingapp.AssetRevisionPage, error) {
+	query, err := normalizeMarketingAssetQuery(query)
+	if err != nil {
+		return marketingapp.AssetRevisionPage{}, err
+	}
+	var page marketingapp.AssetRevisionPage
+	err = repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id FROM spyglass.marketing_asset_revisions
+			WHERE account_id=$1 AND campaign_id=$2 AND ($3::uuid IS NULL OR asset_id=$3) AND
+			      ($4::uuid IS NULL OR asset_id>$4 OR (asset_id=$4 AND revision<$5::bigint))
+			ORDER BY asset_id,revision DESC LIMIT $6`, accountID, query.CampaignID, nullableMarketingUUID(query.AssetID), marketingAssetCursorID(query.After), marketingAssetCursorRevision(query.After), query.Limit+1)
+		if err != nil {
+			return err
+		}
+		var revisionIDs []ids.MarketingAssetRevisionID
+		for rows.Next() {
+			var id ids.MarketingAssetRevisionID
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			revisionIDs = append(revisionIDs, id)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		hasMore := len(revisionIDs) > query.Limit
+		if hasMore {
+			revisionIDs = revisionIDs[:query.Limit]
+		}
+		for _, id := range revisionIDs {
+			value, err := loadMarketingAssetRevision(ctx, tx, accountID, id)
+			if err != nil {
+				return err
+			}
+			page.Items = append(page.Items, value)
+		}
+		if hasMore {
+			last := page.Items[len(page.Items)-1]
+			page.NextCursor = &marketingapp.AssetRevisionCursor{AssetID: last.AssetID, Revision: last.Revision}
+		}
+		return nil
+	})
+	return page, classifyMarketing(err)
+}
+
 func (repository *MarketingRepository) CreateReleasePlan(ctx context.Context, input domain.ReleasePlanInput, role accounts.MembershipRole, mutation marketingapp.Mutation) (domain.ReleasePlan, bool, error) {
 	value, err := domain.NewReleasePlan(input, role)
 	if err != nil || !validMarketingMutation(mutation, "created", value.CreatedBy, value.CreatedAt) {
@@ -748,6 +796,20 @@ func normalizeMarketingReleaseQuery(query marketingapp.ReleaseListQuery) (market
 	return query, nil
 }
 
+func normalizeMarketingAssetQuery(query marketingapp.AssetRevisionListQuery) (marketingapp.AssetRevisionListQuery, error) {
+	if query.Limit == 0 {
+		query.Limit = marketingapp.DefaultPageSize
+	}
+	if query.Limit < 1 || query.Limit > marketingapp.MaximumPageSize || ids.Validate(string(query.CampaignID)) != nil ||
+		(query.AssetID != "" && ids.Validate(string(query.AssetID)) != nil) {
+		return marketingapp.AssetRevisionListQuery{}, marketingapp.ErrInvalid
+	}
+	if query.After != nil && (ids.Validate(string(query.After.AssetID)) != nil || query.After.Revision == 0 || (query.AssetID != "" && query.After.AssetID != query.AssetID)) {
+		return marketingapp.AssetRevisionListQuery{}, marketingapp.ErrInvalid
+	}
+	return query, nil
+}
+
 func marketingCampaignCursorTime(cursor *marketingapp.CampaignCursor) any {
 	if cursor == nil {
 		return nil
@@ -774,4 +836,18 @@ func marketingReleaseCursorID(cursor *marketingapp.ReleaseCursor) any {
 		return nil
 	}
 	return cursor.ID
+}
+
+func marketingAssetCursorID(cursor *marketingapp.AssetRevisionCursor) any {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.AssetID
+}
+
+func marketingAssetCursorRevision(cursor *marketingapp.AssetRevisionCursor) any {
+	if cursor == nil {
+		return nil
+	}
+	return cursor.Revision
 }

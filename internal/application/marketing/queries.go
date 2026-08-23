@@ -70,3 +70,34 @@ type ReleasePage struct {
 	Items      []domain.ReleasePlan
 	NextCursor *ReleaseCursor
 }
+
+type AssetRevisionCursor struct {
+	AssetID  ids.MarketingAssetID
+	Revision uint64
+}
+
+type AssetRevisionListQuery struct {
+	CampaignID ids.MarketingCampaignID
+	AssetID    ids.MarketingAssetID
+	After      *AssetRevisionCursor
+	Limit      int
+}
+
+func (query AssetRevisionListQuery) normalized() (AssetRevisionListQuery, error) {
+	if query.Limit == 0 {
+		query.Limit = DefaultPageSize
+	}
+	if query.Limit < 1 || query.Limit > MaximumPageSize || ids.Validate(string(query.CampaignID)) != nil ||
+		(query.AssetID != "" && ids.Validate(string(query.AssetID)) != nil) {
+		return AssetRevisionListQuery{}, ErrInvalid
+	}
+	if query.After != nil && (ids.Validate(string(query.After.AssetID)) != nil || query.After.Revision == 0 || (query.AssetID != "" && query.After.AssetID != query.AssetID)) {
+		return AssetRevisionListQuery{}, ErrInvalid
+	}
+	return query, nil
+}
+
+type AssetRevisionPage struct {
+	Items      []domain.AssetRevision
+	NextCursor *AssetRevisionCursor
+}

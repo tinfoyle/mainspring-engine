@@ -1,6 +1,6 @@
 # Marketing module
 
-- Status: provider-neutral kernel, forced-RLS persistence, classified lifecycle and stable campaign/release pages constructed; asset queries and every executable transport remain closed
+- Status: provider-neutral kernel, forced-RLS persistence, classified lifecycle and stable campaign/release/asset pages constructed; every executable transport remains closed
 - Package boundary: Marketing
 - Decision: [ADR-0007](decisions/0007-marketing-governed-release.md)
 
@@ -16,7 +16,7 @@ A release freezes one campaign version, sorted unique asset revisions and its ex
 
 1. Typed campaign lifecycle, immutable creative revisions, Agent provenance and exact approval-bound release snapshots. **Constructed.**
 2. Account-owned forced-RLS persistence, immutable redacted events, optimistic replay, movement fencing and exact erasure/restore participation. **Constructed.**
-3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Campaign/release detail and stable pages constructed; asset pages remain.**
+3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Constructed.**
 4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace.
 5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery.
 6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability.
@@ -48,9 +48,9 @@ Fresh PostgreSQL 17 coverage runs the complete draft-to-submitted-to-approved-to
 
 ## Query checkpoint
 
-The read boundary now exposes bounded campaign pages ordered by stable `(updated_at DESC,id)` and per-campaign release pages ordered by `(created_at DESC,id)`. Optional campaign-state filtering is validated against the closed lifecycle vocabulary. Defaults and hard maxima are application-owned, cursors are structurally complete, and the repository fetches one extra identity so `NextCursor` is emitted only when another row actually exists. Each selected aggregate is restored through the typed kernel under the same read-only Account transaction.
+The read boundary now exposes bounded campaign pages ordered by stable `(updated_at DESC,id)`, per-campaign release pages ordered by `(created_at DESC,id)` and campaign/optional-asset revision pages ordered by `(asset_id,revision DESC)`. Optional campaign-state and asset filtering are validated against the closed lifecycle/identity vocabulary. Defaults and hard maxima are application-owned, cursors are structurally complete, and the repository fetches one extra identity so `NextCursor` is emitted only when another row actually exists. Each selected aggregate is restored through the typed kernel under the same read-only Account transaction. Migration 60 adds the matching all-campaign and campaign-asset keyset indexes.
 
-Fresh PostgreSQL 17 traversal tests create two campaigns and two releases, prove exact first/remainder pages without duplicates and preserve the complete channel/asset snapshot. Asset/revision query pages remain before the generated transport contract.
+Fresh PostgreSQL 17 traversal tests create two campaigns, two releases and two immutable asset revisions, prove exact first/remainder pages without duplicates and preserve the complete channel/asset snapshot. The generated transport contract is next.
 
 ## Invariants
 

@@ -39,6 +39,7 @@ type Store interface {
 	ListCampaigns(context.Context, ids.AccountID, CampaignListQuery) (CampaignPage, error)
 	ReviseCampaign(context.Context, ids.AccountID, ids.MarketingCampaignID, domain.CampaignRevision, Mutation) (domain.Campaign, error)
 	CreateAssetRevision(context.Context, domain.AssetRevisionInput, accounts.MembershipRole, Mutation) (domain.AssetRevision, bool, error)
+	ListAssetRevisions(context.Context, ids.AccountID, AssetRevisionListQuery) (AssetRevisionPage, error)
 	CreateReleasePlan(context.Context, domain.ReleasePlanInput, accounts.MembershipRole, Mutation) (domain.ReleasePlan, bool, error)
 	GetReleasePlan(context.Context, ids.AccountID, ids.MarketingReleaseID) (domain.ReleasePlan, error)
 	ListReleasePlans(context.Context, ids.AccountID, ReleaseListQuery) (ReleasePage, error)
