@@ -159,7 +159,7 @@ func RestoreExecution(value Execution) (Execution, error) {
 	if value.State == ExecutionUnknown && (value.AttemptCount == 0 || value.AttemptCount >= MaximumAttempts || value.LastErrorCode == "") {
 		return Execution{}, ErrInvalid
 	}
-	if value.State == ExecutionManualResolution && (value.AttemptCount != MaximumAttempts || value.LastErrorCode == "") {
+	if value.State == ExecutionManualResolution && (value.AttemptCount == 0 || value.AttemptCount > MaximumAttempts || value.LastErrorCode == "") {
 		return Execution{}, ErrInvalid
 	}
 	return value, nil

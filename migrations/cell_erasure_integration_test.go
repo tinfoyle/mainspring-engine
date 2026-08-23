@@ -60,6 +60,9 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	for _, table := range []string{"marketing_campaigns", "marketing_campaign_channels", "marketing_assets", "marketing_asset_revisions", "marketing_release_plans", "marketing_release_channels", "marketing_release_assets", "marketing_events"} {
 		coveredTables[table] = true
 	}
+	for _, table := range []string{"integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_events", "integration_execution_queue"} {
+		coveredTables[table] = true
+	}
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +118,10 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 			spyglass.finance_events,
 			spyglass.marketing_campaigns,spyglass.marketing_campaign_channels,spyglass.marketing_assets,
 			spyglass.marketing_asset_revisions,spyglass.marketing_release_plans,spyglass.marketing_release_channels,
-			spyglass.marketing_release_assets,spyglass.marketing_events TO `+functionRole+`;
+			spyglass.marketing_release_assets,spyglass.marketing_events,
+			spyglass.integration_connections,spyglass.integration_connection_revisions,spyglass.integration_credentials,
+			spyglass.integration_health_observations,spyglass.integration_executions,spyglass.integration_execution_attempts,
+			spyglass.integration_events,spyglass.integration_execution_queue TO `+functionRole+`;
 		GRANT UPDATE ON spyglass.account_namespaces TO `+functionRole+`;
 		ALTER TABLE spyglass.account_erasure_tombstones OWNER TO `+functionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_control(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;
@@ -209,6 +215,14 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	expectedCounts["marketing_release_channels"] = 2
 	expectedCounts["marketing_release_assets"] = 1
 	expectedCounts["marketing_events"] = 1
+	expectedCounts["integration_connections"] = 1
+	expectedCounts["integration_connection_revisions"] = 1
+	expectedCounts["integration_credentials"] = 1
+	expectedCounts["integration_health_observations"] = 1
+	expectedCounts["integration_executions"] = 1
+	expectedCounts["integration_execution_attempts"] = 1
+	expectedCounts["integration_events"] = 1
+	expectedCounts["integration_execution_queue"] = 1
 	expectedCounts["runner_action_execution_queue"] = 1
 	for name, expected := range expectedCounts {
 		if tombstone.RowCounts[name] != expected {
@@ -299,11 +313,11 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		INSERT INTO spyglass.runner_capability_events(account_id,event_id,invocation_id,pod_uid,operation_id,capability,effect,decision,error_code,occurred_at)
 		VALUES ($1,replace($3::text,'51','71')::uuid,$3,replace($3::text,'51','61')::uuid,replace($3::text,'51','81')::uuid,'work:read','read_only','succeeded',NULL,$2::timestamptz);
 		INSERT INTO spyglass.runner_action_authorizations(account_id,operation_id,invocation_id,approval_id,capability,input_sha256,hash_version,evidence_sha256,proposer_kind,proposer_id,approved_by_user_id,policy_version,state,approved_at,expires_at)
-		VALUES ($1,replace($3::text,'51','81')::uuid,$3,replace($3::text,'51','91')::uuid,'email.send',decode(repeat('dd',32),'hex'),1,decode(repeat('ee',32),'hex'),'workload','runner-test',replace($3::text,'51','92')::uuid,1,'approved',$2::timestamptz,$2::timestamptz+interval '30 minutes');
+		VALUES ($1,replace($3::text,'51','81')::uuid,$3,replace($3::text,'51','91')::uuid,'marketing.release.activate',decode(repeat('dd',32),'hex'),1,decode(repeat('ee',32),'hex'),'workload','runner-test',replace($3::text,'51','92')::uuid,1,'approved',$2::timestamptz,$2::timestamptz+interval '30 minutes');
 		INSERT INTO spyglass.runner_action_authorizations(account_id,operation_id,invocation_id,approval_id,capability,input_sha256,hash_version,evidence_sha256,proposer_kind,proposer_id,approved_by_user_id,policy_version,state,approved_at,expires_at)
-		VALUES ($1,replace($3::text,'51','82')::uuid,$3,replace($3::text,'51','94')::uuid,'email.send',decode(repeat('da',32),'hex'),1,decode(repeat('ea',32),'hex'),'workload','runner-test',replace($3::text,'51','92')::uuid,1,'approved',$2::timestamptz,$2::timestamptz+interval '30 minutes');
+		VALUES ($1,replace($3::text,'51','82')::uuid,$3,replace($3::text,'51','94')::uuid,'marketing.release.activate',decode(repeat('da',32),'hex'),1,decode(repeat('ea',32),'hex'),'workload','runner-test',replace($3::text,'51','92')::uuid,1,'approved',$2::timestamptz,$2::timestamptz+interval '30 minutes');
 		INSERT INTO spyglass.runner_action_ledger(account_id,operation_id,invocation_id,capability,input_sha256,idempotency_key,state,current_attempt_id,attempt_count,started_at,updated_at,completed_at,executor_id,executor_version,executor_policy_version)
-		VALUES ($1,replace($3::text,'51','81')::uuid,$3,'email.send',decode(repeat('dd',32),'hex'),replace($3::text,'51','81')::uuid,'succeeded',replace($3::text,'51','93')::uuid,1,$2,$2,$2,'legacy',1,1);
+		VALUES ($1,replace($3::text,'51','81')::uuid,$3,'marketing.release.activate',decode(repeat('dd',32),'hex'),replace($3::text,'51','81')::uuid,'succeeded',replace($3::text,'51','93')::uuid,1,$2,$2,$2,'legacy',1,1);
 		INSERT INTO spyglass.runner_action_attempts(account_id,operation_id,attempt_id,mode,outcome,started_at,lease_expires_at,completed_at,executor_id,executor_version,executor_policy_version)
 		VALUES ($1,replace($3::text,'51','81')::uuid,replace($3::text,'51','93')::uuid,'execute','succeeded',$2,$2::timestamptz+interval '2 minutes',$2,'legacy',1,1)`, pgx.QueryExecModeSimpleProtocol, accountID, now, invocationID, "runner-erasure-"+rootID); err != nil {
 		t.Fatal(err)
@@ -420,7 +434,7 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		INSERT INTO spyglass.attention_consequential_approvals
 		(account_id,id,operation_id,invocation_id,work_item_id,capability,canonical_payload,input_sha256,hash_version,evidence_sha256,
 		 proposer_kind,proposer_id,policy_version,require_independent_review,expires_at,state,decision,decision_reason,decided_by_user_id,decided_at,version,created_at,updated_at)
-		VALUES ($1,$5,$6,$7,$2,'email.send',convert_to('{"message":"approved"}','UTF8'),$10,1,decode(repeat('ee',32),'hex'),
+		VALUES ($1,$5,$6,$7,$2,'marketing.release.activate',convert_to('{"message":"approved"}','UTF8'),$10,1,decode(repeat('ee',32),'hex'),
 		 'workload','runner-test',1,true,$9::timestamptz+interval '30 minutes','approved','approve','approved for erasure fixture',$8,$9,2,$9,$9);
 		INSERT INTO spyglass.attention_events
 		(account_id,id,aggregate_kind,information_request_id,event_type,from_version,to_version,actor_kind,actor_id,reason,correlation_id,redacted_payload,occurred_at)
@@ -558,17 +572,75 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		(account_id,id,campaign_id,asset_id,revision,kind,title,media_type,content_reference,content_sha256,content_bytes,alternative_text,created_by_kind,created_by_id,origin,created_at)
 		VALUES ($1,$4,$2,$3,1,'image','Erasure asset','image/png','marketing/erasure/image/v1',decode(repeat('91',32),'hex'),128,'Synthetic erasure illustration','user',$6,'human',$7);
 		INSERT INTO spyglass.marketing_release_plans
-		(account_id,id,campaign_id,campaign_version,name,state,version,created_by_kind,created_by_id,origin,created_at,updated_at)
-		VALUES ($1,$5,$2,1,'Erasure release','draft',1,'user',$6,'human',$7,$7);
+		(account_id,id,campaign_id,campaign_version,name,state,approval_id,version,created_by_kind,created_by_id,origin,submitted_by_user_id,approved_by_user_id,created_at,updated_at)
+		VALUES ($1,$5,$2,1,'Erasure release','approved',$10,3,'user',$6,'human',$6,$6,$7,$7);
 		INSERT INTO spyglass.marketing_release_channels(account_id,campaign_id,release_id,channel)
 		VALUES ($1,$2,$5,'email'),($1,$2,$5,'web');
 		INSERT INTO spyglass.marketing_release_assets(account_id,campaign_id,release_id,asset_revision_id)
 		VALUES ($1,$2,$5,$4);
+		UPDATE spyglass.marketing_campaigns SET state='active',active_release_id=$5,version=2,updated_at=$7
+		WHERE account_id=$1 AND id=$2;
 		INSERT INTO spyglass.marketing_events
 		(account_id,id,aggregate_kind,aggregate_id,event_type,from_version,to_version,actor_kind,actor_id,correlation_id,redacted_payload,occurred_at)
 		VALUES ($1,$8,'campaign',$2,'created',0,1,'user',$6,$9,'{"state":"draft","channel_count":2}',$7)`,
 		pgx.QueryExecModeSimpleProtocol, accountID, marketingCampaignID, marketingAssetID, marketingRevisionID, marketingReleaseID,
-		reviewerUserID, now, marketingEventID, marketingCorrelationID); err != nil {
+		reviewerUserID, now, marketingEventID, marketingCorrelationID, approvalID); err != nil {
+		t.Fatal(err)
+	}
+	integrationConnectionID := strings.Replace(rootID, "000000000001", "000000000911", 1)
+	integrationRevisionID := strings.Replace(rootID, "000000000001", "000000000912", 1)
+	integrationCredentialID := strings.Replace(rootID, "000000000001", "000000000913", 1)
+	integrationHealthID := strings.Replace(rootID, "000000000001", "000000000914", 1)
+	integrationExecutionID := strings.Replace(rootID, "000000000001", "000000000915", 1)
+	integrationAttemptID := strings.Replace(rootID, "000000000001", "000000000916", 1)
+	integrationEventID := strings.Replace(rootID, "000000000001", "000000000917", 1)
+	integrationCorrelationID := strings.Replace(rootID, "000000000001", "000000000918", 1)
+	integrationTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = integrationTx.Exec(ctx, `INSERT INTO spyglass.integration_connections
+		(account_id,id,name,connector_kind,state,current_revision,credential_generation,version,created_by_user_id,created_at,updated_at)
+		VALUES ($1,$2,'Erasure email','email','pending',1,0,1,$3,$4,$4);
+		INSERT INTO spyglass.integration_connection_revisions
+		(account_id,id,connection_id,revision,capabilities,email_address,audience_reference,created_by_user_id,created_at)
+		VALUES ($1,$5,$2,1,ARRAY['email.send'],'erasure@example.com','audience:erasure-fixture',$3,$4);
+		INSERT INTO spyglass.integration_credentials
+		(account_id,id,connection_id,generation,provider,reference_sha256,state,created_by_user_id,created_at,updated_at)
+		VALUES ($1,$6,$2,1,'mock_smtp',decode(repeat('92',32),'hex'),'active',$3,$4,$4);
+		UPDATE spyglass.integration_connections SET state='active',credential_id=$6,credential_generation=1,version=2,updated_at=$4
+		WHERE account_id=$1 AND id=$2;
+		INSERT INTO spyglass.integration_health_observations
+		(account_id,id,connection_id,connection_revision,credential_id,credential_generation,state,latency_milliseconds,checked_at)
+		VALUES ($1,$7,$2,1,$6,1,'healthy',1,$4);
+		INSERT INTO spyglass.integration_events
+		(account_id,id,aggregate_kind,aggregate_id,event_type,actor_kind,actor_id,correlation_id,redacted_payload,occurred_at)
+		VALUES ($1,$8,'connection',$2,'connection_created','user',$3,$9,'{"state":"active","connector_kind":"email"}',$4)`,
+		pgx.QueryExecModeSimpleProtocol, accountID, integrationConnectionID, reviewerUserID, now, integrationRevisionID,
+		integrationCredentialID, integrationHealthID, integrationEventID, integrationCorrelationID); err != nil {
+		_ = integrationTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = integrationTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.integration_executions
+		(account_id,id,release_id,release_version,approval_id,capability,connection_id,connection_revision_id,connection_revision,
+		 credential_id,credential_generation,payload_sha256,state,created_at,updated_at)
+		VALUES ($1,$2,$3,3,$4,'email.send',$5,$6,1,$7,1,decode(repeat('93',32),'hex'),'prepared',$8,$8)`,
+		accountID, integrationExecutionID, marketingReleaseID, approvalID, integrationConnectionID, integrationRevisionID, integrationCredentialID, now); err != nil {
+		t.Fatal(err)
+	}
+	claim := claimIntegrationExecution(t, ctx, pool, integrationAttemptID, now.Add(time.Second), now.Add(time.Minute))
+	if claim.executionID != integrationExecutionID || claim.mode != "execute" {
+		t.Fatalf("erasure Integration claim=%+v", claim)
+	}
+	if _, err := pool.Exec(ctx, `SELECT public.spyglass_complete_integration_execution($1,$2,$3,'succeeded',NULL,NULL,$4)`,
+		accountID, integrationExecutionID, integrationAttemptID, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.integration_execution_queue(account_id,execution_id,available_at,updated_at)
+		VALUES ($1,$2,$3,$4)`, accountID, integrationExecutionID, now.Add(24*time.Hour), now.Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.route_context_receipts(account_id,request_id,placement_generation,entitlement_version,actor_kind,actor_id,method,target_sha256,body_sha256,issued_at,expires_at,consumed_at) VALUES ($1,$2,3,1,'user','test-actor','GET',$3,$3,$4,$5,$4)`, accountID, strings.Replace(rootID, "000000000001", "000000000031", 1), bytes.Repeat([]byte{1}, 32), now, now.Add(time.Minute)); err != nil {
@@ -591,7 +663,7 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 
 func assertCellAccountRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, accountID ids.AccountID, expected int) {
 	t.Helper()
-	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "runner_action_execution_queue", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions", "attention_information_requests", "attention_work_reviews", "attention_consequential_approvals", "attention_events", "knowledge_evidence", "knowledge_claims", "knowledge_claim_citations", "knowledge_facts", "knowledge_fact_revisions", "knowledge_events", "baseline_assessments", "baseline_interview_answers", "baseline_requirements", "baseline_evidence_decisions", "baseline_plans", "baseline_plan_work", "baseline_events", "baseline_source_grants", "baseline_source_grant_events", "baseline_maintenance_queue", "prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events", "schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue", "schedule_queue_operator_events", "finance_ledgers", "finance_ledger_close_evidence", "finance_accounts", "finance_entry_number_counters", "finance_entries", "finance_entry_lines", "finance_entry_evidence", "finance_reconciliations", "finance_reconciliation_evidence", "finance_events", "marketing_campaigns", "marketing_campaign_channels", "marketing_assets", "marketing_asset_revisions", "marketing_release_plans", "marketing_release_channels", "marketing_release_assets", "marketing_events"} {
+	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "runner_action_execution_queue", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions", "attention_information_requests", "attention_work_reviews", "attention_consequential_approvals", "attention_events", "knowledge_evidence", "knowledge_claims", "knowledge_claim_citations", "knowledge_facts", "knowledge_fact_revisions", "knowledge_events", "baseline_assessments", "baseline_interview_answers", "baseline_requirements", "baseline_evidence_decisions", "baseline_plans", "baseline_plan_work", "baseline_events", "baseline_source_grants", "baseline_source_grant_events", "baseline_maintenance_queue", "prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events", "schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue", "schedule_queue_operator_events", "finance_ledgers", "finance_ledger_close_evidence", "finance_accounts", "finance_entry_number_counters", "finance_entries", "finance_entry_lines", "finance_entry_evidence", "finance_reconciliations", "finance_reconciliation_evidence", "finance_events", "marketing_campaigns", "marketing_campaign_channels", "marketing_assets", "marketing_asset_revisions", "marketing_release_plans", "marketing_release_channels", "marketing_release_assets", "marketing_events", "integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_events", "integration_execution_queue"} {
 		var count int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.`+table+` WHERE account_id=$1`, accountID).Scan(&count); err != nil || (expected == 0 && count != 0) || (expected == 1 && count == 0) {
 			t.Fatalf("table %s Account %s rows=%d expected-presence=%d err=%v", table, accountID, count, expected, err)

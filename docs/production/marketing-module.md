@@ -19,7 +19,7 @@ A release freezes one campaign version, sorted unique asset revisions and its ex
 3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Constructed.**
 4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace. **Constructed.**
 5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery. **Constructed.**
-6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability.
+6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability. **Persistence constructed; application worker and adapters remain.**
 7. Catalog/entitlement lifecycle, retention, prototype reconciliation, Stage recovery/erasure and production role grants.
 
 ## Kernel checkpoint
@@ -87,6 +87,12 @@ The worker refuses stale campaign or release versions, mismatched campaign owner
 Published Personas may receive three bounded Marketing reads—campaigns, immutable asset revisions and release snapshots—and three additive draft tools for campaign, asset-revision and release creation. Every invocation is reauthorized at the private tool router against current Account placement and Marketing package mode before a one-use cell proof is minted. Read calls are capped at 100 records. Mutation calls reach dedicated internal draft-only routes; the public human commands are not reused and no governance transition is registered as a runner tool.
 
 The cell derives the invocation identity from the authenticated `runner-invocation:<uuid>` principal and requires an explicit valid Run in each draft. It supplies both values to the canonical Marketing application service, whose database foreign key independently proves the exact `(Account, invocation, Run)` tuple. Tool input rejects unknown fields and invalid identities before routing; the campaign identity remains in the signed path rather than being duplicated in mutation bodies. Persona policy, tool-router dispatch and cell transport tests prove current-package reauthorization, read-only versus additive classification, private-route mapping, human rejection and derived Agent provenance. Construction step 5 is complete. Integration delivery, Catalog/retention and applied acceptance remain, so Marketing stays non-executable.
+
+## Integration persistence checkpoint
+
+Migration 62 now persists a Marketing delivery as an Integrations-owned effect that freezes the exact approved release version, `marketing.release.activate` Attention approval, channel-compatible connector revision, credential generation and canonical payload digest. The worker claim boundary rechecks the campaign is still active on that release and every authority binding is still current before returning work. Unknown outcomes reconcile only, a provider-confirmed no-effect result is required before re-execution, and bounded uncertainty enters manual resolution.
+
+This closes the durable ledger and claim semantics within construction step 6, including Account movement and erasure participation. It does not yet make Marketing executable: the Integrations application boundary, secret-broker binding, provider worker/adapters, delivery observability surfaces, Catalog/retention and applied acceptance remain.
 
 ## Invariants
 

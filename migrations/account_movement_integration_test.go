@@ -79,8 +79,11 @@ func TestAccountMovementCopiesReconcilesSwitchesRollsBackAndRetires(t *testing.T
 	sourceWork := movementCellCount(t, ctx, source, retireAccount, "work_items")
 	sourceAudit := movementCellCount(t, ctx, source, retireAccount, "work_capacity_release_operator_events")
 	destinationAudit := movementCellCount(t, ctx, destination, retireAccount, "work_capacity_release_operator_events")
-	if sourceNamespace != 0 || sourceWork != 0 || sourceAudit != 0 || destinationAudit != 1 {
-		t.Fatalf("retired source namespace=%d work=%d audit=%d destination audit=%d", sourceNamespace, sourceWork, sourceAudit, destinationAudit)
+	sourceIntegration := movementCellCount(t, ctx, source, retireAccount, "integration_connections")
+	destinationIntegration := movementCellCount(t, ctx, destination, retireAccount, "integration_connections")
+	if sourceNamespace != 0 || sourceWork != 0 || sourceAudit != 0 || destinationAudit != 1 || sourceIntegration != 0 || destinationIntegration != 1 {
+		t.Fatalf("retired source namespace=%d work=%d audit=%d destination audit=%d source integration=%d destination integration=%d",
+			sourceNamespace, sourceWork, sourceAudit, destinationAudit, sourceIntegration, destinationIntegration)
 	}
 	assertMovementPlacement(t, ctx, global, source, destination, retireAccount, "cell-us-west-01", 2, "", "active")
 }
@@ -197,6 +200,33 @@ func seedMovementAccount(t *testing.T, ctx context.Context, global, source *pgxp
 		(batch_id,event_sequence,action,account_id,work_item_id,reservation_id,actor,reason,environment,previous_attempt_count,created_at)
 		VALUES($1,0,'requeued',$2,$3,$4,'operator@example.com','seed Account movement immutable audit','test',1,$5)`,
 		batchID, accountID, workID, reservationID, now); err != nil {
+		t.Fatal(err)
+	}
+	connectionID := workID[:8] + "-0000-4000-8000-000000000701"
+	revisionID := workID[:8] + "-0000-4000-8000-000000000702"
+	credentialID := workID[:8] + "-0000-4000-8000-000000000703"
+	healthID := workID[:8] + "-0000-4000-8000-000000000704"
+	tx, err := source.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO spyglass.integration_connections
+		(account_id,id,name,connector_kind,state,current_revision,credential_generation,version,created_by_user_id,created_at,updated_at)
+		VALUES ($1,$2,'Movement email','email','pending',1,0,1,$3,$4,$4);
+		INSERT INTO spyglass.integration_connection_revisions
+		(account_id,id,connection_id,revision,capabilities,email_address,audience_reference,created_by_user_id,created_at)
+		VALUES ($1,$5,$2,1,ARRAY['email.send'],'movement@example.com','audience:movement-fixture',$3,$4);
+		INSERT INTO spyglass.integration_credentials
+		(account_id,id,connection_id,generation,provider,reference_sha256,state,created_by_user_id,created_at,updated_at)
+		VALUES ($1,$6,$2,1,'mock_smtp',decode(repeat('a4',32),'hex'),'active',$3,$4,$4);
+		UPDATE spyglass.integration_connections SET state='active',credential_id=$6,credential_generation=1,version=2,updated_at=$4 WHERE account_id=$1 AND id=$2;
+		INSERT INTO spyglass.integration_health_observations
+		(account_id,id,connection_id,connection_revision,credential_id,credential_generation,state,latency_milliseconds,checked_at)
+		VALUES ($1,$7,$2,1,$6,1,'healthy',1,$4)`, pgx.QueryExecModeSimpleProtocol, accountID, connectionID, userID, now, revisionID, credentialID, healthID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
 }
