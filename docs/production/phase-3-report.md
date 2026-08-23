@@ -6,6 +6,12 @@
 - Purpose: complete every remaining application capability, migrate validated prototype behavior, certify the final LKE deployment and release the complete product
 - Production rule: **all construction phases and advertised packages must be complete before production release**
 
+## Current local backend execution window
+
+The active construction order is the [Phase 3 local backend completion plan](phase-3-local-backend-completion-plan.md). It completes domain, persistence, workers, provider adapters, OAuth/credential lifecycle, HTTP/MCP contracts and local certification, then produces a verified API/MCP interaction guide and stops before the final customer-facing React workstream begins.
+
+Git pushes, GHCR releases, Hostinger Stage mutation, LKE work and production promotion are explicitly outside this window. Local commits remain permitted. This changes execution order, not the Phase 3 completion or production-release rules below.
+
 ## Phase 3 scope
 
 Phase 3 consolidates the historical Phase 3-8 backlog into one final body of work. It is not limited to Work and Attention. It includes:
