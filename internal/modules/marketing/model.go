@@ -24,6 +24,7 @@ const (
 	MaximumMediaTypeBytes        = 100
 	MaximumReleaseNameBytes      = 160
 	MaximumReleaseAssets         = 100
+	MaximumContentBytes          = uint64(1<<63 - 1)
 )
 
 var (

@@ -79,7 +79,7 @@ func RestoreAssetRevision(value AssetRevision) (AssetRevision, error) {
 	validMediaType := validText(value.MediaType, MaximumMediaTypeBytes, true) && strings.Count(value.MediaType, "/") == 1 && !strings.ContainsAny(value.MediaType, " \t\r\n")
 	if ids.Validate(string(value.ID)) != nil || ids.Validate(string(value.AccountID)) != nil || ids.Validate(string(value.CampaignID)) != nil || ids.Validate(string(value.AssetID)) != nil ||
 		value.Revision == 0 || !validKind || !validText(value.Title, MaximumAssetTitleBytes, true) || !validMediaType ||
-		!validText(value.ContentReference, MaximumContentReferenceBytes, true) || value.ContentSHA256 == ([32]byte{}) || value.ContentBytes == 0 ||
+		!validText(value.ContentReference, MaximumContentReferenceBytes, true) || value.ContentSHA256 == ([32]byte{}) || value.ContentBytes == 0 || value.ContentBytes > MaximumContentBytes ||
 		!validText(value.AlternativeText, MaximumAlternativeTextBytes, false) || (value.Kind == AssetImage && value.AlternativeText == "") ||
 		!value.CreatedBy.valid() || !value.Provenance.valid(value.CreatedBy) || value.CreatedAt.IsZero() {
 		return AssetRevision{}, ErrInvalid
