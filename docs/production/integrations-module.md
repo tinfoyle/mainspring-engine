@@ -16,7 +16,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 2. Account-owned forced-RLS persistence, immutable revisions/attempts/events, claim leasing, movement fencing and exact erasure/restore participation. **Constructed.**
 3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
-5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel and local mock constructed; authority, payload, broker and bootstrap adapters remain.**
+5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel, current authority and local mock constructed; payload, broker and bootstrap adapters remain.**
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution.
 7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
 
@@ -66,7 +66,9 @@ The dedicated connector-execution application now claims one leased immutable ex
 
 Execute and reconcile are separate connector methods. An execute adapter cannot report `not_applied`; only reconciliation may do so, with a bounded future retry instant. Invalid adapter output after a possible provider call is settled as unknown. Authority, manifest or adapter absence before any provider call is settled as a definite no-effect failure. Completion uses a context independent from the connector call so cancellation still attempts to record the outcome; failure to settle leaves the lease to expire into the existing unknown/reconcile path.
 
-The local mock connector is deterministic, thread-safe and performs no network I/O. Per-execution scripts inject success, definite failure, ambiguous outcome and reconciliation absence while recording only execution/attempt identities and mode. Tests prove execute success, reconciliation-only retry, authority/manifest fail-closed behavior and malformed post-call uncertainty. The PostgreSQL repository mapping is exercised by the applied execution test, and the claim itself now atomically enforces exact connector health. Step 5 remains open for the concrete dual-package/placement authority client, manifest/payload reconstruction, one-operation secret-broker adapter, worker bootstrap and local Docker wiring.
+The local mock connector is deterministic, thread-safe and performs no network I/O. Per-execution scripts inject success, definite failure, ambiguous outcome and reconciliation absence while recording only execution/attempt identities and mode. Tests prove execute success, reconciliation-only retry, authority/manifest fail-closed behavior and malformed post-call uncertainty. The PostgreSQL repository mapping is exercised by the applied execution test, and the claim itself now atomically enforces exact connector health.
+
+The concrete current-authority adapter reads one global workload snapshot per claim rather than independently reading each package. It requires an active Account assigned to the worker's exact cell, a positive placement generation, matching Account/snapshot entitlement versions and exactly one enabled Marketing plus Integrations package. Read-only, suspended, absent, duplicate or malformed package authority and cross-cell drift fail before payload access. No Membership role or browser/Agent identity enters this workload boundary. Step 5 remains open for manifest/payload reconstruction, one-operation secret brokering, worker bootstrap and local Docker wiring.
 
 ## Invariants
 

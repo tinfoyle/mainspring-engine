@@ -104,9 +104,11 @@ The execution digest is computed from a canonical content-free manifest over the
 
 A provider-neutral connector worker kernel now consumes the prepared execution through execute-only leased database functions. It separates execute from side-effect-free reconciliation, rejects `not_applied` from an execute adapter, treats malformed post-call results as unknown and keeps payload material only in connector-runtime memory. The deterministic local mock can certify success, definite failure, ambiguous acceptance and provider-confirmed absence without network I/O.
 
-Marketing remains non-executable because the concrete current package/placement authority client, manifest payload source, one-operation secret broker, worker bootstrap and Docker wiring are still open. No generic app or Agent runner receives provider authority.
+Marketing remains non-executable because the manifest payload source, one-operation secret broker, worker bootstrap and Docker wiring are still open. No generic app or Agent runner receives provider authority.
 
 The cell claim boundary now independently requires a health observation no more than five minutes old for the frozen connector revision and credential generation. Missing, stale or unavailable health postpones delivery without consuming an attempt; a fresh degraded connector remains eligible so the dedicated adapter can return a classified definite or uncertain outcome. This database check does not replace current Marketing/Integrations package and placement authorization in the worker.
+
+That worker authorization is now concrete: one current global workload snapshot must identify the exact worker cell and matching Account/entitlement version with both Marketing and Integrations uniquely enabled. Package or placement drift is rejected before any creative or provider payload is loaded.
 
 ## Invariants
 
