@@ -70,6 +70,8 @@ The local mock connector is deterministic, thread-safe and performs no network I
 
 The concrete current-authority adapter reads one global workload snapshot per claim rather than independently reading each package. It requires an active Account assigned to the worker's exact cell, a positive placement generation, matching Account/snapshot entitlement versions and exactly one enabled Marketing plus Integrations package. Read-only, suspended, absent, duplicate or malformed package authority and cross-cell drift fail before payload access. No Membership role or browser/Agent identity enters this workload boundary. Step 5 remains open for manifest/payload reconstruction, one-operation secret brokering, worker bootstrap and local Docker wiring.
 
+The canonical content-free delivery manifest is now a single shared byte-level builder used by preparation and reserved for runtime reconstruction. It validates every frozen release, connector revision and credential identity, requires one-to-100 unique immutable asset revision digests, sorts assets by revision identity and emits fixed-order JSON before SHA-256. A golden-byte test prevents field-order or encoding drift, and applied preparation now uses the same builder with a genuine content-bound Marketing asset fixture. Runtime asset loading and provider-payload assembly remain open; the builder alone does not expose creative content.
+
 ## Invariants
 
 - Provider credentials never enter Marketing, Agent, browser, MCP output, events, logs or telemetry.

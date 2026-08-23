@@ -110,6 +110,8 @@ The cell claim boundary now independently requires a health observation no more 
 
 That worker authorization is now concrete: one current global workload snapshot must identify the exact worker cell and matching Account/entitlement version with both Marketing and Integrations uniquely enabled. Package or placement drift is rejected before any creative or provider payload is loaded.
 
+Preparation no longer owns a private copy of manifest serialization. A shared canonical builder validates the exact release and connector authority, requires unique immutable asset revision digests, sorts them and freezes one golden JSON representation. The applied delivery fixture now contains a real immutable Marketing asset rather than a hand-seeded empty release. Creative object retrieval and provider-specific assembly are still confined to the unfinished dedicated payload source.
+
 ## Invariants
 
 - Every aggregate and revision is explicitly Account scoped.

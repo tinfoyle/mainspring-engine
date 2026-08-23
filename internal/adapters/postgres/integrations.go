@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
 	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
@@ -827,46 +828,38 @@ func insertIntegrationCredential(ctx context.Context, tx pgx.Tx, value domain.Cr
 }
 
 func integrationDeliveryManifestDigest(ctx context.Context, tx pgx.Tx, request integrationsapp.PrepareExecutionRequest, connection domain.Connection, revision domain.ConnectionRevision, credential domain.CredentialBinding) ([sha256.Size]byte, error) {
-	type asset struct {
-		ID     ids.MarketingAssetRevisionID `json:"id"`
-		SHA256 string                       `json:"sha256"`
-	}
-	manifest := struct {
-		ReleaseID            ids.MarketingReleaseID              `json:"release_id"`
-		ReleaseVersion       uint64                              `json:"release_version"`
-		Capability           domain.Capability                   `json:"capability"`
-		ConnectionID         ids.IntegrationConnectionID         `json:"connection_id"`
-		ConnectionRevisionID ids.IntegrationConnectionRevisionID `json:"connection_revision_id"`
-		ConnectionRevision   uint64                              `json:"connection_revision"`
-		CredentialID         ids.IntegrationCredentialID         `json:"credential_id"`
-		CredentialGeneration uint64                              `json:"credential_generation"`
-		Assets               []asset                             `json:"assets"`
-	}{ReleaseID: request.ReleaseID, ReleaseVersion: request.ReleaseVersion, Capability: request.Capability, ConnectionID: connection.ID,
-		ConnectionRevisionID: revision.ID, ConnectionRevision: revision.Revision, CredentialID: credential.ID, CredentialGeneration: credential.Generation}
-	rows, err := tx.Query(ctx, `SELECT revision.id,encode(revision.content_sha256,'hex') FROM spyglass.marketing_release_assets release_asset
+	input := integrationexecution.ManifestInput{ReleaseID: request.ReleaseID, ReleaseVersion: request.ReleaseVersion, Capability: request.Capability,
+		ConnectionID: connection.ID, ConnectionRevisionID: revision.ID, ConnectionRevision: revision.Revision,
+		CredentialID: credential.ID, CredentialGeneration: credential.Generation}
+	rows, err := tx.Query(ctx, `SELECT revision.id,revision.content_sha256 FROM spyglass.marketing_release_assets release_asset
 		JOIN spyglass.marketing_asset_revisions revision ON revision.account_id=release_asset.account_id AND revision.id=release_asset.asset_revision_id
 		WHERE release_asset.account_id=$1 AND release_asset.release_id=$2 ORDER BY revision.id`, request.AccountID, request.ReleaseID)
 	if err != nil {
 		return [sha256.Size]byte{}, err
 	}
 	for rows.Next() {
-		var value asset
-		if err := rows.Scan(&value.ID, &value.SHA256); err != nil {
+		var value integrationexecution.ManifestAsset
+		var digest []byte
+		if err := rows.Scan(&value.ID, &digest); err != nil || len(digest) != sha256.Size {
 			rows.Close()
-			return [sha256.Size]byte{}, err
+			if err != nil {
+				return [sha256.Size]byte{}, err
+			}
+			return [sha256.Size]byte{}, integrationexecution.ErrInvalid
 		}
-		manifest.Assets = append(manifest.Assets, value)
+		copy(value.SHA256[:], digest)
+		input.Assets = append(input.Assets, value)
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
 		return [sha256.Size]byte{}, err
 	}
-	encoded, err := json.Marshal(manifest)
+	_, digest, err := integrationexecution.BuildManifest(input)
 	if err != nil {
 		return [sha256.Size]byte{}, err
 	}
-	return sha256.Sum256(encoded), nil
+	return digest, nil
 }
 
 func updateIntegrationConnectionCredential(ctx context.Context, tx pgx.Tx, value domain.Connection, expected uint64) error {

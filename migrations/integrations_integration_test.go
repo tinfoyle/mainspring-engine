@@ -373,9 +373,17 @@ func seedIntegrationAuthority(t *testing.T, ctx context.Context, owner *pgxpool.
 		INSERT INTO spyglass.marketing_campaigns(account_id,id,name,objective,audience,state,active_release_id,version,created_by_kind,created_by_id,origin,created_at,updated_at)
 		VALUES ($1,$15,'Launch','Announce the release','Current customers','draft',NULL,1,'user',$3,'human',$4,$4);
 		INSERT INTO spyglass.marketing_campaign_channels(account_id,campaign_id,channel) VALUES ($1,$15,'email');
+		INSERT INTO spyglass.marketing_assets(account_id,campaign_id,id,created_at)
+		VALUES ($1,$15,'83800000-0000-4000-8000-000000000008',$4);
+		INSERT INTO spyglass.marketing_asset_revisions
+		(account_id,id,campaign_id,asset_id,revision,kind,title,media_type,content_reference,content_sha256,content_bytes,alternative_text,created_by_kind,created_by_id,origin,created_at)
+		VALUES ($1,'83900000-0000-4000-8000-000000000009',$15,'83800000-0000-4000-8000-000000000008',1,'copy','Launch copy','text/plain',
+		'marketing/launch/copy/v1',decode(repeat('66',32),'hex'),12,'','user',$3,'human',$4);
 		INSERT INTO spyglass.marketing_release_plans(account_id,id,campaign_id,campaign_version,name,state,approval_id,version,created_by_kind,created_by_id,origin,submitted_by_user_id,approved_by_user_id,created_at,updated_at)
 		VALUES ($1,$16,$15,1,'Initial release','approved',$11,3,'user',$3,'human',$3,$3,$4,$4::timestamptz+interval '7 minutes');
 		INSERT INTO spyglass.marketing_release_channels(account_id,campaign_id,release_id,channel) VALUES ($1,$15,$16,'email');
+		INSERT INTO spyglass.marketing_release_assets(account_id,campaign_id,release_id,asset_revision_id)
+		VALUES ($1,$15,$16,'83900000-0000-4000-8000-000000000009');
 		UPDATE spyglass.marketing_campaigns SET state='active',active_release_id=$16,version=2,updated_at=$4::timestamptz+interval '8 minutes'
 		WHERE account_id=$1 AND id=$15`,
 		pgx.QueryExecModeSimpleProtocol, value.accountID, value.otherAccountID, value.userID, value.now, boardroomID, personaID, personaVersionID, conversationID,
