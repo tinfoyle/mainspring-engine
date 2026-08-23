@@ -336,6 +336,29 @@ Account-portability exact-source checkpoint (2026-08-24): the launch source fact
 
 Account-portability worker-composition checkpoint (2026-08-24): the executable process inventory, local and Hostinger Compose graphs, and review-only LKE reference now include one build worker per cell plus a separately credentialed global expiry worker. Build claims are cell-scoped, so an older request in another cell cannot be consumed by the wrong worker. Global and cell database roles grant only the reviewed projection/request/event tables; source-object, artifact-build and artifact-expiry identities are distinct. The source identity can read only exact Knowledge originals and Marketing revision content, build can create/read/delete only derived `exports/<export-id>/artifact.zip` versions, and expiry can read/delete but cannot create or list artifacts. Local certification applies fresh migrations and grants, verifies positive and negative database/object privileges, runs both build workers and expiry healthy as UID/GID 65532 on read-only roots, and gives each build worker a private bounded `0700` staging filesystem. Local stress retains a 34 GiB tmpfs ceiling; the 7.7 GiB Hostinger acceptance host fails closed at 1 GiB per cell instead of advertising a RAM ceiling that could exhaust it. The Kubernetes build manifest uses a bounded 34 GiB disk-backed `emptyDir`, creates only its final `0700` child at startup and runs without a service-account token; generated two-cell Linode overlays and the global expiry Deployment render without Secrets or mutable images. Prometheus now certifies all 23 local targets; boolean operational fields render as 0/1 gauges instead of making `/metrics` unavailable. The remaining Account-portability construction is the short-lived customer download capability and shared HTTP/MCP/private-UI request, status, history, cancellation and download surfaces; Stage/LKE application of this checkpoint is release evidence, not yet claimed.
 
+Account-portability Stage-application checkpoint (2026-08-23): the admitted,
+same-revision `0.3.0-rc.4` pair is active from clean deployment checkout
+`ba68ecc64804be3e357794ef4af6301121d726f9` and immutable secret set
+`2026-08-23-01`. The application of RC.3 first exposed two fail-closed defects:
+the expiry worker received the ordinary unprefixed global restore gate, and two
+Marketing capability identifiers contained underscores forbidden by the shared
+broker/token/approval grammar. The Stage verifier now asserts the expiry
+worker's prefixed gate; all exported runner capabilities have a grammar
+regression test; RC.4 rebuilt and admitted both images from corrected source
+`069b25992fb50f82aacbebf24ee6ab7a2cdfccb0`. Stage now has 45 running
+containers and 44 healthy healthchecks, including both build workers, expiry,
+both runner brokers and both MCP replicas. The export workers run as
+UID/GID 65532 with read-only roots; build staging is private mode `0700` and
+1 GiB per cell. Global/cell migration ledgers are 35/66/66, all three reviewed
+database role-policy assertions pass, the complete positive/negative object
+policy gate passes, and all three public origins return HTTP 200. The mode-600,
+content-free certificate is
+`/opt/spyglass-stage/evidence/0.3.0-rc.4/account-export-workers.json`, SHA-256
+`f6367057000f1346ed58c061280788638257198f336b024e1c25a284b773fa3c`.
+No persistent volume was removed or replaced. The remaining Account-portability
+construction is still the short-lived customer download capability and the
+shared HTTP/MCP/private-UI surfaces.
+
 - Inventory and characterize every retained prototype route, MCP tool, workflow, schedule, table and external object.
 - Build Account-cohort migration tools with checksums, row/object/index counts and rollback checkpoints.
 - Reconcile Membership, placement, entitlements, Work, Knowledge, Baseline, Agents, schedules, actions and provider references.

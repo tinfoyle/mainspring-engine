@@ -6,24 +6,24 @@
 - MCP resource origin: `https://mcp.stage.infiniteocean.net`
 - Compose project: `spyglass-stage`
 
-## Verified host facts and live state (2026-08-22)
+## Verified host facts and live state (2026-08-23)
 
 The read-only inventory found Ubuntu kernel 7.0 on x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 storage with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user belongs to `docker` and has non-interactive sudo. The existing `infiniteocean` Compose project owns ports 80/443 through Caddy and owns the public mail ports through Stalwart. Spyglass must not replace, restart or bind over those services.
 
 The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the website, application and MCP stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs, the Account-scoped Work/Agent families and public MCP traffic without exposing any container port on the host.
 
-The active clean checkout is `/opt/spyglass-stage/releases/773f3c45cc3fb351aec44d6e52a6d279d3b5d4bb`, selected by `/opt/spyglass-stage/current`. The older RC.3 checkout remains rejected release history because its website image failed the later admission scan; do not select it. All three Stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS. A temporary `mcp-client.stage.infiniteocean.net` Client ID Metadata Document supports the outstanding external-client certificate and must be removed after that evidence is sealed.
+The active clean checkout is `/opt/spyglass-stage/releases/ba68ecc64804be3e357794ef4af6301121d726f9`, selected by `/opt/spyglass-stage/current`. The preceding clean checkout remains available as an explicit rollback point. All three Stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS. A temporary `mcp-client.stage.infiniteocean.net` Client ID Metadata Document supports the outstanding external-client certificate and must be removed after that evidence is sealed.
 
-The protected provider input exists at `/opt/spyglass-stage/provider-input/stage.providers.env` with directory mode 700 and file mode 600. SMTP, Stripe sandbox/webhook, non-production OpenAI and the reviewed non-secret OpenAI model price book are present without disclosure. Stalwart implicit TLS is published on port 465 and healthy; the prior Compose file is retained as `/opt/infiniteocean/compose.yml.bak.20260821T143155Z.pre-smtps-465`. The Phase 3 RC.2 application and reused website images run at the exact reviewed digests recorded in `deploy/releases/0.3.0-rc.2.env`. There are 42 long-running Spyglass containers: all 41 healthchecked workloads, including two MCP gateway replicas, are healthy and the internal edge is running without a healthcheck. The three PostgreSQL services retain their persistent volumes, and both cell Schedule workers are healthy.
+The protected provider input exists at `/opt/spyglass-stage/provider-input/stage.providers.env` with directory mode 700 and file mode 600. SMTP, Stripe sandbox/webhook, non-production OpenAI and the reviewed non-secret OpenAI model price book are present without disclosure. Stalwart implicit TLS is published on port 465 and healthy; the prior Compose file is retained as `/opt/infiniteocean/compose.yml.bak.20260821T143155Z.pre-smtps-465`. The same-revision Phase 3 RC.4 application and website images run at the exact reviewed digests recorded in `deploy/releases/0.3.0-rc.4.env`. There are 45 long-running Spyglass containers: all 44 healthchecked workloads, including two MCP gateway replicas and all three Account-export workers, are healthy and the internal edge is running without a healthcheck. The three PostgreSQL services retain their persistent volumes at global migration 35 and cell migration 66, and both cell Schedule workers are healthy.
 
 ## Files kept outside Git
 
-The mode-600 provider input and generated secrets remain outside Git. Active immutable secret set `2026-08-22-03` was generated from provider input while carrying retained service credentials forward from `2026-08-22-02`; it is the only set used by the live stack. For an additive topology upgrade, choose a new empty versioned target and pass the previous active environment as the fourth argument:
+The mode-600 provider input and generated secrets remain outside Git. Active immutable secret set `2026-08-23-01` was generated from provider input while carrying retained service credentials forward from `2026-08-22-03` and adding only the Account-export database/object identities; it is the only set used by the live stack. For an additive topology upgrade, choose a new empty versioned target and pass the previous active environment as the fourth argument:
 
 ```bash
 # Edit the provider input without printing it to logs.
 secret_set=/opt/spyglass-stage/secrets/YYYY-MM-DD-NN
-previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-03/stage.env
+previous_stage_env=/opt/spyglass-stage/secrets/2026-08-23-01/stage.env
 ./prepare-stage-secrets.sh \
   /opt/spyglass-stage/provider-input/stage.providers.env \
   "$secret_set" \
@@ -58,8 +58,8 @@ From the clean checkout selected by `current`:
 
 ```bash
 cd /opt/spyglass-stage/current/deploy/docker/spyglass
-release_file="$(realpath ../../releases/0.3.0-rc.2.env)"
-secret_set=/opt/spyglass-stage/secrets/2026-08-22-03
+release_file="$(realpath ../../releases/0.3.0-rc.4.env)"
+secret_set=/opt/spyglass-stage/secrets/2026-08-23-01
 ./verify-stage.sh "$release_file" "$secret_set/stage.env"
 ./deploy-stage.sh "$release_file" "$secret_set/stage.env"
 ```
@@ -82,5 +82,6 @@ Evidence files are mode 600 under `/opt/spyglass-stage/evidence`:
 | `0.3.0-rc.2/anonymous-boundary.json` | `dd87e48f4c57070afc22f916118b900fe6b2268bd1b7aee73f7d4e6b16e4168d` |
 | `0.3.0-rc.2/mcp-public-edge-failover.json` | `5ca33277955531c993b5305e89b3530fb1cd54a4fd29a6e38182e5a8d9ad0de5` |
 | `0.3.0-rc.2/agent-queue-rehearsal.json` | `1c2da6f0d753d8d64419561e5690a52fcfa818b7a3168403a2e6dc512f62c1e9` |
+| `0.3.0-rc.4/account-export-workers.json` | `f6367057000f1346ed58c061280788638257198f336b024e1c25a284b773fa3c` |
 
 The Schedule recovery fixture and temporary execute-only database role were erased after certification. Stage otherwise remains reserved for revocable synthetic acceptance fixtures. Phase 3 creates final Catalog mappings through signed operator authorization before customer/provider journey certification.
