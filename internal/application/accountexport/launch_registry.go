@@ -71,8 +71,8 @@ func LaunchRegistry() (*Registry, error) {
 	exclude("spyglass", Operational, "Route receipts and cleanup leases are short-lived anti-replay and routing controls.", "route_context_receipt_cleanup_queue", "route_context_receipts")
 	include("spyglass", "schedules", "schedule_events", "schedule_occurrences", "schedule_triggers", "schedules")
 	exclude("spyglass", Operational, "Schedule dispatch, trigger, and operator queues are transient execution controls.", "schedule_dispatch_queue", "schedule_queue_operator_events", "schedule_trigger_queue")
-	include("spyglass", "work", "work_agent_executions", "work_capacity_release_operator_events", "work_item_events", "work_items")
-	exclude("spyglass", Operational, "Work execution and capacity queues are transient processing controls.", "work_agent_execution_queue", "work_capacity_release_queue")
+	include("spyglass", "work", "work_agent_executions", "work_item_events", "work_items")
+	exclude("spyglass", Operational, "Work execution and capacity queues plus operator interventions are internal processing controls.", "work_agent_execution_queue", "work_capacity_release_operator_events", "work_capacity_release_queue")
 	exclude("spyglass", Derived, "Work item numbers are present on exported Work items; allocator counters are reconstructed.", "work_item_number_counters")
 
 	return NewRegistry(sections, tables)

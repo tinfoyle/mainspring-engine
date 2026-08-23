@@ -68,6 +68,62 @@ func TestAccountExportCoverageMatchesAccountOwnedSchema(t *testing.T) {
 	}
 	assertGlobalProjectionColumns(t, ctx, pool, registry)
 	assertGlobalProjectionRecords(t, ctx, pool)
+	assertCellProjectionCohortColumns(t, ctx, pool, registry)
+}
+
+func assertCellProjectionCohortColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool, registry *accountexport.Registry) {
+	t.Helper()
+	var projectionTx *pgxpool.Tx
+	bySection := postgresadapter.AccountExportCellProjectionTables(projectionTx)
+	completed := map[string]bool{"account": true, "schedules": true, "work": true}
+	seen := make(map[string]bool)
+	for section, tables := range bySection {
+		if !completed[section] {
+			t.Fatalf("cell projection section %s is not a certified cohort", section)
+		}
+		for _, table := range tables {
+			key := table.Schema + "." + table.Table
+			if seen[key] {
+				t.Fatalf("duplicate cell projection table %s", key)
+			}
+			seen[key] = true
+			coverage, found := registry.Coverage(table.Schema, table.Table)
+			if !found || coverage.Disposition != accountexport.Included || coverage.Section != section {
+				t.Fatalf("cell projection table %s section=%s coverage=%+v found=%v", key, section, coverage, found)
+			}
+			assertProjectionColumnUnion(t, ctx, pool, table)
+		}
+	}
+	for _, coverage := range registry.Tables() {
+		if coverage.Schema == "spyglass" && coverage.Disposition == accountexport.Included && completed[coverage.Section] && !seen[coverage.Schema+"."+coverage.Table] {
+			t.Fatalf("included cell cohort table %s.%s lacks an explicit projection", coverage.Schema, coverage.Table)
+		}
+	}
+}
+
+func assertProjectionColumnUnion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table postgresadapter.AccountExportProjectionTable) {
+	t.Helper()
+	rows, err := pool.Query(ctx, `SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY column_name`, table.Schema, table.Table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actual []string
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			t.Fatal(err)
+		}
+		actual = append(actual, column)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	reviewed := append(append([]string(nil), table.Columns...), table.OmittedColumns...)
+	slices.Sort(reviewed)
+	if !slices.Equal(actual, reviewed) {
+		t.Fatalf("projection column drift for %s.%s: schema=%v reviewed=%v", table.Schema, table.Table, actual, reviewed)
+	}
 }
 
 func assertGlobalProjectionColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool, registry *accountexport.Registry) {
