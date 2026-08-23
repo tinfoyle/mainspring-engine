@@ -39,6 +39,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_integration_connector_worker') THEN
     CREATE ROLE spyglass_integration_connector_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_account_export_build_worker') THEN
+    CREATE ROLE spyglass_account_export_build_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_account_export_expiry_worker') THEN
+    CREATE ROLE spyglass_account_export_expiry_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
 END
 $$;
 
@@ -55,6 +61,8 @@ $$;
 \getenv baseline_maintenance_password SPYGLASS_BASELINE_MAINTENANCE_WORKER_DATABASE_PASSWORD
 \getenv prototype_migration_password SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD
 \getenv integration_connector_password SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD
+\getenv account_export_build_password SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD
+\getenv account_export_expiry_password SPYGLASS_ACCOUNT_EXPORT_EXPIRY_WORKER_DATABASE_PASSWORD
 SELECT format('ALTER ROLE spyglass_account_api PASSWORD %L', :'account_api_password') \gexec
 SELECT format('ALTER ROLE spyglass_app_router PASSWORD %L', :'app_router_password') \gexec
 SELECT format('ALTER ROLE spyglass_mcp_gateway PASSWORD %L', :'mcp_gateway_password') \gexec
@@ -68,6 +76,8 @@ SELECT format('ALTER ROLE spyglass_work_reconciler PASSWORD %L', :'work_reconcil
 SELECT format('ALTER ROLE spyglass_baseline_maintenance_worker PASSWORD %L', :'baseline_maintenance_password') \gexec
 SELECT format('ALTER ROLE spyglass_prototype_migration PASSWORD %L', :'prototype_migration_password') \gexec
 SELECT format('ALTER ROLE spyglass_integration_connector_worker PASSWORD %L', :'integration_connector_password') \gexec
+SELECT format('ALTER ROLE spyglass_account_export_build_worker PASSWORD %L', :'account_export_build_password') \gexec
+SELECT format('ALTER ROLE spyglass_account_export_expiry_worker PASSWORD %L', :'account_export_expiry_password') \gexec
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_mcp_gateway, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
@@ -77,6 +87,12 @@ GRANT USAGE ON SCHEMA public TO spyglass_account_api, spyglass_app_router, spygl
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
   spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_work_reconciler,
   spyglass_baseline_maintenance_worker, spyglass_prototype_migration, spyglass_integration_connector_worker;
+
+GRANT CONNECT ON DATABASE spyglass TO spyglass_account_export_build_worker, spyglass_account_export_expiry_worker;
+GRANT USAGE ON SCHEMA public TO spyglass_account_export_build_worker, spyglass_account_export_expiry_worker;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_account_export_build_worker, spyglass_account_export_expiry_worker;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_account_export_build_worker, spyglass_account_export_expiry_worker;
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_account_export_build_worker, spyglass_account_export_expiry_worker;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
@@ -151,3 +167,20 @@ GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid)
 
 GRANT SELECT ON accounts, entitlement_snapshots TO spyglass_prototype_migration;
 GRANT SELECT ON accounts, entitlement_snapshots TO spyglass_integration_connector_worker;
+
+GRANT SELECT ON account_erasure_restore_ledger, accounts, account_directory,
+  account_closure_requests, account_lifecycle_events, account_membership_events,
+  invitations, memberships, billing_checkout_attempts, billing_profiles, subscriptions,
+  entitlement_grants, entitlement_snapshots, entitlement_usage_counters
+  TO spyglass_account_export_build_worker;
+GRANT SELECT ON account_export_requests TO spyglass_account_export_build_worker;
+GRANT UPDATE (state,attempt_count,next_attempt_at,lease_id,lease_expires_at,error_code,version,
+  snapshot_global_at,snapshot_cell_at,artifact_reference,artifact_sha256,artifact_bytes,available_at)
+  ON account_export_requests TO spyglass_account_export_build_worker;
+GRANT INSERT ON account_export_events TO spyglass_account_export_build_worker;
+
+GRANT SELECT ON account_erasure_restore_ledger TO spyglass_account_export_expiry_worker;
+GRANT SELECT ON account_export_requests TO spyglass_account_export_expiry_worker;
+GRANT UPDATE (state,lease_id,lease_expires_at,version,artifact_reference,deleted_at)
+  ON account_export_requests TO spyglass_account_export_expiry_worker;
+GRANT INSERT ON account_export_events TO spyglass_account_export_expiry_worker;

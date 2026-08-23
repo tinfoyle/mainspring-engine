@@ -11,13 +11,15 @@ func TestWorkerMetricsExposeContentFreeStatusAndAutoscalingGauge(t *testing.T) {
 	status := struct {
 		Ready      uint64 `json:"ready"`
 		DeadLetter uint64 `json:"dead_letter"`
-	}{Ready: 7, DeadLetter: 2}
+		Alerting   bool   `json:"alerting"`
+	}{Ready: 7, DeadLetter: 2, Alerting: true}
 	output, err := observability.RenderWorkerMetrics("agent-dispatch", status)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range [][]byte{
 		[]byte(`spyglass_worker_status{worker="agent-dispatch",field="dead_letter"} 2`),
+		[]byte(`spyglass_worker_status{worker="agent-dispatch",field="alerting"} 1`),
 		[]byte(`spyglass_worker_status{worker="agent-dispatch",field="ready"} 7`),
 		[]byte("spyglass_agent_dispatch_ready 7"),
 	} {

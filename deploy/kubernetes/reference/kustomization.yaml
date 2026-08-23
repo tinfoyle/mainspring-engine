@@ -13,6 +13,8 @@ resources:
   - notification-worker.yaml
   - entitlement-worker.yaml
   - account-lifecycle-worker.yaml
+  - account-export-build-worker.yaml
+  - account-export-expiry-worker.yaml
   - identity-maintenance-worker.yaml
   - work-reconciler.yaml
   - baseline-maintenance-worker.yaml

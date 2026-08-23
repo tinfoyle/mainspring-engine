@@ -13,6 +13,31 @@ import (
 
 const stagedExportID = "ea000000-0000-4000-8000-000000000001"
 
+func TestPrepareCreatesOnlyPrivateFinalDirectory(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "account-export")
+	if err := Prepare(root); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		t.Fatalf("prepared root=%+v err=%v", info, err)
+	}
+	if err := Prepare(root); err != nil {
+		t.Fatalf("prepare replay: %v", err)
+	}
+	if err := Prepare(filepath.Join(parent, "missing", "staging")); !errors.Is(err, ErrConfiguration) {
+		t.Fatalf("missing parent err=%v", err)
+	}
+	unsafe := filepath.Join(parent, "unsafe")
+	if err := os.Mkdir(unsafe, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := Prepare(unsafe); !errors.Is(err, ErrConfiguration) {
+		t.Fatalf("unsafe existing root err=%v", err)
+	}
+}
+
 func TestStagerCreatesPrivateBoundedLifecycle(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Chmod(root, 0o700); err != nil {

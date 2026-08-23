@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: account-export-expiry-worker, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: account-export-expiry-worker}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: account-export-expiry-worker, app.kubernetes.io/part-of: spyglass}
+    spec:
+      serviceAccountName: account-export-expiry-worker
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: account-export-expiry-worker}
+      containers:
+        - name: worker
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [account-export-expiry-worker]
+          ports: [{name: health, containerPort: 8081}]
+          env:
+            - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+            - {name: SPYGLASS_ACCOUNT_EXPORT_EXPIRY_POLL_INTERVAL, value: "1m"}
+            - {name: SPYGLASS_ACCOUNT_EXPORT_EXPIRY_LEASE, value: "5m"}
+            - {name: SPYGLASS_GLOBAL_MAX_DATABASE_CONNS, value: "3"}
+          envFrom:
+            - configMapRef: {name: spyglass-account-export-expiry-worker-runtime}
+            - secretRef: {name: spyglass-account-export-expiry-worker-secrets}
+          resources:
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: "1", memory: 384Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: account-export-expiry-worker, namespace: spyglass-reference}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: account-export-expiry-worker}

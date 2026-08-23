@@ -26,6 +26,10 @@
       "SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE",
       "SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT"
     ],
+    "prefixed_global_restore_gate": [
+      "SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE",
+      "SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT"
+    ],
     "workload_tls": [
       "SPYGLASS_WORKLOAD_CERT_FILE",
       "SPYGLASS_WORKLOAD_KEY_FILE",
@@ -174,6 +178,28 @@
       "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_IDENTITY_MAINTENANCE_INTERVAL", "SPYGLASS_PASSKEY_CEREMONY_RETENTION", "SPYGLASS_IDENTITY_MAINTENANCE_PRUNE_BATCH", "SPYGLASS_IDENTITY_MAINTENANCE_ALERT_BACKLOG", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
       "configuration_profiles": ["traced", "global_restore_gate"],
       "dependencies": ["global-postgresql"]
+    },
+    {
+      "mode": "account-export-build-worker",
+      "kind": "worker",
+      "scope": "cell-and-global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.account-export-build-worker", "cell.account-export-build-worker"],
+      "configuration": ["SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_CELL_ID", "SPYGLASS_ACCOUNT_EXPORT_STAGING_ROOT", "SPYGLASS_ACCOUNT_EXPORT_POLL_INTERVAL", "SPYGLASS_ACCOUNT_EXPORT_BUILD_LEASE", "SPYGLASS_ACCOUNT_EXPORT_RETRY_DELAY", "SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_OBJECT_STORE_ENDPOINT", "SPYGLASS_OBJECT_STORE_REGION", "SPYGLASS_OBJECT_STORE_BUCKET", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY", "SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY", "SPYGLASS_OBJECT_STORE_SECURE", "SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "cross_store_restore_gate"],
+      "dependencies": ["global-postgresql", "cell-postgresql", "versioned-object-store", "private-ephemeral-staging"]
+    },
+    {
+      "mode": "account-export-expiry-worker",
+      "kind": "worker",
+      "scope": "global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.account-export-expiry-worker"],
+      "configuration": ["SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_ACCOUNT_EXPORT_EXPIRY_POLL_INTERVAL", "SPYGLASS_ACCOUNT_EXPORT_EXPIRY_LEASE", "SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", "SPYGLASS_OBJECT_STORE_ENDPOINT", "SPYGLASS_OBJECT_STORE_REGION", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY", "SPYGLASS_OBJECT_STORE_SECURE", "SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "prefixed_global_restore_gate"],
+      "dependencies": ["global-postgresql", "versioned-object-store"]
     },
     {
       "mode": "work-reconciler",

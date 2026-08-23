@@ -40,6 +40,8 @@ services:
       SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD: ${SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD:?set role password}
       SPYGLASS_ENTITLEMENT_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ENTITLEMENT_WORKER_DATABASE_PASSWORD:?set role password}
       SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD:?set role password}
+      SPYGLASS_ACCOUNT_EXPORT_EXPIRY_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_EXPORT_EXPIRY_WORKER_DATABASE_PASSWORD:?set role password}
       SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD: ${SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD:?set role password}
       SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD: ${SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD:?set role password}
       SPYGLASS_BASELINE_MAINTENANCE_WORKER_DATABASE_PASSWORD: ${SPYGLASS_BASELINE_MAINTENANCE_WORKER_DATABASE_PASSWORD:?set role password}
@@ -67,6 +69,7 @@ services:
       SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD: ${SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD:?set role password}
       SPYGLASS_RUNNER_CONTROLLER_DATABASE_PASSWORD: ${SPYGLASS_CELL_A_RUNNER_CONTROLLER_DATABASE_PASSWORD:?set runner controller role password}
       SPYGLASS_RUNNER_BROKER_DATABASE_PASSWORD: ${SPYGLASS_CELL_A_RUNNER_BROKER_DATABASE_PASSWORD:?set runner broker role password}
+      SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD:?set role password}
     volumes: [./roles/cell.local.sql:/opt/spyglass/roles/cell.sql:ro]
     depends_on: {cell-a-migrate: {condition: service_completed_successfully}}
     networks: [database]
@@ -154,6 +157,23 @@ services:
   account-lifecycle-worker:
     environment: *global-restore
     depends_on: {global-roles: {condition: service_completed_successfully}}
+  account-export-build-worker-a:
+    environment:
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+    depends_on: {global-roles: {condition: service_completed_successfully}, cell-a-roles: {condition: service_completed_successfully}, object-store-init: {condition: service_completed_successfully}}
+  account-export-build-worker-b:
+    environment:
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+    depends_on: {global-roles: {condition: service_completed_successfully}, cell-b-roles: {condition: service_completed_successfully}, object-store-init: {condition: service_completed_successfully}}
+  account-export-expiry-worker:
+    environment: *global-restore
+    depends_on: {global-roles: {condition: service_completed_successfully}, object-store-init: {condition: service_completed_successfully}}
   identity-maintenance-worker:
     environment: *global-restore
     depends_on: {global-roles: {condition: service_completed_successfully}}

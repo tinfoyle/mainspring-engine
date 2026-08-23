@@ -8,6 +8,7 @@ sources=(
   app-api.yaml
   work-reconciler.yaml
   baseline-maintenance-worker.yaml
+  account-export-build-worker.yaml
   route-receipt-worker.yaml
   agent-dispatch-worker.yaml
   schedule-execution-worker.yaml

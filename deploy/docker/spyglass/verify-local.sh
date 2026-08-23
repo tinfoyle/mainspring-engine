@@ -29,7 +29,7 @@ for service in app-router mcp-gateway app-api-a app-api-b admission-api; do
     --url=http://127.0.0.1:8080/health/ready
 done
 
-worker_services=(billing-worker notification-worker entitlement-worker account-lifecycle-worker identity-maintenance-worker work-reconciler-a work-reconciler-b \
+worker_services=(billing-worker notification-worker entitlement-worker account-lifecycle-worker account-export-build-worker-a account-export-build-worker-b account-export-expiry-worker identity-maintenance-worker work-reconciler-a work-reconciler-b \
   baseline-maintenance-worker-a baseline-maintenance-worker-b \
   route-receipt-worker-a route-receipt-worker-b agent-dispatch-worker-a \
   agent-dispatch-worker-b schedule-execution-worker-a schedule-execution-worker-b \
@@ -54,14 +54,23 @@ test "$cell_count" = "2"
 
 runtime_role_count="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
-    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_account_api','spyglass_app_router','spyglass_mcp_gateway','spyglass_admission_api','spyglass_billing_worker','spyglass_notification_worker','spyglass_entitlement_worker','spyglass_account_lifecycle_worker','spyglass_work_reconciler','spyglass_baseline_maintenance_worker','spyglass_prototype_migration','spyglass_integration_connector_worker') AND NOT rolsuper AND NOT rolbypassrls")"
-test "$runtime_role_count" = "12"
+    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_account_api','spyglass_app_router','spyglass_mcp_gateway','spyglass_admission_api','spyglass_billing_worker','spyglass_notification_worker','spyglass_entitlement_worker','spyglass_account_lifecycle_worker','spyglass_account_export_build_worker','spyglass_account_export_expiry_worker','spyglass_work_reconciler','spyglass_baseline_maintenance_worker','spyglass_prototype_migration','spyglass_integration_connector_worker') AND NOT rolsuper AND NOT rolbypassrls")"
+test "$runtime_role_count" = "14"
+
+export_global_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
+  --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+  --command="SELECT has_table_privilege('spyglass_account_export_build_worker','accounts','SELECT') AND has_table_privilege('spyglass_account_export_build_worker','account_export_requests','SELECT') AND has_column_privilege('spyglass_account_export_build_worker','account_export_requests','state','UPDATE') AND NOT has_column_privilege('spyglass_account_export_build_worker','account_export_requests','account_id','UPDATE') AND has_table_privilege('spyglass_account_export_build_worker','account_export_events','INSERT') AND NOT has_table_privilege('spyglass_account_export_build_worker','billing_event_inbox','SELECT') AND has_table_privilege('spyglass_account_export_expiry_worker','account_export_requests','SELECT') AND has_column_privilege('spyglass_account_export_expiry_worker','account_export_requests','deleted_at','UPDATE') AND NOT has_column_privilege('spyglass_account_export_expiry_worker','account_export_requests','artifact_sha256','UPDATE') AND has_table_privilege('spyglass_account_export_expiry_worker','account_export_events','INSERT') AND NOT has_table_privilege('spyglass_account_export_expiry_worker','accounts','SELECT')")"
+test "$export_global_privileges" = "t"
 
 for database in cell-a-db cell-b-db; do
   cell_runtime_role_count="$("${compose[@]}" exec --no-TTY "$database" psql \
     --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
-    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_app_api','spyglass_route_receipt_worker','spyglass_work_reconciler','spyglass_agent_dispatch_worker','spyglass_schedule_execution_worker','spyglass_agent_projection_worker','spyglass_knowledge_document_worker','spyglass_baseline_maintenance_worker','spyglass_prototype_migration','spyglass_runner_controller','spyglass_runner_broker','spyglass_integration_connector_worker') AND NOT rolsuper AND NOT rolbypassrls")"
-  test "$cell_runtime_role_count" = "12"
+    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_app_api','spyglass_route_receipt_worker','spyglass_work_reconciler','spyglass_agent_dispatch_worker','spyglass_schedule_execution_worker','spyglass_agent_projection_worker','spyglass_knowledge_document_worker','spyglass_baseline_maintenance_worker','spyglass_prototype_migration','spyglass_runner_controller','spyglass_runner_broker','spyglass_integration_connector_worker','spyglass_account_export_build_worker') AND NOT rolsuper AND NOT rolbypassrls")"
+  test "$cell_runtime_role_count" = "13"
+  export_cell_privileges="$("${compose[@]}" exec --no-TTY "$database" psql \
+    --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+    --command="SELECT has_table_privilege('spyglass_account_export_build_worker','spyglass.work_items','SELECT') AND has_table_privilege('spyglass_account_export_build_worker','spyglass.knowledge_documents','SELECT') AND has_table_privilege('spyglass_account_export_build_worker','spyglass.marketing_assets','SELECT') AND NOT has_table_privilege('spyglass_account_export_build_worker','spyglass.integration_credentials','SELECT') AND NOT has_table_privilege('spyglass_account_export_build_worker','spyglass.work_items','INSERT,UPDATE,DELETE')")"
+  test "$export_cell_privileges" = "t"
   document_event_privileges="$("${compose[@]}" exec --no-TTY "$database" psql \
     --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
     --command="SELECT has_table_privilege('spyglass_knowledge_document_worker','spyglass.knowledge_document_events','SELECT,INSERT,UPDATE') AND NOT has_table_privilege('spyglass_knowledge_document_worker','spyglass.knowledge_document_events','DELETE') AND EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='knowledge_document_events_immutable' AND tgenabled<>'D')")"
@@ -87,6 +96,10 @@ assert_role_denied global-db spyglass_work_reconciler 'SELECT count(*) FROM user
 assert_role_denied global-db spyglass_baseline_maintenance_worker 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_prototype_migration 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_integration_connector_worker 'SELECT count(*) FROM users'
+assert_role_denied global-db spyglass_account_export_build_worker 'SELECT count(*) FROM billing_event_inbox'
+assert_role_denied global-db spyglass_account_export_build_worker 'DELETE FROM account_export_requests'
+assert_role_denied global-db spyglass_account_export_expiry_worker 'SELECT count(*) FROM accounts'
+assert_role_denied global-db spyglass_account_export_expiry_worker 'UPDATE accounts SET display_name=display_name'
 for database in cell-a-db cell-b-db; do
   assert_role_denied "$database" spyglass_route_receipt_worker 'SELECT count(*) FROM spyglass.work_items'
   assert_role_denied "$database" spyglass_work_reconciler 'SELECT count(*) FROM spyglass.agent_invocations'
@@ -105,6 +118,8 @@ for database in cell-a-db cell-b-db; do
   assert_role_denied "$database" spyglass_runner_broker 'SELECT count(*) FROM spyglass.runner_invocation_exchanges'
   assert_role_denied "$database" spyglass_integration_connector_worker 'SELECT count(*) FROM spyglass.integration_credentials'
   assert_role_denied "$database" spyglass_integration_connector_worker 'SELECT count(*) FROM spyglass.marketing_campaigns'
+  assert_role_denied "$database" spyglass_account_export_build_worker 'SELECT count(*) FROM spyglass.integration_credentials'
+  assert_role_denied "$database" spyglass_account_export_build_worker 'UPDATE spyglass.work_items SET version=version'
 done
 
 curl --fail --silent --show-error "http://127.0.0.1:${mailpit_port}/readyz" >/dev/null

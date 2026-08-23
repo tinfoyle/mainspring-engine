@@ -120,6 +120,9 @@ func NewBuild(ctx context.Context, config BuildConfig, logger *slog.Logger) (*Bu
 			return fail(cell, err)
 		}
 	}
+	if err := localartifacts.Prepare(config.StagingRoot); err != nil {
+		return fail(cell, err)
+	}
 	stager, err := localartifacts.New(config.StagingRoot)
 	if err != nil {
 		return fail(cell, err)

@@ -22,6 +22,7 @@ scrape_configs:
           - notification-worker:8081
           - entitlement-worker:8081
           - account-lifecycle-worker:8081
+          - account-export-expiry-worker:8081
           - identity-maintenance-worker:8081
 
   - job_name: spyglass-cell-workers
@@ -30,6 +31,8 @@ scrape_configs:
       - targets:
           - work-reconciler-a:8081
           - work-reconciler-b:8081
+          - account-export-build-worker-a:8081
+          - account-export-build-worker-b:8081
           - route-receipt-worker-a:8081
           - route-receipt-worker-b:8081
           - agent-dispatch-worker-a:8081

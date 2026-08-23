@@ -146,17 +146,23 @@ services:
         mc admin policy create spyglass spyglass-document-worker /etc/spyglass/minio/document-worker-policy.json
         mc admin policy create spyglass spyglass-integration-connector /etc/spyglass/minio/integration-connector-policy.json
         mc admin policy create spyglass spyglass-prototype-migration /etc/spyglass/minio/prototype-migration-policy.json
-        mc admin policy create spyglass spyglass-account-export-worker /etc/spyglass/minio/account-export-worker-policy.json
+        mc admin policy create spyglass spyglass-account-export-source-reader /etc/spyglass/minio/account-export-source-reader-policy.json
+        mc admin policy create spyglass spyglass-account-export-build /etc/spyglass/minio/account-export-build-policy.json
+        mc admin policy create spyglass spyglass-account-export-expiry /etc/spyglass/minio/account-export-expiry-policy.json
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_APP_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_WORKER_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_CONNECTOR_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY}"
-        mc admin user add spyglass "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY}" "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_SECRET_KEY}"
+        mc admin user add spyglass "$${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY}" "$${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY}"
+        mc admin user add spyglass "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY}" "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY}"
+        mc admin user add spyglass "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY}" "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY}"
         mc admin policy attach spyglass spyglass-app-api --user "$${SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-document-worker --user "$${SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-integration-connector --user "$${SPYGLASS_OBJECT_STORE_CONNECTOR_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-prototype-migration --user "$${SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY}"
-        mc admin policy attach spyglass spyglass-account-export-worker --user "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY}"
+        mc admin policy attach spyglass spyglass-account-export-source-reader --user "$${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY}"
+        mc admin policy attach spyglass spyglass-account-export-build --user "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY}"
+        mc admin policy attach spyglass spyglass-account-export-expiry --user "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY}"
     environment:
       MINIO_ROOT_USER: ${SPYGLASS_OBJECT_STORE_ACCESS_KEY:?set SPYGLASS_OBJECT_STORE_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${SPYGLASS_OBJECT_STORE_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_SECRET_KEY}
@@ -170,8 +176,12 @@ services:
       SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY: ${SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY}
       SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY: ${SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY:?set SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY}
       SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY: ${SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY}
-      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY}
-      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_SECRET_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY}
       MC_CONFIG_DIR: /tmp/.mc
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -180,7 +190,9 @@ services:
       - ./minio/document-worker-policy.json:/etc/spyglass/minio/document-worker-policy.json:ro
       - ./minio/integration-connector-policy.json:/etc/spyglass/minio/integration-connector-policy.json:ro
       - ./minio/prototype-migration-policy.json:/etc/spyglass/minio/prototype-migration-policy.json:ro
-      - ./minio/account-export-worker-policy.json:/etc/spyglass/minio/account-export-worker-policy.json:ro
+      - ./minio/account-export-source-reader-policy.json:/etc/spyglass/minio/account-export-source-reader-policy.json:ro
+      - ./minio/account-export-build-policy.json:/etc/spyglass/minio/account-export-build-policy.json:ro
+      - ./minio/account-export-expiry-policy.json:/etc/spyglass/minio/account-export-expiry-policy.json:ro
     depends_on:
       object-store: {condition: service_healthy}
     cap_drop: [ALL]
@@ -530,6 +542,83 @@ services:
       SPYGLASS_HEALTH_ADDRESS: :8081
     depends_on:
       global-seed: {condition: service_completed_successfully}
+    networks: [application, database]
+
+  account-export-build-worker-a:
+    <<: *worker
+    command: [account-export-build-worker]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/lib/spyglass/account-export:size=34g,mode=0700,uid=65532,gid=65532
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-east-01
+      SPYGLASS_GLOBAL_DATABASE_URL: ${SPYGLASS_ACCOUNT_EXPORT_BUILD_GLOBAL_DATABASE_URL:?set SPYGLASS_ACCOUNT_EXPORT_BUILD_GLOBAL_DATABASE_URL}
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_A_ACCOUNT_EXPORT_BUILD_DATABASE_URL:?set SPYGLASS_CELL_A_ACCOUNT_EXPORT_BUILD_DATABASE_URL}
+      SPYGLASS_ACCOUNT_EXPORT_STAGING_ROOT: /var/lib/spyglass/account-export
+      SPYGLASS_OBJECT_STORE_ENDPOINT: ${SPYGLASS_OBJECT_STORE_ENDPOINT:?set SPYGLASS_OBJECT_STORE_ENDPOINT}
+      SPYGLASS_OBJECT_STORE_BUCKET: ${SPYGLASS_OBJECT_STORE_BUCKET:?set SPYGLASS_OBJECT_STORE_BUCKET}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET}
+      SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY}
+      SPYGLASS_OBJECT_STORE_SECURE: ${SPYGLASS_OBJECT_STORE_SECURE:-false}
+      SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION: ${SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION:-true}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      global-seed: {condition: service_completed_successfully}
+      cell-a-migrate: {condition: service_completed_successfully}
+      object-store-init: {condition: service_completed_successfully}
+    networks: [application, database]
+
+  account-export-build-worker-b:
+    <<: *worker
+    command: [account-export-build-worker]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/lib/spyglass/account-export:size=34g,mode=0700,uid=65532,gid=65532
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-west-01
+      SPYGLASS_GLOBAL_DATABASE_URL: ${SPYGLASS_ACCOUNT_EXPORT_BUILD_GLOBAL_DATABASE_URL:?set SPYGLASS_ACCOUNT_EXPORT_BUILD_GLOBAL_DATABASE_URL}
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_B_ACCOUNT_EXPORT_BUILD_DATABASE_URL:?set SPYGLASS_CELL_B_ACCOUNT_EXPORT_BUILD_DATABASE_URL}
+      SPYGLASS_ACCOUNT_EXPORT_STAGING_ROOT: /var/lib/spyglass/account-export
+      SPYGLASS_OBJECT_STORE_ENDPOINT: ${SPYGLASS_OBJECT_STORE_ENDPOINT:?set SPYGLASS_OBJECT_STORE_ENDPOINT}
+      SPYGLASS_OBJECT_STORE_BUCKET: ${SPYGLASS_OBJECT_STORE_BUCKET:?set SPYGLASS_OBJECT_STORE_BUCKET}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET}
+      SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_SECRET_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_SECRET_KEY}
+      SPYGLASS_OBJECT_STORE_SECURE: ${SPYGLASS_OBJECT_STORE_SECURE:-false}
+      SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION: ${SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION:-true}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      global-seed: {condition: service_completed_successfully}
+      cell-b-migrate: {condition: service_completed_successfully}
+      object-store-init: {condition: service_completed_successfully}
+    networks: [application, database]
+
+  account-export-expiry-worker:
+    <<: *worker
+    command: [account-export-expiry-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_GLOBAL_DATABASE_URL: ${SPYGLASS_ACCOUNT_EXPORT_EXPIRY_DATABASE_URL:?set SPYGLASS_ACCOUNT_EXPORT_EXPIRY_DATABASE_URL}
+      SPYGLASS_OBJECT_STORE_ENDPOINT: ${SPYGLASS_OBJECT_STORE_ENDPOINT:?set SPYGLASS_OBJECT_STORE_ENDPOINT}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_SECRET_KEY}
+      SPYGLASS_OBJECT_STORE_SECURE: ${SPYGLASS_OBJECT_STORE_SECURE:-false}
+      SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION: ${SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION:-true}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      global-seed: {condition: service_completed_successfully}
+      object-store-init: {condition: service_completed_successfully}
     networks: [application, database]
 
   identity-maintenance-worker:

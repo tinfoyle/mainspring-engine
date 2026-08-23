@@ -36,6 +36,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_integration_connector_worker') THEN
     CREATE ROLE spyglass_integration_connector_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_account_export_build_worker') THEN
+    CREATE ROLE spyglass_account_export_build_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
 END
 $$;
 
@@ -51,6 +54,7 @@ $$;
 \getenv runner_controller_password SPYGLASS_RUNNER_CONTROLLER_DATABASE_PASSWORD
 \getenv runner_broker_password SPYGLASS_RUNNER_BROKER_DATABASE_PASSWORD
 \getenv integration_connector_password SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD
+\getenv account_export_build_password SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD
 SELECT format('ALTER ROLE spyglass_app_api PASSWORD %L', :'app_api_password') \gexec
 SELECT format('ALTER ROLE spyglass_route_receipt_worker PASSWORD %L', :'route_receipt_password') \gexec
 SELECT format('ALTER ROLE spyglass_work_reconciler PASSWORD %L', :'work_reconciler_password') \gexec
@@ -63,6 +67,7 @@ SELECT format('ALTER ROLE spyglass_prototype_migration PASSWORD %L', :'prototype
 SELECT format('ALTER ROLE spyglass_runner_controller PASSWORD %L', :'runner_controller_password') \gexec
 SELECT format('ALTER ROLE spyglass_runner_broker PASSWORD %L', :'runner_broker_password') \gexec
 SELECT format('ALTER ROLE spyglass_integration_connector_worker PASSWORD %L', :'integration_connector_password') \gexec
+SELECT format('ALTER ROLE spyglass_account_export_build_worker PASSWORD %L', :'account_export_build_password') \gexec
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_app_api, spyglass_route_receipt_worker,
   spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_schedule_execution_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
@@ -70,6 +75,12 @@ GRANT CONNECT ON DATABASE spyglass TO spyglass_app_api, spyglass_route_receipt_w
 GRANT USAGE ON SCHEMA public, spyglass TO spyglass_app_api, spyglass_route_receipt_worker,
   spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_schedule_execution_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
   spyglass_runner_controller, spyglass_runner_broker, spyglass_integration_connector_worker;
+
+GRANT CONNECT ON DATABASE spyglass TO spyglass_account_export_build_worker;
+GRANT USAGE ON SCHEMA public, spyglass TO spyglass_account_export_build_worker;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public, spyglass FROM spyglass_account_export_build_worker;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public, spyglass FROM spyglass_account_export_build_worker;
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public, spyglass FROM spyglass_account_export_build_worker;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public, spyglass FROM spyglass_route_receipt_worker,
   spyglass_work_reconciler, spyglass_agent_dispatch_worker, spyglass_schedule_execution_worker, spyglass_agent_projection_worker, spyglass_knowledge_document_worker, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
@@ -231,3 +242,33 @@ GRANT SELECT ON spyglass.finance_ledgers, spyglass.finance_entries,
 GRANT UPDATE (state,version,posted_by_user_id,posted_at,updated_at)
   ON spyglass.finance_entries TO spyglass_runner_broker;
 GRANT INSERT ON spyglass.finance_events TO spyglass_runner_broker;
+
+GRANT SELECT ON spyglass.account_erasure_restore_ledger, spyglass.account_namespaces,
+  spyglass.account_audit_events,
+  spyglass.agent_boardrooms, spyglass.agent_conversations, spyglass.agent_invocation_execution_plans,
+  spyglass.agent_invocations, spyglass.agent_messages, spyglass.agent_persona_versions,
+  spyglass.agent_personas, spyglass.agent_run_plan_turns, spyglass.agent_run_resolutions,
+  spyglass.agent_runs, spyglass.agent_user_messages, spyglass.runner_action_attempts,
+  spyglass.runner_action_authorizations, spyglass.runner_action_ledger,
+  spyglass.runner_action_manual_resolutions, spyglass.runner_capability_events,
+  spyglass.attention_consequential_approvals, spyglass.attention_events,
+  spyglass.attention_information_requests, spyglass.attention_work_reviews,
+  spyglass.baseline_assessments, spyglass.baseline_events, spyglass.baseline_evidence_decisions,
+  spyglass.baseline_interview_answers, spyglass.baseline_plan_work, spyglass.baseline_plans,
+  spyglass.baseline_requirements, spyglass.baseline_source_grant_events, spyglass.baseline_source_grants,
+  spyglass.finance_accounts, spyglass.finance_entries, spyglass.finance_entry_evidence,
+  spyglass.finance_entry_lines, spyglass.finance_events, spyglass.finance_ledger_close_evidence,
+  spyglass.finance_ledgers, spyglass.finance_reconciliation_evidence, spyglass.finance_reconciliations,
+  spyglass.integration_connection_revisions, spyglass.integration_connections, spyglass.integration_events,
+  spyglass.integration_execution_attempts, spyglass.integration_execution_resolutions,
+  spyglass.integration_executions, spyglass.integration_health_observations,
+  spyglass.knowledge_claim_citations, spyglass.knowledge_claims, spyglass.knowledge_document_events,
+  spyglass.knowledge_document_revisions, spyglass.knowledge_documents, spyglass.knowledge_events,
+  spyglass.knowledge_evidence, spyglass.knowledge_fact_revisions, spyglass.knowledge_facts,
+  spyglass.marketing_asset_revisions, spyglass.marketing_assets, spyglass.marketing_campaign_channels,
+  spyglass.marketing_campaigns, spyglass.marketing_events, spyglass.marketing_release_assets,
+  spyglass.marketing_release_channels, spyglass.marketing_release_plans,
+  spyglass.prototype_migration_events, spyglass.prototype_migration_receipts, spyglass.prototype_migration_runs,
+  spyglass.schedule_events, spyglass.schedule_occurrences, spyglass.schedule_triggers, spyglass.schedules,
+  spyglass.work_agent_executions, spyglass.work_item_events, spyglass.work_items
+  TO spyglass_account_export_build_worker;

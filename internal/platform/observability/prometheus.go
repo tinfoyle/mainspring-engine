@@ -34,16 +34,29 @@ func RenderWorkerMetrics(worker string, status any) ([]byte, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
-	values := map[string]json.Number{}
+	values := map[string]any{}
 	if err := decoder.Decode(&values); err != nil {
-		return nil, errors.New("worker metric status must contain only numeric fields")
+		return nil, errors.New("worker metric status must contain only numeric or boolean fields")
 	}
+	metricValues := make(map[string]string, len(values))
 	fields := make([]string, 0, len(values))
 	for field, value := range values {
 		if !metricLabel.MatchString(field) {
 			return nil, fmt.Errorf("worker metric field %q is invalid", field)
 		}
-		if _, err := value.Float64(); err != nil {
+		switch typed := value.(type) {
+		case json.Number:
+			if _, err := typed.Float64(); err != nil {
+				return nil, fmt.Errorf("worker metric field %q is not numeric", field)
+			}
+			metricValues[field] = typed.String()
+		case bool:
+			if typed {
+				metricValues[field] = "1"
+			} else {
+				metricValues[field] = "0"
+			}
+		default:
 			return nil, fmt.Errorf("worker metric field %q is not numeric", field)
 		}
 		fields = append(fields, field)
@@ -53,14 +66,14 @@ func RenderWorkerMetrics(worker string, status any) ([]byte, error) {
 	output.WriteString("# HELP spyglass_worker_status Current content-free worker status value.\n")
 	output.WriteString("# TYPE spyglass_worker_status gauge\n")
 	for _, field := range fields {
-		fmt.Fprintf(&output, "spyglass_worker_status{worker=%q,field=%q} %s\n", worker, field, values[field].String())
+		fmt.Fprintf(&output, "spyglass_worker_status{worker=%q,field=%q} %s\n", worker, field, metricValues[field])
 	}
 	if metric, ok := autoscalingMetrics[worker]; ok {
-		value, exists := values[metric.Field]
+		value, exists := metricValues[metric.Field]
 		if !exists {
 			return nil, fmt.Errorf("worker status has no autoscaling field %q", metric.Field)
 		}
-		fmt.Fprintf(&output, "# HELP %s %s\n# TYPE %s gauge\n%s %s\n", metric.Name, metric.Help, metric.Name, metric.Name, value.String())
+		fmt.Fprintf(&output, "# HELP %s %s\n# TYPE %s gauge\n%s %s\n", metric.Name, metric.Help, metric.Name, metric.Name, value)
 	}
 	return output.Bytes(), nil
 }

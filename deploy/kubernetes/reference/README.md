@@ -5,7 +5,7 @@ are intentionally not a deployable environment yet: release automation must
 replace `registry.invalid/...:release-placeholder`, inject managed secret
 references and provide environment-specific network/database destinations before promotion. The
 account-api, public OAuth-authenticated MCP gateway, app-router, private workload-mTLS tool-router, cell app-api, private admission-api, per-cell route-receipt
-worker, billing-worker, notification-worker, entitlement-worker, Account lifecycle worker, Work reconciler, Agent dispatch/projection workers, runner controller/broker, and model gateway arguments are executable today. The render includes narrow Job/identity RBAC, internal runner/broker/gateway NetworkPolicies, workload-specific service accounts, disruption budgets, and backlog-oriented HPA contracts. It still fails closed as an applied environment until overlays supply the cluster-specific Kubernetes API and managed-service egress, sandbox RuntimeClass, certificates, database roles, provider policy, metrics adapter, and digest-pinned images.
+worker, billing-worker, notification-worker, entitlement-worker, Account lifecycle worker, per-cell Account-export build workers, global Account-export expiry worker, Work reconciler, Agent dispatch/projection workers, runner controller/broker, and model gateway arguments are executable today. The render includes narrow Job/identity RBAC, internal runner/broker/gateway NetworkPolicies, workload-specific service accounts, disruption budgets, and backlog-oriented HPA contracts. It still fails closed as an applied environment until overlays supply the cluster-specific Kubernetes API and managed-service egress, sandbox RuntimeClass, certificates, database roles, provider/object-store policy, metrics adapter, and digest-pinned images.
 
 The render also contains a two-replica OpenTelemetry gateway, strict collector-side trace allowlist, initial `PrometheusRule`, and content-free Grafana overview. The third-party Collector image is pinned to an exact official multi-platform digest and its configuration is validated by that exact binary in CI. The base intentionally has no collector backend egress, backend/ingress credential, Prometheus rule selector, authenticated application scrape, dashboard provisioner, or pager route; those remain environment-owned promotion inputs.
 
@@ -67,7 +67,12 @@ Before an environment overlay may use these resources it must add:
   `spyglass-account-api-secrets`, `spyglass-mcp-gateway-secrets`, `spyglass-app-router-secrets`, `spyglass-tool-router-secrets`,
   `spyglass-app-api-secrets`, `spyglass-admission-api-secrets`,
   `spyglass-billing-worker-secrets`, `spyglass-notification-worker-secrets`,
-  `spyglass-entitlement-worker-secrets`, `spyglass-account-lifecycle-worker-secrets`, `spyglass-identity-maintenance-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`,
+  `spyglass-entitlement-worker-secrets`, `spyglass-account-lifecycle-worker-secrets`,
+  `spyglass-account-export-build-worker-cell-reference-runtime`,
+  `spyglass-account-export-build-worker-cell-reference-secrets`,
+  `spyglass-account-export-expiry-worker-runtime`,
+  `spyglass-account-export-expiry-worker-secrets`,
+  `spyglass-identity-maintenance-worker-secrets`, `spyglass-route-receipt-worker-cell-reference-secrets`,
   `spyglass-work-reconciler-secrets`, `spyglass-agent-dispatch-worker-cell-reference-secrets`,
   `spyglass-schedule-execution-worker-cell-reference-secrets`,
   `spyglass-agent-projection-worker-cell-reference-secrets`,
@@ -78,6 +83,18 @@ Before an environment overlay may use these resources it must add:
   Secrets prevent each worker from receiving webhook, Stripe, or SMTP
   credentials it does not use. The entitlement worker receives only a
   constrained global-database credential.
+- Each Account-export build secret combines one constrained global request
+  credential, one constrained cell projection credential, an exact-version
+  Knowledge/Marketing source-reader identity and the derived-artifact build
+  identity. The expiry secret has its own global request/event credential and
+  read/delete-only artifact identity. The build runtime ConfigMap carries both
+  global and cell restore checkpoints plus non-secret object-store settings;
+  expiry carries only the prefixed global checkpoint. Each build pod mounts a
+  bounded 34 GiB `emptyDir` at the staging parent, creates only the final
+  `0700` directory and writes `0600` artifacts. Neither workload receives a
+  service-account token, serving/session/provider credential or bucket-list
+  authority. Environment NetworkPolicies must add only the exact PostgreSQL
+  and S3-compatible destinations.
 - The Agent dispatcher and projector secrets each carry a distinct constrained
   cell credential and the runtime runner-envelope keyring. The dispatcher can
   read only immutable forced-RLS planning tables and call the dispatch plus

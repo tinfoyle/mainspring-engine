@@ -23,6 +23,26 @@ type Stager struct {
 	rootInfo os.FileInfo
 }
 
+// Prepare creates only the final staging directory with private permissions.
+// Its parent must already exist; this lets orchestrators mount a bounded
+// ephemeral volume at the parent without allowing an arbitrary directory tree
+// to be manufactured from configuration.
+func Prepare(root string) error {
+	root = strings.TrimSpace(root)
+	if root == "" || !filepath.IsAbs(root) || filepath.Clean(root) != root || root == string(filepath.Separator) {
+		return ErrConfiguration
+	}
+	err := os.Mkdir(root, 0o700)
+	if err != nil && !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("%w: create root: %v", ErrConfiguration, err)
+	}
+	info, inspectErr := os.Lstat(root)
+	if inspectErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
+		return ErrConfiguration
+	}
+	return nil
+}
+
 func New(root string) (*Stager, error) {
 	root = strings.TrimSpace(root)
 	if root == "" || !filepath.IsAbs(root) || filepath.Clean(root) != root || root == string(filepath.Separator) {

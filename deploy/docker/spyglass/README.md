@@ -42,7 +42,7 @@ The `knowledge-processing` profile runs one least-privilege document worker per 
 
 At `app.infiniteocean.localhost`, global/private routes go to account-api while cell-owned Work and Agent API families go through app-router. Browsers never reach a cell API directly.
 
-`env/local.env` contains intentionally public, local-only credentials and deterministic keys. It must never be copied to stage or production. Environment-specific secret files are supplied separately. `prepare-stage-secrets.sh` generates separate MinIO administrator, source-admission, document-worker, Integration-connector, prototype-migration and Account-export-worker credentials plus the static server-side-encryption key. Initialization attaches prefix-scoped policies to the workload users; the administrator credential remains confined to MinIO and its one-shot initializer. MinIO is never published at a host port. The document/creative and Account-export buckets are distinct, versioned and private, and the persistent volume survives ordinary stack shutdown. Production uses corresponding scoped S3-compatible credentials rather than this Compose service.
+`env/local.env` contains intentionally public, local-only credentials and deterministic keys. It must never be copied to stage or production. Environment-specific secret files are supplied separately. `prepare-stage-secrets.sh` generates separate MinIO administrator, source-admission, document-worker, Integration-connector, prototype-migration, Account-export source-reader, artifact-build and artifact-expiry credentials plus the static server-side-encryption key. Initialization attaches prefix-scoped policies to the workload users; the administrator credential remains confined to MinIO and its one-shot initializer. The export source identity reads only exact Knowledge originals and Marketing revision content, build reaches only derived export artifacts, and expiry cannot create or list artifacts. MinIO is never published at a host port. The document/creative and Account-export buckets are distinct, versioned and private, and the persistent volume survives ordinary stack shutdown. Production uses corresponding scoped S3-compatible credentials rather than this Compose service.
 
 The machine-readable [process inventory](../../spyglass-process-inventory.json) is checked against every executable `spyglass` mode before local verification. It records each process lifecycle, scope, port, health surface, database role family, configuration inputs, and dependencies.
 
@@ -56,7 +56,7 @@ An optional, digest-pinned Prometheus profile verifies the content-safe metrics 
 make verify-observability
 ```
 
-The gate requires exactly 17 healthy scrape targets—five HTTP services and twelve workers—and exposes the local Prometheus UI only at `http://127.0.0.1:9090`. Its one-hour, tmpfs-backed TSDB is disposable and contains no customer-derived labels.
+The gate requires exactly 23 healthy scrape targets—five HTTP services and eighteen workers, including both cell export builders and the global expiry worker—and exposes the local Prometheus UI only at `http://127.0.0.1:9090`. Its one-hour, tmpfs-backed TSDB is disposable and contains no customer-derived labels.
 
 Use `make down` to stop the stack while preserving all database and object-store volumes. The destructive reset is deliberately explicit:
 
