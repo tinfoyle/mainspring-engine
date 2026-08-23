@@ -15,9 +15,11 @@ import (
 )
 
 var (
-	ErrNotFound      = errors.New("Account export request not found")
-	ErrStateConflict = errors.New("Account export request state conflict")
-	ErrLeaseConflict = errors.New("Account export request lease conflict")
+	ErrNotFound          = errors.New("Account export request not found")
+	ErrStateConflict     = errors.New("Account export request state conflict")
+	ErrLeaseConflict     = errors.New("Account export request lease conflict")
+	ErrArtifactConflict  = errors.New("Account export artifact conflicts with existing content")
+	ErrArtifactIntegrity = errors.New("Account export artifact integrity check failed")
 )
 
 type State string

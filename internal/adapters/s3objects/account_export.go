@@ -88,7 +88,7 @@ func (store *ExportStore) Publish(ctx context.Context, request accountexport.Art
 		if identityErr != nil {
 			return accountexport.Artifact{}, identityErr
 		}
-		return accountexport.Artifact{}, ErrIntegrity
+		return accountexport.Artifact{}, errors.Join(ErrIntegrity, accountexport.ErrArtifactIntegrity)
 	}
 	var extra [1]byte
 	count, readErr := request.Body.Read(extra[:])
@@ -131,7 +131,7 @@ func (store *ExportStore) existing(ctx context.Context, exportID string, size in
 		return accountexport.Artifact{}, fmt.Errorf("%w: stat existing export artifact: %v", ErrUnavailable, err)
 	}
 	if !matches(info, size, digest) {
-		return accountexport.Artifact{}, ErrConflict
+		return accountexport.Artifact{}, errors.Join(ErrConflict, accountexport.ErrArtifactConflict)
 	}
 	return exportArtifact(exportID, info.VersionID, info.Size, digest)
 }
@@ -144,7 +144,10 @@ func (store *ExportStore) cleanup(ctx context.Context, key, versionID string) {
 
 func exportArtifact(exportID, versionID string, size int64, digest [sha256.Size]byte) (accountexport.Artifact, error) {
 	if ids.Validate(exportID) != nil || versionID == "" || strings.ContainsAny(versionID, "\x00\r\n") || len(versionID) > 512 || size <= 0 || size > accountexport.MaximumArtifactBytes || digest == ([sha256.Size]byte{}) {
-		return accountexport.Artifact{}, fmt.Errorf("%w: immutable export object version identity is required", ErrConfiguration)
+		return accountexport.Artifact{}, errors.Join(
+			fmt.Errorf("%w: immutable export object version identity is required", ErrConfiguration),
+			accountexport.ErrArtifactIntegrity,
+		)
 	}
 	encodedVersion := base64.RawURLEncoding.EncodeToString([]byte(versionID))
 	return accountexport.Artifact{Reference: exportReferencePrefix + exportID + "." + encodedVersion, SHA256: digest, Bytes: size}, nil
