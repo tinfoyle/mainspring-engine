@@ -17,7 +17,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
 5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel/bootstrap, current authority, payload assembler, one-operation broker boundary, restore-gated executable and ubunturojo Docker certification constructed; production object/secret/provider adapters remain.**
-6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution. **Generated HTTP reads and governed lifecycle mutations constructed; MCP, private browser and manual-resolution commands remain.**
+6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution. **Generated HTTP and MCP reads/lifecycle mutations constructed; private browser and manual-resolution commands remain.**
 7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
 
 ## Kernel checkpoint
@@ -103,6 +103,12 @@ Execution payload digests are rendered as canonical lowercase SHA-256 hex. The r
 Eight additional generated commands now expose the complete existing human-manager application boundary: connection creation and immutable scope revision; opaque credential-attestation activation and monotonic rotation; disable, enable and irreversible revocation; and preparation of one exact Marketing delivery execution. Every mutation binds the signed route operation to one UUID `Idempotency-Key`; versioned connection changes require a weak `If-Match`. Strict JSON rejects unknown and trailing fields, credential input accepts only a provider code plus lowercase SHA-256 attestation (never a broker reference or secret), and delivery preparation repeats both Marketing and Integrations authorization inside the application service.
 
 Connection creation and execution preparation return canonical locations; every connection result returns its new version ETag. The generated customer contract now contains 174 typed operations. Transport tests cover all eight commands, exact operation/version mapping, digest decoding, response contracts, missing preconditions and mismatched idempotency authority. HTTP construction for the current email-send/web-publish lifecycle is complete; MCP, the private workspace, dual-controlled external-execution manual resolution, production adapters and later inbound/sync/research lifecycles remain.
+
+## MCP lifecycle checkpoint
+
+Thirteen typed MCP tools now expose the same five reads and eight governed commands as HTTP over the shared Integrations service. The global gateway registry classifies every tool as an Integrations read or mutation before cell routing, and the cell handler repeats exact Account/package authorization. Mutation tools require an operation UUID and optimistic version where applicable; credential tools decode only a lowercase SHA-256 broker-reference attestation. Execution output normalizes the frozen payload digest to hex and uses kind-bound opaque cursors identical in meaning to HTTP.
+
+Tool schemas, annotations and classifications are complete and deterministic. Protocol tests prove all thirteen tools are registered, read-versus-mutation authority is exact, operation/digest/query mapping reaches the canonical service, output contains no broker reference or provider material, missing versions fail safely and repository details are redacted. The shared production MCP gateway composes this service automatically. The private browser workspace, execution manual-resolution commands and applied external-client journey remain before construction step 6 is complete.
 
 ## Invariants
 

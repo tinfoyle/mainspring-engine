@@ -67,6 +67,15 @@ func ToolRequirement(name string) (access.Requirement, bool) {
 		"spyglass_marketing_campaign_activate", "spyglass_marketing_campaign_pause",
 		"spyglass_marketing_campaign_complete":
 		return write(catalog.PackageMarketing), true
+	case "spyglass_integrations_connection_list", "spyglass_integrations_connection_get",
+		"spyglass_integrations_health_list", "spyglass_integrations_execution_list",
+		"spyglass_integrations_execution_get":
+		return read(catalog.PackageIntegrations), true
+	case "spyglass_integrations_connection_create", "spyglass_integrations_connection_revise",
+		"spyglass_integrations_credential_activate", "spyglass_integrations_credential_rotate",
+		"spyglass_integrations_connection_disable", "spyglass_integrations_connection_enable",
+		"spyglass_integrations_connection_revoke", "spyglass_integrations_execution_prepare":
+		return write(catalog.PackageIntegrations), true
 	default:
 		return access.Requirement{}, false
 	}

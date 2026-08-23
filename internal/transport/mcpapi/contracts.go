@@ -9,12 +9,14 @@ import (
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
+	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
+	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
@@ -121,6 +123,22 @@ type MarketingService interface {
 	PauseCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
 	CompleteCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
 	ArchiveCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
+}
+
+type IntegrationsService interface {
+	CreateConnection(context.Context, integrationsapp.CreateConnectionCommand) (integrationsdomain.Connection, bool, error)
+	GetConnectionDetail(context.Context, access.Actor, ids.AccountID, ids.IntegrationConnectionID) (integrationsapp.ConnectionDetail, error)
+	ListConnections(context.Context, access.Actor, ids.AccountID, integrationsapp.ConnectionListQuery) (integrationsapp.ConnectionPage, error)
+	ReviseConnection(context.Context, integrationsapp.ReviseConnectionCommand) (integrationsdomain.Connection, error)
+	ActivateConnection(context.Context, integrationsapp.CredentialCommand) (integrationsdomain.Connection, error)
+	RotateCredential(context.Context, integrationsapp.CredentialCommand) (integrationsdomain.Connection, error)
+	DisableConnection(context.Context, integrationsapp.TransitionCommand) (integrationsdomain.Connection, error)
+	EnableConnection(context.Context, integrationsapp.TransitionCommand) (integrationsdomain.Connection, error)
+	RevokeConnection(context.Context, integrationsapp.TransitionCommand) (integrationsdomain.Connection, error)
+	ListHealth(context.Context, access.Actor, ids.AccountID, integrationsapp.HealthListQuery) (integrationsapp.HealthPage, error)
+	PrepareExecution(context.Context, integrationsapp.PrepareExecutionCommand) (integrationsdomain.Execution, bool, error)
+	GetExecution(context.Context, access.Actor, ids.AccountID, ids.IntegrationExecutionID) (integrationsapp.ExecutionDetail, error)
+	ListExecutions(context.Context, access.Actor, ids.AccountID, integrationsapp.ExecutionListQuery) (integrationsapp.ExecutionPage, error)
 }
 
 type requirementInput struct {

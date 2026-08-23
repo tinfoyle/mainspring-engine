@@ -41,6 +41,7 @@ type Server struct {
 	baseline         BaselineService
 	finance          FinanceService
 	marketing        MarketingService
+	integrations     IntegrationsService
 	logger           *slog.Logger
 	version          string
 	maxBody          int64
@@ -107,6 +108,16 @@ func WithMarketing(service MarketingService) Option {
 			return errors.New("MCP Marketing service is required")
 		}
 		server.marketing = service
+		return nil
+	}
+}
+
+func WithIntegrations(service IntegrationsService) Option {
+	return func(server *Server) error {
+		if service == nil {
+			return errors.New("MCP Integrations service is required")
+		}
+		server.integrations = service
 		return nil
 	}
 }
@@ -189,6 +200,9 @@ func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 	}
 	if s.marketing != nil {
 		s.registerMarketing(server, actor)
+	}
+	if s.integrations != nil {
+		s.registerIntegrations(server, actor)
 	}
 	return server
 }
