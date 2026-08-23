@@ -227,6 +227,10 @@ for name in ("baseline-maintenance-worker-a", "baseline-maintenance-worker-b"):
     for prefix in ("SPYGLASS_GLOBAL_ERASURE_", "SPYGLASS_CELL_ERASURE_"):
         if prefix + "CHECKPOINT_SEQUENCE" not in environment or prefix + "CHECKPOINT_ROOT" not in environment:
             raise SystemExit(f"{name} does not carry both database restore checkpoints")
+expiry_environment = services["account-export-expiry-worker"].get("environment", {})
+for name in ("SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE", "SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT"):
+    if name not in expiry_environment:
+        raise SystemExit(f"account-export-expiry-worker does not carry {name}")
 if config["networks"]["host-edge"].get("name") != edge_network:
     raise SystemExit("stage host edge network does not match the reviewed secret file")
 PY
