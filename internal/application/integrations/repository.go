@@ -43,7 +43,11 @@ func (value Mutation) Valid() bool {
 type Store interface {
 	CreateConnection(context.Context, domain.ConnectionInput, accounts.MembershipRole, Mutation) (domain.Connection, bool, error)
 	GetConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID) (domain.Connection, error)
+	GetConnectionDetail(context.Context, ids.AccountID, ids.IntegrationConnectionID) (ConnectionDetail, error)
 	ListConnections(context.Context, ids.AccountID, ConnectionListQuery) (ConnectionPage, error)
+	ListHealth(context.Context, ids.AccountID, HealthListQuery) (HealthPage, error)
+	GetExecution(context.Context, ids.AccountID, ids.IntegrationExecutionID) (ExecutionDetail, error)
+	ListExecutions(context.Context, ids.AccountID, ExecutionListQuery) (ExecutionPage, error)
 	ReviseConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, domain.ConnectionRevisionInput, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
 	ActivateConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, domain.CredentialInput, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
 	RotateCredential(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, uint64, domain.CredentialInput, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)

@@ -32,11 +32,13 @@ func (authorizer *integrationTestAuthorizer) Authorize(_ context.Context, _ acce
 }
 
 type integrationTestStore struct {
-	connection domain.Connection
-	revision   domain.ConnectionRevision
-	credential domain.CredentialBinding
-	mutations  []Mutation
-	listQuery  ConnectionListQuery
+	connection     domain.Connection
+	revision       domain.ConnectionRevision
+	credential     domain.CredentialBinding
+	mutations      []Mutation
+	listQuery      ConnectionListQuery
+	healthQuery    HealthListQuery
+	executionQuery ExecutionListQuery
 }
 
 func (store *integrationTestStore) CreateConnection(_ context.Context, input domain.ConnectionInput, role accounts.MembershipRole, mutation Mutation) (domain.Connection, bool, error) {
@@ -56,9 +58,28 @@ func (store *integrationTestStore) GetConnection(_ context.Context, accountID id
 	return store.connection, nil
 }
 
+func (store *integrationTestStore) GetConnectionDetail(ctx context.Context, accountID ids.AccountID, connectionID ids.IntegrationConnectionID) (ConnectionDetail, error) {
+	connection, err := store.GetConnection(ctx, accountID, connectionID)
+	return ConnectionDetail{Connection: connection, Revision: store.revision}, err
+}
+
 func (store *integrationTestStore) ListConnections(_ context.Context, _ ids.AccountID, query ConnectionListQuery) (ConnectionPage, error) {
 	store.listQuery = query
 	return ConnectionPage{Items: []domain.Connection{store.connection}}, nil
+}
+
+func (store *integrationTestStore) ListHealth(_ context.Context, _ ids.AccountID, query HealthListQuery) (HealthPage, error) {
+	store.healthQuery = query
+	return HealthPage{}, nil
+}
+
+func (store *integrationTestStore) GetExecution(context.Context, ids.AccountID, ids.IntegrationExecutionID) (ExecutionDetail, error) {
+	return ExecutionDetail{}, ErrNotFound
+}
+
+func (store *integrationTestStore) ListExecutions(_ context.Context, _ ids.AccountID, query ExecutionListQuery) (ExecutionPage, error) {
+	store.executionQuery = query
+	return ExecutionPage{}, nil
 }
 
 func (store *integrationTestStore) ReviseConnection(_ context.Context, _ ids.AccountID, _ ids.IntegrationConnectionID, expected uint64, input domain.ConnectionRevisionInput, actor domain.Actor, role accounts.MembershipRole, mutation Mutation) (domain.Connection, error) {
@@ -232,6 +253,19 @@ func TestReadsNormalizeBoundedQueriesAndManagementRejectsMemberOrWorkload(t *tes
 	}
 	if _, err := service.ListConnections(context.Background(), actor, accountID, ConnectionListQuery{Kinds: []domain.ConnectorKind{domain.ConnectorGoogleDrive}}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unconstructed connector query error=%v", err)
+	}
+	if _, err := service.ListHealth(context.Background(), actor, accountID, HealthListQuery{ConnectionID: connectionID}); err != nil || store.healthQuery.Limit != DefaultConnectionPageSize {
+		t.Fatalf("health query=%+v err=%v", store.healthQuery, err)
+	}
+	if _, err := service.ListExecutions(context.Background(), actor, accountID, ExecutionListQuery{
+		States:       []domain.ExecutionState{domain.ExecutionSucceeded, domain.ExecutionManualResolution},
+		Capabilities: []domain.Capability{domain.CapabilityWebPublish, domain.CapabilityEmailSend}}); err != nil ||
+		store.executionQuery.Limit != DefaultConnectionPageSize || !slices.Equal(store.executionQuery.States, []domain.ExecutionState{domain.ExecutionManualResolution, domain.ExecutionSucceeded}) ||
+		!slices.Equal(store.executionQuery.Capabilities, []domain.Capability{domain.CapabilityEmailSend, domain.CapabilityWebPublish}) {
+		t.Fatalf("execution query=%+v err=%v", store.executionQuery, err)
+	}
+	if _, err := service.ListExecutions(context.Background(), actor, accountID, ExecutionListQuery{States: []domain.ExecutionState{domain.ExecutionUnknown, domain.ExecutionUnknown}}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("duplicate execution state error=%v", err)
 	}
 }
 

@@ -14,7 +14,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 
 1. Provider-neutral connection, scope, credential-binding and external-execution state machines. **Constructed.**
 2. Account-owned forced-RLS persistence, immutable revisions/attempts/events, claim leasing, movement fencing and exact erasure/restore participation. **Constructed.**
-3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Connection lifecycle constructed; health and execution views remain.**
+3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization.
 5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling.
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution.
@@ -42,7 +42,13 @@ The classified Integrations service now authorizes every read and manager mutati
 
 Credential commands contain a provider code and the SHA-256 attestation of an opaque broker reference only. They contain neither the broker reference nor provider material. Initial binding, monotonic rotation and connection revocation are atomic Account transactions; revocation ends the currently bound credential without rewriting prior bindings. Setup, revision and credential child identities derive deterministically from the route request identity, while the repository treats an exact retry as replay and rejects altered input.
 
-The PostgreSQL adapter restores every connection, current immutable revision and credential through the typed kernel under Account RLS. It serializes lifecycle writes, appends only content-redacted events, preserves deferred binding invariants and keeps cross-Account records concealed. Fresh PostgreSQL 17 coverage proves exact replay, altered-replay conflict, normalized scope restoration, credential rotation, disable/enable/revoke, credential ending, stable pagination and cross-Account isolation. Broker handoff, health/execution queries and worker/application preparation remain before construction step 3 is complete.
+The PostgreSQL adapter restores every connection, current immutable revision and credential through the typed kernel under Account RLS. It serializes lifecycle writes, appends only content-redacted events, preserves deferred binding invariants and keeps cross-Account records concealed. Fresh PostgreSQL 17 coverage proves exact replay, altered-replay conflict, normalized scope restoration, credential rotation, disable/enable/revoke, credential ending, stable pagination and cross-Account isolation.
+
+## Observability checkpoint
+
+Connection detail now combines the current connection, its exact immutable non-secret scope revision and latest content-free health observation. Separate bounded health history pages use stable `(checked_at DESC,id)` cursors. External execution pages filter only the closed delivery capabilities and state vocabulary; exact detail restores the frozen authority digest and immutable ordered attempts through the typed kernel. Provider responses, provider payloads, secret references and credentials remain absent.
+
+All observability queries repeat Integrations package authorization and preserve cross-Account concealment. Malformed persisted health or attempt history fails restoration rather than escaping as a customer DTO. Fresh PostgreSQL 17 tests cover latest-health selection, health pagination, manual-resolution execution detail, ordered attempt outcomes, filtered execution listing and cross-Account denial. Construction step 3 is complete; broker handoff, Marketing execution preparation and the provider worker/adapters remain next.
 
 ## Invariants
 

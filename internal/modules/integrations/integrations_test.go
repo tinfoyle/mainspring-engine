@@ -195,6 +195,30 @@ func TestLostLeaseBecomesUnknownAndRevokedCredentialCannotPrepare(t *testing.T) 
 	}
 }
 
+func TestRestoreObservabilityRejectsMalformedHistory(t *testing.T) {
+	now := time.Date(2026, 8, 23, 13, 0, 0, 0, time.UTC)
+	connection := integrationExecutionInput(t, now).Connection
+	health, err := NewHealthObservation(ids.IntegrationHealthObservationID(integrationTestID(t, "health")), connection, HealthHealthy, "", 12, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	malformedHealth := health
+	malformedHealth.ErrorCode = "secret_leaked"
+	if _, err := RestoreHealthObservation(malformedHealth); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("malformed health error=%v", err)
+	}
+	execution := integrationExecutionFixture(t, now)
+	_, attempt, err := execution.Claim(ids.IntegrationAttemptID(integrationTestID(t, "restore-attempt")), now.Add(time.Minute), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	malformedAttempt := attempt
+	malformedAttempt.Outcome = AttemptFailed
+	if _, err := RestoreAttempt(malformedAttempt); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("malformed attempt error=%v", err)
+	}
+}
+
 func integrationExecutionFixture(t *testing.T, now time.Time) Execution {
 	t.Helper()
 	value, err := NewExecution(integrationExecutionInput(t, now))

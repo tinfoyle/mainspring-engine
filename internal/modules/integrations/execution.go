@@ -182,6 +182,36 @@ type Attempt struct {
 	CompletedAt    *time.Time                 `json:"completed_at,omitempty"`
 }
 
+func RestoreAttempt(value Attempt) (Attempt, error) {
+	value.StartedAt, value.LeaseExpiresAt = value.StartedAt.UTC(), value.LeaseExpiresAt.UTC()
+	if value.CompletedAt != nil {
+		at := value.CompletedAt.UTC()
+		value.CompletedAt = &at
+	}
+	if ids.Validate(string(value.ID)) != nil || ids.Validate(string(value.AccountID)) != nil || ids.Validate(string(value.ExecutionID)) != nil ||
+		value.Number == 0 || value.Number > MaximumAttempts || (value.Mode != AttemptExecute && value.Mode != AttemptReconcile) ||
+		value.StartedAt.IsZero() || !value.LeaseExpiresAt.After(value.StartedAt) {
+		return Attempt{}, ErrInvalid
+	}
+	if value.Outcome == "" {
+		if value.ErrorCode != "" || value.CompletedAt != nil {
+			return Attempt{}, ErrInvalid
+		}
+		return value, nil
+	}
+	if value.Outcome != AttemptSucceeded && value.Outcome != AttemptNotApplied && value.Outcome != AttemptFailed && value.Outcome != AttemptUnknown {
+		return Attempt{}, ErrInvalid
+	}
+	if value.Outcome == AttemptNotApplied && value.Mode != AttemptReconcile {
+		return Attempt{}, ErrInvalid
+	}
+	if value.CompletedAt == nil || value.CompletedAt.Before(value.StartedAt) || (value.Outcome == AttemptSucceeded && value.ErrorCode != "") ||
+		(value.Outcome != AttemptSucceeded && !validCodeValue(value.ErrorCode)) {
+		return Attempt{}, ErrInvalid
+	}
+	return value, nil
+}
+
 func (value Execution) Claim(attemptID ids.IntegrationAttemptID, leaseExpiresAt, at time.Time) (Execution, Attempt, error) {
 	if ids.Validate(string(attemptID)) != nil || !validTime(at, value.UpdatedAt) || leaseExpiresAt.UTC().After(at.UTC().Add(5*time.Minute)) || !leaseExpiresAt.UTC().After(at.UTC()) {
 		return Execution{}, Attempt{}, ErrInvalid
@@ -208,8 +238,11 @@ func (value Execution) Claim(attemptID ids.IntegrationAttemptID, leaseExpiresAt,
 	}
 	at, leaseExpiresAt = at.UTC(), leaseExpiresAt.UTC()
 	value.CurrentAttemptID, value.LastErrorCode, value.LeaseExpiresAt, value.NextAttemptAt, value.UpdatedAt = attemptID, "", &leaseExpiresAt, nil, at
-	attempt := Attempt{ID: attemptID, AccountID: value.AccountID, ExecutionID: value.ID, Number: value.AttemptCount, Mode: mode, StartedAt: at, LeaseExpiresAt: leaseExpiresAt}
-	value, err := RestoreExecution(value)
+	attempt, err := RestoreAttempt(Attempt{ID: attemptID, AccountID: value.AccountID, ExecutionID: value.ID, Number: value.AttemptCount, Mode: mode, StartedAt: at, LeaseExpiresAt: leaseExpiresAt})
+	if err != nil {
+		return Execution{}, Attempt{}, err
+	}
+	value, err = RestoreExecution(value)
 	return value, attempt, err
 }
 

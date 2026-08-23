@@ -85,6 +85,37 @@ func (repository *IntegrationsRepository) GetConnection(ctx context.Context, acc
 	return result, classifyIntegrations(err)
 }
 
+func (repository *IntegrationsRepository) GetConnectionDetail(ctx context.Context, accountID ids.AccountID, connectionID ids.IntegrationConnectionID) (integrationsapp.ConnectionDetail, error) {
+	var result integrationsapp.ConnectionDetail
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		connection, err := loadIntegrationConnection(ctx, tx, accountID, connectionID, false)
+		if err != nil {
+			return err
+		}
+		revision, err := loadIntegrationRevision(ctx, tx, accountID, connection.CurrentRevisionID)
+		if err != nil {
+			return err
+		}
+		result.Connection, result.Revision = connection, revision
+		var healthID ids.IntegrationHealthObservationID
+		err = tx.QueryRow(ctx, `SELECT id FROM spyglass.integration_health_observations WHERE account_id=$1 AND connection_id=$2
+			ORDER BY checked_at DESC,id LIMIT 1`, accountID, connectionID).Scan(&healthID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		health, err := loadIntegrationHealth(ctx, tx, accountID, healthID)
+		if err != nil {
+			return err
+		}
+		result.LatestHealth = &health
+		return nil
+	})
+	return result, classifyIntegrations(err)
+}
+
 func (repository *IntegrationsRepository) ListConnections(ctx context.Context, accountID ids.AccountID, query integrationsapp.ConnectionListQuery) (integrationsapp.ConnectionPage, error) {
 	if !validIntegrationConnectionQuery(query) {
 		return integrationsapp.ConnectionPage{}, integrationsapp.ErrInvalid
@@ -128,6 +159,140 @@ func (repository *IntegrationsRepository) ListConnections(ctx context.Context, a
 		if hasMore {
 			last := page.Items[len(page.Items)-1]
 			page.NextCursor = &integrationsapp.ConnectionCursor{UpdatedAt: last.UpdatedAt, ID: last.ID}
+		}
+		return nil
+	})
+	return page, classifyIntegrations(err)
+}
+
+func (repository *IntegrationsRepository) ListHealth(ctx context.Context, accountID ids.AccountID, query integrationsapp.HealthListQuery) (integrationsapp.HealthPage, error) {
+	if query.Limit < 1 || query.Limit > integrationsapp.MaximumConnectionPageSize || ids.Validate(string(query.ConnectionID)) != nil ||
+		(query.After != nil && (query.After.CheckedAt.IsZero() || ids.Validate(string(query.After.ID)) != nil)) {
+		return integrationsapp.HealthPage{}, integrationsapp.ErrInvalid
+	}
+	var page integrationsapp.HealthPage
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id FROM spyglass.integration_health_observations WHERE account_id=$1 AND connection_id=$2
+			AND ($3::timestamptz IS NULL OR checked_at<$3 OR (checked_at=$3 AND id>$4)) ORDER BY checked_at DESC,id LIMIT $5`,
+			accountID, query.ConnectionID, integrationHealthCursorTime(query.After), integrationHealthCursorID(query.After), query.Limit+1)
+		if err != nil {
+			return err
+		}
+		var pageIDs []ids.IntegrationHealthObservationID
+		for rows.Next() {
+			var id ids.IntegrationHealthObservationID
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			pageIDs = append(pageIDs, id)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		hasMore := len(pageIDs) > query.Limit
+		if hasMore {
+			pageIDs = pageIDs[:query.Limit]
+		}
+		for _, id := range pageIDs {
+			value, err := loadIntegrationHealth(ctx, tx, accountID, id)
+			if err != nil {
+				return err
+			}
+			page.Items = append(page.Items, value)
+		}
+		if hasMore {
+			last := page.Items[len(page.Items)-1]
+			page.NextCursor = &integrationsapp.HealthCursor{CheckedAt: last.CheckedAt, ID: last.ID}
+		}
+		return nil
+	})
+	return page, classifyIntegrations(err)
+}
+
+func (repository *IntegrationsRepository) GetExecution(ctx context.Context, accountID ids.AccountID, executionID ids.IntegrationExecutionID) (integrationsapp.ExecutionDetail, error) {
+	var result integrationsapp.ExecutionDetail
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		execution, err := loadIntegrationExecution(ctx, tx, accountID, executionID)
+		if err != nil {
+			return err
+		}
+		result.Execution = execution
+		rows, err := tx.Query(ctx, `SELECT id FROM spyglass.integration_execution_attempts WHERE account_id=$1 AND execution_id=$2 ORDER BY attempt_number`, accountID, executionID)
+		if err != nil {
+			return err
+		}
+		var attemptIDs []ids.IntegrationAttemptID
+		for rows.Next() {
+			var attemptID ids.IntegrationAttemptID
+			if err := rows.Scan(&attemptID); err != nil {
+				rows.Close()
+				return err
+			}
+			attemptIDs = append(attemptIDs, attemptID)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		for _, attemptID := range attemptIDs {
+			attempt, err := loadIntegrationAttempt(ctx, tx, accountID, attemptID)
+			if err != nil {
+				return err
+			}
+			result.Attempts = append(result.Attempts, attempt)
+		}
+		return nil
+	})
+	return result, classifyIntegrations(err)
+}
+
+func (repository *IntegrationsRepository) ListExecutions(ctx context.Context, accountID ids.AccountID, query integrationsapp.ExecutionListQuery) (integrationsapp.ExecutionPage, error) {
+	if !validIntegrationExecutionQuery(query) {
+		return integrationsapp.ExecutionPage{}, integrationsapp.ErrInvalid
+	}
+	var page integrationsapp.ExecutionPage
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id FROM spyglass.integration_executions WHERE account_id=$1
+			AND ($2::uuid IS NULL OR connection_id=$2) AND (cardinality($3::text[])=0 OR state=ANY($3::text[]))
+			AND (cardinality($4::text[])=0 OR capability=ANY($4::text[]))
+			AND ($5::timestamptz IS NULL OR updated_at<$5 OR (updated_at=$5 AND id>$6)) ORDER BY updated_at DESC,id LIMIT $7`,
+			accountID, nullableIntegrationConnection(query.ConnectionID), integrationExecutionStates(query.States), integrationCapabilities(query.Capabilities),
+			integrationExecutionCursorTime(query.After), integrationExecutionCursorID(query.After), query.Limit+1)
+		if err != nil {
+			return err
+		}
+		var pageIDs []ids.IntegrationExecutionID
+		for rows.Next() {
+			var id ids.IntegrationExecutionID
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			pageIDs = append(pageIDs, id)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		hasMore := len(pageIDs) > query.Limit
+		if hasMore {
+			pageIDs = pageIDs[:query.Limit]
+		}
+		for _, id := range pageIDs {
+			value, err := loadIntegrationExecution(ctx, tx, accountID, id)
+			if err != nil {
+				return err
+			}
+			page.Items = append(page.Items, value)
+		}
+		if hasMore {
+			last := page.Items[len(page.Items)-1]
+			page.NextCursor = &integrationsapp.ExecutionCursor{UpdatedAt: last.UpdatedAt, ID: last.ID}
 		}
 		return nil
 	})
@@ -503,6 +668,72 @@ func loadIntegrationCredential(ctx context.Context, tx pgx.Tx, accountID ids.Acc
 	return value, nil
 }
 
+func loadIntegrationHealth(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, healthID ids.IntegrationHealthObservationID) (domain.HealthObservation, error) {
+	var value domain.HealthObservation
+	err := tx.QueryRow(ctx, `SELECT health.id,health.account_id,health.connection_id,revision.id,health.credential_id,health.state,
+		COALESCE(health.error_code,''),health.latency_milliseconds,health.checked_at
+		FROM spyglass.integration_health_observations health JOIN spyglass.integration_connection_revisions revision
+		ON revision.account_id=health.account_id AND revision.connection_id=health.connection_id AND revision.revision=health.connection_revision
+		WHERE health.account_id=$1 AND health.id=$2`, accountID, healthID).Scan(&value.ID, &value.AccountID, &value.ConnectionID,
+		&value.ConnectionRevisionID, &value.CredentialID, &value.State, &value.ErrorCode, &value.LatencyMilliseconds, &value.CheckedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.HealthObservation{}, integrationsapp.ErrNotFound
+	}
+	if err != nil {
+		return domain.HealthObservation{}, err
+	}
+	value, err = domain.RestoreHealthObservation(value)
+	if err != nil {
+		return domain.HealthObservation{}, integrationsapp.ErrRepository
+	}
+	return value, nil
+}
+
+func loadIntegrationExecution(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, executionID ids.IntegrationExecutionID) (domain.Execution, error) {
+	var value domain.Execution
+	var digest []byte
+	err := tx.QueryRow(ctx, `SELECT id,account_id,release_id,release_version,approval_id,capability,connection_id,connection_revision_id,
+		connection_revision,credential_id,credential_generation,payload_sha256,state,attempt_count,COALESCE(current_attempt_id::text,''),
+		COALESCE(last_error_code,''),lease_expires_at,next_attempt_at,created_at,updated_at,completed_at
+		FROM spyglass.integration_executions WHERE account_id=$1 AND id=$2`, accountID, executionID).Scan(&value.ID, &value.AccountID, &value.ReleaseID,
+		&value.ReleaseVersion, &value.ApprovalID, &value.Capability, &value.ConnectionID, &value.ConnectionRevisionID, &value.ConnectionRevision,
+		&value.CredentialID, &value.CredentialGeneration, &digest, &value.State, &value.AttemptCount, &value.CurrentAttemptID,
+		&value.LastErrorCode, &value.LeaseExpiresAt, &value.NextAttemptAt, &value.CreatedAt, &value.UpdatedAt, &value.CompletedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Execution{}, integrationsapp.ErrNotFound
+	}
+	if err != nil {
+		return domain.Execution{}, err
+	}
+	if len(digest) != 32 {
+		return domain.Execution{}, integrationsapp.ErrRepository
+	}
+	copy(value.PayloadSHA256[:], digest)
+	value, err = domain.RestoreExecution(value)
+	if err != nil {
+		return domain.Execution{}, integrationsapp.ErrRepository
+	}
+	return value, nil
+}
+
+func loadIntegrationAttempt(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, attemptID ids.IntegrationAttemptID) (domain.Attempt, error) {
+	var value domain.Attempt
+	err := tx.QueryRow(ctx, `SELECT id,account_id,execution_id,attempt_number,mode,COALESCE(outcome,''),COALESCE(error_code,''),started_at,lease_expires_at,completed_at
+		FROM spyglass.integration_execution_attempts WHERE account_id=$1 AND id=$2`, accountID, attemptID).Scan(&value.ID, &value.AccountID,
+		&value.ExecutionID, &value.Number, &value.Mode, &value.Outcome, &value.ErrorCode, &value.StartedAt, &value.LeaseExpiresAt, &value.CompletedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Attempt{}, integrationsapp.ErrNotFound
+	}
+	if err != nil {
+		return domain.Attempt{}, err
+	}
+	value, err = domain.RestoreAttempt(value)
+	if err != nil {
+		return domain.Attempt{}, integrationsapp.ErrRepository
+	}
+	return value, nil
+}
+
 func insertIntegrationRevision(ctx context.Context, tx pgx.Tx, value domain.ConnectionRevision) error {
 	capabilities := make([]string, len(value.Capabilities))
 	for index, capability := range value.Capabilities {
@@ -641,6 +872,82 @@ func validIntegrationConnectionQuery(query integrationsapp.ConnectionListQuery) 
 		seenKinds[kind] = struct{}{}
 	}
 	return query.After == nil || (!query.After.UpdatedAt.IsZero() && ids.Validate(string(query.After.ID)) == nil)
+}
+
+func validIntegrationExecutionQuery(query integrationsapp.ExecutionListQuery) bool {
+	if query.Limit < 1 || query.Limit > integrationsapp.MaximumConnectionPageSize ||
+		(query.ConnectionID != "" && ids.Validate(string(query.ConnectionID)) != nil) ||
+		(query.After != nil && (query.After.UpdatedAt.IsZero() || ids.Validate(string(query.After.ID)) != nil)) {
+		return false
+	}
+	seenStates := make(map[domain.ExecutionState]struct{}, len(query.States))
+	for _, state := range query.States {
+		if _, exists := seenStates[state]; exists || (state != domain.ExecutionPrepared && state != domain.ExecutionExecuting && state != domain.ExecutionReconciling &&
+			state != domain.ExecutionRetryWait && state != domain.ExecutionUnknown && state != domain.ExecutionManualResolution && state != domain.ExecutionSucceeded &&
+			state != domain.ExecutionFailed && state != domain.ExecutionCancelled) {
+			return false
+		}
+		seenStates[state] = struct{}{}
+	}
+	seenCapabilities := make(map[domain.Capability]struct{}, len(query.Capabilities))
+	for _, capability := range query.Capabilities {
+		if _, exists := seenCapabilities[capability]; exists || (capability != domain.CapabilityEmailSend && capability != domain.CapabilityWebPublish) {
+			return false
+		}
+		seenCapabilities[capability] = struct{}{}
+	}
+	return true
+}
+
+func integrationHealthCursorTime(value *integrationsapp.HealthCursor) *time.Time {
+	if value == nil {
+		return nil
+	}
+	return &value.CheckedAt
+}
+
+func integrationHealthCursorID(value *integrationsapp.HealthCursor) any {
+	if value == nil {
+		return nil
+	}
+	return value.ID
+}
+
+func integrationExecutionStates(values []domain.ExecutionState) []string {
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = string(value)
+	}
+	return result
+}
+
+func integrationCapabilities(values []domain.Capability) []string {
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = string(value)
+	}
+	return result
+}
+
+func integrationExecutionCursorTime(value *integrationsapp.ExecutionCursor) *time.Time {
+	if value == nil {
+		return nil
+	}
+	return &value.UpdatedAt
+}
+
+func integrationExecutionCursorID(value *integrationsapp.ExecutionCursor) any {
+	if value == nil {
+		return nil
+	}
+	return value.ID
+}
+
+func nullableIntegrationConnection(value ids.IntegrationConnectionID) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func integrationActorID(value *domain.Actor) any {

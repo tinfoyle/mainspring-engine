@@ -101,6 +101,26 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.integration_execution_queue WHERE account_id=$1 AND execution_id=$2`, fixture.accountID, fixture.executionID).Scan(&queued); err != nil || queued != 0 {
 		t.Fatalf("terminal queue=%d err=%v", queued, err)
 	}
+	cell, err := database.NewCellPool(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := postgresadapter.NewIntegrationsRepository(cell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := repository.GetExecution(ctx, ids.AccountID(fixture.accountID), ids.IntegrationExecutionID(fixture.executionID))
+	if err != nil || detail.Execution.State != integrationsdomain.ExecutionManualResolution || len(detail.Attempts) != 3 || detail.Attempts[2].Outcome != integrationsdomain.AttemptUnknown {
+		t.Fatalf("execution detail=%+v err=%v", detail, err)
+	}
+	page, err := repository.ListExecutions(ctx, ids.AccountID(fixture.accountID), integrationsapp.ExecutionListQuery{
+		States: []integrationsdomain.ExecutionState{integrationsdomain.ExecutionManualResolution}, Capabilities: []integrationsdomain.Capability{integrationsdomain.CapabilityEmailSend}, Limit: 1})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != ids.IntegrationExecutionID(fixture.executionID) {
+		t.Fatalf("execution page=%+v err=%v", page, err)
+	}
+	if _, err := repository.GetExecution(ctx, ids.AccountID(fixture.otherAccountID), ids.IntegrationExecutionID(fixture.executionID)); !errors.Is(err, integrationsapp.ErrNotFound) {
+		t.Fatalf("cross-Account execution=%v", err)
+	}
 
 	assertIntegrationRLS(t, ctx, owner, databaseURL, fixture)
 	assertCredentialCannotEndWhileBound(t, ctx, owner, fixture)
@@ -204,6 +224,26 @@ func TestIntegrationsRepositoryReplaysRestoresAndIsolatesConnectionLifecycle(t *
 		mutation(rotateEvent, "credential_rotated", rotateAt))
 	if err != nil || connection.Version != 4 || connection.CredentialID != credentialID2 || connection.CredentialGeneration != 2 {
 		t.Fatalf("rotated=%+v err=%v", connection, err)
+	}
+	healthID1 := ids.IntegrationHealthObservationID("97000000-0000-4000-8000-000000000010")
+	healthID2 := ids.IntegrationHealthObservationID("97100000-0000-4000-8000-000000000011")
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.integration_health_observations
+		(account_id,id,connection_id,connection_revision,credential_id,credential_generation,state,error_code,latency_milliseconds,checked_at)
+		VALUES ($1,$2,$4,2,$5,2,'healthy',NULL,8,$6),($1,$3,$4,2,$5,2,'degraded','provider_slow',240,$7)`,
+		accountID, healthID1, healthID2, connectionID, credentialID2, rotateAt.Add(time.Second), rotateAt.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := repository.GetConnectionDetail(ctx, accountID, connectionID)
+	if err != nil || detail.Connection.ID != connectionID || detail.Revision.ID != revisionID2 || detail.LatestHealth == nil || detail.LatestHealth.ID != healthID2 {
+		t.Fatalf("connection detail=%+v err=%v", detail, err)
+	}
+	healthPage, err := repository.ListHealth(ctx, accountID, integrationsapp.HealthListQuery{ConnectionID: connectionID, Limit: 1})
+	if err != nil || len(healthPage.Items) != 1 || healthPage.Items[0].ID != healthID2 || healthPage.NextCursor == nil {
+		t.Fatalf("health page=%+v err=%v", healthPage, err)
+	}
+	healthRemainder, err := repository.ListHealth(ctx, accountID, integrationsapp.HealthListQuery{ConnectionID: connectionID, After: healthPage.NextCursor, Limit: 1})
+	if err != nil || len(healthRemainder.Items) != 1 || healthRemainder.Items[0].ID != healthID1 || healthRemainder.NextCursor != nil {
+		t.Fatalf("health remainder=%+v err=%v", healthRemainder, err)
 	}
 
 	for _, transition := range []struct {

@@ -42,6 +42,23 @@ func NewHealthObservation(id ids.IntegrationHealthObservationID, connection Conn
 	} else if !validCodeValue(errorCode) {
 		return HealthObservation{}, ErrInvalid
 	}
-	return HealthObservation{ID: id, AccountID: connection.AccountID, ConnectionID: connection.ID, ConnectionRevisionID: connection.CurrentRevisionID,
-		CredentialID: connection.CredentialID, State: state, ErrorCode: errorCode, LatencyMilliseconds: latencyMilliseconds, CheckedAt: at.UTC()}, nil
+	return RestoreHealthObservation(HealthObservation{ID: id, AccountID: connection.AccountID, ConnectionID: connection.ID, ConnectionRevisionID: connection.CurrentRevisionID,
+		CredentialID: connection.CredentialID, State: state, ErrorCode: errorCode, LatencyMilliseconds: latencyMilliseconds, CheckedAt: at.UTC()})
+}
+
+func RestoreHealthObservation(value HealthObservation) (HealthObservation, error) {
+	if ids.Validate(string(value.ID)) != nil || ids.Validate(string(value.AccountID)) != nil || ids.Validate(string(value.ConnectionID)) != nil ||
+		ids.Validate(string(value.ConnectionRevisionID)) != nil || ids.Validate(string(value.CredentialID)) != nil || value.CheckedAt.IsZero() ||
+		value.LatencyMilliseconds > uint32((5*time.Minute)/time.Millisecond) {
+		return HealthObservation{}, ErrInvalid
+	}
+	if value.State == HealthHealthy {
+		if value.ErrorCode != "" {
+			return HealthObservation{}, ErrInvalid
+		}
+	} else if (value.State != HealthDegraded && value.State != HealthUnavailable) || !validCodeValue(value.ErrorCode) {
+		return HealthObservation{}, ErrInvalid
+	}
+	value.CheckedAt = value.CheckedAt.UTC()
+	return value, nil
 }

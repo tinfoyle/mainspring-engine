@@ -69,6 +69,16 @@ func (service *Service) GetConnection(ctx context.Context, actor access.Actor, a
 	return service.store.GetConnection(ctx, accountID, connectionID)
 }
 
+func (service *Service) GetConnectionDetail(ctx context.Context, actor access.Actor, accountID ids.AccountID, connectionID ids.IntegrationConnectionID) (ConnectionDetail, error) {
+	if _, err := service.authorize(ctx, actor, accountID, false); err != nil {
+		return ConnectionDetail{}, err
+	}
+	if ids.Validate(string(connectionID)) != nil {
+		return ConnectionDetail{}, ErrInvalid
+	}
+	return service.store.GetConnectionDetail(ctx, accountID, connectionID)
+}
+
 func (service *Service) ListConnections(ctx context.Context, actor access.Actor, accountID ids.AccountID, query ConnectionListQuery) (ConnectionPage, error) {
 	if _, err := service.authorize(ctx, actor, accountID, false); err != nil {
 		return ConnectionPage{}, err
@@ -78,6 +88,38 @@ func (service *Service) ListConnections(ctx context.Context, actor access.Actor,
 		return ConnectionPage{}, err
 	}
 	return service.store.ListConnections(ctx, accountID, query)
+}
+
+func (service *Service) ListHealth(ctx context.Context, actor access.Actor, accountID ids.AccountID, query HealthListQuery) (HealthPage, error) {
+	if _, err := service.authorize(ctx, actor, accountID, false); err != nil {
+		return HealthPage{}, err
+	}
+	query, err := query.normalized()
+	if err != nil {
+		return HealthPage{}, err
+	}
+	return service.store.ListHealth(ctx, accountID, query)
+}
+
+func (service *Service) GetExecution(ctx context.Context, actor access.Actor, accountID ids.AccountID, executionID ids.IntegrationExecutionID) (ExecutionDetail, error) {
+	if _, err := service.authorize(ctx, actor, accountID, false); err != nil {
+		return ExecutionDetail{}, err
+	}
+	if ids.Validate(string(executionID)) != nil {
+		return ExecutionDetail{}, ErrInvalid
+	}
+	return service.store.GetExecution(ctx, accountID, executionID)
+}
+
+func (service *Service) ListExecutions(ctx context.Context, actor access.Actor, accountID ids.AccountID, query ExecutionListQuery) (ExecutionPage, error) {
+	if _, err := service.authorize(ctx, actor, accountID, false); err != nil {
+		return ExecutionPage{}, err
+	}
+	query, err := query.normalized()
+	if err != nil {
+		return ExecutionPage{}, err
+	}
+	return service.store.ListExecutions(ctx, accountID, query)
 }
 
 type ReviseConnectionCommand struct {
