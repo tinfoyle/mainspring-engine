@@ -39,7 +39,7 @@ These are safety ceilings, not product promises. Pagination and multiple artifac
 - Export implementation is shared infrastructure, while each package owns its sanitized projections and exact stable keys.
 - Deterministic replay permits digest comparison and erasure evidence without placing customer identifiers in the final tombstone.
 - A consistent export is a coordinated bounded snapshot, not a claim of cross-database serializability. Version and placement fences detect invalid combinations.
-- The artifact builder, schema registry, durable request/expiry state, exact-version object publisher/deleter, private staging/pipeline kernel, two-database repeatable-read coordinator, global projections and nine certified cell cohorts are necessary but do not make `customer-export-api` executable. Remaining Agents/Knowledge and exact object projections, workload composition, download authorization/customer transport and applied environment certification remain separate gates.
+- The artifact builder, schema registry, durable request/expiry state, exact-version object publisher/deleter, private staging/pipeline kernel, two-database repeatable-read coordinator and every global/cell database projection are necessary but do not make `customer-export-api` executable. Exact Knowledge/Marketing object projections, workload composition, download authorization/customer transport and applied environment certification remain separate gates.
 
 ## Verification
 
