@@ -50,6 +50,12 @@ type MarketingCampaignID string
 type MarketingAssetID string
 type MarketingAssetRevisionID string
 type MarketingReleaseID string
+type IntegrationConnectionID string
+type IntegrationConnectionRevisionID string
+type IntegrationCredentialID string
+type IntegrationHealthObservationID string
+type IntegrationExecutionID string
+type IntegrationAttemptID string
 
 type Generator interface {
 	New() string

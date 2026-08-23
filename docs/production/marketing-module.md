@@ -1,6 +1,6 @@
 # Marketing module
 
-- Status: provider-neutral kernel, forced-RLS persistence, classified lifecycle, stable query pages and generated routed HTTP/MCP/private-browser surfaces constructed; Attention proposals and delivery remain closed
+- Status: governed kernel, persistence, routed HTTP/MCP/private-browser, Agent drafts and Attention activation constructed; Integrations delivery remains closed
 - Package boundary: Marketing
 - Decision: [ADR-0007](decisions/0007-marketing-governed-release.md)
 

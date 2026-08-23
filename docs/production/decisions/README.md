@@ -9,6 +9,9 @@ This directory records decisions that constrain the Infinite Ocean: Spyglass pro
 | [ADR-0003](0003-pooled-cell-runtime.md) | Shared workload-class deployments with account-isolated cells instead of per-customer containers | Accepted |
 | [ADR-0004](0004-knowledge-document-lifecycle.md) | Account-isolated document objects, immutable revisions, fail-closed processing, and environment storage mapping | Accepted |
 | [ADR-0005](0005-frozen-agent-run-plans.md) | Immutable Agent Run plans with bounded forward-only delegation and no model-driven expansion | Accepted |
+| [ADR-0006](0006-finance-operational-ledger.md) | Finance as an Account-owned operational ledger rather than billing or payment execution | Accepted |
+| [ADR-0007](0007-marketing-governed-release.md) | Marketing owns governed release snapshots while Integrations owns provider delivery | Accepted |
+| [ADR-0008](0008-integration-connector-execution.md) | Versioned connector scopes, external credential custody, and reconciliation-first delivery | Accepted |
 
 ## Record lifecycle
 
