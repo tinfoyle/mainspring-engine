@@ -100,6 +100,12 @@ After an approved release is active, a human Owner or Administrator can now sele
 
 The execution digest is computed from a canonical content-free manifest over the exact release/connector authority and sorted immutable asset digests. Exact retries replay; altered request reuse conflicts. This completes the governed preparation portion of construction step 6, but provider execution remains closed until the broker handoff and connector worker/adapters are constructed and certified.
 
+## Connector worker checkpoint
+
+A provider-neutral connector worker kernel now consumes the prepared execution through execute-only leased database functions. It separates execute from side-effect-free reconciliation, rejects `not_applied` from an execute adapter, treats malformed post-call results as unknown and keeps payload material only in connector-runtime memory. The deterministic local mock can certify success, definite failure, ambiguous acceptance and provider-confirmed absence without network I/O.
+
+Marketing remains non-executable because the concrete current-authority/health client, manifest payload source, one-operation secret broker, worker bootstrap and Docker wiring are still open. No generic app or Agent runner receives provider authority.
+
 ## Invariants
 
 - Every aggregate and revision is explicitly Account scoped.

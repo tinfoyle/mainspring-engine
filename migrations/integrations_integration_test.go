@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
 	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
@@ -79,12 +80,16 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 		t.Fatalf("queued=%d err=%v", queued, err)
 	}
 
-	first := claimIntegrationExecution(t, ctx, owner, fixture.attempt1, fixture.executionAt, fixture.executionAt.Add(time.Minute))
-	if first.mode != "execute" || first.executionID != fixture.executionID || first.credentialID != fixture.credentialID {
+	executionRepository, err := postgresadapter.NewIntegrationExecutionRepository(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, found, err := executionRepository.Claim(ctx, ids.IntegrationAttemptID(fixture.attempt1), fixture.executionAt, fixture.executionAt.Add(time.Minute))
+	if err != nil || !found || first.Mode != integrationsdomain.AttemptExecute || first.ExecutionID != ids.IntegrationExecutionID(fixture.executionID) || first.CredentialID != ids.IntegrationCredentialID(fixture.credentialID) {
 		t.Fatalf("first claim=%+v", first)
 	}
-	if _, err := owner.Exec(ctx, `SELECT public.spyglass_complete_integration_execution($1,$2,$3,'unknown','provider_timeout',NULL,$4)`,
-		fixture.accountID, fixture.executionID, fixture.attempt1, fixture.executionAt.Add(10*time.Second)); err != nil {
+	if err := executionRepository.Complete(ctx, integrationexecution.Completion{Claim: first, Outcome: integrationsdomain.AttemptUnknown,
+		ErrorCode: "provider_timeout", CompletedAt: fixture.executionAt.Add(10 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tryClaimIntegrationExecution(ctx, owner, fixture.attempt2, fixture.executionAt.Add(20*time.Second), fixture.executionAt.Add(80*time.Second)); !errors.Is(err, pgx.ErrNoRows) {

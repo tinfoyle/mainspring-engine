@@ -16,7 +16,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 2. Account-owned forced-RLS persistence, immutable revisions/attempts/events, claim leasing, movement fencing and exact erasure/restore participation. **Constructed.**
 3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
-5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling.
+5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel and local mock constructed; authority, payload, broker and bootstrap adapters remain.**
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution.
 7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
 
@@ -56,7 +56,15 @@ An Owner or Administrator may now prepare one delivery per active approved Marke
 
 Preparation freezes those authorities into one immutable execution and computes its SHA-256 idempotency digest from a canonical content-free manifest: release/version, delivery capability, connector revision, credential generation and the sorted immutable asset revision digests. The manifest itself is not stored in operational rows, and no creative body, audience value, broker reference or provider credential enters the execution or event. Exact retries return the original execution even after later connector changes; altered request reuse conflicts.
 
-Fresh PostgreSQL 17 coverage now prepares the execution through the repository rather than seeding it directly, proves queue insertion, exact replay, altered-replay rejection and the full execute/reconcile/manual-resolution sequence. Construction step 4 is complete. Broker handoff and the dedicated connector worker/mock adapters remain next; no provider effect is executable yet.
+Fresh PostgreSQL 17 coverage now prepares the execution through the repository rather than seeding it directly, proves queue insertion, exact replay, altered-replay rejection and the full execute/reconcile/manual-resolution sequence. Construction step 4 is complete. The worker authority, payload, broker and bootstrap boundaries remain; no provider effect is executable yet.
+
+## Connector worker kernel checkpoint
+
+The dedicated connector-execution application now claims one leased immutable execution through the execute-only PostgreSQL functions, validates every frozen identity/version/digest and requires a current-authority check before loading any customer payload. A payload source must reproduce the exact canonical manifest digest and supplies provider material only in connector-runtime memory. Capability definitions are closed to email send and web publish with bounded timeouts; the generic app and Agent runners are not dependencies.
+
+Execute and reconcile are separate connector methods. An execute adapter cannot report `not_applied`; only reconciliation may do so, with a bounded future retry instant. Invalid adapter output after a possible provider call is settled as unknown. Authority, manifest or adapter absence before any provider call is settled as a definite no-effect failure. Completion uses a context independent from the connector call so cancellation still attempts to record the outcome; failure to settle leaves the lease to expire into the existing unknown/reconcile path.
+
+The local mock connector is deterministic, thread-safe and performs no network I/O. Per-execution scripts inject success, definite failure, ambiguous outcome and reconciliation absence while recording only execution/attempt identities and mode. Tests prove execute success, reconciliation-only retry, authority/manifest fail-closed behavior and malformed post-call uncertainty. The PostgreSQL repository mapping is exercised by the applied execution test. Step 5 remains open for the concrete dual-package/placement/health authority client, manifest/payload reconstruction, one-operation secret-broker adapter, worker bootstrap and local Docker wiring.
 
 ## Invariants
 
