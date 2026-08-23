@@ -76,3 +76,51 @@ func (service *DocumentAdmissionService) Upload(ctx context.Context, command Upl
 	}
 	return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, err
 }
+
+type UploadDocumentRevisionCommand struct {
+	Actor         access.Actor
+	AccountID     ids.AccountID
+	DocumentID    ids.KnowledgeDocumentID
+	RevisionID    ids.KnowledgeDocumentRevisionID
+	Filename      string
+	DeclaredType  string
+	Body          DocumentSource
+	ChangeSummary string
+	CorrelationID string
+}
+
+func (service *DocumentAdmissionService) UploadRevision(ctx context.Context, command UploadDocumentRevisionCommand) (knowledgedomain.DocumentRevision, error) {
+	verified, err := VerifyDocumentSource(command.Filename, command.DeclaredType, command.Body)
+	if err != nil {
+		return knowledgedomain.DocumentRevision{}, err
+	}
+	key, keyErr := knowledgedomain.SourceObjectKey(command.AccountID, command.DocumentID, command.RevisionID)
+	if keyErr != nil {
+		return knowledgedomain.DocumentRevision{}, ErrInvalid
+	}
+	preflight := AdmitDocumentRevisionCommand{Actor: command.Actor, AccountID: command.AccountID, DocumentID: command.DocumentID,
+		RevisionID: command.RevisionID, Filename: command.Filename, DeclaredType: command.DeclaredType, VerifiedType: verified.MediaType,
+		ByteSize: verified.Size, ContentSHA256: verified.ContentSHA256, ObjectKey: key, ObjectVersion: "preflight",
+		ChangeSummary: command.ChangeSummary, CorrelationID: command.CorrelationID}
+	if _, _, _, err := service.documents.buildRevisionAdmission(ctx, preflight); err != nil {
+		return knowledgedomain.DocumentRevision{}, err
+	}
+	if _, err := command.Body.Seek(0, io.SeekStart); err != nil {
+		return knowledgedomain.DocumentRevision{}, ErrInvalid
+	}
+	write, err := service.objects.PutImmutable(ctx, SourceObjectWrite{AccountID: command.AccountID, DocumentID: command.DocumentID,
+		RevisionID: command.RevisionID, MediaType: verified.MediaType, Size: verified.Size, ContentSHA256: verified.ContentSHA256, Body: command.Body})
+	if err != nil {
+		return knowledgedomain.DocumentRevision{}, err
+	}
+	preflight.ByteSize, preflight.ContentSHA256, preflight.ObjectKey, preflight.ObjectVersion = write.Identity.Size,
+		write.Identity.ContentSHA256, write.Identity.Key, write.Identity.Version
+	revision, err := service.documents.AdmitRevision(ctx, preflight)
+	if err == nil || !write.Created {
+		return revision, err
+	}
+	if cleanupErr := service.objects.Delete(ctx, write.Identity); cleanupErr != nil {
+		return knowledgedomain.DocumentRevision{}, fmt.Errorf("%w: source-object cleanup failed: %v", err, cleanupErr)
+	}
+	return knowledgedomain.DocumentRevision{}, err
+}

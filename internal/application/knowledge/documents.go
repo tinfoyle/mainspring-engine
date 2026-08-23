@@ -17,6 +17,7 @@ import (
 
 type DocumentRepository interface {
 	AdmitDocument(context.Context, knowledgedomain.Document, knowledgedomain.DocumentRevision, Mutation) (knowledgedomain.Document, knowledgedomain.DocumentRevision, error)
+	AdmitDocumentRevision(context.Context, knowledgedomain.Document, knowledgedomain.DocumentRevision, Mutation) (knowledgedomain.DocumentRevision, error)
 	GetDocument(context.Context, ids.AccountID, ids.KnowledgeDocumentID) (knowledgedomain.Document, error)
 	GetLatestDocumentRevision(context.Context, ids.AccountID, ids.KnowledgeDocumentID) (knowledgedomain.DocumentRevision, error)
 	GetDocumentRevision(context.Context, ids.AccountID, ids.KnowledgeDocumentRevisionID) (knowledgedomain.DocumentRevision, error)
@@ -108,6 +109,74 @@ func (s *DocumentService) Admit(ctx context.Context, command AdmitDocumentComman
 		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, err
 	}
 	return s.repository.AdmitDocument(ctx, document, revision, Mutation{Actor: actor, CorrelationID: command.CorrelationID, ReasonCode: "document_admitted", At: document.CreatedAt})
+}
+
+type AdmitDocumentRevisionCommand struct {
+	Actor         access.Actor
+	AccountID     ids.AccountID
+	DocumentID    ids.KnowledgeDocumentID
+	RevisionID    ids.KnowledgeDocumentRevisionID
+	Filename      string
+	DeclaredType  string
+	VerifiedType  string
+	ByteSize      int64
+	ContentSHA256 [sha256.Size]byte
+	ObjectKey     string
+	ObjectVersion string
+	ChangeSummary string
+	CorrelationID string
+}
+
+func (s *DocumentService) AdmitRevision(ctx context.Context, command AdmitDocumentRevisionCommand) (knowledgedomain.DocumentRevision, error) {
+	document, revision, actor, err := s.buildRevisionAdmission(ctx, command)
+	if err != nil {
+		return knowledgedomain.DocumentRevision{}, err
+	}
+	return s.repository.AdmitDocumentRevision(ctx, document, revision, Mutation{Actor: actor, CorrelationID: command.CorrelationID,
+		ReasonCode: "document_revision_admitted", At: revision.CreatedAt})
+}
+
+func (s *DocumentService) buildRevisionAdmission(ctx context.Context, command AdmitDocumentRevisionCommand) (knowledgedomain.Document, knowledgedomain.DocumentRevision, knowledgedomain.Actor, error) {
+	actor, accountContext, err := s.authorizeMutation(ctx, command.Actor, command.AccountID, command.CorrelationID)
+	if err != nil {
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, err
+	}
+	if ids.Validate(string(command.DocumentID)) != nil || ids.Validate(string(command.RevisionID)) != nil {
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, ErrInvalid
+	}
+	if actor.Kind == knowledgedomain.ActorUser && !canContribute(accountContext.Role) {
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, &access.DeniedError{Code: access.DenialRole, Package: catalog.PackageKnowledge}
+	}
+	document, err := s.repository.GetDocument(ctx, command.AccountID, command.DocumentID)
+	if err != nil {
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, err
+	}
+	number := uint64(0)
+	existing, existingErr := s.repository.GetDocumentRevision(ctx, command.AccountID, command.RevisionID)
+	if existingErr == nil {
+		number = existing.Number
+	} else if !errors.Is(existingErr, ErrNotFound) {
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, existingErr
+	} else {
+		latest, latestErr := s.repository.GetLatestDocumentRevision(ctx, command.AccountID, command.DocumentID)
+		if latestErr != nil || latest.Number != document.CurrentRevision || document.State != knowledgedomain.DocumentReady {
+			if latestErr != nil {
+				return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, latestErr
+			}
+			return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, ErrConstraint
+		}
+		number = latest.Number + 1
+	}
+	now := s.clock.Now().UTC()
+	revision, err := knowledgedomain.NewDocumentRevision(knowledgedomain.DocumentRevisionDraft{ID: command.RevisionID,
+		DocumentID: command.DocumentID, AccountID: command.AccountID, Number: number, Filename: command.Filename,
+		DeclaredType: command.DeclaredType, VerifiedType: command.VerifiedType, ByteSize: command.ByteSize,
+		ContentSHA256: command.ContentSHA256, ObjectKey: command.ObjectKey, ObjectVersion: command.ObjectVersion,
+		ChangeSummary: command.ChangeSummary, CreatedBy: actor}, now)
+	if err != nil {
+		return knowledgedomain.Document{}, knowledgedomain.DocumentRevision{}, knowledgedomain.Actor{}, ErrInvalid
+	}
+	return document, revision, actor, nil
 }
 
 func (s *DocumentService) buildAdmission(ctx context.Context, command AdmitDocumentCommand) (knowledgedomain.Document, knowledgedomain.DocumentRevision, knowledgedomain.Actor, error) {

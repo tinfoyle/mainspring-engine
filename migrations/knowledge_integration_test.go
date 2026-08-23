@@ -349,6 +349,78 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if results, err := repository.RetrieveDocumentChunks(ctx, otherAccountID, knowledgeapp.DocumentRetrievalQuery{Text: "operating plan", Limit: 10, IncludeRestricted: true}); err != nil || len(results) != 0 {
 		t.Fatalf("cross-Account document retrieval=%+v err=%v", results, err)
 	}
+	revision2ID := ids.KnowledgeDocumentRevisionID("e1000000-0000-4000-8000-000000000001")
+	revision2, err := knowledgedomain.NewDocumentRevision(knowledgedomain.DocumentRevisionDraft{
+		ID: revision2ID, DocumentID: documentID, AccountID: accountID, Number: 2, Filename: "operating-plan-v2.md", DeclaredType: "text/markdown", VerifiedType: "text/markdown",
+		ByteSize: 136, ContentSHA256: sha256.Sum256([]byte("updated source bytes")), ObjectKey: "accounts/" + string(accountID) + "/documents/" + string(documentID) + "/revisions/" + string(revision2ID) + "/source", ObjectVersion: "version-2", ChangeSummary: "Drive source changed", CreatedBy: worker,
+	}, now.Add(5*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision2Mutation := knowledgeapp.Mutation{Actor: worker, CorrelationID: "e2000000-0000-4000-8000-000000000002", ReasonCode: "document_revision_admitted", At: revision2.CreatedAt}
+	admittedRevision2, err := repository.AdmitDocumentRevision(ctx, published, revision2, revision2Mutation)
+	if err != nil || admittedRevision2.ID != revision2ID || admittedRevision2.Number != 2 {
+		t.Fatalf("admit second revision=%+v err=%v", admittedRevision2, err)
+	}
+	if replayed, err := repository.AdmitDocumentRevision(ctx, published, revision2, revision2Mutation); err != nil || replayed.ID != revision2ID {
+		t.Fatalf("replay second revision=%+v err=%v", replayed, err)
+	}
+	conflictingRevision2 := revision2
+	conflictingRevision2.ObjectVersion = "different-version"
+	if _, err := repository.AdmitDocumentRevision(ctx, published, conflictingRevision2, revision2Mutation); !errors.Is(err, knowledgeapp.ErrConflict) {
+		t.Fatalf("conflicting second revision replay err=%v", err)
+	}
+	revision3, err := knowledgedomain.NewDocumentRevision(knowledgedomain.DocumentRevisionDraft{
+		ID: "e3000000-0000-4000-8000-000000000003", DocumentID: documentID, AccountID: accountID, Number: 3, Filename: "operating-plan-v3.md", DeclaredType: "text/markdown", VerifiedType: "text/markdown",
+		ByteSize: 144, ContentSHA256: sha256.Sum256([]byte("another source version")), ObjectKey: "accounts/" + string(accountID) + "/documents/" + string(documentID) + "/revisions/e3000000-0000-4000-8000-000000000003/source", ObjectVersion: "version-3", ChangeSummary: "Another Drive source change", CreatedBy: worker,
+	}, now.Add(5*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.AdmitDocumentRevision(ctx, published, revision3, knowledgeapp.Mutation{Actor: worker, CorrelationID: "e4000000-0000-4000-8000-000000000004", ReasonCode: "document_revision_admitted", At: revision3.CreatedAt}); !errors.Is(err, knowledgeapp.ErrConstraint) {
+		t.Fatalf("second pending revision err=%v", err)
+	}
+	revision2Claim, found, err := queue.Claim(ctx, "e5000000-0000-4000-8000-000000000005", now.Add(5*time.Second), 10*time.Minute)
+	if err != nil || !found || revision2Claim.RevisionID != revision2ID {
+		t.Fatalf("second revision processing claim=%+v found=%v err=%v", revision2Claim, found, err)
+	}
+	revision2, err = revision2.RecordScan(knowledgedomain.ScanClean, "clamav/1.4.3", "daily.cvd:27810", now.Add(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision2, err = repository.SaveDocumentRevision(ctx, revision2, admittedRevision2.UpdatedAt, "scan_completed", knowledgeapp.Mutation{Actor: worker, CorrelationID: "e6000000-0000-4000-8000-000000000006", ReasonCode: "scan_completed", At: revision2.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision2Text := "Updated extracted operating plan"
+	revision2, err = revision2.RecordExtraction(sha256.Sum256([]byte(revision2Text)), int64(len(revision2Text)), "spyglass/text-v1", "accounts/"+string(accountID)+"/documents/"+string(documentID)+"/revisions/"+string(revision2ID)+"/extracted/text", "extracted-version-2", now.Add(7*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision2, err = repository.SaveDocumentRevision(ctx, revision2, revision2.ScannedAt.UTC(), "extraction_completed", knowledgeapp.Mutation{Actor: worker, CorrelationID: "e7000000-0000-4000-8000-000000000007", ReasonCode: "extraction_completed", At: revision2.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision2BeforeIndex := revision2
+	revision2, err = revision2.RecordIndex("knowledge-v1", 1, now.Add(8*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk2, err := knowledgedomain.NewDocumentChunk(knowledgedomain.DocumentChunk{ID: "e8000000-0000-4000-8000-000000000008", AccountID: accountID, RevisionID: revision2ID, Index: 0, StartByte: 0, EndByte: int64(len(revision2Text)), Content: revision2Text, ContentSHA256: sha256.Sum256([]byte(revision2Text)), TokenCount: 4, IndexGeneration: "knowledge-v1", CreatedAt: revision2.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision2, err = repository.IndexDocumentRevision(ctx, revision2, revision2BeforeIndex.UpdatedAt, []knowledgedomain.DocumentChunk{chunk2}, knowledgeapp.Mutation{Actor: worker, CorrelationID: "e9000000-0000-4000-8000-000000000009", ReasonCode: "index_completed", At: revision2.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Complete(ctx, revision2Claim, now.Add(9*time.Second)); err != nil {
+		t.Fatalf("complete second revision processing queue: %v", err)
+	}
+	published, err = repository.PublishDocumentRevision(ctx, accountID, documentID, revision2ID, published.Version, knowledgeapp.Mutation{Actor: worker, CorrelationID: "ea000000-0000-4000-8000-00000000000a", ReasonCode: "revision_published", At: now.Add(9 * time.Second)})
+	if err != nil || published.CurrentRevisionID != revision2ID || published.CurrentRevision != 2 || published.Version != 3 {
+		t.Fatalf("publish second revision=%+v err=%v", published, err)
+	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.knowledge_document_revisions SET object_key='changed' WHERE account_id=$1 AND id=$2`, accountID, revisionID); err == nil || !strings.Contains(err.Error(), "revision identity is immutable") {
 		t.Fatalf("revision identity update=%v", err)
 	}
@@ -359,7 +431,7 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.knowledge_document_events WHERE account_id=$1 AND redacted_payload::text LIKE '%Operating plan%'`, accountID).Scan(&unsafeEvents); err != nil || unsafeEvents != 0 {
 		t.Fatalf("unsafe document events=%d err=%v", unsafeEvents, err)
 	}
-	deleting, err := repository.RequestDocumentDeletion(ctx, accountID, documentID, 2, knowledgeapp.Mutation{Actor: actor, CorrelationID: "da000000-0000-4000-8000-00000000000a", ReasonCode: "deletion_requested", At: now.Add(5 * time.Second)})
+	deleting, err := repository.RequestDocumentDeletion(ctx, accountID, documentID, 3, knowledgeapp.Mutation{Actor: actor, CorrelationID: "da000000-0000-4000-8000-00000000000a", ReasonCode: "deletion_requested", At: now.Add(10 * time.Second)})
 	if err != nil || deleting.State != knowledgedomain.DocumentDeletionPending {
 		t.Fatalf("request document deletion=%+v err=%v", deleting, err)
 	}
@@ -367,22 +439,22 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if err != nil {
 		t.Fatal(err)
 	}
-	deletionClaim, found, err := deletionQueue.Claim(ctx, "df000000-0000-4000-8000-00000000000f", now.Add(5*time.Second), 10*time.Minute)
+	deletionClaim, found, err := deletionQueue.Claim(ctx, "df000000-0000-4000-8000-00000000000f", now.Add(10*time.Second), 10*time.Minute)
 	if err != nil || !found || deletionClaim.AccountID != accountID || deletionClaim.DocumentID != documentID || deletionClaim.Attempt != 1 {
 		t.Fatalf("deletion claim=%+v found=%v err=%v", deletionClaim, found, err)
 	}
 	manifest, err := repository.LoadDeletionManifest(ctx, accountID, documentID)
-	if err != nil || len(manifest.Objects) != 2 || manifest.Objects[0].Kind != "source" || manifest.Objects[1].Kind != "extracted" {
+	if err != nil || len(manifest.Objects) != 4 || manifest.Objects[0].Kind != "source" || manifest.Objects[1].Kind != "extracted" || manifest.Objects[2].RevisionID != revision2ID || manifest.Objects[3].RevisionID != revision2ID {
 		t.Fatalf("deletion manifest=%+v err=%v", manifest, err)
 	}
 	if _, err := repository.LoadDeletionManifest(ctx, otherAccountID, documentID); !errors.Is(err, knowledgeapp.ErrNotFound) {
 		t.Fatalf("cross-Account deletion manifest err=%v", err)
 	}
-	if err := deletionQueue.Complete(ctx, deletionClaim, now.Add(6*time.Second)); !errors.Is(err, knowledgeapp.ErrDocumentDeletionClaim) {
+	if err := deletionQueue.Complete(ctx, deletionClaim, now.Add(11*time.Second)); !errors.Is(err, knowledgeapp.ErrDocumentDeletionClaim) {
 		t.Fatalf("deletion without receipts err=%v", err)
 	}
 	for _, object := range manifest.Objects {
-		receipt := knowledgeapp.DocumentDeletionReceipt{AccountID: accountID, DocumentID: documentID, Object: object, DeletedAt: now.Add(6 * time.Second)}
+		receipt := knowledgeapp.DocumentDeletionReceipt{AccountID: accountID, DocumentID: documentID, Object: object, DeletedAt: now.Add(11 * time.Second)}
 		if err := repository.RecordDeletionReceipt(ctx, receipt); err != nil {
 			t.Fatalf("record deletion receipt kind=%s: %v", object.Kind, err)
 		}
@@ -390,11 +462,11 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 			t.Fatalf("replay deletion receipt kind=%s: %v", object.Kind, err)
 		}
 	}
-	if err := deletionQueue.Complete(ctx, deletionClaim, now.Add(6*time.Second)); err != nil {
+	if err := deletionQueue.Complete(ctx, deletionClaim, now.Add(11*time.Second)); err != nil {
 		t.Fatalf("complete document deletion: %v", err)
 	}
 	deletedDocument, err := repository.GetDocument(ctx, accountID, documentID)
-	if err != nil || deletedDocument.State != knowledgedomain.DocumentDeleted || deletedDocument.Version != 4 || deletedDocument.DeletedAt == nil {
+	if err != nil || deletedDocument.State != knowledgedomain.DocumentDeleted || deletedDocument.Version != 5 || deletedDocument.DeletedAt == nil {
 		t.Fatalf("deleted document=%+v err=%v", deletedDocument, err)
 	}
 	deletedRevision, err := repository.GetDocumentRevision(ctx, accountID, revisionID)
@@ -411,7 +483,7 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.knowledge_document_events WHERE account_id=$1 AND document_id=$2 AND event_type='deletion_completed'`, accountID, documentID).Scan(&deletionEvents); err != nil || deletionEvents != 1 {
 		t.Fatalf("document deletion events=%d err=%v", deletionEvents, err)
 	}
-	deletionStats, err := deletionQueue.Stats(ctx, now.Add(6*time.Second))
+	deletionStats, err := deletionQueue.Stats(ctx, now.Add(11*time.Second))
 	if err != nil || deletionStats.Completed != 1 || deletionStats.Ready != 0 || deletionStats.DeadLetter != 0 {
 		t.Fatalf("deletion stats=%+v err=%v", deletionStats, err)
 	}
@@ -420,21 +492,21 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	}
 	failedDocumentID := ids.KnowledgeDocumentID("db000000-0000-4000-8000-00000000000b")
 	failedRevisionID := ids.KnowledgeDocumentRevisionID("dc000000-0000-4000-8000-00000000000c")
-	failedDocument, err := knowledgedomain.NewDocument(failedDocumentID, accountID, "Rejected source", knowledgedomain.SensitivityInternal, nil, actor, now.Add(6*time.Second))
+	failedDocument, err := knowledgedomain.NewDocument(failedDocumentID, accountID, "Rejected source", knowledgedomain.SensitivityInternal, nil, actor, now.Add(12*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	failedRevision, err := knowledgedomain.NewDocumentRevision(knowledgedomain.DocumentRevisionDraft{
 		ID: failedRevisionID, DocumentID: failedDocumentID, AccountID: accountID, Number: 1, Filename: "rejected.txt", DeclaredType: "text/plain", VerifiedType: "text/plain",
 		ByteSize: 5, ContentSHA256: sha256.Sum256([]byte("eicar")), ObjectKey: "accounts/" + string(accountID) + "/documents/" + string(failedDocumentID) + "/revisions/" + string(failedRevisionID) + "/source", ObjectVersion: "version-failed", ChangeSummary: "Rejected upload", CreatedBy: actor,
-	}, now.Add(6*time.Second))
+	}, now.Add(12*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := repository.AdmitDocument(ctx, failedDocument, failedRevision, knowledgeapp.Mutation{Actor: actor, CorrelationID: "dd000000-0000-4000-8000-00000000000d", ReasonCode: "document_admitted", At: failedDocument.CreatedAt}); err != nil {
 		t.Fatal(err)
 	}
-	failedRevision, err = failedRevision.RecordScan(knowledgedomain.ScanInfected, "ClamAV 1.4.6", "Eicar-Signature", now.Add(7*time.Second))
+	failedRevision, err = failedRevision.RecordScan(knowledgedomain.ScanInfected, "ClamAV 1.4.6", "Eicar-Signature", now.Add(13*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}

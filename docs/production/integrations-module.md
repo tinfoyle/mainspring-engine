@@ -138,6 +138,12 @@ The provider-neutral source-sync service now consumes the execute-only persisten
 
 The AES-256-GCM cursor codec loads one exact 32-byte, owner-only, non-symlink cell key and binds every ciphertext to the Account and source grant as associated data. It verifies the retained plaintext SHA-256 after open, rejects cross-grant replay/tamper and never accepts an empty next cursor. The mounted credential broker now leases `google_drive.read` material only for the `sync` purpose; it remains impossible to use a Drive refresh credential through the email/web execute path. Pure tests cover successful capture-before-advance, provider scope drift, buffer wiping, entitlement/placement drift, cursor tamper/cross-grant replay and credential-purpose separation. This service is not composed into the connector process yet: the reviewed Google OAuth/API adapter and the replay-safe Knowledge revision/deletion sink must exist first.
 
+## Knowledge revision-admission checkpoint
+
+Knowledge now accepts a deterministic immutable revision identity for an existing ready document through the same authorization, media verification, Account-derived quarantine object key and orphan-cleanup boundary used by initial upload. Exact admission replay returns the existing revision, while a changed replay conflicts. Application preflight and a serializable PostgreSQL transaction both permit only the next revision after the current published revision, so concurrent or paginated provider capture cannot create two pending versions of one document. The new revision enters the ordinary quarantined scan, extraction, indexing and explicit publication lifecycle; no provider content bypasses Knowledge processing or enters retrieval directly.
+
+Pure tests cover replay, a second-pending-revision refusal and immutable-object cleanup after a lost admission race. Fresh Docker-backed PostgreSQL certification exercises a second revision through admission, processing, publication and exact-version deletion, and the full local test/race/migration gate passes. This closes the missing Knowledge write primitive, not the Drive sink: deterministic provider-to-document identity mapping, provider deletion behavior, Google OAuth/API access, automatic publication policy, health and Stage fixtures remain before the sync worker can be composed.
+
 ## Invariants
 
 - Provider credentials never enter Marketing, Agent, browser, MCP output, events, logs or telemetry.

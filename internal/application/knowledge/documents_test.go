@@ -44,6 +44,10 @@ func (repository *documentRepository) AdmitDocument(_ context.Context, document 
 	repository.document, repository.revision, repository.mutation = document, revision, mutation
 	return document, revision, repository.admitErr
 }
+func (repository *documentRepository) AdmitDocumentRevision(_ context.Context, _ knowledgedomain.Document, revision knowledgedomain.DocumentRevision, mutation Mutation) (knowledgedomain.DocumentRevision, error) {
+	repository.revision, repository.mutation = revision, mutation
+	return revision, repository.admitErr
+}
 
 type sourceObjectStore struct {
 	puts    int
@@ -76,7 +80,10 @@ func (repository *documentRepository) GetDocument(context.Context, ids.AccountID
 func (repository *documentRepository) GetLatestDocumentRevision(context.Context, ids.AccountID, ids.KnowledgeDocumentID) (knowledgedomain.DocumentRevision, error) {
 	return repository.revision, nil
 }
-func (repository *documentRepository) GetDocumentRevision(context.Context, ids.AccountID, ids.KnowledgeDocumentRevisionID) (knowledgedomain.DocumentRevision, error) {
+func (repository *documentRepository) GetDocumentRevision(_ context.Context, _ ids.AccountID, revisionID ids.KnowledgeDocumentRevisionID) (knowledgedomain.DocumentRevision, error) {
+	if repository.revision.ID != revisionID {
+		return knowledgedomain.DocumentRevision{}, ErrNotFound
+	}
 	return repository.revision, nil
 }
 func (repository *documentRepository) ListDocuments(context.Context, ids.AccountID, DocumentListQuery) (DocumentPage, error) {
@@ -131,6 +138,35 @@ func admitDocumentFixture(t *testing.T, service *DocumentService) (knowledgedoma
 		t.Fatal(err)
 	}
 	return value, revision
+}
+
+func readyDocumentFixture(t *testing.T, service *DocumentService, repository *documentRepository, clock *knowledgeClock) (knowledgedomain.Document, knowledgedomain.DocumentRevision) {
+	t.Helper()
+	document, revision := admitDocumentFixture(t, service)
+	clock.now = clock.now.Add(time.Second)
+	revision, err := revision.RecordScan(knowledgedomain.ScanClean, "clamav/1.4.3", "daily.cvd", clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.now = clock.now.Add(time.Second)
+	revision, err = revision.RecordExtraction(sha256.Sum256([]byte("source")), 6, "spyglass/text-v1",
+		"accounts/"+string(appKnowledgeAccount)+"/documents/"+string(appKnowledgeDocument)+"/revisions/"+string(appKnowledgeRevision)+"/extracted/text",
+		"extracted-version-1", clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.now = clock.now.Add(time.Second)
+	revision, err = revision.RecordIndex("knowledge-v1", 1, clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock.now = clock.now.Add(time.Second)
+	document, err = document.Publish(revision, document.Version, clock.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.document, repository.revision = document, revision
+	return document, revision
 }
 
 func TestDocumentAdmissionBindsAccountObjectIdentityAndPackageMutation(t *testing.T) {
@@ -235,6 +271,50 @@ func TestUploadAuthorizesBeforeObjectWriteAndCleansNewOrphan(t *testing.T) {
 	command.Body = bytes.NewReader(body)
 	if _, _, err := service.Upload(context.Background(), command); !errors.Is(err, ErrConflict) || objects.deleted == nil || objects.deleted.Version != "object-version-1" {
 		t.Fatalf("orphan cleanup=%+v err=%v", objects.deleted, err)
+	}
+}
+
+func TestRevisionAdmissionIsReplaySafeAndAllowsOnlyOnePendingRevision(t *testing.T) {
+	service, _, repository, clock := documentServiceFixture(t)
+	_, _ = readyDocumentFixture(t, service, repository, clock)
+	command := AdmitDocumentRevisionCommand{
+		Actor: access.Actor{WorkloadID: "integration-source-sync"}, AccountID: appKnowledgeAccount, DocumentID: appKnowledgeDocument,
+		RevisionID: "94000000-0000-4000-8000-000000000009", Filename: "plan.txt", DeclaredType: "text/plain", VerifiedType: "text/plain",
+		ByteSize: 7, ContentSHA256: sha256.Sum256([]byte("updated")),
+		ObjectKey:     "accounts/" + string(appKnowledgeAccount) + "/documents/" + string(appKnowledgeDocument) + "/revisions/94000000-0000-4000-8000-000000000009/source",
+		ObjectVersion: "version-2", ChangeSummary: "Drive source changed", CorrelationID: "95000000-0000-4000-8000-000000000009",
+	}
+	revision, err := service.AdmitRevision(context.Background(), command)
+	if err != nil || revision.Number != 2 || revision.State != knowledgedomain.RevisionQuarantined || repository.mutation.ReasonCode != "document_revision_admitted" {
+		t.Fatalf("revision=%+v mutation=%+v err=%v", revision, repository.mutation, err)
+	}
+	replayed, err := service.AdmitRevision(context.Background(), command)
+	if err != nil || replayed.ID != revision.ID || replayed.Number != revision.Number {
+		t.Fatalf("replayed revision=%+v err=%v", replayed, err)
+	}
+	command.RevisionID = "96000000-0000-4000-8000-000000000009"
+	command.ObjectKey = "accounts/" + string(appKnowledgeAccount) + "/documents/" + string(appKnowledgeDocument) + "/revisions/96000000-0000-4000-8000-000000000009/source"
+	if _, err := service.AdmitRevision(context.Background(), command); !errors.Is(err, ErrConstraint) {
+		t.Fatalf("second pending revision err=%v", err)
+	}
+}
+
+func TestUploadRevisionCleansNewObjectWhenAdmissionLosesRace(t *testing.T) {
+	documents, _, repository, clock := documentServiceFixture(t)
+	_, _ = readyDocumentFixture(t, documents, repository, clock)
+	objects := &sourceObjectStore{created: true}
+	service, err := NewDocumentAdmissionService(documents, objects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.admitErr = ErrConflict
+	command := UploadDocumentRevisionCommand{
+		Actor: access.Actor{WorkloadID: "integration-source-sync"}, AccountID: appKnowledgeAccount, DocumentID: appKnowledgeDocument,
+		RevisionID: "97000000-0000-4000-8000-000000000009", Filename: "plan.txt", DeclaredType: "text/plain",
+		Body: bytes.NewReader([]byte("updated")), ChangeSummary: "Drive source changed", CorrelationID: "98000000-0000-4000-8000-000000000009",
+	}
+	if _, err := service.UploadRevision(context.Background(), command); !errors.Is(err, ErrConflict) || objects.puts != 1 || objects.deleted == nil || objects.deleted.Version != "object-version-1" {
+		t.Fatalf("puts=%d orphan cleanup=%+v err=%v", objects.puts, objects.deleted, err)
 	}
 }
 

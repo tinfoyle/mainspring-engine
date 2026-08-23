@@ -52,6 +52,46 @@ func (r *KnowledgeRepository) AdmitDocument(ctx context.Context, document knowle
 	return admittedDocument, admittedRevision, classifyKnowledge(err)
 }
 
+func (r *KnowledgeRepository) AdmitDocumentRevision(ctx context.Context, document knowledgedomain.Document, revision knowledgedomain.DocumentRevision, mutation knowledgeapp.Mutation) (knowledgedomain.DocumentRevision, error) {
+	var admitted knowledgedomain.DocumentRevision
+	err := r.cell.WithAccountTx(ctx, document.AccountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		current, err := getKnowledgeDocument(ctx, tx, document.AccountID, document.ID, true)
+		if err != nil {
+			return err
+		}
+		existing, existingErr := getKnowledgeDocumentRevision(ctx, tx, document.AccountID, revision.ID, false)
+		if existingErr == nil {
+			if current.ID != document.ID || !sameRevisionAdmission(existing, revision) {
+				return knowledgeapp.ErrConflict
+			}
+			admitted = existing
+			return nil
+		}
+		if !errors.Is(existingErr, knowledgeapp.ErrNotFound) {
+			return existingErr
+		}
+		var latest uint64
+		if err := tx.QueryRow(ctx, `SELECT max(revision) FROM spyglass.knowledge_document_revisions WHERE account_id=$1 AND document_id=$2`,
+			document.AccountID, document.ID).Scan(&latest); err != nil {
+			return err
+		}
+		if current.State != knowledgedomain.DocumentReady || current.CurrentRevision != latest || revision.Number != latest+1 ||
+			revision.DocumentID != current.ID || revision.AccountID != current.AccountID {
+			return knowledgeapp.ErrConstraint
+		}
+		if err := insertKnowledgeDocumentRevision(ctx, tx, revision); err != nil {
+			return err
+		}
+		if err := insertKnowledgeDocumentEvent(ctx, tx, document.AccountID, document.ID, revision.ID, "revision_admitted", 0, 0,
+			mutation, map[string]any{"revision": revision.Number, "byte_size": revision.ByteSize, "verified_media_type": revision.VerifiedType}); err != nil {
+			return err
+		}
+		admitted = revision
+		return nil
+	})
+	return admitted, classifyKnowledge(err)
+}
+
 func (r *KnowledgeRepository) GetDocument(ctx context.Context, accountID ids.AccountID, documentID ids.KnowledgeDocumentID) (knowledgedomain.Document, error) {
 	var result knowledgedomain.Document
 	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
