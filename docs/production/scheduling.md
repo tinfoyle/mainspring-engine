@@ -27,7 +27,7 @@ The first execution template creates a new dated Agent Conversation/Run through 
 3. A workload-authorized occurrence command that reuses Agents admission and StartRun semantics without presenting a browser session or impersonating a User. **Constructed through private mTLS admission and cell execution boundaries plus a dedicated least-privilege worker.**
 4. Deterministic occurrence, Conversation, Run and operation identities derived from schedule plus scheduled instant. **Constructed for scheduled occurrences.**
 5. Pause, resume, update, delete and trigger-now commands; trigger-now is a separate occurrence and never changes recurrence state. **Constructed.**
-6. HTTP, optional MCP and private UI surfaces with generated contracts and enabled/read-only/suspended package tests. **HTTP/browser surfaces and package-mode enforcement constructed; production MCP remains intentionally absent.**
+6. HTTP, MCP and private UI surfaces with generated contracts and enabled/read-only/suspended package tests. **Constructed through the shared routed gateway and package-mode enforcement; external-client Stage acceptance remains a release-evidence gate.**
 7. Account movement, export, erasure, retention, dead-letter recovery, stage failure rehearsal and LKE scaling evidence.
 
 ## Persistence checkpoint

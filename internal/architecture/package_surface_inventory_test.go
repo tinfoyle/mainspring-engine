@@ -48,14 +48,22 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 				}
 			}
 		}
+		if item.Executable && !slices.Contains(item.Boundaries, "mcp") {
+			t.Fatalf("executable package %q must declare its MCP boundary", item.Code)
+		}
 	}
 	slices.Sort(packages)
 	if !slices.Equal(packages, wantPackages) {
 		t.Fatalf("packages=%v want=%v", packages, wantPackages)
 	}
-	for _, absent := range []string{"production-mcp", "connector-runtime", "customer-export-api", "search-vector-store", "analytics-export-store"} {
+	for _, absent := range []string{"connector-runtime", "search-vector-store", "analytics-export-store"} {
 		if !slices.Contains(inventory.AbsentSurfaceKinds, absent) {
 			t.Errorf("absent surface %q is not declared", absent)
+		}
+	}
+	for _, executable := range []string{"production-mcp", "customer-export-api"} {
+		if slices.Contains(inventory.AbsentSurfaceKinds, executable) {
+			t.Errorf("executable surface %q remains declared absent", executable)
 		}
 	}
 	if slices.Contains(inventory.AbsentSurfaceKinds, "customer-schedule") {

@@ -44,14 +44,14 @@ The executable `mcp-gateway` mode, dedicated Docker database role, local/Stage C
 
 RC.2 applies migrations 33-34 and the least-privilege role on Hostinger, publishes both discovery documents and the RFC 9728 challenge through public DNS/TLS, and keeps exactly two healthy Stage gateway replicas. Its public-edge certificate records 128/128 expected responses with both replicas, with each replica stopped in turn, and after both were restored. The certificate also retains a rejected 32-concurrency calibration with nine client timeouts; the accepted 16-concurrency profile is not misrepresented as a higher-capacity result. The only remaining MCP activation evidence is the signed-in public-client consent/code exchange, one routed tool call, refresh rotation and revocation sequence.
 
-## Why `production-mcp` remains absent
+## Executable surface and remaining evidence
 
-The implementation is deployable, but `production-mcp` remains in `deploy/package-surface-inventory.json` until the release gates below are complete. This avoids treating a local topology check as an applied customer capability.
+The global gateway, OAuth issuer, signed Account-to-cell routing and package tool adapters form an executable production-MCP surface. `deploy/package-surface-inventory.json` therefore declares `mcp` on each executable package boundary and no longer lists `production-mcp` as absent. That construction claim does not waive the remaining environment acceptance gate.
 
-Production enablement requires one global MCP gateway composition that:
+Release acceptance still requires the applied Hostinger sequence to:
 
-1. capture an external-client authorization/tool-call/refresh/revocation certificate through the applied Hostinger ingress;
-2. retain the completed applied multi-replica public-edge load/failover certificate with the RC.2 release evidence;
-3. remove `production-mcp` from the absent inventory and add `mcp` to each actually published package boundary in the same reviewed change.
+1. capture an external-client authorization, routed tool call, refresh rotation and revocation certificate through the public ingress;
+2. retain the completed multi-replica public-edge load/failover certificate with the release evidence; and
+3. prove the published tool inventory and package authorization outcomes against the exact release digest.
 
-Until that composition exists, this package is executable and tested adapter code, not a claim that stage or production MCP is available.
+Until that evidence is captured, the surface is constructed and deployed on Stage but is not certified for production release.

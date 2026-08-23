@@ -4,22 +4,20 @@
     {
       "code": "work",
       "executable": true,
-      "boundaries": ["browser", "http", "admission-broker", "agent-tool", "reconciliation-worker"]
+      "boundaries": ["browser", "http", "mcp", "admission-broker", "agent-tool", "reconciliation-worker"]
     },
     {
       "code": "agents",
       "executable": true,
-      "boundaries": ["browser", "http", "dispatch-worker", "runner", "result-projection-worker", "schedule-worker"]
+      "boundaries": ["browser", "http", "mcp", "dispatch-worker", "runner", "result-projection-worker", "schedule-worker"]
     },
-    {"code": "knowledge", "executable": true, "boundaries": ["browser", "http", "document-processing-worker"]},
-    {"code": "finance", "executable": true, "boundaries": ["browser", "http", "agent-tool", "approved-action-worker"]},
+    {"code": "knowledge", "executable": true, "boundaries": ["browser", "http", "mcp", "document-processing-worker"]},
+    {"code": "finance", "executable": true, "boundaries": ["browser", "http", "mcp", "agent-tool", "approved-action-worker"]},
     {"code": "marketing", "executable": false, "boundaries": []},
     {"code": "integrations", "executable": false, "boundaries": []}
   ],
   "absent_surface_kinds": [
-    "production-mcp",
     "connector-runtime",
-    "customer-export-api",
     "search-vector-store",
     "analytics-export-store"
   ],
