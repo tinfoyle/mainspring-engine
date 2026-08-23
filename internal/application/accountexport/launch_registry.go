@@ -37,6 +37,7 @@ func LaunchRegistry() (*Registry, error) {
 	include("public", "account", "accounts", "account_closure_requests", "account_lifecycle_events", "account_membership_events", "invitations", "memberships")
 	exclude("public", Derived, "Cell placement is reconstructed from the authoritative Account projection.", "account_directory")
 	exclude("public", Operational, "Erasure workflow evidence is retained under the erasure policy and is not customer content.", "account_erasure_operator_events", "account_erasure_requests")
+	exclude("public", Operational, "Export request workflow and audit rows describe artifact processing; the artifact contains the portable customer projections.", "account_export_events", "account_export_requests")
 	exclude("public", Operational, "Movement coordination state is transient infrastructure metadata, not portable customer content.", "account_moves")
 	include("public", "billing", "billing_checkout_attempts", "billing_profiles", "subscriptions")
 	exclude("public", Secret, "Verified provider event envelopes and encrypted payload references are internal security material.", "billing_event_inbox")

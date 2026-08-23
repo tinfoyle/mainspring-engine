@@ -128,10 +128,13 @@ It deletes or minimizes in dependency order:
 7. Account lifecycle and Membership audit events
 8. closure requests
 9. Memberships
-10. account directory
-11. Account
+10. Account export request/event rows after external artifact disposition is attested
+11. account directory
+12. Account
 
 The transaction decrements `cells.assigned_accounts` with an underflow guard and converts the erasure request/operator history into its content-free tombstone representation. Raw operator reason and Account UUID exist only in the restricted active-workflow tables and are removed at completion.
+
+Account export request/event rows are deletion-restricted and contribute exact counts to the global tombstone even though their foreign keys cascade from Account deletion. The database proof does not substitute for deleting the private artifact: the external-system stage must first delete or policy-expire that exact object and bind its attestation to the erasure evidence.
 
 The notification outbox now carries nullable Account attribution outside its encrypted envelope. Verification and recovery remain User-scoped; invitations and ownership-transfer notices are Account-attributed and can be selected for erasure without decrypting unrelated identity messages.
 

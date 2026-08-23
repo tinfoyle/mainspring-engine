@@ -223,7 +223,8 @@ func TestPostgresGlobalErasureIsCrossStoreExactAndIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tombstone.RequestID != approved.ID || tombstone.FinalRequestVersion != 6 || tombstone.GlobalRowCounts["accounts"] != 1 || tombstone.GlobalRowCounts["cell_capacity"] != 1 || tombstone.CellRowCounts["work_items"] != 2 {
+	if tombstone.RequestID != approved.ID || tombstone.FinalRequestVersion != 6 || tombstone.GlobalRowCounts["accounts"] != 1 || tombstone.GlobalRowCounts["cell_capacity"] != 1 ||
+		tombstone.GlobalRowCounts["account_export_requests"] != 1 || tombstone.GlobalRowCounts["account_export_events"] != 1 || tombstone.CellRowCounts["work_items"] != 2 {
 		t.Fatalf("unexpected global tombstone: %+v", tombstone)
 	}
 	for _, ledger := range []struct {
@@ -344,10 +345,18 @@ func seedGlobalErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.P
 		INSERT INTO account_membership_events(id,account_id,actor_user_id,action,target_membership_id,previous_role,new_role,reason,occurred_at) VALUES (gen_random_uuid(),$6,$1,'role_changed',$11,'viewer','member','reviewed role change',$4);
 		INSERT INTO account_lifecycle_events(id,account_id,closure_request_id,action,from_state,to_state,actor_kind,actor_id,reason,occurred_at) VALUES (gen_random_uuid(),$6,$9,'account_closed','closing','closed','workload','account-lifecycle-worker','retention scheduled',$4);
 		INSERT INTO tool_context_receipts(request_id,account_id,invocation_id,pod_uid,operation_id,capability,method,target_sha256,body_sha256,issued_at,expires_at,consumed_at)
-		VALUES (gen_random_uuid(),$6,gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'work.summary.read','POST',sha256(convert_to('/internal/v1/tools:invoke','UTF8')),sha256(convert_to('{}','UTF8')),$4,$4::timestamptz+interval '10 seconds',$4);`,
+		VALUES (gen_random_uuid(),$6,gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'work.summary.read','POST',sha256(convert_to('/internal/v1/tools:invoke','UTF8')),sha256(convert_to('{}','UTF8')),$4,$4::timestamptz+interval '10 seconds',$4);
+		INSERT INTO account_export_requests(id,account_id,requested_by_user_id,state,cell_id,placement_generation,account_version,attempt_count,
+			snapshot_global_at,snapshot_cell_at,artifact_reference,artifact_sha256,artifact_bytes,version,requested_at,expires_at,available_at)
+		VALUES ($16,$6,$1,'available','cell-us-east-01',3,7,1,$4::timestamptz-interval '1 day'+interval '1 minute',
+			$4::timestamptz-interval '1 day'+interval '2 minutes',$17,sha256(convert_to($17,'UTF8')),4096,3,
+			$4::timestamptz-interval '1 day',$4::timestamptz+interval '6 days',$4::timestamptz-interval '1 day'+interval '3 minutes');
+		INSERT INTO account_export_events(id,account_id,request_id,event_type,state,request_version,actor_kind,actor_id,occurred_at)
+		VALUES ($18,$6,$16,'available','available',3,'workload','account-export-worker',$4::timestamptz-interval '1 day'+interval '3 minutes');`,
 		pgx.QueryExecModeSimpleProtocol, userID, "erasure-"+marker+"@example.com", memberUserID, now, "member-"+marker+"@example.com",
 		accountID, "erasure-"+marker+"-account", "Erasure "+marker+" Account", closureID,
-		ownerMembershipID, memberMembershipID, "invite-"+marker+"@example.com", "cus_"+marker, "sub_"+marker, "evt_erasure_"+marker); err != nil {
+		ownerMembershipID, memberMembershipID, "invite-"+marker+"@example.com", "cus_"+marker, "sub_"+marker, "evt_erasure_"+marker,
+		marker+"9300000-0000-4000-8000-000000000001", "account-exports/erasure-"+marker+".zip", marker+"9400000-0000-4000-8000-000000000001"); err != nil {
 		t.Fatalf("seed global erasure Account %s: %v", accountID, err)
 	}
 	var rolloutID string
@@ -366,7 +375,7 @@ func seedGlobalErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.P
 
 func assertGlobalAccountRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, accountID ids.AccountID, wantPresent bool) {
 	t.Helper()
-	accountTables := []string{"accounts", "account_directory", "memberships", "invitations", "billing_profiles", "subscriptions", "billing_event_inbox", "entitlement_grants", "entitlement_snapshots", "billing_checkout_attempts", "entitlement_recompute_queue", "entitlement_usage_counters", "entitlement_usage_reservations", "account_membership_events", "account_closure_requests", "account_lifecycle_events", "identity_notification_outbox", "tool_context_receipts"}
+	accountTables := []string{"accounts", "account_directory", "memberships", "invitations", "billing_profiles", "subscriptions", "billing_event_inbox", "entitlement_grants", "entitlement_snapshots", "billing_checkout_attempts", "entitlement_recompute_queue", "entitlement_usage_counters", "entitlement_usage_reservations", "account_membership_events", "account_closure_requests", "account_lifecycle_events", "identity_notification_outbox", "tool_context_receipts", "account_export_requests", "account_export_events"}
 	for _, table := range accountTables {
 		var count int
 		column := "account_id"

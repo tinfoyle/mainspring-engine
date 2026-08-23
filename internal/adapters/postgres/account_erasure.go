@@ -368,7 +368,7 @@ func classifyErasureExecutionError(err error) error {
 	case "P0002":
 		return accounterasure.ErrNotFound
 	case "P0001", "P0003", "23505":
-		return accounterasure.ErrStateConflict
+		return fmt.Errorf("%w: %v", accounterasure.ErrStateConflict, err)
 	}
 	return fmt.Errorf("Account erasure execution unavailable: %w", err)
 }

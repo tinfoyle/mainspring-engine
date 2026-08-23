@@ -19,7 +19,7 @@ type testSection struct {
 }
 
 func (source testSection) Descriptor() Descriptor { return source.descriptor }
-func (source testSection) Open(context.Context, Request) (RecordCursor, error) {
+func (source testSection) Open(context.Context, BuildRequest) (RecordCursor, error) {
 	return &testRecordCursor{records: append([]json.RawMessage(nil), source.records...)}, nil
 }
 
@@ -48,7 +48,7 @@ type testObject struct {
 }
 
 func (source testObjects) Descriptor() Descriptor { return source.descriptor }
-func (source testObjects) OpenObjects(context.Context, Request) (ObjectCursor, error) {
+func (source testObjects) OpenObjects(context.Context, BuildRequest) (ObjectCursor, error) {
 	return &testObjectCursor{values: append([]testObject(nil), source.values...)}, nil
 }
 
@@ -64,9 +64,9 @@ func (cursor *testObjectCursor) Next(context.Context) (Object, bool, error) {
 }
 func (cursor *testObjectCursor) Close() error { return nil }
 
-func exportRequest() Request {
+func exportRequest() BuildRequest {
 	at := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
-	return Request{AccountID: "e1000000-0000-4000-8000-000000000001", ExportID: "e2000000-0000-4000-8000-000000000002",
+	return BuildRequest{AccountID: "e1000000-0000-4000-8000-000000000001", ExportID: "e2000000-0000-4000-8000-000000000002",
 		RequestedBy: "e3000000-0000-4000-8000-000000000003", RequestedAt: at, ExpiresAt: at.Add(7 * 24 * time.Hour),
 		Snapshot: Snapshot{CellID: "cell-us-east-01", PlacementGeneration: 3, AccountVersion: 5, GlobalAt: at, CellAt: at.Add(time.Second)}}
 }

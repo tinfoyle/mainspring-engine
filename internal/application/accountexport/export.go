@@ -49,7 +49,7 @@ type Snapshot struct {
 	CellAt              time.Time  `json:"cell_at"`
 }
 
-type Request struct {
+type BuildRequest struct {
 	AccountID   ids.AccountID `json:"account_id"`
 	ExportID    string        `json:"export_id"`
 	RequestedBy ids.UserID    `json:"requested_by"`
@@ -71,7 +71,7 @@ type RecordCursor interface {
 
 type SectionSource interface {
 	Descriptor() Descriptor
-	Open(context.Context, Request) (RecordCursor, error)
+	Open(context.Context, BuildRequest) (RecordCursor, error)
 }
 
 type Object struct {
@@ -89,7 +89,7 @@ type ObjectCursor interface {
 
 type ObjectSource interface {
 	Descriptor() Descriptor
-	OpenObjects(context.Context, Request) (ObjectCursor, error)
+	OpenObjects(context.Context, BuildRequest) (ObjectCursor, error)
 }
 
 type SectionManifest struct {
@@ -159,7 +159,7 @@ func NewBuilder(registry *Registry, sections []SectionSource, objects []ObjectSo
 	return &Builder{sections: sections, objects: objects}, nil
 }
 
-func (builder *Builder) Build(ctx context.Context, request Request, target io.Writer) (Result, error) {
+func (builder *Builder) Build(ctx context.Context, request BuildRequest, target io.Writer) (Result, error) {
 	if builder == nil || target == nil || !validRequest(request) {
 		return Result{}, ErrInvalid
 	}
@@ -207,7 +207,7 @@ func (builder *Builder) Build(ctx context.Context, request Request, target io.Wr
 	return Result{Manifest: manifest, ArtifactBytes: bounded.written, ArtifactSHA256: digest}, nil
 }
 
-func (builder *Builder) writeSection(ctx context.Context, archive *zip.Writer, request Request, source SectionSource) (SectionManifest, error) {
+func (builder *Builder) writeSection(ctx context.Context, archive *zip.Writer, request BuildRequest, source SectionSource) (SectionManifest, error) {
 	descriptor := source.Descriptor()
 	cursor, err := source.Open(ctx, request)
 	if err != nil || cursor == nil {
@@ -257,7 +257,7 @@ func (builder *Builder) writeSection(ctx context.Context, archive *zip.Writer, r
 	return SectionManifest{Descriptor: descriptor, Path: entryPath, Records: count, Bytes: section.written, SHA256: hex.EncodeToString(hasher.Sum(nil))}, nil
 }
 
-func (builder *Builder) writeObjects(ctx context.Context, archive *zip.Writer, request Request, source ObjectSource, existing int) ([]ObjectManifest, error) {
+func (builder *Builder) writeObjects(ctx context.Context, archive *zip.Writer, request BuildRequest, source ObjectSource, existing int) ([]ObjectManifest, error) {
 	descriptor := source.Descriptor()
 	cursor, err := source.OpenObjects(ctx, request)
 	if err != nil || cursor == nil {
@@ -314,7 +314,7 @@ func (builder *Builder) writeObjects(ctx context.Context, archive *zip.Writer, r
 	return entries, nil
 }
 
-func validRequest(value Request) bool {
+func validRequest(value BuildRequest) bool {
 	snapshot := value.Snapshot
 	minimumSnapshot := value.RequestedAt.Add(-time.Minute)
 	maximumSnapshot := value.RequestedAt.Add(MaximumSnapshotDelay)
