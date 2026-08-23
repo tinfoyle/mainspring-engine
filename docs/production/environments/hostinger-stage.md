@@ -46,6 +46,12 @@ previous_stage_env=/opt/spyglass-stage/secrets/2026-08-22-03/stage.env
 
 Workload private keys are mode `640` in mode-`750` identity directories. Their group is derived from the protected provider file and supplied only to the 17 workload identity definitions; 18 running containers mount them because the stateless MCP gateway has two replicas. Keys remain unreadable to every other host user and container. Writable per-cell runner identity directories are mode `770` under the same group, while `stage.env` remains mode `600`. Application and website values come only from a reviewed, tracked `deploy/releases/<version>.env` file containing exact GHCR `@sha256:` references and their source revision; the secret stage file cannot override them. Stripe is test mode. SMTP requires TLS. The verifier checks certificate chains, key matches, group/mode contracts, seven-day minimum lifetime, exact DNS/SPIFFE/EKU contracts, immutable images, every application service's exact reviewed digest, exactly two Stage MCP replicas, complete two-cell runner topology, provider-egress membership, internal runner networks, Docker socket ownership and absence of public port bindings.
 
+Each Account-export build worker uses a private mode-`0700`, UID/GID-65532
+tmpfs capped at 1 GiB. That Stage-only ceiling reflects the VPS's 7.7 GiB RAM
+and makes an oversized synthetic export fail closed without exhausting the
+host. Local stress uses a 34 GiB tmpfs, while LKE uses a 34 GiB disk-backed
+`emptyDir`; Stage is not capacity evidence for the production artifact limit.
+
 ## Deployment
 
 From the clean checkout selected by `current`:

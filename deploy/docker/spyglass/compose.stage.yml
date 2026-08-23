@@ -158,6 +158,12 @@ services:
     environment: *global-restore
     depends_on: {global-roles: {condition: service_completed_successfully}}
   account-export-build-worker-a:
+    # Hostinger has 7.7 GiB RAM. Stage is a synthetic acceptance environment,
+    # so each builder fails closed at 1 GiB instead of risking host exhaustion.
+    # Local stress and LKE retain the reviewed 34 GiB artifact ceiling.
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/lib/spyglass/account-export:size=1g,mode=0700,uid=65532,gid=65532
     environment:
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
@@ -165,6 +171,9 @@ services:
       SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
     depends_on: {global-roles: {condition: service_completed_successfully}, cell-a-roles: {condition: service_completed_successfully}, object-store-init: {condition: service_completed_successfully}}
   account-export-build-worker-b:
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/lib/spyglass/account-export:size=1g,mode=0700,uid=65532,gid=65532
     environment:
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}

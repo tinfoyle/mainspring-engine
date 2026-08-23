@@ -184,7 +184,7 @@ The stage override uses the same service graph with production-mode process argu
 - application and website images pulled from GHCR by digest;
 - three PostgreSQL containers with private networks and persistent volumes;
 - private versioned MinIO document/creative storage plus a separate `spyglass-account-exports` bucket on the persistent volume, with a generated static stage encryption key and distinct prefix-scoped admission, document-worker, read-only Integration-connector, one-shot prototype-migration, export-source-reader, artifact-build and artifact-expiry credentials; source can read only exact Knowledge/Marketing originals, build reaches only exact derived artifact keys, expiry has no create/list authority, and production replaces MinIO with corresponding scoped S3-compatible credentials;
-- one Account-export build worker per cell with private bounded `0700` staging and one separately credentialed global expiry worker;
+- one Account-export build worker per cell with private mode-`0700` staging capped at 1 GiB on the 7.7 GiB synthetic Stage host, plus one separately credentialed global expiry worker; local stress retains 34 GiB tmpfs and LKE uses 34 GiB disk-backed `emptyDir` staging;
 - an internal Caddy router on the existing `infiniteocean_public` network; the existing Infinite Ocean Caddy remains the only public 80/443 and ACME owner;
 - Stripe test mode, TLS SMTP and non-production provider credentials;
 - a non-internal provider-egress network attached only to Account API, billing, notification, model-gateway and the two runner-broker workloads;

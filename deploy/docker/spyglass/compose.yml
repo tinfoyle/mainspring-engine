@@ -547,9 +547,6 @@ services:
   account-export-build-worker-a:
     <<: *worker
     command: [account-export-build-worker]
-    tmpfs:
-      - /tmp:size=16m,mode=1777
-      - /var/lib/spyglass/account-export:size=34g,mode=0700,uid=65532,gid=65532
     environment:
       SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
       SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
@@ -576,9 +573,6 @@ services:
   account-export-build-worker-b:
     <<: *worker
     command: [account-export-build-worker]
-    tmpfs:
-      - /tmp:size=16m,mode=1777
-      - /var/lib/spyglass/account-export:size=34g,mode=0700,uid=65532,gid=65532
     environment:
       SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
       SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}

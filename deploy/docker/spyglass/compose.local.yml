@@ -112,12 +112,18 @@ services:
     networks: [application, database, edge]
 
   account-export-build-worker-a:
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/lib/spyglass/account-export:size=34g,mode=0700,uid=65532,gid=65532
     depends_on:
       global-roles: {condition: service_completed_successfully}
       cell-a-roles: {condition: service_completed_successfully}
       object-store-init: {condition: service_completed_successfully}
 
   account-export-build-worker-b:
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /var/lib/spyglass/account-export:size=34g,mode=0700,uid=65532,gid=65532
     depends_on:
       global-roles: {condition: service_completed_successfully}
       cell-b-roles: {condition: service_completed_successfully}
