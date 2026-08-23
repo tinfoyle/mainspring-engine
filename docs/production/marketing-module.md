@@ -98,7 +98,7 @@ This closes the durable ledger and claim semantics within construction step 6, i
 
 After an approved release is active, a human Owner or Administrator can now select one active channel-compatible Integrations connection and prepare its immutable delivery execution. The service requires matching current Account placement and entitlement versions from enabled Marketing and Integrations package checks, while PostgreSQL independently rechecks the active Marketing release/version, exact unexpired Attention approval, release channel, connector revision and credential generation. Marketing still stores no connector or credential identity.
 
-The execution digest is computed from a canonical content-free manifest over the exact release/connector authority and sorted immutable asset digests. Exact retries replay; altered request reuse conflicts. This completes the governed preparation portion of construction step 6, but provider execution remains closed until the broker handoff and connector worker/adapters are constructed and certified.
+The execution digest is computed from a canonical content-free manifest over the exact release/connector authority and sorted immutable asset digests. Exact retries replay; altered request reuse conflicts. This completes the governed preparation portion of construction step 6. The broker handoff and connector worker/adapters are now constructed; customer activation remains closed until applied provider certification.
 
 ## Connector worker checkpoint
 
