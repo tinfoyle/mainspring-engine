@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: integration-connector-worker-cell-reference, namespace: spyglass-reference}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app.kubernetes.io/name: integration-connector-worker, spyglass.io/cell: reference}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: integration-connector-worker, app.kubernetes.io/part-of: spyglass, spyglass.io/cell: reference}
+    spec:
+      serviceAccountName: integration-connector-worker
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: integration-connector-worker, spyglass.io/cell: reference}
+      containers:
+        - name: worker
+          image: registry.invalid/infinite-ocean/spyglass-engine:release-placeholder
+          args: [integration-connector-worker]
+          ports: [{name: health, containerPort: 8081}]
+          env:
+            - {name: SPYGLASS_CELL_ID, value: reference}
+            - {name: SPYGLASS_CONNECTOR_ADAPTER, value: production}
+            - {name: SPYGLASS_INTEGRATION_CREDENTIAL_ROOT, value: /run/spyglass/integration-credentials}
+            - {name: SPYGLASS_SMTP_CONNECTOR_TIMEOUT, value: "30s"}
+            - {name: SPYGLASS_WEB_PUBLISH_CONNECTOR_TIMEOUT, value: "30s"}
+            - {name: SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL, value: "1s"}
+            - {name: SPYGLASS_INTEGRATION_CONNECTOR_LEASE, value: "2m"}
+            - {name: SPYGLASS_GLOBAL_MAX_DATABASE_CONNS, value: "3"}
+            - {name: SPYGLASS_CELL_MAX_DATABASE_CONNS, value: "3"}
+            - {name: SPYGLASS_HEALTH_ADDRESS, value: ":8081"}
+          envFrom:
+            - configMapRef: {name: spyglass-integration-connector-worker-cell-reference-restore-checkpoints}
+            - secretRef: {name: spyglass-integration-connector-worker-cell-reference-secrets}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: credentials, mountPath: /run/spyglass/integration-credentials, readOnly: true}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities: {drop: [ALL]}
+            seccompProfile: {type: RuntimeDefault}
+          readinessProbe: {httpGet: {path: /health/ready, port: health}, periodSeconds: 5}
+          livenessProbe: {httpGet: {path: /health/live, port: health}, periodSeconds: 15}
+      volumes:
+        - name: credentials
+          secret:
+            secretName: spyglass-integration-connector-worker-cell-reference-provider-credentials
+            defaultMode: 0400
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: integration-connector-worker-cell-reference, namespace: spyglass-reference}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: integration-connector-worker, spyglass.io/cell: reference}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: integration-connector-worker-cell-reference, namespace: spyglass-reference}
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: integration-connector-worker-cell-reference}
+  minReplicas: 2
+  maxReplicas: 8
+  behavior:
+    scaleDown: {stabilizationWindowSeconds: 600}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 60}

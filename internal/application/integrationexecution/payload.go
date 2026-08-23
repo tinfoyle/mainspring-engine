@@ -1,6 +1,7 @@
 package integrationexecution
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 type DeliverySnapshot struct {
@@ -24,6 +26,65 @@ type DeliverySource interface {
 
 type ContentSource interface {
 	OpenContent(context.Context, marketingdomain.AssetRevision) (io.ReadCloser, error)
+}
+
+// ProviderAsset is the verified creative material passed only to the dedicated
+// connector runtime. It contains bytes, never an object-store reference.
+type ProviderAsset struct {
+	ID              ids.MarketingAssetRevisionID `json:"id"`
+	Kind            marketingdomain.AssetKind    `json:"kind"`
+	Title           string                       `json:"title"`
+	MediaType       string                       `json:"media_type"`
+	AlternativeText string                       `json:"alternative_text,omitempty"`
+	Content         []byte                       `json:"content_base64"`
+}
+
+// ProviderEnvelope is the closed, versioned handoff from verified Marketing
+// storage to a capability-specific connector.
+type ProviderEnvelope struct {
+	Version        uint64                 `json:"version"`
+	Capability     domain.Capability      `json:"capability"`
+	IdempotencyKey string                 `json:"idempotency_key"`
+	Scope          domain.ConnectionScope `json:"scope"`
+	Assets         []ProviderAsset        `json:"assets"`
+}
+
+// DecodeProviderEnvelope repeats the connector-side shape and claim binding
+// checks before any provider call. The payload was built internally, but this
+// boundary still fails closed if memory, composition, or a future adapter
+// changes the wire contract.
+func DecodeProviderEnvelope(raw []byte, claim Claim) (ProviderEnvelope, error) {
+	if len(raw) == 0 || len(raw) > MaximumPayloadBytes {
+		return ProviderEnvelope{}, ErrInvalid
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var envelope ProviderEnvelope
+	if err := decoder.Decode(&envelope); err != nil {
+		return ProviderEnvelope{}, ErrInvalid
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return ProviderEnvelope{}, ErrInvalid
+	}
+	if envelope.Version != 1 || envelope.Capability != claim.Capability || envelope.IdempotencyKey != string(claim.IdempotencyKey) ||
+		len(envelope.Assets) == 0 || len(envelope.Assets) > 100 {
+		return ProviderEnvelope{}, ErrInvalid
+	}
+	seen := make(map[ids.MarketingAssetRevisionID]struct{}, len(envelope.Assets))
+	var total int
+	for _, asset := range envelope.Assets {
+		if ids.Validate(string(asset.ID)) != nil || (asset.Kind != marketingdomain.AssetCopy && asset.Kind != marketingdomain.AssetImage && asset.Kind != marketingdomain.AssetDocument) ||
+			asset.Title == "" || asset.MediaType == "" || len(asset.Content) == 0 || len(asset.Content) > MaximumPayloadBytes || total > MaximumPayloadBytes-len(asset.Content) {
+			return ProviderEnvelope{}, ErrInvalid
+		}
+		if _, exists := seen[asset.ID]; exists {
+			return ProviderEnvelope{}, ErrInvalid
+		}
+		seen[asset.ID] = struct{}{}
+		total += len(asset.Content)
+	}
+	return envelope, nil
 }
 
 type PayloadAssembler struct {
@@ -57,22 +118,8 @@ func (assembler *PayloadAssembler) Load(ctx context.Context, claim Claim) (Paylo
 	manifestInput := ManifestInput{ReleaseID: claim.ReleaseID, ReleaseVersion: claim.ReleaseVersion, Capability: claim.Capability,
 		ConnectionID: claim.ConnectionID, ConnectionRevisionID: claim.ConnectionRevisionID, ConnectionRevision: claim.ConnectionRevision,
 		CredentialID: claim.CredentialID, CredentialGeneration: claim.CredentialGeneration, Assets: make([]ManifestAsset, 0, len(assets))}
-	type providerAsset struct {
-		ID              string                    `json:"id"`
-		Kind            marketingdomain.AssetKind `json:"kind"`
-		Title           string                    `json:"title"`
-		MediaType       string                    `json:"media_type"`
-		AlternativeText string                    `json:"alternative_text,omitempty"`
-		Content         []byte                    `json:"content_base64"`
-	}
-	provider := struct {
-		Version        uint64                 `json:"version"`
-		Capability     domain.Capability      `json:"capability"`
-		IdempotencyKey string                 `json:"idempotency_key"`
-		Scope          domain.ConnectionScope `json:"scope"`
-		Assets         []providerAsset        `json:"assets"`
-	}{Version: 1, Capability: claim.Capability, IdempotencyKey: string(claim.IdempotencyKey), Scope: revision.Scope,
-		Assets: make([]providerAsset, 0, len(assets))}
+	provider := ProviderEnvelope{Version: 1, Capability: claim.Capability, IdempotencyKey: string(claim.IdempotencyKey), Scope: revision.Scope,
+		Assets: make([]ProviderAsset, 0, len(assets))}
 	var total uint64
 	for _, candidate := range assets {
 		asset, restoreErr := marketingdomain.RestoreAssetRevision(candidate)
@@ -96,7 +143,7 @@ func (assembler *PayloadAssembler) Load(ctx context.Context, claim Claim) (Paylo
 			return Payload{}, ErrInvalid
 		}
 		manifestInput.Assets = append(manifestInput.Assets, ManifestAsset{ID: asset.ID, SHA256: asset.ContentSHA256})
-		provider.Assets = append(provider.Assets, providerAsset{ID: string(asset.ID), Kind: asset.Kind, Title: asset.Title,
+		provider.Assets = append(provider.Assets, ProviderAsset{ID: asset.ID, Kind: asset.Kind, Title: asset.Title,
 			MediaType: asset.MediaType, AlternativeText: asset.AlternativeText, Content: body})
 	}
 	manifest, digest, err := BuildManifest(manifestInput)

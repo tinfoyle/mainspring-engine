@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationhealth"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -45,9 +46,10 @@ type runtimeConfig struct {
 }
 
 type Runtime struct {
-	Broker      *Broker
-	Contents    *ContentSource
-	Definitions []integrationexecution.Definition
+	Broker            *Broker
+	Contents          *ContentSource
+	Definitions       []integrationexecution.Definition
+	HealthDefinitions []integrationhealth.Definition
 }
 
 func LoadRuntime(filename string) (Runtime, error) {
@@ -141,6 +143,9 @@ func ParseRuntime(reader io.Reader) (Runtime, error) {
 	return Runtime{Broker: broker, Contents: contents, Definitions: []integrationexecution.Definition{
 		{Capability: domain.CapabilityEmailSend, Timeout: timeout, Connector: connector},
 		{Capability: domain.CapabilityWebPublish, Timeout: timeout, Connector: connector},
+	}, HealthDefinitions: []integrationhealth.Definition{
+		{Kind: domain.ConnectorEmail, Timeout: timeout, Probe: HealthProbe{}},
+		{Kind: domain.ConnectorWebPublish, Timeout: timeout, Probe: HealthProbe{}},
 	}}, nil
 }
 

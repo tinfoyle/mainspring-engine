@@ -27,14 +27,21 @@ func NewCurrentAuthority(source access.WorkloadStateSource, cellID ids.CellID) (
 }
 
 func (authority *CurrentAuthority) Authorize(ctx context.Context, claim Claim) error {
-	if authority == nil || authority.source == nil || ids.Validate(string(claim.AccountID)) != nil {
+	return authority.AuthorizeAccount(ctx, claim.AccountID)
+}
+
+// AuthorizeAccount is shared by content-free provider health probes. Both
+// Marketing and Integrations must remain enabled before this workload may
+// contact a configured external provider.
+func (authority *CurrentAuthority) AuthorizeAccount(ctx context.Context, accountID ids.AccountID) error {
+	if authority == nil || authority.source == nil || ids.Validate(string(accountID)) != nil {
 		return ErrInvalid
 	}
-	state, err := authority.source.WorkloadAccessState(ctx, claim.AccountID)
+	state, err := authority.source.WorkloadAccessState(ctx, accountID)
 	if err != nil {
 		return err
 	}
-	if state.Account.ID != claim.AccountID || state.Entitlements.AccountID != claim.AccountID ||
+	if state.Account.ID != accountID || state.Entitlements.AccountID != accountID ||
 		state.Account.EntitlementVersion == 0 || state.Account.EntitlementVersion != state.Entitlements.Version ||
 		state.Account.PlacementGeneration == 0 || state.Account.CellID != authority.cellID {
 		return &access.DeniedError{Code: access.DenialCorruptContext}

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationcredentials"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 )
 
@@ -68,12 +68,12 @@ func TestBrokerRejectsChangedBindingAndUnsafeMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, mutate := range map[string]func(*integrationexecution.CredentialRequest){
-		"account": func(value *integrationexecution.CredentialRequest) {
+	for name, mutate := range map[string]func(*integrationcredentials.Request){
+		"account": func(value *integrationcredentials.Request) {
 			value.AccountID = "c2100000-0000-4000-8000-000000000001"
 		},
-		"provider": func(value *integrationexecution.CredentialRequest) { value.CredentialProvider = "other" },
-		"reference": func(value *integrationexecution.CredentialRequest) {
+		"provider": func(value *integrationcredentials.Request) { value.CredentialProvider = "other" },
+		"reference": func(value *integrationcredentials.Request) {
 			value.ReferenceSHA256 = sha256.Sum256([]byte("different"))
 		},
 	} {
@@ -93,9 +93,9 @@ func TestBrokerRejectsChangedBindingAndUnsafeMaterial(t *testing.T) {
 	}
 }
 
-func credentialRequest(reference string) integrationexecution.CredentialRequest {
-	return integrationexecution.CredentialRequest{AccountID: testAccount, ExecutionID: testExecution, AttemptID: testAttempt,
-		Mode: domain.AttemptExecute, Capability: domain.CapabilityEmailSend, ConnectionID: testConnection, CredentialID: testCredential,
+func credentialRequest(reference string) integrationcredentials.Request {
+	return integrationcredentials.Request{AccountID: testAccount, OperationID: testAttempt,
+		Purpose: integrationcredentials.PurposeExecute, Capability: domain.CapabilityEmailSend, ConnectionID: testConnection, CredentialID: testCredential,
 		CredentialGeneration: 1, CredentialProvider: "smtp", ReferenceSHA256: sha256.Sum256([]byte(reference)), ExpiresAt: time.Now().Add(time.Minute)}
 }
 

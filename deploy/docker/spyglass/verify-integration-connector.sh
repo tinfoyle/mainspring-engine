@@ -6,6 +6,10 @@ compose=(docker compose --project-name spyglass-local --env-file "$script_dir/en
   --file "$script_dir/compose.yml" --file "$script_dir/compose.local.yml" --profile integration-connectors)
 
 bash "$script_dir/../../verify-process-inventory.sh"
+"${compose[@]}" build global-migrate
+for service in global-migrate cell-a-migrate cell-b-migrate global-roles cell-a-roles cell-b-roles; do
+  "${compose[@]}" run --rm "$service"
+done
 "${compose[@]}" up --detach --build --force-recreate --wait integration-connector-worker-a integration-connector-worker-b
 
 "${compose[@]}" exec --no-TTY global-db psql --username=spyglass_migrator --dbname=spyglass \
@@ -27,6 +31,10 @@ test "$execution_state" = "succeeded"
 attempt_outcome="$("${compose[@]}" exec --no-TTY cell-a-db psql --username=spyglass_migrator --dbname=spyglass \
   --tuples-only --no-align --command="SELECT mode||':'||outcome FROM spyglass.integration_execution_attempts WHERE account_id='82100000-0000-4000-8000-000000000001' AND execution_id='82a00000-0000-4000-8000-00000000000a'")"
 test "$attempt_outcome" = "execute:succeeded"
+
+health_state="$("${compose[@]}" exec --no-TTY cell-a-db psql --username=spyglass_migrator --dbname=spyglass \
+  --tuples-only --no-align --command="SELECT state FROM spyglass.integration_health_observations WHERE account_id='82100000-0000-4000-8000-000000000001' AND connection_id='82700000-0000-4000-8000-000000000007' ORDER BY checked_at DESC,id DESC LIMIT 1")"
+test "$health_state" = "healthy"
 
 for service in integration-connector-worker-a integration-connector-worker-b; do
   "${compose[@]}" exec --no-TTY "$service" /spyglass healthcheck --url=http://127.0.0.1:8081/health/ready

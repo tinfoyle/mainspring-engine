@@ -63,6 +63,7 @@ spec:
           - notification-worker
           - work-reconciler
           - baseline-maintenance-worker
+          - integration-connector-worker
   policyTypes: [Egress]
   egress:
     - to:
@@ -96,6 +97,7 @@ spec:
                   - notification-worker
                   - work-reconciler
                   - baseline-maintenance-worker
+                  - integration-connector-worker
                   - spyglass-prototype-migration
       ports: [{protocol: TCP, port: 5432}]
     - from:

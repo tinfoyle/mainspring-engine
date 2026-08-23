@@ -56,12 +56,12 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 	if !slices.Equal(packages, wantPackages) {
 		t.Fatalf("packages=%v want=%v", packages, wantPackages)
 	}
-	for _, absent := range []string{"connector-runtime", "search-vector-store", "analytics-export-store"} {
+	for _, absent := range []string{"search-vector-store", "analytics-export-store"} {
 		if !slices.Contains(inventory.AbsentSurfaceKinds, absent) {
 			t.Errorf("absent surface %q is not declared", absent)
 		}
 	}
-	for _, executable := range []string{"production-mcp", "customer-export-api"} {
+	for _, executable := range []string{"production-mcp", "customer-export-api", "connector-runtime"} {
 		if slices.Contains(inventory.AbsentSurfaceKinds, executable) {
 			t.Errorf("executable surface %q remains declared absent", executable)
 		}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationhealth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -30,6 +31,18 @@ type processor interface {
 	ProcessOne(context.Context) (bool, error)
 }
 
+type combinedProcessor struct {
+	health, execution processor
+}
+
+func (processor *combinedProcessor) ProcessOne(ctx context.Context) (bool, error) {
+	worked, err := processor.health.ProcessOne(ctx)
+	if worked || err != nil {
+		return worked, err
+	}
+	return processor.execution.ProcessOne(ctx)
+}
+
 type Worker struct {
 	global, cell        *pgxpool.Pool
 	processor           processor
@@ -44,9 +57,9 @@ type Status struct {
 }
 
 func New(ctx context.Context, config Config, broker integrationexecution.CredentialBroker, contents integrationexecution.ContentSource,
-	definitions []integrationexecution.Definition, logger *slog.Logger) (*Worker, error) {
+	definitions []integrationexecution.Definition, healthDefinitions []integrationhealth.Definition, logger *slog.Logger) (*Worker, error) {
 	if config.GlobalDatabaseURL == "" || config.CellDatabaseURL == "" || !routecontext.ValidCellID(config.CellID) ||
-		broker == nil || contents == nil || len(definitions) == 0 || logger == nil {
+		broker == nil || contents == nil || len(definitions) == 0 || len(healthDefinitions) == 0 || logger == nil {
 		return nil, errors.New("Integration connector worker configuration is required")
 	}
 	if config.PollInterval == 0 {
@@ -88,7 +101,15 @@ func New(ctx context.Context, config Config, broker integrationexecution.Credent
 	if err != nil {
 		return closeOnError(err)
 	}
-	return &Worker{global: global, cell: cell, processor: application, poll: config.PollInterval, logger: logger}, nil
+	healthRepository, err := postgres.NewIntegrationHealthRepository(cell)
+	if err != nil {
+		return closeOnError(err)
+	}
+	healthApplication, err := integrationhealth.New(healthRepository, authority, broker, ids.RandomGenerator{}, registration.SystemClock{}, config.Lease, healthDefinitions)
+	if err != nil {
+		return closeOnError(err)
+	}
+	return &Worker{global: global, cell: cell, processor: &combinedProcessor{health: healthApplication, execution: application}, poll: config.PollInterval, logger: logger}, nil
 }
 
 func openPool(ctx context.Context, databaseURL string, maximum int32) (*pgxpool.Pool, error) {

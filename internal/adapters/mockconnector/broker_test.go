@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationcredentials"
 )
 
 func TestBrokerIssuesOneCopiedLeaseAndRecordsNoMaterial(t *testing.T) {
@@ -15,8 +15,8 @@ func TestBrokerIssuesOneCopiedLeaseAndRecordsNoMaterial(t *testing.T) {
 		t.Fatal(err)
 	}
 	credential.Material[0] = 'X'
-	request := integrationexecution.CredentialRequest{ExecutionID: "e1200000-0000-4000-8000-000000000002",
-		AttemptID: "e1300000-0000-4000-8000-000000000003", CredentialID: credential.ID, CredentialGeneration: 2, ExpiresAt: time.Now().Add(time.Minute)}
+	request := integrationcredentials.Request{OperationID: "e1300000-0000-4000-8000-000000000003", Purpose: integrationcredentials.PurposeExecute,
+		CredentialID: credential.ID, CredentialGeneration: 2, ExpiresAt: time.Now().Add(time.Minute)}
 	lease, err := broker.Acquire(context.Background(), request)
 	if err != nil || string(lease.Material()) != "local-secret" {
 		t.Fatalf("material=%q err=%v", lease.Material(), err)
@@ -28,8 +28,8 @@ func TestBrokerIssuesOneCopiedLeaseAndRecordsNoMaterial(t *testing.T) {
 	if len(acquisitions) != 1 || acquisitions[0].CredentialID != credential.ID || acquisitions[0].Generation != 2 {
 		t.Fatalf("acquisitions=%+v", acquisitions)
 	}
-	if _, err := broker.Acquire(context.Background(), integrationexecution.CredentialRequest{ExecutionID: request.ExecutionID,
-		AttemptID: request.AttemptID, CredentialID: credential.ID, CredentialGeneration: 3, ExpiresAt: request.ExpiresAt}); err == nil {
+	if _, err := broker.Acquire(context.Background(), integrationcredentials.Request{OperationID: request.OperationID, Purpose: request.Purpose,
+		CredentialID: credential.ID, CredentialGeneration: 3, ExpiresAt: request.ExpiresAt}); err == nil {
 		t.Fatal("unconfigured credential generation was leased")
 	}
 }

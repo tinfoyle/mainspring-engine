@@ -15,6 +15,7 @@ import (
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationhealth"
 	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
@@ -40,6 +41,24 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 
 	fixture := seedIntegrationAuthority(t, ctx, owner)
 	seedIntegrationConnection(t, ctx, owner, fixture)
+	healthRepository, err := postgresadapter.NewIntegrationHealthRepository(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probeAt := fixture.now.Add(9 * time.Minute)
+	probe, found, err := healthRepository.Claim(ctx, "82e10000-0000-4000-8000-000000000001", probeAt, probeAt.Add(time.Minute))
+	if err != nil || !found || probe.ConnectionID != ids.IntegrationConnectionID(fixture.connectionID) || probe.CredentialProvider != "mock_smtp" ||
+		probe.Scope.EmailAddress != "launch@example.com" || probe.Scope.AudienceReference != "audience:customers-v1" {
+		t.Fatalf("health probe=%+v found=%t err=%v", probe, found, err)
+	}
+	if err := healthRepository.Complete(ctx, integrationhealth.Completion{Claim: probe, State: integrationsdomain.HealthHealthy,
+		LatencyMilliseconds: 7, CheckedAt: probeAt}); err != nil {
+		t.Fatal(err)
+	}
+	if err := healthRepository.Complete(ctx, integrationhealth.Completion{Claim: probe, State: integrationsdomain.HealthHealthy,
+		LatencyMilliseconds: 7, CheckedAt: probeAt}); err == nil {
+		t.Fatal("completed Integration health probe lease was reusable")
+	}
 	cell, err := database.NewCellPool(owner)
 	if err != nil {
 		t.Fatal(err)

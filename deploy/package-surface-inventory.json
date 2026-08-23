@@ -17,7 +17,6 @@
     {"code": "integrations", "executable": false, "boundaries": []}
   ],
   "absent_surface_kinds": [
-    "connector-runtime",
     "search-vector-store",
     "analytics-export-store"
   ],

@@ -45,7 +45,7 @@ func TestWorkerCountsContentFreeOutcomesAndStopsOnCancellation(t *testing.T) {
 
 func TestWorkerRejectsIncompleteCompositionBeforeDatabaseAccess(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if _, err := New(context.Background(), Config{}, nil, nil, nil, logger); err == nil {
+	if _, err := New(context.Background(), Config{}, nil, nil, nil, nil, logger); err == nil {
 		t.Fatal("incomplete worker composition succeeded")
 	}
 }

@@ -225,7 +225,7 @@ func movementTables(ctx context.Context, pool *pgxpool.Pool) ([]movementTable, e
 		JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
 		JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
 		WHERE n.nspname='spyglass' AND c.relkind='r'
-		  AND c.relname NOT IN ('account_namespaces','account_move_checkpoints','account_erasure_tombstones','account_erasure_restore_ledger')
+		  AND c.relname NOT IN ('account_namespaces','account_move_checkpoints','account_erasure_tombstones','account_erasure_restore_ledger','integration_health_probe_queue')
 		  AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute account_column WHERE account_column.attrelid=c.oid AND account_column.attname='account_id' AND account_column.attnum>0 AND NOT account_column.attisdropped)
 		ORDER BY c.relname,a.attnum`)
 	if err != nil {

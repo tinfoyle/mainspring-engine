@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationcredentials"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -74,7 +74,7 @@ func New(root string) (*Broker, error) {
 	return broker, nil
 }
 
-func (broker *Broker) Acquire(ctx context.Context, request integrationexecution.CredentialRequest) (integrationexecution.CredentialLease, error) {
+func (broker *Broker) Acquire(ctx context.Context, request integrationcredentials.Request) (integrationcredentials.Lease, error) {
 	if broker == nil || !validRequest(request, time.Now().UTC()) {
 		return nil, ErrUnavailable
 	}
@@ -164,11 +164,10 @@ func (broker *Broker) readMaterial(relative string) ([]byte, error) {
 	return material, nil
 }
 
-func validRequest(request integrationexecution.CredentialRequest, now time.Time) bool {
-	return ids.Validate(string(request.AccountID)) == nil && ids.Validate(string(request.ExecutionID)) == nil &&
-		ids.Validate(string(request.AttemptID)) == nil && ids.Validate(string(request.ConnectionID)) == nil &&
+func validRequest(request integrationcredentials.Request, now time.Time) bool {
+	return ids.Validate(string(request.AccountID)) == nil && ids.Validate(request.OperationID) == nil && ids.Validate(string(request.ConnectionID)) == nil &&
 		ids.Validate(string(request.CredentialID)) == nil && request.CredentialGeneration > 0 &&
-		(request.Mode == domain.AttemptExecute || request.Mode == domain.AttemptReconcile) &&
+		(request.Purpose == integrationcredentials.PurposeExecute || request.Purpose == integrationcredentials.PurposeReconcile || request.Purpose == integrationcredentials.PurposeHealth) &&
 		(request.Capability == domain.CapabilityEmailSend || request.Capability == domain.CapabilityWebPublish) &&
 		validProvider.MatchString(request.CredentialProvider) && request.ReferenceSHA256 != [sha256.Size]byte{} && request.ExpiresAt.After(now)
 }
@@ -213,4 +212,4 @@ func wipe(value []byte) {
 	}
 }
 
-var _ integrationexecution.CredentialBroker = (*Broker)(nil)
+var _ integrationcredentials.Broker = (*Broker)(nil)

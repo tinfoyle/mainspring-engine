@@ -63,6 +63,7 @@ func LaunchRegistry() (*Registry, error) {
 	include("spyglass", "integrations", "integration_connection_revisions", "integration_connections", "integration_events", "integration_execution_attempts", "integration_execution_resolutions", "integration_executions", "integration_health_observations")
 	exclude("spyglass", Secret, "Credential references and their digests are security material and never enter portability artifacts.", "integration_credentials")
 	exclude("spyglass", Operational, "Integration execution queue leases and retries are transient processing controls.", "integration_execution_queue")
+	exclude("spyglass", Derived, "Provider health probe leases are regenerated from active Integration connection bindings.", "integration_health_probe_queue")
 	include("spyglass", "knowledge", "knowledge_claim_citations", "knowledge_claims", "knowledge_document_events", "knowledge_document_revisions", "knowledge_documents", "knowledge_events", "knowledge_evidence", "knowledge_fact_revisions", "knowledge_facts")
 	exclude("spyglass", Derived, "Search chunks are regenerated from the exported original document revisions.", "knowledge_document_chunks")
 	exclude("spyglass", Operational, "Document processing and deletion queues and receipts are internal lifecycle controls.", "knowledge_document_deletion_queue", "knowledge_document_deletion_receipts", "knowledge_document_processing_queue")

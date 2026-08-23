@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationcredentials"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -86,28 +87,9 @@ type PayloadSource interface {
 	Load(context.Context, Claim) (Payload, error)
 }
 
-type CredentialRequest struct {
-	AccountID            ids.AccountID
-	ExecutionID          ids.IntegrationExecutionID
-	AttemptID            ids.IntegrationAttemptID
-	Mode                 domain.AttemptMode
-	Capability           domain.Capability
-	ConnectionID         ids.IntegrationConnectionID
-	CredentialID         ids.IntegrationCredentialID
-	CredentialGeneration uint64
-	CredentialProvider   string
-	ReferenceSHA256      [sha256.Size]byte
-	ExpiresAt            time.Time
-}
-
-type CredentialLease interface {
-	Material() []byte
-	Close() error
-}
-
-type CredentialBroker interface {
-	Acquire(context.Context, CredentialRequest) (CredentialLease, error)
-}
+type CredentialRequest = integrationcredentials.Request
+type CredentialLease = integrationcredentials.Lease
+type CredentialBroker = integrationcredentials.Broker
 
 type ConnectorCall struct {
 	Claim      Claim
@@ -191,8 +173,12 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 		}
 		return true, errors.Join(service.completeWithoutEffect(ctx, claim, "delivery_manifest_unavailable"), err)
 	}
-	credentialLease, err := service.broker.Acquire(ctx, CredentialRequest{AccountID: claim.AccountID, ExecutionID: claim.ExecutionID,
-		AttemptID: claim.AttemptID, Mode: claim.Mode, Capability: claim.Capability, ConnectionID: claim.ConnectionID,
+	purpose := integrationcredentials.PurposeExecute
+	if claim.Mode == domain.AttemptReconcile {
+		purpose = integrationcredentials.PurposeReconcile
+	}
+	credentialLease, err := service.broker.Acquire(ctx, CredentialRequest{AccountID: claim.AccountID, OperationID: string(claim.AttemptID),
+		Purpose: purpose, Capability: claim.Capability, ConnectionID: claim.ConnectionID,
 		CredentialID: claim.CredentialID, CredentialGeneration: claim.CredentialGeneration, CredentialProvider: claim.CredentialProvider,
 		ReferenceSHA256: claim.CredentialReferenceSHA256, ExpiresAt: claim.LeaseExpiresAt})
 	if err != nil || credentialLease == nil {

@@ -61,10 +61,6 @@ INSERT INTO spyglass.integration_credentials
 VALUES ('82100000-0000-4000-8000-000000000001','82900000-0000-4000-8000-000000000009','82700000-0000-4000-8000-000000000007',1,'mock_smtp',decode(repeat('71',32),'hex'),'active','82300000-0000-4000-8000-000000000003',transaction_timestamp(),transaction_timestamp());
 UPDATE spyglass.integration_connections SET state='active',credential_id='82900000-0000-4000-8000-000000000009',credential_generation=1,version=2,updated_at=transaction_timestamp()
 WHERE account_id='82100000-0000-4000-8000-000000000001' AND id='82700000-0000-4000-8000-000000000007';
-INSERT INTO spyglass.integration_health_observations
-  (account_id,id,connection_id,connection_revision,credential_id,credential_generation,state,latency_milliseconds,checked_at)
-VALUES ('82100000-0000-4000-8000-000000000001','82e00000-0000-4000-8000-00000000000e','82700000-0000-4000-8000-000000000007',1,'82900000-0000-4000-8000-000000000009',1,'healthy',5,transaction_timestamp());
-
 INSERT INTO spyglass.integration_executions
   (account_id,id,release_id,release_version,approval_id,capability,connection_id,connection_revision_id,connection_revision,credential_id,credential_generation,payload_sha256,state,created_at,updated_at)
 VALUES ('82100000-0000-4000-8000-000000000001','82a00000-0000-4000-8000-00000000000a','82600000-0000-4000-8000-000000000006',3,'82400000-0000-4000-8000-000000000004','email.send',

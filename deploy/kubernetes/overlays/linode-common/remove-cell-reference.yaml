@@ -50,6 +50,21 @@ $patch: delete
 ---
 apiVersion: apps/v1
 kind: Deployment
+metadata: {name: integration-connector-worker-cell-reference, namespace: spyglass-reference}
+$patch: delete
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: integration-connector-worker-cell-reference, namespace: spyglass-reference}
+$patch: delete
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: integration-connector-worker-cell-reference, namespace: spyglass-reference}
+$patch: delete
+---
+apiVersion: apps/v1
+kind: Deployment
 metadata: {name: account-export-build-worker-cell-reference, namespace: spyglass-reference}
 $patch: delete
 ---

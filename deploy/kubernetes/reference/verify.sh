@@ -13,6 +13,7 @@ required_objects=(
   "name: schedule-execution-worker-cell-reference"
   "name: agent-projection-worker-cell-reference"
   "name: baseline-maintenance-worker-cell-reference"
+  "name: integration-connector-worker-cell-reference"
   "name: account-export-build-worker-cell-reference"
   "name: account-export-expiry-worker"
   "name: runner-controller-cell-reference"
@@ -40,6 +41,8 @@ grep -Fq 'value: https://tool-router.spyglass-reference.svc.cluster.local' "$ren
 grep -Fq 'mountPath: /var/lib/spyglass' "$rendered"
 grep -Fq 'sizeLimit: 34Gi' "$rendered"
 grep -Fq 'name: SPYGLASS_ACCOUNT_EXPORT_STAGING_ROOT' "$rendered"
+grep -Fq 'name: SPYGLASS_INTEGRATION_CREDENTIAL_ROOT' "$rendered"
+grep -Fq 'name: integration-connectors-to-public-providers' "$rendered"
 
 # The reference deliberately contains no credentials and never floats an
 # image. Environment overlays own Secret material and Spyglass release digests;

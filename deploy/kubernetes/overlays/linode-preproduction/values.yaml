@@ -102,6 +102,30 @@ data:
 ---
 apiVersion: v1
 kind: ConfigMap
+metadata: {name: spyglass-integration-connector-worker-cell-a-restore-checkpoints, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENV: preproduction
+  SPYGLASS_ENVIRONMENT: preproduction
+  SPYGLASS_CELL_ID: cell-us-east-01
+  SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+  SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: spyglass-integration-connector-worker-cell-b-restore-checkpoints, namespace: spyglass-reference}
+data:
+  SPYGLASS_ENV: preproduction
+  SPYGLASS_ENVIRONMENT: preproduction
+  SPYGLASS_CELL_ID: cell-us-west-01
+  SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+  SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: "0"
+  SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: "0000000000000000000000000000000000000000000000000000000000000000"
+---
+apiVersion: v1
+kind: ConfigMap
 metadata: {name: spyglass-website-runtime, namespace: spyglass-reference}
 data:
   SPYGLASS_ENVIRONMENT: preproduction

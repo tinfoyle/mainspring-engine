@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationcredentials"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -17,8 +17,8 @@ type Credential struct {
 }
 
 type Acquisition struct {
-	ExecutionID  ids.IntegrationExecutionID
-	AttemptID    ids.IntegrationAttemptID
+	OperationID  string
+	Purpose      integrationcredentials.Purpose
 	CredentialID ids.IntegrationCredentialID
 	Generation   uint64
 }
@@ -44,8 +44,8 @@ func NewBroker(credentials []Credential) (*Broker, error) {
 	return &Broker{credentials: values}, nil
 }
 
-func (broker *Broker) Acquire(_ context.Context, request integrationexecution.CredentialRequest) (integrationexecution.CredentialLease, error) {
-	if broker == nil || ids.Validate(string(request.ExecutionID)) != nil || ids.Validate(string(request.AttemptID)) != nil || request.ExpiresAt.IsZero() {
+func (broker *Broker) Acquire(_ context.Context, request integrationcredentials.Request) (integrationcredentials.Lease, error) {
+	if broker == nil || ids.Validate(request.OperationID) != nil || request.ExpiresAt.IsZero() {
 		return nil, errors.New("mock credential request is invalid")
 	}
 	broker.mu.Lock()
@@ -54,7 +54,7 @@ func (broker *Broker) Acquire(_ context.Context, request integrationexecution.Cr
 	if !exists {
 		return nil, errors.New("mock connector credential is unavailable")
 	}
-	broker.acquisitions = append(broker.acquisitions, Acquisition{ExecutionID: request.ExecutionID, AttemptID: request.AttemptID,
+	broker.acquisitions = append(broker.acquisitions, Acquisition{OperationID: request.OperationID, Purpose: request.Purpose,
 		CredentialID: request.CredentialID, Generation: request.CredentialGeneration})
 	return &credentialLease{material: append([]byte(nil), material...)}, nil
 }
@@ -97,4 +97,4 @@ func credentialKey(id ids.IntegrationCredentialID, generation uint64) string {
 	return string(id) + "/" + strconv.FormatUint(generation, 10)
 }
 
-var _ integrationexecution.CredentialBroker = (*Broker)(nil)
+var _ integrationcredentials.Broker = (*Broker)(nil)

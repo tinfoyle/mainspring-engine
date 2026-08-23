@@ -25,15 +25,20 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerlauncherhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/mockconnector"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/mountedcredentials"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/runnerbrokerhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/smtpconnector"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/webpublishconnector"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	agentqueueapp "github.com/tinfoyle/spyglass-engine/internal/application/agentqueueadmin"
 	baselinemaintenanceapp "github.com/tinfoyle/spyglass-engine/internal/application/baselinemaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationhealth"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -79,6 +84,7 @@ import (
 	schedulequeuecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/schedulequeueadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
+	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/observability"
@@ -2295,16 +2301,85 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 	if err != nil {
 		return err
 	}
-	if adapter != "mock" || (environment != "local" && environment != "local-secure") {
-		return errors.New("mock Integration connectors require a local environment")
-	}
-	runtimeFile, err := requiredEnv("SPYGLASS_MOCK_CONNECTOR_CONFIG_FILE")
-	if err != nil {
-		return err
-	}
-	runtime, err := mockconnector.LoadRuntime(runtimeFile)
-	if err != nil {
-		return err
+	var broker integrationexecution.CredentialBroker
+	var contents integrationexecution.ContentSource
+	var definitions []integrationexecution.Definition
+	var healthDefinitions []integrationhealth.Definition
+	var connectorReadiness func(context.Context) error
+	switch adapter {
+	case "mock":
+		if environment != "local" && environment != "local-secure" {
+			return errors.New("mock Integration connectors require a local environment")
+		}
+		runtimeFile, runtimeErr := requiredEnv("SPYGLASS_MOCK_CONNECTOR_CONFIG_FILE")
+		if runtimeErr != nil {
+			return runtimeErr
+		}
+		runtime, runtimeErr := mockconnector.LoadRuntime(runtimeFile)
+		if runtimeErr != nil {
+			return runtimeErr
+		}
+		broker, contents, definitions, healthDefinitions = runtime.Broker, runtime.Contents, runtime.Definitions, runtime.HealthDefinitions
+	case "production":
+		if environment != "stage" && environment != "preproduction" && environment != "production" {
+			return errors.New("production Integration connectors require stage, preproduction, or production")
+		}
+		credentialRoot, rootErr := requiredEnv("SPYGLASS_INTEGRATION_CREDENTIAL_ROOT")
+		if rootErr != nil {
+			return rootErr
+		}
+		mountedBroker, brokerErr := mountedcredentials.New(credentialRoot)
+		if brokerErr != nil {
+			return brokerErr
+		}
+		endpoint, endpointErr := requiredEnv("SPYGLASS_OBJECT_STORE_ENDPOINT")
+		if endpointErr != nil {
+			return endpointErr
+		}
+		bucket, bucketErr := requiredEnv("SPYGLASS_OBJECT_STORE_BUCKET")
+		if bucketErr != nil {
+			return bucketErr
+		}
+		accessKey, accessErr := requiredEnv("SPYGLASS_OBJECT_STORE_ACCESS_KEY")
+		if accessErr != nil {
+			return accessErr
+		}
+		secretKey, secretErr := requiredEnv("SPYGLASS_OBJECT_STORE_SECRET_KEY")
+		if secretErr != nil {
+			return secretErr
+		}
+		secure, secureErr := boolEnv("SPYGLASS_OBJECT_STORE_SECURE", false)
+		if secureErr != nil {
+			return secureErr
+		}
+		sse, sseErr := boolEnv("SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", true)
+		if sseErr != nil {
+			return sseErr
+		}
+		objectStore, storeErr := s3objects.New(s3objects.Config{Endpoint: endpoint, Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: bucket,
+			AccessKey: accessKey, SecretKey: secretKey, Secure: secure, ServerSideEncryption: sse})
+		if storeErr != nil {
+			return storeErr
+		}
+		smtpTimeout, timeoutErr := durationEnv("SPYGLASS_SMTP_CONNECTOR_TIMEOUT", 30*time.Second)
+		if timeoutErr != nil || smtpTimeout < 100*time.Millisecond || smtpTimeout > integrationexecution.MaximumLease {
+			return errors.New("SPYGLASS_SMTP_CONNECTOR_TIMEOUT must be between 100ms and 5m")
+		}
+		webTimeout, timeoutErr := durationEnv("SPYGLASS_WEB_PUBLISH_CONNECTOR_TIMEOUT", 30*time.Second)
+		if timeoutErr != nil || webTimeout < 100*time.Millisecond || webTimeout > integrationexecution.MaximumLease {
+			return errors.New("SPYGLASS_WEB_PUBLISH_CONNECTOR_TIMEOUT must be between 100ms and 5m")
+		}
+		broker, contents, connectorReadiness = mountedBroker, objectStore, objectStore.VerifyReadOnly
+		definitions = []integrationexecution.Definition{
+			{Capability: integrationsdomain.CapabilityEmailSend, Timeout: smtpTimeout, Connector: smtpconnector.New()},
+			{Capability: integrationsdomain.CapabilityWebPublish, Timeout: webTimeout, Connector: webpublishconnector.New()},
+		}
+		healthDefinitions = []integrationhealth.Definition{
+			{Kind: integrationsdomain.ConnectorEmail, Timeout: smtpTimeout, Probe: smtpconnector.New()},
+			{Kind: integrationsdomain.ConnectorWebPublish, Timeout: webTimeout, Probe: webpublishconnector.New()},
+		}
+	default:
+		return errors.New("SPYGLASS_CONNECTOR_ADAPTER must be mock or production")
 	}
 	globalDatabaseURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
 	if err != nil {
@@ -2346,10 +2421,15 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 	}
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if connectorReadiness != nil {
+		if err := connectorReadiness(startup); err != nil {
+			return err
+		}
+	}
 	worker, err := integrationconnectorworker.New(startup, integrationconnectorworker.Config{
 		GlobalDatabaseURL: globalDatabaseURL, CellDatabaseURL: cellDatabaseURL, CellID: ids.CellID(cellID),
 		MaxGlobalConns: globalConns, MaxCellConns: cellConns, PollInterval: poll, Lease: lease,
-	}, runtime.Broker, runtime.Contents, runtime.Definitions, logger)
+	}, broker, contents, definitions, healthDefinitions, logger)
 	if err != nil {
 		return err
 	}

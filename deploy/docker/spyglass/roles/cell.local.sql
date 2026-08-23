@@ -105,7 +105,9 @@ GRANT SELECT ON spyglass.marketing_release_plans, spyglass.marketing_release_ass
   spyglass.integration_connection_revisions TO spyglass_integration_connector_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_integration_execution(uuid,timestamptz,timestamptz),
   public.spyglass_claim_integration_execution_v2(uuid,timestamptz,timestamptz),
-  public.spyglass_complete_integration_execution(uuid,uuid,uuid,text,text,timestamptz,timestamptz)
+  public.spyglass_complete_integration_execution(uuid,uuid,uuid,text,text,timestamptz,timestamptz),
+  public.spyglass_claim_integration_health_probe(uuid,timestamptz,timestamptz),
+  public.spyglass_complete_integration_health_probe(uuid,uuid,uuid,uuid,bigint,uuid,bigint,text,text,integer,timestamptz)
   TO spyglass_integration_connector_worker;
 
 GRANT SELECT, UPDATE, DELETE ON spyglass.route_context_receipt_cleanup_queue,

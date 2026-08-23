@@ -216,6 +216,28 @@ services:
       SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE:-0}
       SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
     depends_on: {global-roles: {condition: service_completed_successfully}, cell-b-roles: {condition: service_completed_successfully}}
+  integration-connector-worker-a:
+    environment:
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+      SPYGLASS_CONNECTOR_ADAPTER: production
+      SPYGLASS_INTEGRATION_CREDENTIAL_ROOT: /run/spyglass/integration-credentials
+    volumes: ["${SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY:?set Integration credentials directory}:/run/spyglass/integration-credentials:ro"]
+    networks: [application, database, provider-egress]
+    depends_on: {global-roles: {condition: service_completed_successfully}, cell-a-roles: {condition: service_completed_successfully}, object-store-init: {condition: service_completed_successfully}}
+  integration-connector-worker-b:
+    environment:
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE:-0}
+      SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
+      SPYGLASS_CONNECTOR_ADAPTER: production
+      SPYGLASS_INTEGRATION_CREDENTIAL_ROOT: /run/spyglass/integration-credentials
+    volumes: ["${SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY:?set Integration credentials directory}:/run/spyglass/integration-credentials:ro"]
+    networks: [application, database, provider-egress]
+    depends_on: {global-roles: {condition: service_completed_successfully}, cell-b-roles: {condition: service_completed_successfully}, object-store-init: {condition: service_completed_successfully}}
   route-receipt-worker-a:
     environment: *cell-restore
     depends_on: {cell-a-roles: {condition: service_completed_successfully}}

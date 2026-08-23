@@ -18,6 +18,7 @@ resources:
   - identity-maintenance-worker.yaml
   - work-reconciler.yaml
   - baseline-maintenance-worker.yaml
+  - integration-connector-worker.yaml
   - route-receipt-worker.yaml
   - agent-dispatch-worker.yaml
   - schedule-execution-worker.yaml
