@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
 
 type ProducedArtifact struct {
@@ -43,24 +44,25 @@ type BuildFailure interface {
 }
 
 type BuildProcessor struct {
-	store      Store
+	store      BuildStore
 	producer   Producer
 	ids        ids.Generator
 	clock      Clock
+	cellID     ids.CellID
 	lease      time.Duration
 	retryDelay time.Duration
 }
 
-func NewBuildProcessor(store Store, producer Producer, generator ids.Generator, clock Clock, lease, retryDelay time.Duration) (*BuildProcessor, error) {
-	if store == nil || producer == nil || generator == nil || clock == nil || lease <= 0 || lease > 30*time.Minute || retryDelay <= 0 || retryDelay > 24*time.Hour {
+func NewBuildProcessor(store BuildStore, producer Producer, generator ids.Generator, clock Clock, cellID ids.CellID, lease, retryDelay time.Duration) (*BuildProcessor, error) {
+	if store == nil || producer == nil || generator == nil || clock == nil || !routecontext.ValidCellID(cellID) || lease <= 0 || lease > 30*time.Minute || retryDelay <= 0 || retryDelay > 24*time.Hour {
 		return nil, ErrInvalid
 	}
-	return &BuildProcessor{store: store, producer: producer, ids: generator, clock: clock, lease: lease, retryDelay: retryDelay}, nil
+	return &BuildProcessor{store: store, producer: producer, ids: generator, clock: clock, cellID: cellID, lease: lease, retryDelay: retryDelay}, nil
 }
 
 func (processor *BuildProcessor) ProcessOne(ctx context.Context) (bool, error) {
 	now := processor.clock.Now().UTC()
-	work, found, err := processor.store.ClaimBuild(ctx, now, processor.lease, processor.ids.New(), processor.ids.New())
+	work, found, err := processor.store.ClaimBuild(ctx, processor.cellID, now, processor.lease, processor.ids.New(), processor.ids.New())
 	if err != nil || !found {
 		return found, err
 	}
@@ -99,14 +101,14 @@ type ArtifactDeleter interface {
 }
 
 type ExpiryProcessor struct {
-	store   Store
+	store   ExpiryStore
 	deleter ArtifactDeleter
 	ids     ids.Generator
 	clock   Clock
 	lease   time.Duration
 }
 
-func NewExpiryProcessor(store Store, deleter ArtifactDeleter, generator ids.Generator, clock Clock, lease time.Duration) (*ExpiryProcessor, error) {
+func NewExpiryProcessor(store ExpiryStore, deleter ArtifactDeleter, generator ids.Generator, clock Clock, lease time.Duration) (*ExpiryProcessor, error) {
 	if store == nil || deleter == nil || generator == nil || clock == nil || lease <= 0 || lease > 30*time.Minute {
 		return nil, ErrInvalid
 	}

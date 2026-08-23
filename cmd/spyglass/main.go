@@ -49,6 +49,7 @@ import (
 	workreleaseapp "github.com/tinfoyle/spyglass-engine/internal/application/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountapi"
 	accounterasurecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/accounterasureadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountexportworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountlifecycleworker"
 	accountmovecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountmoveadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
@@ -147,6 +148,10 @@ func main() {
 		err = runEntitlementWorker(ctx, logger)
 	case "account-lifecycle-worker":
 		err = runAccountLifecycleWorker(ctx, logger)
+	case "account-export-build-worker":
+		err = runAccountExportBuildWorker(ctx, logger)
+	case "account-export-expiry-worker":
+		err = runAccountExportExpiryWorker(ctx, logger)
 	case "identity-maintenance-worker":
 		err = runIdentityMaintenanceWorker(ctx, logger)
 	case "work-reconciler":
@@ -194,7 +199,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1419,6 +1424,139 @@ func runAccountLifecycleWorker(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "account-lifecycle", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
+}
+
+func runAccountExportBuildWorker(ctx context.Context, logger *slog.Logger) error {
+	globalURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	cellURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	cellID, err := requiredEnv("SPYGLASS_CELL_ID")
+	if err != nil {
+		return err
+	}
+	stagingRoot, err := requiredEnv("SPYGLASS_ACCOUNT_EXPORT_STAGING_ROOT")
+	if err != nil {
+		return err
+	}
+	globalRestore, err := openRequiredRestoreGate(ctx, globalURL, restoregate.Global, "SPYGLASS_GLOBAL_")
+	if err != nil {
+		return err
+	}
+	defer globalRestore.Close()
+	cellRestore, err := openRequiredRestoreGate(ctx, cellURL, restoregate.Cell, "SPYGLASS_CELL_")
+	if err != nil {
+		return err
+	}
+	defer cellRestore.Close()
+	globalConns, err := int32Env("SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", 3)
+	if err != nil {
+		return err
+	}
+	cellConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_ACCOUNT_EXPORT_POLL_INTERVAL", time.Second)
+	if err != nil || poll < 100*time.Millisecond || poll > time.Minute {
+		return errors.New("SPYGLASS_ACCOUNT_EXPORT_POLL_INTERVAL must be between 100ms and 1m")
+	}
+	lease, err := durationEnv("SPYGLASS_ACCOUNT_EXPORT_BUILD_LEASE", 20*time.Minute)
+	if err != nil || lease < time.Second || lease > 30*time.Minute {
+		return errors.New("SPYGLASS_ACCOUNT_EXPORT_BUILD_LEASE must be between 1s and 30m")
+	}
+	retry, err := durationEnv("SPYGLASS_ACCOUNT_EXPORT_RETRY_DELAY", 5*time.Minute)
+	if err != nil || retry < time.Second || retry > 24*time.Hour {
+		return errors.New("SPYGLASS_ACCOUNT_EXPORT_RETRY_DELAY must be between 1s and 24h")
+	}
+	secure, err := boolEnv("SPYGLASS_OBJECT_STORE_SECURE", false)
+	if err != nil {
+		return err
+	}
+	sse, err := boolEnv("SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", true)
+	if err != nil {
+		return err
+	}
+	source, err := accountExportObjectConfig("SPYGLASS_ACCOUNT_EXPORT_SOURCE_OBJECT_STORE_", envOr("SPYGLASS_OBJECT_STORE_BUCKET", "spyglass-documents"), secure, sse)
+	if err != nil {
+		return err
+	}
+	artifacts, err := accountExportObjectConfig("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUILD_", envOr("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "spyglass-account-exports"), secure, sse)
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	worker, err := accountexportworker.NewBuild(startup, accountexportworker.BuildConfig{GlobalDatabaseURL: globalURL, CellDatabaseURL: cellURL,
+		CellID: ids.CellID(cellID), GlobalMaxConns: globalConns, CellMaxConns: cellConns, PollInterval: poll, Lease: lease, RetryDelay: retry,
+		StagingRoot: stagingRoot, SourceObjects: source, ArtifactObjects: artifacts}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "account-export-build", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{globalRestore, cellRestore}}, logger)
+}
+
+func runAccountExportExpiryWorker(ctx context.Context, logger *slog.Logger) error {
+	globalURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	globalRestore, err := openRequiredRestoreGate(ctx, globalURL, restoregate.Global, "SPYGLASS_GLOBAL_")
+	if err != nil {
+		return err
+	}
+	defer globalRestore.Close()
+	globalConns, err := int32Env("SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", 3)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_ACCOUNT_EXPORT_EXPIRY_POLL_INTERVAL", time.Minute)
+	if err != nil || poll < 100*time.Millisecond || poll > time.Minute {
+		return errors.New("SPYGLASS_ACCOUNT_EXPORT_EXPIRY_POLL_INTERVAL must be between 100ms and 1m")
+	}
+	lease, err := durationEnv("SPYGLASS_ACCOUNT_EXPORT_EXPIRY_LEASE", 5*time.Minute)
+	if err != nil || lease < time.Second || lease > 30*time.Minute {
+		return errors.New("SPYGLASS_ACCOUNT_EXPORT_EXPIRY_LEASE must be between 1s and 30m")
+	}
+	secure, err := boolEnv("SPYGLASS_OBJECT_STORE_SECURE", false)
+	if err != nil {
+		return err
+	}
+	sse, err := boolEnv("SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", true)
+	if err != nil {
+		return err
+	}
+	artifacts, err := accountExportObjectConfig("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_EXPIRY_", envOr("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "spyglass-account-exports"), secure, sse)
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	worker, err := accountexportworker.NewExpiry(startup, accountexportworker.ExpiryConfig{GlobalDatabaseURL: globalURL, GlobalMaxConns: globalConns,
+		PollInterval: poll, Lease: lease, ArtifactObjects: artifacts}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "account-export-expiry", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{globalRestore}}, logger)
+}
+
+func accountExportObjectConfig(prefix, bucket string, secure, sse bool) (accountexportworker.ObjectConfig, error) {
+	accessKey, err := requiredEnv(prefix + "ACCESS_KEY")
+	if err != nil {
+		return accountexportworker.ObjectConfig{}, err
+	}
+	secretKey, err := requiredEnv(prefix + "SECRET_KEY")
+	if err != nil {
+		return accountexportworker.ObjectConfig{}, err
+	}
+	return accountexportworker.ObjectConfig{Endpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"),
+		Bucket: bucket, AccessKey: accessKey, SecretKey: secretKey, Secure: secure, SSE: sse}, nil
 }
 
 func runIdentityMaintenanceWorker(ctx context.Context, logger *slog.Logger) error {

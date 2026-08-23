@@ -135,8 +135,8 @@ func (repository *AccountExportRepository) Cancel(ctx context.Context, mutation 
 	return status, nil
 }
 
-func (repository *AccountExportRepository) ClaimBuild(ctx context.Context, now time.Time, lease time.Duration, leaseID, eventID string) (accountexport.Work, bool, error) {
-	if now.IsZero() || lease <= 0 || lease > 30*time.Minute || ids.Validate(leaseID) != nil || ids.Validate(eventID) != nil {
+func (repository *AccountExportRepository) ClaimBuild(ctx context.Context, cellID ids.CellID, now time.Time, lease time.Duration, leaseID, eventID string) (accountexport.Work, bool, error) {
+	if !routecontext.ValidCellID(cellID) || now.IsZero() || lease <= 0 || lease > 30*time.Minute || ids.Validate(leaseID) != nil || ids.Validate(eventID) != nil {
 		return accountexport.Work{}, false, accountexport.ErrInvalid
 	}
 	tx, err := repository.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -145,10 +145,10 @@ func (repository *AccountExportRepository) ClaimBuild(ctx context.Context, now t
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	expired, expireErr := scanAccountExport(tx.QueryRow(ctx, `WITH candidate AS (
-		SELECT id AS request_id FROM account_export_requests WHERE state IN ('queued','building') AND expires_at<=$1
+		SELECT id AS request_id FROM account_export_requests WHERE state IN ('queued','building') AND expires_at<=$1 AND cell_id=$2
 		ORDER BY expires_at,id FOR UPDATE SKIP LOCKED LIMIT 1
 	) UPDATE account_export_requests request SET state='failed',next_attempt_at=NULL,lease_id=NULL,lease_expires_at=NULL,
-		error_code='request_expired',version=request.version+1 FROM candidate WHERE request.id=candidate.request_id RETURNING `+accountExportStatusColumns, now))
+		error_code='request_expired',version=request.version+1 FROM candidate WHERE request.id=candidate.request_id RETURNING `+accountExportStatusColumns, now, cellID))
 	if expireErr == nil {
 		if err := insertAccountExportEvent(ctx, tx, eventID, expired, "build_failed", "workload", "account-export-worker", "request_expired"); err != nil {
 			return accountexport.Work{}, false, classifyAccountExport(err)
@@ -163,14 +163,14 @@ func (repository *AccountExportRepository) ClaimBuild(ctx context.Context, now t
 	}
 	drifted, driftErr := scanAccountExport(tx.QueryRow(ctx, `WITH candidate AS (
 		SELECT request.id AS request_id FROM account_export_requests request
-		WHERE request.state IN ('queued','building') AND NOT EXISTS (
+		WHERE request.state IN ('queued','building') AND request.cell_id=$1 AND NOT EXISTS (
 			SELECT 1 FROM accounts account JOIN account_directory directory ON directory.account_id=account.id
 			WHERE account.id=request.account_id AND account.state='active' AND account.cell_id=request.cell_id
 			  AND account.placement_generation=request.placement_generation AND account.version=request.account_version
 			  AND directory.cell_id=request.cell_id AND directory.placement_generation=request.placement_generation AND directory.state='active'
 		) ORDER BY request.requested_at,request.id FOR UPDATE OF request SKIP LOCKED LIMIT 1
 	) UPDATE account_export_requests request SET state='failed',next_attempt_at=NULL,lease_id=NULL,lease_expires_at=NULL,
-		error_code='placement_changed',version=request.version+1 FROM candidate WHERE request.id=candidate.request_id RETURNING `+accountExportStatusColumns))
+		error_code='placement_changed',version=request.version+1 FROM candidate WHERE request.id=candidate.request_id RETURNING `+accountExportStatusColumns, cellID))
 	if driftErr == nil {
 		if err := insertAccountExportEvent(ctx, tx, eventID, drifted, "build_failed", "workload", "account-export-worker", "placement_changed"); err != nil {
 			return accountexport.Work{}, false, classifyAccountExport(err)
@@ -186,7 +186,7 @@ func (repository *AccountExportRepository) ClaimBuild(ctx context.Context, now t
 	var work accountexport.Work
 	err = tx.QueryRow(ctx, `WITH candidate AS (
 		SELECT request.id FROM account_export_requests request
-		WHERE request.expires_at>$1 AND ((request.state='queued' AND request.next_attempt_at<=$1) OR (request.state='building' AND request.lease_expires_at<=$1))
+		WHERE request.expires_at>$1 AND request.cell_id=$2 AND ((request.state='queued' AND request.next_attempt_at<=$1) OR (request.state='building' AND request.lease_expires_at<=$1))
 		AND EXISTS (SELECT 1 FROM accounts account JOIN account_directory directory ON directory.account_id=account.id
 			WHERE account.id=request.account_id AND account.state='active' AND account.cell_id=request.cell_id
 			  AND account.placement_generation=request.placement_generation AND account.version=request.account_version
@@ -194,10 +194,10 @@ func (repository *AccountExportRepository) ClaimBuild(ctx context.Context, now t
 		ORDER BY CASE WHEN state='building' THEN 0 ELSE 1 END,COALESCE(lease_expires_at,next_attempt_at),id
 		FOR UPDATE SKIP LOCKED LIMIT 1
 	) UPDATE account_export_requests request SET state='building',attempt_count=request.attempt_count+1,next_attempt_at=NULL,
-		lease_id=$2,lease_expires_at=$3,error_code=NULL,version=request.version+1 FROM candidate
+		lease_id=$3,lease_expires_at=$4,error_code=NULL,version=request.version+1 FROM candidate
 	WHERE request.id=candidate.id RETURNING request.id::text,request.account_id::text,request.requested_by_user_id::text,
 		request.cell_id,request.placement_generation,request.account_version,request.attempt_count,request.version,request.requested_at,request.expires_at`,
-		now, leaseID, now.Add(lease)).Scan(&work.ID, &work.AccountID, &work.RequestedBy, &work.CellID, &work.PlacementGeneration,
+		now, cellID, leaseID, now.Add(lease)).Scan(&work.ID, &work.AccountID, &work.RequestedBy, &work.CellID, &work.PlacementGeneration,
 		&work.AccountVersion, &work.AttemptCount, &work.Version, &work.RequestedAt, &work.ExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return accountexport.Work{}, false, nil
@@ -431,4 +431,6 @@ func classifyAccountExport(err error) error {
 	return err
 }
 
-var _ accountexport.Store = (*AccountExportRepository)(nil)
+var _ accountexport.RequestStore = (*AccountExportRepository)(nil)
+var _ accountexport.BuildStore = (*AccountExportRepository)(nil)
+var _ accountexport.ExpiryStore = (*AccountExportRepository)(nil)

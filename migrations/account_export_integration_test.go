@@ -39,16 +39,19 @@ func TestAccountExportRequestsAreLeaseFencedAndExpireExactly(t *testing.T) {
 	otherAccountID := ids.AccountID("e4100000-0000-4000-8000-000000000002")
 	ownerID := ids.UserID("e4200000-0000-4000-8000-000000000001")
 	memberID := ids.UserID("e4200000-0000-4000-8000-000000000002")
-	if _, err := pool.Exec(ctx, `INSERT INTO users(id,primary_email,display_name,state,email_verified_at,created_at)
+	if _, err := pool.Exec(ctx, `INSERT INTO cells(id,region,state,assigned_accounts,soft_account_limit,created_at)
+		VALUES ('cell-us-west-01','us-west','active',0,1000,$5);
+		INSERT INTO users(id,primary_email,display_name,state,email_verified_at,created_at)
 		VALUES ($1,'export-owner@example.com','Export Owner','active',$5,$5),($2,'export-member@example.com','Export Member','active',$5,$5);
 		INSERT INTO accounts(id,slug,display_name,account_type,state,cell_id,placement_generation,entitlement_version,last_catalog_reconciled_version,version,created_by_user_id,created_at)
 		VALUES ($3,'export-account','Export Account','free','active','cell-us-east-01',1,1,1,1,$1,$5),
-		       ($4,'other-export-account','Other Export Account','free','active','cell-us-east-01',1,1,1,1,$1,$5);
+		       ($4,'other-export-account','Other Export Account','free','active','cell-us-west-01',1,1,1,1,$1,$5);
 		INSERT INTO account_directory(account_id,cell_id,placement_generation,state,data_region,updated_at)
-		VALUES ($3,'cell-us-east-01',1,'active','us-east',$5),($4,'cell-us-east-01',1,'active','us-east',$5);
+		VALUES ($3,'cell-us-east-01',1,'active','us-east',$5),($4,'cell-us-west-01',1,'active','us-west',$5);
 		INSERT INTO memberships(id,account_id,user_id,role,state,version,created_at)
 		VALUES ('e4300000-0000-4000-8000-000000000001',$3,$1,'owner','active',1,$5),
-		       ('e4300000-0000-4000-8000-000000000002',$3,$2,'member','active',1,$5)`,
+		       ('e4300000-0000-4000-8000-000000000002',$3,$2,'member','active',1,$5),
+		       ('e4300000-0000-4000-8000-000000000003',$4,$1,'owner','active',1,$5)`,
 		pgx.QueryExecModeSimpleProtocol, ownerID, memberID, accountID, otherAccountID, now); err != nil {
 		t.Fatal(err)
 	}
@@ -69,12 +72,21 @@ func TestAccountExportRequestsAreLeaseFencedAndExpireExactly(t *testing.T) {
 	if _, err := repository.Create(ctx, unauthorized); err == nil {
 		t.Fatal("ordinary member created complete Account export")
 	}
+	west := accountexport.CreateMutation{ID: "e4400000-0000-4000-8000-000000000004", EventID: "e4500000-0000-4000-8000-000000000020",
+		AccountID: otherAccountID, RequestedBy: ownerID, CellID: "cell-us-west-01", PlacementGeneration: 1, RequestedAt: now.Add(-time.Minute), ExpiresAt: now.Add(7 * 24 * time.Hour)}
+	if _, err := repository.Create(ctx, west); err != nil {
+		t.Fatalf("create west-cell request: %v", err)
+	}
 
-	work, claimed, err := repository.ClaimBuild(ctx, now, 5*time.Minute, "e4600000-0000-4000-8000-000000000001", "e4500000-0000-4000-8000-000000000004")
+	work, claimed, err := repository.ClaimBuild(ctx, "cell-us-east-01", now, 5*time.Minute, "e4600000-0000-4000-8000-000000000001", "e4500000-0000-4000-8000-000000000004")
 	if err != nil || !claimed || work.Version != 2 || work.AttemptCount != 1 || work.AccountVersion != 1 {
 		t.Fatalf("first claim=%+v claimed=%v err=%v", work, claimed, err)
 	}
-	if _, claimed, err := repository.ClaimBuild(ctx, now, 5*time.Minute, "e4600000-0000-4000-8000-000000000002", "e4500000-0000-4000-8000-000000000005"); err != nil || claimed {
+	westStatus, err := repository.Get(ctx, otherAccountID, west.ID)
+	if err != nil || westStatus.State != accountexport.StateQueued || westStatus.AttemptCount != 0 {
+		t.Fatalf("east worker changed west request: %+v err=%v", westStatus, err)
+	}
+	if _, claimed, err := repository.ClaimBuild(ctx, "cell-us-east-01", now, 5*time.Minute, "e4600000-0000-4000-8000-000000000002", "e4500000-0000-4000-8000-000000000005"); err != nil || claimed {
 		t.Fatalf("active lease second claim=%v err=%v", claimed, err)
 	}
 	requeued, err := repository.RecordFailure(ctx, accountexport.FailureMutation{Work: work, EventID: "e4500000-0000-4000-8000-000000000006",
@@ -82,7 +94,7 @@ func TestAccountExportRequestsAreLeaseFencedAndExpireExactly(t *testing.T) {
 	if err != nil || requeued.State != accountexport.StateQueued || requeued.Version != 3 {
 		t.Fatalf("requeued=%+v err=%v", requeued, err)
 	}
-	work, claimed, err = repository.ClaimBuild(ctx, now.Add(10*time.Minute), 5*time.Minute, "e4600000-0000-4000-8000-000000000003", "e4500000-0000-4000-8000-000000000007")
+	work, claimed, err = repository.ClaimBuild(ctx, "cell-us-east-01", now.Add(10*time.Minute), 5*time.Minute, "e4600000-0000-4000-8000-000000000003", "e4500000-0000-4000-8000-000000000007")
 	if err != nil || !claimed || work.Version != 4 || work.AttemptCount != 2 {
 		t.Fatalf("retry claim=%+v claimed=%v err=%v", work, claimed, err)
 	}
@@ -147,7 +159,7 @@ func TestAccountExportRequestsAreLeaseFencedAndExpireExactly(t *testing.T) {
 	if err != nil || createdAfterExpiry.State != accountexport.StateQueued {
 		t.Fatalf("new request after deletion=%+v err=%v", createdAfterExpiry, err)
 	}
-	if _, claimed, err := repository.ClaimBuild(ctx, second.ExpiresAt, 5*time.Minute, "e4600000-0000-4000-8000-000000000004", "e4500000-0000-4000-8000-000000000013"); err != nil || claimed {
+	if _, claimed, err := repository.ClaimBuild(ctx, "cell-us-east-01", second.ExpiresAt, 5*time.Minute, "e4600000-0000-4000-8000-000000000004", "e4500000-0000-4000-8000-000000000013"); err != nil || claimed {
 		t.Fatalf("expired request claim=%v err=%v", claimed, err)
 	}
 	expired, err := repository.Get(ctx, accountID, second.ID)
@@ -159,7 +171,7 @@ func TestAccountExportRequestsAreLeaseFencedAndExpireExactly(t *testing.T) {
 	if _, err := repository.Create(ctx, third); err != nil {
 		t.Fatalf("create movement-race request: %v", err)
 	}
-	movementWork, claimed, err := repository.ClaimBuild(ctx, third.RequestedAt, 5*time.Minute, "e4600000-0000-4000-8000-000000000005", "e4500000-0000-4000-8000-000000000014")
+	movementWork, claimed, err := repository.ClaimBuild(ctx, "cell-us-east-01", third.RequestedAt, 5*time.Minute, "e4600000-0000-4000-8000-000000000005", "e4500000-0000-4000-8000-000000000014")
 	if err != nil || !claimed {
 		t.Fatalf("movement-race claim=%+v claimed=%v err=%v", movementWork, claimed, err)
 	}
@@ -172,7 +184,7 @@ func TestAccountExportRequestsAreLeaseFencedAndExpireExactly(t *testing.T) {
 			GlobalAt: third.RequestedAt.Add(time.Minute), CellAt: third.RequestedAt.Add(2 * time.Minute)}, Artifact: artifact, AvailableAt: third.RequestedAt.Add(3 * time.Minute)}); !errors.Is(err, accountexport.ErrLeaseConflict) {
 		t.Fatalf("completion across movement error=%v", err)
 	}
-	if _, claimed, err := repository.ClaimBuild(ctx, third.RequestedAt.Add(3*time.Minute), 5*time.Minute, "e4600000-0000-4000-8000-000000000006", "e4500000-0000-4000-8000-000000000016"); err != nil || claimed {
+	if _, claimed, err := repository.ClaimBuild(ctx, "cell-us-east-01", third.RequestedAt.Add(3*time.Minute), 5*time.Minute, "e4600000-0000-4000-8000-000000000006", "e4500000-0000-4000-8000-000000000016"); err != nil || claimed {
 		t.Fatalf("movement drift claim=%v err=%v", claimed, err)
 	}
 	drifted, err := repository.Get(ctx, accountID, third.ID)

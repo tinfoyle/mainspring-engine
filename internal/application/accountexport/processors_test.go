@@ -36,8 +36,11 @@ func (*processorStore) List(context.Context, ids.AccountID, uint64) ([]Status, e
 	return nil, nil
 }
 func (*processorStore) Cancel(context.Context, CancelMutation) (Status, error) { return Status{}, nil }
-func (store *processorStore) ClaimBuild(_ context.Context, _ time.Time, _ time.Duration, leaseID, _ string) (Work, bool, error) {
+func (store *processorStore) ClaimBuild(_ context.Context, cellID ids.CellID, _ time.Time, _ time.Duration, leaseID, _ string) (Work, bool, error) {
 	work := store.work
+	if work.CellID != "" && work.CellID != cellID {
+		return Work{}, false, nil
+	}
 	work.LeaseID = leaseID
 	return work, store.found, nil
 }
@@ -103,7 +106,7 @@ func TestBuildProcessorCompletesOnlyExactProducedArtifact(t *testing.T) {
 	store := &processorStore{work: processorWork(now), found: true}
 	produced := ProducedArtifact{Snapshot: Snapshot{CellID: "cell-us-east-01", PlacementGeneration: 2, AccountVersion: 7,
 		GlobalAt: now.Add(time.Minute), CellAt: now.Add(2 * time.Minute)}, Artifact: processorArtifact()}
-	processor, err := NewBuildProcessor(store, producerStub{result: produced}, &processorIDs{}, exportClock{now.Add(3 * time.Minute)}, 5*time.Minute, time.Minute)
+	processor, err := NewBuildProcessor(store, producerStub{result: produced}, &processorIDs{}, exportClock{now.Add(3 * time.Minute)}, "cell-us-east-01", 5*time.Minute, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,14 +120,14 @@ func TestBuildProcessorDurablyClassifiesFailureAndInvalidOutput(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	store := &processorStore{work: processorWork(now), found: true}
 	producerErr := classifiedBuildError{code: "object_digest_mismatch", permanent: true}
-	processor, _ := NewBuildProcessor(store, producerStub{err: producerErr}, &processorIDs{}, exportClock{now.Add(time.Minute)}, 5*time.Minute, 10*time.Minute)
+	processor, _ := NewBuildProcessor(store, producerStub{err: producerErr}, &processorIDs{}, exportClock{now.Add(time.Minute)}, "cell-us-east-01", 5*time.Minute, 10*time.Minute)
 	worked, err := processor.ProcessOne(context.Background())
 	if !worked || !errors.Is(err, producerErr) || store.failure.ErrorCode != producerErr.code || !store.failure.Permanent || store.failure.NextAttemptAt != now.Add(11*time.Minute) {
 		t.Fatalf("worked=%v failure=%+v err=%v", worked, store.failure, err)
 	}
 	store.failure = FailureMutation{}
 	invalid := ProducedArtifact{Snapshot: Snapshot{CellID: "different-cell", PlacementGeneration: 2, AccountVersion: 7}, Artifact: processorArtifact()}
-	processor, _ = NewBuildProcessor(store, producerStub{result: invalid}, &processorIDs{}, exportClock{now.Add(time.Minute)}, 5*time.Minute, 10*time.Minute)
+	processor, _ = NewBuildProcessor(store, producerStub{result: invalid}, &processorIDs{}, exportClock{now.Add(time.Minute)}, "cell-us-east-01", 5*time.Minute, 10*time.Minute)
 	if worked, err := processor.ProcessOne(context.Background()); !worked || !errors.Is(err, ErrInvalid) || store.failure.ErrorCode != "invalid_artifact" || !store.failure.Permanent {
 		t.Fatalf("invalid worked=%v failure=%+v err=%v", worked, store.failure, err)
 	}

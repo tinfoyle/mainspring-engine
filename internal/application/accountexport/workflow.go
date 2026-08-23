@@ -115,14 +115,20 @@ type DeletionWork struct {
 	Artifact    Artifact
 }
 
-type Store interface {
+type RequestStore interface {
 	Create(context.Context, CreateMutation) (Status, error)
 	Get(context.Context, ids.AccountID, string) (Status, error)
 	List(context.Context, ids.AccountID, uint64) ([]Status, error)
 	Cancel(context.Context, CancelMutation) (Status, error)
-	ClaimBuild(context.Context, time.Time, time.Duration, string, string) (Work, bool, error)
+}
+
+type BuildStore interface {
+	ClaimBuild(context.Context, ids.CellID, time.Time, time.Duration, string, string) (Work, bool, error)
 	Complete(context.Context, CompleteMutation) (Status, error)
 	RecordFailure(context.Context, FailureMutation) (Status, error)
+}
+
+type ExpiryStore interface {
 	ClaimDeletion(context.Context, time.Time, time.Duration, string, string) (DeletionWork, bool, error)
 	CompleteDeletion(context.Context, DeletionWork, time.Time, string) (Status, error)
 }
@@ -134,14 +140,14 @@ type Authorizer interface {
 type Clock interface{ Now() time.Time }
 
 type Service struct {
-	store      Store
+	store      RequestStore
 	authorizer Authorizer
 	ids        ids.Generator
 	clock      Clock
 	retention  time.Duration
 }
 
-func NewService(store Store, authorizer Authorizer, generator ids.Generator, clock Clock, retention time.Duration) (*Service, error) {
+func NewService(store RequestStore, authorizer Authorizer, generator ids.Generator, clock Clock, retention time.Duration) (*Service, error) {
 	if store == nil || authorizer == nil || generator == nil || clock == nil || retention < time.Hour || retention > 30*24*time.Hour {
 		return nil, ErrInvalid
 	}
