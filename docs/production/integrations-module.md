@@ -14,7 +14,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 
 1. Provider-neutral connection, scope, credential-binding and external-execution state machines. **Constructed.**
 2. Account-owned forced-RLS persistence, immutable revisions/attempts/events, claim leasing, movement fencing and exact erasure/restore participation. **Constructed.**
-3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability.
+3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Connection lifecycle constructed; health and execution views remain.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization.
 5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling.
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution.
@@ -34,7 +34,15 @@ Cell migration `000062_integrations_foundation.sql` adds Account-owned connectio
 
 The execute-only claim boundary leases one due record with `SKIP LOCKED`, then rechecks the current Account placement, active Marketing campaign and exact approved release, release channel, unexpired `marketing.release.activate` Attention decision, active connector revision and active credential generation before returning any provider work. A definite no-effect reconciliation may schedule a bounded execute retry. Unknown results and expired leases reconcile only; an expired third lease enters manual resolution directly. Terminal and manual states remove their queue record.
 
-All seven durable Account record families participate in the namespace write fence, and the queue remains private rather than receiving a customer RLS surface. The Account-movement preflight blocks unfinished external effects, movement copies every Integration table in dependency order, and whole-Account erasure reports exact counts for all eight tables. Fresh PostgreSQL 17 tests prove authority binding, immutable revision history, RLS isolation, credential revocation safety, execute/reconcile ordering, no early retry, third-lease manual resolution, movement and exact idempotent erasure. Application repositories, credential-broker integration, worker/adapters and customer surfaces remain closed.
+All seven durable Account record families participate in the namespace write fence, and the queue remains private rather than receiving a customer RLS surface. The Account-movement preflight blocks unfinished external effects, movement copies every Integration table in dependency order, and whole-Account erasure reports exact counts for all eight tables. Fresh PostgreSQL 17 tests prove authority binding, immutable revision history, RLS isolation, credential revocation safety, execute/reconcile ordering, no early retry, third-lease manual resolution, movement and exact idempotent erasure.
+
+## Connection application/repository checkpoint
+
+The classified Integrations service now authorizes every read and manager mutation against the current Integrations package. Reads admit current Members; creation, scope revision, credential activation/rotation, disable/enable and revocation require an Owner or Administrator acting as a User. A workload cannot enter this management boundary. Connection pages have application-owned limits, stable `(updated_at DESC,id)` cursors and closed launch filters for email and web publication.
+
+Credential commands contain a provider code and the SHA-256 attestation of an opaque broker reference only. They contain neither the broker reference nor provider material. Initial binding, monotonic rotation and connection revocation are atomic Account transactions; revocation ends the currently bound credential without rewriting prior bindings. Setup, revision and credential child identities derive deterministically from the route request identity, while the repository treats an exact retry as replay and rejects altered input.
+
+The PostgreSQL adapter restores every connection, current immutable revision and credential through the typed kernel under Account RLS. It serializes lifecycle writes, appends only content-redacted events, preserves deferred binding invariants and keeps cross-Account records concealed. Fresh PostgreSQL 17 coverage proves exact replay, altered-replay conflict, normalized scope restoration, credential rotation, disable/enable/revoke, credential ending, stable pagination and cross-Account isolation. Broker handoff, health/execution queries and worker/application preparation remain before construction step 3 is complete.
 
 ## Invariants
 

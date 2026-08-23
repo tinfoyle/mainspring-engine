@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
+	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -97,6 +104,142 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 
 	assertIntegrationRLS(t, ctx, owner, databaseURL, fixture)
 	assertCredentialCannotEndWhileBound(t, ctx, owner, fixture)
+}
+
+func TestIntegrationsRepositoryReplaysRestoresAndIsolatesConnectionLifecycle(t *testing.T) {
+	adminURL := os.Getenv("SPYGLASS_POSTGRES_TEST_URL")
+	if adminURL == "" {
+		t.Skip("SPYGLASS_POSTGRES_TEST_URL is not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	databaseURL, cleanup := createDatabase(t, ctx, adminURL)
+	defer cleanup()
+	owner := openPool(t, ctx, databaseURL, nil)
+	defer owner.Close()
+	if _, err := migrations.Apply(ctx, owner, migrations.Cell); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
+	accountID := ids.AccountID("96100000-0000-4000-8000-000000000001")
+	otherAccountID := ids.AccountID("96200000-0000-4000-8000-000000000002")
+	userID := ids.UserID("96300000-0000-4000-8000-000000000003")
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.account_namespaces(account_id,placement_generation,state,created_at)
+		VALUES ($1,1,'active',$3),($2,1,'active',$3)`, accountID, otherAccountID, now); err != nil {
+		t.Fatal(err)
+	}
+	cell, err := database.NewCellPool(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := postgresadapter.NewIntegrationsRepository(cell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := integrationsdomain.Actor{UserID: userID}
+	mutation := func(id, kind string, at time.Time) integrationsapp.Mutation {
+		return integrationsapp.Mutation{EventID: id, Kind: kind, Actor: actor, CorrelationID: id, At: at}
+	}
+
+	connectionID := ids.IntegrationConnectionID("96400000-0000-4000-8000-000000000004")
+	revisionID := ids.IntegrationConnectionRevisionID("96500000-0000-4000-8000-000000000005")
+	input := integrationsdomain.ConnectionInput{ID: connectionID, RevisionID: revisionID, AccountID: accountID, Name: "Campaign email",
+		Kind: integrationsdomain.ConnectorEmail, Capabilities: []integrationsdomain.Capability{integrationsdomain.CapabilityEmailSend},
+		Scope: integrationsdomain.ConnectionScope{EmailAddress: "launch@Example.com", AudienceReference: "audience:customers-v1"}, CreatedBy: actor, CreatedAt: now}
+	connection, created, err := repository.CreateConnection(ctx, input, accounts.RoleOwner, mutation(string(connectionID), "connection_created", now))
+	if err != nil || !created || connection.State != integrationsdomain.ConnectionPending || connection.CurrentRevisionID != revisionID {
+		t.Fatalf("connection=%+v created=%t err=%v", connection, created, err)
+	}
+	replayInput := input
+	replayInput.CreatedAt = now.Add(time.Minute)
+	replayed, created, err := repository.CreateConnection(ctx, replayInput, accounts.RoleOwner, mutation(string(connectionID), "connection_created", replayInput.CreatedAt))
+	if err != nil || created || !reflect.DeepEqual(replayed, connection) {
+		t.Fatalf("connection replay=%+v created=%t err=%v", replayed, created, err)
+	}
+	altered := replayInput
+	altered.Scope.AudienceReference = "audience:changed"
+	if _, _, err := repository.CreateConnection(ctx, altered, accounts.RoleOwner, mutation(string(connectionID), "connection_created", altered.CreatedAt)); !errors.Is(err, integrationsapp.ErrConflict) {
+		t.Fatalf("altered replay=%v", err)
+	}
+	if _, err := repository.GetConnection(ctx, otherAccountID, connectionID); !errors.Is(err, integrationsapp.ErrNotFound) {
+		t.Fatalf("cross-Account connection=%v", err)
+	}
+
+	digest1 := sha256.Sum256([]byte("broker-reference-one"))
+	credentialID1 := ids.IntegrationCredentialID("96600000-0000-4000-8000-000000000006")
+	activateAt := now.Add(2 * time.Minute)
+	credential1 := integrationsdomain.CredentialInput{ID: credentialID1, AccountID: accountID, ConnectionID: connectionID, Generation: 1,
+		Provider: "mock_smtp", ReferenceSHA256: digest1, CreatedBy: actor, CreatedAt: activateAt}
+	activateEvent := "96700000-0000-4000-8000-000000000007"
+	connection, err = repository.ActivateConnection(ctx, accountID, connectionID, 1, credential1, actor, accounts.RoleOwner,
+		mutation(activateEvent, "connection_activated", activateAt))
+	if err != nil || connection.State != integrationsdomain.ConnectionActive || connection.CredentialID != credentialID1 || connection.Version != 2 {
+		t.Fatalf("activated=%+v err=%v", connection, err)
+	}
+	replayCredential := credential1
+	replayCredential.CreatedAt = activateAt.Add(time.Minute)
+	replayed, err = repository.ActivateConnection(ctx, accountID, connectionID, 1, replayCredential, actor, accounts.RoleOwner,
+		mutation(activateEvent, "connection_activated", replayCredential.CreatedAt))
+	if err != nil || !reflect.DeepEqual(replayed, connection) {
+		t.Fatalf("activation replay=%+v err=%v", replayed, err)
+	}
+
+	reviseAt := now.Add(4 * time.Minute)
+	revisionID2 := ids.IntegrationConnectionRevisionID("96800000-0000-4000-8000-000000000008")
+	connection, err = repository.ReviseConnection(ctx, accountID, connectionID, 2, integrationsdomain.ConnectionRevisionInput{ID: revisionID2, Name: "Campaign email v2",
+		Capabilities: []integrationsdomain.Capability{integrationsdomain.CapabilityEmailRead, integrationsdomain.CapabilityEmailSend},
+		Scope:        integrationsdomain.ConnectionScope{EmailAddress: "launch@example.com", AudienceReference: "audience:customers-v2"}}, actor, accounts.RoleOwner,
+		mutation(string(revisionID2), "connection_revised", reviseAt))
+	if err != nil || connection.Version != 3 || connection.CurrentRevision != 2 || connection.CurrentRevisionID != revisionID2 {
+		t.Fatalf("revised=%+v err=%v", connection, err)
+	}
+
+	rotateAt := now.Add(5 * time.Minute)
+	credentialID2 := ids.IntegrationCredentialID("96900000-0000-4000-8000-000000000009")
+	credential2 := integrationsdomain.CredentialInput{ID: credentialID2, AccountID: accountID, ConnectionID: connectionID, Generation: 2,
+		Provider: "mock_smtp", ReferenceSHA256: sha256.Sum256([]byte("broker-reference-two")), CreatedBy: actor, CreatedAt: rotateAt}
+	rotateEvent := "96a00000-0000-4000-8000-00000000000a"
+	connection, err = repository.RotateCredential(ctx, accountID, connectionID, 3, 1, credential2, actor, accounts.RoleOwner,
+		mutation(rotateEvent, "credential_rotated", rotateAt))
+	if err != nil || connection.Version != 4 || connection.CredentialID != credentialID2 || connection.CredentialGeneration != 2 {
+		t.Fatalf("rotated=%+v err=%v", connection, err)
+	}
+
+	for _, transition := range []struct {
+		id   string
+		kind string
+		want integrationsdomain.ConnectionState
+		call func(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, integrationsdomain.Actor, accounts.MembershipRole, integrationsapp.Mutation) (integrationsdomain.Connection, error)
+	}{{"96b00000-0000-4000-8000-00000000000b", "connection_disabled", integrationsdomain.ConnectionDisabled, repository.DisableConnection},
+		{"96c00000-0000-4000-8000-00000000000c", "connection_activated", integrationsdomain.ConnectionActive, repository.EnableConnection},
+		{"96d00000-0000-4000-8000-00000000000d", "connection_revoked", integrationsdomain.ConnectionRevoked, repository.RevokeConnection}} {
+		now = now.Add(time.Minute)
+		connection, err = transition.call(ctx, accountID, connectionID, connection.Version, actor, accounts.RoleOwner, mutation(transition.id, transition.kind, now.Add(5*time.Minute)))
+		if err != nil || connection.State != transition.want {
+			t.Fatalf("transition=%s value=%+v err=%v", transition.kind, connection, err)
+		}
+	}
+	var credentialState string
+	if err := owner.QueryRow(ctx, `SELECT state FROM spyglass.integration_credentials WHERE account_id=$1 AND id=$2`, accountID, credentialID2).Scan(&credentialState); err != nil || credentialState != "revoked" {
+		t.Fatalf("credential state=%s err=%v", credentialState, err)
+	}
+
+	secondaryID := ids.IntegrationConnectionID("96e00000-0000-4000-8000-00000000000e")
+	secondaryInput := integrationsdomain.ConnectionInput{ID: secondaryID, RevisionID: "96f00000-0000-4000-8000-00000000000f", AccountID: accountID,
+		Name: "Website publisher", Kind: integrationsdomain.ConnectorWebPublish, Capabilities: []integrationsdomain.Capability{integrationsdomain.CapabilityWebPublish},
+		Scope: integrationsdomain.ConnectionScope{HTTPSOrigin: "https://www.example.com", PathPrefix: "/news"}, CreatedBy: actor, CreatedAt: now.Add(20 * time.Minute)}
+	if _, created, err := repository.CreateConnection(ctx, secondaryInput, accounts.RoleOwner, mutation(string(secondaryID), "connection_created", secondaryInput.CreatedAt)); err != nil || !created {
+		t.Fatalf("secondary created=%t err=%v", created, err)
+	}
+	page, err := repository.ListConnections(ctx, accountID, integrationsapp.ConnectionListQuery{Limit: 1})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != secondaryID || page.NextCursor == nil {
+		t.Fatalf("page=%+v err=%v", page, err)
+	}
+	remainder, err := repository.ListConnections(ctx, accountID, integrationsapp.ConnectionListQuery{After: page.NextCursor, Limit: 1})
+	if err != nil || len(remainder.Items) != 1 || remainder.Items[0].ID != connectionID || remainder.NextCursor != nil {
+		t.Fatalf("remainder=%+v err=%v", remainder, err)
+	}
 }
 
 type integrationFixture struct {
