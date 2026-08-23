@@ -246,6 +246,8 @@ type IntegrationsCommandService interface {
 	EnableConnection(context.Context, integrationsapp.TransitionCommand) (integrationsdomain.Connection, error)
 	RevokeConnection(context.Context, integrationsapp.TransitionCommand) (integrationsdomain.Connection, error)
 	PrepareExecution(context.Context, integrationsapp.PrepareExecutionCommand) (integrationsdomain.Execution, bool, error)
+	RequestExecutionResolution(context.Context, integrationsapp.RequestExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error)
+	ConfirmExecutionResolution(context.Context, integrationsapp.ConfirmExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error)
 }
 
 func WithIntegrationCommands(service IntegrationsCommandService) Option {
@@ -422,6 +424,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/executions", s.integrationsExecutionList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/executions", s.integrationsExecutionPrepare)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/executions/{executionID}", s.integrationsExecutionGet)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/executions/{executionID}/resolution-requests", s.integrationsExecutionResolutionRequest)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/executions/{executionID}/resolutions/{resolutionID}/confirmations", s.integrationsExecutionResolutionConfirm)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleGet)

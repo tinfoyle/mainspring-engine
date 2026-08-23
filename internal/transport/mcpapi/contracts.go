@@ -139,6 +139,8 @@ type IntegrationsService interface {
 	PrepareExecution(context.Context, integrationsapp.PrepareExecutionCommand) (integrationsdomain.Execution, bool, error)
 	GetExecution(context.Context, access.Actor, ids.AccountID, ids.IntegrationExecutionID) (integrationsapp.ExecutionDetail, error)
 	ListExecutions(context.Context, access.Actor, ids.AccountID, integrationsapp.ExecutionListQuery) (integrationsapp.ExecutionPage, error)
+	RequestExecutionResolution(context.Context, integrationsapp.RequestExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error)
+	ConfirmExecutionResolution(context.Context, integrationsapp.ConfirmExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error)
 }
 
 type requirementInput struct {

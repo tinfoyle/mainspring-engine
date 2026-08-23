@@ -21,11 +21,13 @@ import (
 )
 
 type integrationsCommandTransportService struct {
-	create     integrationsapp.CreateConnectionCommand
-	revise     integrationsapp.ReviseConnectionCommand
-	credential integrationsapp.CredentialCommand
-	transition integrationsapp.TransitionCommand
-	prepare    integrationsapp.PrepareExecutionCommand
+	create            integrationsapp.CreateConnectionCommand
+	revise            integrationsapp.ReviseConnectionCommand
+	credential        integrationsapp.CredentialCommand
+	transition        integrationsapp.TransitionCommand
+	prepare           integrationsapp.PrepareExecutionCommand
+	requestResolution integrationsapp.RequestExecutionResolutionCommand
+	confirmResolution integrationsapp.ConfirmExecutionResolutionCommand
 }
 
 func integrationCommandConnection(version uint64) integrationsdomain.Connection {
@@ -85,6 +87,30 @@ func (service *integrationsCommandTransportService) PrepareExecution(_ context.C
 		PayloadSHA256: sha256.Sum256([]byte("prepared manifest")), State: integrationsdomain.ExecutionPrepared,
 		CreatedAt: time.Date(2026, 8, 23, 22, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 8, 23, 22, 0, 0, 0, time.UTC)}, true, nil
 }
+func (service *integrationsCommandTransportService) RequestExecutionResolution(_ context.Context, command integrationsapp.RequestExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error) {
+	service.requestResolution = command
+	execution, _, _ := service.PrepareExecution(context.Background(), integrationsapp.PrepareExecutionCommand{AccountID: command.AccountID,
+		RequestID: string(command.ExecutionID), ReleaseID: integrationsReleaseID, ReleaseVersion: 2,
+		Capability: integrationsdomain.CapabilityEmailSend, ConnectionID: integrationsConnectionID})
+	execution.State, execution.AttemptCount, execution.LastErrorCode = integrationsdomain.ExecutionManualResolution, 3, "provider_timeout"
+	resolution := &integrationsdomain.ExecutionResolution{ID: ids.IntegrationResolutionID(command.RequestID), AccountID: command.AccountID,
+		ExecutionID: command.ExecutionID, RequestedOutcome: command.RequestedOutcome, EvidenceSHA256: sha256.Sum256([]byte(strings.TrimSpace(command.Evidence))),
+		RequestedByUserID: integrationsUserID, RequestedAt: execution.UpdatedAt, State: integrationsdomain.ResolutionPending}
+	return integrationsapp.ExecutionDetail{Execution: execution, Attempts: []integrationsdomain.Attempt{}, Resolution: resolution}, nil
+}
+func (service *integrationsCommandTransportService) ConfirmExecutionResolution(_ context.Context, command integrationsapp.ConfirmExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error) {
+	service.confirmResolution = command
+	execution, _, _ := service.PrepareExecution(context.Background(), integrationsapp.PrepareExecutionCommand{AccountID: command.AccountID,
+		RequestID: string(command.ExecutionID), ReleaseID: integrationsReleaseID, ReleaseVersion: 2,
+		Capability: integrationsdomain.CapabilityEmailSend, ConnectionID: integrationsConnectionID})
+	completed := execution.UpdatedAt.Add(time.Minute)
+	execution.State, execution.AttemptCount, execution.UpdatedAt, execution.CompletedAt = integrationsdomain.ExecutionSucceeded, 3, completed, &completed
+	resolution := &integrationsdomain.ExecutionResolution{ID: command.ResolutionID, AccountID: command.AccountID,
+		ExecutionID: command.ExecutionID, RequestedOutcome: integrationsdomain.ExecutionSucceeded, EvidenceSHA256: sha256.Sum256([]byte("provider receipt 123")),
+		RequestedByUserID: "b9000000-0000-4000-8000-000000000009", RequestedAt: completed.Add(-time.Minute),
+		State: integrationsdomain.ResolutionApplied, ConfirmedByUserID: integrationsUserID, ConfirmedAt: &completed}
+	return integrationsapp.ExecutionDetail{Execution: execution, Attempts: []integrationsdomain.Attempt{}, Resolution: resolution}, nil
+}
 
 func TestIntegrationsMutationRoutesBindHumanAuthorityAndTypedContracts(t *testing.T) {
 	service := &integrationsCommandTransportService{}
@@ -136,6 +162,16 @@ func TestIntegrationsMutationRoutesBindHumanAuthorityAndTypedContracts(t *testin
 		{name: "prepare", method: http.MethodPost, target: base + "/executions", body: `{"release_id":"` + integrationsReleaseID + `","release_version":2,"capability":"email.send","connection_id":"` + integrationsConnectionID + `"}`, check: func() {
 			if service.prepare.ReleaseVersion != 2 || service.prepare.Capability != integrationsdomain.CapabilityEmailSend {
 				t.Fatalf("prepare=%+v", service.prepare)
+			}
+		}},
+		{name: "request execution resolution", method: http.MethodPost, target: base + "/executions/" + integrationsExecutionID + "/resolution-requests", body: `{"requested_outcome":"succeeded","evidence":"provider receipt 123"}`, check: func() {
+			if service.requestResolution.ExecutionID != integrationsExecutionID || service.requestResolution.RequestedOutcome != integrationsdomain.ExecutionSucceeded {
+				t.Fatalf("resolution request=%+v", service.requestResolution)
+			}
+		}},
+		{name: "confirm execution resolution", method: http.MethodPost, target: base + "/executions/" + integrationsExecutionID + "/resolutions/bf000000-0000-4000-8000-00000000000f/confirmations", check: func() {
+			if service.confirmResolution.ExecutionID != integrationsExecutionID || service.confirmResolution.ResolutionID != "bf000000-0000-4000-8000-00000000000f" {
+				t.Fatalf("resolution confirmation=%+v", service.confirmResolution)
 			}
 		}},
 	}

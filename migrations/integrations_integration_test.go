@@ -183,6 +183,57 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 		t.Fatalf("cross-Account execution=%v", err)
 	}
 
+	resolutionID := ids.IntegrationResolutionID("82f10000-0000-4000-8000-000000000001")
+	confirmEventID := "82f20000-0000-4000-8000-000000000002"
+	confirmer := integrationsdomain.Actor{UserID: "82f30000-0000-4000-8000-000000000003"}
+	resolutionAt := retryAt.Add(3 * time.Minute)
+	evidence := sha256.Sum256([]byte("provider receipt 123"))
+	requestMutation := integrationsapp.Mutation{EventID: string(resolutionID), Kind: "execution_resolution_requested", Actor: preparedBy,
+		CorrelationID: string(resolutionID), At: resolutionAt}
+	if err := repository.RequestExecutionResolution(ctx, ids.AccountID(fixture.accountID), ids.IntegrationExecutionID(fixture.executionID),
+		resolutionID, integrationsdomain.ExecutionSucceeded, evidence, accounts.RoleOwner, requestMutation); err != nil {
+		t.Fatal(err)
+	}
+	replayedRequest := requestMutation
+	replayedRequest.At = resolutionAt.Add(time.Second)
+	if err := repository.RequestExecutionResolution(ctx, ids.AccountID(fixture.accountID), ids.IntegrationExecutionID(fixture.executionID),
+		resolutionID, integrationsdomain.ExecutionSucceeded, evidence, accounts.RoleOwner, replayedRequest); err != nil {
+		t.Fatalf("resolution request replay=%v", err)
+	}
+	sameActorConfirmation := integrationsapp.Mutation{EventID: confirmEventID, Kind: "execution_resolution_confirmed", Actor: preparedBy,
+		CorrelationID: confirmEventID, At: resolutionAt.Add(time.Minute)}
+	if err := repository.ConfirmExecutionResolution(ctx, ids.AccountID(fixture.accountID), ids.IntegrationExecutionID(fixture.executionID),
+		resolutionID, accounts.RoleOwner, sameActorConfirmation); !errors.Is(err, integrationsapp.ErrConflict) {
+		t.Fatalf("same-actor resolution confirmation=%v", err)
+	}
+	confirmation := integrationsapp.Mutation{EventID: confirmEventID, Kind: "execution_resolution_confirmed", Actor: confirmer,
+		CorrelationID: confirmEventID, At: resolutionAt.Add(2 * time.Minute)}
+	if err := repository.ConfirmExecutionResolution(ctx, ids.AccountID(fixture.accountID), ids.IntegrationExecutionID(fixture.executionID),
+		resolutionID, accounts.RoleAdministrator, confirmation); err != nil {
+		t.Fatal(err)
+	}
+	replayedConfirmation := confirmation
+	replayedConfirmation.At = confirmation.At.Add(time.Second)
+	if err := repository.ConfirmExecutionResolution(ctx, ids.AccountID(fixture.accountID), ids.IntegrationExecutionID(fixture.executionID),
+		resolutionID, accounts.RoleAdministrator, replayedConfirmation); err != nil {
+		t.Fatalf("resolution confirmation replay=%v", err)
+	}
+	detail, err = repository.GetExecution(ctx, ids.AccountID(fixture.accountID), ids.IntegrationExecutionID(fixture.executionID))
+	if err != nil || detail.Execution.State != integrationsdomain.ExecutionSucceeded || detail.Execution.CompletedAt == nil ||
+		detail.Resolution == nil || detail.Resolution.State != integrationsdomain.ResolutionApplied ||
+		detail.Resolution.ConfirmedByUserID != confirmer.UserID || detail.Resolution.EvidenceSHA256 != evidence {
+		t.Fatalf("resolved execution detail=%+v err=%v", detail, err)
+	}
+	var resolutionEvents int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.integration_events WHERE account_id=$1 AND aggregate_id=$2
+		AND event_type IN ('execution_resolution_requested','execution_resolution_confirmed')`, fixture.accountID, fixture.executionID).Scan(&resolutionEvents); err != nil || resolutionEvents != 2 {
+		t.Fatalf("resolution events=%d err=%v", resolutionEvents, err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.integration_execution_resolutions SET evidence_sha256=decode(repeat('ff',32),'hex')
+		WHERE account_id=$1 AND id=$2`, fixture.accountID, resolutionID); err == nil || !strings.Contains(err.Error(), "immutable") {
+		t.Fatalf("resolution evidence mutation=%v", err)
+	}
+
 	assertIntegrationRLS(t, ctx, owner, databaseURL, fixture)
 	assertCredentialCannotEndWhileBound(t, ctx, owner, fixture)
 }

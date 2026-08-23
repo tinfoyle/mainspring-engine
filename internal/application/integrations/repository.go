@@ -29,13 +29,15 @@ type Mutation struct {
 
 func (value Mutation) Valid() bool {
 	validKind := map[string]bool{
-		"connection_created":   true,
-		"connection_revised":   true,
-		"connection_activated": true,
-		"connection_disabled":  true,
-		"connection_revoked":   true,
-		"credential_rotated":   true,
-		"execution_prepared":   true,
+		"connection_created":             true,
+		"connection_revised":             true,
+		"connection_activated":           true,
+		"connection_disabled":            true,
+		"connection_revoked":             true,
+		"credential_rotated":             true,
+		"execution_prepared":             true,
+		"execution_resolution_requested": true,
+		"execution_resolution_confirmed": true,
 	}[value.Kind]
 	return ids.Validate(value.EventID) == nil && ids.Validate(value.CorrelationID) == nil &&
 		ids.Validate(string(value.Actor.UserID)) == nil && validKind && !value.At.IsZero()
@@ -50,6 +52,8 @@ type Store interface {
 	GetExecution(context.Context, ids.AccountID, ids.IntegrationExecutionID) (ExecutionDetail, error)
 	ListExecutions(context.Context, ids.AccountID, ExecutionListQuery) (ExecutionPage, error)
 	PrepareExecution(context.Context, PrepareExecutionRequest, accounts.MembershipRole, Mutation) (domain.Execution, bool, error)
+	RequestExecutionResolution(context.Context, ids.AccountID, ids.IntegrationExecutionID, ids.IntegrationResolutionID, domain.ExecutionState, [32]byte, accounts.MembershipRole, Mutation) error
+	ConfirmExecutionResolution(context.Context, ids.AccountID, ids.IntegrationExecutionID, ids.IntegrationResolutionID, accounts.MembershipRole, Mutation) error
 	ReviseConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, domain.ConnectionRevisionInput, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
 	ActivateConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, domain.CredentialInput, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
 	RotateCredential(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, uint64, domain.CredentialInput, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)

@@ -89,6 +89,19 @@ type integrationExecutionPrepareInput struct {
 	Capability     integrationsdomain.Capability `json:"capability"`
 	ConnectionID   ids.IntegrationConnectionID   `json:"connection_id"`
 }
+type integrationExecutionResolutionRequestInput struct {
+	AccountID        ids.AccountID                     `json:"account_id"`
+	OperationID      string                            `json:"operation_id"`
+	ExecutionID      ids.IntegrationExecutionID        `json:"execution_id"`
+	RequestedOutcome integrationsdomain.ExecutionState `json:"requested_outcome"`
+	Evidence         string                            `json:"evidence"`
+}
+type integrationExecutionResolutionConfirmInput struct {
+	AccountID    ids.AccountID               `json:"account_id"`
+	OperationID  string                      `json:"operation_id"`
+	ExecutionID  ids.IntegrationExecutionID  `json:"execution_id"`
+	ResolutionID ids.IntegrationResolutionID `json:"resolution_id"`
+}
 
 type integrationConnectionPageOutput struct {
 	Items      []integrationsdomain.Connection `json:"items"`
@@ -131,8 +144,20 @@ type integrationExecutionPageOutput struct {
 	NextCursor string                       `json:"next_cursor,omitempty"`
 }
 type integrationExecutionDetailOutput struct {
-	Execution integrationExecutionOutput   `json:"execution"`
-	Attempts  []integrationsdomain.Attempt `json:"attempts"`
+	Execution  integrationExecutionOutput            `json:"execution"`
+	Attempts   []integrationsdomain.Attempt          `json:"attempts"`
+	Resolution *integrationExecutionResolutionOutput `json:"resolution,omitempty"`
+}
+type integrationExecutionResolutionOutput struct {
+	ID                ids.IntegrationResolutionID        `json:"id"`
+	ExecutionID       ids.IntegrationExecutionID         `json:"execution_id"`
+	RequestedOutcome  integrationsdomain.ExecutionState  `json:"requested_outcome"`
+	EvidenceSHA256    string                             `json:"evidence_sha256"`
+	RequestedByUserID ids.UserID                         `json:"requested_by_user_id"`
+	RequestedAt       time.Time                          `json:"requested_at"`
+	State             integrationsdomain.ResolutionState `json:"state"`
+	ConfirmedByUserID ids.UserID                         `json:"confirmed_by_user_id,omitempty"`
+	ConfirmedAt       *time.Time                         `json:"confirmed_at,omitempty"`
 }
 
 func (s *Server) registerIntegrations(server *mcp.Server, actor access.Actor) {
@@ -266,7 +291,7 @@ func (s *Server) registerIntegrations(server *mcp.Server, actor access.Actor) {
 			return nil, integrationExecutionDetailOutput{}, err
 		}
 		value, err := s.integrations.GetExecution(ctx, actor, input.AccountID, input.ExecutionID)
-		return nil, integrationExecutionDetailOutput{Execution: integrationExecutionMCPOutput(value.Execution), Attempts: value.Attempts}, integrationError(err)
+		return nil, integrationExecutionMCPDetail(value), integrationError(err)
 	})
 	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_integrations_execution_prepare", Title: "Prepare Integration execution", Description: "Freeze one approved Marketing delivery against current connector authority. Human manager only.", Annotations: toolAnnotations(false, true)}, func(ctx context.Context, _ *mcp.CallToolRequest, input integrationExecutionPrepareInput) (*mcp.CallToolResult, integrationExecutionOutput, error) {
 		ctx, op, err := s.integrationMutationContext(ctx, actor, input.AccountID, input.OperationID, mutation, 0, true)
@@ -276,6 +301,37 @@ func (s *Server) registerIntegrations(server *mcp.Server, actor access.Actor) {
 		value, _, err := s.integrations.PrepareExecution(ctx, integrationsapp.PrepareExecutionCommand{Actor: actor, AccountID: input.AccountID, RequestID: op, ReleaseID: input.ReleaseID, ReleaseVersion: input.ReleaseVersion, Capability: input.Capability, ConnectionID: input.ConnectionID})
 		return nil, integrationExecutionMCPOutput(value), integrationError(err)
 	})
+	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_integrations_execution_request_resolution", Title: "Request Integration execution resolution", Description: "Propose a succeeded or failed outcome for an uncertain external effect. A second human manager must confirm it; the effect is never resent.", Annotations: toolAnnotations(false, true)}, func(ctx context.Context, _ *mcp.CallToolRequest, input integrationExecutionResolutionRequestInput) (*mcp.CallToolResult, integrationExecutionDetailOutput, error) {
+		ctx, op, err := s.integrationMutationContext(ctx, actor, input.AccountID, input.OperationID, mutation, 0, true)
+		if err != nil {
+			return nil, integrationExecutionDetailOutput{}, err
+		}
+		value, err := s.integrations.RequestExecutionResolution(ctx, integrationsapp.RequestExecutionResolutionCommand{Actor: actor,
+			AccountID: input.AccountID, RequestID: op, ExecutionID: input.ExecutionID, RequestedOutcome: input.RequestedOutcome,
+			Evidence: input.Evidence})
+		return nil, integrationExecutionMCPDetail(value), integrationError(err)
+	})
+	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_integrations_execution_confirm_resolution", Title: "Confirm Integration execution resolution", Description: "Confirm another human manager's pending external-effect outcome without replaying the provider operation.", Annotations: toolAnnotations(false, true)}, func(ctx context.Context, _ *mcp.CallToolRequest, input integrationExecutionResolutionConfirmInput) (*mcp.CallToolResult, integrationExecutionDetailOutput, error) {
+		ctx, op, err := s.integrationMutationContext(ctx, actor, input.AccountID, input.OperationID, mutation, 0, true)
+		if err != nil {
+			return nil, integrationExecutionDetailOutput{}, err
+		}
+		value, err := s.integrations.ConfirmExecutionResolution(ctx, integrationsapp.ConfirmExecutionResolutionCommand{Actor: actor,
+			AccountID: input.AccountID, RequestID: op, ExecutionID: input.ExecutionID, ResolutionID: input.ResolutionID})
+		return nil, integrationExecutionMCPDetail(value), integrationError(err)
+	})
+}
+
+func integrationExecutionMCPDetail(value integrationsapp.ExecutionDetail) integrationExecutionDetailOutput {
+	result := integrationExecutionDetailOutput{Execution: integrationExecutionMCPOutput(value.Execution), Attempts: value.Attempts}
+	if value.Resolution != nil {
+		resolution := value.Resolution
+		result.Resolution = &integrationExecutionResolutionOutput{ID: resolution.ID, ExecutionID: resolution.ExecutionID,
+			RequestedOutcome: resolution.RequestedOutcome, EvidenceSHA256: hex.EncodeToString(resolution.EvidenceSHA256[:]),
+			RequestedByUserID: resolution.RequestedByUserID, RequestedAt: resolution.RequestedAt, State: resolution.State,
+			ConfirmedByUserID: resolution.ConfirmedByUserID, ConfirmedAt: resolution.ConfirmedAt}
+	}
+	return result
 }
 
 func (s *Server) integrationCredential(ctx context.Context, actor access.Actor, input integrationCredentialInput, requirement access.Requirement, rotate bool) (*mcp.CallToolResult, integrationsdomain.Connection, error) {

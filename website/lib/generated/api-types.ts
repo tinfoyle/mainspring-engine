@@ -1302,6 +1302,7 @@ export interface IntegrationExecution {
 export interface IntegrationExecutionDetail {
   readonly "attempts": ReadonlyArray<IntegrationAttempt>;
   readonly "execution": IntegrationExecution;
+  readonly "resolution"?: IntegrationExecutionResolution;
 }
 
 export interface IntegrationExecutionPage {
@@ -1314,6 +1315,23 @@ export interface IntegrationExecutionPrepareRequest {
   readonly "connection_id": string;
   readonly "release_id": string;
   readonly "release_version": number;
+}
+
+export interface IntegrationExecutionResolution {
+  readonly "confirmed_at"?: string;
+  readonly "confirmed_by_user_id"?: string;
+  readonly "evidence_sha256": string;
+  readonly "execution_id": string;
+  readonly "id": string;
+  readonly "requested_at": string;
+  readonly "requested_by_user_id": string;
+  readonly "requested_outcome": IntegrationResolutionOutcome;
+  readonly "state": IntegrationResolutionState;
+}
+
+export interface IntegrationExecutionResolutionRequest {
+  readonly "evidence": string;
+  readonly "requested_outcome": IntegrationResolutionOutcome;
 }
 
 export type IntegrationExecutionState = "prepared" | "executing" | "reconciling" | "retry_wait" | "unknown" | "manual_resolution" | "succeeded" | "failed" | "cancelled";
@@ -1336,6 +1354,10 @@ export interface IntegrationHealthPage {
 }
 
 export type IntegrationHealthState = "healthy" | "degraded" | "unavailable";
+
+export type IntegrationResolutionOutcome = "succeeded" | "failed";
+
+export type IntegrationResolutionState = "pending" | "applied";
 
 export interface InvitationAcceptance {
   readonly "membership": AcceptedMembership;
@@ -2377,10 +2399,14 @@ export interface ApiSchemas {
   readonly IntegrationExecutionDetail: IntegrationExecutionDetail;
   readonly IntegrationExecutionPage: IntegrationExecutionPage;
   readonly IntegrationExecutionPrepareRequest: IntegrationExecutionPrepareRequest;
+  readonly IntegrationExecutionResolution: IntegrationExecutionResolution;
+  readonly IntegrationExecutionResolutionRequest: IntegrationExecutionResolutionRequest;
   readonly IntegrationExecutionState: IntegrationExecutionState;
   readonly IntegrationHealthObservation: IntegrationHealthObservation;
   readonly IntegrationHealthPage: IntegrationHealthPage;
   readonly IntegrationHealthState: IntegrationHealthState;
+  readonly IntegrationResolutionOutcome: IntegrationResolutionOutcome;
+  readonly IntegrationResolutionState: IntegrationResolutionState;
   readonly InvitationAcceptance: InvitationAcceptance;
   readonly InvitationCreated: InvitationCreated;
   readonly KnowledgeActor: KnowledgeActor;

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -247,9 +248,76 @@ func (repository *IntegrationsRepository) GetExecution(ctx context.Context, acco
 			}
 			result.Attempts = append(result.Attempts, attempt)
 		}
+		resolution, err := loadIntegrationExecutionResolution(ctx, tx, accountID, executionID)
+		if err == nil {
+			result.Resolution = &resolution
+		} else if !errors.Is(err, integrationsapp.ErrNotFound) {
+			return err
+		}
 		return nil
 	})
 	return result, classifyIntegrations(err)
+}
+
+func (repository *IntegrationsRepository) RequestExecutionResolution(ctx context.Context, accountID ids.AccountID,
+	executionID ids.IntegrationExecutionID, resolutionID ids.IntegrationResolutionID, outcome domain.ExecutionState,
+	evidence [32]byte, role accounts.MembershipRole, mutation integrationsapp.Mutation) error {
+	if (role != accounts.RoleOwner && role != accounts.RoleAdministrator) ||
+		!validIntegrationMutation(mutation, "execution_resolution_requested", mutation.Actor, mutation.At) {
+		return integrationsapp.ErrInvalid
+	}
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		var changed bool
+		if err := tx.QueryRow(ctx, `SELECT public.spyglass_request_integration_execution_resolution($1,$2,$3,$4,$5,$6,$7)`,
+			accountID, executionID, resolutionID, outcome, evidence[:], mutation.Actor.UserID, mutation.At).Scan(&changed); err != nil {
+			return err
+		}
+		if !changed {
+			matched, err := integrationEventMatches(ctx, tx, accountID, mutation.EventID, "execution", string(executionID), mutation.Kind,
+				mutation.Actor, mutation.CorrelationID)
+			if err != nil {
+				return err
+			}
+			if !matched {
+				return integrationsapp.ErrConflict
+			}
+			return nil
+		}
+		return insertIntegrationEvent(ctx, tx, accountID, mutation.EventID, "execution", string(executionID), mutation.Kind,
+			mutation.Actor, mutation.CorrelationID, map[string]any{"resolution_id": resolutionID, "requested_outcome": outcome,
+				"evidence_sha256": hex.EncodeToString(evidence[:])}, mutation.At)
+	})
+	return classifyIntegrations(err)
+}
+
+func (repository *IntegrationsRepository) ConfirmExecutionResolution(ctx context.Context, accountID ids.AccountID,
+	executionID ids.IntegrationExecutionID, resolutionID ids.IntegrationResolutionID, role accounts.MembershipRole,
+	mutation integrationsapp.Mutation) error {
+	if (role != accounts.RoleOwner && role != accounts.RoleAdministrator) ||
+		!validIntegrationMutation(mutation, "execution_resolution_confirmed", mutation.Actor, mutation.At) {
+		return integrationsapp.ErrInvalid
+	}
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		var changed bool
+		if err := tx.QueryRow(ctx, `SELECT public.spyglass_confirm_integration_execution_resolution($1,$2,$3,$4,$5)`,
+			accountID, executionID, resolutionID, mutation.Actor.UserID, mutation.At).Scan(&changed); err != nil {
+			return err
+		}
+		if !changed {
+			matched, err := integrationEventMatches(ctx, tx, accountID, mutation.EventID, "execution", string(executionID), mutation.Kind,
+				mutation.Actor, mutation.CorrelationID)
+			if err != nil {
+				return err
+			}
+			if !matched {
+				return integrationsapp.ErrConflict
+			}
+			return nil
+		}
+		return insertIntegrationEvent(ctx, tx, accountID, mutation.EventID, "execution", string(executionID), mutation.Kind,
+			mutation.Actor, mutation.CorrelationID, map[string]any{"resolution_id": resolutionID}, mutation.At)
+	})
+	return classifyIntegrations(err)
 }
 
 func (repository *IntegrationsRepository) ListExecutions(ctx context.Context, accountID ids.AccountID, query integrationsapp.ExecutionListQuery) (integrationsapp.ExecutionPage, error) {
@@ -807,6 +875,36 @@ func loadIntegrationAttempt(ctx context.Context, tx pgx.Tx, accountID ids.Accoun
 	return value, nil
 }
 
+func loadIntegrationExecutionResolution(ctx context.Context, tx pgx.Tx, accountID ids.AccountID,
+	executionID ids.IntegrationExecutionID) (domain.ExecutionResolution, error) {
+	var value domain.ExecutionResolution
+	var evidence []byte
+	var confirmedBy *ids.UserID
+	err := tx.QueryRow(ctx, `SELECT id,account_id,execution_id,requested_outcome,evidence_sha256,requested_by_user_id,
+		requested_at,state,confirmed_by_user_id,confirmed_at FROM spyglass.integration_execution_resolutions
+		WHERE account_id=$1 AND execution_id=$2 ORDER BY requested_at DESC,id DESC LIMIT 1`, accountID, executionID).
+		Scan(&value.ID, &value.AccountID, &value.ExecutionID, &value.RequestedOutcome, &evidence, &value.RequestedByUserID,
+			&value.RequestedAt, &value.State, &confirmedBy, &value.ConfirmedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ExecutionResolution{}, integrationsapp.ErrNotFound
+	}
+	if err != nil {
+		return domain.ExecutionResolution{}, err
+	}
+	if len(evidence) != 32 {
+		return domain.ExecutionResolution{}, integrationsapp.ErrRepository
+	}
+	copy(value.EvidenceSHA256[:], evidence)
+	if confirmedBy != nil {
+		value.ConfirmedByUserID = *confirmedBy
+	}
+	value, err = domain.RestoreExecutionResolution(value)
+	if err != nil {
+		return domain.ExecutionResolution{}, integrationsapp.ErrRepository
+	}
+	return value, nil
+}
+
 func insertIntegrationRevision(ctx context.Context, tx pgx.Tx, value domain.ConnectionRevision) error {
 	capabilities := make([]string, len(value.Capabilities))
 	for index, capability := range value.Capabilities {
@@ -915,6 +1013,12 @@ func classifyIntegrations(err error) error {
 	}
 	var postgresError *pgconn.PgError
 	if errors.As(err, &postgresError) {
+		if postgresError.Code == "P2001" {
+			return errors.Join(integrationsapp.ErrNotFound, err)
+		}
+		if postgresError.Code == "P2004" || postgresError.Code == "P2005" {
+			return errors.Join(integrationsapp.ErrConflict, err)
+		}
 		if postgresError.Code == "23505" || postgresError.Code == "40001" {
 			return errors.Join(integrationsapp.ErrConflict, err)
 		}

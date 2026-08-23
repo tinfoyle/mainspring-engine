@@ -44,6 +44,11 @@ type integrationExecutionPrepareRequest struct {
 	ConnectionID   ids.IntegrationConnectionID   `json:"connection_id"`
 }
 
+type integrationExecutionResolutionRequest struct {
+	RequestedOutcome integrationsdomain.ExecutionState `json:"requested_outcome"`
+	Evidence         string                            `json:"evidence"`
+}
+
 func (s *Server) integrationsConnectionCreate(w http.ResponseWriter, r *http.Request) {
 	claims, actor, accountID, requestID, ok := s.integrationsCommandRequest(w, r)
 	if !ok {
@@ -169,6 +174,51 @@ func (s *Server) integrationsExecutionPrepare(w http.ResponseWriter, r *http.Req
 	}
 	w.Header().Set("Location", fmt.Sprintf("/api/v1/accounts/%s/integrations/executions/%s", accountID, value.ID))
 	writeJSON(w, status, integrationsExecutionDTO(value))
+}
+
+func (s *Server) integrationsExecutionResolutionRequest(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, requestID, ok := s.integrationsCommandRequest(w, r)
+	if !ok {
+		return
+	}
+	executionID := ids.IntegrationExecutionID(r.PathValue("executionID"))
+	if ids.Validate(string(executionID)) != nil {
+		s.writeIntegrationsError(w, "request execution resolution", integrationsapp.ErrInvalid)
+		return
+	}
+	var body integrationExecutionResolutionRequest
+	if !decodeIntegrationsJSON(w, r, &body) {
+		return
+	}
+	detail, err := s.integrationCommands.RequestExecutionResolution(routecontext.WithClaims(r.Context(), claims),
+		integrationsapp.RequestExecutionResolutionCommand{Actor: actor, AccountID: accountID, RequestID: requestID,
+			ExecutionID: executionID, RequestedOutcome: body.RequestedOutcome, Evidence: body.Evidence})
+	if err != nil {
+		s.writeIntegrationsError(w, "request execution resolution", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, integrationsExecutionDetailDTO(detail))
+}
+
+func (s *Server) integrationsExecutionResolutionConfirm(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, requestID, ok := s.integrationsCommandRequest(w, r)
+	if !ok || !integrationsNoBody(w, r) {
+		return
+	}
+	executionID := ids.IntegrationExecutionID(r.PathValue("executionID"))
+	resolutionID := ids.IntegrationResolutionID(r.PathValue("resolutionID"))
+	if ids.Validate(string(executionID)) != nil || ids.Validate(string(resolutionID)) != nil {
+		s.writeIntegrationsError(w, "confirm execution resolution", integrationsapp.ErrInvalid)
+		return
+	}
+	detail, err := s.integrationCommands.ConfirmExecutionResolution(routecontext.WithClaims(r.Context(), claims),
+		integrationsapp.ConfirmExecutionResolutionCommand{Actor: actor, AccountID: accountID, RequestID: requestID,
+			ExecutionID: executionID, ResolutionID: resolutionID})
+	if err != nil {
+		s.writeIntegrationsError(w, "confirm execution resolution", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, integrationsExecutionDetailDTO(detail))
 }
 
 func (s *Server) integrationsCommandRequest(w http.ResponseWriter, r *http.Request) (routecontext.Claims, access.Actor, ids.AccountID, string, bool) {

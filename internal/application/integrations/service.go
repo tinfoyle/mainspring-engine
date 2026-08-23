@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
@@ -153,6 +154,60 @@ func (service *Service) PrepareExecution(ctx context.Context, command PrepareExe
 	request := PrepareExecutionRequest{ID: ids.IntegrationExecutionID(command.RequestID), AccountID: command.AccountID, ReleaseID: command.ReleaseID,
 		ReleaseVersion: command.ReleaseVersion, Capability: command.Capability, ConnectionID: command.ConnectionID, PreparedBy: actor, PreparedAt: now}
 	return service.store.PrepareExecution(ctx, request, authorized.Role, mutation(command.RequestID, "execution_prepared", actor, now))
+}
+
+type RequestExecutionResolutionCommand struct {
+	Actor            access.Actor
+	AccountID        ids.AccountID
+	RequestID        string
+	ExecutionID      ids.IntegrationExecutionID
+	RequestedOutcome domain.ExecutionState
+	Evidence         string
+}
+
+func (service *Service) RequestExecutionResolution(ctx context.Context, command RequestExecutionResolutionCommand) (ExecutionDetail, error) {
+	authorized, actor, now, err := service.managementCommand(ctx, command.Actor, command.AccountID, command.RequestID, 0, true)
+	evidence := strings.TrimSpace(command.Evidence)
+	if err != nil || ids.Validate(string(command.ExecutionID)) != nil ||
+		(command.RequestedOutcome != domain.ExecutionSucceeded && command.RequestedOutcome != domain.ExecutionFailed) ||
+		len(evidence) < 3 || len(evidence) > 1000 {
+		if err != nil {
+			return ExecutionDetail{}, err
+		}
+		return ExecutionDetail{}, ErrInvalid
+	}
+	digest := sha256.Sum256([]byte(evidence))
+	resolutionID := ids.IntegrationResolutionID(command.RequestID)
+	change := mutation(command.RequestID, "execution_resolution_requested", actor, now)
+	if err := service.store.RequestExecutionResolution(ctx, command.AccountID, command.ExecutionID, resolutionID,
+		command.RequestedOutcome, digest, authorized.Role, change); err != nil {
+		return ExecutionDetail{}, err
+	}
+	return service.store.GetExecution(ctx, command.AccountID, command.ExecutionID)
+}
+
+type ConfirmExecutionResolutionCommand struct {
+	Actor        access.Actor
+	AccountID    ids.AccountID
+	RequestID    string
+	ExecutionID  ids.IntegrationExecutionID
+	ResolutionID ids.IntegrationResolutionID
+}
+
+func (service *Service) ConfirmExecutionResolution(ctx context.Context, command ConfirmExecutionResolutionCommand) (ExecutionDetail, error) {
+	authorized, actor, now, err := service.managementCommand(ctx, command.Actor, command.AccountID, command.RequestID, 0, true)
+	if err != nil || ids.Validate(string(command.ExecutionID)) != nil || ids.Validate(string(command.ResolutionID)) != nil {
+		if err != nil {
+			return ExecutionDetail{}, err
+		}
+		return ExecutionDetail{}, ErrInvalid
+	}
+	change := mutation(command.RequestID, "execution_resolution_confirmed", actor, now)
+	if err := service.store.ConfirmExecutionResolution(ctx, command.AccountID, command.ExecutionID, command.ResolutionID,
+		authorized.Role, change); err != nil {
+		return ExecutionDetail{}, err
+	}
+	return service.store.GetExecution(ctx, command.AccountID, command.ExecutionID)
 }
 
 type ReviseConnectionCommand struct {

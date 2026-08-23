@@ -159,6 +159,7 @@ type ExecutionPage struct {
 }
 
 type ExecutionDetail struct {
-	Execution domain.Execution
-	Attempts  []domain.Attempt
+	Execution  domain.Execution
+	Attempts   []domain.Attempt
+	Resolution *domain.ExecutionResolution
 }

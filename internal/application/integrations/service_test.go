@@ -32,13 +32,16 @@ func (authorizer *integrationTestAuthorizer) Authorize(_ context.Context, _ acce
 }
 
 type integrationTestStore struct {
-	connection     domain.Connection
-	revision       domain.ConnectionRevision
-	credential     domain.CredentialBinding
-	mutations      []Mutation
-	listQuery      ConnectionListQuery
-	healthQuery    HealthListQuery
-	executionQuery ExecutionListQuery
+	connection         domain.Connection
+	revision           domain.ConnectionRevision
+	credential         domain.CredentialBinding
+	mutations          []Mutation
+	listQuery          ConnectionListQuery
+	healthQuery        HealthListQuery
+	executionQuery     ExecutionListQuery
+	executionDetail    ExecutionDetail
+	resolutionOutcome  domain.ExecutionState
+	resolutionEvidence [32]byte
 }
 
 func (store *integrationTestStore) CreateConnection(_ context.Context, input domain.ConnectionInput, role accounts.MembershipRole, mutation Mutation) (domain.Connection, bool, error) {
@@ -73,8 +76,11 @@ func (store *integrationTestStore) ListHealth(_ context.Context, _ ids.AccountID
 	return HealthPage{}, nil
 }
 
-func (store *integrationTestStore) GetExecution(context.Context, ids.AccountID, ids.IntegrationExecutionID) (ExecutionDetail, error) {
-	return ExecutionDetail{}, ErrNotFound
+func (store *integrationTestStore) GetExecution(_ context.Context, accountID ids.AccountID, executionID ids.IntegrationExecutionID) (ExecutionDetail, error) {
+	if store.executionDetail.Execution.AccountID != accountID || store.executionDetail.Execution.ID != executionID {
+		return ExecutionDetail{}, ErrNotFound
+	}
+	return store.executionDetail, nil
 }
 
 func (store *integrationTestStore) ListExecutions(_ context.Context, _ ids.AccountID, query ExecutionListQuery) (ExecutionPage, error) {
@@ -92,6 +98,48 @@ func (store *integrationTestStore) PrepareExecution(_ context.Context, request P
 	}
 	store.mutations = append(store.mutations, mutation)
 	return value, true, nil
+}
+
+func (store *integrationTestStore) RequestExecutionResolution(_ context.Context, _ ids.AccountID, _ ids.IntegrationExecutionID,
+	resolutionID ids.IntegrationResolutionID, outcome domain.ExecutionState, evidence [32]byte, _ accounts.MembershipRole, mutation Mutation) error {
+	store.mutations = append(store.mutations, mutation)
+	store.resolutionOutcome, store.resolutionEvidence = outcome, evidence
+	store.executionDetail.Resolution = &domain.ExecutionResolution{ID: resolutionID, AccountID: store.executionDetail.Execution.AccountID,
+		ExecutionID: store.executionDetail.Execution.ID, RequestedOutcome: outcome, EvidenceSHA256: evidence,
+		RequestedByUserID: mutation.Actor.UserID, RequestedAt: mutation.At, State: domain.ResolutionPending}
+	return nil
+}
+
+func (store *integrationTestStore) ConfirmExecutionResolution(_ context.Context, _ ids.AccountID, _ ids.IntegrationExecutionID,
+	_ ids.IntegrationResolutionID, _ accounts.MembershipRole, mutation Mutation) error {
+	store.mutations = append(store.mutations, mutation)
+	return nil
+}
+
+func TestExecutionResolutionCommandsRequireHumanManagerAndHashEvidence(t *testing.T) {
+	accountID := ids.AccountID("99100000-0000-4000-8000-000000000001")
+	userID := ids.UserID("99200000-0000-4000-8000-000000000002")
+	executionID := ids.IntegrationExecutionID("99300000-0000-4000-8000-000000000003")
+	requestID := "99400000-0000-4000-8000-000000000004"
+	now := time.Date(2026, 8, 23, 23, 30, 0, 0, time.UTC)
+	store := &integrationTestStore{executionDetail: ExecutionDetail{Execution: domain.Execution{ID: executionID, AccountID: accountID}}}
+	authorizer := &integrationTestAuthorizer{role: accounts.RoleOwner}
+	service, err := New(authorizer, store, &integrationTestClock{at: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := service.RequestExecutionResolution(context.Background(), RequestExecutionResolutionCommand{Actor: access.Actor{UserID: userID},
+		AccountID: accountID, RequestID: requestID, ExecutionID: executionID, RequestedOutcome: domain.ExecutionSucceeded,
+		Evidence: "  provider receipt 123  "})
+	wantDigest := sha256.Sum256([]byte("provider receipt 123"))
+	if err != nil || detail.Resolution == nil || store.resolutionEvidence != wantDigest || store.resolutionOutcome != domain.ExecutionSucceeded ||
+		len(authorizer.requirements) != 1 || !authorizer.requirements[0].Mutation {
+		t.Fatalf("detail=%+v digest=%x requirements=%+v err=%v", detail, store.resolutionEvidence, authorizer.requirements, err)
+	}
+	if _, err := service.RequestExecutionResolution(context.Background(), RequestExecutionResolutionCommand{Actor: access.Actor{WorkloadID: "runner"},
+		AccountID: accountID, RequestID: requestID, ExecutionID: executionID, RequestedOutcome: domain.ExecutionSucceeded, Evidence: "receipt"}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("workload resolution=%v", err)
+	}
 }
 
 func (store *integrationTestStore) ReviseConnection(_ context.Context, _ ids.AccountID, _ ids.IntegrationConnectionID, expected uint64, input domain.ConnectionRevisionInput, actor domain.Actor, role accounts.MembershipRole, mutation Mutation) (domain.Connection, error) {

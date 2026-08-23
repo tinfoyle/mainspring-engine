@@ -148,6 +148,8 @@ var Routes = [...]Route{
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/integrations/connections/{connectionID}/enables", OperationID: "integrationConnectionEnable", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/integrations/connections/{connectionID}/revocations", OperationID: "integrationConnectionRevoke", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/integrations/executions", OperationID: "integrationExecutionPrepare", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/integrations/executions/{executionID}/resolution-requests", OperationID: "integrationExecutionRequestResolution", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/integrations/executions/{executionID}/resolutions/{resolutionID}/confirmations", OperationID: "integrationExecutionConfirmResolution", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/knowledge/claims", OperationID: "knowledgeClaimPropose", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/knowledge/claims/{claimID}/decisions", OperationID: "knowledgeClaimDecide", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/knowledge/documents", OperationID: "knowledgeDocumentUpload", Authentication: "sessionCookie", Contract: "typed"},

@@ -31,11 +31,13 @@ const (
 )
 
 type integrationMCPStub struct {
-	now          time.Time
-	create       integrationsapp.CreateConnectionCommand
-	credential   integrationsapp.CredentialCommand
-	executionQry integrationsapp.ExecutionListQuery
-	reviseError  error
+	now               time.Time
+	create            integrationsapp.CreateConnectionCommand
+	credential        integrationsapp.CredentialCommand
+	executionQry      integrationsapp.ExecutionListQuery
+	resolutionRequest integrationsapp.RequestExecutionResolutionCommand
+	resolutionConfirm integrationsapp.ConfirmExecutionResolutionCommand
+	reviseError       error
 }
 
 func (stub *integrationMCPStub) connection() integrationsdomain.Connection {
@@ -98,6 +100,14 @@ func (stub *integrationMCPStub) ListExecutions(_ context.Context, _ access.Actor
 	value := stub.execution()
 	return integrationsapp.ExecutionPage{Items: []integrationsdomain.Execution{value}, NextCursor: &integrationsapp.ExecutionCursor{UpdatedAt: value.UpdatedAt, ID: value.ID}}, nil
 }
+func (stub *integrationMCPStub) RequestExecutionResolution(_ context.Context, command integrationsapp.RequestExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error) {
+	stub.resolutionRequest = command
+	return integrationsapp.ExecutionDetail{Execution: stub.execution()}, nil
+}
+func (stub *integrationMCPStub) ConfirmExecutionResolution(_ context.Context, command integrationsapp.ConfirmExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error) {
+	stub.resolutionConfirm = command
+	return integrationsapp.ExecutionDetail{Execution: stub.execution()}, nil
+}
 
 func TestIntegrationsMCPPublishesClassifiedCompleteTools(t *testing.T) {
 	stub := &integrationMCPStub{now: time.Date(2026, 8, 23, 23, 0, 0, 0, time.UTC)}
@@ -118,7 +128,7 @@ func TestIntegrationsMCPPublishesClassifiedCompleteTools(t *testing.T) {
 			}
 		}
 	}
-	if count != 13 || !slices.IsSorted(names) {
+	if count != 15 || !slices.IsSorted(names) {
 		t.Fatalf("count=%d sorted=%v names=%v", count, slices.IsSorted(names), names)
 	}
 }
@@ -144,7 +154,15 @@ func TestIntegrationsMCPBindsMutationDigestAndOpaqueExecutionOutput(t *testing.T
 	if !strings.Contains(raw, `"payload_sha256":"`) || !strings.Contains(raw, `"next_cursor":"`) || strings.Contains(raw, "reference_sha256") || strings.Contains(raw, "provider_payload") {
 		t.Fatalf("unsafe output=%s", raw)
 	}
-	if len(authority.requirements) != 3 || !authority.requirements[0].Mutation || !authority.requirements[1].Mutation || authority.requirements[2].Mutation {
+	requested, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_integrations_execution_request_resolution", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation, "execution_id": mcpIntegrationExecution, "requested_outcome": "succeeded", "evidence": "provider receipt 123"}})
+	if err != nil || requested.IsError || stub.resolutionRequest.RequestedOutcome != integrationsdomain.ExecutionSucceeded {
+		t.Fatalf("requested=%+v err=%v command=%+v", requested, err, stub.resolutionRequest)
+	}
+	confirmed, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_integrations_execution_confirm_resolution", Arguments: map[string]any{"account_id": mcpAccount, "operation_id": mcpOperation, "execution_id": mcpIntegrationExecution, "resolution_id": mcpOperation}})
+	if err != nil || confirmed.IsError || stub.resolutionConfirm.ResolutionID != mcpOperation {
+		t.Fatalf("confirmed=%+v err=%v command=%+v", confirmed, err, stub.resolutionConfirm)
+	}
+	if len(authority.requirements) != 5 || !authority.requirements[0].Mutation || !authority.requirements[1].Mutation || authority.requirements[2].Mutation || !authority.requirements[3].Mutation || !authority.requirements[4].Mutation {
 		t.Fatalf("requirements=%+v", authority.requirements)
 	}
 }

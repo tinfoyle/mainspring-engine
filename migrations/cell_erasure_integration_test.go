@@ -60,7 +60,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	for _, table := range []string{"marketing_campaigns", "marketing_campaign_channels", "marketing_assets", "marketing_asset_revisions", "marketing_release_plans", "marketing_release_channels", "marketing_release_assets", "marketing_events"} {
 		coveredTables[table] = true
 	}
-	for _, table := range []string{"integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_events", "integration_execution_queue"} {
+	for _, table := range []string{"integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_execution_resolutions", "integration_events", "integration_execution_queue"} {
 		coveredTables[table] = true
 	}
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
@@ -121,7 +121,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 			spyglass.marketing_release_assets,spyglass.marketing_events,
 			spyglass.integration_connections,spyglass.integration_connection_revisions,spyglass.integration_credentials,
 			spyglass.integration_health_observations,spyglass.integration_executions,spyglass.integration_execution_attempts,
-			spyglass.integration_events,spyglass.integration_execution_queue TO `+functionRole+`;
+			spyglass.integration_execution_resolutions,spyglass.integration_events,spyglass.integration_execution_queue TO `+functionRole+`;
 		GRANT UPDATE ON spyglass.account_namespaces TO `+functionRole+`;
 		ALTER TABLE spyglass.account_erasure_tombstones OWNER TO `+functionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_control(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;
@@ -221,6 +221,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	expectedCounts["integration_health_observations"] = 1
 	expectedCounts["integration_executions"] = 1
 	expectedCounts["integration_execution_attempts"] = 1
+	expectedCounts["integration_execution_resolutions"] = 1
 	expectedCounts["integration_events"] = 1
 	expectedCounts["integration_execution_queue"] = 1
 	expectedCounts["runner_action_execution_queue"] = 1
@@ -639,6 +640,12 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		accountID, integrationExecutionID, integrationAttemptID, now.Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.integration_execution_resolutions
+		(account_id,id,execution_id,requested_outcome,evidence_sha256,requested_by_user_id,requested_at,state,confirmed_by_user_id,confirmed_at)
+		VALUES ($1,'a2f10000-0000-4000-8000-000000000001',$2,'succeeded',decode(repeat('94',32),'hex'),$3,$4,'applied','a2f20000-0000-4000-8000-000000000002',$5)`,
+		accountID, integrationExecutionID, reviewerUserID, now.Add(time.Second), now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.integration_execution_queue(account_id,execution_id,available_at,updated_at)
 		VALUES ($1,$2,$3,$4)`, accountID, integrationExecutionID, now.Add(24*time.Hour), now.Add(2*time.Second)); err != nil {
 		t.Fatal(err)
@@ -663,7 +670,7 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 
 func assertCellAccountRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, accountID ids.AccountID, expected int) {
 	t.Helper()
-	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "runner_action_execution_queue", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions", "attention_information_requests", "attention_work_reviews", "attention_consequential_approvals", "attention_events", "knowledge_evidence", "knowledge_claims", "knowledge_claim_citations", "knowledge_facts", "knowledge_fact_revisions", "knowledge_events", "baseline_assessments", "baseline_interview_answers", "baseline_requirements", "baseline_evidence_decisions", "baseline_plans", "baseline_plan_work", "baseline_events", "baseline_source_grants", "baseline_source_grant_events", "baseline_maintenance_queue", "prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events", "schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue", "schedule_queue_operator_events", "finance_ledgers", "finance_ledger_close_evidence", "finance_accounts", "finance_entry_number_counters", "finance_entries", "finance_entry_lines", "finance_entry_evidence", "finance_reconciliations", "finance_reconciliation_evidence", "finance_events", "marketing_campaigns", "marketing_campaign_channels", "marketing_assets", "marketing_asset_revisions", "marketing_release_plans", "marketing_release_channels", "marketing_release_assets", "marketing_events", "integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_events", "integration_execution_queue"} {
+	for _, table := range []string{"account_move_checkpoints", "account_namespaces", "account_audit_events", "work_item_number_counters", "work_items", "work_item_events", "route_context_receipts", "work_capacity_release_queue", "route_context_receipt_cleanup_queue", "work_capacity_release_operator_events", "runner_account_scheduling", "runner_invocation_queue", "runner_invocation_exchanges", "runner_capability_events", "runner_action_authorizations", "runner_action_ledger", "runner_action_attempts", "runner_action_execution_queue", "agent_boardrooms", "agent_personas", "agent_persona_versions", "agent_conversations", "agent_runs", "agent_run_plan_turns", "agent_invocations", "agent_messages", "agent_result_projection_queue", "agent_user_messages", "agent_invocation_execution_plans", "agent_dispatch_queue", "agent_queue_operator_events", "agent_run_resolutions", "attention_information_requests", "attention_work_reviews", "attention_consequential_approvals", "attention_events", "knowledge_evidence", "knowledge_claims", "knowledge_claim_citations", "knowledge_facts", "knowledge_fact_revisions", "knowledge_events", "baseline_assessments", "baseline_interview_answers", "baseline_requirements", "baseline_evidence_decisions", "baseline_plans", "baseline_plan_work", "baseline_events", "baseline_source_grants", "baseline_source_grant_events", "baseline_maintenance_queue", "prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events", "schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue", "schedule_queue_operator_events", "finance_ledgers", "finance_ledger_close_evidence", "finance_accounts", "finance_entry_number_counters", "finance_entries", "finance_entry_lines", "finance_entry_evidence", "finance_reconciliations", "finance_reconciliation_evidence", "finance_events", "marketing_campaigns", "marketing_campaign_channels", "marketing_assets", "marketing_asset_revisions", "marketing_release_plans", "marketing_release_channels", "marketing_release_assets", "marketing_events", "integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_execution_resolutions", "integration_events", "integration_execution_queue"} {
 		var count int
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass.`+table+` WHERE account_id=$1`, accountID).Scan(&count); err != nil || (expected == 0 && count != 0) || (expected == 1 && count == 0) {
 			t.Fatalf("table %s Account %s rows=%d expected-presence=%d err=%v", table, accountID, count, expected, err)

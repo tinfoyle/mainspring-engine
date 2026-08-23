@@ -54,8 +54,21 @@ type integrationsExecutionResponse struct {
 }
 
 type integrationsExecutionDetailResponse struct {
-	Execution integrationsExecutionResponse `json:"execution"`
-	Attempts  []integrationsdomain.Attempt  `json:"attempts"`
+	Execution  integrationsExecutionResponse            `json:"execution"`
+	Attempts   []integrationsdomain.Attempt             `json:"attempts"`
+	Resolution *integrationsExecutionResolutionResponse `json:"resolution,omitempty"`
+}
+
+type integrationsExecutionResolutionResponse struct {
+	ID                ids.IntegrationResolutionID        `json:"id"`
+	ExecutionID       ids.IntegrationExecutionID         `json:"execution_id"`
+	RequestedOutcome  integrationsdomain.ExecutionState  `json:"requested_outcome"`
+	EvidenceSHA256    string                             `json:"evidence_sha256"`
+	RequestedByUserID ids.UserID                         `json:"requested_by_user_id"`
+	RequestedAt       time.Time                          `json:"requested_at"`
+	State             integrationsdomain.ResolutionState `json:"state"`
+	ConfirmedByUserID ids.UserID                         `json:"confirmed_by_user_id,omitempty"`
+	ConfirmedAt       *time.Time                         `json:"confirmed_at,omitempty"`
 }
 
 func (s *Server) integrationsConnectionList(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +227,7 @@ func (s *Server) integrationsExecutionGet(w http.ResponseWriter, r *http.Request
 		s.writeIntegrationsError(w, "get execution", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, integrationsExecutionDetailResponse{Execution: integrationsExecutionDTO(detail.Execution), Attempts: detail.Attempts})
+	writeJSON(w, http.StatusOK, integrationsExecutionDetailDTO(detail))
 }
 
 func (s *Server) integrationsReadRequest(w http.ResponseWriter, r *http.Request) (routecontext.Claims, access.Actor, ids.AccountID, bool) {
@@ -270,6 +283,18 @@ func integrationsExecutionDTO(value integrationsdomain.Execution) integrationsEx
 		PayloadSHA256: hex.EncodeToString(value.PayloadSHA256[:]), State: value.State, AttemptCount: value.AttemptCount, CurrentAttemptID: value.CurrentAttemptID,
 		LastErrorCode: value.LastErrorCode, LeaseExpiresAt: value.LeaseExpiresAt, NextAttemptAt: value.NextAttemptAt, CreatedAt: value.CreatedAt,
 		UpdatedAt: value.UpdatedAt, CompletedAt: value.CompletedAt}
+}
+
+func integrationsExecutionDetailDTO(value integrationsapp.ExecutionDetail) integrationsExecutionDetailResponse {
+	result := integrationsExecutionDetailResponse{Execution: integrationsExecutionDTO(value.Execution), Attempts: value.Attempts}
+	if value.Resolution != nil {
+		resolution := value.Resolution
+		result.Resolution = &integrationsExecutionResolutionResponse{ID: resolution.ID, ExecutionID: resolution.ExecutionID,
+			RequestedOutcome: resolution.RequestedOutcome, EvidenceSHA256: hex.EncodeToString(resolution.EvidenceSHA256[:]),
+			RequestedByUserID: resolution.RequestedByUserID, RequestedAt: resolution.RequestedAt, State: resolution.State,
+			ConfirmedByUserID: resolution.ConfirmedByUserID, ConfirmedAt: resolution.ConfirmedAt}
+	}
+	return result
 }
 
 func (s *Server) writeIntegrationsError(w http.ResponseWriter, operation string, err error) {
