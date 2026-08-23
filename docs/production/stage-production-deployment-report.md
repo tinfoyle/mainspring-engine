@@ -130,7 +130,7 @@ The common Compose definition models final process boundaries:
 - Caddy edge proxy;
 - standalone public website;
 - global, cell A and cell B PostgreSQL 17 containers with distinct volumes;
-- private versioned MinIO document storage with server-side encryption and no host-published port;
+- private versioned MinIO document/creative storage with server-side encryption, four workload-scoped identities and no host-published port;
 - cell app APIs admit routed document uploads through bounded private-disk spools and write only verified immutable source objects; per-cell workers consume the same private bucket for scanning, extraction, indexing and receipt-backed exact-version deletion;
 - migration jobs for each database target;
 - Account API, app router, two cell app APIs and private admission API;
@@ -182,11 +182,12 @@ The stage override uses the same service graph with production-mode process argu
 
 - application and website images pulled from GHCR by digest;
 - three PostgreSQL containers with private networks and persistent volumes;
-- private versioned MinIO document storage on a persistent volume with a generated static stage encryption key and distinct prefix-scoped admission, worker and one-shot prototype-migration credentials; production replaces this service with Linode Object Storage and corresponding scoped credentials;
+- private versioned MinIO document/creative storage on a persistent volume with a generated static stage encryption key and distinct prefix-scoped admission, document-worker, read-only Integration-connector and one-shot prototype-migration credentials; production replaces this service with Linode Object Storage and corresponding scoped credentials;
 - an internal Caddy router on the existing `infiniteocean_public` network; the existing Infinite Ocean Caddy remains the only public 80/443 and ACME owner;
 - Stripe test mode, TLS SMTP and non-production provider credentials;
 - a non-internal provider-egress network attached only to Account API, billing, notification, model-gateway and the two runner-broker workloads;
 - workload-specific secrets/environment files stored outside the repository;
+- generated Integration-connector global/cell database credentials plus an independent read-only Marketing-object credential; the Stage render fails closed if any are absent;
 - resource limits, health checks, log rotation and content-safe telemetry;
 - two stateless, least-privilege MCP gateway replicas behind the public/internal Caddy chain;
 - one mTLS `tool-router`, model gateway, and independent cell A/cell B runner controller, broker and Docker launcher paths;

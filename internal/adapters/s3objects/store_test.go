@@ -76,8 +76,12 @@ func TestStoreRequiresExistingVersionedBucket(t *testing.T) {
 	if err != nil || store.Verify(context.Background()) != nil {
 		t.Fatalf("verify err=%v", err)
 	}
+	client.exists = false
+	if err := store.VerifyReadOnly(context.Background()); err != nil {
+		t.Fatalf("read-only verify unexpectedly required bucket listing: %v", err)
+	}
 	client.versioning.Status = "Suspended"
-	if err := store.Verify(context.Background()); !errors.Is(err, ErrConfiguration) {
+	if err := store.VerifyReadOnly(context.Background()); !errors.Is(err, ErrConfiguration) {
 		t.Fatalf("suspended versioning err=%v", err)
 	}
 }

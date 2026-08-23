@@ -106,7 +106,8 @@ func TestS3StoreHonorsAdmissionAndWorkerCredentials(t *testing.T) {
 	endpoint := os.Getenv("SPYGLASS_S3_TEST_ENDPOINT")
 	appAccess := os.Getenv("SPYGLASS_S3_APP_TEST_ACCESS_KEY")
 	workerAccess := os.Getenv("SPYGLASS_S3_WORKER_TEST_ACCESS_KEY")
-	if endpoint == "" || appAccess == "" || workerAccess == "" {
+	connectorAccess := os.Getenv("SPYGLASS_S3_CONNECTOR_TEST_ACCESS_KEY")
+	if endpoint == "" || appAccess == "" || workerAccess == "" || connectorAccess == "" {
 		t.Skip("scoped S3 test credentials are not configured")
 	}
 	bucket := os.Getenv("SPYGLASS_S3_TEST_BUCKET")
@@ -118,6 +119,10 @@ func TestS3StoreHonorsAdmissionAndWorkerCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	connector, err := New(Config{Endpoint: endpoint, Bucket: bucket, AccessKey: connectorAccess, SecretKey: os.Getenv("SPYGLASS_S3_CONNECTOR_TEST_SECRET_KEY"), ServerSideEncryption: true})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if err := app.Verify(ctx); err != nil {
@@ -125,6 +130,12 @@ func TestS3StoreHonorsAdmissionAndWorkerCredentials(t *testing.T) {
 	}
 	if err := worker.Verify(ctx); err != nil {
 		t.Fatalf("worker credential verify: %v", err)
+	}
+	if err := connector.VerifyReadOnly(ctx); err != nil {
+		t.Fatalf("connector read-only credential verify: %v", err)
+	}
+	if err := connector.Verify(ctx); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("connector unexpectedly received bucket-list authority: %v", err)
 	}
 	body := []byte("scoped immutable source")
 	request := knowledgeapp.SourceObjectWrite{AccountID: "f4000000-0000-4000-8000-000000000004", DocumentID: "f5000000-0000-4000-8000-000000000005", RevisionID: "f6000000-0000-4000-8000-000000000006", MediaType: "text/plain", Size: int64(len(body)), ContentSHA256: sha256.Sum256(body), Body: bytes.NewReader(body)}
@@ -141,6 +152,42 @@ func TestS3StoreHonorsAdmissionAndWorkerCredentials(t *testing.T) {
 	closeErr := reader.Close()
 	if readErr != nil || closeErr != nil {
 		t.Fatalf("worker source read: %v", errors.Join(readErr, closeErr))
+	}
+	if _, err := connector.Open(ctx, source.Identity); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("connector Knowledge-source read err=%v", err)
+	}
+	marketingBody := []byte("scoped Marketing creative")
+	marketingWrite := marketingapp.AssetObjectWrite{AccountID: "f4100000-0000-4000-8000-000000000004", CampaignID: "f4200000-0000-4000-8000-000000000004",
+		AssetID: "f4300000-0000-4000-8000-000000000004", RevisionID: "f4400000-0000-4000-8000-000000000004", MediaType: "text/plain",
+		Size: int64(len(marketingBody)), ContentSHA256: sha256.Sum256(marketingBody), Body: bytes.NewReader(marketingBody)}
+	marketingObject, err := app.PutMarketingAssetImmutable(ctx, marketingWrite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.DeleteMarketingAsset(context.Background(), marketingObject.Identity)
+	marketingAsset := marketingdomain.AssetRevision{ID: marketingWrite.RevisionID, AccountID: marketingWrite.AccountID, CampaignID: marketingWrite.CampaignID,
+		AssetID: marketingWrite.AssetID, Revision: 1, Kind: marketingdomain.AssetCopy, Title: "Scoped copy", MediaType: marketingWrite.MediaType,
+		ContentReference: marketingObject.Identity.Reference, ContentSHA256: marketingWrite.ContentSHA256, ContentBytes: uint64(marketingWrite.Size),
+		CreatedBy:  marketingdomain.Actor{Kind: marketingdomain.ActorUser, ID: "f4500000-0000-4000-8000-000000000004"},
+		Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginHuman}, CreatedAt: time.Now().UTC()}
+	marketingReader, err := connector.OpenContent(ctx, marketingAsset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readMarketing, readMarketingErr := io.ReadAll(marketingReader)
+	closeMarketingErr := marketingReader.Close()
+	if readMarketingErr != nil || closeMarketingErr != nil || !bytes.Equal(readMarketing, marketingBody) {
+		t.Fatalf("connector Marketing read=%q err=%v", readMarketing, errors.Join(readMarketingErr, closeMarketingErr))
+	}
+	if _, err := worker.OpenContent(ctx, marketingAsset); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("document worker Marketing read err=%v", err)
+	}
+	marketingWrite.Body = bytes.NewReader(marketingBody)
+	if _, err := connector.PutMarketingAssetImmutable(ctx, marketingWrite); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("connector Marketing write err=%v", err)
+	}
+	if err := connector.DeleteMarketingAsset(ctx, marketingObject.Identity); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("connector Marketing delete err=%v", err)
 	}
 	extractedBody := []byte("scoped extracted text")
 	extractedRequest := knowledgeapp.ExtractedObjectWrite{AccountID: request.AccountID, DocumentID: request.DocumentID, RevisionID: request.RevisionID, Size: int64(len(extractedBody)), ContentSHA256: sha256.Sum256(extractedBody), Body: bytes.NewReader(extractedBody)}

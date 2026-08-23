@@ -259,9 +259,9 @@
       "port": 8081,
       "health": "/health/live,/health/ready,/health/status,/metrics",
       "database_roles": ["global.integration-connector-worker", "cell.integration-connector-worker"],
-      "configuration": ["SPYGLASS_ENVIRONMENT", "SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_CELL_ID", "SPYGLASS_CONNECTOR_ADAPTER", "SPYGLASS_MOCK_CONNECTOR_CONFIG_FILE", "SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL", "SPYGLASS_INTEGRATION_CONNECTOR_LEASE", "SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration": ["SPYGLASS_ENVIRONMENT", "SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_CELL_ID", "SPYGLASS_CONNECTOR_ADAPTER", "SPYGLASS_MOCK_CONNECTOR_CONFIG_FILE", "SPYGLASS_OBJECT_STORE_ENDPOINT", "SPYGLASS_OBJECT_STORE_REGION", "SPYGLASS_OBJECT_STORE_BUCKET", "SPYGLASS_OBJECT_STORE_ACCESS_KEY", "SPYGLASS_OBJECT_STORE_SECRET_KEY", "SPYGLASS_OBJECT_STORE_SECURE", "SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", "SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL", "SPYGLASS_INTEGRATION_CONNECTOR_LEASE", "SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
       "configuration_profiles": ["traced", "global_restore_gate", "cell_restore_gate", "local_mock_connector"],
-      "dependencies": ["global-postgresql", "cell-postgresql"],
+      "dependencies": ["global-postgresql", "cell-postgresql", "versioned-object-store"],
       "environment_gate": "the mock adapter is limited to SPYGLASS_ENVIRONMENT=local or local-secure"
     },
     {

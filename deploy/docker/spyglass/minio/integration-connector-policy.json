@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetBucketLocation", "s3:GetBucketVersioning"],
+      "Resource": ["arn:aws:s3:::spyglass-documents"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+      "Resource": ["arn:aws:s3:::spyglass-documents/accounts/*/marketing/campaigns/*/assets/*/revisions/*/content"]
+    }
+  ]
+}

@@ -9,6 +9,7 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
 "${compose[@]}" run --rm --no-deps --entrypoint /bin/sh object-store-init -ec '
   mc alias set app http://object-store:9000 "$SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY" "$SPYGLASS_OBJECT_STORE_APP_SECRET_KEY" >/dev/null
   mc alias set worker http://object-store:9000 "$SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY" "$SPYGLASS_OBJECT_STORE_WORKER_SECRET_KEY" >/dev/null
+  mc alias set connector http://object-store:9000 "$SPYGLASS_OBJECT_STORE_CONNECTOR_ACCESS_KEY" "$SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY" >/dev/null
   mc alias set migration http://object-store:9000 "$SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY" "$SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY" >/dev/null
   mc alias set root http://object-store:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
   prefix="accounts/policy-certification/documents/document/revisions/revision"
@@ -17,6 +18,7 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
   marketing_prefix="accounts/policy-certification/marketing/campaigns/campaign/assets/asset/revisions/revision/content"
   printf marketing | mc pipe "app/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null
   mc cat "app/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null
+  mc cat "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null
   printf extracted | mc pipe "worker/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null
   mc cat "migration/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null
   printf migration-source | mc pipe "migration/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null
@@ -30,6 +32,26 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
   fi
   if printf denied | mc pipe "worker/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null 2>&1; then
     echo "document worker object policy permitted a Marketing-object write" >&2
+    exit 1
+  fi
+  if mc cat "worker/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null 2>&1; then
+    echo "document worker object policy permitted a Marketing-object read" >&2
+    exit 1
+  fi
+  if mc cat "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null 2>&1; then
+    echo "Integration connector object policy permitted a Knowledge-source read" >&2
+    exit 1
+  fi
+  if printf denied | mc pipe "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null 2>&1; then
+    echo "Integration connector object policy permitted a Marketing-object write" >&2
+    exit 1
+  fi
+  if mc ls "connector/$SPYGLASS_OBJECT_STORE_BUCKET" >/dev/null 2>&1; then
+    echo "Integration connector object policy permitted bucket listing" >&2
+    exit 1
+  fi
+  if mc rm --force "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null 2>&1; then
+    echo "Integration connector object policy permitted a Marketing-object delete" >&2
     exit 1
   fi
   mc rm --recursive --force --versions "root/$SPYGLASS_OBJECT_STORE_BUCKET/accounts/policy-certification" >/dev/null

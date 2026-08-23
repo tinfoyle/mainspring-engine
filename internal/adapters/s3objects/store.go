@@ -89,6 +89,12 @@ func (store *Store) Verify(ctx context.Context) error {
 	if !exists {
 		return fmt.Errorf("%w: bucket does not exist", ErrConfiguration)
 	}
+	return store.VerifyReadOnly(ctx)
+}
+
+// VerifyReadOnly verifies the immutable-version prerequisite without requiring
+// bucket-list authority. It is the startup check for exact-key content readers.
+func (store *Store) VerifyReadOnly(ctx context.Context) error {
 	versioning, err := store.client.GetBucketVersioning(ctx, store.bucket)
 	if err != nil {
 		return fmt.Errorf("%w: check versioning: %v", ErrUnavailable, err)
