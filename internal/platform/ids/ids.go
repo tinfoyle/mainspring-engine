@@ -46,6 +46,10 @@ type FinanceLedgerID string
 type FinanceAccountID string
 type FinanceEntryID string
 type FinanceReconciliationID string
+type MarketingCampaignID string
+type MarketingAssetID string
+type MarketingAssetRevisionID string
+type MarketingReleaseID string
 
 type Generator interface {
 	New() string
