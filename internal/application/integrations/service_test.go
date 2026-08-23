@@ -82,6 +82,18 @@ func (store *integrationTestStore) ListExecutions(_ context.Context, _ ids.Accou
 	return ExecutionPage{}, nil
 }
 
+func (store *integrationTestStore) PrepareExecution(_ context.Context, request PrepareExecutionRequest, _ accounts.MembershipRole, mutation Mutation) (domain.Execution, bool, error) {
+	value, err := domain.NewExecution(domain.ExecutionInput{ID: request.ID, AccountID: request.AccountID, ReleaseID: request.ReleaseID,
+		ReleaseVersion: request.ReleaseVersion, ApprovalID: "95600000-0000-4000-8000-000000000006", Capability: request.Capability,
+		Connection: store.connection, ConnectionRevision: store.revision, Credential: store.credential,
+		PayloadSHA256: sha256.Sum256([]byte("test delivery manifest")), CreatedAt: request.PreparedAt})
+	if err != nil || !mutation.Valid() {
+		return domain.Execution{}, false, errors.Join(ErrInvalid, err)
+	}
+	store.mutations = append(store.mutations, mutation)
+	return value, true, nil
+}
+
 func (store *integrationTestStore) ReviseConnection(_ context.Context, _ ids.AccountID, _ ids.IntegrationConnectionID, expected uint64, input domain.ConnectionRevisionInput, actor domain.Actor, role accounts.MembershipRole, mutation Mutation) (domain.Connection, error) {
 	connection, revision, err := store.connection.Revise(expected, input, actor, role, mutation.At)
 	if err != nil || !mutation.Valid() {
@@ -181,6 +193,13 @@ func TestManagementLifecycleUsesIntegrationsAuthorityAndOpaqueCredentialAttestat
 	if err != nil || connection.State != domain.ConnectionActive || connection.CredentialGeneration != 1 || store.credential.ReferenceSHA256 != digest {
 		t.Fatalf("activate=%+v credential=%+v err=%v", connection, store.credential, err)
 	}
+	clock.at = clock.at.Add(time.Minute)
+	execution, created, err := service.PrepareExecution(context.Background(), PrepareExecutionCommand{Actor: actor, AccountID: accountID,
+		RequestID: "94410000-0000-4000-8000-000000000014", ReleaseID: "94420000-0000-4000-8000-000000000024", ReleaseVersion: 3,
+		Capability: domain.CapabilityEmailSend, ConnectionID: connection.ID})
+	if err != nil || !created || execution.State != domain.ExecutionPrepared || execution.ConnectionRevision != 1 || execution.CredentialGeneration != 1 {
+		t.Fatalf("execution=%+v created=%t err=%v", execution, created, err)
+	}
 	reviseID := "94500000-0000-4000-8000-000000000005"
 	clock.at = clock.at.Add(time.Minute)
 	connection, err = service.ReviseConnection(context.Background(), ReviseConnectionCommand{Actor: actor, AccountID: accountID, RequestID: reviseID,
@@ -210,16 +229,27 @@ func TestManagementLifecycleUsesIntegrationsAuthorityAndOpaqueCredentialAttestat
 			t.Fatalf("transition=%s value=%+v err=%v", transition.id, connection, err)
 		}
 	}
-	wantKinds := []string{"connection_created", "connection_activated", "connection_revised", "credential_rotated", "connection_disabled", "connection_activated", "connection_revoked"}
+	wantKinds := []string{"connection_created", "connection_activated", "execution_prepared", "connection_revised", "credential_rotated", "connection_disabled", "connection_activated", "connection_revoked"}
 	for index, want := range wantKinds {
 		if store.mutations[index].Kind != want || !store.mutations[index].Valid() {
 			t.Fatalf("mutation[%d]=%+v", index, store.mutations[index])
 		}
 	}
+	marketingRequirements := 0
 	for _, requirement := range authorizer.requirements {
-		if requirement.Package != PackageCode || !requirement.Mutation || !slices.Equal(requirement.Roles, []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator}) {
+		if requirement.Package == PackageCode {
+			if !requirement.Mutation || !slices.Equal(requirement.Roles, []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator}) {
+				t.Fatalf("management requirement=%+v", requirement)
+			}
+			continue
+		}
+		if requirement.Package != "marketing" || !requirement.Mutation || !slices.Equal(requirement.Roles, []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator}) {
 			t.Fatalf("management requirement=%+v", requirement)
 		}
+		marketingRequirements++
+	}
+	if marketingRequirements != 1 {
+		t.Fatalf("marketing requirements=%d", marketingRequirements)
 	}
 }
 

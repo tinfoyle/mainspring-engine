@@ -39,17 +39,40 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 
 	fixture := seedIntegrationAuthority(t, ctx, owner)
 	seedIntegrationConnection(t, ctx, owner, fixture)
+	cell, err := database.NewCellPool(owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository, err := postgresadapter.NewIntegrationsRepository(cell)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.integration_connection_revisions SET audience_reference='audience:changed'
 		WHERE account_id=$1 AND id=$2`, fixture.accountID, fixture.revisionID); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("revision mutation=%v", err)
 	}
-	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.integration_executions
-		(account_id,id,release_id,release_version,approval_id,capability,connection_id,connection_revision_id,connection_revision,
-		 credential_id,credential_generation,payload_sha256,state,created_at,updated_at)
-		VALUES ($1,$2,$3,3,$4,'email.send',$5,$6,1,$7,1,decode(repeat('81',32),'hex'),'prepared',$8,$8)`,
-		fixture.accountID, fixture.executionID, fixture.releaseID, fixture.approvalID, fixture.connectionID, fixture.revisionID, fixture.credentialID, fixture.executionAt); err != nil {
-		t.Fatal(err)
+	preparedBy := integrationsdomain.Actor{UserID: ids.UserID(fixture.userID)}
+	prepareRequest := integrationsapp.PrepareExecutionRequest{ID: ids.IntegrationExecutionID(fixture.executionID), AccountID: ids.AccountID(fixture.accountID),
+		ReleaseID: ids.MarketingReleaseID(fixture.releaseID), ReleaseVersion: 3, Capability: integrationsdomain.CapabilityEmailSend,
+		ConnectionID: ids.IntegrationConnectionID(fixture.connectionID), PreparedBy: preparedBy, PreparedAt: fixture.executionAt}
+	prepared, created, err := repository.PrepareExecution(ctx, prepareRequest, accounts.RoleOwner, integrationsapp.Mutation{EventID: fixture.executionID,
+		Kind: "execution_prepared", Actor: preparedBy, CorrelationID: fixture.executionID, At: fixture.executionAt})
+	if err != nil || !created || prepared.State != integrationsdomain.ExecutionPrepared || prepared.ConnectionRevisionID != ids.IntegrationConnectionRevisionID(fixture.revisionID) {
+		t.Fatalf("prepared=%+v created=%t err=%v", prepared, created, err)
+	}
+	retryRequest := prepareRequest
+	retryRequest.PreparedAt = fixture.executionAt.Add(time.Second)
+	replayed, created, err := repository.PrepareExecution(ctx, retryRequest, accounts.RoleOwner, integrationsapp.Mutation{EventID: fixture.executionID,
+		Kind: "execution_prepared", Actor: preparedBy, CorrelationID: fixture.executionID, At: retryRequest.PreparedAt})
+	if err != nil || created || !reflect.DeepEqual(replayed, prepared) {
+		t.Fatalf("preparation replay=%+v created=%t err=%v", replayed, created, err)
+	}
+	alteredPrepare := retryRequest
+	alteredPrepare.ReleaseVersion++
+	if _, _, err := repository.PrepareExecution(ctx, alteredPrepare, accounts.RoleOwner, integrationsapp.Mutation{EventID: fixture.executionID,
+		Kind: "execution_prepared", Actor: preparedBy, CorrelationID: fixture.executionID, At: alteredPrepare.PreparedAt}); !errors.Is(err, integrationsapp.ErrConflict) {
+		t.Fatalf("altered preparation replay=%v", err)
 	}
 	var queued int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.integration_execution_queue WHERE account_id=$1 AND execution_id=$2`, fixture.accountID, fixture.executionID).Scan(&queued); err != nil || queued != 1 {
@@ -100,14 +123,6 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 	}
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.integration_execution_queue WHERE account_id=$1 AND execution_id=$2`, fixture.accountID, fixture.executionID).Scan(&queued); err != nil || queued != 0 {
 		t.Fatalf("terminal queue=%d err=%v", queued, err)
-	}
-	cell, err := database.NewCellPool(owner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	repository, err := postgresadapter.NewIntegrationsRepository(cell)
-	if err != nil {
-		t.Fatal(err)
 	}
 	detail, err := repository.GetExecution(ctx, ids.AccountID(fixture.accountID), ids.IntegrationExecutionID(fixture.executionID))
 	if err != nil || detail.Execution.State != integrationsdomain.ExecutionManualResolution || len(detail.Attempts) != 3 || detail.Attempts[2].Outcome != integrationsdomain.AttemptUnknown {

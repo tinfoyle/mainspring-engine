@@ -122,6 +122,39 @@ func (service *Service) ListExecutions(ctx context.Context, actor access.Actor, 
 	return service.store.ListExecutions(ctx, accountID, query)
 }
 
+type PrepareExecutionCommand struct {
+	Actor          access.Actor
+	AccountID      ids.AccountID
+	RequestID      string
+	ReleaseID      ids.MarketingReleaseID
+	ReleaseVersion uint64
+	Capability     domain.Capability
+	ConnectionID   ids.IntegrationConnectionID
+}
+
+func (service *Service) PrepareExecution(ctx context.Context, command PrepareExecutionCommand) (domain.Execution, bool, error) {
+	authorized, actor, now, err := service.managementCommand(ctx, command.Actor, command.AccountID, command.RequestID, 0, true)
+	if err != nil || ids.Validate(string(command.ReleaseID)) != nil || command.ReleaseVersion == 0 || ids.Validate(string(command.ConnectionID)) != nil ||
+		(command.Capability != domain.CapabilityEmailSend && command.Capability != domain.CapabilityWebPublish) {
+		if err != nil {
+			return domain.Execution{}, false, err
+		}
+		return domain.Execution{}, false, ErrInvalid
+	}
+	marketingAuthority, err := service.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Package: catalog.PackageMarketing,
+		Mutation: true, Roles: []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator}})
+	if err != nil {
+		return domain.Execution{}, false, err
+	}
+	if marketingAuthority.AccountID != authorized.AccountID || marketingAuthority.CellID != authorized.CellID ||
+		marketingAuthority.PlacementGeneration != authorized.PlacementGeneration || marketingAuthority.EntitlementVersion != authorized.EntitlementVersion {
+		return domain.Execution{}, false, ErrInvalid
+	}
+	request := PrepareExecutionRequest{ID: ids.IntegrationExecutionID(command.RequestID), AccountID: command.AccountID, ReleaseID: command.ReleaseID,
+		ReleaseVersion: command.ReleaseVersion, Capability: command.Capability, ConnectionID: command.ConnectionID, PreparedBy: actor, PreparedAt: now}
+	return service.store.PrepareExecution(ctx, request, authorized.Role, mutation(command.RequestID, "execution_prepared", actor, now))
+}
+
 type ReviseConnectionCommand struct {
 	Actor           access.Actor
 	AccountID       ids.AccountID

@@ -15,7 +15,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 1. Provider-neutral connection, scope, credential-binding and external-execution state machines. **Constructed.**
 2. Account-owned forced-RLS persistence, immutable revisions/attempts/events, claim leasing, movement fencing and exact erasure/restore participation. **Constructed.**
 3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
-4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization.
+4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
 5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling.
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution.
 7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
@@ -48,7 +48,15 @@ The PostgreSQL adapter restores every connection, current immutable revision and
 
 Connection detail now combines the current connection, its exact immutable non-secret scope revision and latest content-free health observation. Separate bounded health history pages use stable `(checked_at DESC,id)` cursors. External execution pages filter only the closed delivery capabilities and state vocabulary; exact detail restores the frozen authority digest and immutable ordered attempts through the typed kernel. Provider responses, provider payloads, secret references and credentials remain absent.
 
-All observability queries repeat Integrations package authorization and preserve cross-Account concealment. Malformed persisted health or attempt history fails restoration rather than escaping as a customer DTO. Fresh PostgreSQL 17 tests cover latest-health selection, health pagination, manual-resolution execution detail, ordered attempt outcomes, filtered execution listing and cross-Account denial. Construction step 3 is complete; broker handoff, Marketing execution preparation and the provider worker/adapters remain next.
+All observability queries repeat Integrations package authorization and preserve cross-Account concealment. Malformed persisted health or attempt history fails restoration rather than escaping as a customer DTO. Fresh PostgreSQL 17 tests cover latest-health selection, health pagination, manual-resolution execution detail, ordered attempt outcomes, filtered execution listing and cross-Account denial. Construction step 3 is complete.
+
+## Marketing preparation checkpoint
+
+An Owner or Administrator may now prepare one delivery per active approved Marketing release capability by selecting an active Account connection. This separate Integrations mutation requires matching current Account placement and entitlement versions from enabled Marketing and Integrations package checks; read-only or suspended access cannot prepare an effect. It does not let an Agent, provider worker or Marketing aggregate choose a connector. The database independently rechecks the active campaign/release, exact release version and unexpired Attention approval, channel-compatible current connection revision and current credential generation.
+
+Preparation freezes those authorities into one immutable execution and computes its SHA-256 idempotency digest from a canonical content-free manifest: release/version, delivery capability, connector revision, credential generation and the sorted immutable asset revision digests. The manifest itself is not stored in operational rows, and no creative body, audience value, broker reference or provider credential enters the execution or event. Exact retries return the original execution even after later connector changes; altered request reuse conflicts.
+
+Fresh PostgreSQL 17 coverage now prepares the execution through the repository rather than seeding it directly, proves queue insertion, exact replay, altered-replay rejection and the full execute/reconcile/manual-resolution sequence. Construction step 4 is complete. Broker handoff and the dedicated connector worker/mock adapters remain next; no provider effect is executable yet.
 
 ## Invariants
 

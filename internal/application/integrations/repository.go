@@ -35,6 +35,7 @@ func (value Mutation) Valid() bool {
 		"connection_disabled":  true,
 		"connection_revoked":   true,
 		"credential_rotated":   true,
+		"execution_prepared":   true,
 	}[value.Kind]
 	return ids.Validate(value.EventID) == nil && ids.Validate(value.CorrelationID) == nil &&
 		ids.Validate(string(value.Actor.UserID)) == nil && validKind && !value.At.IsZero()
@@ -48,12 +49,24 @@ type Store interface {
 	ListHealth(context.Context, ids.AccountID, HealthListQuery) (HealthPage, error)
 	GetExecution(context.Context, ids.AccountID, ids.IntegrationExecutionID) (ExecutionDetail, error)
 	ListExecutions(context.Context, ids.AccountID, ExecutionListQuery) (ExecutionPage, error)
+	PrepareExecution(context.Context, PrepareExecutionRequest, accounts.MembershipRole, Mutation) (domain.Execution, bool, error)
 	ReviseConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, domain.ConnectionRevisionInput, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
 	ActivateConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, domain.CredentialInput, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
 	RotateCredential(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, uint64, domain.CredentialInput, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
 	DisableConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
 	EnableConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
 	RevokeConnection(context.Context, ids.AccountID, ids.IntegrationConnectionID, uint64, domain.Actor, accounts.MembershipRole, Mutation) (domain.Connection, error)
+}
+
+type PrepareExecutionRequest struct {
+	ID             ids.IntegrationExecutionID
+	AccountID      ids.AccountID
+	ReleaseID      ids.MarketingReleaseID
+	ReleaseVersion uint64
+	Capability     domain.Capability
+	ConnectionID   ids.IntegrationConnectionID
+	PreparedBy     domain.Actor
+	PreparedAt     time.Time
 }
 
 func classify(err error) error {

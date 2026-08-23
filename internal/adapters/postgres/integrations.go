@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -297,6 +298,77 @@ func (repository *IntegrationsRepository) ListExecutions(ctx context.Context, ac
 		return nil
 	})
 	return page, classifyIntegrations(err)
+}
+
+func (repository *IntegrationsRepository) PrepareExecution(ctx context.Context, request integrationsapp.PrepareExecutionRequest, role accounts.MembershipRole, mutation integrationsapp.Mutation) (domain.Execution, bool, error) {
+	if !validIntegrationMutation(mutation, "execution_prepared", request.PreparedBy, request.PreparedAt) ||
+		(role != accounts.RoleOwner && role != accounts.RoleAdministrator) {
+		return domain.Execution{}, false, integrationsapp.ErrInvalid
+	}
+	var result domain.Execution
+	created := false
+	err := repository.cell.WithAccountTx(ctx, request.AccountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		existing, loadErr := loadIntegrationExecution(ctx, tx, request.AccountID, request.ID)
+		if loadErr == nil {
+			matched, err := integrationEventMatches(ctx, tx, request.AccountID, mutation.EventID, "execution", string(request.ID), mutation.Kind,
+				request.PreparedBy, mutation.CorrelationID)
+			if err != nil {
+				return err
+			}
+			if !matched || existing.ReleaseID != request.ReleaseID || existing.ReleaseVersion != request.ReleaseVersion || existing.Capability != request.Capability ||
+				existing.ConnectionID != request.ConnectionID {
+				return integrationsapp.ErrConflict
+			}
+			result = existing
+			return nil
+		}
+		if !errors.Is(loadErr, integrationsapp.ErrNotFound) {
+			return loadErr
+		}
+		connection, err := loadIntegrationConnection(ctx, tx, request.AccountID, request.ConnectionID, true)
+		if err != nil {
+			return err
+		}
+		revision, err := loadIntegrationRevision(ctx, tx, request.AccountID, connection.CurrentRevisionID)
+		if err != nil {
+			return err
+		}
+		credential, err := loadIntegrationCredential(ctx, tx, request.AccountID, connection.CredentialID, true)
+		if err != nil {
+			return err
+		}
+		var approvalID ids.ConsequentialApprovalID
+		if err := tx.QueryRow(ctx, `SELECT approval_id FROM spyglass.marketing_release_plans WHERE account_id=$1 AND id=$2`, request.AccountID, request.ReleaseID).Scan(&approvalID); err != nil {
+			return err
+		}
+		digest, err := integrationDeliveryManifestDigest(ctx, tx, request, connection, revision, credential)
+		if err != nil {
+			return err
+		}
+		value, err := domain.NewExecution(domain.ExecutionInput{ID: request.ID, AccountID: request.AccountID, ReleaseID: request.ReleaseID,
+			ReleaseVersion: request.ReleaseVersion, ApprovalID: approvalID, Capability: request.Capability, Connection: connection,
+			ConnectionRevision: revision, Credential: credential, PayloadSHA256: digest, CreatedAt: request.PreparedAt})
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO spyglass.integration_executions
+			(account_id,id,release_id,release_version,approval_id,capability,connection_id,connection_revision_id,connection_revision,
+			 credential_id,credential_generation,payload_sha256,state,created_at,updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14)`, value.AccountID, value.ID, value.ReleaseID, value.ReleaseVersion,
+			value.ApprovalID, value.Capability, value.ConnectionID, value.ConnectionRevisionID, value.ConnectionRevision, value.CredentialID,
+			value.CredentialGeneration, value.PayloadSHA256[:], value.State, value.CreatedAt); err != nil {
+			return err
+		}
+		if err := insertIntegrationEvent(ctx, tx, request.AccountID, mutation.EventID, "execution", string(request.ID), mutation.Kind,
+			request.PreparedBy, mutation.CorrelationID, map[string]any{"release_id": request.ReleaseID, "release_version": request.ReleaseVersion,
+				"capability": request.Capability, "connection_id": request.ConnectionID, "connection_revision": value.ConnectionRevision,
+				"credential_generation": value.CredentialGeneration}, mutation.At); err != nil {
+			return err
+		}
+		result, created = value, true
+		return nil
+	})
+	return result, created, classifyIntegrations(err)
 }
 
 func (repository *IntegrationsRepository) ReviseConnection(ctx context.Context, accountID ids.AccountID, connectionID ids.IntegrationConnectionID, expected uint64, input domain.ConnectionRevisionInput, actor domain.Actor, role accounts.MembershipRole, mutation integrationsapp.Mutation) (domain.Connection, error) {
@@ -752,6 +824,49 @@ func insertIntegrationCredential(ctx context.Context, tx pgx.Tx, value domain.Cr
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10)`, value.AccountID, value.ID, value.ConnectionID, value.Generation, value.Provider,
 		value.ReferenceSHA256[:], value.State, value.CreatedBy.UserID, value.CreatedAt, value.ExpiresAt)
 	return err
+}
+
+func integrationDeliveryManifestDigest(ctx context.Context, tx pgx.Tx, request integrationsapp.PrepareExecutionRequest, connection domain.Connection, revision domain.ConnectionRevision, credential domain.CredentialBinding) ([sha256.Size]byte, error) {
+	type asset struct {
+		ID     ids.MarketingAssetRevisionID `json:"id"`
+		SHA256 string                       `json:"sha256"`
+	}
+	manifest := struct {
+		ReleaseID            ids.MarketingReleaseID              `json:"release_id"`
+		ReleaseVersion       uint64                              `json:"release_version"`
+		Capability           domain.Capability                   `json:"capability"`
+		ConnectionID         ids.IntegrationConnectionID         `json:"connection_id"`
+		ConnectionRevisionID ids.IntegrationConnectionRevisionID `json:"connection_revision_id"`
+		ConnectionRevision   uint64                              `json:"connection_revision"`
+		CredentialID         ids.IntegrationCredentialID         `json:"credential_id"`
+		CredentialGeneration uint64                              `json:"credential_generation"`
+		Assets               []asset                             `json:"assets"`
+	}{ReleaseID: request.ReleaseID, ReleaseVersion: request.ReleaseVersion, Capability: request.Capability, ConnectionID: connection.ID,
+		ConnectionRevisionID: revision.ID, ConnectionRevision: revision.Revision, CredentialID: credential.ID, CredentialGeneration: credential.Generation}
+	rows, err := tx.Query(ctx, `SELECT revision.id,encode(revision.content_sha256,'hex') FROM spyglass.marketing_release_assets release_asset
+		JOIN spyglass.marketing_asset_revisions revision ON revision.account_id=release_asset.account_id AND revision.id=release_asset.asset_revision_id
+		WHERE release_asset.account_id=$1 AND release_asset.release_id=$2 ORDER BY revision.id`, request.AccountID, request.ReleaseID)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	for rows.Next() {
+		var value asset
+		if err := rows.Scan(&value.ID, &value.SHA256); err != nil {
+			rows.Close()
+			return [sha256.Size]byte{}, err
+		}
+		manifest.Assets = append(manifest.Assets, value)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	return sha256.Sum256(encoded), nil
 }
 
 func updateIntegrationConnectionCredential(ctx context.Context, tx pgx.Tx, value domain.Connection, expected uint64) error {

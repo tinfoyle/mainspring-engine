@@ -19,7 +19,7 @@ A release freezes one campaign version, sorted unique asset revisions and its ex
 3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Constructed.**
 4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace. **Constructed.**
 5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery. **Constructed.**
-6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability. **Persistence constructed; application worker and adapters remain.**
+6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability. **Persistence and governed preparation constructed; application worker and adapters remain.**
 7. Catalog/entitlement lifecycle, retention, prototype reconciliation, Stage recovery/erasure and production role grants.
 
 ## Kernel checkpoint
@@ -92,7 +92,13 @@ The cell derives the invocation identity from the authenticated `runner-invocati
 
 Migration 62 now persists a Marketing delivery as an Integrations-owned effect that freezes the exact approved release version, `marketing.release.activate` Attention approval, channel-compatible connector revision, credential generation and canonical payload digest. The worker claim boundary rechecks the campaign is still active on that release and every authority binding is still current before returning work. Unknown outcomes reconcile only, a provider-confirmed no-effect result is required before re-execution, and bounded uncertainty enters manual resolution.
 
-This closes the durable ledger and claim semantics within construction step 6, including Account movement and erasure participation. It does not yet make Marketing executable: the Integrations application boundary, secret-broker binding, provider worker/adapters, delivery observability surfaces, Catalog/retention and applied acceptance remain.
+This closes the durable ledger and claim semantics within construction step 6, including Account movement and erasure participation. The ledger alone does not make Marketing executable; secret-broker binding, provider worker/adapters, Catalog/retention and applied acceptance still remain.
+
+## Delivery preparation checkpoint
+
+After an approved release is active, a human Owner or Administrator can now select one active channel-compatible Integrations connection and prepare its immutable delivery execution. The service requires matching current Account placement and entitlement versions from enabled Marketing and Integrations package checks, while PostgreSQL independently rechecks the active Marketing release/version, exact unexpired Attention approval, release channel, connector revision and credential generation. Marketing still stores no connector or credential identity.
+
+The execution digest is computed from a canonical content-free manifest over the exact release/connector authority and sorted immutable asset digests. Exact retries replay; altered request reuse conflicts. This completes the governed preparation portion of construction step 6, but provider execution remains closed until the broker handoff and connector worker/adapters are constructed and certified.
 
 ## Invariants
 
