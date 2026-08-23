@@ -17,6 +17,28 @@ type capabilityClock struct{ now time.Time }
 
 func (c capabilityClock) Now() time.Time { return c.now }
 
+func TestExportedCapabilitiesFollowBrokerGrammar(t *testing.T) {
+	capabilities := []string{
+		WorkSummaryCapability,
+		FinanceLedgersReadCapability,
+		FinanceAccountsReadCapability,
+		FinanceEntryDraftCapability,
+		FinanceEntryPostCapability,
+		MarketingCampaignsReadCapability,
+		MarketingAssetsReadCapability,
+		MarketingReleasesReadCapability,
+		MarketingCampaignDraftCapability,
+		MarketingAssetDraftCapability,
+		MarketingReleaseDraftCapability,
+		MarketingReleaseActivateCapability,
+	}
+	for _, capability := range capabilities {
+		if !runnerbroker.ValidCapability(capability) {
+			t.Errorf("capability %q violates the broker grammar", capability)
+		}
+	}
+}
+
 type capabilityAuthorizer struct {
 	grant runnerbroker.CapabilityGrant
 	err   error
