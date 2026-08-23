@@ -11,6 +11,8 @@ import (
 	"time"
 
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
+	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
+	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
 )
 
 func TestS3StoreStreamsImmutableVersionedObjects(t *testing.T) {
@@ -68,6 +70,29 @@ func TestS3StoreStreamsImmutableVersionedObjects(t *testing.T) {
 	closeExtractedErr := extractedReader.Close()
 	if readExtractedErr != nil || closeExtractedErr != nil || !bytes.Equal(readExtracted, extractedBody) {
 		t.Fatalf("read extracted=%q readErr=%v closeErr=%v", readExtracted, readExtractedErr, closeExtractedErr)
+	}
+	marketingBody := []byte("versioned Marketing creative")
+	marketingWrite := marketingapp.AssetObjectWrite{AccountID: "f7100000-0000-4000-8000-000000000007", CampaignID: "f7200000-0000-4000-8000-000000000007",
+		AssetID: "f7300000-0000-4000-8000-000000000007", RevisionID: "f7400000-0000-4000-8000-000000000007", MediaType: "text/plain",
+		Size: int64(len(marketingBody)), ContentSHA256: sha256.Sum256(marketingBody), Body: bytes.NewReader(marketingBody)}
+	marketingObject, err := store.PutMarketingAssetImmutable(ctx, marketingWrite)
+	if err != nil || !marketingObject.Created || marketingObject.Identity.Version == "" || marketingObject.Identity.Reference == "" {
+		t.Fatalf("put Marketing result=%+v err=%v", marketingObject, err)
+	}
+	defer store.DeleteMarketingAsset(context.Background(), marketingObject.Identity)
+	marketingAsset := marketingdomain.AssetRevision{ID: marketingWrite.RevisionID, AccountID: marketingWrite.AccountID, CampaignID: marketingWrite.CampaignID,
+		AssetID: marketingWrite.AssetID, Revision: 1, Kind: marketingdomain.AssetCopy, Title: "Launch copy", MediaType: marketingWrite.MediaType,
+		ContentReference: marketingObject.Identity.Reference, ContentSHA256: marketingWrite.ContentSHA256, ContentBytes: uint64(marketingWrite.Size),
+		CreatedBy:  marketingdomain.Actor{Kind: marketingdomain.ActorUser, ID: "f7500000-0000-4000-8000-000000000007"},
+		Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginHuman}, CreatedAt: time.Now().UTC()}
+	marketingReader, err := store.OpenContent(ctx, marketingAsset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readMarketing, readMarketingErr := io.ReadAll(marketingReader)
+	closeMarketingErr := marketingReader.Close()
+	if readMarketingErr != nil || closeMarketingErr != nil || !bytes.Equal(readMarketing, marketingBody) {
+		t.Fatalf("read Marketing=%q readErr=%v closeErr=%v", readMarketing, readMarketingErr, closeMarketingErr)
 	}
 	if err := store.Delete(ctx, identity); err != nil {
 		t.Fatal(err)

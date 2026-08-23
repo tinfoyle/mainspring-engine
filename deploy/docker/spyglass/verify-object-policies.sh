@@ -14,6 +14,9 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
   prefix="accounts/policy-certification/documents/document/revisions/revision"
   printf source | mc pipe "app/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null
   mc cat "worker/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null
+  marketing_prefix="accounts/policy-certification/marketing/campaigns/campaign/assets/asset/revisions/revision/content"
+  printf marketing | mc pipe "app/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null
+  mc cat "app/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null
   printf extracted | mc pipe "worker/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null
   mc cat "migration/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null
   printf migration-source | mc pipe "migration/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null
@@ -23,6 +26,10 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
   fi
   if printf denied | mc pipe "migration/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null 2>&1; then
     echo "prototype migration object policy permitted an extracted-object write" >&2
+    exit 1
+  fi
+  if printf denied | mc pipe "worker/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null 2>&1; then
+    echo "document worker object policy permitted a Marketing-object write" >&2
     exit 1
   fi
   mc rm --recursive --force --versions "root/$SPYGLASS_OBJECT_STORE_BUCKET/accounts/policy-certification" >/dev/null
