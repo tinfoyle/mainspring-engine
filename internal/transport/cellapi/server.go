@@ -23,6 +23,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
+	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
 	schedulingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/scheduling"
@@ -58,6 +59,7 @@ type Server struct {
 	marketing              MarketingQueryService
 	marketingCommands      MarketingCommandService
 	integrations           IntegrationsQueryService
+	integrationCommands    IntegrationsCommandService
 	scheduling             SchedulingService
 	scheduleExecution      ScheduleExecutionService
 	scheduleWorkerIdentity string
@@ -235,6 +237,21 @@ func WithIntegrations(service IntegrationsQueryService) Option {
 	return func(server *Server) { server.integrations = service }
 }
 
+type IntegrationsCommandService interface {
+	CreateConnection(context.Context, integrationsapp.CreateConnectionCommand) (integrationsdomain.Connection, bool, error)
+	ReviseConnection(context.Context, integrationsapp.ReviseConnectionCommand) (integrationsdomain.Connection, error)
+	ActivateConnection(context.Context, integrationsapp.CredentialCommand) (integrationsdomain.Connection, error)
+	RotateCredential(context.Context, integrationsapp.CredentialCommand) (integrationsdomain.Connection, error)
+	DisableConnection(context.Context, integrationsapp.TransitionCommand) (integrationsdomain.Connection, error)
+	EnableConnection(context.Context, integrationsapp.TransitionCommand) (integrationsdomain.Connection, error)
+	RevokeConnection(context.Context, integrationsapp.TransitionCommand) (integrationsdomain.Connection, error)
+	PrepareExecution(context.Context, integrationsapp.PrepareExecutionCommand) (integrationsdomain.Execution, bool, error)
+}
+
+func WithIntegrationCommands(service IntegrationsCommandService) Option {
+	return func(server *Server) { server.integrationCommands = service }
+}
+
 type SchedulingService interface {
 	Create(context.Context, schedulingapp.CreateCommand) (schedulingdomain.Schedule, bool, error)
 	Get(context.Context, schedulingapp.GetQuery) (schedulingdomain.Schedule, error)
@@ -393,9 +410,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/pauses", s.marketingCampaignPause)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/completions", s.marketingCampaignComplete)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/connections", s.integrationsConnectionList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections", s.integrationsConnectionCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/connections/{connectionID}", s.integrationsConnectionGet)
+	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/integrations/connections/{connectionID}", s.integrationsConnectionRevise)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/health", s.integrationsHealthList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/credential-bindings", s.integrationsCredentialActivate)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/credential-rotations", s.integrationsCredentialRotate)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/disables", s.integrationsConnectionDisable)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/enables", s.integrationsConnectionEnable)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/revocations", s.integrationsConnectionRevoke)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/executions", s.integrationsExecutionList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/executions", s.integrationsExecutionPrepare)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/executions/{executionID}", s.integrationsExecutionGet)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)

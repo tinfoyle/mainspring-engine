@@ -1216,6 +1216,13 @@ export interface IntegrationConnection {
   readonly "version": number;
 }
 
+export interface IntegrationConnectionDefinitionRequest {
+  readonly "capabilities": ReadonlyArray<IntegrationCapability>;
+  readonly "kind": IntegrationConnectorKind;
+  readonly "name": string;
+  readonly "scope": IntegrationConnectionScope;
+}
+
 export interface IntegrationConnectionDetail {
   readonly "connection": IntegrationConnection;
   readonly "latest_health"?: IntegrationHealthObservation;
@@ -1238,6 +1245,12 @@ export interface IntegrationConnectionRevision {
   readonly "scope": IntegrationConnectionScope;
 }
 
+export interface IntegrationConnectionRevisionRequest {
+  readonly "capabilities": ReadonlyArray<IntegrationCapability>;
+  readonly "name": string;
+  readonly "scope": IntegrationConnectionScope;
+}
+
 export interface IntegrationConnectionScope {
   readonly "audience_reference"?: string;
   readonly "email_address"?: string;
@@ -1248,6 +1261,19 @@ export interface IntegrationConnectionScope {
 export type IntegrationConnectionState = "pending" | "active" | "disabled" | "revoked";
 
 export type IntegrationConnectorKind = "email" | "web_publish";
+
+export interface IntegrationCredentialBindingRequest {
+  readonly "expires_at"?: string;
+  readonly "provider": string;
+  readonly "reference_sha256": string;
+}
+
+export interface IntegrationCredentialRotationRequest {
+  readonly "expected_generation": number;
+  readonly "expires_at"?: string;
+  readonly "provider": string;
+  readonly "reference_sha256": string;
+}
 
 export interface IntegrationExecution {
   readonly "account_id": string;
@@ -1281,6 +1307,13 @@ export interface IntegrationExecutionDetail {
 export interface IntegrationExecutionPage {
   readonly "items": ReadonlyArray<IntegrationExecution>;
   readonly "next_cursor"?: string;
+}
+
+export interface IntegrationExecutionPrepareRequest {
+  readonly "capability": "email.send" | "web.publish";
+  readonly "connection_id": string;
+  readonly "release_id": string;
+  readonly "release_version": number;
 }
 
 export type IntegrationExecutionState = "prepared" | "executing" | "reconciling" | "retry_wait" | "unknown" | "manual_resolution" | "succeeded" | "failed" | "cancelled";
@@ -2330,15 +2363,20 @@ export interface ApiSchemas {
   readonly IntegrationAttemptOutcome: IntegrationAttemptOutcome;
   readonly IntegrationCapability: IntegrationCapability;
   readonly IntegrationConnection: IntegrationConnection;
+  readonly IntegrationConnectionDefinitionRequest: IntegrationConnectionDefinitionRequest;
   readonly IntegrationConnectionDetail: IntegrationConnectionDetail;
   readonly IntegrationConnectionPage: IntegrationConnectionPage;
   readonly IntegrationConnectionRevision: IntegrationConnectionRevision;
+  readonly IntegrationConnectionRevisionRequest: IntegrationConnectionRevisionRequest;
   readonly IntegrationConnectionScope: IntegrationConnectionScope;
   readonly IntegrationConnectionState: IntegrationConnectionState;
   readonly IntegrationConnectorKind: IntegrationConnectorKind;
+  readonly IntegrationCredentialBindingRequest: IntegrationCredentialBindingRequest;
+  readonly IntegrationCredentialRotationRequest: IntegrationCredentialRotationRequest;
   readonly IntegrationExecution: IntegrationExecution;
   readonly IntegrationExecutionDetail: IntegrationExecutionDetail;
   readonly IntegrationExecutionPage: IntegrationExecutionPage;
+  readonly IntegrationExecutionPrepareRequest: IntegrationExecutionPrepareRequest;
   readonly IntegrationExecutionState: IntegrationExecutionState;
   readonly IntegrationHealthObservation: IntegrationHealthObservation;
   readonly IntegrationHealthPage: IntegrationHealthPage;

@@ -17,7 +17,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
 5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel/bootstrap, current authority, payload assembler, one-operation broker boundary, restore-gated executable and ubunturojo Docker certification constructed; production object/secret/provider adapters remain.**
-6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution. **Generated HTTP reads for connections, current scope, health and execution evidence constructed; mutations, MCP and private browser remain.**
+6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution. **Generated HTTP reads and governed lifecycle mutations constructed; MCP, private browser and manual-resolution commands remain.**
 7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
 
 ## Kernel checkpoint
@@ -96,7 +96,13 @@ This opens only the deterministic local certification path. Stage and production
 
 Five generated session-authenticated operations now route through the signed Account boundary and the canonical Integrations service: stable connection list, current connection/scope/latest-health detail, stable content-free health history, filtered external-execution list and exact execution/attempt detail. Connection detail carries a weak version ETag. All three cursor families are opaque, versioned and kind-bound, so a health cursor cannot be replayed against a connection or execution collection.
 
-Execution payload digests are rendered as canonical lowercase SHA-256 hex. The responses contain immutable connector and credential identities/generations, non-secret scope, bounded machine error codes and timing evidence, but never broker references, attestation digests, provider credentials, creative bodies, provider payloads or provider responses. OpenAPI and generated Go/TypeScript route inventories now cover 166 customer operations. Contract tests prove response shape, Account concealment, query binding, cursor-family rejection and absence of secret/provider fields. This is the read-only portion of construction step 6; governed lifecycle mutations, MCP and the private Integrations workspace remain before the package can be published.
+Execution payload digests are rendered as canonical lowercase SHA-256 hex. The responses contain immutable connector and credential identities/generations, non-secret scope, bounded machine error codes and timing evidence, but never broker references, attestation digests, provider credentials, creative bodies, provider payloads or provider responses. OpenAPI and generated Go/TypeScript route inventories covered 166 customer operations at this checkpoint. Contract tests prove response shape, Account concealment, query binding, cursor-family rejection and absence of secret/provider fields.
+
+## Routed HTTP lifecycle checkpoint
+
+Eight additional generated commands now expose the complete existing human-manager application boundary: connection creation and immutable scope revision; opaque credential-attestation activation and monotonic rotation; disable, enable and irreversible revocation; and preparation of one exact Marketing delivery execution. Every mutation binds the signed route operation to one UUID `Idempotency-Key`; versioned connection changes require a weak `If-Match`. Strict JSON rejects unknown and trailing fields, credential input accepts only a provider code plus lowercase SHA-256 attestation (never a broker reference or secret), and delivery preparation repeats both Marketing and Integrations authorization inside the application service.
+
+Connection creation and execution preparation return canonical locations; every connection result returns its new version ETag. The generated customer contract now contains 174 typed operations. Transport tests cover all eight commands, exact operation/version mapping, digest decoding, response contracts, missing preconditions and mismatched idempotency authority. HTTP construction for the current email-send/web-publish lifecycle is complete; MCP, the private workspace, dual-controlled external-execution manual resolution, production adapters and later inbound/sync/research lifecycles remain.
 
 ## Invariants
 
