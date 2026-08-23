@@ -1,5 +1,5 @@
 // Package integrationcredentials defines the narrow secret-broker boundary
-// shared by connector execution and provider health probes.
+// shared by connector execution, provider health probes and source syncs.
 package integrationcredentials
 
 import (
@@ -17,6 +17,7 @@ const (
 	PurposeExecute   Purpose = "execute"
 	PurposeReconcile Purpose = "reconcile"
 	PurposeHealth    Purpose = "health"
+	PurposeSync      Purpose = "sync"
 )
 
 type Request struct {

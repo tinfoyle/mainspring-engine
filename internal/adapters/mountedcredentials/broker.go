@@ -167,8 +167,9 @@ func (broker *Broker) readMaterial(relative string) ([]byte, error) {
 func validRequest(request integrationcredentials.Request, now time.Time) bool {
 	return ids.Validate(string(request.AccountID)) == nil && ids.Validate(request.OperationID) == nil && ids.Validate(string(request.ConnectionID)) == nil &&
 		ids.Validate(string(request.CredentialID)) == nil && request.CredentialGeneration > 0 &&
-		(request.Purpose == integrationcredentials.PurposeExecute || request.Purpose == integrationcredentials.PurposeReconcile || request.Purpose == integrationcredentials.PurposeHealth) &&
-		(request.Capability == domain.CapabilityEmailSend || request.Capability == domain.CapabilityWebPublish) &&
+		(request.Purpose == integrationcredentials.PurposeExecute || request.Purpose == integrationcredentials.PurposeReconcile || request.Purpose == integrationcredentials.PurposeHealth || request.Purpose == integrationcredentials.PurposeSync) &&
+		((request.Purpose == integrationcredentials.PurposeSync && request.Capability == domain.CapabilityDriveRead) ||
+			(request.Purpose != integrationcredentials.PurposeSync && (request.Capability == domain.CapabilityEmailSend || request.Capability == domain.CapabilityWebPublish))) &&
 		validProvider.MatchString(request.CredentialProvider) && request.ReferenceSHA256 != [sha256.Size]byte{} && request.ExpiresAt.After(now)
 }
 
