@@ -13,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -92,7 +94,12 @@ type AuthorizationDecision struct {
 	PendingID string
 	UserID    ids.UserID
 	SessionID ids.SessionID
+	Session   sessions.Session
 	Approve   bool
+	// StrongAuthenticatedAt is set by Service.Decide only when the approving
+	// browser session carries current user-verified cryptographic evidence.
+	// Repositories persist this original instant; token refresh never advances it.
+	StrongAuthenticatedAt *time.Time
 }
 
 type AuthorizationResult struct {
@@ -139,6 +146,14 @@ type IssuedAuthority struct {
 	Scope    string
 }
 
+// AuthenticatedAuthority is the complete authority bound to one valid access
+// token. StrongAuthenticatedAt is immutable delegation evidence captured at
+// browser consent, not a renewable property of an access or refresh token.
+type AuthenticatedAuthority struct {
+	Actor                 access.Actor
+	StrongAuthenticatedAt *time.Time
+}
+
 type TokenSet struct {
 	AccessToken  string
 	RefreshToken string
@@ -165,7 +180,7 @@ type Repository interface {
 	DecideAuthorization(context.Context, AuthorizationDecision, [32]byte, string, time.Time, time.Time) (PendingAuthorization, error)
 	ExchangeCode(context.Context, CodeExchange) (IssuedAuthority, error)
 	RotateRefresh(context.Context, RefreshExchange) (IssuedAuthority, error)
-	AuthenticateAccess(context.Context, [32]byte, TokenRequirement, time.Time) (access.Actor, error)
+	AuthenticateAccess(context.Context, [32]byte, TokenRequirement, time.Time) (AuthenticatedAuthority, error)
 	Revoke(context.Context, [32]byte, string, time.Time) error
 	ListGrants(context.Context, ids.UserID, time.Time) ([]GrantSummary, error)
 	RevokeGrant(context.Context, ids.UserID, string, time.Time) (bool, error)
@@ -209,10 +224,16 @@ func (s *Service) Begin(ctx context.Context, command AuthorizationCommand) (Pend
 }
 
 func (s *Service) Decide(ctx context.Context, decision AuthorizationDecision) (AuthorizationResult, error) {
-	if ids.Validate(decision.PendingID) != nil || ids.Validate(string(decision.UserID)) != nil || ids.Validate(string(decision.SessionID)) != nil {
+	if ids.Validate(decision.PendingID) != nil || ids.Validate(string(decision.UserID)) != nil || ids.Validate(string(decision.SessionID)) != nil ||
+		decision.Session.ID != decision.SessionID || decision.Session.UserID != decision.UserID {
 		return AuthorizationResult{}, ErrInvalid
 	}
 	now := s.clock.Now().UTC()
+	decision.StrongAuthenticatedAt = nil
+	if decision.Approve && strongauth.Require(decision.Session, decision.UserID, now) == nil {
+		value := decision.Session.ReauthenticatedAt.UTC()
+		decision.StrongAuthenticatedAt = &value
+	}
 	code, codeHash, err := s.secrets.New()
 	if err != nil {
 		return AuthorizationResult{}, err
@@ -283,15 +304,19 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, clientID, resource 
 	return tokenSet(accessToken, rotatedToken), nil
 }
 
-func (s *Service) Authenticate(ctx context.Context, token string, requirement TokenRequirement) (access.Actor, error) {
+func (s *Service) Authenticate(ctx context.Context, token string, requirement TokenRequirement) (AuthenticatedAuthority, error) {
 	if !validSecret(token) || requirement.Audience != s.resource || requirement.Scope != ScopeMCP {
-		return access.Actor{}, ErrAccessDenied
+		return AuthenticatedAuthority{}, ErrAccessDenied
 	}
-	actor, err := s.repository.AuthenticateAccess(ctx, sha256.Sum256([]byte(token)), requirement, s.clock.Now().UTC())
-	if err != nil || !actor.Valid() {
-		return access.Actor{}, ErrAccessDenied
+	authority, err := s.repository.AuthenticateAccess(ctx, sha256.Sum256([]byte(token)), requirement, s.clock.Now().UTC())
+	if err != nil || !authority.Actor.Valid() {
+		return AuthenticatedAuthority{}, ErrAccessDenied
 	}
-	return actor, nil
+	if authority.StrongAuthenticatedAt != nil {
+		value := authority.StrongAuthenticatedAt.UTC()
+		authority.StrongAuthenticatedAt = &value
+	}
+	return authority, nil
 }
 
 func (s *Service) Revoke(ctx context.Context, token, clientID string) error {

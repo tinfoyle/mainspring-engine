@@ -240,6 +240,14 @@ for name in (
 ):
     if name not in account_environment:
         raise SystemExit(f"account-api does not carry {name}")
+mcp_environment = services["mcp-gateway"].get("environment", {})
+for name in (
+    "SPYGLASS_APP_ORIGIN",
+    "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_KEYS",
+    "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_ACTIVE_KEY_ID",
+):
+    if name not in mcp_environment:
+        raise SystemExit(f"mcp-gateway does not carry {name}")
 if config["networks"]["host-edge"].get("name") != edge_network:
     raise SystemExit("stage host edge network does not match the reviewed secret file")
 PY

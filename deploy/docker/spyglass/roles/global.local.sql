@@ -116,8 +116,11 @@ GRANT SELECT ON users, sessions, accounts, memberships, entitlement_snapshots,
 GRANT UPDATE ON sessions TO spyglass_app_router;
 
 GRANT SELECT ON accounts, memberships, entitlement_snapshots, account_directory, cells,
-  account_erasure_restore_ledger, passkey_credentials, user_recovery_code_sets, user_recovery_codes
+  account_erasure_restore_ledger, passkey_credentials, user_recovery_code_sets, user_recovery_codes,
+  account_export_requests
   TO spyglass_mcp_gateway;
+GRANT INSERT, UPDATE ON account_export_requests TO spyglass_mcp_gateway;
+GRANT INSERT ON account_export_events TO spyglass_mcp_gateway;
 GRANT EXECUTE ON FUNCTION spyglass_authenticate_mcp_access_token(bytea,text,text,timestamptz)
   TO spyglass_mcp_gateway;
 

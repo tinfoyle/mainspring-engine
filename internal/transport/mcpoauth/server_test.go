@@ -74,8 +74,8 @@ func (r *transportRepository) ExchangeCode(_ context.Context, exchange mcpauth.C
 func (*transportRepository) RotateRefresh(context.Context, mcpauth.RefreshExchange) (mcpauth.IssuedAuthority, error) {
 	return mcpauth.IssuedAuthority{UserID: testUser, Resource: testResource, Scope: mcpauth.ScopeMCP}, nil
 }
-func (*transportRepository) AuthenticateAccess(context.Context, [32]byte, mcpauth.TokenRequirement, time.Time) (access.Actor, error) {
-	return access.Actor{UserID: testUser}, nil
+func (*transportRepository) AuthenticateAccess(context.Context, [32]byte, mcpauth.TokenRequirement, time.Time) (mcpauth.AuthenticatedAuthority, error) {
+	return mcpauth.AuthenticatedAuthority{Actor: access.Actor{UserID: testUser}}, nil
 }
 func (*transportRepository) Revoke(context.Context, [32]byte, string, time.Time) error { return nil }
 func (*transportRepository) ListGrants(context.Context, ids.UserID, time.Time) ([]mcpauth.GrantSummary, error) {

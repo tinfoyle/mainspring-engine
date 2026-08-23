@@ -359,6 +359,28 @@ No persistent volume was removed or replaced. The remaining Account-portability
 construction is still the short-lived customer download capability and the
 shared HTTP/MCP/private-UI surfaces.
 
+Account-portability customer-surface construction checkpoint (2026-08-23):
+the global Account API and private browser shell now share canonical Owner-only
+request, bounded history, status, optimistic cancellation and download
+capability services. Creation, cancellation and capability issuance require a
+recent user-verified passkey; status objects omit the durable artifact
+reference and digest. A rotating HMAC capability binds Account, User, export,
+request version, artifact size and SHA-256 for at most five minutes (two by
+default). The artifact endpoint rejects cookies and query strings, accepts only
+the custom Authorization header, reloads durable request/object identity and
+streams the exact immutable version from a dedicated no-list/no-write object
+identity. The browser consumes that capability server-side so it never enters
+HTML, history or a URL. Five MCP tools expose the same list/get/request/cancel/
+capability outcomes at the global gateway while all cell tools retain signed
+routing. OAuth consent snapshots a current passkey timestamp; access rotation
+and refresh preserve but never advance it, so privileged MCP export operations
+fail after the shared ten-minute policy. Migration 36, least-privilege gateway
+grants, generated OpenAPI/TypeScript contracts, local Compose and review-only
+LKE configuration are constructed and locally verified. This closes the
+Account-portability construction backlog; a later immutable release must still
+apply migration 36 and certify HTTP/MCP/browser behavior on Stage before the
+Phase 3 release gate can close.
+
 - Inventory and characterize every retained prototype route, MCP tool, workflow, schedule, table and external object.
 - Build Account-cohort migration tools with checksums, row/object/index counts and rollback checkpoints.
 - Reconcile Membership, placement, entitlements, Work, Knowledge, Baseline, Agents, schedules, actions and provider references.

@@ -38,19 +38,38 @@ type CapabilityVerifier interface {
 }
 
 type DownloadService struct {
-	store      ArtifactStore
-	reader     ArtifactReader
-	authorizer Authorizer
-	signer     CapabilitySigner
-	verifier   CapabilityVerifier
-	clock      Clock
+	issuer   *CapabilityIssuer
+	store    ArtifactStore
+	reader   ArtifactReader
+	verifier CapabilityVerifier
 }
 
 func NewDownloadService(store ArtifactStore, reader ArtifactReader, authorizer Authorizer, signer CapabilitySigner, verifier CapabilityVerifier, clock Clock) (*DownloadService, error) {
 	if store == nil || reader == nil || authorizer == nil || signer == nil || verifier == nil || clock == nil {
 		return nil, ErrInvalid
 	}
-	return &DownloadService{store: store, reader: reader, authorizer: authorizer, signer: signer, verifier: verifier, clock: clock}, nil
+	issuer, err := NewCapabilityIssuer(store, authorizer, signer, clock)
+	if err != nil {
+		return nil, err
+	}
+	return &DownloadService{issuer: issuer, store: store, reader: reader, verifier: verifier}, nil
+}
+
+// CapabilityIssuer is the global control-plane half of Account-export
+// downloads. It can authorize and bind a short-lived capability to the current
+// durable artifact but cannot read artifact content from object storage.
+type CapabilityIssuer struct {
+	store      ArtifactStore
+	authorizer Authorizer
+	signer     CapabilitySigner
+	clock      Clock
+}
+
+func NewCapabilityIssuer(store ArtifactStore, authorizer Authorizer, signer CapabilitySigner, clock Clock) (*CapabilityIssuer, error) {
+	if store == nil || authorizer == nil || signer == nil || clock == nil {
+		return nil, ErrInvalid
+	}
+	return &CapabilityIssuer{store: store, authorizer: authorizer, signer: signer, clock: clock}, nil
 }
 
 type CapabilityCommand struct {
@@ -66,6 +85,10 @@ type Capability struct {
 }
 
 func (service *DownloadService) Issue(ctx context.Context, command CapabilityCommand) (Capability, error) {
+	return service.issuer.Issue(ctx, command)
+}
+
+func (service *CapabilityIssuer) Issue(ctx context.Context, command CapabilityCommand) (Capability, error) {
 	if _, err := service.authorizer.Authorize(ctx, access.Actor{UserID: command.Actor}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}}); err != nil {
 		return Capability{}, err
 	}
@@ -110,7 +133,7 @@ func (service *DownloadService) Open(ctx context.Context, token string) (Downloa
 		}
 		return Download{}, err
 	}
-	now := service.clock.Now().UTC()
+	now := service.issuer.clock.Now().UTC()
 	if !downloadable(status, artifact, now) || status.Version != claims.Authority.RequestVersion ||
 		artifact.Bytes != claims.Authority.ArtifactBytes || hex.EncodeToString(artifact.SHA256[:]) != claims.Authority.ArtifactSHA256 {
 		return Download{}, ErrCapabilityInvalid

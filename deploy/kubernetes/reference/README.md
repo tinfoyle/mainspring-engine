@@ -95,6 +95,12 @@ Before an environment overlay may use these resources it must add:
   service-account token, serving/session/provider credential or bucket-list
   authority. Environment NetworkPolicies must add only the exact PostgreSQL
   and S3-compatible destinations.
+- `spyglass-account-api-secrets` supplies the exact-version, read-only export
+  artifact identity and the rotating short-lived capability keyring.
+  `spyglass-mcp-gateway-secrets` carries that same capability keyring plus a
+  global role limited to current Account authority and export request/event
+  mutation; it receives no artifact-store credential. Environment-owned
+  runtime values set the canonical app origin and export bucket endpoint.
 - The Agent dispatcher and projector secrets each carry a distinct constrained
   cell credential and the runtime runner-envelope keyring. The dispatcher can
   read only immutable forced-RLS planning tables and call the dispatch plus
@@ -158,10 +164,12 @@ Before an environment overlay may use these resources it must add:
   exact internal HTTPS `route_origin` in the global registry before Account
   placement; route endpoints are no longer copied into every router pod.
 - The MCP gateway secret supplies its own constrained global database
-  credential and route-signing key. The gateway can authenticate hashed OAuth
-  access credentials through the narrow database function and resolve current
-  Account access/placement, but cannot read OAuth token tables or User rows
-  directly. A certificate controller supplies
+  credential, route-signing key and Account-export capability keyring. The
+  gateway can authenticate hashed OAuth access credentials through the narrow
+  database function, preserve the original non-renewable passkey consent
+  timestamp, resolve current Account access/placement and operate only export
+  request state/events. It cannot read OAuth token tables, User rows, export
+  events, artifact objects or cell tables directly. A certificate controller supplies
   `spyglass-mcp-gateway-workload-tls` with a client-only certificate for the
   exact gateway SPIFFE identity accepted by every cell app-api. Public ingress
   routes only the MCP origin to this Service; authorization, token, consent and

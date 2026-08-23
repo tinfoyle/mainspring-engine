@@ -62,6 +62,11 @@ export_global_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
   --command="SELECT has_table_privilege('spyglass_account_export_build_worker','accounts','SELECT') AND has_table_privilege('spyglass_account_export_build_worker','account_export_requests','SELECT') AND has_column_privilege('spyglass_account_export_build_worker','account_export_requests','state','UPDATE') AND NOT has_column_privilege('spyglass_account_export_build_worker','account_export_requests','account_id','UPDATE') AND has_table_privilege('spyglass_account_export_build_worker','account_export_events','INSERT') AND NOT has_table_privilege('spyglass_account_export_build_worker','billing_event_inbox','SELECT') AND has_table_privilege('spyglass_account_export_expiry_worker','account_export_requests','SELECT') AND has_column_privilege('spyglass_account_export_expiry_worker','account_export_requests','deleted_at','UPDATE') AND NOT has_column_privilege('spyglass_account_export_expiry_worker','account_export_requests','artifact_sha256','UPDATE') AND has_table_privilege('spyglass_account_export_expiry_worker','account_export_events','INSERT') AND NOT has_table_privilege('spyglass_account_export_expiry_worker','accounts','SELECT')")"
 test "$export_global_privileges" = "t"
 
+mcp_export_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
+  --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+  --command="SELECT has_table_privilege('spyglass_mcp_gateway','account_export_requests','SELECT,INSERT,UPDATE') AND NOT has_table_privilege('spyglass_mcp_gateway','account_export_requests','DELETE') AND has_table_privilege('spyglass_mcp_gateway','account_export_events','INSERT') AND NOT has_table_privilege('spyglass_mcp_gateway','account_export_events','SELECT,UPDATE,DELETE') AND has_function_privilege('spyglass_mcp_gateway','spyglass_authenticate_mcp_access_token(bytea,text,text,timestamptz)','EXECUTE')")"
+test "$mcp_export_privileges" = "t"
+
 for database in cell-a-db cell-b-db; do
   cell_runtime_role_count="$("${compose[@]}" exec --no-TTY "$database" psql \
     --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
@@ -89,6 +94,8 @@ assert_role_denied() {
 assert_role_denied global-db spyglass_billing_worker 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_mcp_gateway 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_mcp_gateway 'SELECT count(*) FROM mcp_oauth_access_tokens'
+assert_role_denied global-db spyglass_mcp_gateway 'SELECT count(*) FROM account_export_events'
+assert_role_denied global-db spyglass_mcp_gateway 'DELETE FROM account_export_requests'
 assert_role_denied global-db spyglass_notification_worker 'SELECT count(*) FROM accounts'
 assert_role_denied global-db spyglass_entitlement_worker 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_account_lifecycle_worker 'SELECT count(*) FROM users'

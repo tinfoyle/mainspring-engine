@@ -2,12 +2,14 @@ package mcpgateway
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +17,8 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountexport"
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -38,15 +42,68 @@ type tokenAuthority struct {
 	token            string
 	tokenRequirement TokenRequirement
 	requirement      access.Requirement
+	strong           *time.Time
 }
 
-func (a *tokenAuthority) Authenticate(_ context.Context, token string, requirement TokenRequirement) (access.Actor, error) {
+func (a *tokenAuthority) Authenticate(_ context.Context, token string, requirement TokenRequirement) (Principal, error) {
 	a.token = token
 	a.tokenRequirement = requirement
 	if token != "audience-bound-token" {
-		return access.Actor{}, errors.New("invalid token")
+		return Principal{}, errors.New("invalid token")
 	}
-	return access.Actor{UserID: gatewayUser}, nil
+	return Principal{Actor: access.Actor{UserID: gatewayUser}, StrongAuthenticatedAt: a.strong}, nil
+}
+
+type exportServiceStub struct {
+	created int
+}
+
+func (service *exportServiceStub) Create(_ context.Context, command accountexport.CreateCommand) (accountexport.Status, error) {
+	if err := strongauth.Require(command.Session, command.Actor, fixedExportNow); err != nil {
+		return accountexport.Status{}, err
+	}
+	service.created++
+	return exportStatus(), nil
+}
+
+func (*exportServiceStub) Get(_ context.Context, accountID ids.AccountID, actor ids.UserID, exportID string) (accountexport.Status, error) {
+	if accountID != gatewayAccount || actor != gatewayUser || exportID != gatewayRequest {
+		return accountexport.Status{}, accountexport.ErrNotFound
+	}
+	return exportStatus(), nil
+}
+
+func (*exportServiceStub) List(_ context.Context, accountID ids.AccountID, actor ids.UserID, limit uint64) ([]accountexport.Status, error) {
+	if accountID != gatewayAccount || actor != gatewayUser || limit == 0 || limit > 100 {
+		return nil, accountexport.ErrInvalid
+	}
+	return []accountexport.Status{exportStatus()}, nil
+}
+
+func (*exportServiceStub) Cancel(_ context.Context, command accountexport.CancelCommand) (accountexport.Status, error) {
+	if err := strongauth.Require(command.Session, command.Actor, fixedExportNow); err != nil {
+		return accountexport.Status{}, err
+	}
+	value := exportStatus()
+	value.State = accountexport.StateCanceled
+	value.Version++
+	return value, nil
+}
+
+type exportCapabilityStub struct{}
+
+func (exportCapabilityStub) Issue(_ context.Context, command accountexport.CapabilityCommand) (accountexport.Capability, error) {
+	if err := strongauth.Require(command.Session, command.Actor, fixedExportNow); err != nil {
+		return accountexport.Capability{}, err
+	}
+	return accountexport.Capability{Token: "header-only-capability", ExpiresAt: fixedExportNow.Add(2 * time.Minute)}, nil
+}
+
+var fixedExportNow = time.Date(2026, 8, 24, 2, 0, 0, 0, time.UTC)
+
+func exportStatus() accountexport.Status {
+	available := fixedExportNow.Add(-time.Minute)
+	return accountexport.Status{ID: gatewayRequest, AccountID: gatewayAccount, RequestedBy: gatewayUser, State: accountexport.StateAvailable, CellID: gatewayCell, PlacementGeneration: 7, AccountVersion: 9, ArtifactBytes: 42, Version: 3, RequestedAt: fixedExportNow.Add(-time.Hour), ExpiresAt: fixedExportNow.Add(time.Hour), AvailableAt: &available}
 }
 
 func (a *tokenAuthority) Authorize(_ context.Context, actor access.Actor, accountID ids.AccountID, requirement access.Requirement) (access.AccountContext, error) {
@@ -183,6 +240,92 @@ func TestGatewayRejectsUnknownOrCrossAccountToolBeforeRouting(t *testing.T) {
 	}
 }
 
+func TestGatewayExecutesGlobalAccountExportToolsWithNonRenewableStrongEvidence(t *testing.T) {
+	cellCalls := 0
+	cell := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { cellCalls++ }))
+	defer cell.Close()
+	origin, _ := url.Parse(cell.URL)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	signer, _ := routecontext.NewSigner("spyglass-router", "active", key, 20*time.Second, fixedClock{fixedExportNow})
+	service := &exportServiceStub{}
+	authority := &tokenAuthority{}
+	config := gatewayConfig()
+	config.AccountExports, config.ExportCapabilities, config.AppOrigin = service, exportCapabilityStub{}, "https://app.infiniteocean.net"
+	server, err := New(authority, authority, directory{origin: *origin}, signer, &generator{}, slog.New(slog.NewTextHandler(io.Discard, nil)), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + accountExportRequestTool + `","arguments":{"account_id":"` + gatewayAccount + `"}}}`
+	request := gatewayRequestForContext(context.Background(), body)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "strong_authentication_required") || service.created != 0 || cellCalls != 0 {
+		t.Fatalf("without strong evidence status=%d created=%d cell=%d body=%s", response.Code, service.created, cellCalls, response.Body.String())
+	}
+	strong := fixedExportNow.Add(-time.Minute)
+	authority.strong = &strong
+	request = gatewayRequestForContext(context.Background(), body)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), "artifact_reference") || strings.Contains(response.Body.String(), "sha256") || !strings.Contains(response.Body.String(), gatewayRequest) || service.created != 1 || cellCalls != 0 {
+		t.Fatalf("strong request status=%d created=%d cell=%d body=%s", response.Code, service.created, cellCalls, response.Body.String())
+	}
+	stale := fixedExportNow.Add(-strongauth.MaximumAge - time.Nanosecond)
+	authority.strong = &stale
+	request = gatewayRequestForContext(context.Background(), body)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if !strings.Contains(response.Body.String(), "strong_authentication_required") || service.created != 1 {
+		t.Fatalf("stale evidence renewed authority: created=%d body=%s", service.created, response.Body.String())
+	}
+}
+
+func TestGatewayMergesDeterministicGlobalToolDefinitionsAndReturnsHeaderOnlyCapability(t *testing.T) {
+	cell := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"spyglass_work_item_list","inputSchema":{"type":"object"},"outputSchema":{"type":"object"}}]}}`))
+	}))
+	defer cell.Close()
+	origin, _ := url.Parse(cell.URL)
+	key := []byte("0123456789abcdef0123456789abcdef")
+	signer, _ := routecontext.NewSigner("spyglass-router", "active", key, 20*time.Second, fixedClock{fixedExportNow})
+	strong := fixedExportNow.Add(-time.Minute)
+	authority := &tokenAuthority{strong: &strong}
+	config := gatewayConfig()
+	config.AccountExports, config.ExportCapabilities, config.AppOrigin = &exportServiceStub{}, exportCapabilityStub{}, "https://app.infiniteocean.net"
+	server, err := New(authority, authority, directory{origin: *origin}, signer, &generator{}, slog.New(slog.NewTextHandler(io.Discard, nil)), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := gatewayRequestForContext(context.Background(), `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	var listed struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &listed) != nil || len(listed.Result.Tools) != 6 {
+		t.Fatalf("tool list status=%d body=%s", response.Code, response.Body.String())
+	}
+	names := make([]string, 0, len(listed.Result.Tools))
+	for _, tool := range listed.Result.Tools {
+		names = append(names, tool.Name)
+	}
+	if !slices.IsSorted(names) || !slices.Contains(names, accountExportDownloadTool) {
+		t.Fatalf("tools are not complete and deterministic: %v", names)
+	}
+	body := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"` + accountExportDownloadTool + `","arguments":{"account_id":"` + gatewayAccount + `","export_id":"` + gatewayRequest + `"}}}`
+	request = gatewayRequestForContext(context.Background(), body)
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "header-only-capability") || !strings.Contains(response.Body.String(), "SPYGLASS-ACCOUNT-EXPORT") || !strings.Contains(response.Body.String(), "https://app.infiniteocean.net/api/v1/account-exports/"+gatewayRequest+"/artifact") || strings.Contains(response.Body.String(), "?token=") {
+		t.Fatalf("capability response status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (function roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -259,11 +402,11 @@ func TestGatewayPropagatesCancellationWithoutRetry(t *testing.T) {
 
 type statelessAuthority struct{}
 
-func (statelessAuthority) Authenticate(_ context.Context, token string, requirement TokenRequirement) (access.Actor, error) {
+func (statelessAuthority) Authenticate(_ context.Context, token string, requirement TokenRequirement) (Principal, error) {
 	if token != "audience-bound-token" || requirement.Audience != "https://mcp.infiniteocean.net" || requirement.Scope != RequiredScope {
-		return access.Actor{}, errors.New("invalid token")
+		return Principal{}, errors.New("invalid token")
 	}
-	return access.Actor{UserID: gatewayUser}, nil
+	return Principal{Actor: access.Actor{UserID: gatewayUser}}, nil
 }
 
 func (statelessAuthority) Authorize(_ context.Context, actor access.Actor, accountID ids.AccountID, _ access.Requirement) (access.AccountContext, error) {

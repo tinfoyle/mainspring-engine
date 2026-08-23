@@ -38,7 +38,12 @@ type TokenRequirement struct {
 }
 
 type TokenAuthenticator interface {
-	Authenticate(context.Context, string, TokenRequirement) (access.Actor, error)
+	Authenticate(context.Context, string, TokenRequirement) (Principal, error)
+}
+
+type Principal struct {
+	Actor                 access.Actor
+	StrongAuthenticatedAt *time.Time
 }
 
 type Authorizer interface {
@@ -61,6 +66,9 @@ type Config struct {
 	MaxRequestBody       int64
 	MaxResponseBody      int64
 	Transport            http.RoundTripper
+	AccountExports       AccountExportService
+	ExportCapabilities   ExportCapabilityIssuer
+	AppOrigin            string
 }
 
 type Server struct {
@@ -77,6 +85,7 @@ type Server struct {
 	maxRequest           int64
 	maxResponse          int64
 	client               *http.Client
+	exports              *accountExportTools
 }
 
 func New(authenticator TokenAuthenticator, authorizer Authorizer, directory AccountDirectory, signer TokenSigner, generator ids.Generator, logger *slog.Logger, config Config) (*Server, error) {
@@ -126,7 +135,11 @@ func New(authenticator TokenAuthenticator, authorizer Authorizer, directory Acco
 	client := &http.Client{Transport: transport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 		return errors.New("cell redirects are not allowed")
 	}}
-	return &Server{authenticator: authenticator, authorizer: authorizer, directory: directory, signer: signer, ids: generator, logger: logger, resource: resource.String(), metadata: metadata.String(), authorizationServers: authorizationServers, origins: origins, maxRequest: config.MaxRequestBody, maxResponse: config.MaxResponseBody, client: client}, nil
+	exports, err := newAccountExportTools(config.AccountExports, config.ExportCapabilities, config.AppOrigin, logger)
+	if err != nil {
+		return nil, err
+	}
+	return &Server{authenticator: authenticator, authorizer: authorizer, directory: directory, signer: signer, ids: generator, logger: logger, resource: resource.String(), metadata: metadata.String(), authorizationServers: authorizationServers, origins: origins, maxRequest: config.MaxRequestBody, maxResponse: config.MaxResponseBody, client: client, exports: exports}, nil
 }
 
 func (s *Server) Handler() http.Handler {
@@ -173,8 +186,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusUnauthorized, "authentication_required")
 		return
 	}
-	actor, err := s.authenticator.Authenticate(r.Context(), token, TokenRequirement{Audience: s.resource, Scope: RequiredScope})
-	if err != nil || !actor.Valid() {
+	principal, err := s.authenticator.Authenticate(r.Context(), token, TokenRequirement{Audience: s.resource, Scope: RequiredScope})
+	if err != nil || !principal.Actor.Valid() {
 		s.challenge(w)
 		writeProblem(w, http.StatusUnauthorized, "authentication_required")
 		return
@@ -198,14 +211,19 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer body.Close()
-	requirement, method, tool, err := classify(r, body, accountID)
+	requirement, method, tool, err := s.classify(r, body, accountID)
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_mcp_request")
 		return
 	}
-	accountContext, err := s.authorizer.Authorize(r.Context(), actor, accountID, requirement)
+	accountContext, err := s.authorizer.Authorize(r.Context(), principal.Actor, accountID, requirement)
 	if err != nil {
 		s.writeAuthorizationError(w, err)
+		return
+	}
+	if s.exports != nil && s.exports.handles(tool) {
+		requestID := s.ids.New()
+		s.exports.call(w, r, body, principal, accountContext, requestID)
 		return
 	}
 	cellRoute, err := s.directory.Resolve(r.Context(), accountID, accountContext.CellID, accountContext.PlacementGeneration)
@@ -215,7 +233,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestID := s.ids.New()
-	outbound, err := s.newCellRequest(r, cellRoute.Origin, body, actor, accountContext, requestID)
+	outbound, err := s.newCellRequest(r, cellRoute.Origin, body, principal.Actor, accountContext, requestID)
 	if err != nil {
 		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable")
 		return
@@ -223,7 +241,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	response, err := s.client.Do(outbound)
 	if err != nil && response == nil && r.Context().Err() == nil {
 		requestID = s.ids.New()
-		outbound, err = s.newCellRequest(r, cellRoute.Origin, body, actor, accountContext, requestID)
+		outbound, err = s.newCellRequest(r, cellRoute.Origin, body, principal.Actor, accountContext, requestID)
 		if err == nil {
 			response, err = s.client.Do(outbound)
 		}
@@ -240,6 +258,14 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadGateway, "invalid_cell_response")
 		return
 	}
+	if method == "tools/list" && s.exports != nil && response.StatusCode >= 200 && response.StatusCode < 300 {
+		responseBody, err = s.exports.mergeList(responseBody)
+		if err != nil || int64(len(responseBody)) > s.maxResponse {
+			s.logger.Error("merge MCP global tool list", "request_id", requestID, "cell_id", accountContext.CellID)
+			writeProblem(w, http.StatusBadGateway, "invalid_cell_response")
+			return
+		}
+	}
 	copyResponseHeader(w.Header(), response.Header, "Content-Type")
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(response.StatusCode)
@@ -247,7 +273,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	s.logger.Info("MCP request routed", "request_id", requestID, "account_id", accountID, "rpc_method", method, "tool", tool, "mutation", requirement.Mutation, "status", response.StatusCode)
 }
 
-func classify(request *http.Request, body *requestbody.Capture, accountID ids.AccountID) (access.Requirement, string, string, error) {
+func (s *Server) classify(request *http.Request, body *requestbody.Capture, accountID ids.AccountID) (access.Requirement, string, string, error) {
 	reader, err := body.Open()
 	if err != nil {
 		return access.Requirement{}, "", "", err
@@ -291,6 +317,9 @@ func classify(request *http.Request, body *requestbody.Capture, accountID ids.Ac
 		return access.Requirement{}, envelope.Method, "", errors.New("invalid tool call")
 	}
 	requirement, ok := mcpapi.ToolRequirement(call.Name)
+	if !ok && s.exports != nil {
+		requirement, ok = s.exports.requirement(call.Name)
+	}
 	if !ok {
 		return access.Requirement{}, envelope.Method, call.Name, errors.New("unknown tool")
 	}

@@ -1110,6 +1110,22 @@ func runMCPGateway(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	appOrigin, err := requiredEnv("SPYGLASS_APP_ORIGIN")
+	if err != nil {
+		return err
+	}
+	exportKeys, err := routeVerifyKeysEnv("SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_KEYS")
+	if err != nil {
+		return err
+	}
+	exportKeyID, err := requiredEnv("SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_ACTIVE_KEY_ID")
+	if err != nil {
+		return err
+	}
+	exportLifetime, err := durationEnv("SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_CAPABILITY_LIFETIME", 2*time.Minute)
+	if err != nil || exportLifetime <= 0 || exportLifetime > 5*time.Minute {
+		return errors.New("SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_CAPABILITY_LIFETIME must be between 1ns and 5m")
+	}
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
 	if err != nil {
 		return err
@@ -1142,6 +1158,7 @@ func runMCPGateway(ctx context.Context, logger *slog.Logger) error {
 		DirectoryCacheTTL: directoryTTL, DirectoryCapacity: int(directoryCapacityValue), CellTransport: cellTransport,
 		AllowHTTPCells: developmentMode, TrustedOrigins: csvEnv("SPYGLASS_MCP_TRUSTED_ORIGINS"),
 		ResourceURL: resource, ResourceMetadataURL: metadata, AuthorizationServers: []string{authorizationServer},
+		AppOrigin: appOrigin, ExportDownloadKeyID: exportKeyID, ExportDownloadKeys: exportKeys, ExportDownloadLifetime: exportLifetime,
 	}, logger, registration.SystemClock{})
 	if err != nil {
 		return err

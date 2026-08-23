@@ -30,6 +30,7 @@ spec:
             - {name: SPYGLASS_HTTP_ADDRESS, value: ":8080"}
             - {name: SPYGLASS_DIRECTORY_CACHE_TTL, value: "30s"}
             - {name: SPYGLASS_DIRECTORY_CACHE_CAPACITY, value: "10000"}
+            - {name: SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_CAPABILITY_LIFETIME, value: "2m"}
             - {name: SPYGLASS_WORKLOAD_CERT_FILE, value: "/var/run/secrets/spyglass/workload/tls.crt"}
             - {name: SPYGLASS_WORKLOAD_KEY_FILE, value: "/var/run/secrets/spyglass/workload/tls.key"}
             - {name: SPYGLASS_WORKLOAD_CA_FILE, value: "/var/run/secrets/spyglass/workload/ca.crt"}

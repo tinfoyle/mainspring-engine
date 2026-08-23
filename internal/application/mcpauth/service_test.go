@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -97,12 +98,12 @@ func (r *repositoryStub) RotateRefresh(_ context.Context, refresh RefreshExchang
 	return IssuedAuthority{UserID: r.pending.UserID, Resource: r.pending.Resource, Scope: r.pending.Scope}, nil
 }
 
-func (r *repositoryStub) AuthenticateAccess(_ context.Context, _ [32]byte, requirement TokenRequirement, _ time.Time) (access.Actor, error) {
+func (r *repositoryStub) AuthenticateAccess(_ context.Context, _ [32]byte, requirement TokenRequirement, _ time.Time) (AuthenticatedAuthority, error) {
 	r.requirement = requirement
 	if r.error != nil {
-		return access.Actor{}, r.error
+		return AuthenticatedAuthority{}, r.error
 	}
-	return access.Actor{UserID: oauthUser}, nil
+	return AuthenticatedAuthority{Actor: access.Actor{UserID: oauthUser}, StrongAuthenticatedAt: r.decision.StrongAuthenticatedAt}, nil
 }
 
 func (r *repositoryStub) Revoke(_ context.Context, hash [32]byte, clientID string, _ time.Time) error {
@@ -143,7 +144,7 @@ func TestAuthorizationCodeAndRotatingTokenFlow(t *testing.T) {
 	if err != nil || pending.ID != oauthPending || pending.ExpiresAt.Sub(now) != AuthorizationRequestTTL {
 		t.Fatalf("pending=%+v err=%v", pending, err)
 	}
-	decision, err := service.Decide(context.Background(), AuthorizationDecision{PendingID: oauthPending, UserID: oauthUser, SessionID: oauthSession, Approve: true})
+	decision, err := service.Decide(context.Background(), AuthorizationDecision{PendingID: oauthPending, UserID: oauthUser, SessionID: oauthSession, Session: sessions.Session{ID: oauthSession, UserID: oauthUser, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey}, Approve: true})
 	if err != nil || decision.Code != code || decision.RedirectURI != oauthRedirect || decision.Issuer != oauthIssuer || !decision.Approved {
 		t.Fatalf("decision=%+v err=%v", decision, err)
 	}
@@ -165,8 +166,12 @@ func TestAuthorizationCodeAndRotatingTokenFlow(t *testing.T) {
 		t.Fatalf("refresh=%+v", repository.refresh)
 	}
 	actor, err := service.Authenticate(context.Background(), accessToken, TokenRequirement{Audience: oauthResource, Scope: ScopeMCP})
-	if err != nil || actor.UserID != oauthUser || repository.requirement.Audience != oauthResource {
+	if err != nil || actor.Actor.UserID != oauthUser || actor.StrongAuthenticatedAt == nil || repository.requirement.Audience != oauthResource {
 		t.Fatalf("actor=%+v requirement=%+v err=%v", actor, repository.requirement, err)
+	}
+	rotatedActor, err := service.Authenticate(context.Background(), rotatedAccess, TokenRequirement{Audience: oauthResource, Scope: ScopeMCP})
+	if err != nil || rotatedActor.StrongAuthenticatedAt == nil || !rotatedActor.StrongAuthenticatedAt.Equal(now) {
+		t.Fatalf("refresh advanced or removed strong-auth evidence: actor=%+v err=%v", rotatedActor, err)
 	}
 	if err := service.Revoke(context.Background(), refreshToken, oauthClient); err != nil || repository.revokedHash != sha256.Sum256([]byte(refreshToken)) || repository.revokedClient != oauthClient {
 		t.Fatalf("revoke hash=%x client=%s err=%v", repository.revokedHash, repository.revokedClient, err)

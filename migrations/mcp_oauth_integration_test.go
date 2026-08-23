@@ -11,6 +11,7 @@ import (
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
@@ -74,7 +75,7 @@ func TestMCPOAuthCodeRotationAudienceAndIdentityInvalidation(t *testing.T) {
 		if beginErr != nil {
 			t.Fatal(beginErr)
 		}
-		decision, decideErr := service.Decide(ctx, mcpauth.AuthorizationDecision{PendingID: pending.ID, UserID: userID, SessionID: sessionID, Approve: true})
+		decision, decideErr := service.Decide(ctx, mcpauth.AuthorizationDecision{PendingID: pending.ID, UserID: userID, SessionID: sessionID, Session: sessions.Session{ID: sessionID, UserID: userID, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey}, Approve: true})
 		if decideErr != nil || !decision.Approved || decision.Code == "" {
 			t.Fatalf("decision = %+v, %v", decision, decideErr)
 		}
@@ -89,7 +90,7 @@ func TestMCPOAuthCodeRotationAudienceAndIdentityInvalidation(t *testing.T) {
 	}
 
 	initial := issue("first")
-	if actor, authErr := replica.Authenticate(ctx, initial.AccessToken, mcpauth.TokenRequirement{Audience: resource, Scope: mcpauth.ScopeMCP}); authErr != nil || actor.UserID != userID {
+	if actor, authErr := replica.Authenticate(ctx, initial.AccessToken, mcpauth.TokenRequirement{Audience: resource, Scope: mcpauth.ScopeMCP}); authErr != nil || actor.Actor.UserID != userID || actor.StrongAuthenticatedAt == nil {
 		t.Fatalf("access authentication = %+v, %v", actor, authErr)
 	}
 	if _, authErr := service.Authenticate(ctx, initial.AccessToken, mcpauth.TokenRequirement{Audience: "https://other.example", Scope: mcpauth.ScopeMCP}); !errors.Is(authErr, mcpauth.ErrAccessDenied) {
@@ -100,8 +101,8 @@ func TestMCPOAuthCodeRotationAudienceAndIdentityInvalidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = service.Authenticate(ctx, rotated.AccessToken, mcpauth.TokenRequirement{Audience: resource, Scope: mcpauth.ScopeMCP}); err != nil {
-		t.Fatal(err)
+	if authority, authErr := service.Authenticate(ctx, rotated.AccessToken, mcpauth.TokenRequirement{Audience: resource, Scope: mcpauth.ScopeMCP}); authErr != nil || authority.StrongAuthenticatedAt == nil || !authority.StrongAuthenticatedAt.Equal(now) {
+		t.Fatalf("refresh advanced or removed strong-auth evidence: authority=%+v err=%v", authority, authErr)
 	}
 	if _, err = service.Refresh(ctx, initial.RefreshToken, clientID, resource); !errors.Is(err, mcpauth.ErrRefreshReuse) {
 		t.Fatalf("refresh replay = %v", err)

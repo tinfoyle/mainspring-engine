@@ -12,29 +12,35 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountexport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/securityposture"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/exportcapability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	transport "github.com/tinfoyle/spyglass-engine/internal/transport/mcpgateway"
 )
 
 type Config struct {
-	DatabaseURL          string
-	MaxDatabaseConns     int32
-	RouteIssuer          string
-	RouteSigningKeyID    string
-	RouteSigningKey      []byte
-	RouteLifetime        time.Duration
-	DirectoryCacheTTL    time.Duration
-	DirectoryCapacity    int
-	CellTransport        http.RoundTripper
-	AllowHTTPCells       bool
-	TrustedOrigins       []string
-	ResourceURL          string
-	ResourceMetadataURL  string
-	AuthorizationServers []string
+	DatabaseURL            string
+	MaxDatabaseConns       int32
+	RouteIssuer            string
+	RouteSigningKeyID      string
+	RouteSigningKey        []byte
+	RouteLifetime          time.Duration
+	DirectoryCacheTTL      time.Duration
+	DirectoryCapacity      int
+	CellTransport          http.RoundTripper
+	AllowHTTPCells         bool
+	TrustedOrigins         []string
+	ResourceURL            string
+	ResourceMetadataURL    string
+	AuthorizationServers   []string
+	AppOrigin              string
+	ExportDownloadKeyID    string
+	ExportDownloadKeys     map[string][]byte
+	ExportDownloadLifetime time.Duration
 }
 
 type Server struct {
@@ -87,12 +93,36 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
+	exportRepository := postgres.NewAccountExportRepository(pool)
+	exportService, err := accountexport.NewService(exportRepository, authorizer, ids.RandomGenerator{}, clock, 7*24*time.Hour)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if config.ExportDownloadLifetime == 0 {
+		config.ExportDownloadLifetime = exportcapability.DefaultLifetime
+	}
+	activeExportKey, ok := config.ExportDownloadKeys[config.ExportDownloadKeyID]
+	if !ok {
+		pool.Close()
+		return nil, errors.New("active Account export download key is absent from MCP gateway")
+	}
+	exportSigner, err := exportcapability.NewSigner(config.AppOrigin, config.ExportDownloadKeyID, activeExportKey, config.ExportDownloadLifetime, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	exportCapabilities, err := accountexport.NewCapabilityIssuer(exportRepository, authorizer, exportSigner, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	directory, err := accountdirectory.NewCache(postgres.NewAccountDirectoryRepository(pool), clock, accountdirectory.Config{TTL: config.DirectoryCacheTTL, Capacity: config.DirectoryCapacity, AllowHTTP: config.AllowHTTPCells})
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	gateway, err := transport.New(authenticator, authorizer, directory, signer, ids.RandomGenerator{}, logger, transport.Config{TrustedOrigins: config.TrustedOrigins, ResourceURL: config.ResourceURL, ResourceMetadataURL: config.ResourceMetadataURL, AuthorizationServers: config.AuthorizationServers, Transport: config.CellTransport})
+	gateway, err := transport.New(authenticator, authorizer, directory, signer, ids.RandomGenerator{}, logger, transport.Config{TrustedOrigins: config.TrustedOrigins, ResourceURL: config.ResourceURL, ResourceMetadataURL: config.ResourceMetadataURL, AuthorizationServers: config.AuthorizationServers, Transport: config.CellTransport, AccountExports: exportService, ExportCapabilities: exportCapabilities, AppOrigin: config.AppOrigin})
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -105,8 +135,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 // requirement without coupling either layer to the other.
 type tokenAuthenticator struct{ service *mcpauth.Service }
 
-func (a tokenAuthenticator) Authenticate(ctx context.Context, token string, requirement transport.TokenRequirement) (access.Actor, error) {
-	return a.service.Authenticate(ctx, token, mcpauth.TokenRequirement{Audience: requirement.Audience, Scope: requirement.Scope})
+func (a tokenAuthenticator) Authenticate(ctx context.Context, token string, requirement transport.TokenRequirement) (transport.Principal, error) {
+	authority, err := a.service.Authenticate(ctx, token, mcpauth.TokenRequirement{Audience: requirement.Audience, Scope: requirement.Scope})
+	if err != nil {
+		return transport.Principal{}, err
+	}
+	return transport.Principal{Actor: authority.Actor, StrongAuthenticatedAt: authority.StrongAuthenticatedAt}, nil
 }
 
 func (s *Server) Close() { s.pool.Close() }

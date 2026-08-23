@@ -90,9 +90,9 @@ func (r *MCPAuthRepository) DecideAuthorization(ctx context.Context, decision mc
 
 	if _, err = tx.Exec(ctx, `
 		INSERT INTO mcp_oauth_grants
-		(id,user_id,client_id,client_name,resource,scope,security_version,created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, grantID, pending.UserID, pending.ClientID,
-		pending.ClientName, pending.Resource, pending.Scope, securityVersion, now.UTC()); err != nil {
+		(id,user_id,client_id,client_name,resource,scope,security_version,strong_authenticated_at,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, grantID, pending.UserID, pending.ClientID,
+		pending.ClientName, pending.Resource, pending.Scope, securityVersion, decision.StrongAuthenticatedAt, now.UTC()); err != nil {
 		return mcpauth.PendingAuthorization{}, err
 	}
 	if _, err = tx.Exec(ctx, `
@@ -265,16 +265,17 @@ func (r *MCPAuthRepository) RotateRefresh(ctx context.Context, exchange mcpauth.
 	return issued, nil
 }
 
-func (r *MCPAuthRepository) AuthenticateAccess(ctx context.Context, hash [32]byte, requirement mcpauth.TokenRequirement, now time.Time) (access.Actor, error) {
+func (r *MCPAuthRepository) AuthenticateAccess(ctx context.Context, hash [32]byte, requirement mcpauth.TokenRequirement, now time.Time) (mcpauth.AuthenticatedAuthority, error) {
 	var userID ids.UserID
-	err := r.pool.QueryRow(ctx, `SELECT user_id FROM spyglass_authenticate_mcp_access_token($1,$2,$3,$4)`, hash[:], requirement.Audience, requirement.Scope, now.UTC()).Scan(&userID)
+	var strongAuthenticatedAt *time.Time
+	err := r.pool.QueryRow(ctx, `SELECT user_id,strong_authenticated_at FROM spyglass_authenticate_mcp_access_token($1,$2,$3,$4)`, hash[:], requirement.Audience, requirement.Scope, now.UTC()).Scan(&userID, &strongAuthenticatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return access.Actor{}, mcpauth.ErrAccessDenied
+		return mcpauth.AuthenticatedAuthority{}, mcpauth.ErrAccessDenied
 	}
 	if err != nil {
-		return access.Actor{}, err
+		return mcpauth.AuthenticatedAuthority{}, err
 	}
-	return access.Actor{UserID: userID}, nil
+	return mcpauth.AuthenticatedAuthority{Actor: access.Actor{UserID: userID}, StrongAuthenticatedAt: strongAuthenticatedAt}, nil
 }
 
 func (r *MCPAuthRepository) Revoke(ctx context.Context, hash [32]byte, clientID string, now time.Time) error {

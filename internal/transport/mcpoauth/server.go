@@ -158,7 +158,7 @@ func (s *Server) decide(w http.ResponseWriter, r *http.Request) {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
-	result, err := s.service.Decide(r.Context(), mcpauth.AuthorizationDecision{PendingID: r.FormValue("pending_id"), UserID: authenticated.Session.UserID, SessionID: authenticated.Session.ID, Approve: decision == "approve"})
+	result, err := s.service.Decide(r.Context(), mcpauth.AuthorizationDecision{PendingID: r.FormValue("pending_id"), UserID: authenticated.Session.UserID, SessionID: authenticated.Session.ID, Session: authenticated.Session, Approve: decision == "approve"})
 	if err != nil {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
