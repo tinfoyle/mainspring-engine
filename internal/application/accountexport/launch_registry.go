@@ -6,7 +6,7 @@ package accountexport
 // and reason so schema growth fails closed in the integration suite.
 func LaunchRegistry() (*Registry, error) {
 	sections := []Descriptor{
-		{Code: "account", SchemaVersion: 1, Stores: []string{"global-postgresql"}},
+		{Code: "account", SchemaVersion: 1, Stores: []string{"cell-postgresql", "global-postgresql"}},
 		{Code: "agents", SchemaVersion: 1, Stores: []string{"cell-postgresql"}},
 		{Code: "attention", SchemaVersion: 1, Stores: []string{"cell-postgresql"}},
 		{Code: "baseline", SchemaVersion: 1, Stores: []string{"cell-postgresql"}},

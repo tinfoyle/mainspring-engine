@@ -1,12 +1,21 @@
 package migrations_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountexport"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -57,4 +66,119 @@ func TestAccountExportCoverageMatchesAccountOwnedSchema(t *testing.T) {
 			t.Fatalf("portability policy references missing table %s.%s", coverage.Schema, coverage.Table)
 		}
 	}
+	assertGlobalProjectionColumns(t, ctx, pool, registry)
+	assertGlobalProjectionRecords(t, ctx, pool)
+}
+
+func assertGlobalProjectionColumns(t *testing.T, ctx context.Context, pool *pgxpool.Pool, registry *accountexport.Registry) {
+	t.Helper()
+	var projectionTx *pgxpool.Tx
+	bySection := postgresadapter.AccountExportGlobalProjectionTables(projectionTx)
+	seen := make(map[string]bool)
+	for section, tables := range bySection {
+		for _, table := range tables {
+			key := table.Schema + "." + table.Table
+			if seen[key] {
+				t.Fatalf("duplicate global projection table %s", key)
+			}
+			seen[key] = true
+			coverage, found := registry.Coverage(table.Schema, table.Table)
+			if !found || coverage.Disposition != accountexport.Included || coverage.Section != section {
+				t.Fatalf("projection table %s section=%s coverage=%+v found=%v", key, section, coverage, found)
+			}
+			rows, err := pool.Query(ctx, `SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY column_name`, table.Schema, table.Table)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var actual []string
+			for rows.Next() {
+				var column string
+				if err := rows.Scan(&column); err != nil {
+					t.Fatal(err)
+				}
+				actual = append(actual, column)
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				t.Fatal(err)
+			}
+			reviewed := append(append([]string(nil), table.Columns...), table.OmittedColumns...)
+			slices.Sort(reviewed)
+			if !slices.Equal(actual, reviewed) {
+				t.Fatalf("global projection column drift for %s: schema=%v reviewed=%v", key, actual, reviewed)
+			}
+		}
+	}
+	for _, coverage := range registry.Tables() {
+		if coverage.Schema == "public" && coverage.Disposition == accountexport.Included && !seen[coverage.Schema+"."+coverage.Table] {
+			t.Fatalf("included global table %s.%s lacks an explicit projection", coverage.Schema, coverage.Table)
+		}
+	}
+}
+
+func assertGlobalProjectionRecords(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	now := time.Date(2026, 8, 24, 18, 0, 0, 0, time.UTC)
+	accountID := ids.AccountID("ee100000-0000-4000-8000-000000000001")
+	ownerID := ids.UserID("ee200000-0000-4000-8000-000000000001")
+	secretToken := []byte("invitation-secret-token-hash")
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO users(id,primary_email,display_name,state,email_verified_at,created_at)
+		VALUES ($1,'projection-owner@example.com','Projection Owner','active',$3,$3);
+		INSERT INTO accounts(id,slug,display_name,account_type,state,cell_id,placement_generation,entitlement_version,last_catalog_reconciled_version,version,created_by_user_id,created_at)
+		VALUES ($2,'projection-account','Projection Account','free','active','cell-us-east-01',1,1,1,1,$1,$3);
+		INSERT INTO invitations(id,account_id,email,role,state,invited_by_user_id,token_hash,expires_at,created_at)
+		VALUES ('ee300000-0000-4000-8000-000000000001',$2,'invitee@example.com','member','pending',$1,$4,$3::timestamptz + interval '1 day',$3)`,
+		pgx.QueryExecModeSimpleProtocol, ownerID, accountID, now, secretToken); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+	tables := postgresadapter.AccountExportGlobalProjectionTables(tx)["account"]
+	source, err := postgresadapter.NewAccountExportSectionSource(accountexport.Descriptor{Code: "account", SchemaVersion: 1, Stores: []string{"global-postgresql"}}, accountID, tables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursor, err := source.Open(ctx, accountexport.BuildRequest{AccountID: accountID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cursor.Close()
+	var records [][]byte
+	previousKey := ""
+	for {
+		record, found, err := cursor.Next(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !found {
+			break
+		}
+		var value map[string]any
+		if err := json.Unmarshal(record, &value); err != nil {
+			t.Fatal(err)
+		}
+		key, _ := value["key"].(string)
+		if key <= previousKey || !bytes.Equal(record, mustCanonicalJSON(t, value)) {
+			t.Fatalf("noncanonical/out-of-order record previous=%q record=%s", previousKey, record)
+		}
+		previousKey = key
+		records = append(records, record)
+	}
+	joined := string(bytes.Join(records, []byte("\n")))
+	if len(records) != 2 || !strings.Contains(joined, "Projection Account") || !strings.Contains(joined, "invitee@example.com") || strings.Contains(joined, "token_hash") || strings.Contains(joined, string(secretToken)) {
+		t.Fatalf("sanitized records=%s", joined)
+	}
+}
+
+func mustCanonicalJSON(t *testing.T, value map[string]any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }

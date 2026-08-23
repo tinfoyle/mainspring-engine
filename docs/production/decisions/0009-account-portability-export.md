@@ -39,7 +39,7 @@ These are safety ceilings, not product promises. Pagination and multiple artifac
 - Export implementation is shared infrastructure, while each package owns its sanitized projections and exact stable keys.
 - Deterministic replay permits digest comparison and erasure evidence without placing customer identifiers in the final tombstone.
 - A consistent export is a coordinated bounded snapshot, not a claim of cross-database serializability. Version and placement fences detect invalid combinations.
-- The artifact builder, schema registry, durable request/expiry state, exact-version object publisher/deleter, private staging/pipeline kernel and two-database repeatable-read coordinator are necessary but do not make `customer-export-api` executable. Sanitized projection/object sources, workload composition, download authorization/customer transport and applied environment certification remain separate gates.
+- The artifact builder, schema registry, durable request/expiry state, exact-version object publisher/deleter, private staging/pipeline kernel, two-database repeatable-read coordinator and global Account/Billing/Entitlements projections are necessary but do not make `customer-export-api` executable. Remaining cell/object projections, workload composition, download authorization/customer transport and applied environment certification remain separate gates.
 
 ## Verification
 
@@ -50,4 +50,5 @@ These are safety ceilings, not product promises. Pagination and multiple artifac
 - Pure, race and real encrypted-MinIO tests prove create-if-absent publication, exact byte/digest reconciliation, opaque-reference confinement, exact-version deletion, idempotent missing-version replay and the separate no-list export-worker policy.
 - Pipeline and filesystem-adapter tests prove snapshot/work binding, launch-registry source closure, whole-archive identity handoff, stable failure classification, retry after post-publication cleanup uncertainty, private `0600` staging, root-identity fencing and cancellation cleanup.
 - Fresh PostgreSQL coverage proves simultaneous global/cell repeatable-read and read-only modes, exact Account RLS context, Account/directory/namespace version and placement fencing, snapshot timestamps and permanent drift refusal.
+- Fresh-schema and real-row projection tests require an exported-or-omitted disposition for every global included-table column, prove stable canonical ordering and verify that invitation tokens and provider capabilities/identifiers cannot enter Account, Billing or Entitlements sections.
 - End-to-end tests must later prove unknown-commit object publication recovery, read-only/absent package access through the customer transport and external-object erasure evidence handoff.
