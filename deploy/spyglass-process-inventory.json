@@ -253,6 +253,18 @@
       "dependencies": ["global-postgresql", "cell-postgresql"]
     },
     {
+      "mode": "integration-connector-worker",
+      "kind": "worker",
+      "scope": "cell",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.integration-connector-worker", "cell.integration-connector-worker"],
+      "configuration": ["SPYGLASS_ENVIRONMENT", "SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_CELL_ID", "SPYGLASS_CONNECTOR_ADAPTER", "SPYGLASS_MOCK_CONNECTOR_CONFIG_FILE", "SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL", "SPYGLASS_INTEGRATION_CONNECTOR_LEASE", "SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", "SPYGLASS_CELL_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate", "cell_restore_gate", "local_mock_connector"],
+      "dependencies": ["global-postgresql", "cell-postgresql"],
+      "environment_gate": "the mock adapter is limited to SPYGLASS_ENVIRONMENT=local or local-secure"
+    },
+    {
       "mode": "runner-controller",
       "kind": "worker",
       "scope": "cell",

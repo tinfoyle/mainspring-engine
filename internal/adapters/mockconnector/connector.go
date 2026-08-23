@@ -5,6 +5,7 @@ package mockconnector
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
@@ -12,8 +13,9 @@ import (
 )
 
 type Step struct {
-	Mode   domain.AttemptMode
-	Result integrationexecution.ConnectorResult
+	Mode       domain.AttemptMode
+	Result     integrationexecution.ConnectorResult
+	RetryAfter time.Duration
 }
 
 type Call struct {
@@ -54,6 +56,10 @@ func (connector *Connector) next(call integrationexecution.ConnectorCall, mode d
 	}
 	step := steps[0]
 	connector.scripts[call.Claim.ExecutionID] = steps[1:]
+	if step.RetryAfter > 0 {
+		retryAt := call.At.Add(step.RetryAfter)
+		step.Result.RetryAt = &retryAt
+	}
 	return step.Result
 }
 

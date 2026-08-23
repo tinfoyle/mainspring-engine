@@ -599,6 +599,46 @@ services:
       global-seed: {condition: service_completed_successfully}
     networks: [application, database]
 
+  integration-connector-worker-a:
+    <<: *worker
+    profiles: [integration-connectors]
+    command: [integration-connector-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-east-01
+      SPYGLASS_GLOBAL_DATABASE_URL: ${SPYGLASS_INTEGRATION_CONNECTOR_GLOBAL_DATABASE_URL:?set SPYGLASS_INTEGRATION_CONNECTOR_GLOBAL_DATABASE_URL}
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_A_INTEGRATION_CONNECTOR_DATABASE_URL:?set SPYGLASS_CELL_A_INTEGRATION_CONNECTOR_DATABASE_URL}
+      SPYGLASS_CONNECTOR_ADAPTER: ${SPYGLASS_CONNECTOR_ADAPTER:-disabled}
+      SPYGLASS_MOCK_CONNECTOR_CONFIG_FILE: /run/spyglass/mock-connector.json
+      SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL: ${SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL:-1s}
+      SPYGLASS_INTEGRATION_CONNECTOR_LEASE: ${SPYGLASS_INTEGRATION_CONNECTOR_LEASE:-2m}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      cell-a-migrate: {condition: service_completed_successfully}
+      global-seed: {condition: service_completed_successfully}
+    networks: [application, database]
+
+  integration-connector-worker-b:
+    <<: *worker
+    profiles: [integration-connectors]
+    command: [integration-connector-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_CELL_ID: cell-us-west-01
+      SPYGLASS_GLOBAL_DATABASE_URL: ${SPYGLASS_INTEGRATION_CONNECTOR_GLOBAL_DATABASE_URL:?set SPYGLASS_INTEGRATION_CONNECTOR_GLOBAL_DATABASE_URL}
+      SPYGLASS_CELL_DATABASE_URL: ${SPYGLASS_CELL_B_INTEGRATION_CONNECTOR_DATABASE_URL:?set SPYGLASS_CELL_B_INTEGRATION_CONNECTOR_DATABASE_URL}
+      SPYGLASS_CONNECTOR_ADAPTER: ${SPYGLASS_CONNECTOR_ADAPTER:-disabled}
+      SPYGLASS_MOCK_CONNECTOR_CONFIG_FILE: /run/spyglass/mock-connector.json
+      SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL: ${SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL:-1s}
+      SPYGLASS_INTEGRATION_CONNECTOR_LEASE: ${SPYGLASS_INTEGRATION_CONNECTOR_LEASE:-2m}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      cell-b-migrate: {condition: service_completed_successfully}
+      global-seed: {condition: service_completed_successfully}
+    networks: [application, database]
+
   route-receipt-worker-a:
     <<: *worker
     command: [route-receipt-worker]

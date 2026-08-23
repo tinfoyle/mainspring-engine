@@ -116,7 +116,7 @@ The dedicated payload source is now constructed through the provider-neutral bou
 
 Provider credentials remain outside this envelope. The connector service now acquires one exact-operation lease only after Marketing/package/placement authority and creative integrity pass, binds it to the frozen credential generation and attempt expiry, then zeroes and releases it immediately after the connector returns. Marketing cannot request or observe that lease.
 
-A dedicated per-cell worker bootstrap now composes the global authority, cell execution store, payload assembler and injected connector-only dependencies with bounded pools and health/status. It is not yet exposed as an executable or Docker service, so Marketing remains non-executable.
+A dedicated per-cell worker bootstrap now composes the global authority, cell execution store, payload assembler and injected connector-only dependencies with bounded pools and health/status. An opt-in, restore-gated ubunturojo Docker profile certifies this path end to end with a local-only no-network mock, an exact approved release and least-privilege split database roles. This is certification infrastructure rather than a customer Marketing surface: governed production object lifecycle, secret brokerage and real provider adapters remain prerequisites, so Marketing remains non-executable.
 
 ## Invariants
 

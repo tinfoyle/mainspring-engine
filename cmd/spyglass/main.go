@@ -24,6 +24,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerengine"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerlauncherhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/mockconnector"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/runnerbrokerhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
@@ -63,6 +64,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/development"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/entitlementworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/identitymaintenanceworker"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/integrationconnectorworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/knowledgedocumentworker"
 	bootstrapmcpgateway "github.com/tinfoyle/spyglass-engine/internal/bootstrap/mcpgateway"
 	modelgatewaybootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/modelgatewayapi"
@@ -165,6 +167,8 @@ func main() {
 		err = runKnowledgeDocumentWorker(ctx, logger)
 	case "baseline-maintenance-worker":
 		err = runBaselineMaintenanceWorker(ctx, logger)
+	case "integration-connector-worker":
+		err = runIntegrationConnectorWorker(ctx, logger)
 	case "agent-dispatch-worker":
 		err = runAgentDispatchWorker(ctx, logger)
 	case "schedule-execution-worker":
@@ -190,7 +194,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -2094,6 +2098,78 @@ func runBaselineMaintenanceWorker(ctx context.Context, logger *slog.Logger) erro
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "baseline-maintenance", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{globalRestore, cellRestore}}, logger)
+}
+
+func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) error {
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	adapter, err := requiredEnv("SPYGLASS_CONNECTOR_ADAPTER")
+	if err != nil {
+		return err
+	}
+	if adapter != "mock" || (environment != "local" && environment != "local-secure") {
+		return errors.New("mock Integration connectors require a local environment")
+	}
+	runtimeFile, err := requiredEnv("SPYGLASS_MOCK_CONNECTOR_CONFIG_FILE")
+	if err != nil {
+		return err
+	}
+	runtime, err := mockconnector.LoadRuntime(runtimeFile)
+	if err != nil {
+		return err
+	}
+	globalDatabaseURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	cellDatabaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	globalRestore, err := openRequiredRestoreGate(ctx, globalDatabaseURL, restoregate.Global, "SPYGLASS_GLOBAL_")
+	if err != nil {
+		return err
+	}
+	defer globalRestore.Close()
+	cellRestore, err := openRequiredRestoreGate(ctx, cellDatabaseURL, restoregate.Cell, "SPYGLASS_CELL_")
+	if err != nil {
+		return err
+	}
+	defer cellRestore.Close()
+	cellID, err := requiredEnv("SPYGLASS_CELL_ID")
+	if err != nil {
+		return err
+	}
+	globalConns, err := int32Env("SPYGLASS_GLOBAL_MAX_DATABASE_CONNS", 3)
+	if err != nil {
+		return err
+	}
+	cellConns, err := int32Env("SPYGLASS_CELL_MAX_DATABASE_CONNS", 3)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL", time.Second)
+	if err != nil || poll < 100*time.Millisecond || poll > time.Minute {
+		return errors.New("SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL must be between 100ms and 1m")
+	}
+	lease, err := durationEnv("SPYGLASS_INTEGRATION_CONNECTOR_LEASE", 2*time.Minute)
+	if err != nil || lease < time.Second || lease > 5*time.Minute || lease%time.Second != 0 {
+		return errors.New("SPYGLASS_INTEGRATION_CONNECTOR_LEASE must be whole seconds between 1s and 5m")
+	}
+	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	worker, err := integrationconnectorworker.New(startup, integrationconnectorworker.Config{
+		GlobalDatabaseURL: globalDatabaseURL, CellDatabaseURL: cellDatabaseURL, CellID: ids.CellID(cellID),
+		MaxGlobalConns: globalConns, MaxCellConns: cellConns, PollInterval: poll, Lease: lease,
+	}, runtime.Broker, runtime.Contents, runtime.Definitions, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "integration-connector", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"),
+		&restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{globalRestore, cellRestore}}, logger)
 }
 
 func runAgentDispatchWorker(ctx context.Context, logger *slog.Logger) error {

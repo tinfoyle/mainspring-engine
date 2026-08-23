@@ -1,0 +1,24 @@
+{
+  "credentials": [
+    {
+      "id": "82900000-0000-4000-8000-000000000009",
+      "generation": 1,
+      "material_base64": "bG9jYWwtbW9jay1jcmVkZW50aWFs"
+    }
+  ],
+  "objects": {
+    "marketing/launch/copy/v1": "YXBwcm92ZWQgbG9jYWwgY29udGVudA=="
+  },
+  "scripts": [
+    {
+      "execution_id": "82a00000-0000-4000-8000-00000000000a",
+      "steps": [
+        {
+          "mode": "execute",
+          "outcome": "succeeded"
+        }
+      ]
+    }
+  ],
+  "connector_timeout": "5s"
+}

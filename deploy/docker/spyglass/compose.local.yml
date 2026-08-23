@@ -40,6 +40,7 @@ services:
       SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD: ${SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD}
       SPYGLASS_BASELINE_MAINTENANCE_WORKER_DATABASE_PASSWORD: ${SPYGLASS_BASELINE_MAINTENANCE_WORKER_DATABASE_PASSWORD}
       SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD: ${SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD}
+      SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD: ${SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD}
     volumes:
       - ./roles/global.local.sql:/opt/spyglass/roles/global.sql:ro
     depends_on:
@@ -66,6 +67,7 @@ services:
       SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD: ${SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD}
       SPYGLASS_RUNNER_CONTROLLER_DATABASE_PASSWORD: ${SPYGLASS_CELL_A_RUNNER_CONTROLLER_DATABASE_PASSWORD}
       SPYGLASS_RUNNER_BROKER_DATABASE_PASSWORD: ${SPYGLASS_CELL_A_RUNNER_BROKER_DATABASE_PASSWORD}
+      SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD: ${SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD}
     volumes:
       - ./roles/cell.local.sql:/opt/spyglass/roles/cell.sql:ro
     depends_on:
@@ -92,6 +94,7 @@ services:
       SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD: ${SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD}
       SPYGLASS_RUNNER_CONTROLLER_DATABASE_PASSWORD: ${SPYGLASS_CELL_B_RUNNER_CONTROLLER_DATABASE_PASSWORD}
       SPYGLASS_RUNNER_BROKER_DATABASE_PASSWORD: ${SPYGLASS_CELL_B_RUNNER_BROKER_DATABASE_PASSWORD}
+      SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD: ${SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD}
     volumes:
       - ./roles/cell.local.sql:/opt/spyglass/roles/cell.sql:ro
     depends_on:
@@ -216,6 +219,20 @@ services:
     depends_on:
       global-roles: {condition: service_completed_successfully}
       cell-b-roles: {condition: service_completed_successfully}
+
+  integration-connector-worker-a:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+      cell-a-roles: {condition: service_completed_successfully}
+    volumes:
+      - ./mock-connector/local.json:/run/spyglass/mock-connector.json:ro
+
+  integration-connector-worker-b:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+      cell-b-roles: {condition: service_completed_successfully}
+    volumes:
+      - ./mock-connector/local.json:/run/spyglass/mock-connector.json:ro
 
   route-receipt-worker-a:
     depends_on:
