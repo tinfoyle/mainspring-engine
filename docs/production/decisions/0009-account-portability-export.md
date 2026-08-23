@@ -39,7 +39,7 @@ These are safety ceilings, not product promises. Pagination and multiple artifac
 - Export implementation is shared infrastructure, while each package owns its sanitized projections and exact stable keys.
 - Deterministic replay permits digest comparison and erasure evidence without placing customer identifiers in the final tombstone.
 - A consistent export is a coordinated bounded snapshot, not a claim of cross-database serializability. Version and placement fences detect invalid combinations.
-- The artifact builder, schema registry and durable request/expiry state are necessary but do not make `customer-export-api` executable. Projection adapters, object publication/deletion, customer transport and applied environment certification remain separate gates.
+- The artifact builder, schema registry, durable request/expiry state and exact-version object publisher/deleter are necessary but do not make `customer-export-api` executable. Projection/snapshot coordination, staging lifecycle, download authorization/customer transport and applied environment certification remain separate gates.
 
 ## Verification
 
@@ -47,4 +47,5 @@ These are safety ceilings, not product promises. Pagination and multiple artifac
 - Negative tests reject noncanonical or unordered records, missing stable keys, unsafe or unordered objects, registry/source drift and invalid snapshot bounds.
 - A disposable PostgreSQL 17 test applies all global/development/cell migrations and proves exact portability disposition coverage.
 - PostgreSQL lifecycle tests prove one active request per Account, active-Owner enforcement, lease recovery, bounded retry, movement/version drift rejection, exact artifact evidence, cross-Account concealment, expiry deletion and immutable audit history. Global erasure and restore-replay tests include exact request/event counts.
+- Pure, race and real encrypted-MinIO tests prove create-if-absent publication, exact byte/digest reconciliation, opaque-reference confinement, exact-version deletion, idempotent missing-version replay and the separate no-list export-worker policy.
 - End-to-end tests must later prove unknown-commit object publication recovery, read-only/absent package access through the customer transport and external-object erasure evidence handoff.

@@ -15,16 +15,20 @@ import (
 )
 
 type fakeClient struct {
-	exists     bool
-	versioning minio.BucketVersioningConfiguration
-	putInfo    minio.UploadInfo
-	putErr     error
-	statInfo   minio.ObjectInfo
-	statErr    error
-	putBody    []byte
-	putKey     string
-	putOptions minio.PutObjectOptions
-	removed    minio.RemoveObjectOptions
+	exists      bool
+	versioning  minio.BucketVersioningConfiguration
+	putInfo     minio.UploadInfo
+	putErr      error
+	statInfo    minio.ObjectInfo
+	statErr     error
+	statKey     string
+	statOptions minio.StatObjectOptions
+	putBody     []byte
+	putKey      string
+	putOptions  minio.PutObjectOptions
+	removeKey   string
+	removeErr   error
+	removed     minio.RemoveObjectOptions
 }
 
 func (client *fakeClient) BucketExists(context.Context, string) (bool, error) {
@@ -52,15 +56,18 @@ func TestPutExtractedImmutableBindsDerivedIdentity(t *testing.T) {
 		t.Fatalf("result=%+v key=%q options=%+v err=%v", result, client.putKey, client.putOptions, err)
 	}
 }
-func (client *fakeClient) StatObject(context.Context, string, string, minio.StatObjectOptions) (minio.ObjectInfo, error) {
+func (client *fakeClient) StatObject(_ context.Context, _, key string, options minio.StatObjectOptions) (minio.ObjectInfo, error) {
+	client.statKey, client.statOptions = key, options
 	return client.statInfo, client.statErr
 }
 func (client *fakeClient) GetObject(context.Context, string, string, minio.GetObjectOptions) (*minio.Object, error) {
 	return nil, errors.New("not implemented")
 }
-func (client *fakeClient) RemoveObject(_ context.Context, _, _ string, options minio.RemoveObjectOptions) error {
+
+func (client *fakeClient) RemoveObject(_ context.Context, _, key string, options minio.RemoveObjectOptions) error {
+	client.removeKey = key
 	client.removed = options
-	return nil
+	return client.removeErr
 }
 
 func objectWrite(body []byte) knowledgeapp.SourceObjectWrite {

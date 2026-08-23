@@ -140,22 +140,28 @@ services:
         mc alias set spyglass http://object-store:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
         mc mb --ignore-existing spyglass/$${SPYGLASS_OBJECT_STORE_BUCKET}
         mc version enable spyglass/$${SPYGLASS_OBJECT_STORE_BUCKET}
+        mc mb --ignore-existing spyglass/$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET}
+        mc version enable spyglass/$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET}
         mc admin policy create spyglass spyglass-app-api /etc/spyglass/minio/app-api-policy.json
         mc admin policy create spyglass spyglass-document-worker /etc/spyglass/minio/document-worker-policy.json
         mc admin policy create spyglass spyglass-integration-connector /etc/spyglass/minio/integration-connector-policy.json
         mc admin policy create spyglass spyglass-prototype-migration /etc/spyglass/minio/prototype-migration-policy.json
+        mc admin policy create spyglass spyglass-account-export-worker /etc/spyglass/minio/account-export-worker-policy.json
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_APP_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_WORKER_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_CONNECTOR_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY}"
         mc admin user add spyglass "$${SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY}" "$${SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY}"
+        mc admin user add spyglass "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY}" "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_SECRET_KEY}"
         mc admin policy attach spyglass spyglass-app-api --user "$${SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-document-worker --user "$${SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-integration-connector --user "$${SPYGLASS_OBJECT_STORE_CONNECTOR_ACCESS_KEY}"
         mc admin policy attach spyglass spyglass-prototype-migration --user "$${SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY}"
+        mc admin policy attach spyglass spyglass-account-export-worker --user "$${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY}"
     environment:
       MINIO_ROOT_USER: ${SPYGLASS_OBJECT_STORE_ACCESS_KEY:?set SPYGLASS_OBJECT_STORE_ACCESS_KEY}
       MINIO_ROOT_PASSWORD: ${SPYGLASS_OBJECT_STORE_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_SECRET_KEY}
       SPYGLASS_OBJECT_STORE_BUCKET: ${SPYGLASS_OBJECT_STORE_BUCKET:?set SPYGLASS_OBJECT_STORE_BUCKET}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET}
       SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY: ${SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY:?set SPYGLASS_OBJECT_STORE_APP_ACCESS_KEY}
       SPYGLASS_OBJECT_STORE_APP_SECRET_KEY: ${SPYGLASS_OBJECT_STORE_APP_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_APP_SECRET_KEY}
       SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY: ${SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY:?set SPYGLASS_OBJECT_STORE_WORKER_ACCESS_KEY}
@@ -164,6 +170,8 @@ services:
       SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY: ${SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_CONNECTOR_SECRET_KEY}
       SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY: ${SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY:?set SPYGLASS_OBJECT_STORE_MIGRATION_ACCESS_KEY}
       SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY: ${SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY:?set SPYGLASS_OBJECT_STORE_MIGRATION_SECRET_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_ACCESS_KEY}
+      SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_SECRET_KEY: ${SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_SECRET_KEY:?set SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_WORKER_SECRET_KEY}
       MC_CONFIG_DIR: /tmp/.mc
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -172,6 +180,7 @@ services:
       - ./minio/document-worker-policy.json:/etc/spyglass/minio/document-worker-policy.json:ro
       - ./minio/integration-connector-policy.json:/etc/spyglass/minio/integration-connector-policy.json:ro
       - ./minio/prototype-migration-policy.json:/etc/spyglass/minio/prototype-migration-policy.json:ro
+      - ./minio/account-export-worker-policy.json:/etc/spyglass/minio/account-export-worker-policy.json:ro
     depends_on:
       object-store: {condition: service_healthy}
     cap_drop: [ALL]

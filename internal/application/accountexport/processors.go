@@ -2,7 +2,9 @@ package accountexport
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -11,6 +13,20 @@ import (
 type ProducedArtifact struct {
 	Snapshot Snapshot
 	Artifact Artifact
+}
+
+// ArtifactWrite is the exact, already-built archive identity presented to the
+// private artifact store. Implementations must publish create-if-absent and
+// reconcile retries against ExportID, Bytes and SHA256.
+type ArtifactWrite struct {
+	ExportID string
+	Bytes    int64
+	SHA256   [sha256.Size]byte
+	Body     io.Reader
+}
+
+type ArtifactPublisher interface {
+	Publish(context.Context, ArtifactWrite) (Artifact, error)
 }
 
 // Producer owns coordinated global/cell repeatable-read snapshots, exact

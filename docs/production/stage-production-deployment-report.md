@@ -21,6 +21,7 @@
 | Databases | Containerized PostgreSQL 17 in every environment |
 | Production database operator | CloudNativePG on LKE with LKE block storage and configurable replicas |
 | Document objects | Private versioned S3 contract: encrypted MinIO volumes in local/Hostinger stage and managed Linode Object Storage in production |
+| Account portability artifacts | Separate private versioned bucket and workload identity: encrypted MinIO locally/on Hostinger, S3-compatible production storage on LKE; no public bucket policy or shared document credential |
 | Malware scanning | Fail-closed ClamAV `INSTREAM` client over a digest-pinned, unexposed 4 GiB private service with persistent signatures; local/CI freeze signatures and stage enables FreshClam updates |
 | Document extraction | Private digest-pinned Apache Tika service with no unsecure features, bounded parser lifecycle/resources and no host port; production replicas remain behind a ClusterIP |
 | Document processing, retrieval and deletion | Content-free per-cell PostgreSQL lease queues, Account-scoped PostgreSQL full-text retrieval/exact citations, exact-version manifests/receipts and least-privilege workers; Hostinger uses the `knowledge-processing` Compose profile and LKE will use one scalable worker Deployment per cell boundary |
@@ -182,7 +183,7 @@ The stage override uses the same service graph with production-mode process argu
 
 - application and website images pulled from GHCR by digest;
 - three PostgreSQL containers with private networks and persistent volumes;
-- private versioned MinIO document/creative storage on a persistent volume with a generated static stage encryption key and distinct prefix-scoped admission, document-worker, read-only Integration-connector and one-shot prototype-migration credentials; production replaces this service with Linode Object Storage and corresponding scoped credentials;
+- private versioned MinIO document/creative storage plus a separate `spyglass-account-exports` bucket on the persistent volume, with a generated static stage encryption key and distinct prefix-scoped admission, document-worker, read-only Integration-connector, one-shot prototype-migration and Account-export worker credentials; the export identity has no list authority and only exact artifact-key read/write/delete authority, and production replaces MinIO with corresponding S3-compatible scoped credentials;
 - an internal Caddy router on the existing `infiniteocean_public` network; the existing Infinite Ocean Caddy remains the only public 80/443 and ACME owner;
 - Stripe test mode, TLS SMTP and non-production provider credentials;
 - a non-internal provider-egress network attached only to Account API, billing, notification, model-gateway and the two runner-broker workloads;
