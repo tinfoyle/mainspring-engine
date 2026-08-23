@@ -48,6 +48,31 @@ The active Phase 3 Scheduling candidate is recorded in `deploy/releases/0.3.0-rc
 
 The Account-export worker candidate is recorded in `deploy/releases/0.3.0-rc.3.env`: application digest `sha256:547c5c18e3d719cd01c7b9233b2e218a6a7af21ef388f719ce79310230d4f86a` and website digest `sha256:d3fe4a9505b3f2d44c49ad251049bc19e904f51d2d5d5d7f65b51ac64be2699d`, both built from `747b473315d44c615e0a199abb73ad438095fe22`. Main verification passed at [run 32648697941](https://github.com/tinfoyle/mainspring-engine/actions/runs/32648697941); the application release passed at [run 32649185182](https://github.com/tinfoyle/mainspring-engine/actions/runs/32649185182) and the website release at [run 32649186585](https://github.com/tinfoyle/mainspring-engine/actions/runs/32649186585). Both release jobs passed overwrite refusal, AMD64/ARM64 build, attached provenance/SBOM, both-platform vulnerability/secret admission and keyless signing. This is still an intermediate construction candidate, not a production release.
 
+RC.3 exposed two deployment defects during Hostinger application: the expiry
+worker received the unprefixed restore gate, and two new Marketing capability
+identifiers violated the established broker grammar. The configuration repair
+is enforced by `verify-stage.sh`; the capability repair changes the invalid
+underscore-delimited identifiers to reviewed hyphen-delimited identifiers and
+adds a regression over every exported runner capability. RC.3 remains immutable
+history and is not a complete Stage candidate because its runner brokers cannot
+start with that capability set.
+
+The corrected Account-export worker candidate is recorded in
+`deploy/releases/0.3.0-rc.4.env`: application digest
+`sha256:ab5c8274eec8db17dd2e5f41155cad8f662009cdec9794bf44e188589d7f2990`
+and website digest
+`sha256:1c3199c83594a5acefec78a9ff58c4ab59375ea6b6423b6a3560542c1c1592b6`,
+both built from `069b25992fb50f82aacbebf24ee6ab7a2cdfccb0`. Main
+verification is [run 32651203877](https://github.com/tinfoyle/mainspring-engine/actions/runs/32651203877),
+the application release passed at
+[run 32651217283](https://github.com/tinfoyle/mainspring-engine/actions/runs/32651217283)
+and the website release passed at
+[run 32651216899](https://github.com/tinfoyle/mainspring-engine/actions/runs/32651216899).
+Both release jobs passed overwrite refusal, AMD64/ARM64 build, attached
+provenance/SBOM, both-platform vulnerability/secret admission and keyless
+signing. RC.4 is an intermediate construction candidate, not a production
+release.
+
 ## RC.4 and RC.5 independent evidence
 
 Verification from Docker in `ubunturojo` used Cosign 3.1.3 image digest `sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8` and Trivy 0.74.0 image digest `sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969`:
