@@ -84,27 +84,58 @@ func TestIntegrationsSchemaBindsAuthorityAndReconcilesUnknownDelivery(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, found, err := executionRepository.Claim(ctx, ids.IntegrationAttemptID(fixture.attempt1), fixture.executionAt, fixture.executionAt.Add(time.Minute))
+	staleAt := fixture.executionAt.Add(4*time.Minute + time.Second)
+	if _, found, err := executionRepository.Claim(ctx, ids.IntegrationAttemptID(fixture.attempt1), staleAt, staleAt.Add(time.Minute)); err != nil || found {
+		t.Fatalf("stale health claim found=%t err=%v", found, err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.integration_health_observations
+		(account_id,id,connection_id,connection_revision,credential_id,credential_generation,state,error_code,latency_milliseconds,checked_at)
+		VALUES ($1,'82e00000-0000-4000-8000-00000000001e',$2,1,$3,1,'unavailable','provider_unavailable',30,$4)`,
+		fixture.accountID, fixture.connectionID, fixture.credentialID, staleAt.Add(10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	unavailableAt := staleAt.Add(30 * time.Second)
+	if _, found, err := executionRepository.Claim(ctx, ids.IntegrationAttemptID(fixture.attempt1), unavailableAt, unavailableAt.Add(time.Minute)); err != nil || found {
+		t.Fatalf("unavailable health claim found=%t err=%v", found, err)
+	}
+	var deferredUntil time.Time
+	var deferredState string
+	var deferredAttempts int
+	if err := owner.QueryRow(ctx, `SELECT queue.available_at,execution.state,execution.attempt_count
+		FROM spyglass.integration_execution_queue queue JOIN spyglass.integration_executions execution
+		ON execution.account_id=queue.account_id AND execution.id=queue.execution_id
+		WHERE queue.account_id=$1 AND queue.execution_id=$2`, fixture.accountID, fixture.executionID).Scan(&deferredUntil, &deferredState, &deferredAttempts); err != nil ||
+		!deferredUntil.Equal(unavailableAt.Add(30*time.Second)) || deferredState != "prepared" || deferredAttempts != 0 {
+		t.Fatalf("health deferral until=%s state=%s attempts=%d err=%v", deferredUntil, deferredState, deferredAttempts, err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.integration_health_observations
+		(account_id,id,connection_id,connection_revision,credential_id,credential_generation,state,error_code,latency_milliseconds,checked_at)
+		VALUES ($1,'82e00000-0000-4000-8000-00000000002e',$2,1,$3,1,'degraded','provider_slow',25,$4)`,
+		fixture.accountID, fixture.connectionID, fixture.credentialID, unavailableAt.Add(20*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	firstAt := unavailableAt.Add(30 * time.Second)
+	first, found, err := executionRepository.Claim(ctx, ids.IntegrationAttemptID(fixture.attempt1), firstAt, firstAt.Add(time.Minute))
 	if err != nil || !found || first.Mode != integrationsdomain.AttemptExecute || first.ExecutionID != ids.IntegrationExecutionID(fixture.executionID) || first.CredentialID != ids.IntegrationCredentialID(fixture.credentialID) {
 		t.Fatalf("first claim=%+v", first)
 	}
 	if err := executionRepository.Complete(ctx, integrationexecution.Completion{Claim: first, Outcome: integrationsdomain.AttemptUnknown,
-		ErrorCode: "provider_timeout", CompletedAt: fixture.executionAt.Add(10 * time.Second)}); err != nil {
+		ErrorCode: "provider_timeout", CompletedAt: firstAt.Add(10 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tryClaimIntegrationExecution(ctx, owner, fixture.attempt2, fixture.executionAt.Add(20*time.Second), fixture.executionAt.Add(80*time.Second)); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := tryClaimIntegrationExecution(ctx, owner, fixture.attempt2, firstAt.Add(20*time.Second), firstAt.Add(80*time.Second)); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("early reconciliation error=%v", err)
 	}
-	second := claimIntegrationExecution(t, ctx, owner, fixture.attempt2, fixture.executionAt.Add(40*time.Second), fixture.executionAt.Add(100*time.Second))
+	second := claimIntegrationExecution(t, ctx, owner, fixture.attempt2, firstAt.Add(40*time.Second), firstAt.Add(100*time.Second))
 	if second.mode != "reconcile" {
 		t.Fatalf("second claim=%+v", second)
 	}
-	retryAt := fixture.executionAt.Add(2 * time.Minute)
+	retryAt := firstAt.Add(2 * time.Minute)
 	if _, err := owner.Exec(ctx, `SELECT public.spyglass_complete_integration_execution($1,$2,$3,'not_applied','provider_confirmed_absent',$4,$5)`,
-		fixture.accountID, fixture.executionID, fixture.attempt2, retryAt, fixture.executionAt.Add(50*time.Second)); err != nil {
+		fixture.accountID, fixture.executionID, fixture.attempt2, retryAt, firstAt.Add(50*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tryClaimIntegrationExecution(ctx, owner, fixture.attempt3, fixture.executionAt.Add(time.Minute), fixture.executionAt.Add(3*time.Minute)); !errors.Is(err, pgx.ErrNoRows) {
+	if _, err := tryClaimIntegrationExecution(ctx, owner, fixture.attempt3, firstAt.Add(time.Minute), firstAt.Add(3*time.Minute)); !errors.Is(err, pgx.ErrNoRows) {
 		t.Fatalf("early execute retry error=%v", err)
 	}
 	third := claimIntegrationExecution(t, ctx, owner, fixture.attempt3, retryAt, retryAt.Add(time.Minute))
