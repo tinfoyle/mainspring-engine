@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
@@ -195,7 +197,61 @@ func TestBaselineRepositoryPersistsIsolatedImmutableLifecycle(t *testing.T) {
 
 	now = now.Add(time.Second)
 	grantID := ids.BaselineSourceGrantID("dc000000-0000-4000-8000-000000000001")
-	grant, err := baselinedomain.NewSourceGrant(baselinedomain.SourceGrantDraft{ID: grantID, AccountID: accountID, AssessmentID: assessmentID, ConnectionID: "dc000000-0000-4000-8000-000000000002", Kind: baselinedomain.SourceEmail, Scope: baselinedomain.SourceScope{Folders: []string{"INBOX"}}, GrantedBy: actor}, now)
+	sourceConnectionID := "dc000000-0000-4000-8000-000000000002"
+	sourceTx, err := owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = sourceTx.Exec(ctx, `INSERT INTO spyglass.integration_connections
+		(account_id,id,name,connector_kind,state,current_revision,credential_generation,version,created_by_user_id,created_at,updated_at)
+		VALUES ($1,$2,'Baseline mailbox','email','pending',1,0,1,$3,$4,$4);
+		INSERT INTO spyglass.integration_connection_revisions
+		(account_id,id,connection_id,revision,capabilities,email_address,created_by_user_id,created_at)
+		VALUES ($1,'dc000000-0000-4000-8000-000000000012',$2,1,ARRAY['email.read'],'records@example.com',$3,$4);
+		INSERT INTO spyglass.integration_credentials
+		(account_id,id,connection_id,generation,provider,reference_sha256,state,created_by_user_id,created_at,updated_at)
+		VALUES ($1,'dc000000-0000-4000-8000-000000000022',$2,1,'mock_imap',decode(repeat('61',32),'hex'),'active',$3,$4,$4);
+		UPDATE spyglass.integration_connections SET state='active',credential_id='dc000000-0000-4000-8000-000000000022',credential_generation=1,version=2,updated_at=$4
+		WHERE account_id=$1 AND id=$2`, pgx.QueryExecModeSimpleProtocol, accountID, sourceConnectionID, userID, now); err != nil {
+		_ = sourceTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = sourceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	resolvedSource, err := repository.ResolveSourceConnection(ctx, accountID, sourceConnectionID)
+	if err != nil || resolvedSource.Kind != baselinedomain.SourceEmail || len(resolvedSource.Capabilities) != 1 || resolvedSource.Capabilities[0] != "email.read" {
+		t.Fatalf("resolved source=%+v err=%v", resolvedSource, err)
+	}
+	driveConnectionID := "dc000000-0000-4000-8000-000000000032"
+	driveTx, err := owner.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = driveTx.Exec(ctx, `INSERT INTO spyglass.integration_connections
+		(account_id,id,name,connector_kind,state,current_revision,credential_generation,version,created_by_user_id,created_at,updated_at)
+		VALUES ($1,$2,'Baseline Drive','google_drive','pending',1,0,1,$3,$4,$4);
+		INSERT INTO spyglass.integration_connection_revisions
+		(account_id,id,connection_id,revision,capabilities,drive_folder_ids,created_by_user_id,created_at)
+		VALUES ($1,'dc000000-0000-4000-8000-000000000042',$2,1,ARRAY['google_drive.read'],ARRAY['folder-a'],$3,$4);
+		INSERT INTO spyglass.integration_credentials
+		(account_id,id,connection_id,generation,provider,reference_sha256,state,created_by_user_id,created_at,updated_at)
+		VALUES ($1,'dc000000-0000-4000-8000-000000000052',$2,1,'mock_google_drive',decode(repeat('62',32),'hex'),'active',$3,$4,$4);
+		UPDATE spyglass.integration_connections SET state='active',credential_id='dc000000-0000-4000-8000-000000000052',credential_generation=1,version=2,updated_at=$4
+		WHERE account_id=$1 AND id=$2`, pgx.QueryExecModeSimpleProtocol, accountID, driveConnectionID, userID, now); err != nil {
+		_ = driveTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = driveTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.baseline_source_grants
+		(account_id,id,assessment_id,connection_id,source_kind,folders,state,granted_by_user_id,version,created_at,updated_at)
+		VALUES ($1,'dc000000-0000-4000-8000-000000000062',$2,$3,'google_drive',ARRAY['folder-b'],'active',$4,1,$5,$5)`,
+		accountID, assessmentID, driveConnectionID, userID, now); err == nil || !strings.Contains(err.Error(), "not authorized") {
+		t.Fatalf("outside Drive scope insert=%v", err)
+	}
+	grant, err := baselinedomain.NewSourceGrant(baselinedomain.SourceGrantDraft{ID: grantID, AccountID: accountID, AssessmentID: assessmentID, ConnectionID: sourceConnectionID, Kind: baselinedomain.SourceEmail, Scope: baselinedomain.SourceScope{Folders: []string{"INBOX"}}, GrantedBy: actor}, now)
 	if err != nil {
 		t.Fatal(err)
 	}

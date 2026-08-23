@@ -20,14 +20,15 @@ import (
 )
 
 type Service struct {
-	authorizer Authorizer
-	repository Repository
-	clock      Clock
-	work       WorkCreator
-	facts      FactResolver
-	evidence   EvidenceResolver
-	workItems  WorkResolver
-	sources    SourceGrantRepository
+	authorizer        Authorizer
+	repository        Repository
+	clock             Clock
+	work              WorkCreator
+	facts             FactResolver
+	evidence          EvidenceResolver
+	workItems         WorkResolver
+	sources           SourceGrantRepository
+	sourceConnections SourceConnectionResolver
 }
 
 type Option func(*Service) error
@@ -78,6 +79,16 @@ func WithSourceGrantRepository(repository SourceGrantRepository) Option {
 			return errors.New("Baseline Source Grant repository is required")
 		}
 		service.sources = repository
+		return nil
+	}
+}
+
+func WithSourceConnectionResolver(resolver SourceConnectionResolver) Option {
+	return func(service *Service) error {
+		if resolver == nil {
+			return errors.New("Baseline source connection resolver is required")
+		}
+		service.sourceConnections = resolver
 		return nil
 	}
 }

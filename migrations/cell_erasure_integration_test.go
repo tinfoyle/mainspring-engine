@@ -484,7 +484,9 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	baselineCorrelationID := strings.Replace(rootID, "000000000001", "000000000521", 1)
 	baselineSourceGrantID := strings.Replace(rootID, "000000000001", "000000000531", 1)
 	baselineSourceGrantEventID := strings.Replace(rootID, "000000000001", "000000000541", 1)
-	baselineSourceConnectionID := strings.Replace(rootID, "000000000001", "000000000551", 1)
+	integrationConnectionID := strings.Replace(rootID, "000000000001", "000000000911", 1)
+	integrationRevisionID := strings.Replace(rootID, "000000000001", "000000000912", 1)
+	integrationCredentialID := strings.Replace(rootID, "000000000001", "000000000913", 1)
 	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.baseline_assessments(account_id,id,catalog_version,scope_policy_version,state,created_by_user_id,version,created_at,updated_at)
 		VALUES ($1,$2,'catalog-v1','scope-v1','interview',$6,1,$7,$7);
 		INSERT INTO spyglass.baseline_interview_answers(account_id,assessment_id,question_key,answer_kind,fact_id,fact_revision,answered_by_user_id,answered_at)
@@ -502,13 +504,6 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		UPDATE spyglass.baseline_assessments SET state='active',version=8 WHERE account_id=$1 AND id=$2;
 		UPDATE spyglass.baseline_assessments SET state='ready',reassess_at=$7::timestamptz+interval '90 days',version=9 WHERE account_id=$1 AND id=$2`,
 		pgx.QueryExecModeSimpleProtocol, accountID, baselineAssessmentID, baselineRequirementID, knowledgeEvidenceID, knowledgeFactID, reviewerUserID, now, baselinePlanID, baselineEventID, baselineCorrelationID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.baseline_source_grants(account_id,id,assessment_id,connection_id,source_kind,folders,state,granted_by_user_id,version,created_at,updated_at)
-		VALUES ($1,$2,$3,$4,'google_drive',ARRAY['Operations'],'active',$5,1,$6,$6);
-		INSERT INTO spyglass.baseline_source_grant_events(account_id,id,grant_id,event_type,from_version,to_version,actor_user_id,reason_code,correlation_id,redacted_payload,occurred_at)
-		VALUES ($1,$7,$2,'source_granted',0,1,$5,'source_granted',$8,'{"source_kind":"google_drive"}',$6)`,
-		pgx.QueryExecModeSimpleProtocol, accountID, baselineSourceGrantID, baselineAssessmentID, baselineSourceConnectionID, reviewerUserID, now, baselineSourceGrantEventID, baselineCorrelationID); err != nil {
 		t.Fatal(err)
 	}
 	prototypeRunID := strings.Replace(rootID, "000000000001", "000000000601", 1)
@@ -589,9 +584,6 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		reviewerUserID, now, marketingEventID, marketingCorrelationID, approvalID); err != nil {
 		t.Fatal(err)
 	}
-	integrationConnectionID := strings.Replace(rootID, "000000000001", "000000000911", 1)
-	integrationRevisionID := strings.Replace(rootID, "000000000001", "000000000912", 1)
-	integrationCredentialID := strings.Replace(rootID, "000000000001", "000000000913", 1)
 	integrationHealthID := strings.Replace(rootID, "000000000001", "000000000914", 1)
 	integrationExecutionID := strings.Replace(rootID, "000000000001", "000000000915", 1)
 	integrationAttemptID := strings.Replace(rootID, "000000000001", "000000000916", 1)
@@ -606,7 +598,7 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		VALUES ($1,$2,'Erasure email','email','pending',1,0,1,$3,$4,$4);
 		INSERT INTO spyglass.integration_connection_revisions
 		(account_id,id,connection_id,revision,capabilities,email_address,audience_reference,created_by_user_id,created_at)
-		VALUES ($1,$5,$2,1,ARRAY['email.send'],'erasure@example.com','audience:erasure-fixture',$3,$4);
+		VALUES ($1,$5,$2,1,ARRAY['email.read','email.send'],'erasure@example.com','audience:erasure-fixture',$3,$4);
 		INSERT INTO spyglass.integration_credentials
 		(account_id,id,connection_id,generation,provider,reference_sha256,state,created_by_user_id,created_at,updated_at)
 		VALUES ($1,$6,$2,1,'mock_smtp',decode(repeat('92',32),'hex'),'active',$3,$4,$4);
@@ -624,6 +616,13 @@ func seedCellErasureAccount(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		t.Fatal(err)
 	}
 	if err = integrationTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.baseline_source_grants(account_id,id,assessment_id,connection_id,source_kind,folders,state,granted_by_user_id,version,created_at,updated_at)
+		VALUES ($1,$2,$3,$4,'email',ARRAY['INBOX'],'active',$5,1,$6,$6);
+		INSERT INTO spyglass.baseline_source_grant_events(account_id,id,grant_id,event_type,from_version,to_version,actor_user_id,reason_code,correlation_id,redacted_payload,occurred_at)
+		VALUES ($1,$7,$2,'source_granted',0,1,$5,'source_granted',$8,'{"source_kind":"email"}',$6)`,
+		pgx.QueryExecModeSimpleProtocol, accountID, baselineSourceGrantID, baselineAssessmentID, integrationConnectionID, reviewerUserID, now, baselineSourceGrantEventID, baselineCorrelationID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO spyglass.integration_executions

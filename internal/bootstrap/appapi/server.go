@@ -169,7 +169,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	baselineService, err := baselineapp.New(routeaccess.NewAuthorizer(), baselineRepository, clock, baselineapp.WithWorkCreator(workCommands), baselineapp.WithFactResolver(baselineRepository), baselineapp.WithEvidenceResolver(baselineRepository), baselineapp.WithWorkResolver(baselineRepository), baselineapp.WithSourceGrantRepository(baselineRepository))
+	baselineService, err := baselineapp.New(routeaccess.NewAuthorizer(), baselineRepository, clock, baselineapp.WithWorkCreator(workCommands), baselineapp.WithFactResolver(baselineRepository), baselineapp.WithEvidenceResolver(baselineRepository), baselineapp.WithWorkResolver(baselineRepository), baselineapp.WithSourceGrantRepository(baselineRepository), baselineapp.WithSourceConnectionResolver(baselineRepository))
 	if err != nil {
 		pool.Close()
 		return nil, err

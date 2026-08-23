@@ -2,6 +2,7 @@ package baseline
 
 import (
 	"context"
+	"slices"
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	domain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
@@ -25,7 +26,7 @@ func (s *Service) GrantSource(ctx context.Context, command GrantSourceCommand) (
 	if err != nil {
 		return domain.SourceGrant{}, err
 	}
-	if s.sources == nil {
+	if s.sources == nil || s.sourceConnections == nil {
 		return domain.SourceGrant{}, ErrRepository
 	}
 	if !canManage(accountContext.Role) {
@@ -43,7 +44,33 @@ func (s *Service) GrantSource(ctx context.Context, command GrantSourceCommand) (
 	if err != nil {
 		return domain.SourceGrant{}, ErrInvalid
 	}
+	connection, err := s.sourceConnections.ResolveSourceConnection(ctx, command.AccountID, grant.ConnectionID)
+	if err != nil {
+		return domain.SourceGrant{}, err
+	}
+	if !sourceConnectionAuthorizes(connection, grant) {
+		return domain.SourceGrant{}, ErrConstraint
+	}
 	return s.sources.CreateSourceGrant(ctx, grant, mutation(actor, "source_granted", command.CorrelationID, now))
+}
+
+func sourceConnectionAuthorizes(connection ResolvedSourceConnection, grant domain.SourceGrant) bool {
+	requiredCapability := "email.read"
+	if grant.Kind == domain.SourceGoogleDrive {
+		requiredCapability = "google_drive.read"
+	}
+	if connection.Kind != grant.Kind || !slices.Contains(connection.Capabilities, requiredCapability) {
+		return false
+	}
+	if grant.Kind != domain.SourceGoogleDrive {
+		return true
+	}
+	for _, folder := range grant.Scope.Folders {
+		if !slices.Contains(connection.DriveFolderIDs, folder) {
+			return false
+		}
+	}
+	return true
 }
 
 type ListSourceGrantsQuery struct {

@@ -119,6 +119,16 @@ type SourceGrantRepository interface {
 	UpdateSourceGrant(context.Context, domain.SourceGrant, uint64, Mutation) (domain.SourceGrant, error)
 }
 
+type ResolvedSourceConnection struct {
+	Kind           domain.SourceKind
+	Capabilities   []string
+	DriveFolderIDs []string
+}
+
+type SourceConnectionResolver interface {
+	ResolveSourceConnection(context.Context, ids.AccountID, string) (ResolvedSourceConnection, error)
+}
+
 type WorkCreator interface {
 	Create(context.Context, workapp.CreateCommand) (workdomain.Item, error)
 }

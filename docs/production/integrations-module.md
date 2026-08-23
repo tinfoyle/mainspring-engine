@@ -1,6 +1,6 @@
 # Integrations module
 
-- Status: provider-neutral kernel, governed persistence, Google Drive folder-scope authority, real SMTP/HTTPS provider adapters, Stage/LKE worker composition and complete current-lifecycle HTTP/MCP/private surfaces constructed; applied delivery-provider certification and Drive sync remain
+- Status: provider-neutral kernel, governed persistence, Google Drive folder-scope and Baseline source-grant authority, real SMTP/HTTPS provider adapters, Stage/LKE worker composition and complete current-lifecycle HTTP/MCP/private surfaces constructed; applied delivery-provider certification and Drive sync remain
 - Package boundary: Integrations
 - Decision: [ADR-0008](decisions/0008-integration-connector-execution.md)
 
@@ -18,7 +18,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
 5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel/bootstrap, current authority, payload assembler, exact-version S3 reader, mounted broker and closed SMTP/HTTPS adapters are composed; applied provider certification remains.**
 6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution. **Constructed for the current email-send/web-publish lifecycle.**
-7. Email inbound/threading, Google Drive and hardened web research, retention, Stage recovery/erasure and production role grants. **Google Drive connection folder-scope authority is constructed; OAuth/credential exchange, incremental capture and deletion remain.**
+7. Email inbound/threading, Google Drive and hardened web research, retention, Stage recovery/erasure and production role grants. **Google Drive connection folder-scope authority and exact Baseline grant binding are constructed; OAuth/credential exchange, incremental capture and deletion remain.**
 
 ## Kernel checkpoint
 
@@ -122,7 +122,9 @@ The selected-Account `/app/integrations` workspace now exposes connection filter
 
 Google Drive connections now freeze one immutable `google_drive.read` scope containing one-to-fifty canonical opaque folder identities. The scope stores no folder names, file identities, OAuth state, access/refresh token, provider payload or sync cursor. IDs are bounded ASCII provider identifiers, sorted into one canonical order and rejected on duplication; changing access creates the next immutable connection revision rather than widening an existing one.
 
-Cell migration `000068` adds the scope to the existing forced-RLS revision record and independently enforces kind/capability/field separation plus canonical folder order. The PostgreSQL repository, Account-portability projection, generated OpenAPI/TypeScript contract, HTTP/MCP lifecycle commands and private Integrations form all carry the same field. Fresh PostgreSQL 17 coverage proves persisted restoration and database rejection of unsorted scope. This is authorization construction, not provider activation: OAuth state/callback brokering, token rotation/revocation, incremental sync cursors, exact source-grant capture, document admission, deletion and health remain closed.
+Cell migration `000068` adds the scope to the existing forced-RLS revision record and independently enforces kind/capability/field separation plus canonical folder order. The PostgreSQL repository, Account-portability projection, generated OpenAPI/TypeScript contract, HTTP/MCP lifecycle commands and private Integrations form all carry the same field. Fresh PostgreSQL 17 coverage proves persisted restoration and database rejection of unsorted scope.
+
+Cell migration `000069` binds every new Baseline source grant to the active current revision of its exact Integration connection. Email grants require an active email connection carrying `email.read`; Drive grants require an active Google Drive connection carrying `google_drive.read`, and every granted folder must be a member of that immutable connection scope. The application repeats the same check through an Account-RLS resolver before persistence, while the database trigger independently prevents a bypass. Revocation of either boundary remains fail-closed for future capture. Fresh PostgreSQL 17 coverage proves allowed restoration, denial outside the Drive scope, movement/erasure participation and the complete migration ledger. This is still authorization construction, not provider activation: OAuth state/callback brokering, token rotation/revocation, incremental sync cursors, capture records, document admission, deletion and provider health remain closed.
 
 ## Invariants
 

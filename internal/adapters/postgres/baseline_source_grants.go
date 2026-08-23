@@ -47,6 +47,37 @@ func (r *BaselineRepository) CreateSourceGrant(ctx context.Context, grant domain
 	return result, classifyBaseline(err)
 }
 
+func (r *BaselineRepository) ResolveSourceConnection(ctx context.Context, accountID ids.AccountID, connectionID string) (baselineapp.ResolvedSourceConnection, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(connectionID) != nil {
+		return baselineapp.ResolvedSourceConnection{}, baselineapp.ErrInvalid
+	}
+	var result baselineapp.ResolvedSourceConnection
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		var kind string
+		err := tx.QueryRow(ctx, `SELECT connection.connector_kind,revision.capabilities,revision.drive_folder_ids
+			FROM spyglass.integration_connections connection JOIN spyglass.integration_connection_revisions revision
+			ON revision.account_id=connection.account_id AND revision.connection_id=connection.id AND revision.revision=connection.current_revision
+			WHERE connection.account_id=$1 AND connection.id=$2 AND connection.state='active'`, accountID, connectionID).
+			Scan(&kind, &result.Capabilities, &result.DriveFolderIDs)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return baselineapp.ErrConstraint
+		}
+		if err != nil {
+			return err
+		}
+		switch kind {
+		case "email":
+			result.Kind = domain.SourceEmail
+		case "google_drive":
+			result.Kind = domain.SourceGoogleDrive
+		default:
+			return baselineapp.ErrConstraint
+		}
+		return nil
+	})
+	return result, classifyBaseline(err)
+}
+
 func (r *BaselineRepository) GetSourceGrant(ctx context.Context, accountID ids.AccountID, grantID ids.BaselineSourceGrantID) (domain.SourceGrant, error) {
 	var result domain.SourceGrant
 	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
@@ -157,3 +188,4 @@ func insertBaselineSourceGrantEvent(ctx context.Context, tx pgx.Tx, grant domain
 }
 
 var _ baselineapp.SourceGrantRepository = (*BaselineRepository)(nil)
+var _ baselineapp.SourceConnectionResolver = (*BaselineRepository)(nil)

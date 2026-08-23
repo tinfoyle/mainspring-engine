@@ -41,7 +41,7 @@ func TestServiceRunsAuthorizedVersionBoundLifecycle(t *testing.T) {
 	integrationEvidenceID := ids.KnowledgeEvidenceID("a7000000-0000-4000-8000-000000000009")
 	evidenceResolver := &baselineEvidenceResolver{values: map[ids.KnowledgeEvidenceID]knowledge.SourceKind{evidenceID: knowledge.SourceOwnerStatement, agentEvidenceID: knowledge.SourceAgentDerivation, integrationEvidenceID: knowledge.SourceIntegrationRecord}}
 	sourceRepository := &baselineSourceGrantRepository{items: map[ids.BaselineSourceGrantID]domain.SourceGrant{}}
-	service, err := New(authorizer, repository, clock, WithFactResolver(resolver), WithEvidenceResolver(evidenceResolver), WithSourceGrantRepository(sourceRepository))
+	service, err := New(authorizer, repository, clock, WithFactResolver(resolver), WithEvidenceResolver(evidenceResolver), WithSourceGrantRepository(sourceRepository), WithSourceConnectionResolver(sourceRepository))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +135,11 @@ func TestServiceRunsAuthorizedVersionBoundLifecycle(t *testing.T) {
 	}
 	clock.advance()
 	grantID := ids.BaselineSourceGrantID(operation("email-source-grant"))
+	sourceRepository.connection = ResolvedSourceConnection{Kind: domain.SourceGoogleDrive, Capabilities: []string{"google_drive.read"}, DriveFolderIDs: []string{"folder-a"}}
+	if _, err := service.GrantSource(ctx, GrantSourceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, GrantID: ids.BaselineSourceGrantID(operation("outside-drive-scope")), ConnectionID: operation("drive-connection"), Kind: domain.SourceGoogleDrive, Scope: domain.SourceScope{Folders: []string{"folder-b"}}, CorrelationID: operation("outside-drive-scope")}); !errors.Is(err, ErrConstraint) {
+		t.Fatalf("outside Drive scope error=%v", err)
+	}
+	sourceRepository.connection = ResolvedSourceConnection{Kind: domain.SourceEmail, Capabilities: []string{"email.read"}}
 	grant, err := service.GrantSource(ctx, GrantSourceCommand{Actor: actor, AccountID: accountID, AssessmentID: assessmentID, GrantID: grantID, ConnectionID: operation("email-connection"), Kind: domain.SourceEmail, Scope: domain.SourceScope{Folders: []string{"INBOX"}}, CorrelationID: operation("grant-source")})
 	if err != nil || grant.State != domain.SourceGrantActive || len(sourceRepository.items) != 1 {
 		t.Fatalf("grant=%+v err=%v", grant, err)
@@ -347,7 +352,15 @@ type baselineRepository struct {
 }
 
 type baselineSourceGrantRepository struct {
-	items map[ids.BaselineSourceGrantID]domain.SourceGrant
+	items      map[ids.BaselineSourceGrantID]domain.SourceGrant
+	connection ResolvedSourceConnection
+}
+
+func (repository *baselineSourceGrantRepository) ResolveSourceConnection(context.Context, ids.AccountID, string) (ResolvedSourceConnection, error) {
+	if repository.connection.Kind == "" {
+		return ResolvedSourceConnection{Kind: domain.SourceEmail, Capabilities: []string{"email.read"}}, nil
+	}
+	return repository.connection, nil
 }
 
 func (repository *baselineSourceGrantRepository) CreateSourceGrant(_ context.Context, value domain.SourceGrant, _ Mutation) (domain.SourceGrant, error) {
