@@ -75,7 +75,7 @@ func assertCellProjectionCohortColumns(t *testing.T, ctx context.Context, pool *
 	t.Helper()
 	var projectionTx *pgxpool.Tx
 	bySection := postgresadapter.AccountExportCellProjectionTables(projectionTx)
-	completed := map[string]bool{"account": true, "attention": true, "finance": true, "migration": true, "schedules": true, "work": true}
+	completed := map[string]bool{"account": true, "attention": true, "baseline": true, "finance": true, "integrations": true, "marketing": true, "migration": true, "schedules": true, "work": true}
 	seen := make(map[string]bool)
 	for section, tables := range bySection {
 		if !completed[section] {

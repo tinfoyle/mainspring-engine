@@ -167,6 +167,14 @@ func validProjectionTable(table AccountExportProjectionTable) bool {
 
 func validExportIdentifier(value string) bool { return exportSQLIdentifier.MatchString(value) }
 
+func sortAccountExportProjectionTables(sections map[string][]AccountExportProjectionTable) {
+	for section := range sections {
+		slices.SortFunc(sections[section], func(left, right AccountExportProjectionTable) int {
+			return strings.Compare(left.Schema+"."+left.Table, right.Schema+"."+right.Table)
+		})
+	}
+}
+
 func projectionQuery(table AccountExportProjectionTable) string {
 	qualified := pgx.Identifier{table.Schema, table.Table}.Sanitize()
 	keys := make([]string, len(table.KeyColumns))

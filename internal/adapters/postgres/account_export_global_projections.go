@@ -7,7 +7,7 @@ import "github.com/jackc/pgx/v5"
 // or intentionally withheld in OmittedColumns; the fresh-schema certificate
 // enforces that union exactly.
 func AccountExportGlobalProjectionTables(tx pgx.Tx) map[string][]AccountExportProjectionTable {
-	return map[string][]AccountExportProjectionTable{
+	result := map[string][]AccountExportProjectionTable{
 		"account": {
 			projectionTable(tx, "public", "account_closure_requests", "account_id", []string{"id"},
 				[]string{"id", "account_id", "state", "requested_by_user_id", "reason", "account_version", "requested_at", "execute_after", "blocker_code", "canceled_by_user_id", "cancel_reason", "canceled_at", "closed_at", "delete_after"},
@@ -42,6 +42,8 @@ func AccountExportGlobalProjectionTables(tx pgx.Tx) map[string][]AccountExportPr
 				[]string{"account_id", "package_code", "limit_code", "current_value", "version", "updated_at"}, nil),
 		},
 	}
+	sortAccountExportProjectionTables(result)
+	return result
 }
 
 func projectionTable(tx pgx.Tx, schema, table, accountColumn string, keyColumns, columns, omitted []string) AccountExportProjectionTable {
