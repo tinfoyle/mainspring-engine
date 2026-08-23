@@ -1,10 +1,13 @@
 package cellapi
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -70,6 +73,20 @@ func (service *marketingCommandTransportService) CreateAssetRevision(_ context.C
 	return value, true, nil
 }
 
+func (service *marketingCommandTransportService) UploadAssetRevision(_ context.Context, command marketingapp.UploadAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error) {
+	body, err := io.ReadAll(command.Body)
+	if err != nil {
+		return marketingdomain.AssetRevision{}, false, err
+	}
+	service.called, service.digest, service.provenance, service.assetID = "asset_upload", sha256.Sum256(body), command.Provenance, command.AssetID
+	reference, _ := marketingdomain.ContentReferenceForObjectVersion("transport-version-1")
+	return marketingdomain.AssetRevision{ID: marketingAssetRevisionID, AccountID: marketingAccountID, CampaignID: marketingCampaignID,
+		AssetID: command.AssetID, Revision: 1, Kind: command.Kind, Title: command.Title, MediaType: command.MediaType, ContentReference: reference,
+		ContentSHA256: service.digest, ContentBytes: uint64(len(body)), AlternativeText: command.AlternativeText,
+		CreatedBy: marketingdomain.Actor{Kind: marketingdomain.ActorUser, ID: marketingUserID}, Provenance: command.Provenance,
+		CreatedAt: time.Date(2026, 8, 23, 2, 0, 0, 0, time.UTC)}, true, nil
+}
+
 func (service *marketingCommandTransportService) CreateRelease(_ context.Context, command marketingapp.CreateReleaseCommand) (marketingdomain.ReleasePlan, bool, error) {
 	service.called, service.provenance = "release_create", command.Provenance
 	return marketingCommandRelease(1), true, nil
@@ -121,7 +138,6 @@ func TestMarketingCommandRoutesBindReplayVersionAndTypedBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := "/api/v1/accounts/" + marketingAccountID + "/marketing"
-	digest := strings.Repeat("11", 32)
 	tests := []struct {
 		name, method, target, body, wantCall string
 		version                              uint64
@@ -130,7 +146,7 @@ func TestMarketingCommandRoutesBindReplayVersionAndTypedBodies(t *testing.T) {
 		{name: "create campaign", method: http.MethodPost, target: base + "/campaigns", body: `{"name":"Autumn launch","objective":"Introduce the governed release","audience":"Existing operators","channels":["email","web"]}`, wantCall: "campaign_create", status: http.StatusCreated},
 		{name: "revise campaign", method: http.MethodPut, target: base + "/campaigns/" + marketingCampaignID, body: `{"name":"Autumn launch","objective":"Introduce the governed release","audience":"Existing operators","channels":["email","web"]}`, wantCall: "campaign_revise", version: 2, status: http.StatusOK},
 		{name: "archive campaign", method: http.MethodDelete, target: base + "/campaigns/" + marketingCampaignID, wantCall: "campaign_archive", version: 2, status: http.StatusOK},
-		{name: "create asset revision", method: http.MethodPost, target: base + "/campaigns/" + marketingCampaignID + "/asset-revisions", body: `{"asset_id":"` + marketingAssetID + `","kind":"image","title":"Campaign hero","media_type":"image/png","content_reference":"objects/marketing/hero.png","content_sha256":"` + digest + `","content_bytes":2048,"alternative_text":"Spyglass campaign hero"}`, wantCall: "asset_create", status: http.StatusCreated},
+		{name: "create asset revision", method: http.MethodPost, target: base + "/campaigns/" + marketingCampaignID + "/asset-revisions", wantCall: "asset_upload", status: http.StatusCreated},
 		{name: "create release", method: http.MethodPost, target: base + "/campaigns/" + marketingCampaignID + "/releases", body: `{"campaign_version":2,"name":"Autumn release","channels":["email","web"],"asset_revision_ids":["` + marketingAssetRevisionID + `"]}`, wantCall: "release_create", status: http.StatusCreated},
 		{name: "submit release", method: http.MethodPost, target: base + "/releases/" + marketingReleaseID + "/submissions", body: `{"campaign_version":2}`, wantCall: "release_submit", version: 1, status: http.StatusOK},
 		{name: "approve release", method: http.MethodPost, target: base + "/releases/" + marketingReleaseID + "/approvals", body: `{"approval_id":"` + marketingApprovalID + `"}`, wantCall: "release_approve", version: 2, status: http.StatusOK},
@@ -141,7 +157,12 @@ func TestMarketingCommandRoutesBindReplayVersionAndTypedBodies(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			response := marketingCommandRequest(server.Handler(), test.method, test.target, test.body, test.version)
+			var response *httptest.ResponseRecorder
+			if test.name == "create asset revision" {
+				response = marketingAssetUploadRequest(server.Handler(), test.target, true)
+			} else {
+				response = marketingCommandRequest(server.Handler(), test.method, test.target, test.body, test.version)
+			}
 			if response.Code != test.status || service.called != test.wantCall {
 				t.Fatalf("status=%d body=%s called=%s", response.Code, response.Body.String(), service.called)
 			}
@@ -153,7 +174,8 @@ func TestMarketingCommandRoutesBindReplayVersionAndTypedBodies(t *testing.T) {
 			}
 		})
 	}
-	if service.provenance.Origin != marketingdomain.OriginHuman || service.assetID != marketingAssetID || service.digest[0] != 0x11 || service.digest[31] != 0x11 ||
+	wantAssetDigest := sha256.Sum256([]byte("synthetic image bytes"))
+	if service.provenance.Origin != marketingdomain.OriginHuman || service.assetID != marketingAssetID || service.digest != wantAssetDigest ||
 		service.approvalID != marketingApprovalID || service.releaseID != marketingReleaseID {
 		t.Fatalf("transport mapping provenance=%+v asset=%s digest=%x approval=%s release=%s", service.provenance, service.assetID, service.digest, service.approvalID, service.releaseID)
 	}
@@ -167,10 +189,9 @@ func TestMarketingCommandsFailClosedOnAuthorityVersionAndDigest(t *testing.T) {
 	if missingVersion.Code != http.StatusPreconditionRequired {
 		t.Fatalf("missing version=%d body=%s", missingVersion.Code, missingVersion.Body.String())
 	}
-	invalidDigest := marketingCommandRequest(server.Handler(), http.MethodPost, base+"/campaigns/"+marketingCampaignID+"/asset-revisions",
-		`{"asset_id":"`+marketingAssetID+`","kind":"image","title":"Hero","media_type":"image/png","content_reference":"hero","content_sha256":"`+strings.Repeat("AA", 32)+`","content_bytes":1,"alternative_text":"Hero"}`, 0)
-	if invalidDigest.Code != http.StatusBadRequest {
-		t.Fatalf("invalid digest=%d body=%s", invalidDigest.Code, invalidDigest.Body.String())
+	invalidUpload := marketingAssetUploadRequest(server.Handler(), base+"/campaigns/"+marketingCampaignID+"/asset-revisions", false)
+	if invalidUpload.Code != http.StatusBadRequest {
+		t.Fatalf("invalid upload=%d body=%s", invalidUpload.Code, invalidUpload.Body.String())
 	}
 	wrongAccount := marketingCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/a9000000-0000-4000-8000-000000000009/marketing/campaigns", `{}`, 0)
 	if wrongAccount.Code != http.StatusNotFound {
@@ -227,6 +248,26 @@ func marketingCommandRequest(handler http.Handler, method, target, body string, 
 	if version != 0 {
 		request.Header.Set("If-Match", `W/"`+fmt.Sprint(version)+`"`)
 	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
+
+func marketingAssetUploadRequest(handler http.Handler, target string, includeFile bool) *httptest.ResponseRecorder {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for name, value := range map[string]string{"asset_id": marketingAssetID, "kind": "image", "title": "Campaign hero", "media_type": "image/png", "alternative_text": "Spyglass campaign hero"} {
+		_ = writer.WriteField(name, value)
+	}
+	if includeFile {
+		file, _ := writer.CreateFormFile("file", "hero.png")
+		_, _ = file.Write([]byte("synthetic image bytes"))
+	}
+	_ = writer.Close()
+	request := httptest.NewRequest(http.MethodPost, target, bytes.NewReader(body.Bytes()))
+	request.Header.Set(RouteContextHeader, "accepted-by-test-boundary")
+	request.Header.Set("Idempotency-Key", marketingOperationID)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response

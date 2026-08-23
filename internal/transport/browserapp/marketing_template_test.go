@@ -33,9 +33,15 @@ func TestMarketingTemplateExposesGovernedWorkspaceAndReadOnlyBoundary(t *testing
 		`id="marketing-app"`, `id="marketing-campaign-list"`, `id="marketing-campaign-detail"`,
 		`id="marketing-asset-list"`, `id="marketing-release-list"`, `data-read-only="false"`,
 		`id="marketing-campaign-form"`, `id="marketing-asset-form"`, `id="marketing-release-form"`,
+		`enctype="multipart/form-data"`, `type="file" name="file"`,
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("Marketing shell missing %q", expected)
+		}
+	}
+	for _, forbidden := range []string{`name="content_reference"`, `name="content_sha256"`, `name="content_bytes"`} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("Marketing upload shell still asks for internal object metadata %q", forbidden)
 		}
 	}
 
@@ -64,7 +70,7 @@ func TestMarketingClientUsesRoutedVersionedLifecycleBoundaries(t *testing.T) {
 	for _, expected := range []string{
 		"/marketing`;", `"If-Match"`, `"Idempotency-Key": crypto.randomUUID()`, `textContent`,
 		`/asset-revisions`, `/releases`, `"submissions"`, `"cancellations"`, `/app/your-turn`,
-		`"activations"`, `"pauses"`, `"completions"`,
+		`"activations"`, `"pauses"`, `"completions"`, `new FormData(form)`,
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("Marketing client missing %q", expected)

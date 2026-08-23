@@ -19,6 +19,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
 	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
+	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/requestbody"
@@ -28,8 +29,8 @@ import (
 const (
 	DefaultMaxRequestBody  = int64(1 << 20)
 	DefaultMaxResponseBody = int64(4 << 20)
-	documentUploadOverhead = int64(1 << 20)
-	documentUploadTimeout  = 2 * time.Minute
+	objectUploadOverhead   = int64(1 << 20)
+	objectUploadTimeout    = 2 * time.Minute
 )
 
 type SessionAuthenticator interface {
@@ -113,7 +114,7 @@ func New(sessionService SessionAuthenticator, authorizer Authorizer, directory A
 	}
 	rejectRedirect := func(*http.Request, []*http.Request) error { return errors.New("cell redirects are not allowed") }
 	client := &http.Client{Transport: transport, Timeout: 20 * time.Second, CheckRedirect: rejectRedirect}
-	uploads := &http.Client{Transport: transport, Timeout: documentUploadTimeout, CheckRedirect: rejectRedirect}
+	uploads := &http.Client{Transport: transport, Timeout: objectUploadTimeout, CheckRedirect: rejectRedirect}
 	return &Server{sessions: sessionService, authorizer: authorizer, directory: directory, signer: signer, ids: generator, logger: logger, config: config, origins: origins, client: client, uploads: uploads}, nil
 }
 
@@ -172,8 +173,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	maximumBody := s.config.MaxRequestBody
-	if isKnowledgeDocumentUpload(r.Method, r.PathValue("resource")) {
-		maximumBody = knowledgedomain.MaximumDocumentBytes + documentUploadOverhead
+	if maximum, objectUpload := objectUploadLimit(r.Method, r.PathValue("resource")); objectUpload {
+		maximumBody = maximum
 	}
 	body, err := requestbody.Read(r.Body, maximumBody)
 	if err != nil {
@@ -209,7 +210,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	client := s.client
-	if isKnowledgeDocumentUpload(r.Method, r.PathValue("resource")) {
+	if _, objectUpload := objectUploadLimit(r.Method, r.PathValue("resource")); objectUpload {
 		client = s.uploads
 	}
 	response, err := client.Do(outbound)
@@ -270,8 +271,18 @@ func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body *req
 	return outbound, nil
 }
 
-func isKnowledgeDocumentUpload(method, resource string) bool {
-	return strings.EqualFold(method, http.MethodPost) && resource == "knowledge/documents"
+func objectUploadLimit(method, resource string) (int64, bool) {
+	if !strings.EqualFold(method, http.MethodPost) {
+		return 0, false
+	}
+	if resource == "knowledge/documents" {
+		return knowledgedomain.MaximumDocumentBytes + objectUploadOverhead, true
+	}
+	parts := strings.Split(resource, "/")
+	if len(parts) == 4 && parts[0] == "marketing" && parts[1] == "campaigns" && ids.Validate(parts[2]) == nil && parts[3] == "asset-revisions" {
+		return int64(marketingdomain.MaximumContentBytes) + objectUploadOverhead, true
+	}
+	return 0, false
 }
 
 func closeResponse(response *http.Response) {

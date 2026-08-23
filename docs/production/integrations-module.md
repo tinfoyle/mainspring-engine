@@ -90,7 +90,7 @@ The per-cell connector bootstrap now opens separate bounded global and cell pool
 
 The reusable bootstrap deliberately does not select mock versus production adapters. The executable now selects a strict JSON-configured mock only when the reviewed environment is `local` or `local-secure`, opens both restore gates, and runs under the standard worker health lifecycle. Its opt-in Docker profile creates one worker per cell with separate non-owner global/cell credentials and internal-only networks. The ubunturojo certification seeds one isolated approved release and proves exact payload/credential execution settles `execute:succeeded`, while forbidden global User and direct cell credential-metadata reads fail.
 
-This opens only the deterministic local certification path. The governed Marketing admission and exact-version S3/MinIO reader kernel are now constructed, but their transports and separate connector-worker read policy are not. Stage and production remain closed until those are composed, the mounted broker is environment-certified, and real closed-capability provider adapters are constructed and certified.
+This opens only the deterministic local certification path. Governed Marketing admission is now composed for human routed uploads and the exact-version S3/MinIO reader kernel is constructed, but MCP/Agent admission and the separate connector-worker read policy are not. Stage and production remain closed until those are composed, the mounted broker is environment-certified, and real closed-capability provider adapters are constructed and certified.
 
 ## Routed HTTP observability checkpoint
 

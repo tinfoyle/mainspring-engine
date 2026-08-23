@@ -816,9 +816,7 @@ export interface CreateInvitationRequest {
 export interface CreateMarketingAssetRevisionRequest {
   readonly "alternative_text"?: string;
   readonly "asset_id": string;
-  readonly "content_bytes": number;
-  readonly "content_reference": string;
-  readonly "content_sha256": string;
+  readonly "file": string;
   readonly "kind": MarketingAssetKind;
   readonly "media_type": string;
   readonly "title": string;

@@ -26,6 +26,7 @@ import (
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
+	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -223,6 +224,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
+	marketingAdmission, err := marketingapp.NewAssetAdmissionService(marketingService, objects)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	marketingCommands := marketingRoutes{Service: marketingService, admission: marketingAdmission}
 	scheduleRepository, err := postgres.NewScheduleRepository(cellPool)
 	if err != nil {
 		pool.Close()
@@ -238,7 +245,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithFinanceCommands(financeService), cellapi.WithMarketing(marketingService), cellapi.WithMarketingCommands(marketingService), cellapi.WithIntegrations(integrationsService), cellapi.WithIntegrationCommands(integrationsService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithFinanceCommands(financeService), cellapi.WithMarketing(marketingService), cellapi.WithMarketingCommands(marketingCommands), cellapi.WithIntegrations(integrationsService), cellapi.WithIntegrationCommands(integrationsService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -262,6 +269,15 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 type knowledgeDocumentRoutes struct {
 	admission *knowledgeapp.DocumentAdmissionService
 	service   *knowledgeapp.DocumentService
+}
+
+type marketingRoutes struct {
+	*marketingapp.Service
+	admission *marketingapp.AssetAdmissionService
+}
+
+func (routes marketingRoutes) UploadAssetRevision(ctx context.Context, command marketingapp.UploadAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error) {
+	return routes.admission.Upload(ctx, command)
 }
 
 func (routes knowledgeDocumentRoutes) Upload(ctx context.Context, command knowledgeapp.UploadDocumentCommand) (knowledge.Document, knowledge.DocumentRevision, error) {

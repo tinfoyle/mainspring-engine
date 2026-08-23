@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"strings"
 
@@ -23,16 +24,7 @@ type marketingCampaignDefinitionRequest struct {
 	Channels  []marketingdomain.Channel `json:"channels"`
 }
 
-type marketingAssetRevisionDefinitionRequest struct {
-	AssetID          ids.MarketingAssetID      `json:"asset_id"`
-	Kind             marketingdomain.AssetKind `json:"kind"`
-	Title            string                    `json:"title"`
-	MediaType        string                    `json:"media_type"`
-	ContentReference string                    `json:"content_reference"`
-	ContentSHA256    string                    `json:"content_sha256"`
-	ContentBytes     uint64                    `json:"content_bytes"`
-	AlternativeText  string                    `json:"alternative_text,omitempty"`
-}
+const maximumMarketingAssetUploadEnvelope = int64(marketingdomain.MaximumContentBytes) + int64(1<<20)
 
 type marketingReleaseDefinitionRequest struct {
 	CampaignVersion  uint64                         `json:"campaign_version"`
@@ -169,7 +161,12 @@ func (s *Server) marketingCampaignArchive(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) marketingAssetRevisionCreate(w http.ResponseWriter, r *http.Request) {
-	claims, actor, accountID, requestID, ok := s.marketingCommandRequest(w, r)
+	claims, captured, ok := s.acceptCaptured(w, r, maximumMarketingAssetUploadEnvelope)
+	if !ok {
+		return
+	}
+	defer captured.Close()
+	claims, actor, accountID, requestID, ok := s.marketingCommandClaims(w, r, claims)
 	if !ok {
 		return
 	}
@@ -177,21 +174,41 @@ func (s *Server) marketingAssetRevisionCreate(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
-	var body marketingAssetRevisionDefinitionRequest
-	if !decodeMarketingJSON(w, r, &body) {
+	if !strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data;") {
+		writeProblem(w, http.StatusUnsupportedMediaType, "multipart_required", "Marketing asset upload requires multipart/form-data")
 		return
 	}
-	digestRaw, err := hex.DecodeString(body.ContentSHA256)
-	if err != nil || len(digestRaw) != 32 || body.ContentSHA256 != strings.ToLower(body.ContentSHA256) {
-		s.writeMarketingError(w, "create asset revision", marketingapp.ErrInvalid)
+	body, err := captured.Open()
+	if err != nil {
+		s.writeMarketingError(w, "open captured Marketing asset", err)
 		return
 	}
-	digest := [32]byte{}
-	copy(digest[:], digestRaw)
-	value, created, err := s.marketingCommands.CreateAssetRevision(routecontext.WithClaims(r.Context(), claims), marketingapp.CreateAssetRevisionCommand{
-		Actor: actor, AccountID: accountID, RequestID: requestID, CampaignID: campaignID, AssetID: body.AssetID, Kind: body.Kind,
-		Title: body.Title, MediaType: body.MediaType, ContentReference: body.ContentReference, ContentSHA256: digest, ContentBytes: body.ContentBytes,
-		AlternativeText: body.AlternativeText, Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginHuman},
+	defer body.Close()
+	r.Body = body
+	if err := r.ParseMultipartForm(64 << 10); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_marketing_asset_upload", "the Marketing asset upload is invalid")
+		return
+	}
+	defer r.MultipartForm.RemoveAll()
+	fileHeader, fields, ok := marketingAssetMultipart(w, r.MultipartForm)
+	if !ok {
+		return
+	}
+	assetID := ids.MarketingAssetID(fields["asset_id"])
+	if ids.Validate(string(assetID)) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_marketing_asset_upload", "asset_id must be a UUID")
+		return
+	}
+	file, err := fileHeader.Open()
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_marketing_asset_upload", "the Marketing asset file could not be read")
+		return
+	}
+	defer file.Close()
+	value, created, err := s.marketingCommands.UploadAssetRevision(routecontext.WithClaims(r.Context(), claims), marketingapp.UploadAssetRevisionCommand{
+		Actor: actor, AccountID: accountID, RequestID: requestID, CampaignID: campaignID, AssetID: assetID,
+		Kind: marketingdomain.AssetKind(fields["kind"]), Title: fields["title"], MediaType: fields["media_type"],
+		AlternativeText: fields["alternative_text"], Body: file, Provenance: marketingdomain.Provenance{Origin: marketingdomain.OriginHuman},
 	})
 	if err != nil {
 		s.writeMarketingError(w, "create asset revision", err)
@@ -202,6 +219,34 @@ func (s *Server) marketingAssetRevisionCreate(w http.ResponseWriter, r *http.Req
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, marketingAssetRevisionDTO(value))
+}
+
+func marketingAssetMultipart(w http.ResponseWriter, form *multipart.Form) (*multipart.FileHeader, map[string]string, bool) {
+	if form == nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_marketing_asset_upload", "the Marketing asset upload is invalid")
+		return nil, nil, false
+	}
+	allowed := map[string]bool{"asset_id": true, "kind": true, "title": true, "media_type": true, "alternative_text": false}
+	fields := make(map[string]string, len(allowed))
+	for name, values := range form.Value {
+		required, exists := allowed[name]
+		if !exists || len(values) != 1 || required && strings.TrimSpace(values[0]) == "" {
+			writeProblem(w, http.StatusBadRequest, "invalid_marketing_asset_upload", "Marketing asset metadata fields are invalid")
+			return nil, nil, false
+		}
+		fields[name] = values[0]
+	}
+	for name, required := range allowed {
+		if required && strings.TrimSpace(fields[name]) == "" {
+			writeProblem(w, http.StatusBadRequest, "invalid_marketing_asset_upload", "asset_id, kind, title and media_type are required")
+			return nil, nil, false
+		}
+	}
+	if len(form.File) != 1 || len(form.File["file"]) != 1 || form.File["file"][0].Filename == "" {
+		writeProblem(w, http.StatusBadRequest, "invalid_marketing_asset_upload", "exactly one Marketing asset file is required")
+		return nil, nil, false
+	}
+	return form.File["file"][0], fields, true
 }
 
 func (s *Server) marketingAgentAssetRevisionDraft(w http.ResponseWriter, r *http.Request) {
@@ -384,6 +429,10 @@ func (s *Server) marketingCommandRequest(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return routecontext.Claims{}, access.Actor{}, "", "", false
 	}
+	return s.marketingCommandClaims(w, r, claims)
+}
+
+func (s *Server) marketingCommandClaims(w http.ResponseWriter, r *http.Request, claims routecontext.Claims) (routecontext.Claims, access.Actor, ids.AccountID, string, bool) {
 	if s.marketingCommands == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "marketing_unavailable", "Marketing commands are not available in this cell")
 		return routecontext.Claims{}, access.Actor{}, "", "", false
@@ -524,5 +573,3 @@ func (s *Server) writeMarketingAggregate(w http.ResponseWriter, operation string
 	}
 	writeJSON(w, http.StatusOK, value)
 }
-
-var _ MarketingCommandService = (*marketingapp.Service)(nil)
