@@ -18,6 +18,7 @@ import (
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
+	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
@@ -207,6 +208,16 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
+	integrationsRepository, err := postgres.NewIntegrationsRepository(cellPool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	integrationsService, err := integrationsapp.New(routeaccess.NewAuthorizer(), integrationsRepository, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	marketingService, err := marketingapp.New(routeaccess.NewAuthorizer(), marketingRepository, clock)
 	if err != nil {
 		pool.Close()
@@ -227,7 +238,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithFinanceCommands(financeService), cellapi.WithMarketing(marketingService), cellapi.WithMarketingCommands(marketingService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithFinanceCommands(financeService), cellapi.WithMarketing(marketingService), cellapi.WithMarketingCommands(marketingService), cellapi.WithIntegrations(integrationsService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
 	if err != nil {
 		pool.Close()
 		return nil, err

@@ -1,6 +1,6 @@
 # Integrations module
 
-- Status: scope, provider-neutral typed kernel and governed forced-RLS execution persistence constructed
+- Status: provider-neutral kernel, governed persistence, local worker execution and routed read observability constructed
 - Package boundary: Integrations
 - Decision: [ADR-0008](decisions/0008-integration-connector-execution.md)
 
@@ -17,7 +17,7 @@ The first Marketing delivery capabilities are `email.send` and `web.publish`. Em
 3. Classified application services for connection lifecycle, credential rotation/revocation, health and bounded execution observability. **Constructed.**
 4. Marketing activation-to-delivery preparation with exact release/approval/connector binding and current-package reauthorization. **Constructed.**
 5. Dedicated connector worker, local mock adapters, bounded retry and reconciliation-only unknown handling. **Worker kernel/bootstrap, current authority, payload assembler, one-operation broker boundary, restore-gated executable and ubunturojo Docker certification constructed; production object/secret/provider adapters remain.**
-6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution.
+6. Generated HTTP/MCP and private browser surfaces for connector setup, scope display, health, revocation and manual resolution. **Generated HTTP reads for connections, current scope, health and execution evidence constructed; mutations, MCP and private browser remain.**
 7. Email inbound/threading and Google Drive sync lifecycle, hardened web research, retention, Stage recovery/erasure and production role grants.
 
 ## Kernel checkpoint
@@ -91,6 +91,12 @@ The per-cell connector bootstrap now opens separate bounded global and cell pool
 The reusable bootstrap deliberately does not select mock versus production adapters. The executable now selects a strict JSON-configured mock only when the reviewed environment is `local` or `local-secure`, opens both restore gates, and runs under the standard worker health lifecycle. Its opt-in Docker profile creates one worker per cell with separate non-owner global/cell credentials and internal-only networks. The ubunturojo certification seeds one isolated approved release and proves exact payload/credential execution settles `execute:succeeded`, while forbidden global User and direct cell credential-metadata reads fail.
 
 This opens only the deterministic local certification path. Stage and production remain closed until governed immutable-object upload/read, environment secret brokerage and real closed-capability provider adapters are constructed and certified.
+
+## Routed HTTP observability checkpoint
+
+Five generated session-authenticated operations now route through the signed Account boundary and the canonical Integrations service: stable connection list, current connection/scope/latest-health detail, stable content-free health history, filtered external-execution list and exact execution/attempt detail. Connection detail carries a weak version ETag. All three cursor families are opaque, versioned and kind-bound, so a health cursor cannot be replayed against a connection or execution collection.
+
+Execution payload digests are rendered as canonical lowercase SHA-256 hex. The responses contain immutable connector and credential identities/generations, non-secret scope, bounded machine error codes and timing evidence, but never broker references, attestation digests, provider credentials, creative bodies, provider payloads or provider responses. OpenAPI and generated Go/TypeScript route inventories now cover 166 customer operations. Contract tests prove response shape, Account concealment, query binding, cursor-family rejection and absence of secret/provider fields. This is the read-only portion of construction step 6; governed lifecycle mutations, MCP and the private Integrations workspace remain before the package can be published.
 
 ## Invariants
 

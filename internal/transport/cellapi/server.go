@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
+	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
 	schedulingapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
@@ -56,6 +57,7 @@ type Server struct {
 	financeCommands        FinanceCommandService
 	marketing              MarketingQueryService
 	marketingCommands      MarketingCommandService
+	integrations           IntegrationsQueryService
 	scheduling             SchedulingService
 	scheduleExecution      ScheduleExecutionService
 	scheduleWorkerIdentity string
@@ -221,6 +223,18 @@ func WithMarketingCommands(service MarketingCommandService) Option {
 	return func(server *Server) { server.marketingCommands = service }
 }
 
+type IntegrationsQueryService interface {
+	GetConnectionDetail(context.Context, access.Actor, ids.AccountID, ids.IntegrationConnectionID) (integrationsapp.ConnectionDetail, error)
+	ListConnections(context.Context, access.Actor, ids.AccountID, integrationsapp.ConnectionListQuery) (integrationsapp.ConnectionPage, error)
+	ListHealth(context.Context, access.Actor, ids.AccountID, integrationsapp.HealthListQuery) (integrationsapp.HealthPage, error)
+	GetExecution(context.Context, access.Actor, ids.AccountID, ids.IntegrationExecutionID) (integrationsapp.ExecutionDetail, error)
+	ListExecutions(context.Context, access.Actor, ids.AccountID, integrationsapp.ExecutionListQuery) (integrationsapp.ExecutionPage, error)
+}
+
+func WithIntegrations(service IntegrationsQueryService) Option {
+	return func(server *Server) { server.integrations = service }
+}
+
 type SchedulingService interface {
 	Create(context.Context, schedulingapp.CreateCommand) (schedulingdomain.Schedule, bool, error)
 	Get(context.Context, schedulingapp.GetQuery) (schedulingdomain.Schedule, error)
@@ -378,6 +392,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/activations", s.marketingCampaignActivate)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/pauses", s.marketingCampaignPause)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/completions", s.marketingCampaignComplete)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/connections", s.integrationsConnectionList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/connections/{connectionID}", s.integrationsConnectionGet)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/health", s.integrationsHealthList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/executions", s.integrationsExecutionList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/executions/{executionID}", s.integrationsExecutionGet)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleGet)

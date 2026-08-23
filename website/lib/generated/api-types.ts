@@ -1175,6 +1175,135 @@ export interface InformationRequirement {
 
 export type InformationScope = "account" | "work_item" | "conversation";
 
+export interface IntegrationActor {
+  readonly "user_id": string;
+}
+
+export interface IntegrationAttempt {
+  readonly "account_id": string;
+  readonly "completed_at"?: string;
+  readonly "error_code"?: string;
+  readonly "execution_id": string;
+  readonly "id": string;
+  readonly "lease_expires_at": string;
+  readonly "mode": IntegrationAttemptMode;
+  readonly "number": number;
+  readonly "outcome"?: IntegrationAttemptOutcome;
+  readonly "started_at": string;
+}
+
+export type IntegrationAttemptMode = "execute" | "reconcile";
+
+export type IntegrationAttemptOutcome = "succeeded" | "not_applied" | "failed" | "unknown";
+
+export type IntegrationCapability = "email.read" | "email.send" | "web.publish";
+
+export interface IntegrationConnection {
+  readonly "account_id": string;
+  readonly "created_at": string;
+  readonly "created_by": IntegrationActor;
+  readonly "credential_generation"?: number;
+  readonly "credential_id"?: string;
+  readonly "current_revision": number;
+  readonly "current_revision_id": string;
+  readonly "id": string;
+  readonly "kind": IntegrationConnectorKind;
+  readonly "name": string;
+  readonly "revoked_at"?: string;
+  readonly "revoked_by"?: IntegrationActor;
+  readonly "state": IntegrationConnectionState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface IntegrationConnectionDetail {
+  readonly "connection": IntegrationConnection;
+  readonly "latest_health"?: IntegrationHealthObservation;
+  readonly "revision": IntegrationConnectionRevision;
+}
+
+export interface IntegrationConnectionPage {
+  readonly "items": ReadonlyArray<IntegrationConnection>;
+  readonly "next_cursor"?: string;
+}
+
+export interface IntegrationConnectionRevision {
+  readonly "account_id": string;
+  readonly "capabilities": ReadonlyArray<IntegrationCapability>;
+  readonly "connection_id": string;
+  readonly "created_at": string;
+  readonly "created_by": IntegrationActor;
+  readonly "id": string;
+  readonly "revision": number;
+  readonly "scope": IntegrationConnectionScope;
+}
+
+export interface IntegrationConnectionScope {
+  readonly "audience_reference"?: string;
+  readonly "email_address"?: string;
+  readonly "https_origin"?: string;
+  readonly "path_prefix"?: string;
+}
+
+export type IntegrationConnectionState = "pending" | "active" | "disabled" | "revoked";
+
+export type IntegrationConnectorKind = "email" | "web_publish";
+
+export interface IntegrationExecution {
+  readonly "account_id": string;
+  readonly "approval_id": string;
+  readonly "attempt_count": number;
+  readonly "capability": IntegrationCapability;
+  readonly "completed_at"?: string;
+  readonly "connection_id": string;
+  readonly "connection_revision": number;
+  readonly "connection_revision_id": string;
+  readonly "created_at": string;
+  readonly "credential_generation": number;
+  readonly "credential_id": string;
+  readonly "current_attempt_id"?: string;
+  readonly "id": string;
+  readonly "last_error_code"?: string;
+  readonly "lease_expires_at"?: string;
+  readonly "next_attempt_at"?: string;
+  readonly "payload_sha256": string;
+  readonly "release_id": string;
+  readonly "release_version": number;
+  readonly "state": IntegrationExecutionState;
+  readonly "updated_at": string;
+}
+
+export interface IntegrationExecutionDetail {
+  readonly "attempts": ReadonlyArray<IntegrationAttempt>;
+  readonly "execution": IntegrationExecution;
+}
+
+export interface IntegrationExecutionPage {
+  readonly "items": ReadonlyArray<IntegrationExecution>;
+  readonly "next_cursor"?: string;
+}
+
+export type IntegrationExecutionState = "prepared" | "executing" | "reconciling" | "retry_wait" | "unknown" | "manual_resolution" | "succeeded" | "failed" | "cancelled";
+
+export interface IntegrationHealthObservation {
+  readonly "account_id": string;
+  readonly "checked_at": string;
+  readonly "connection_id": string;
+  readonly "connection_revision_id": string;
+  readonly "credential_id": string;
+  readonly "error_code"?: string;
+  readonly "id": string;
+  readonly "latency_milliseconds": number;
+  readonly "state": IntegrationHealthState;
+}
+
+export interface IntegrationHealthPage {
+  readonly "items": ReadonlyArray<IntegrationHealthObservation>;
+  readonly "next_cursor"?: string;
+}
+
+export type IntegrationHealthState = "healthy" | "degraded" | "unavailable";
+
 export interface InvitationAcceptance {
   readonly "membership": AcceptedMembership;
 }
@@ -2195,6 +2324,25 @@ export interface ApiSchemas {
   readonly InformationRequestSummary: InformationRequestSummary;
   readonly InformationRequirement: InformationRequirement;
   readonly InformationScope: InformationScope;
+  readonly IntegrationActor: IntegrationActor;
+  readonly IntegrationAttempt: IntegrationAttempt;
+  readonly IntegrationAttemptMode: IntegrationAttemptMode;
+  readonly IntegrationAttemptOutcome: IntegrationAttemptOutcome;
+  readonly IntegrationCapability: IntegrationCapability;
+  readonly IntegrationConnection: IntegrationConnection;
+  readonly IntegrationConnectionDetail: IntegrationConnectionDetail;
+  readonly IntegrationConnectionPage: IntegrationConnectionPage;
+  readonly IntegrationConnectionRevision: IntegrationConnectionRevision;
+  readonly IntegrationConnectionScope: IntegrationConnectionScope;
+  readonly IntegrationConnectionState: IntegrationConnectionState;
+  readonly IntegrationConnectorKind: IntegrationConnectorKind;
+  readonly IntegrationExecution: IntegrationExecution;
+  readonly IntegrationExecutionDetail: IntegrationExecutionDetail;
+  readonly IntegrationExecutionPage: IntegrationExecutionPage;
+  readonly IntegrationExecutionState: IntegrationExecutionState;
+  readonly IntegrationHealthObservation: IntegrationHealthObservation;
+  readonly IntegrationHealthPage: IntegrationHealthPage;
+  readonly IntegrationHealthState: IntegrationHealthState;
   readonly InvitationAcceptance: InvitationAcceptance;
   readonly InvitationCreated: InvitationCreated;
   readonly KnowledgeActor: KnowledgeActor;
