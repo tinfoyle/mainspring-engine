@@ -67,8 +67,9 @@ func (coordinator *AccountExportSnapshotCoordinator) WithSnapshot(ctx context.Co
 		return snapshotFailure("snapshot_unavailable", false, err)
 	}
 	defer cellTx.Rollback(context.Background())
-	var configuredAccount string
-	if err := cellTx.QueryRow(ctx, `SELECT set_config('spyglass.account_id',$1,true)`, work.AccountID).Scan(&configuredAccount); err != nil || configuredAccount != string(work.AccountID) {
+	var configuredApplicationAccount, configuredSpyglassAccount string
+	if err := cellTx.QueryRow(ctx, `SELECT set_config('app.account_id',$1,true),set_config('spyglass.account_id',$1,true)`, work.AccountID).
+		Scan(&configuredApplicationAccount, &configuredSpyglassAccount); err != nil || configuredApplicationAccount != string(work.AccountID) || configuredSpyglassAccount != string(work.AccountID) {
 		return snapshotFailure("snapshot_unavailable", false, err)
 	}
 	var namespaceGeneration int64

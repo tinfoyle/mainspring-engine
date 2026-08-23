@@ -71,8 +71,8 @@ func TestAccountExportSnapshotCoordinatorFencesGlobalAndCellSnapshots(t *testing
 		if snapshot.CellID != work.CellID || snapshot.PlacementGeneration != 3 || snapshot.AccountVersion != 7 || snapshot.GlobalAt.Before(now) || snapshot.CellAt.Before(now) {
 			t.Fatalf("snapshot=%+v", snapshot)
 		}
-		var accountContext, globalIsolation, cellIsolation, globalReadOnly, cellReadOnly string
-		if err := factory.cell.QueryRow(ctx, `SELECT current_setting('spyglass.account_id')`).Scan(&accountContext); err != nil {
+		var applicationAccountContext, spyglassAccountContext, globalIsolation, cellIsolation, globalReadOnly, cellReadOnly string
+		if err := factory.cell.QueryRow(ctx, `SELECT current_setting('app.account_id'),current_setting('spyglass.account_id')`).Scan(&applicationAccountContext, &spyglassAccountContext); err != nil {
 			t.Fatal(err)
 		}
 		if err := factory.global.QueryRow(ctx, `SHOW transaction_isolation`).Scan(&globalIsolation); err != nil {
@@ -87,8 +87,8 @@ func TestAccountExportSnapshotCoordinatorFencesGlobalAndCellSnapshots(t *testing
 		if err := factory.cell.QueryRow(ctx, `SHOW transaction_read_only`).Scan(&cellReadOnly); err != nil {
 			t.Fatal(err)
 		}
-		if accountContext != string(accountID) || globalIsolation != "repeatable read" || cellIsolation != "repeatable read" || globalReadOnly != "on" || cellReadOnly != "on" {
-			t.Fatalf("context=%q isolation=%q/%q read_only=%q/%q", accountContext, globalIsolation, cellIsolation, globalReadOnly, cellReadOnly)
+		if applicationAccountContext != string(accountID) || spyglassAccountContext != string(accountID) || globalIsolation != "repeatable read" || cellIsolation != "repeatable read" || globalReadOnly != "on" || cellReadOnly != "on" {
+			t.Fatalf("context=%q/%q isolation=%q/%q read_only=%q/%q", applicationAccountContext, spyglassAccountContext, globalIsolation, cellIsolation, globalReadOnly, cellReadOnly)
 		}
 		return nil
 	})

@@ -2,9 +2,9 @@ package postgres
 
 import "github.com/jackc/pgx/v5"
 
-// AccountExportCellProjectionTables is assembled in reviewed feature cohorts.
-// The Account/Work/Schedules cohort is complete here; remaining section
-// cohorts are appended only with fresh-schema exported-or-omitted coverage.
+// AccountExportCellProjectionTables is the complete reviewed cell-database
+// portability allowlist. Every included launch table is covered by a feature
+// cohort and a fresh-schema exported-or-omitted column certificate.
 func AccountExportCellProjectionTables(tx pgx.Tx) map[string][]AccountExportProjectionTable {
 	result := map[string][]AccountExportProjectionTable{
 		"account": {
