@@ -1386,6 +1386,93 @@ export interface LoginSession {
   readonly "user_id": string;
 }
 
+export interface MarketingActor {
+  readonly "id": string;
+  readonly "kind": "user" | "workload";
+}
+
+export type MarketingAssetKind = "copy" | "image" | "document";
+
+export interface MarketingAssetRevision {
+  readonly "account_id": string;
+  readonly "alternative_text"?: string;
+  readonly "asset_id": string;
+  readonly "campaign_id": string;
+  readonly "content_bytes": number;
+  readonly "content_reference": string;
+  readonly "content_sha256": string;
+  readonly "created_at": string;
+  readonly "created_by": MarketingActor;
+  readonly "id": string;
+  readonly "kind": MarketingAssetKind;
+  readonly "media_type": string;
+  readonly "provenance": MarketingProvenance;
+  readonly "revision": number;
+  readonly "title": string;
+}
+
+export interface MarketingAssetRevisionPage {
+  readonly "items": ReadonlyArray<MarketingAssetRevision>;
+  readonly "next_cursor"?: string;
+}
+
+export interface MarketingCampaign {
+  readonly "account_id": string;
+  readonly "active_release_id"?: string;
+  readonly "audience": string;
+  readonly "channels": ReadonlyArray<MarketingChannel>;
+  readonly "created_at": string;
+  readonly "created_by": MarketingActor;
+  readonly "id": string;
+  readonly "name": string;
+  readonly "objective": string;
+  readonly "provenance": MarketingProvenance;
+  readonly "state": MarketingCampaignState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface MarketingCampaignPage {
+  readonly "items": ReadonlyArray<MarketingCampaign>;
+  readonly "next_cursor"?: string;
+}
+
+export type MarketingCampaignState = "draft" | "active" | "paused" | "completed" | "archived";
+
+export type MarketingChannel = "email" | "web";
+
+export interface MarketingProvenance {
+  readonly "invocation_id"?: string;
+  readonly "origin": "human" | "agent";
+  readonly "run_id"?: string;
+}
+
+export interface MarketingRelease {
+  readonly "account_id": string;
+  readonly "approval_id"?: string;
+  readonly "approved_by"?: MarketingActor;
+  readonly "asset_revision_ids": ReadonlyArray<string>;
+  readonly "campaign_id": string;
+  readonly "campaign_version": number;
+  readonly "channels": ReadonlyArray<MarketingChannel>;
+  readonly "created_at": string;
+  readonly "created_by": MarketingActor;
+  readonly "id": string;
+  readonly "name": string;
+  readonly "provenance": MarketingProvenance;
+  readonly "state": MarketingReleaseState;
+  readonly "submitted_by"?: MarketingActor;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface MarketingReleasePage {
+  readonly "items": ReadonlyArray<MarketingRelease>;
+  readonly "next_cursor"?: string;
+}
+
+export type MarketingReleaseState = "draft" | "submitted" | "approved" | "cancelled";
+
 export interface Membership {
   readonly "created_at": string;
   readonly "display_name": string;
@@ -2100,6 +2187,18 @@ export interface ApiSchemas {
   readonly LinkWorkConversationRequest: LinkWorkConversationRequest;
   readonly LoginRequest: LoginRequest;
   readonly LoginSession: LoginSession;
+  readonly MarketingActor: MarketingActor;
+  readonly MarketingAssetKind: MarketingAssetKind;
+  readonly MarketingAssetRevision: MarketingAssetRevision;
+  readonly MarketingAssetRevisionPage: MarketingAssetRevisionPage;
+  readonly MarketingCampaign: MarketingCampaign;
+  readonly MarketingCampaignPage: MarketingCampaignPage;
+  readonly MarketingCampaignState: MarketingCampaignState;
+  readonly MarketingChannel: MarketingChannel;
+  readonly MarketingProvenance: MarketingProvenance;
+  readonly MarketingRelease: MarketingRelease;
+  readonly MarketingReleasePage: MarketingReleasePage;
+  readonly MarketingReleaseState: MarketingReleaseState;
   readonly Membership: Membership;
   readonly MembershipResult: MembershipResult;
   readonly Memberships: Memberships;

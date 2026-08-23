@@ -17,11 +17,13 @@ import (
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
+	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
 	schedulingapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
+	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
 	schedulingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/scheduling"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -52,6 +54,7 @@ type Server struct {
 	baseline               BaselineService
 	finance                FinanceQueryService
 	financeCommands        FinanceCommandService
+	marketing              MarketingQueryService
 	scheduling             SchedulingService
 	scheduleExecution      ScheduleExecutionService
 	scheduleWorkerIdentity string
@@ -185,6 +188,18 @@ func WithFinance(service FinanceQueryService) Option {
 
 func WithFinanceCommands(service FinanceCommandService) Option {
 	return func(server *Server) { server.financeCommands = service }
+}
+
+type MarketingQueryService interface {
+	GetCampaign(context.Context, access.Actor, ids.AccountID, ids.MarketingCampaignID) (marketingdomain.Campaign, error)
+	ListCampaigns(context.Context, access.Actor, ids.AccountID, marketingapp.CampaignListQuery) (marketingapp.CampaignPage, error)
+	ListAssetRevisions(context.Context, access.Actor, ids.AccountID, marketingapp.AssetRevisionListQuery) (marketingapp.AssetRevisionPage, error)
+	GetRelease(context.Context, access.Actor, ids.AccountID, ids.MarketingReleaseID) (marketingdomain.ReleasePlan, error)
+	ListReleases(context.Context, access.Actor, ids.AccountID, marketingapp.ReleaseListQuery) (marketingapp.ReleasePage, error)
+}
+
+func WithMarketing(service MarketingQueryService) Option {
+	return func(server *Server) { server.marketing = service }
 }
 
 type SchedulingService interface {
@@ -325,6 +340,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/ledgers/{ledgerID}/reconciliations", s.financeReconciliationCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/reconciliations/{reconciliationID}", s.financeReconciliationGet)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/reconciliations/{reconciliationID}/confirmations", s.financeReconciliationConfirm)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns", s.marketingCampaignList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}", s.marketingCampaignGet)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/asset-revisions", s.marketingAssetRevisionList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/releases", s.marketingReleaseList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/releases/{releaseID}", s.marketingReleaseGet)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleGet)

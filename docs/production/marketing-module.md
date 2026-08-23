@@ -1,6 +1,6 @@
 # Marketing module
 
-- Status: provider-neutral kernel, forced-RLS persistence, classified lifecycle and stable campaign/release/asset pages constructed; every executable transport remains closed
+- Status: provider-neutral kernel, forced-RLS persistence, classified lifecycle, stable query pages and generated routed HTTP reads constructed; mutation, MCP and private-workspace surfaces remain closed
 - Package boundary: Marketing
 - Decision: [ADR-0007](decisions/0007-marketing-governed-release.md)
 
@@ -17,7 +17,7 @@ A release freezes one campaign version, sorted unique asset revisions and its ex
 1. Typed campaign lifecycle, immutable creative revisions, Agent provenance and exact approval-bound release snapshots. **Constructed.**
 2. Account-owned forced-RLS persistence, immutable redacted events, optimistic replay, movement fencing and exact erasure/restore participation. **Constructed.**
 3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Constructed.**
-4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace.
+4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace. **HTTP reads constructed; mutations, MCP and workspace remain.**
 5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery.
 6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability.
 7. Catalog/entitlement lifecycle, retention, prototype reconciliation, Stage recovery/erasure and production role grants.
@@ -50,7 +50,13 @@ Fresh PostgreSQL 17 coverage runs the complete draft-to-submitted-to-approved-to
 
 The read boundary now exposes bounded campaign pages ordered by stable `(updated_at DESC,id)`, per-campaign release pages ordered by `(created_at DESC,id)` and campaign/optional-asset revision pages ordered by `(asset_id,revision DESC)`. Optional campaign-state and asset filtering are validated against the closed lifecycle/identity vocabulary. Defaults and hard maxima are application-owned, cursors are structurally complete, and the repository fetches one extra identity so `NextCursor` is emitted only when another row actually exists. Each selected aggregate is restored through the typed kernel under the same read-only Account transaction. Migration 60 adds the matching all-campaign and campaign-asset keyset indexes.
 
-Fresh PostgreSQL 17 traversal tests create two campaigns, two releases and two immutable asset revisions, prove exact first/remainder pages without duplicates and preserve the complete channel/asset snapshot. The generated transport contract is next.
+Fresh PostgreSQL 17 traversal tests create two campaigns, two releases and two immutable asset revisions, prove exact first/remainder pages without duplicates and preserve the complete channel/asset snapshot.
+
+## HTTP read checkpoint
+
+Five generated, session-authenticated cell routes now expose campaign list/detail, per-campaign asset-revision and release pages, and release detail. The app runtime constructs the Marketing repository/service and places it behind the same signed request-bound Account context used by other cell packages. A route can read only the Account carried by that accepted proof; mismatched path Accounts are concealed as not found, and the application service independently reauthorizes the Marketing package.
+
+Campaign state and optional asset filters use the closed typed vocabularies. Opaque cursors carry an explicit version and collection kind, reject unknown fields and cannot be replayed across campaign, release or asset-revision collections. Detail responses expose weak version ETags. Asset content digests cross the HTTP boundary as canonical lowercase SHA-256 hex rather than Go byte arrays, while content itself and provider credentials remain absent. The OpenAPI source generates the matching Go route inventory and TypeScript route/schema types; all five response families pass the repository's OpenAPI response validator. Mutation HTTP, MCP, private Marketing workspace, Agent proposals and Integration delivery remain closed, so Marketing correctly remains non-executable.
 
 ## Invariants
 
