@@ -10,11 +10,13 @@ import (
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
+	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
 	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
+	marketingdomain "github.com/tinfoyle/spyglass-engine/internal/modules/marketing"
 	workdomain "github.com/tinfoyle/spyglass-engine/internal/modules/work"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -100,6 +102,25 @@ type FinanceService interface {
 	GetReconciliation(context.Context, access.Actor, ids.AccountID, ids.FinanceReconciliationID) (financedomain.Reconciliation, error)
 	ListReconciliations(context.Context, access.Actor, ids.AccountID, financeapp.ReconciliationListQuery) (financeapp.ReconciliationPage, error)
 	ConfirmReconciliation(context.Context, financeapp.ConfirmReconciliationCommand) (financedomain.Reconciliation, error)
+}
+
+type MarketingService interface {
+	CreateCampaign(context.Context, marketingapp.CreateCampaignCommand) (marketingdomain.Campaign, bool, error)
+	GetCampaign(context.Context, access.Actor, ids.AccountID, ids.MarketingCampaignID) (marketingdomain.Campaign, error)
+	ListCampaigns(context.Context, access.Actor, ids.AccountID, marketingapp.CampaignListQuery) (marketingapp.CampaignPage, error)
+	ReviseCampaign(context.Context, marketingapp.ReviseCampaignCommand) (marketingdomain.Campaign, error)
+	CreateAssetRevision(context.Context, marketingapp.CreateAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error)
+	ListAssetRevisions(context.Context, access.Actor, ids.AccountID, marketingapp.AssetRevisionListQuery) (marketingapp.AssetRevisionPage, error)
+	CreateRelease(context.Context, marketingapp.CreateReleaseCommand) (marketingdomain.ReleasePlan, bool, error)
+	GetRelease(context.Context, access.Actor, ids.AccountID, ids.MarketingReleaseID) (marketingdomain.ReleasePlan, error)
+	ListReleases(context.Context, access.Actor, ids.AccountID, marketingapp.ReleaseListQuery) (marketingapp.ReleasePage, error)
+	SubmitRelease(context.Context, marketingapp.ReleaseTransitionCommand) (marketingdomain.ReleasePlan, error)
+	ApproveRelease(context.Context, marketingapp.ReleaseTransitionCommand) (marketingdomain.ReleasePlan, error)
+	CancelRelease(context.Context, marketingapp.ReleaseTransitionCommand) (marketingdomain.ReleasePlan, error)
+	ActivateCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
+	PauseCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
+	CompleteCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
+	ArchiveCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
 }
 
 type requirementInput struct {

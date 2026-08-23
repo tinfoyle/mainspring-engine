@@ -16,6 +16,7 @@ import (
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
+	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
@@ -129,6 +130,24 @@ func financeError(err error) error {
 		return safeError(string(denied.Code))
 	default:
 		return safeError("finance_unavailable")
+	}
+}
+
+func marketingError(err error) error {
+	var denied *access.DeniedError
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, marketingapp.ErrInvalid):
+		return safeError("invalid_marketing_request")
+	case errors.Is(err, marketingapp.ErrNotFound):
+		return safeError("marketing_not_found")
+	case errors.Is(err, marketingapp.ErrConflict):
+		return safeError("marketing_version_conflict")
+	case errors.As(err, &denied):
+		return safeError(string(denied.Code))
+	default:
+		return safeError("marketing_unavailable")
 	}
 }
 

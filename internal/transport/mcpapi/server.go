@@ -40,6 +40,7 @@ type Server struct {
 	documents        KnowledgeDocumentService
 	baseline         BaselineService
 	finance          FinanceService
+	marketing        MarketingService
 	logger           *slog.Logger
 	version          string
 	maxBody          int64
@@ -96,6 +97,16 @@ func WithFinance(service FinanceService) Option {
 			return errors.New("MCP Finance service is required")
 		}
 		server.finance = service
+		return nil
+	}
+}
+
+func WithMarketing(service MarketingService) Option {
+	return func(server *Server) error {
+		if service == nil {
+			return errors.New("MCP Marketing service is required")
+		}
+		server.marketing = service
 		return nil
 	}
 }
@@ -158,7 +169,7 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "infinite-ocean-spyglass", Version: s.version}, &mcp.ServerOptions{
-		Instructions: "Use only the Account-bound Spyglass tools exposed for the authenticated principal. Read summaries before sensitive detail, preserve operation IDs and expected versions across retries, and never treat Finance drafts as posted records or payment execution.",
+		Instructions: "Use only the Account-bound Spyglass tools exposed for the authenticated principal. Read summaries before sensitive detail, preserve operation IDs and expected versions across retries, never treat Finance drafts as posted records or payment execution, and never treat Marketing drafts or activation as external delivery.",
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}}, SchemaCache: s.schemaCache,
 	})
 	s.registerInformation(server, actor)
@@ -175,6 +186,9 @@ func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 	}
 	if s.finance != nil {
 		s.registerFinance(server, actor)
+	}
+	if s.marketing != nil {
+		s.registerMarketing(server, actor)
 	}
 	return server
 }

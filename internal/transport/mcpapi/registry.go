@@ -56,6 +56,17 @@ func ToolRequirement(name string) (access.Requirement, bool) {
 		"spyglass_finance_entry_reverse", "spyglass_finance_reconciliation_create",
 		"spyglass_finance_reconciliation_confirm":
 		return write(catalog.PackageFinance), true
+	case "spyglass_marketing_campaign_list", "spyglass_marketing_campaign_get",
+		"spyglass_marketing_asset_revision_list", "spyglass_marketing_release_list",
+		"spyglass_marketing_release_get":
+		return read(catalog.PackageMarketing), true
+	case "spyglass_marketing_campaign_create_draft", "spyglass_marketing_campaign_revise",
+		"spyglass_marketing_campaign_archive", "spyglass_marketing_asset_revision_create_draft",
+		"spyglass_marketing_release_create_draft", "spyglass_marketing_release_submit",
+		"spyglass_marketing_release_approve", "spyglass_marketing_release_cancel",
+		"spyglass_marketing_campaign_activate", "spyglass_marketing_campaign_pause",
+		"spyglass_marketing_campaign_complete":
+		return write(catalog.PackageMarketing), true
 	default:
 		return access.Requirement{}, false
 	}

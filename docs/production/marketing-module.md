@@ -1,6 +1,6 @@
 # Marketing module
 
-- Status: provider-neutral kernel, forced-RLS persistence, classified lifecycle, stable query pages and generated routed HTTP surface constructed; MCP and private-workspace surfaces remain closed
+- Status: provider-neutral kernel, forced-RLS persistence, classified lifecycle, stable query pages and generated routed HTTP/MCP surfaces constructed; private workspace and delivery remain closed
 - Package boundary: Marketing
 - Decision: [ADR-0007](decisions/0007-marketing-governed-release.md)
 
@@ -17,7 +17,7 @@ A release freezes one campaign version, sorted unique asset revisions and its ex
 1. Typed campaign lifecycle, immutable creative revisions, Agent provenance and exact approval-bound release snapshots. **Constructed.**
 2. Account-owned forced-RLS persistence, immutable redacted events, optimistic replay, movement fencing and exact erasure/restore participation. **Constructed.**
 3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Constructed.**
-4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace. **HTTP constructed; MCP and workspace remain.**
+4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace. **HTTP and MCP constructed; workspace remains.**
 5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery.
 6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability.
 7. Catalog/entitlement lifecycle, retention, prototype reconciliation, Stage recovery/erasure and production role grants.
@@ -63,6 +63,12 @@ Campaign state and optional asset filters use the closed typed vocabularies. Opa
 Eleven generated commands complete the customer HTTP lifecycle: create/revise/archive campaigns, append immutable asset revisions, create/submit/approve/cancel releases and activate/pause/complete campaigns. Every mutation binds its `Idempotency-Key` to the signed route operation UUID; versioned commands require exactly one weak `If-Match` ETag and return the resulting version. Create responses distinguish first application from exact replay while preserving stable locations where a detail route exists.
 
 Browser-created campaigns, assets and releases are explicitly stamped with human provenance. Content SHA-256 input must be exactly 32 lowercase bytes in hex before it enters the domain. JSON rejects unknown fields, trailing values, query parameters and the wrong media type. Governance still executes only through the application role checks and exact Attention approval binding; the HTTP adapter cannot supply Agent provenance or elevate a workload. Focused contract tests cover all eleven operations plus missing versions, malformed hashes and cross-Account concealment. MCP, private Marketing workspace, Agent proposals and Integration delivery remain closed, so Marketing correctly remains non-executable.
+
+## MCP checkpoint
+
+The Bearer-only production MCP adapter publishes 16 typed Marketing tools: five bounded/detail reads; campaign, asset-revision and release draft creation; and the eight remaining human lifecycle commands. Every tool is registered in the global gateway requirement table with the same Marketing read/mutation classification repeated inside the cell. Operation identities and expected versions remain explicit typed inputs so retries reach the same application replay boundary.
+
+Human MCP drafts receive human provenance and reject a supplied Run. A workload draft is accepted only when its authenticated identity has the exact `runner-invocation:<uuid>` form and the caller supplies a valid Run; the adapter derives the invocation identity rather than trusting it as tool input. Application policy still rejects workload revision, submission, approval, activation, cancellation and campaign governance. Asset hashes remain lowercase hex, list cursors are versioned and collection-bound, and errors expose only stable safe codes. Protocol tests prove the complete deterministic schema surface, global routing classification, routed Marketing claims, opaque cursors, human and Agent provenance, version requirements and backend-error redaction. The private workspace, Attention proposal UX, Integration delivery, Catalog/retention and applied acceptance remain, so Marketing stays non-executable.
 
 ## Invariants
 
