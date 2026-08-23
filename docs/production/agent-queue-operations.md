@@ -1,6 +1,6 @@
 # Agent Queue Operations
 
-Status: executable operator contract; connected-cell rehearsal and production role grants remain release gates
+Status: executable operator contract and Hostinger connected-cell rehearsal complete; production role grants remain a P3.7 release gate
 
 Agent dispatch and result projection are independent durable queues. A terminal row never retries forever and never disappears automatically. Operators can inspect one queue in one cell and, after correcting the underlying condition, requeue exactly one Account/invocation pair.
 
@@ -39,3 +39,7 @@ Do not requeue deterministic validation failures until their cause is understood
 ## Required production evidence
 
 Before granting the role in production, exercise both queues against a staging cell: empty and populated inspection, exact requeue, wrong queue, wrong Account/invocation, non-dead-letter conflict, duplicate authorization, immutable-event mutation, worker crash after requeue, Account erasure, and restore replay. Archive the authorization ID, audit batch ID, bounded state transition, and monitoring evidence without customer content.
+
+The 2026-08-22 Hostinger rehearsal exercised populated and empty inspection for both queues, exact dispatch/projection requeue, wrong-target, wrong-queue and duplicate/state-fence rejection, table-read denial, immutable-event mutation denial and real worker reclaim after both workers restarted. The fixture deliberately had no valid customer message or runner result, so reclaim failed closed as `snapshot_unavailable` and `payload_unavailable` without reaching a provider. The normal cell erasure function accounted for both queues, four Account-attributed operator events, the runner row and the complete Agent aggregate, leaving zero synthetic Account rows; a second erasure removed the isolated wrong-queue fixture. The temporary login roles and every authorization/password artifact were removed. The restored workers are healthy. The mode-600 content-free certificate is `/opt/spyglass-stage/evidence/0.3.0-rc.2/agent-queue-rehearsal.json`, SHA-256 `1c2da6f0d753d8d64419561e5690a52fcfa818b7a3168403a2e6dc512f62c1e9`.
+
+Restore replay remains part of the final environment backup/restore game day because the owner supplies that environment's backup after application placement. LKE receives no standing operator role: the production grant is applied only to an isolated, short-lived Job after cluster inventory and owner approval.

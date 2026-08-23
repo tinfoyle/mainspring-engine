@@ -225,6 +225,8 @@ The 2026-08-22 Phase 3 Scheduling checkpoint additionally proves both identifier
 
 The RC.2 anonymous boundary certificate passes 11/11 checks at SHA-256 `dd87e48f4c57070afc22f916118b900fe6b2268bd1b7aee73f7d4e6b16e4168d`. The two-replica MCP public-edge load/failover certificate is SHA-256 `5ca33277955531c993b5305e89b3530fb1cd54a4fd29a6e38182e5a8d9ad0de5`; it records the clean 16-concurrency profile and also preserves the rejected 32-concurrency calibration with nine client timeouts. Both mode-600 artifacts are under `/opt/spyglass-stage/evidence/0.3.0-rc.2/`.
 
+The RC.2 Agent dispatch/projection recovery certificate is SHA-256 `1c2da6f0d753d8d64419561e5690a52fcfa818b7a3168403a2e6dc512f62c1e9`. It proves populated/empty inspection for both queues, signed exact requeue, wrong-target, wrong-queue and duplicate rejection, no table authority, immutable audit events, worker-restart reclaim and full synthetic Account erasure. Its temporary roles and credential artifacts were removed; both workers are healthy. Restore replay remains paired with the owner-configured backup game day rather than being simulated from an application-created backup.
+
 The final Phase 3 Hostinger release gate additionally proves:
 
 - identity, passkey, Account, Catalog, entitlement and Stripe customer journeys;
