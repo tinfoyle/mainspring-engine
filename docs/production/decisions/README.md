@@ -12,6 +12,7 @@ This directory records decisions that constrain the Infinite Ocean: Spyglass pro
 | [ADR-0006](0006-finance-operational-ledger.md) | Finance as an Account-owned operational ledger rather than billing or payment execution | Accepted |
 | [ADR-0007](0007-marketing-governed-release.md) | Marketing owns governed release snapshots while Integrations owns provider delivery | Accepted |
 | [ADR-0008](0008-integration-connector-execution.md) | Versioned connector scopes, external credential custody, and reconciliation-first delivery | Accepted |
+| [ADR-0009](0009-account-portability-export.md) | Deterministic Account portability artifacts from reviewed projections and exact versioned objects | Accepted |
 
 ## Record lifecycle
 

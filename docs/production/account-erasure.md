@@ -11,7 +11,7 @@ No HTTP request, account-api replica, or lifecycle-worker attempt may directly e
 1. The Account is already `closed`; `closing`, suspended, restricted, and active Accounts are ineligible.
 2. `account_closure_requests.delete_after` has passed according to PostgreSQL time.
 3. No active subscription, non-expired Checkout, active usage reservation, moving placement, or unfinished capacity-release job remains.
-4. An export artifact exists, has a SHA-256 digest, and has a separately governed expiry. An operator may explicitly record a policy-approved `not_applicable` export only with a reason; an empty reference is never interpreted as approval.
+4. An export artifact built under [ADR-0009](decisions/0009-account-portability-export.md) exists, has a SHA-256 digest, and has a separately governed expiry. An operator may explicitly record a policy-approved `not_applicable` export only with a reason; an empty reference is never interpreted as approval.
 5. The requester and approver are distinct externally authenticated operator identities. Both record environment and reason. Neither string is authentication by itself.
 6. The target environment and Account UUID are repeated exactly at each destructive invocation.
 7. The target cell ID and placement generation are snapshotted at preparation. A later placement change invalidates approval.

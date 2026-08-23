@@ -42,7 +42,7 @@ Catalog packages `Knowledge`, `Finance`, `Marketing` and `Integrations` are publ
 
 ## Export, retention and restoration rule
 
-Customer export is an Account-level lifecycle capability, not a paid-package permission. Phase 3 must build the actual customer export artifact pipeline before launch. Until then, the only executable export field is restricted evidence supplied to Account-erasure preparation; it is not represented as customer self-service.
+Customer export is an Account-level lifecycle capability, not a paid-package permission. [ADR-0009](decisions/0009-account-portability-export.md) and the executable builder now fix the deterministic archive, bounded snapshot, source-integrity and fail-closed schema-registry contract. Phase 3 must still build request persistence, every sanitized projection adapter, atomic object publication/expiry and the authorized customer transport before launch. Until then, `customer-export-api` remains correctly absent and the only end-to-end executable export field is restricted evidence supplied to Account-erasure preparation; it is not represented as customer self-service.
 
 Every future package-owned store must declare, before its migration is accepted:
 
