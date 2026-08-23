@@ -55,6 +55,7 @@ type Server struct {
 	finance                FinanceQueryService
 	financeCommands        FinanceCommandService
 	marketing              MarketingQueryService
+	marketingCommands      MarketingCommandService
 	scheduling             SchedulingService
 	scheduleExecution      ScheduleExecutionService
 	scheduleWorkerIdentity string
@@ -202,6 +203,24 @@ func WithMarketing(service MarketingQueryService) Option {
 	return func(server *Server) { server.marketing = service }
 }
 
+type MarketingCommandService interface {
+	CreateCampaign(context.Context, marketingapp.CreateCampaignCommand) (marketingdomain.Campaign, bool, error)
+	ReviseCampaign(context.Context, marketingapp.ReviseCampaignCommand) (marketingdomain.Campaign, error)
+	CreateAssetRevision(context.Context, marketingapp.CreateAssetRevisionCommand) (marketingdomain.AssetRevision, bool, error)
+	CreateRelease(context.Context, marketingapp.CreateReleaseCommand) (marketingdomain.ReleasePlan, bool, error)
+	SubmitRelease(context.Context, marketingapp.ReleaseTransitionCommand) (marketingdomain.ReleasePlan, error)
+	ApproveRelease(context.Context, marketingapp.ReleaseTransitionCommand) (marketingdomain.ReleasePlan, error)
+	CancelRelease(context.Context, marketingapp.ReleaseTransitionCommand) (marketingdomain.ReleasePlan, error)
+	ActivateCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
+	PauseCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
+	CompleteCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
+	ArchiveCampaign(context.Context, marketingapp.CampaignTransitionCommand) (marketingdomain.Campaign, error)
+}
+
+func WithMarketingCommands(service MarketingCommandService) Option {
+	return func(server *Server) { server.marketingCommands = service }
+}
+
 type SchedulingService interface {
 	Create(context.Context, schedulingapp.CreateCommand) (schedulingdomain.Schedule, bool, error)
 	Get(context.Context, schedulingapp.GetQuery) (schedulingdomain.Schedule, error)
@@ -341,10 +360,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/finance/reconciliations/{reconciliationID}", s.financeReconciliationGet)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/finance/reconciliations/{reconciliationID}/confirmations", s.financeReconciliationConfirm)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns", s.marketingCampaignList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns", s.marketingCampaignCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}", s.marketingCampaignGet)
+	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}", s.marketingCampaignRevise)
+	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}", s.marketingCampaignArchive)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/asset-revisions", s.marketingAssetRevisionList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/asset-revisions", s.marketingAssetRevisionCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/releases", s.marketingReleaseList)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/releases", s.marketingReleaseCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/releases/{releaseID}", s.marketingReleaseGet)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/releases/{releaseID}/submissions", s.marketingReleaseSubmit)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/releases/{releaseID}/approvals", s.marketingReleaseApprove)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/releases/{releaseID}/cancellations", s.marketingReleaseCancel)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/activations", s.marketingCampaignActivate)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/pauses", s.marketingCampaignPause)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/completions", s.marketingCampaignComplete)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleGet)

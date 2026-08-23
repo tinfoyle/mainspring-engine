@@ -123,6 +123,10 @@ export type ActionResolutionOutcome = "succeeded" | "failed";
 
 export type ActionResolutionState = "pending" | "applied";
 
+export interface ActivateMarketingCampaignRequest {
+  readonly "release_id": string;
+}
+
 export interface ActiveSession {
   readonly "authenticated_at": string;
   readonly "authentication_assurance": AuthenticationAssurance;
@@ -446,6 +450,10 @@ export interface ApproveBaselinePlanRequest {
   readonly "assessment_version": number;
   readonly "content_sha256": string;
   readonly "plan_id": string;
+}
+
+export interface ApproveMarketingReleaseRequest {
+  readonly "approval_id": string;
 }
 
 export interface AssignWorkRequest {
@@ -803,6 +811,31 @@ export interface CreateInformationRequestInput {
 export interface CreateInvitationRequest {
   readonly "email": string;
   readonly "role": AssignableMembershipRole;
+}
+
+export interface CreateMarketingAssetRevisionRequest {
+  readonly "alternative_text"?: string;
+  readonly "asset_id": string;
+  readonly "content_bytes": number;
+  readonly "content_reference": string;
+  readonly "content_sha256": string;
+  readonly "kind": MarketingAssetKind;
+  readonly "media_type": string;
+  readonly "title": string;
+}
+
+export interface CreateMarketingCampaignRequest {
+  readonly "audience": string;
+  readonly "channels": ReadonlyArray<MarketingChannel>;
+  readonly "name": string;
+  readonly "objective": string;
+}
+
+export interface CreateMarketingReleaseRequest {
+  readonly "asset_revision_ids": ReadonlyArray<string>;
+  readonly "campaign_version": number;
+  readonly "channels": ReadonlyArray<MarketingChannel>;
+  readonly "name": string;
 }
 
 export interface CreateScheduleRequest {
@@ -1804,6 +1837,10 @@ export interface StripeWebhookReceipt {
   readonly "status": "accepted" | "duplicate";
 }
 
+export interface SubmitMarketingReleaseRequest {
+  readonly "campaign_version": number;
+}
+
 export interface TransferOwnershipRequest {
   readonly "expected_actor_version": number;
   readonly "expected_target_version": number;
@@ -2008,6 +2045,7 @@ export interface ApiSchemas {
   readonly ActionResolution: ActionResolution;
   readonly ActionResolutionOutcome: ActionResolutionOutcome;
   readonly ActionResolutionState: ActionResolutionState;
+  readonly ActivateMarketingCampaignRequest: ActivateMarketingCampaignRequest;
   readonly ActiveSession: ActiveSession;
   readonly ActiveSessions: ActiveSessions;
   readonly AgentBoardroom: AgentBoardroom;
@@ -2050,6 +2088,7 @@ export interface ApiSchemas {
   readonly ApprovalState: ApprovalState;
   readonly ApprovalSummary: ApprovalSummary;
   readonly ApproveBaselinePlanRequest: ApproveBaselinePlanRequest;
+  readonly ApproveMarketingReleaseRequest: ApproveMarketingReleaseRequest;
   readonly AssignWorkRequest: AssignWorkRequest;
   readonly AssignableMembershipRole: AssignableMembershipRole;
   readonly AttachWorkProvenanceRequest: AttachWorkProvenanceRequest;
@@ -2107,6 +2146,9 @@ export interface ApiSchemas {
   readonly CreateFinanceReconciliationRequest: CreateFinanceReconciliationRequest;
   readonly CreateInformationRequestInput: CreateInformationRequestInput;
   readonly CreateInvitationRequest: CreateInvitationRequest;
+  readonly CreateMarketingAssetRevisionRequest: CreateMarketingAssetRevisionRequest;
+  readonly CreateMarketingCampaignRequest: CreateMarketingCampaignRequest;
+  readonly CreateMarketingReleaseRequest: CreateMarketingReleaseRequest;
   readonly CreateScheduleRequest: CreateScheduleRequest;
   readonly CreateWorkRequest: CreateWorkRequest;
   readonly CreateWorkReviewRequest: CreateWorkReviewRequest;
@@ -2251,6 +2293,7 @@ export interface ApiSchemas {
   readonly StartAgentRunRequest: StartAgentRunRequest;
   readonly StripeEvent: StripeEvent;
   readonly StripeWebhookReceipt: StripeWebhookReceipt;
+  readonly SubmitMarketingReleaseRequest: SubmitMarketingReleaseRequest;
   readonly TransferOwnershipRequest: TransferOwnershipRequest;
   readonly TransitionScheduleRequest: TransitionScheduleRequest;
   readonly TransitionWorkRequest: TransitionWorkRequest;
