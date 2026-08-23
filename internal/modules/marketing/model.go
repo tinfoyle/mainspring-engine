@@ -57,6 +57,8 @@ func (actor Actor) valid() bool {
 	return actor.Kind == ActorWorkload
 }
 
+func (actor Actor) Valid() bool { return actor.valid() }
+
 type Origin string
 
 const (

@@ -52,7 +52,7 @@ type AssetRevisionInput struct {
 }
 
 func NewAssetRevision(input AssetRevisionInput, previous *AssetRevision, role accounts.MembershipRole) (AssetRevision, error) {
-	if !canDraft(role) || !input.CreatedBy.valid() || !input.Provenance.valid(input.CreatedBy) {
+	if !input.CreatedBy.valid() || !input.Provenance.valid(input.CreatedBy) || (input.CreatedBy.Kind == ActorUser && !canDraft(role)) {
 		return AssetRevision{}, ErrRole
 	}
 	revision := uint64(1)

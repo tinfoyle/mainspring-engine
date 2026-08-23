@@ -1,6 +1,6 @@
 # Marketing module
 
-- Status: provider-neutral kernel and forced-RLS persistence constructed; application and every executable surface remain closed
+- Status: provider-neutral kernel, forced-RLS persistence and classified command/detail application boundary constructed; list queries and every executable transport remain closed
 - Package boundary: Marketing
 - Decision: [ADR-0007](decisions/0007-marketing-governed-release.md)
 
@@ -16,7 +16,7 @@ A release freezes one campaign version, sorted unique asset revisions and its ex
 
 1. Typed campaign lifecycle, immutable creative revisions, Agent provenance and exact approval-bound release snapshots. **Constructed.**
 2. Account-owned forced-RLS persistence, immutable redacted events, optimistic replay, movement fencing and exact erasure/restore participation. **Constructed.**
-3. Stable detail/list queries, bounded cursors and the classified package-authorized application service.
+3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Command/detail lifecycle constructed; stable list pages remain.**
 4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace.
 5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery.
 6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability.
@@ -37,6 +37,14 @@ Cell migration `000059_marketing_foundation.sql` adds eight Account-owned tables
 Revision insertion is serialized per Account/asset and must advance by exactly one; revisions, release contents and events cannot be updated or deleted outside the normal Account movement/erasure cascade. Campaign updates enforce optimistic version transitions and the lifecycle state graph. Activation resolves the approved release under the same transaction, requires the prior campaign version and identical channel set, and rechecks that its Attention approval is still approved and unexpired. An active campaign must be paused before that release can be cancelled.
 
 The campaign/release dependency graph deliberately remains one-way for movement: `active_release_id` is validated by the guarded transition rather than a reverse foreign key, avoiding a table cycle while preserving transaction-time integrity. Fresh PostgreSQL 17 tests prove sequential revision fencing, immutable snapshots/events, redacted-event policy, cross-Account denial, all-table movement topology and exact whole-Account erasure counts for all eight tables.
+
+## Application/repository checkpoint
+
+The Marketing application service now applies the canonical package requirement to every read and mutation. Human drafts require Owner, Administrator or Member authority; governance transitions require a real User, with approval/activation/cancellation and campaign state management restricted to Owner or Administrator. Workload drafts carry no inherited Membership role and are accepted only when the authenticated `runner-invocation:<uuid>` identity exactly matches the supplied Agent provenance tuple.
+
+The classified PostgreSQL repository executes every command in an Account-scoped transaction. Campaign and release creation, campaign revision, asset revision, release submit/approve/cancel and campaign activate/pause/complete/archive preserve immutable event UUIDs and exact retry outcomes. Conflicting request-ID reuse, altered replay input, stale versions, cross-Account reads, mismatched asset/campaign references and unsupported state transitions fail closed. Release creation resolves every exact asset revision inside the campaign; activation locks both campaign and release before the database rechecks current Attention approval.
+
+Fresh PostgreSQL 17 coverage runs the complete draft-to-submitted-to-approved-to-active lifecycle, rejects cancellation while active, pauses then cancels, restores exact snapshots, advances two content revisions, proves replay and hides the Account from another Account. Stable list pages and bounded cursors remain before generated transports can be added.
 
 ## Invariants
 

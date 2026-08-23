@@ -43,7 +43,10 @@ func TestCampaignRequiresGovernedChannelsAndHumanLifecycle(t *testing.T) {
 }
 
 func TestAgentMayDraftWithExactProvenanceButCannotGovern(t *testing.T) {
-	campaign := validCampaign(t, agent, agentProvenance)
+	campaign, err := NewCampaign(validCampaignInput(agent, agentProvenance), "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if campaign.Provenance.Origin != OriginAgent {
 		t.Fatal("agent provenance was not frozen")
 	}

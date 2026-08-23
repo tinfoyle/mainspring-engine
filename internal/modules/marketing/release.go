@@ -50,7 +50,7 @@ type ReleasePlanInput struct {
 }
 
 func NewReleasePlan(input ReleasePlanInput, role accounts.MembershipRole) (ReleasePlan, error) {
-	if !canDraft(role) || !input.CreatedBy.valid() || !input.Provenance.valid(input.CreatedBy) {
+	if !input.CreatedBy.valid() || !input.Provenance.valid(input.CreatedBy) || (input.CreatedBy.Kind == ActorUser && !canDraft(role)) {
 		return ReleasePlan{}, ErrRole
 	}
 	value := ReleasePlan{ID: input.ID, AccountID: input.AccountID, CampaignID: input.CampaignID, CampaignVersion: input.CampaignVersion,

@@ -48,7 +48,7 @@ type CampaignDraftInput struct {
 }
 
 func NewCampaign(input CampaignDraftInput, role accounts.MembershipRole) (Campaign, error) {
-	if !canDraft(role) || !input.CreatedBy.valid() || !input.Provenance.valid(input.CreatedBy) {
+	if !input.CreatedBy.valid() || !input.Provenance.valid(input.CreatedBy) || (input.CreatedBy.Kind == ActorUser && !canDraft(role)) {
 		return Campaign{}, ErrRole
 	}
 	value := Campaign{ID: input.ID, AccountID: input.AccountID, Name: strings.TrimSpace(input.Name), Objective: strings.TrimSpace(input.Objective),
