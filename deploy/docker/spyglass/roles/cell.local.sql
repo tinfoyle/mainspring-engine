@@ -107,7 +107,9 @@ GRANT EXECUTE ON FUNCTION public.spyglass_claim_integration_execution(uuid,times
   public.spyglass_claim_integration_execution_v2(uuid,timestamptz,timestamptz),
   public.spyglass_complete_integration_execution(uuid,uuid,uuid,text,text,timestamptz,timestamptz),
   public.spyglass_claim_integration_health_probe(uuid,timestamptz,timestamptz),
-  public.spyglass_complete_integration_health_probe(uuid,uuid,uuid,uuid,bigint,uuid,bigint,text,text,integer,timestamptz)
+  public.spyglass_complete_integration_health_probe(uuid,uuid,uuid,uuid,bigint,uuid,bigint,text,text,integer,timestamptz),
+  public.spyglass_claim_integration_source_sync(uuid,timestamptz,timestamptz),
+  public.spyglass_complete_integration_source_sync(uuid,uuid,uuid,uuid,bigint,uuid,bigint,bytea,bytea,boolean,uuid[],text[],bytea[],bytea[],text[],uuid[],uuid[],bytea[],timestamptz)
   TO spyglass_integration_connector_worker;
 
 GRANT SELECT, UPDATE, DELETE ON spyglass.route_context_receipt_cleanup_queue,
@@ -264,6 +266,7 @@ GRANT SELECT ON spyglass.account_erasure_restore_ledger, spyglass.account_namesp
   spyglass.integration_connection_revisions, spyglass.integration_connections, spyglass.integration_events,
   spyglass.integration_execution_attempts, spyglass.integration_execution_resolutions,
   spyglass.integration_executions, spyglass.integration_health_observations,
+  spyglass.integration_source_captures,
   spyglass.knowledge_claim_citations, spyglass.knowledge_claims, spyglass.knowledge_document_events,
   spyglass.knowledge_document_revisions, spyglass.knowledge_documents, spyglass.knowledge_events,
   spyglass.knowledge_evidence, spyglass.knowledge_fact_revisions, spyglass.knowledge_facts,

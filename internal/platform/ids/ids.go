@@ -57,6 +57,8 @@ type IntegrationHealthObservationID string
 type IntegrationExecutionID string
 type IntegrationAttemptID string
 type IntegrationResolutionID string
+type IntegrationSourceSyncID string
+type IntegrationSourceCaptureID string
 
 type Generator interface {
 	New() string

@@ -60,7 +60,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	for _, table := range []string{"marketing_campaigns", "marketing_campaign_channels", "marketing_assets", "marketing_asset_revisions", "marketing_release_plans", "marketing_release_channels", "marketing_release_assets", "marketing_events"} {
 		coveredTables[table] = true
 	}
-	for _, table := range []string{"integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_execution_resolutions", "integration_events", "integration_execution_queue", "integration_health_probe_queue"} {
+	for _, table := range []string{"integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_execution_resolutions", "integration_events", "integration_execution_queue", "integration_health_probe_queue", "integration_source_captures", "integration_source_sync_queue"} {
 		coveredTables[table] = true
 	}
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
