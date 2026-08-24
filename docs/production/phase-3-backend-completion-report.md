@@ -4,7 +4,7 @@
 - Scope: local backend construction through the backend-to-customer-UI boundary
 - Runtime: UbuntuRojo WSL 2, native Docker Engine and the `spyglass-local` Compose project
 - Result: **complete for the local backend boundary**
-- Deliberately excluded: customer-facing Vue SPA completion, GHCR, Hostinger Stage mutation, LKE and production release work
+- Deliberately excluded: the final Vue customer surface (public acquisition, feature/package education, checkout and private SPA), GHCR, Hostinger Stage mutation, LKE and production release work
 
 ## Outcome
 

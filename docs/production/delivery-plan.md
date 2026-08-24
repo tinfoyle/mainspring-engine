@@ -639,8 +639,9 @@ Acceptance for Phase 5:
 - Bounded result payloads and problem translation.
 - Audit parity with HTTP.
 
-### P7.3 Vue SPA application foundation
+### P7.3 Vue customer-interface foundation
 
+- Independent public acquisition and private SPA build targets with a shared Vue design system and generated client boundary.
 - Vue Router, mobile-first layouts, session boundary, query client, error boundary, and design tokens.
 - Account switcher, package-aware navigation, entitlement-denied/upgrade states, billing settings, and usage display.
 - Generated API client and problem normalization.
@@ -649,17 +650,20 @@ Acceptance for Phase 5:
 - Story and visual-regression environment.
 - A compact mobile header and simple menu drawer, with Your Turn as the authenticated default route.
 - Phone-width fixtures and horizontal-overflow checks from the first feature slice.
+- Rendered or pre-rendered public landing, feature/package and pricing routes with metadata, crawlability, performance and link gates.
+- Catalog-backed offer selection, free signup continuation, authenticated checkout review and Stripe return-state components.
 
 ### P7.4 Feature migration order
 
 1. Your Turn queues, detail and completion flows.
-2. Work queue and ticket workspace.
-3. Knowledge, documents and Baseline context.
-4. Boardroom and conversation streaming.
-5. Agents.
-6. Finance and Marketing.
-7. Integrations, schedules, email and Drive.
-8. Account, team, billing, security, export and operations.
+2. Public landing, complete feature/package breakdown, pricing and checkout journey.
+3. Work queue and ticket workspace.
+4. Knowledge, documents and Baseline context.
+5. Boardroom and conversation streaming.
+6. Agents.
+7. Finance and Marketing.
+8. Integrations, schedules, email and Drive.
+9. Account, team, billing, security, export and operations.
 
 Each feature requires loading, empty, partial, stale, error, unauthorized, offline/reconnect, and reduced-motion behavior before cutover.
 

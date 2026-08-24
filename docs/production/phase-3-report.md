@@ -20,7 +20,7 @@ Phase 3 consolidates the historical Phase 3-8 backlog into one final body of wor
 2. Knowledge and Baseline.
 3. Agent workspace and durable execution.
 4. Scheduling, Finance, Marketing and integrations.
-5. HTTP, MCP and the private mobile-first Vue SPA product surface.
+5. HTTP, MCP and the complete Vue customer surface: public acquisition, feature/package education, pricing/checkout and the private mobile-first SPA.
 6. Prototype data/behavior migration and retirement.
 7. Production hardening, Linode deployment, canary and release.
 
@@ -353,7 +353,7 @@ Exit: the Catalog, website claims and application capabilities reconcile exactly
 - Implement one canonical application boundary per use case.
 - Publish complete generated HTTP contracts and sanitized OpenAPI artifacts.
 - Implement production MCP tools over the same commands/queries and prove HTTP/MCP outcome parity.
-- Build the private feature-organized, mobile-first Vue SPA for Account, Work, Your Turn, Knowledge, Baseline, Agents, Finance, Marketing, integrations, billing and security; complete Your Turn first and make it the authenticated default route.
+- Build the complete mobile-first Vue customer surface: an excellent public landing page, complete feature/package breakdown, Catalog-backed pricing and checkout, plus the private feature-organized SPA for Account, Work, Your Turn, Knowledge, Baseline, Agents, Finance, Marketing, integrations, billing and security. Complete Your Turn first and make it the authenticated default route.
 - Add reliable streaming/event replay, optimistic concurrency, draft preservation and session/network recovery.
 - Complete keyboard, screen-reader, contrast, zoom/reflow, forced-colors, reduced-motion and supported-device behavior.
 - Remove prototype compatibility adapters only after migration evidence and rollback windows close.
@@ -476,7 +476,7 @@ Phase 3—and therefore application construction—is complete only when:
 - Work, Attention, Knowledge, Baseline, Agents, Scheduling, Finance, Marketing and integrations are complete;
 - HTTP, MCP, schedules, workers, runners and UI share canonical authorization and entitlement outcomes;
 - all production data is Account-isolated, movable, exportable, restorable and erasable;
-- the final Vue SPA and public site pass the complete accessibility/device matrix;
+- the final Vue SPA, public landing/feature surfaces and complete free/paid acquisition journeys pass the accessibility/device, performance, metadata, link and checkout-recovery matrices;
 - containerized PostgreSQL and all application workloads pass local, Hostinger and LKE certification appropriate to each environment;
 - production backup/restore configuration has recorded owner verification;
 - the exact signed artifact pair passes migration, load, resilience, security/privacy, canary and rollback gates; and

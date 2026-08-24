@@ -48,7 +48,7 @@ The production system must provide:
 - Stable, generated API contracts rather than manually mirrored Go and TypeScript models.
 - Idempotent, payload-bound external actions and deterministic recovery from ambiguous outcomes.
 - Production authentication, authorization, secret storage, audit, backup, restore, monitoring, and incident procedures.
-- A feature-organized, accessible, mobile-first Vue SPA with reliable streaming and error recovery, simple navigation and Your Turn as the primary signed-in workflow.
+- A coherent, accessible, mobile-first Vue customer experience: an excellent public landing page, complete feature/package education and safe checkout alongside a feature-organized private SPA with simple navigation, reliable recovery and Your Turn as the primary signed-in workflow.
 - Safe global and cell database evolution with upgrade, rollback, reconciliation, and cell-cohort rollout procedures.
 - Shared, horizontally scalable Kubernetes workloads with bounded noisy-neighbor impact and no always-on stack per account.
 - Enough observability to answer what happened, for which account, in which cell, under whose authority, and how to recover it.
@@ -435,6 +435,7 @@ Deliverables:
 - Thin HTTP route groups by feature.
 - Thin MCP server registering use-case adapters.
 - Mobile-first Vue 3 and TypeScript SPA organized by feature and route, following the [Phase 3 Vue SPA product-surface plan](phase-3-vue-spa-plan.md).
+- A rendered or pre-rendered Vue acquisition surface with a distinctive landing page, complete feature/package breakdown, Catalog-backed pricing and the full free/paid conversion journey.
 - Your Turn as the authenticated default route and first completed feature slice.
 - One compact mobile header and a simple, focus-contained navigation menu; the same route taxonomy enhances into a collapsible desktop rail.
 - Account switcher, package-aware navigation, upgrade entry, usage display, and consistent entitlement-denied states.
@@ -443,11 +444,12 @@ Deliverables:
 - One reusable SSE client supporting resume cursors, backoff, visibility changes, and terminal states.
 - Accessible design-system primitives, keyboard behavior, reduced motion, mobile-first responsive navigation, touch-size enforcement and automated accessibility checks.
 - Prototype compatibility routes only where migration remains unfinished.
+- Stripe-hosted payment collection behind an authenticated, Account-authorized checkout review, with cancellation, delayed-webhook, pending, success and failure return states.
 
 Exit gate:
 
 - Every core route uses generated API types.
-- Browser end-to-end tests cover onboarding, work, conversation streaming, owner input, approvals, documents, finance, and session expiry.
+- Browser end-to-end tests cover public discovery, feature and pricing navigation, free signup, paid checkout, onboarding, Your Turn, work, conversation streaming, owner input, approvals, documents, finance, and session expiry.
 - No production JSON DTO imports a server-rendered component model.
 
 ### Phase 8 — Production platform hardening
