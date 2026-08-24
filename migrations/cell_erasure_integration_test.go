@@ -60,7 +60,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	for _, table := range []string{"marketing_campaigns", "marketing_campaign_channels", "marketing_assets", "marketing_asset_revisions", "marketing_release_plans", "marketing_release_channels", "marketing_release_assets", "marketing_events"} {
 		coveredTables[table] = true
 	}
-	for _, table := range []string{"integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_execution_resolutions", "integration_events", "integration_execution_queue", "integration_health_probe_queue", "integration_source_captures", "integration_source_sync_queue"} {
+	for _, table := range []string{"integration_connections", "integration_connection_revisions", "integration_credentials", "integration_health_observations", "integration_executions", "integration_execution_attempts", "integration_execution_resolutions", "integration_events", "integration_execution_queue", "integration_health_probe_queue", "integration_source_captures", "integration_source_sync_queue", "integration_authorization_sessions", "integration_authorization_events", "integration_authorization_workflows", "integration_credential_revocation_workflows"} {
 		coveredTables[table] = true
 	}
 	rows, err := owner.Query(ctx, `SELECT table_name FROM information_schema.columns WHERE table_schema='spyglass' AND column_name='account_id' ORDER BY table_name`)
@@ -121,7 +121,9 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 			spyglass.marketing_release_assets,spyglass.marketing_events,
 			spyglass.integration_connections,spyglass.integration_connection_revisions,spyglass.integration_credentials,
 			spyglass.integration_health_observations,spyglass.integration_executions,spyglass.integration_execution_attempts,
-			spyglass.integration_execution_resolutions,spyglass.integration_events,spyglass.integration_execution_queue TO `+functionRole+`;
+			spyglass.integration_execution_resolutions,spyglass.integration_events,spyglass.integration_execution_queue,
+			spyglass.integration_authorization_sessions,spyglass.integration_authorization_events,
+			spyglass.integration_authorization_workflows,spyglass.integration_credential_revocation_workflows TO `+functionRole+`;
 		GRANT UPDATE ON spyglass.account_namespaces TO `+functionRole+`;
 		ALTER TABLE spyglass.account_erasure_tombstones OWNER TO `+functionRole+`;
 		ALTER FUNCTION public.spyglass_erase_account_cell_without_runner_control(uuid,uuid,bigint,bytea,bigint,bigint,text,bytea,bytea,timestamptz) OWNER TO `+functionRole+`;

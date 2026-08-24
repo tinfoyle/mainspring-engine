@@ -199,6 +199,23 @@ func (vault *Vault) CredentialExists(ctx context.Context, accountID ids.AccountI
 	return doc.State == "active", nil
 }
 
+func (vault *Vault) CredentialMaterial(ctx context.Context, accountID ids.AccountID, credentialID ids.IntegrationCredentialID, generation uint64, provider string, referenceSHA256 [sha256.Size]byte) (integrationcredentials.Lease, error) {
+	if vault == nil || vault.aead == nil || ctx == nil || ctx.Err() != nil || ids.Validate(string(accountID)) != nil ||
+		ids.Validate(string(credentialID)) != nil || generation == 0 || !validProvider.MatchString(provider) || referenceSHA256 == [sha256.Size]byte{} {
+		return nil, ErrUnavailable
+	}
+	doc, err := vault.read(vault.credentialPath(accountID, credentialID, generation))
+	if err != nil {
+		return nil, err
+	}
+	defer doc.wipe()
+	if !doc.matchesCredential(accountID, credentialID, generation) || doc.State != "active" || doc.Provider != provider ||
+		sha256.Sum256(doc.Reference) != referenceSHA256 {
+		return nil, ErrUnavailable
+	}
+	return newLease(doc.Material), nil
+}
+
 func (vault *Vault) FenceCredential(ctx context.Context, accountID ids.AccountID, credentialID ids.IntegrationCredentialID, generation uint64, state integrationcredentials.CredentialEndState) error {
 	if vault == nil || ctx == nil || ctx.Err() != nil || ids.Validate(string(accountID)) != nil || ids.Validate(string(credentialID)) != nil || generation == 0 ||
 		(state != integrationcredentials.CredentialRotated && state != integrationcredentials.CredentialRevoked) {

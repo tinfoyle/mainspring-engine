@@ -91,6 +91,60 @@ func TestIntegrationAuthorizationSessionsAreOneUseRLSAndCredentialBound(t *testi
 	if err != nil || loaded != pending {
 		t.Fatalf("load authorization=%+v err=%v", loaded, err)
 	}
+	deniedSessionID := ids.IntegrationAuthorizationSessionID("72d00000-0000-4000-8000-00000000000d")
+	deniedState := sha256.Sum256([]byte("provider-denied-state"))
+	denied, err := domain.NewAuthorizationSession(domain.AuthorizationSessionInput{ID: deniedSessionID,
+		AccountID: ids.AccountID(accountID), ConnectionID: ids.IntegrationConnectionID(connectionID),
+		ConnectionRevision: ids.IntegrationConnectionRevisionID(revisionID), Provider: domain.GoogleOAuthProvider, Scope: domain.GoogleDriveReadScope,
+		ScopeRevisionSHA256: scopeDigest, RedirectURI: "https://app.infiniteocean.net/api/v1/accounts/oauth/callback",
+		StateSHA256: deniedState, PKCEChallengeSHA256: sha256.Sum256([]byte("denied-pkce")), CreatedBy: domain.Actor{UserID: ids.UserID(userID)},
+		CreatedAt: now, ExpiresAt: now.Add(10 * time.Minute)}, accounts.RoleOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deniedEvent := integrationauthorization.Event{ID: "72e00000-0000-4000-8000-00000000000e", Type: "authorization_started", ActorKind: "user",
+		ActorID: userID, CorrelationID: string(deniedSessionID), At: now}
+	if _, created, err := repository.Create(ctx, denied, accounts.RoleOwner, deniedEvent); err != nil || !created {
+		t.Fatalf("create denied authorization created=%t err=%v", created, err)
+	}
+	denied, err = repository.RejectCallback(ctx, ids.AccountID(accountID), deniedState, "provider_access_denied", now.Add(30*time.Second))
+	if err != nil || denied.Status != domain.AuthorizationFailed || denied.ErrorCode != "provider_access_denied" {
+		t.Fatalf("reject provider callback=%+v err=%v", denied, err)
+	}
+	replayedDenial, err := repository.RejectCallback(ctx, ids.AccountID(accountID), deniedState, "provider_access_denied", now.Add(time.Minute))
+	if err != nil || replayedDenial.ID != denied.ID || replayedDenial.Version != denied.Version || replayedDenial.Status != denied.Status ||
+		replayedDenial.ErrorCode != denied.ErrorCode || replayedDenial.CompletedAt == nil || denied.CompletedAt == nil ||
+		!replayedDenial.CompletedAt.Equal(*denied.CompletedAt) {
+		t.Fatalf("replay provider denial=%+v err=%v", replayedDenial, err)
+	}
+	if _, err := repository.RejectCallback(ctx, ids.AccountID(accountID), deniedState, "provider_authorization_unavailable", now.Add(time.Minute)); !errors.Is(err, integrationauthorization.ErrConflict) {
+		t.Fatalf("changed provider denial=%v", err)
+	}
+	expiredSessionID := ids.IntegrationAuthorizationSessionID("72f00000-0000-4000-8000-00000000000f")
+	expiredPending, err := domain.NewAuthorizationSession(domain.AuthorizationSessionInput{ID: expiredSessionID,
+		AccountID: ids.AccountID(accountID), ConnectionID: ids.IntegrationConnectionID(connectionID),
+		ConnectionRevision: ids.IntegrationConnectionRevisionID(revisionID), Provider: domain.GoogleOAuthProvider, Scope: domain.GoogleDriveReadScope,
+		ScopeRevisionSHA256: scopeDigest, RedirectURI: "https://app.infiniteocean.net/api/v1/accounts/oauth/callback",
+		StateSHA256: sha256.Sum256([]byte("expired-state")), PKCEChallengeSHA256: sha256.Sum256([]byte("expired-pkce")),
+		CreatedBy: domain.Actor{UserID: ids.UserID(userID)}, CreatedAt: now, ExpiresAt: now.Add(time.Minute)}, accounts.RoleOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredEvent := integrationauthorization.Event{ID: "73000000-0000-4000-8000-000000000010", Type: "authorization_started", ActorKind: "user",
+		ActorID: userID, CorrelationID: string(expiredSessionID), At: now}
+	if _, created, err := repository.Create(ctx, expiredPending, accounts.RoleOwner, expiredEvent); err != nil || !created {
+		t.Fatalf("create expiring authorization created=%t err=%v", created, err)
+	}
+	expired, err := repository.ExpireAuthorization(ctx, ids.AccountID(accountID), expiredSessionID, now.Add(2*time.Minute))
+	if err != nil || expired.Status != domain.AuthorizationExpired || expired.ErrorCode != "authorization_expired" {
+		t.Fatalf("expire authorization=%+v err=%v", expired, err)
+	}
+	replayedExpiry, err := repository.ExpireAuthorization(ctx, ids.AccountID(accountID), expiredSessionID, now.Add(3*time.Minute))
+	if err != nil || replayedExpiry.ID != expired.ID || replayedExpiry.Version != expired.Version || replayedExpiry.Status != expired.Status ||
+		replayedExpiry.ErrorCode != expired.ErrorCode || replayedExpiry.CompletedAt == nil || expired.CompletedAt == nil ||
+		!replayedExpiry.CompletedAt.Equal(*expired.CompletedAt) {
+		t.Fatalf("replay expiry=%+v err=%v", replayedExpiry, err)
+	}
 	progress, err := repository.ClaimCallback(ctx, ids.AccountID(accountID), stateDigest, codeDigest, now.Add(time.Minute))
 	if err != nil || progress.Session.Status != domain.AuthorizationExchanging || progress.Workflow.State != integrationauthorization.WorkflowClaimed ||
 		progress.Workflow.TargetGeneration != 1 || progress.Workflow.PreviousCredentialID != "" {
@@ -101,7 +155,7 @@ func TestIntegrationAuthorizationSessionsAreOneUseRLSAndCredentialBound(t *testi
 		t.Fatalf("one-use state rewind=%v", err)
 	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.integration_connections SET state='revoked',revoked_by_user_id=$3,revoked_at=$4,updated_at=$4,version=version+1
-		WHERE account_id=$1 AND id=$2`, accountID, connectionID, userID, now.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "active authorization workflow") {
+		WHERE account_id=$1 AND id=$2`, accountID, connectionID, userID, now.Add(2*time.Minute)); err == nil || !strings.Contains(err.Error(), "active credential workflow") {
 		t.Fatalf("connection workflow fence=%v", err)
 	}
 	progress, changed, err := repository.StartProviderExchange(ctx, ids.AccountID(accountID), ids.IntegrationAuthorizationSessionID(sessionID), now.Add(2*time.Minute))
@@ -169,9 +223,50 @@ func TestIntegrationAuthorizationSessionsAreOneUseRLSAndCredentialBound(t *testi
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.integration_credentials WHERE account_id=$1 AND connection_id=$2 AND state='rotated'`, accountID, connectionID).Scan(&rotatedCount); err != nil || activeGeneration != 2 || rotatedCount != 1 {
 		t.Fatalf("rotation generations active=%d rotated=%d err=%v", activeGeneration, rotatedCount, err)
 	}
+	revocationID := "72c00000-0000-4000-8000-00000000000c"
+	revocation, err := repository.PrepareRevocation(ctx, ids.AccountID(accountID), revocationID, ids.IntegrationConnectionID(connectionID),
+		domain.Actor{UserID: ids.UserID(userID)}, now.Add(6*time.Minute))
+	if err != nil || revocation.State != integrationauthorization.RevocationPrepared || revocation.CredentialGeneration != 2 {
+		t.Fatalf("prepare revocation=%+v err=%v", revocation, err)
+	}
+	if _, err := repository.CompleteRevocation(ctx, ids.AccountID(accountID), revocationID, now.Add(7*time.Minute)); !errors.Is(err, integrationauthorization.ErrConflict) {
+		t.Fatalf("unfenced revocation completion=%v", err)
+	}
+	revocation, changed, err = repository.StartProviderRevocation(ctx, ids.AccountID(accountID), revocationID, now.Add(7*time.Minute))
+	if err != nil || !changed || revocation.State != integrationauthorization.RevocationProviderRevoking {
+		t.Fatalf("start provider revocation=%+v changed=%t err=%v", revocation, changed, err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.integration_connections SET state='disabled',version=version+1,updated_at=$3
+		WHERE account_id=$1 AND id=$2`, accountID, connectionID, now.Add(7*time.Minute)); err == nil || !strings.Contains(err.Error(), "active credential workflow") {
+		t.Fatalf("revocation connection fence=%v", err)
+	}
+	revocation, err = repository.MarkProviderRevoked(ctx, ids.AccountID(accountID), revocationID, now.Add(7*time.Minute))
+	if err != nil || revocation.State != integrationauthorization.RevocationProviderRevoked {
+		t.Fatalf("provider revoked=%+v err=%v", revocation, err)
+	}
+	revocation, err = repository.MarkRevocationVaultFenced(ctx, ids.AccountID(accountID), revocationID, now.Add(7*time.Minute))
+	if err != nil || revocation.State != integrationauthorization.RevocationVaultFenced {
+		t.Fatalf("revocation vault fence=%+v err=%v", revocation, err)
+	}
+	revocation, err = repository.CompleteRevocation(ctx, ids.AccountID(accountID), revocationID, now.Add(7*time.Minute))
+	if err != nil || revocation.State != integrationauthorization.RevocationCompleted {
+		t.Fatalf("complete revocation=%+v err=%v", revocation, err)
+	}
+	revocation, err = repository.PrepareRevocation(ctx, ids.AccountID(accountID), revocationID, ids.IntegrationConnectionID(connectionID),
+		domain.Actor{UserID: ids.UserID(userID)}, now.Add(7*time.Minute))
+	if err != nil || revocation.State != integrationauthorization.RevocationCompleted {
+		t.Fatalf("revocation replay=%+v err=%v", revocation, err)
+	}
+	var connectionState, credentialState string
+	if err := owner.QueryRow(ctx, `SELECT state FROM spyglass.integration_connections WHERE account_id=$1 AND id=$2`, accountID, connectionID).Scan(&connectionState); err != nil {
+		t.Fatal(err)
+	}
+	if err := owner.QueryRow(ctx, `SELECT state FROM spyglass.integration_credentials WHERE account_id=$1 AND id=$2`, accountID, rotation.Workflow.TargetCredentialID).Scan(&credentialState); err != nil || connectionState != "revoked" || credentialState != "revoked" {
+		t.Fatalf("revoked states connection=%s credential=%s err=%v", connectionState, credentialState, err)
+	}
 	role := "authorization_reader_" + randomSuffix(t)
 	if _, err := owner.Exec(ctx, `CREATE ROLE `+role+` NOLOGIN; GRANT USAGE ON SCHEMA spyglass TO `+role+`;
-		GRANT SELECT ON spyglass.integration_authorization_sessions,spyglass.integration_authorization_workflows TO `+role); err != nil {
+		GRANT SELECT ON spyglass.integration_authorization_sessions,spyglass.integration_authorization_workflows,spyglass.integration_credential_revocation_workflows TO `+role); err != nil {
 		t.Fatal(err)
 	}
 	defer owner.Exec(context.Background(), `DROP ROLE IF EXISTS `+role)
@@ -186,6 +281,9 @@ func TestIntegrationAuthorizationSessionsAreOneUseRLSAndCredentialBound(t *testi
 	}
 	if err := reader.QueryRow(ctx, `SELECT count(*) FROM spyglass.integration_authorization_workflows`).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("cross-Account authorization workflow count=%d err=%v", count, err)
+	}
+	if err := reader.QueryRow(ctx, `SELECT count(*) FROM spyglass.integration_credential_revocation_workflows`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("cross-Account revocation workflow count=%d err=%v", count, err)
 	}
 	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.integration_authorization_events
 		(account_id,id,session_id,event_type,actor_kind,actor_id,correlation_id,redacted_payload,occurred_at)

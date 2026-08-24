@@ -98,6 +98,109 @@ func (repository *IntegrationAuthorizationRepository) Get(ctx context.Context, a
 	return result, classifyIntegrationAuthorization(err)
 }
 
+func (repository *IntegrationAuthorizationRepository) ExpireAuthorization(ctx context.Context, accountID ids.AccountID,
+	sessionID ids.IntegrationAuthorizationSessionID, at time.Time) (domain.AuthorizationSession, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(string(sessionID)) != nil || at.IsZero() {
+		return domain.AuthorizationSession{}, integrationauthorization.ErrInvalid
+	}
+	var result domain.AuthorizationSession
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		session, err := loadIntegrationAuthorizationSession(ctx, tx, accountID, sessionID, true)
+		if err != nil {
+			return err
+		}
+		if session.Status != domain.AuthorizationPending {
+			result = session
+			return nil
+		}
+		next, err := session.Expire(session.Version, at)
+		if err != nil {
+			return err
+		}
+		if err := updateIntegrationAuthorizationSession(ctx, tx, next, session.Version); err != nil {
+			return err
+		}
+		eventID, _ := ids.Derive(string(session.ID), "integration-authorization-expired")
+		if err := insertIntegrationAuthorizationEvent(ctx, tx, accountID, session.ID,
+			integrationauthorization.Event{ID: eventID, Type: "authorization_expired", ActorKind: "workload", ActorID: "integration-authorization",
+				CorrelationID: string(session.ID), At: at.UTC()}, map[string]any{"error_code": "authorization_expired"}); err != nil {
+			return err
+		}
+		result = next
+		return nil
+	})
+	return result, classifyIntegrationAuthorization(err)
+}
+
+func (repository *IntegrationAuthorizationRepository) RejectCallback(ctx context.Context, accountID ids.AccountID, stateSHA256 [sha256.Size]byte,
+	code string, at time.Time) (domain.AuthorizationSession, error) {
+	code = strings.TrimSpace(code)
+	if ids.Validate(string(accountID)) != nil || stateSHA256 == [sha256.Size]byte{} || code == "" || len(code) > 100 || at.IsZero() {
+		return domain.AuthorizationSession{}, integrationauthorization.ErrInvalid
+	}
+	var result domain.AuthorizationSession
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		var sessionID ids.IntegrationAuthorizationSessionID
+		if err := tx.QueryRow(ctx, `SELECT id FROM spyglass.integration_authorization_sessions WHERE account_id=$1 AND state_sha256=$2 FOR UPDATE`,
+			accountID, stateSHA256[:]).Scan(&sessionID); errors.Is(err, pgx.ErrNoRows) {
+			return integrationauthorization.ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		session, err := loadIntegrationAuthorizationSession(ctx, tx, accountID, sessionID, false)
+		if err != nil {
+			return err
+		}
+		if session.Status == domain.AuthorizationFailed {
+			if session.ErrorCode != code {
+				return integrationauthorization.ErrConflict
+			}
+			result = session
+			return nil
+		}
+		if session.Status == domain.AuthorizationExpired {
+			result = session
+			return nil
+		}
+		if session.Status != domain.AuthorizationPending {
+			return integrationauthorization.ErrConflict
+		}
+		claimed, err := session.BeginExchange(stateSHA256, session.Version, at)
+		if err != nil {
+			return err
+		}
+		if err := updateIntegrationAuthorizationSession(ctx, tx, claimed, session.Version); err != nil {
+			return err
+		}
+		if claimed.Status == domain.AuthorizationExpired {
+			eventID, _ := ids.Derive(string(session.ID), "integration-authorization-expired")
+			if err := insertIntegrationAuthorizationEvent(ctx, tx, accountID, session.ID,
+				integrationauthorization.Event{ID: eventID, Type: "authorization_expired", ActorKind: "provider_callback", ActorID: domain.GoogleOAuthProvider,
+					CorrelationID: string(session.ID), At: at.UTC()}, map[string]any{"error_code": "authorization_expired"}); err != nil {
+				return err
+			}
+			result = claimed
+			return nil
+		}
+		failed, err := claimed.Fail(code, claimed.Version, at)
+		if err != nil {
+			return err
+		}
+		if err := updateIntegrationAuthorizationSession(ctx, tx, failed, claimed.Version); err != nil {
+			return err
+		}
+		eventID, _ := ids.Derive(string(session.ID), "integration-authorization-provider-rejected")
+		if err := insertIntegrationAuthorizationEvent(ctx, tx, accountID, session.ID,
+			integrationauthorization.Event{ID: eventID, Type: "authorization_failed", ActorKind: "provider_callback", ActorID: domain.GoogleOAuthProvider,
+				CorrelationID: string(session.ID), At: at.UTC()}, map[string]any{"error_code": code}); err != nil {
+			return err
+		}
+		result = failed
+		return nil
+	})
+	return result, classifyIntegrationAuthorization(err)
+}
+
 func (repository *IntegrationAuthorizationRepository) ClaimCallback(ctx context.Context, accountID ids.AccountID, stateSHA256, codeSHA256 [sha256.Size]byte, at time.Time) (integrationauthorization.CallbackProgress, error) {
 	if ids.Validate(string(accountID)) != nil || stateSHA256 == [sha256.Size]byte{} || codeSHA256 == [sha256.Size]byte{} || at.IsZero() {
 		return integrationauthorization.CallbackProgress{}, integrationauthorization.ErrInvalid
@@ -420,6 +523,200 @@ func (repository *IntegrationAuthorizationRepository) FailCallback(ctx context.C
 	return result, classifyIntegrationAuthorization(err)
 }
 
+func (repository *IntegrationAuthorizationRepository) PrepareRevocation(ctx context.Context, accountID ids.AccountID, workflowID string,
+	connectionID ids.IntegrationConnectionID, actor domain.Actor, at time.Time) (integrationauthorization.RevocationWorkflow, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(workflowID) != nil || ids.Validate(string(connectionID)) != nil ||
+		ids.Validate(string(actor.UserID)) != nil || at.IsZero() {
+		return integrationauthorization.RevocationWorkflow{}, integrationauthorization.ErrInvalid
+	}
+	var result integrationauthorization.RevocationWorkflow
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		existing, err := loadIntegrationCredentialRevocation(ctx, tx, accountID, workflowID, true)
+		if err == nil {
+			if existing.ConnectionID != connectionID || existing.CreatedBy != actor {
+				return integrationauthorization.ErrConflict
+			}
+			result = existing
+			return nil
+		}
+		if !errors.Is(err, integrationauthorization.ErrNotFound) {
+			return err
+		}
+		connection, err := loadIntegrationConnection(ctx, tx, accountID, connectionID, true)
+		if err != nil {
+			return err
+		}
+		if (connection.State != domain.ConnectionActive && connection.State != domain.ConnectionDisabled) || connection.CredentialID == "" || connection.CredentialGeneration == 0 {
+			return integrationauthorization.ErrConflict
+		}
+		var openAuthorization bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM spyglass.integration_authorization_workflows
+			WHERE account_id=$1 AND connection_id=$2 AND state NOT IN ('completed','failed'))`, accountID, connectionID).Scan(&openAuthorization); err != nil {
+			return err
+		}
+		if openAuthorization {
+			return integrationauthorization.ErrConflict
+		}
+		credential, err := loadIntegrationCredential(ctx, tx, accountID, connection.CredentialID, true)
+		if err != nil {
+			return err
+		}
+		if credential.State != domain.CredentialActive || credential.Generation != connection.CredentialGeneration || credential.Provider != domain.GoogleOAuthProvider {
+			return integrationauthorization.ErrConflict
+		}
+		workflow := integrationauthorization.RevocationWorkflow{AccountID: accountID, ID: workflowID, ConnectionID: connectionID,
+			ConnectionVersion: connection.Version, CredentialID: credential.ID, CredentialGeneration: credential.Generation,
+			Provider: credential.Provider, ReferenceSHA256: credential.ReferenceSHA256, State: integrationauthorization.RevocationPrepared,
+			CreatedBy: actor, CreatedAt: at.UTC(), UpdatedAt: at.UTC()}
+		_, err = tx.Exec(ctx, `INSERT INTO spyglass.integration_credential_revocation_workflows
+			(account_id,id,connection_id,connection_version,credential_id,credential_generation,provider,reference_sha256,state,
+			 created_by_user_id,provider_started_at,created_at,updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULL,$11,$11)`, workflow.AccountID, workflow.ID, workflow.ConnectionID,
+			workflow.ConnectionVersion, workflow.CredentialID, workflow.CredentialGeneration, workflow.Provider, workflow.ReferenceSHA256[:],
+			workflow.State, workflow.CreatedBy.UserID, workflow.CreatedAt)
+		if err != nil {
+			return err
+		}
+		result = workflow
+		return nil
+	})
+	return result, classifyIntegrationAuthorization(err)
+}
+
+func (repository *IntegrationAuthorizationRepository) StartProviderRevocation(ctx context.Context, accountID ids.AccountID, workflowID string, at time.Time) (integrationauthorization.RevocationWorkflow, bool, error) {
+	return repository.transitionCredentialRevocation(ctx, accountID, workflowID, integrationauthorization.RevocationPrepared,
+		integrationauthorization.RevocationProviderRevoking, at, true)
+}
+
+func (repository *IntegrationAuthorizationRepository) MarkProviderRevoked(ctx context.Context, accountID ids.AccountID, workflowID string, at time.Time) (integrationauthorization.RevocationWorkflow, error) {
+	result, _, err := repository.transitionCredentialRevocation(ctx, accountID, workflowID, integrationauthorization.RevocationProviderRevoking,
+		integrationauthorization.RevocationProviderRevoked, at, false)
+	return result, err
+}
+
+func (repository *IntegrationAuthorizationRepository) MarkRevocationVaultFenced(ctx context.Context, accountID ids.AccountID, workflowID string, at time.Time) (integrationauthorization.RevocationWorkflow, error) {
+	result, _, err := repository.transitionCredentialRevocation(ctx, accountID, workflowID, integrationauthorization.RevocationProviderRevoked,
+		integrationauthorization.RevocationVaultFenced, at, false)
+	return result, err
+}
+
+func (repository *IntegrationAuthorizationRepository) transitionCredentialRevocation(ctx context.Context, accountID ids.AccountID, workflowID string,
+	from, to integrationauthorization.RevocationState, at time.Time, providerStart bool) (integrationauthorization.RevocationWorkflow, bool, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(workflowID) != nil || at.IsZero() {
+		return integrationauthorization.RevocationWorkflow{}, false, integrationauthorization.ErrInvalid
+	}
+	var result integrationauthorization.RevocationWorkflow
+	changed := false
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		workflow, err := loadIntegrationCredentialRevocation(ctx, tx, accountID, workflowID, true)
+		if err != nil {
+			return err
+		}
+		if workflow.State == to || workflow.State != from {
+			result = workflow
+			return nil
+		}
+		if providerStart {
+			workflow.ProviderStartedAt = timePointer(at.UTC())
+		}
+		workflow.State, workflow.UpdatedAt = to, at.UTC()
+		updated, err := tx.Exec(ctx, `UPDATE spyglass.integration_credential_revocation_workflows
+			SET state=$3,provider_started_at=$4,updated_at=$5 WHERE account_id=$1 AND id=$2 AND state=$6`,
+			accountID, workflowID, to, workflow.ProviderStartedAt, workflow.UpdatedAt, from)
+		if err != nil {
+			return err
+		}
+		if updated.RowsAffected() != 1 {
+			return integrationauthorization.ErrConflict
+		}
+		result, changed = workflow, true
+		return nil
+	})
+	return result, changed, classifyIntegrationAuthorization(err)
+}
+
+func (repository *IntegrationAuthorizationRepository) CompleteRevocation(ctx context.Context, accountID ids.AccountID, workflowID string, at time.Time) (integrationauthorization.RevocationWorkflow, error) {
+	if ids.Validate(string(accountID)) != nil || ids.Validate(workflowID) != nil || at.IsZero() {
+		return integrationauthorization.RevocationWorkflow{}, integrationauthorization.ErrInvalid
+	}
+	var result integrationauthorization.RevocationWorkflow
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(ctx context.Context, tx pgx.Tx) error {
+		workflow, err := loadIntegrationCredentialRevocation(ctx, tx, accountID, workflowID, true)
+		if err != nil {
+			return err
+		}
+		if workflow.State == integrationauthorization.RevocationCompleted {
+			result = workflow
+			return nil
+		}
+		if workflow.State != integrationauthorization.RevocationVaultFenced {
+			return integrationauthorization.ErrConflict
+		}
+		connection, err := loadIntegrationConnection(ctx, tx, accountID, workflow.ConnectionID, true)
+		if err != nil {
+			return err
+		}
+		credential, err := loadIntegrationCredential(ctx, tx, accountID, workflow.CredentialID, true)
+		if err != nil {
+			return err
+		}
+		if connection.Version != workflow.ConnectionVersion || connection.CredentialID != workflow.CredentialID ||
+			connection.CredentialGeneration != workflow.CredentialGeneration || credential.State != domain.CredentialActive ||
+			credential.Generation != workflow.CredentialGeneration {
+			return integrationauthorization.ErrConflict
+		}
+		ended, err := credential.Revoke(credential.Generation, workflow.CreatedBy, accounts.RoleAdministrator, at)
+		if err != nil {
+			return err
+		}
+		next, err := connection.Revoke(connection.Version, workflow.CreatedBy, accounts.RoleAdministrator, at)
+		if err != nil {
+			return err
+		}
+		updated, err := tx.Exec(ctx, `UPDATE spyglass.integration_credentials SET state=$3,ended_by_user_id=$4,ended_at=$5,updated_at=$5
+			WHERE account_id=$1 AND id=$2 AND state='active'`, accountID, ended.ID, ended.State, workflow.CreatedBy.UserID, at)
+		if err != nil || updated.RowsAffected() != 1 {
+			if err != nil {
+				return err
+			}
+			return integrationauthorization.ErrConflict
+		}
+		if _, err := tx.Exec(ctx, `SELECT set_config('spyglass.integration_revocation_completion','on',true)`); err != nil {
+			return err
+		}
+		updated, err = tx.Exec(ctx, `UPDATE spyglass.integration_connections SET state=$3,version=$4,revoked_by_user_id=$5,revoked_at=$6,updated_at=$6
+			WHERE account_id=$1 AND id=$2 AND version=$7`, accountID, next.ID, next.State, next.Version, workflow.CreatedBy.UserID, next.RevokedAt, connection.Version)
+		if err != nil || updated.RowsAffected() != 1 {
+			if err != nil {
+				return err
+			}
+			return integrationauthorization.ErrConflict
+		}
+		updated, err = tx.Exec(ctx, `UPDATE spyglass.integration_credential_revocation_workflows SET state='completed',updated_at=$3
+			WHERE account_id=$1 AND id=$2 AND state='vault_fenced'`, accountID, workflowID, at)
+		if err != nil || updated.RowsAffected() != 1 {
+			if err != nil {
+				return err
+			}
+			return integrationauthorization.ErrConflict
+		}
+		connectionEventID, _ := ids.Derive(workflow.ID, "integration-oauth-connection-revoked")
+		if err := insertIntegrationEvent(ctx, tx, accountID, connectionEventID, "connection", string(connection.ID), "connection_revoked",
+			workflow.CreatedBy, workflow.ID, map[string]any{"state": next.State, "credential_generation": credential.Generation}, at); err != nil {
+			return err
+		}
+		credentialEventID, _ := ids.Derive(workflow.ID, "integration-oauth-credential-revoked")
+		if err := insertIntegrationEvent(ctx, tx, accountID, credentialEventID, "credential", string(credential.ID), "credential_revoked",
+			workflow.CreatedBy, workflow.ID, map[string]any{"connection_id": connection.ID, "generation": credential.Generation}, at); err != nil {
+			return err
+		}
+		workflow.State, workflow.UpdatedAt = integrationauthorization.RevocationCompleted, at.UTC()
+		result = workflow
+		return nil
+	})
+	return result, classifyIntegrationAuthorization(err)
+}
+
 func insertIntegrationAuthorizationWorkflow(ctx context.Context, tx pgx.Tx, value integrationauthorization.CredentialWorkflow) error {
 	_, err := tx.Exec(ctx, `INSERT INTO spyglass.integration_authorization_workflows
 		(account_id,session_id,connection_id,connection_version,state,target_credential_id,target_generation,reference_sha256,
@@ -428,6 +725,52 @@ func insertIntegrationAuthorizationWorkflow(ctx context.Context, tx pgx.Tx, valu
 		value.ConnectionVersion, value.State, value.TargetCredentialID, value.TargetGeneration, value.ReferenceSHA256[:],
 		nullableAuthorizationCredential(value.PreviousCredentialID), value.PreviousGeneration, value.CodeSHA256[:], value.ExchangeStartedAt, value.CreatedAt)
 	return err
+}
+
+func loadIntegrationCredentialRevocation(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, workflowID string, lock bool) (integrationauthorization.RevocationWorkflow, error) {
+	query := `SELECT account_id,id::text,connection_id,connection_version,credential_id,credential_generation,provider,reference_sha256,state,
+		created_by_user_id::text,provider_started_at,created_at,updated_at FROM spyglass.integration_credential_revocation_workflows
+		WHERE account_id=$1 AND id=$2`
+	if lock {
+		query += ` FOR UPDATE`
+	}
+	var value integrationauthorization.RevocationWorkflow
+	var referenceDigest []byte
+	err := tx.QueryRow(ctx, query, accountID, workflowID).Scan(&value.AccountID, &value.ID, &value.ConnectionID, &value.ConnectionVersion,
+		&value.CredentialID, &value.CredentialGeneration, &value.Provider, &referenceDigest, &value.State, &value.CreatedBy.UserID,
+		&value.ProviderStartedAt, &value.CreatedAt, &value.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return integrationauthorization.RevocationWorkflow{}, integrationauthorization.ErrNotFound
+	}
+	if err != nil {
+		return integrationauthorization.RevocationWorkflow{}, err
+	}
+	if len(referenceDigest) != sha256.Size {
+		return integrationauthorization.RevocationWorkflow{}, integrationauthorization.ErrRepository
+	}
+	copy(value.ReferenceSHA256[:], referenceDigest)
+	if !validIntegrationCredentialRevocation(value) {
+		return integrationauthorization.RevocationWorkflow{}, integrationauthorization.ErrRepository
+	}
+	return value, nil
+}
+
+func validIntegrationCredentialRevocation(value integrationauthorization.RevocationWorkflow) bool {
+	if ids.Validate(string(value.AccountID)) != nil || ids.Validate(value.ID) != nil || ids.Validate(string(value.ConnectionID)) != nil ||
+		ids.Validate(string(value.CredentialID)) != nil || ids.Validate(string(value.CreatedBy.UserID)) != nil || value.ConnectionVersion == 0 ||
+		value.CredentialGeneration == 0 || value.Provider != domain.GoogleOAuthProvider || value.ReferenceSHA256 == [sha256.Size]byte{} ||
+		value.CreatedAt.IsZero() || value.UpdatedAt.Before(value.CreatedAt) {
+		return false
+	}
+	switch value.State {
+	case integrationauthorization.RevocationPrepared:
+		return value.ProviderStartedAt == nil
+	case integrationauthorization.RevocationProviderRevoking, integrationauthorization.RevocationProviderRevoked,
+		integrationauthorization.RevocationVaultFenced, integrationauthorization.RevocationCompleted:
+		return value.ProviderStartedAt != nil
+	default:
+		return false
+	}
 }
 
 func loadIntegrationAuthorizationProgress(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, sessionID ids.IntegrationAuthorizationSessionID, lock bool) (integrationauthorization.CallbackProgress, error) {

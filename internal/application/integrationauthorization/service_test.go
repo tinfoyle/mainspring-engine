@@ -195,6 +195,122 @@ func TestCallbackPersistsProviderScopeFailure(t *testing.T) {
 	}
 }
 
+func TestStatusPersistsExpiryAndReturnsSafeSummary(t *testing.T) {
+	repository := newAuthorizationRepository(t)
+	secretStore := newAuthorizationSecretStore()
+	clock := &authorizationClock{at: authorizationNow}
+	service, err := NewService(authorizationAuthorizer{}, repository, secretStore, &authorizationProvider{},
+		&authorizationSecrets{values: [][]byte{[]byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"), []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ")}}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Begin(context.Background(), authorizationCommand()); err != nil {
+		t.Fatal(err)
+	}
+	clock.at = authorizationNow.Add(AuthorizationTTL)
+	summary, err := service.Status(context.Background(), access.Actor{UserID: authorizationUser}, authorizationAccount,
+		ids.IntegrationAuthorizationSessionID(authorizationRequest))
+	if err != nil || summary.Status != domain.AuthorizationExpired || summary.ErrorCode != "authorization_expired" ||
+		summary.ID != ids.IntegrationAuthorizationSessionID(authorizationRequest) || !secretStore.authorizationGone {
+		t.Fatalf("summary=%+v secret_deleted=%t err=%v", summary, secretStore.authorizationGone, err)
+	}
+	if repository.session == nil || repository.session.Status != domain.AuthorizationExpired ||
+		repository.session.StateSHA256 == [sha256.Size]byte{} || repository.session.PKCEChallengeSHA256 == [sha256.Size]byte{} {
+		t.Fatalf("durable expiry or internal digest bindings were lost: %+v", repository.session)
+	}
+}
+
+func TestCallbackPersistsProviderDenialAndReplays(t *testing.T) {
+	repository := newAuthorizationRepository(t)
+	secretStore := newAuthorizationSecretStore()
+	provider := &authorizationProvider{}
+	service := newAuthorizationService(t, repository, secretStore, provider)
+	if _, err := service.Begin(context.Background(), authorizationCommand()); err != nil {
+		t.Fatal(err)
+	}
+	state := append([]byte(nil), secretStore.value.State...)
+	command := CallbackCommand{AccountID: authorizationAccount, State: state, ProviderError: "access_denied"}
+	result, err := service.Callback(context.Background(), command)
+	if !errors.Is(err, ErrProviderRejected) || result.Session.Status != domain.AuthorizationFailed ||
+		result.Session.ErrorCode != "provider_access_denied" || !secretStore.authorizationGone {
+		t.Fatalf("denial=%+v deleted=%t err=%v", result, secretStore.authorizationGone, err)
+	}
+	providerCalls := provider.calls
+	replayed, err := service.Callback(context.Background(), command)
+	if !errors.Is(err, ErrProviderRejected) || replayed.Session != result.Session || provider.calls != providerCalls {
+		t.Fatalf("denial replay=%+v err=%v provider_calls=%d", replayed, err, provider.calls)
+	}
+}
+
+func TestRevokeFencesCompletesPurgesAndReplaysWithoutProviderCall(t *testing.T) {
+	repository := newAuthorizationRepository(t)
+	credentialID := ids.IntegrationCredentialID("bc000000-0000-4000-8000-00000000000c")
+	reference := []byte("spyglass-encrypted://test/revocation-reference")
+	credential, err := domain.NewCredentialBinding(domain.CredentialInput{ID: credentialID, AccountID: authorizationAccount,
+		ConnectionID: authorizationConnection, Generation: 1, Provider: domain.GoogleOAuthProvider, ReferenceSHA256: sha256.Sum256(reference),
+		CreatedBy: domain.Actor{UserID: authorizationUser}, CreatedAt: authorizationNow.Add(-30 * time.Minute)}, accounts.RoleOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := repository.authority.Connection.Activate(repository.authority.Connection.Version, credential,
+		domain.Actor{UserID: authorizationUser}, accounts.RoleOwner, authorizationNow.Add(-20*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.authority.Connection = active
+	secretStore := newAuthorizationSecretStore()
+	secretStore.credential = &integrationcredentials.CredentialSecret{AccountID: authorizationAccount, CredentialID: credentialID, Generation: 1,
+		Provider: domain.GoogleOAuthProvider, Reference: reference, Material: []byte(`{"refresh_token":"revocation-refresh"}`)}
+	provider := &authorizationProvider{}
+	service := newAuthorizationService(t, repository, secretStore, provider)
+	command := RevokeCommand{Actor: access.Actor{UserID: authorizationUser}, Session: authorizationCommand().Session, AccountID: authorizationAccount,
+		RequestID: "bd000000-0000-4000-8000-00000000000d", ConnectionID: authorizationConnection}
+	result, err := service.Revoke(context.Background(), command)
+	if err != nil || result.State != RevocationCompleted || provider.revokeCalls != 1 || provider.revokedToken != "revocation-refresh" ||
+		secretStore.fencedID != credentialID || !secretStore.purged {
+		t.Fatalf("revocation=%+v err=%v provider=%d/%q fenced=%s purged=%t", result, err, provider.revokeCalls, provider.revokedToken, secretStore.fencedID, secretStore.purged)
+	}
+	replayed, err := service.Revoke(context.Background(), command)
+	if err != nil || replayed.State != RevocationCompleted || provider.revokeCalls != 1 {
+		t.Fatalf("revocation replay=%+v err=%v provider_calls=%d", replayed, err, provider.revokeCalls)
+	}
+}
+
+func TestRevokeRetriesProviderBeforeFencing(t *testing.T) {
+	repository := newAuthorizationRepository(t)
+	credentialID := ids.IntegrationCredentialID("be000000-0000-4000-8000-00000000000e")
+	reference := []byte("spyglass-encrypted://test/revocation-reference")
+	credential, err := domain.NewCredentialBinding(domain.CredentialInput{ID: credentialID, AccountID: authorizationAccount,
+		ConnectionID: authorizationConnection, Generation: 1, Provider: domain.GoogleOAuthProvider, ReferenceSHA256: sha256.Sum256(reference),
+		CreatedBy: domain.Actor{UserID: authorizationUser}, CreatedAt: authorizationNow.Add(-30 * time.Minute)}, accounts.RoleOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := repository.authority.Connection.Activate(repository.authority.Connection.Version, credential,
+		domain.Actor{UserID: authorizationUser}, accounts.RoleOwner, authorizationNow.Add(-20*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.authority.Connection = active
+	secretStore := newAuthorizationSecretStore()
+	secretStore.credential = &integrationcredentials.CredentialSecret{AccountID: authorizationAccount, CredentialID: credentialID, Generation: 1,
+		Provider: domain.GoogleOAuthProvider, Reference: reference, Material: []byte(`{"refresh_token":"revocation-refresh"}`)}
+	provider := &authorizationProvider{revokeErr: ErrProviderUnavailable}
+	service := newAuthorizationService(t, repository, secretStore, provider)
+	command := RevokeCommand{Actor: access.Actor{UserID: authorizationUser}, Session: authorizationCommand().Session, AccountID: authorizationAccount,
+		RequestID: "bf000000-0000-4000-8000-00000000000f", ConnectionID: authorizationConnection}
+	first, err := service.Revoke(context.Background(), command)
+	if !errors.Is(err, ErrProviderUnavailable) || first.State != RevocationProviderRevoking || secretStore.credentialFenced || secretStore.purged {
+		t.Fatalf("first=%+v err=%v fenced=%t purged=%t", first, err, secretStore.credentialFenced, secretStore.purged)
+	}
+	provider.revokeErr = nil
+	second, err := service.Revoke(context.Background(), command)
+	if err != nil || second.State != RevocationCompleted || provider.revokeCalls != 2 || !secretStore.credentialFenced || !secretStore.purged {
+		t.Fatalf("retry=%+v err=%v provider_calls=%d fenced=%t purged=%t", second, err, provider.revokeCalls,
+			secretStore.credentialFenced, secretStore.purged)
+	}
+}
+
 func authorizationCommand() BeginCommand {
 	return BeginCommand{Actor: access.Actor{UserID: authorizationUser}, Session: sessions.Session{ID: ids.SessionID("b6000000-0000-4000-8000-000000000006"),
 		UserID: authorizationUser, ReauthenticatedAt: authorizationNow.Add(-time.Minute), ReauthenticationMethod: sessions.AuthenticationMethodPasskey},
@@ -236,8 +352,11 @@ func (generator *authorizationSecrets) New() ([]byte, error) {
 }
 
 type authorizationProvider struct {
-	calls       int
-	exchangeErr error
+	calls        int
+	exchangeErr  error
+	revokeCalls  int
+	revokeErr    error
+	revokedToken string
 }
 
 func (provider *authorizationProvider) AuthorizationURL(state, challenge []byte, redirect string) (string, error) {
@@ -251,12 +370,17 @@ func (provider *authorizationProvider) Exchange(context.Context, ExchangeRequest
 	}
 	return RefreshCredential{RefreshToken: []byte("refresh-token")}, nil
 }
-func (*authorizationProvider) Revoke(context.Context, []byte) error { return errors.New("unused") }
+func (provider *authorizationProvider) Revoke(_ context.Context, token []byte) error {
+	provider.revokeCalls++
+	provider.revokedToken = string(token)
+	return provider.revokeErr
+}
 
 type authorizationRepository struct {
 	authority   Authority
 	session     *domain.AuthorizationSession
 	workflow    *CredentialWorkflow
+	revocation  *RevocationWorkflow
 	createCalls int
 }
 
@@ -287,6 +411,52 @@ func (repository *authorizationRepository) Get(_ context.Context, _ ids.AccountI
 		return domain.AuthorizationSession{}, ErrNotFound
 	}
 	return *repository.session, nil
+}
+
+func (repository *authorizationRepository) ExpireAuthorization(_ context.Context, _ ids.AccountID,
+	_ ids.IntegrationAuthorizationSessionID, at time.Time) (domain.AuthorizationSession, error) {
+	if repository.session == nil {
+		return domain.AuthorizationSession{}, ErrNotFound
+	}
+	if repository.session.Status != domain.AuthorizationPending {
+		return *repository.session, nil
+	}
+	next, err := repository.session.Expire(repository.session.Version, at)
+	if err != nil {
+		return domain.AuthorizationSession{}, err
+	}
+	repository.session = &next
+	return next, nil
+}
+
+func (repository *authorizationRepository) RejectCallback(_ context.Context, accountID ids.AccountID, stateDigest [sha256.Size]byte,
+	code string, at time.Time) (domain.AuthorizationSession, error) {
+	if repository.session == nil || repository.session.AccountID != accountID || repository.session.StateSHA256 != stateDigest {
+		return domain.AuthorizationSession{}, ErrNotFound
+	}
+	if repository.session.Status == domain.AuthorizationFailed {
+		if repository.session.ErrorCode != code {
+			return domain.AuthorizationSession{}, ErrConflict
+		}
+		return *repository.session, nil
+	}
+	if repository.session.Status == domain.AuthorizationExpired {
+		return *repository.session, nil
+	}
+	claimed, err := repository.session.BeginExchange(stateDigest, repository.session.Version, at)
+	if err != nil {
+		return domain.AuthorizationSession{}, err
+	}
+	if claimed.Status == domain.AuthorizationExpired {
+		repository.session = &claimed
+		return claimed, nil
+	}
+	failed, err := claimed.Fail(code, claimed.Version, at)
+	if err != nil {
+		return domain.AuthorizationSession{}, err
+	}
+	repository.session = &failed
+	return failed, nil
 }
 
 func (repository *authorizationRepository) ClaimCallback(_ context.Context, accountID ids.AccountID, stateDigest, codeDigest [sha256.Size]byte, at time.Time) (CallbackProgress, error) {
@@ -356,6 +526,52 @@ func (repository *authorizationRepository) FailCallback(_ context.Context, _ ids
 	return CallbackProgress{Session: next, Workflow: *repository.workflow}, nil
 }
 
+func (repository *authorizationRepository) PrepareRevocation(_ context.Context, accountID ids.AccountID, workflowID string,
+	connectionID ids.IntegrationConnectionID, actor domain.Actor, at time.Time) (RevocationWorkflow, error) {
+	if repository.revocation != nil {
+		if repository.revocation.ID != workflowID || repository.revocation.ConnectionID != connectionID || repository.revocation.CreatedBy != actor {
+			return RevocationWorkflow{}, ErrConflict
+		}
+		return *repository.revocation, nil
+	}
+	connection := repository.authority.Connection
+	workflow := RevocationWorkflow{AccountID: accountID, ID: workflowID, ConnectionID: connectionID, ConnectionVersion: connection.Version,
+		CredentialID: connection.CredentialID, CredentialGeneration: connection.CredentialGeneration, Provider: domain.GoogleOAuthProvider,
+		ReferenceSHA256: sha256.Sum256([]byte("spyglass-encrypted://test/revocation-reference")), State: RevocationPrepared,
+		CreatedBy: actor, CreatedAt: at, UpdatedAt: at}
+	repository.revocation = &workflow
+	return workflow, nil
+}
+
+func (repository *authorizationRepository) StartProviderRevocation(_ context.Context, _ ids.AccountID, _ string, at time.Time) (RevocationWorkflow, bool, error) {
+	if repository.revocation.State != RevocationPrepared {
+		return *repository.revocation, false, nil
+	}
+	repository.revocation.State, repository.revocation.ProviderStartedAt, repository.revocation.UpdatedAt = RevocationProviderRevoking, timePointerForTest(at), at
+	return *repository.revocation, true, nil
+}
+
+func (repository *authorizationRepository) MarkProviderRevoked(context.Context, ids.AccountID, string, time.Time) (RevocationWorkflow, error) {
+	if repository.revocation.State == RevocationProviderRevoking {
+		repository.revocation.State = RevocationProviderRevoked
+	}
+	return *repository.revocation, nil
+}
+
+func (repository *authorizationRepository) MarkRevocationVaultFenced(context.Context, ids.AccountID, string, time.Time) (RevocationWorkflow, error) {
+	if repository.revocation.State == RevocationProviderRevoked {
+		repository.revocation.State = RevocationVaultFenced
+	}
+	return *repository.revocation, nil
+}
+
+func (repository *authorizationRepository) CompleteRevocation(context.Context, ids.AccountID, string, time.Time) (RevocationWorkflow, error) {
+	if repository.revocation.State == RevocationVaultFenced {
+		repository.revocation.State = RevocationCompleted
+	}
+	return *repository.revocation, nil
+}
+
 func timePointerForTest(value time.Time) *time.Time { return &value }
 
 type authorizationSecretStore struct {
@@ -365,6 +581,7 @@ type authorizationSecretStore struct {
 	fencedID                    ids.IntegrationCredentialID
 	fencedGeneration            uint64
 	authorizationGone           bool
+	purged                      bool
 	failPutAfterStore           bool
 	failCredentialPutAfterStore bool
 }
@@ -406,11 +623,29 @@ func (store *authorizationSecretStore) CredentialExists(_ context.Context, accou
 	return store.credential != nil && !store.credentialFenced && store.credential.AccountID == accountID && store.credential.CredentialID == credentialID &&
 		store.credential.Generation == generation && store.credential.Provider == provider && sha256.Sum256(store.credential.Reference) == referenceDigest, nil
 }
+func (store *authorizationSecretStore) CredentialMaterial(_ context.Context, accountID ids.AccountID, credentialID ids.IntegrationCredentialID,
+	generation uint64, provider string, reference [32]byte) (integrationcredentials.Lease, error) {
+	if store.credential == nil || store.credential.AccountID != accountID || store.credential.CredentialID != credentialID ||
+		store.credential.Generation != generation || store.credential.Provider != provider || sha256.Sum256(store.credential.Reference) != reference || store.credentialFenced {
+		return nil, errors.New("unavailable")
+	}
+	return &authorizationLease{material: append([]byte(nil), store.credential.Material...)}, nil
+}
 func (store *authorizationSecretStore) FenceCredential(_ context.Context, _ ids.AccountID, credentialID ids.IntegrationCredentialID, generation uint64, _ integrationcredentials.CredentialEndState) error {
 	store.credentialFenced = true
 	store.fencedID, store.fencedGeneration = credentialID, generation
 	return nil
 }
-func (*authorizationSecretStore) PurgeCredential(context.Context, ids.AccountID, ids.IntegrationCredentialID, uint64) error {
-	return errors.New("unused")
+func (store *authorizationSecretStore) PurgeCredential(context.Context, ids.AccountID, ids.IntegrationCredentialID, uint64) error {
+	store.purged = true
+	return nil
+}
+
+type authorizationLease struct{ material []byte }
+
+func (lease *authorizationLease) Material() []byte { return lease.material }
+func (lease *authorizationLease) Close() error {
+	wipe(lease.material)
+	lease.material = nil
+	return nil
 }

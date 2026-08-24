@@ -99,6 +99,11 @@ func TestVaultCredentialLeaseRequiresExactActiveGenerationAndPurpose(t *testing.
 	if err != nil || !exists {
 		t.Fatalf("credential exists=%t err=%v", exists, err)
 	}
+	materialLease, err := vault.CredentialMaterial(context.Background(), vaultAccount, vaultCredential, 1, domain.GoogleOAuthProvider, sha256.Sum256(reference))
+	if err != nil || !bytes.Equal(materialLease.Material(), material) {
+		t.Fatalf("credential material=%q err=%v", materialLease.Material(), err)
+	}
+	_ = materialLease.Close()
 	if err := vault.PutCredential(context.Background(), secret); err != nil {
 		t.Fatalf("exact credential replay: %v", err)
 	}
@@ -140,6 +145,9 @@ func TestVaultCredentialLeaseRequiresExactActiveGenerationAndPurpose(t *testing.
 	request.ReferenceSHA256 = sha256.Sum256(reference)
 	if _, err := vault.Acquire(context.Background(), request); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("fenced credential lease=%v", err)
+	}
+	if _, err := vault.CredentialMaterial(context.Background(), vaultAccount, vaultCredential, 1, domain.GoogleOAuthProvider, sha256.Sum256(reference)); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("fenced lifecycle credential=%v", err)
 	}
 	if err := vault.FenceCredential(context.Background(), vaultAccount, vaultCredential, 1, integrationcredentials.CredentialRevoked); !errors.Is(err, ErrConflict) {
 		t.Fatalf("ended-state rewrite=%v", err)

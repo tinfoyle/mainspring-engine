@@ -1,11 +1,13 @@
 package integrationauthorization
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -55,12 +57,19 @@ type Repository interface {
 	Authority(context.Context, ids.AccountID, ids.IntegrationConnectionID) (Authority, error)
 	Create(context.Context, domain.AuthorizationSession, accounts.MembershipRole, Event) (domain.AuthorizationSession, bool, error)
 	Get(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID) (domain.AuthorizationSession, error)
+	ExpireAuthorization(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (domain.AuthorizationSession, error)
+	RejectCallback(context.Context, ids.AccountID, [sha256.Size]byte, string, time.Time) (domain.AuthorizationSession, error)
 	ClaimCallback(context.Context, ids.AccountID, [sha256.Size]byte, [sha256.Size]byte, time.Time) (CallbackProgress, error)
 	StartProviderExchange(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, bool, error)
 	MarkCredentialStored(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, error)
 	MarkPreviousFenced(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, error)
 	CompleteCallback(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, error)
 	FailCallback(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, string, time.Time) (CallbackProgress, error)
+	PrepareRevocation(context.Context, ids.AccountID, string, ids.IntegrationConnectionID, domain.Actor, time.Time) (RevocationWorkflow, error)
+	StartProviderRevocation(context.Context, ids.AccountID, string, time.Time) (RevocationWorkflow, bool, error)
+	MarkProviderRevoked(context.Context, ids.AccountID, string, time.Time) (RevocationWorkflow, error)
+	MarkRevocationVaultFenced(context.Context, ids.AccountID, string, time.Time) (RevocationWorkflow, error)
+	CompleteRevocation(context.Context, ids.AccountID, string, time.Time) (RevocationWorkflow, error)
 }
 
 type WorkflowState string
@@ -97,6 +106,32 @@ type CallbackProgress struct {
 	Workflow CredentialWorkflow
 }
 
+type RevocationState string
+
+const (
+	RevocationPrepared         RevocationState = "prepared"
+	RevocationProviderRevoking RevocationState = "provider_revoking"
+	RevocationProviderRevoked  RevocationState = "provider_revoked"
+	RevocationVaultFenced      RevocationState = "vault_fenced"
+	RevocationCompleted        RevocationState = "completed"
+)
+
+type RevocationWorkflow struct {
+	AccountID            ids.AccountID
+	ID                   string
+	ConnectionID         ids.IntegrationConnectionID
+	ConnectionVersion    uint64
+	CredentialID         ids.IntegrationCredentialID
+	CredentialGeneration uint64
+	Provider             string
+	ReferenceSHA256      [sha256.Size]byte
+	State                RevocationState
+	CreatedBy            domain.Actor
+	ProviderStartedAt    *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
 type Service struct {
 	authorizer Authorizer
 	repository Repository
@@ -128,13 +163,35 @@ type BeginResult struct {
 }
 
 type CallbackCommand struct {
-	AccountID ids.AccountID
-	State     []byte
-	Code      []byte
+	AccountID     ids.AccountID
+	State         []byte
+	Code          []byte
+	ProviderError string
 }
 
 type CallbackResult struct {
 	Session domain.AuthorizationSession
+}
+
+type RevokeCommand struct {
+	Actor        access.Actor
+	Session      sessions.Session
+	AccountID    ids.AccountID
+	RequestID    string
+	ConnectionID ids.IntegrationConnectionID
+}
+
+type AuthorizationSummary struct {
+	ID                   ids.IntegrationAuthorizationSessionID
+	AccountID            ids.AccountID
+	ConnectionID         ids.IntegrationConnectionID
+	Status               domain.AuthorizationStatus
+	CredentialID         ids.IntegrationCredentialID
+	CredentialGeneration uint64
+	ErrorCode            string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	ExpiresAt            time.Time
 }
 
 func (service *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult, error) {
@@ -219,15 +276,67 @@ func (service *Service) Begin(ctx context.Context, command BeginCommand) (BeginR
 }
 
 func (service *Service) Callback(ctx context.Context, command CallbackCommand) (CallbackResult, error) {
-	if ids.Validate(string(command.AccountID)) != nil || !validOAuthSecret(command.State) || !validAuthorizationCode(command.Code) {
+	if ids.Validate(string(command.AccountID)) != nil || !validOAuthSecret(command.State) {
 		return CallbackResult{}, ErrInvalid
 	}
 	now := service.clock.Now().UTC()
+	if command.ProviderError != "" {
+		code, providerErr, valid := providerCallbackFailure(command.ProviderError)
+		if !valid || len(command.Code) != 0 {
+			return CallbackResult{}, ErrInvalid
+		}
+		session, err := service.repository.RejectCallback(ctx, command.AccountID, sha256.Sum256(command.State), code, now)
+		if err != nil {
+			return CallbackResult{}, classify(err)
+		}
+		_ = service.secrets.DeleteAuthorization(ctx, session.AccountID, session.ID)
+		if session.Status == domain.AuthorizationExpired {
+			return CallbackResult{Session: session}, ErrExpired
+		}
+		return CallbackResult{Session: session}, providerErr
+	}
+	if !validAuthorizationCode(command.Code) {
+		return CallbackResult{}, ErrInvalid
+	}
 	progress, err := service.repository.ClaimCallback(ctx, command.AccountID, sha256.Sum256(command.State), sha256.Sum256(command.Code), now)
 	if err != nil {
 		return CallbackResult{}, classify(err)
 	}
 	return service.advanceCallback(ctx, progress, command.Code, now)
+}
+
+func (service *Service) Status(ctx context.Context, actor access.Actor, accountID ids.AccountID,
+	sessionID ids.IntegrationAuthorizationSessionID) (AuthorizationSummary, error) {
+	if !actor.Valid() || actor.UserID == "" || ids.Validate(string(actor.UserID)) != nil || ids.Validate(string(accountID)) != nil ||
+		ids.Validate(string(sessionID)) != nil {
+		return AuthorizationSummary{}, ErrInvalid
+	}
+	authorized, err := service.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: catalog.PackageIntegrations})
+	if err != nil {
+		return AuthorizationSummary{}, err
+	}
+	if authorized.AccountID != accountID {
+		return AuthorizationSummary{}, ErrInvalid
+	}
+	session, err := service.repository.Get(ctx, accountID, sessionID)
+	if err != nil {
+		return AuthorizationSummary{}, classify(err)
+	}
+	now := service.clock.Now().UTC()
+	if session.Status == domain.AuthorizationPending && !session.ExpiresAt.After(now) {
+		session, err = service.repository.ExpireAuthorization(ctx, accountID, sessionID, now)
+		if err != nil {
+			return AuthorizationSummary{}, classify(err)
+		}
+		_ = service.secrets.DeleteAuthorization(ctx, accountID, sessionID)
+	}
+	return summarizeAuthorization(session), nil
+}
+
+func summarizeAuthorization(session domain.AuthorizationSession) AuthorizationSummary {
+	return AuthorizationSummary{ID: session.ID, AccountID: session.AccountID, ConnectionID: session.ConnectionID, Status: session.Status,
+		CredentialID: session.CredentialID, CredentialGeneration: session.CredentialGeneration, ErrorCode: session.ErrorCode,
+		CreatedAt: session.CreatedAt, UpdatedAt: session.UpdatedAt, ExpiresAt: session.ExpiresAt}
 }
 
 func (service *Service) advanceCallback(ctx context.Context, progress CallbackProgress, code []byte, now time.Time) (CallbackResult, error) {
@@ -345,6 +454,112 @@ func (service *Service) advanceCallback(ctx context.Context, progress CallbackPr
 	return CallbackResult{Session: completed.Session}, nil
 }
 
+func (service *Service) Revoke(ctx context.Context, command RevokeCommand) (RevocationWorkflow, error) {
+	if !command.Actor.Valid() || command.Actor.UserID == "" || ids.Validate(string(command.Actor.UserID)) != nil ||
+		ids.Validate(string(command.AccountID)) != nil || ids.Validate(command.RequestID) != nil || ids.Validate(string(command.ConnectionID)) != nil {
+		return RevocationWorkflow{}, ErrInvalid
+	}
+	authorized, err := service.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Package: catalog.PackageIntegrations,
+		Mutation: true, Roles: []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleAdministrator}})
+	if err != nil {
+		return RevocationWorkflow{}, err
+	}
+	if authorized.AccountID != command.AccountID || (authorized.Role != accounts.RoleOwner && authorized.Role != accounts.RoleAdministrator) {
+		return RevocationWorkflow{}, ErrInvalid
+	}
+	now := service.clock.Now().UTC()
+	if err := strongauth.Require(command.Session, command.Actor.UserID, now); err != nil {
+		return RevocationWorkflow{}, err
+	}
+	workflow, err := service.repository.PrepareRevocation(ctx, command.AccountID, command.RequestID, command.ConnectionID,
+		domain.Actor{UserID: command.Actor.UserID}, now)
+	if err != nil {
+		return RevocationWorkflow{}, classify(err)
+	}
+	return service.advanceRevocation(ctx, workflow, now)
+}
+
+func (service *Service) advanceRevocation(ctx context.Context, workflow RevocationWorkflow, now time.Time) (RevocationWorkflow, error) {
+	if workflow.Provider != domain.GoogleOAuthProvider || workflow.ReferenceSHA256 == [sha256.Size]byte{} ||
+		ids.Validate(string(workflow.AccountID)) != nil || ids.Validate(workflow.ID) != nil || ids.Validate(string(workflow.ConnectionID)) != nil ||
+		ids.Validate(string(workflow.CredentialID)) != nil || workflow.CredentialGeneration == 0 {
+		return RevocationWorkflow{}, ErrRepository
+	}
+	if workflow.State == RevocationCompleted {
+		_ = service.secrets.PurgeCredential(ctx, workflow.AccountID, workflow.CredentialID, workflow.CredentialGeneration)
+		return workflow, nil
+	}
+	if workflow.State == RevocationPrepared || workflow.State == RevocationProviderRevoking {
+		if workflow.State == RevocationPrepared {
+			started, _, err := service.repository.StartProviderRevocation(ctx, workflow.AccountID, workflow.ID, now)
+			if err != nil {
+				return RevocationWorkflow{}, classify(err)
+			}
+			workflow = started
+		}
+		lease, err := service.secrets.CredentialMaterial(ctx, workflow.AccountID, workflow.CredentialID, workflow.CredentialGeneration,
+			workflow.Provider, workflow.ReferenceSHA256)
+		if err != nil {
+			return RevocationWorkflow{}, ErrRepository
+		}
+		material := append([]byte(nil), lease.Material()...)
+		_ = lease.Close()
+		defer wipe(material)
+		refreshToken, err := decodeRefreshCredential(material)
+		if err != nil {
+			return RevocationWorkflow{}, err
+		}
+		defer wipe(refreshToken)
+		if err := service.provider.Revoke(ctx, refreshToken); err != nil {
+			return workflow, err
+		}
+		workflow, err = service.repository.MarkProviderRevoked(ctx, workflow.AccountID, workflow.ID, now)
+		if err != nil {
+			return RevocationWorkflow{}, classify(err)
+		}
+	}
+	if workflow.State == RevocationProviderRevoked {
+		if err := service.secrets.FenceCredential(ctx, workflow.AccountID, workflow.CredentialID, workflow.CredentialGeneration,
+			integrationcredentials.CredentialRevoked); err != nil {
+			return RevocationWorkflow{}, ErrRepository
+		}
+		var err error
+		workflow, err = service.repository.MarkRevocationVaultFenced(ctx, workflow.AccountID, workflow.ID, now)
+		if err != nil {
+			return RevocationWorkflow{}, classify(err)
+		}
+	}
+	if workflow.State != RevocationVaultFenced {
+		return RevocationWorkflow{}, ErrRepository
+	}
+	completed, err := service.repository.CompleteRevocation(ctx, workflow.AccountID, workflow.ID, now)
+	if err != nil {
+		return RevocationWorkflow{}, classify(err)
+	}
+	_ = service.secrets.PurgeCredential(ctx, completed.AccountID, completed.CredentialID, completed.CredentialGeneration)
+	return completed, nil
+}
+
+func decodeRefreshCredential(raw []byte) ([]byte, error) {
+	if len(raw) == 0 || len(raw) > 64<<10 {
+		return nil, ErrRepository
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var document struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := decoder.Decode(&document); err != nil {
+		return nil, ErrRepository
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) || document.RefreshToken == "" || len(document.RefreshToken) > 32<<10 ||
+		strings.TrimSpace(document.RefreshToken) != document.RefreshToken || strings.ContainsAny(document.RefreshToken, "\x00\r\n") {
+		return nil, ErrRepository
+	}
+	return []byte(document.RefreshToken), nil
+}
+
 func TargetCredentialID(sessionID ids.IntegrationAuthorizationSessionID) (ids.IntegrationCredentialID, error) {
 	value, err := ids.Derive(string(sessionID), "integration-oauth-credential")
 	return ids.IntegrationCredentialID(value), err
@@ -362,6 +577,20 @@ func providerFailureCode(err error) string {
 		return "provider_exchange_rejected"
 	default:
 		return "provider_exchange_unavailable"
+	}
+}
+
+func providerCallbackFailure(value string) (string, error, bool) {
+	if strings.TrimSpace(value) != value {
+		return "", nil, false
+	}
+	switch value {
+	case "access_denied":
+		return "provider_access_denied", ErrProviderRejected, true
+	case "server_error", "temporarily_unavailable":
+		return "provider_authorization_unavailable", ErrProviderUnavailable, true
+	default:
+		return "", nil, false
 	}
 }
 
