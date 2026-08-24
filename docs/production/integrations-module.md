@@ -168,6 +168,12 @@ The same provider supplies a non-mutating health probe that refreshes the exact 
 
 Pure protocol tests cover exact crawl pagination, change/removal semantics, Workspace export, scope filtering, redirect refusal, credential validation, provider outage and health. Fresh PostgreSQL and real MinIO tests cover capture settlement, prior membership, immutable resurrection and exact least-privilege storage. The complete local Docker certificate passes uncached and race-enabled Go suites, all 109 migrations, vet, formatting, generated-contract drift, process inventory, object policy and website checks. This closes LB0 of the local backend plan; LB1 still replaces the operator-provisioned refresh-token material with the product-owned OAuth lifecycle.
 
+## Provider authorization-session foundation
+
+The product-owned OAuth lifecycle now has its durable one-use aggregate and first persistence boundary. A manager-created authorization session freezes the exact Account, Drive connection and current immutable revision, Google provider code, reviewed Drive-read scope, scope-revision digest, exact callback URI, expiry, state digest and S256 PKCE challenge digest. Raw state, verifier, authorization code and provider tokens are structurally absent. Only an exact state digest can move `pending` to `exchanging`; it cannot be replayed or rewound. Terminal completion records only the resulting opaque credential identity and generation, while failure records one bounded content-free code.
+
+Cell migration `000072` persists sessions and immutable redacted events under forced RLS, namespace movement fencing and exact erasure accounting. Database guards independently require the current Drive revision and exact `google_drive.read` authority, enforce the one-use state machine and defer the completed credential foreign key so credential creation/rotation plus connection rebinding can settle in one transaction. The portability registry explicitly excludes session security digests and workflow events. Fresh PostgreSQL certification proves exact completion, illegal rewind denial, cross-Account concealment and event immutability; the complete ordinary Go/vet/format gate passes with 110 migrations. Encrypted provider-secret storage, Google consent/code exchange, rotation/revocation orchestration and HTTP/MCP operations remain before LB1 is complete.
+
 ## Invariants
 
 - Provider credentials never enter Marketing, Agent, browser, MCP output, events, logs or telemetry.
