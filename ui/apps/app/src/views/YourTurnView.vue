@@ -9,7 +9,7 @@ import {
   type AttentionQueueItem
 } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink } from "vue-router";
 import { useSessionStore } from "../stores/session";
 
@@ -18,8 +18,11 @@ const items = ref<ReadonlyArray<AttentionQueueItem>>([]);
 const loading = ref(false);
 const error = ref("");
 const announcement = ref("");
+const online = ref(typeof navigator === "undefined" ? true : navigator.onLine);
 const filter = ref<"all" | AttentionKind>("all");
 let requestSequence = 0;
+let refreshTimer: number | undefined;
+const instrumentedAccounts = new Set<string>();
 
 const visibleItems = computed(() => filter.value === "all" ? items.value : items.value.filter((item) => item.kind === filter.value));
 const counts = computed(() => ({
@@ -79,22 +82,47 @@ async function refresh(announce = false): Promise<void> {
     if (sequence !== requestSequence) return;
     items.value = result;
     if (announce) announcement.value = `Your Turn refreshed. ${result.length} open ${result.length === 1 ? "item" : "items"}.`;
-    try {
-      const consent = await getPrivacyConsent();
-      await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, {
-        name: "your_turn_opened", fields: { queue_state: result.length === 0 ? "empty" : "open" }
-      });
-    } catch {
-      // Product analytics never gates the governed queue.
+    if (!instrumentedAccounts.has(accountID)) {
+      instrumentedAccounts.add(accountID);
+      try {
+        const consent = await getPrivacyConsent();
+        await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, {
+          name: "your_turn_opened", fields: { queue_state: result.length === 0 ? "empty" : "open" }
+        });
+      } catch {
+        // Product analytics never gates the governed queue.
+      }
     }
   } catch (cause) {
     if (sequence !== requestSequence) return;
-    items.value = [];
     error.value = cause instanceof APIProblem ? cause.message : "Your Turn is unavailable right now.";
   } finally {
     if (sequence === requestSequence) loading.value = false;
   }
 }
+
+function handleOnline(): void {
+  online.value = true;
+  void refresh(true);
+}
+
+function handleOffline(): void {
+  online.value = false;
+}
+
+onMounted(() => {
+  window.addEventListener("online", handleOnline);
+  window.addEventListener("offline", handleOffline);
+  refreshTimer = window.setInterval(() => {
+    if (document.visibilityState === "visible" && navigator.onLine) void refresh();
+  }, 30_000);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("online", handleOnline);
+  window.removeEventListener("offline", handleOffline);
+  if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
+});
 
 watch(() => [session.selectedID, session.userID, session.attentionAccess.work, session.attentionAccess.approvals], () => void refresh(), { immediate: true });
 </script>
@@ -124,6 +152,7 @@ watch(() => [session.selectedID, session.userID, session.attentionAccess.work, s
     </section>
 
     <template v-else>
+      <p v-if="!online" class="queue-inline-status" role="status">You are offline. Spyglass will refresh this queue when the connection returns.</p>
       <div class="queue-toolbar" aria-label="Filter Your Turn queue">
         <button v-for="choice in ([['all', 'All'], ['information', 'Information'], ['review', 'Reviews'], ['approval', 'Approvals'], ['action', 'Recovery']] as const)" :key="choice[0]" type="button" class="filter-chip" :class="{ 'filter-chip--active': filter === choice[0] }" :aria-pressed="filter === choice[0]" @click="filter = choice[0]">
           {{ choice[1] }} <strong>{{ counts[choice[0]] }}</strong>
@@ -133,25 +162,28 @@ watch(() => [session.selectedID, session.userID, session.attentionAccess.work, s
       <div v-if="loading && items.length === 0" class="attention-list attention-list--loading" aria-label="Loading Your Turn">
         <div v-for="index in 3" :key="index" class="attention-card attention-card--skeleton" />
       </div>
-      <section v-else-if="error" class="queue-state queue-state--error" role="alert">
+      <section v-else-if="error && items.length === 0" class="queue-state queue-state--error" role="alert">
         <h2>That did not load cleanly</h2><p>{{ error }}</p><IoButton kind="secondary" @click="refresh()">Try again</IoButton>
       </section>
       <section v-else-if="visibleItems.length === 0" class="queue-state" role="status">
         <h2>Nothing needs you in this view</h2><p>When an Agent or teammate reaches a governed decision boundary, it will appear here.</p>
       </section>
-      <ol v-else class="attention-list" aria-label="Items needing your attention">
-        <li v-for="item in visibleItems" :key="`${item.kind}:${attentionItemID(item)}`">
-          <article class="attention-card" :class="{ 'attention-card--urgent': item.kind === 'approval' || item.kind === 'action' }">
-            <div class="card-meta"><span>{{ label(item.kind) }}</span><time :datetime="item.updated_at">{{ relativeTime(item.updated_at) }}</time></div>
-            <h2>{{ title(item) }}</h2>
-            <p>{{ context(item) }}</p>
-            <footer>
-              <span class="account-dot">{{ session.selected?.display_name }}</span>
-              <RouterLink class="card-action" :to="detailRoute(item)">Review <span class="sr-only">{{ title(item) }}</span></RouterLink>
-            </footer>
-          </article>
-        </li>
-      </ol>
+      <template v-else>
+        <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }} Showing the last loaded queue.</p>
+        <ol class="attention-list" aria-label="Items needing your attention">
+          <li v-for="item in visibleItems" :key="`${item.kind}:${attentionItemID(item)}`">
+            <article class="attention-card" :class="{ 'attention-card--urgent': item.kind === 'approval' || item.kind === 'action' }">
+              <div class="card-meta"><span>{{ label(item.kind) }}</span><time :datetime="item.updated_at">{{ relativeTime(item.updated_at) }}</time></div>
+              <h2>{{ title(item) }}</h2>
+              <p>{{ context(item) }}</p>
+              <footer>
+                <span class="account-dot">{{ session.selected?.display_name }}</span>
+                <RouterLink class="card-action" :to="detailRoute(item)">Review <span class="sr-only">{{ title(item) }}</span></RouterLink>
+              </footer>
+            </article>
+          </li>
+        </ol>
+      </template>
     </template>
   </section>
 </template>

@@ -106,7 +106,12 @@ function saveDraft(): void {
 
 async function load(): Promise<void> {
   const accountID = session.selectedID;
-  if (!accountID || !validKind(kind.value) || !itemID.value) return;
+  if (!validKind(kind.value) || !itemID.value) {
+    detail.value = undefined;
+    error.value = "That Your Turn route is not valid.";
+    return;
+  }
+  if (!accountID) return;
   const sequence = ++requestSequence;
   loading.value = true;
   error.value = "";

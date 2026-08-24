@@ -6,18 +6,20 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("Attention client", () => {
   it("loads only the entitled, assigned open queues", async () => {
-    const fetcher = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ items: [] }), {
-      status: 200, headers: { "content-type": "application/json" }
-    })));
+    const fetcher = vi.fn().mockImplementation((path: string) => Promise.resolve(new Response(JSON.stringify({
+      items: [],
+      ...(String(path).includes("information-requests") && !String(path).includes("cursor=") ? { next_cursor: "opaque-next-page" } : {})
+    }), { status: 200, headers: { "content-type": "application/json" } })));
     vi.stubGlobal("fetch", fetcher);
 
     await listAttentionQueue("10000000-0000-4000-8000-000000000001", "20000000-0000-4000-8000-000000000002", {
       work: true, workWritable: true, approvals: false, approvalsWritable: false
     });
 
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
     expect(fetcher.mock.calls.map((call) => String(call[0]))).toEqual(expect.arrayContaining([
       expect.stringContaining("information-requests?state=open"),
+      expect.stringContaining("cursor=opaque-next-page"),
       expect.stringContaining("reviewer_id=20000000-0000-4000-8000-000000000002")
     ]));
   });

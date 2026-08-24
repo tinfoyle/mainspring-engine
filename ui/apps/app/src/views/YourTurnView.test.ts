@@ -68,5 +68,15 @@ describe("Your Turn queue", () => {
     expect(wrapper.text()).toContain("Northstar Studio");
     expect(wrapper.getComponent(RouterLinkStub).props("to")).toBe(`/app/your-turn/approval/${approval.id}`);
     expect(wrapper.text()).not.toContain("Approve the August campaign launch");
+
+    listAttentionQueue.mockRejectedValueOnce(new Error("offline"));
+    await wrapper.findAll("button").find((button) => button.text() === "Refresh")?.trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("marketing.release.publish");
+    expect(wrapper.text()).toContain("Showing the last loaded queue");
+    window.dispatchEvent(new Event("offline"));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toContain("You are offline");
+    wrapper.unmount();
   });
 });

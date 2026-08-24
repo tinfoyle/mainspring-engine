@@ -1,23 +1,19 @@
 import type {
   ActionRecoveryDetail,
-  ActionRecoveryPage,
   ActionRecoverySummary,
   AnswerInformationRequestInput,
   Approval,
-  ApprovalPage,
   ApprovalSummary,
   DecideApprovalRequest,
   DecideWorkReviewRequest,
   InformationCompletion,
   InformationRequest,
-  InformationRequestPage,
   InformationRequestSummary,
   InformationRequirement,
   KnowledgeFactPage,
   KnowledgeFactSummary,
   RequestActionResolutionRequest,
   WorkReview,
-  WorkReviewPage,
   WorkReviewSummary
 } from "./generated/api-types";
 import { requestJSON } from "./client";
@@ -44,6 +40,11 @@ export interface AttentionAccess {
 }
 
 const pendingOperations = new Map<string, string>();
+
+interface AttentionPage<T> {
+  readonly items: ReadonlyArray<T>;
+  readonly next_cursor?: string;
+}
 
 function attentionBase(accountID: string): string {
   return `/api/v1/accounts/${encodeURIComponent(accountID)}/attention`;
@@ -82,21 +83,35 @@ async function command<T>(path: string, payload: unknown, version?: number): Pro
   return result;
 }
 
+async function readAllPages<T>(path: string): Promise<ReadonlyArray<T>> {
+  const items: T[] = [];
+  let nextPath: string | undefined = path;
+  for (let pageNumber = 0; nextPath && pageNumber < 20; pageNumber += 1) {
+    const page: AttentionPage<T> = await requestJSON<AttentionPage<T>>(nextPath);
+    items.push(...page.items);
+    if (!page.next_cursor) return items;
+    const cursorURL: URL = new URL(nextPath, "https://spyglass.invalid");
+    cursorURL.searchParams.set("cursor", page.next_cursor);
+    nextPath = `${cursorURL.pathname}${cursorURL.search}`;
+  }
+  throw new Error("Your Turn returned too many pages to load safely.");
+}
+
 export async function listAttentionQueue(accountID: string, userID: string, access: AttentionAccess): Promise<ReadonlyArray<AttentionQueueItem>> {
   const base = attentionBase(accountID);
   const sources: Array<Promise<ReadonlyArray<AttentionQueueItem>>> = [];
   if (access.work) {
-    sources.push(requestJSON<InformationRequestPage>(`${base}/information-requests?state=open&limit=100`)
-      .then((page) => page.items.map((item) => ({ ...item, kind: "information" as const }))));
-    sources.push(requestJSON<WorkReviewPage>(`${base}/work-reviews?state=open&reviewer_id=${encodeURIComponent(userID)}&limit=100`)
-      .then((page) => page.items.map((item) => ({ ...item, kind: "review" as const }))));
+    sources.push(readAllPages<InformationRequestSummary>(`${base}/information-requests?state=open&limit=100`)
+      .then((items) => items.map((item) => ({ ...item, kind: "information" as const }))));
+    sources.push(readAllPages<WorkReviewSummary>(`${base}/work-reviews?state=open&reviewer_id=${encodeURIComponent(userID)}&limit=100`)
+      .then((items) => items.map((item) => ({ ...item, kind: "review" as const }))));
   }
   if (access.approvals) {
-    sources.push(requestJSON<ApprovalPage>(`${base}/approvals?state=open&limit=100`)
-      .then((page) => page.items.map((item) => ({ ...item, kind: "approval" as const }))));
+    sources.push(readAllPages<ApprovalSummary>(`${base}/approvals?state=open&limit=100`)
+      .then((items) => items.map((item) => ({ ...item, kind: "approval" as const }))));
     for (const state of ["unknown", "manual_resolution"] as const) {
-      sources.push(requestJSON<ActionRecoveryPage>(`${base}/actions?state=${state}&limit=100`)
-        .then((page) => page.items.map((item) => ({ ...item, kind: "action" as const }))));
+      sources.push(readAllPages<ActionRecoverySummary>(`${base}/actions?state=${state}&limit=100`)
+        .then((items) => items.map((item) => ({ ...item, kind: "action" as const }))));
     }
   }
   const pages = await Promise.all(sources);
