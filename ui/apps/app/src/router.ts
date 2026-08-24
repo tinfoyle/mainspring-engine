@@ -4,6 +4,7 @@ import FeaturePlaceholderView from "./views/FeaturePlaceholderView.vue";
 import YourTurnView from "./views/YourTurnView.vue";
 import YourTurnDetailView from "./views/YourTurnDetailView.vue";
 import CheckoutView from "./views/CheckoutView.vue";
+import AffiliateView from "./views/AffiliateView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -16,6 +17,7 @@ export const router = createRouter({
 	{ path: "/app/knowledge", name: "knowledge", component: FeaturePlaceholderView, meta: { title: "Knowledge" } },
 	{ path: "/app/agents", name: "agents", component: FeaturePlaceholderView, meta: { title: "Agents" } },
     { path: "/app/checkout", name: "checkout", component: CheckoutView, meta: { title: "Checkout" } },
+    { path: "/app/affiliate", name: "affiliate", component: AffiliateView, meta: { title: "Affiliate" } },
     { path: "/app/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },
     { path: "/:pathMatch(.*)*", redirect: "/app/your-turn" }
   ],

@@ -225,6 +225,8 @@ Exit: users can inspect and operate Agent workflows on supported devices without
 
 ### UI6 — Remaining product packages and Account management
 
+Checkpoint (2026-08-24): the private Vue Affiliate route now uses the ordinary authenticated identity, exposes the generated public code and identity-safe aggregate commission ledger, and renders pending, settled and reversed entries without referred-customer data. Enrollment is strongly authenticated and feature-flagged; Account-credit mode permits only an Account the User owns, while `unconfigured` settlement blocks enrollment and makes no cash/credit promise. A crawlable public launch-terms route accurately labels candidate economics and policy as inoperative while the flags remain closed. Refund/dispute reversal projection, suspension/closure operations, support/appeal paths and commercial/legal approval remain backend release blockers.
+
 - Migrate Finance, Marketing, Integrations, schedules, billing, Affiliate enrollment/dashboard, membership, security, export and Account lifecycle surfaces.
 - Apply the same route clarity, menu behavior, list/detail separation and responsive acceptance established by Your Turn.
 

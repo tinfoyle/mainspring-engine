@@ -15,6 +15,7 @@ const navigation = [
   { to: "/app/work", label: "Work" },
   { to: "/app/knowledge", label: "Knowledge" },
   { to: "/app/agents", label: "Agents" },
+  { to: "/app/affiliate", label: "Affiliate" },
   { to: "/app/privacy", label: "Privacy" }
 ];
 

@@ -31,7 +31,7 @@ watch(() => route.fullPath, () => { menuOpen.value = false; });
   <footer class="site-footer">
     <IoLogo />
     <p>Guided work for businesses that need decisions to turn into progress.</p>
-    <nav aria-label="Legal"><NuxtLink to="/privacy">Privacy</NuxtLink><a href="mailto:support@infiniteocean.net">Support</a></nav>
+    <nav aria-label="Legal"><NuxtLink to="/privacy">Privacy</NuxtLink><NuxtLink to="/affiliate-terms">Affiliate terms</NuxtLink><a href="mailto:support@infiniteocean.net">Support</a></nav>
   </footer>
   <ConsentBanner />
 </template>
