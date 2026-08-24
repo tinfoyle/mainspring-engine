@@ -93,7 +93,7 @@ func TestBrokerRejectsChangedBindingAndUnsafeMaterial(t *testing.T) {
 	}
 }
 
-func TestBrokerAllowsDriveMaterialOnlyForSync(t *testing.T) {
+func TestBrokerAllowsDriveMaterialOnlyForSyncAndHealth(t *testing.T) {
 	root := t.TempDir()
 	writeSecret(t, root, "drive.json", []byte(`{"refresh_token":"fixture"}`))
 	reference := "secret://stage/integrations/drive/v1"
@@ -113,6 +113,12 @@ func TestBrokerAllowsDriveMaterialOnlyForSync(t *testing.T) {
 		t.Fatalf("Drive sync lease=%v err=%v", lease, err)
 	}
 	_ = lease.Close()
+	request.Purpose = integrationcredentials.PurposeHealth
+	healthLease, err := broker.Acquire(context.Background(), request)
+	if err != nil || len(healthLease.Material()) == 0 {
+		t.Fatalf("Drive health lease=%v err=%v", healthLease, err)
+	}
+	_ = healthLease.Close()
 	request.Purpose = integrationcredentials.PurposeExecute
 	if _, err := broker.Acquire(context.Background(), request); err == nil {
 		t.Fatal("Drive credential was leased for an external-effect execution")

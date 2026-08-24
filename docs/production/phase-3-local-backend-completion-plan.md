@@ -97,6 +97,8 @@ Make provider authorization a product backend capability rather than an operator
 7. Extend Account movement, export omission, erasure, restore gates, metrics and runbooks for the new records and secret-store references.
 8. Provide a deterministic local OAuth server fixture covering consent, code replay, expiry, scope mismatch, rotation, revocation and provider outage.
 
+Status on 2026-08-23: **in progress.** The durable authorization-session aggregate and migration are complete. The provider-secret port now also has a local production-shaped AES-256-GCM filesystem implementation: its key, root and sealed files require restrictive non-symlink paths; authorization PKCE verifiers and credential generations are separated; writes are atomic and replay-safe; and rotation/revocation fencing stops further leases before later purge. Lease requests continue to require the exact Account, connection, credential generation, provider, reference digest, purpose, capability and expiry. Focused race tests prove ciphertext tamper denial, no plaintext at rest, exact replay/conflict behavior, expiry, rotation/revocation fencing, purge replay and Drive health/sync purpose separation. Google consent/code exchange, orchestration, lifecycle transports and the deterministic provider fixture remain.
+
 Exit evidence:
 
 - no manually created Drive refresh file is required for a local product journey;

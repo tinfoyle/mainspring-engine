@@ -169,7 +169,9 @@ func validRequest(request integrationcredentials.Request, now time.Time) bool {
 		ids.Validate(string(request.CredentialID)) == nil && request.CredentialGeneration > 0 &&
 		(request.Purpose == integrationcredentials.PurposeExecute || request.Purpose == integrationcredentials.PurposeReconcile || request.Purpose == integrationcredentials.PurposeHealth || request.Purpose == integrationcredentials.PurposeSync) &&
 		((request.Purpose == integrationcredentials.PurposeSync && request.Capability == domain.CapabilityDriveRead) ||
-			(request.Purpose != integrationcredentials.PurposeSync && (request.Capability == domain.CapabilityEmailSend || request.Capability == domain.CapabilityWebPublish))) &&
+			(request.Purpose == integrationcredentials.PurposeHealth && (request.Capability == domain.CapabilityDriveRead || request.Capability == domain.CapabilityEmailSend || request.Capability == domain.CapabilityWebPublish)) ||
+			((request.Purpose == integrationcredentials.PurposeExecute || request.Purpose == integrationcredentials.PurposeReconcile) &&
+				(request.Capability == domain.CapabilityEmailSend || request.Capability == domain.CapabilityWebPublish))) &&
 		validProvider.MatchString(request.CredentialProvider) && request.ReferenceSHA256 != [sha256.Size]byte{} && request.ExpiresAt.After(now)
 }
 
