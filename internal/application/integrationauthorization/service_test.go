@@ -574,6 +574,13 @@ func (repository *authorizationRepository) CompleteRevocation(context.Context, i
 
 func timePointerForTest(value time.Time) *time.Time { return &value }
 
+func TestSameDurableInstantAcceptsOnlyDatabasePrecisionNormalization(t *testing.T) {
+	value := time.Date(2026, 8, 24, 3, 30, 0, 789, time.UTC)
+	if !sameDurableInstant(value, value.Truncate(time.Microsecond)) || sameDurableInstant(value, value.Add(time.Microsecond)) {
+		t.Fatal("durable instant precision boundary is incorrect")
+	}
+}
+
 type authorizationSecretStore struct {
 	value                       integrationcredentials.AuthorizationSecret
 	credential                  *integrationcredentials.CredentialSecret

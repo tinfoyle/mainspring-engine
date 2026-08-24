@@ -6,7 +6,7 @@
 
 ## Implemented boundary
 
-`internal/transport/mcpapi` is a thin transport over the same application services used by customer HTTP. Its complete composition publishes 83 typed Attention, action-recovery, Knowledge, Baseline, Finance, Marketing and Integrations tools. The app-api runtime mounts that composition only at private `/internal/v1/mcp` behind the same one-use signed route-proof acceptor as customer HTTP.
+`internal/transport/mcpapi` is a thin transport over the same application services used by customer HTTP. Its complete composition publishes 86 typed Attention, action-recovery, Knowledge, Baseline, Finance, Marketing and Integrations tools when provider authorization is configured. The app-api runtime mounts that composition only at private `/internal/v1/mcp` behind the same one-use signed route-proof acceptor as customer HTTP.
 
 The boundary:
 
@@ -23,6 +23,8 @@ The boundary:
 - preserves the exact raw consequential payload through the MCP envelope so version-1 JSON number lexemes are not changed before canonicalization.
 
 Tool annotations mark reads, additive mutations and cancellations explicitly. Mutation inputs carry a stable UUID operation/idempotency value and expected aggregate version where applicable. Consequential approval creation deliberately carries separate approval-idempotency and external-operation identifiers.
+
+The Integrations authorization surface contributes begin, safe status and credential-revoke tools. Begin and revoke reuse the HTTP lifecycle's current manager and recent-passkey requirements. The Google callback and code exchange are intentionally HTTP-only; MCP inputs and outputs cannot carry an authorization code, PKCE verifier, provider token or broker reference.
 
 Protocol tests use the official SDK client against the real Streamable HTTP handler. They prove deterministic typed discovery, Bearer/cookie/origin behavior, Account/package/role authorization classification, service reuse, approval-queue and action-recovery redaction, dual-control command wiring, safe conflict parity and canonical-payload preservation.
 

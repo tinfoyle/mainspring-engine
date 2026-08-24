@@ -22,6 +22,8 @@ func TestRoundTripAndRequestBinding(t *testing.T) {
 	verifier, _ := NewVerifier("spyglass-app-router", Audience("cell-us-east-01"), map[string][]byte{"current": keyOne}, MaximumLifetime, DefaultClockSkew, clock)
 	binding, _ := Bind("post", "/api/v1/accounts/10000000-0000-4000-8000-000000000001/work-items?view=queue", []byte(`{"title":"Close books"}`))
 	authority := validTestAuthority()
+	strong := baseTime.Add(-time.Minute)
+	authority.StrongAuthenticatedAt = &strong
 	token, err := signer.Issue(Audience(authority.CellID), authority, binding)
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +32,8 @@ func TestRoundTripAndRequestBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims.KeyID != "current" || claims.Authority.AccountID != authority.AccountID || claims.Authority.PackageAccess == nil || claims.Authority.PackageAccess.Code != "work" || claims.ExpiresAt-claims.IssuedAt != 20 {
+	if claims.KeyID != "current" || claims.Authority.AccountID != authority.AccountID || claims.Authority.PackageAccess == nil || claims.Authority.PackageAccess.Code != "work" ||
+		claims.Authority.StrongAuthenticatedAt == nil || !claims.Authority.StrongAuthenticatedAt.Equal(strong) || claims.ExpiresAt-claims.IssuedAt != 20 {
 		t.Fatalf("claims = %+v", claims)
 	}
 	for name, changed := range map[string]Binding{

@@ -1248,11 +1248,18 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := appapi.New(startup, appapi.Config{
+		Environment: os.Getenv("SPYGLASS_ENVIRONMENT"),
 		DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody,
 		AdmissionOrigin: admissionOrigin, AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode,
 		ObjectEndpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), ObjectRegion: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), ObjectBucket: envOr("SPYGLASS_OBJECT_STORE_BUCKET", "spyglass-documents"),
 		ObjectAccessKey: objectAccessKey, ObjectSecretKey: objectSecretKey, ObjectSecure: objectSecure, ObjectSSE: objectSSE,
 		MCPVersion: buildinfo.Current().Version, MCPResourceMetadataURL: mcpResourceMetadataURL,
+		ProviderSecretRoot: os.Getenv("SPYGLASS_PROVIDER_SECRET_ROOT"), ProviderSecretKeyFile: os.Getenv("SPYGLASS_PROVIDER_SECRET_KEY_FILE"),
+		GoogleOAuthClientFile: os.Getenv("SPYGLASS_GOOGLE_OAUTH_CLIENT_FILE"), GoogleOAuthClientID: os.Getenv("SPYGLASS_GOOGLE_OAUTH_CLIENT_ID"),
+		GoogleOAuthClientSecret:          os.Getenv("SPYGLASS_GOOGLE_OAUTH_CLIENT_SECRET"),
+		GoogleOAuthAuthorizationEndpoint: os.Getenv("SPYGLASS_GOOGLE_OAUTH_AUTHORIZATION_ENDPOINT"),
+		GoogleOAuthTokenEndpoint:         os.Getenv("SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT"),
+		GoogleOAuthRevocationEndpoint:    os.Getenv("SPYGLASS_GOOGLE_OAUTH_REVOCATION_ENDPOINT"),
 	}, logger, registration.SystemClock{})
 	if err != nil {
 		return err

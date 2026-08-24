@@ -12,11 +12,14 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	integrationauthorization "github.com/tinfoyle/spyglass-engine/internal/application/integrationauthorization"
 	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
 
 type integrationConnectionTargetInput struct {
@@ -62,6 +65,21 @@ type integrationTransitionInput struct {
 	OperationID     string                      `json:"operation_id"`
 	ConnectionID    ids.IntegrationConnectionID `json:"connection_id"`
 	ExpectedVersion uint64                      `json:"expected_version"`
+}
+type integrationAuthorizationBeginInput struct {
+	AccountID    ids.AccountID               `json:"account_id"`
+	OperationID  string                      `json:"operation_id"`
+	ConnectionID ids.IntegrationConnectionID `json:"connection_id"`
+	RedirectURI  string                      `json:"redirect_uri"`
+}
+type integrationAuthorizationStatusInput struct {
+	AccountID       ids.AccountID                         `json:"account_id"`
+	AuthorizationID ids.IntegrationAuthorizationSessionID `json:"authorization_id"`
+}
+type integrationCredentialRevokeInput struct {
+	AccountID    ids.AccountID               `json:"account_id"`
+	OperationID  string                      `json:"operation_id"`
+	ConnectionID ids.IntegrationConnectionID `json:"connection_id"`
 }
 type integrationHealthListInput struct {
 	AccountID    ids.AccountID               `json:"account_id"`
@@ -159,6 +177,32 @@ type integrationExecutionResolutionOutput struct {
 	ConfirmedByUserID ids.UserID                         `json:"confirmed_by_user_id,omitempty"`
 	ConfirmedAt       *time.Time                         `json:"confirmed_at,omitempty"`
 }
+type integrationAuthorizationOutput struct {
+	ID                   ids.IntegrationAuthorizationSessionID `json:"id"`
+	AccountID            ids.AccountID                         `json:"account_id"`
+	ConnectionID         ids.IntegrationConnectionID           `json:"connection_id"`
+	Status               string                                `json:"status"`
+	CredentialID         ids.IntegrationCredentialID           `json:"credential_id,omitempty"`
+	CredentialGeneration uint64                                `json:"credential_generation,omitempty"`
+	ErrorCode            string                                `json:"error_code,omitempty"`
+	CreatedAt            time.Time                             `json:"created_at"`
+	UpdatedAt            time.Time                             `json:"updated_at"`
+	ExpiresAt            time.Time                             `json:"expires_at"`
+}
+type integrationAuthorizationBeginOutput struct {
+	Authorization    integrationAuthorizationOutput `json:"authorization"`
+	AuthorizationURL string                         `json:"authorization_url"`
+}
+type integrationCredentialRevocationOutput struct {
+	ID                   string                                   `json:"id"`
+	AccountID            ids.AccountID                            `json:"account_id"`
+	ConnectionID         ids.IntegrationConnectionID              `json:"connection_id"`
+	CredentialID         ids.IntegrationCredentialID              `json:"credential_id"`
+	CredentialGeneration uint64                                   `json:"credential_generation"`
+	State                integrationauthorization.RevocationState `json:"state"`
+	CreatedAt            time.Time                                `json:"created_at"`
+	UpdatedAt            time.Time                                `json:"updated_at"`
+}
 
 func (s *Server) registerIntegrations(server *mcp.Server, actor access.Actor) {
 	read, mutation := access.Requirement{Package: catalog.PackageIntegrations}, access.Requirement{Package: catalog.PackageIntegrations, Mutation: true}
@@ -228,6 +272,42 @@ func (s *Server) registerIntegrations(server *mcp.Server, actor access.Actor) {
 	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_integrations_connection_revoke", Title: "Revoke Integration connection", Description: "Irreversibly revoke the connection and current credential binding.", Annotations: toolAnnotations(false, true)}, func(ctx context.Context, _ *mcp.CallToolRequest, input integrationTransitionInput) (*mcp.CallToolResult, integrationsdomain.Connection, error) {
 		return s.integrationTransition(ctx, actor, input, mutation, "revoke")
 	})
+	if s.integrationAuthorization != nil {
+		mcp.AddTool(server, &mcp.Tool{Name: "spyglass_integrations_authorization_begin", Title: "Begin Google Drive authorization", Description: "Create one exact offline-consent request. Requires recent passkey verification; no provider code or token is accepted.", Annotations: toolAnnotations(false, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input integrationAuthorizationBeginInput) (*mcp.CallToolResult, integrationAuthorizationBeginOutput, error) {
+			ctx, op, err := s.integrationMutationContext(ctx, actor, input.AccountID, input.OperationID, mutation, 0, true)
+			if err != nil {
+				return nil, integrationAuthorizationBeginOutput{}, err
+			}
+			value, err := s.integrationAuthorization.Begin(ctx, integrationauthorization.BeginCommand{Actor: actor, Session: integrationAuthorizationSession(ctx, actor),
+				AccountID: input.AccountID, RequestID: op, ConnectionID: input.ConnectionID, RedirectURI: input.RedirectURI})
+			if err != nil {
+				return nil, integrationAuthorizationBeginOutput{}, integrationAuthorizationError(err)
+			}
+			return nil, integrationAuthorizationBeginOutput{Authorization: integrationAuthorizationFromSession(value.Session), AuthorizationURL: value.AuthorizationURL}, nil
+		})
+		mcp.AddTool(server, &mcp.Tool{Name: "spyglass_integrations_authorization_status", Title: "Get Google authorization status", Description: "Read safe lifecycle status without state, PKCE, scope, reference digests, codes or tokens.", Annotations: toolAnnotations(true, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input integrationAuthorizationStatusInput) (*mcp.CallToolResult, integrationAuthorizationOutput, error) {
+			ctx, err := s.toolContext(ctx, actor, input.AccountID, read)
+			if err != nil {
+				return nil, integrationAuthorizationOutput{}, err
+			}
+			value, err := s.integrationAuthorization.Status(ctx, actor, input.AccountID, input.AuthorizationID)
+			return nil, integrationAuthorizationFromSummary(value), integrationAuthorizationError(err)
+		})
+		mcp.AddTool(server, &mcp.Tool{Name: "spyglass_integrations_credential_revoke", Title: "Revoke Google Drive credential", Description: "Revoke the exact Google refresh credential, fence its vault generation, then revoke the durable connection. Requires recent passkey verification.", Annotations: toolAnnotations(false, true)}, func(ctx context.Context, _ *mcp.CallToolRequest, input integrationCredentialRevokeInput) (*mcp.CallToolResult, integrationCredentialRevocationOutput, error) {
+			ctx, op, err := s.integrationMutationContext(ctx, actor, input.AccountID, input.OperationID, mutation, 0, true)
+			if err != nil {
+				return nil, integrationCredentialRevocationOutput{}, err
+			}
+			value, err := s.integrationAuthorization.Revoke(ctx, integrationauthorization.RevokeCommand{Actor: actor,
+				Session: integrationAuthorizationSession(ctx, actor), AccountID: input.AccountID, RequestID: op, ConnectionID: input.ConnectionID})
+			if err != nil {
+				return nil, integrationCredentialRevocationOutput{}, integrationAuthorizationError(err)
+			}
+			return nil, integrationCredentialRevocationOutput{ID: value.ID, AccountID: value.AccountID, ConnectionID: value.ConnectionID,
+				CredentialID: value.CredentialID, CredentialGeneration: value.CredentialGeneration, State: value.State,
+				CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}, nil
+		})
+	}
 	mcp.AddTool(server, &mcp.Tool{Name: "spyglass_integrations_health_list", Title: "List Integration health", Description: "List content-free connector health observations.", Annotations: toolAnnotations(true, false)}, func(ctx context.Context, _ *mcp.CallToolRequest, input integrationHealthListInput) (*mcp.CallToolResult, integrationHealthPageOutput, error) {
 		ctx, err := s.toolContext(ctx, actor, input.AccountID, read)
 		if err != nil {
@@ -320,6 +400,49 @@ func (s *Server) registerIntegrations(server *mcp.Server, actor access.Actor) {
 			AccountID: input.AccountID, RequestID: op, ExecutionID: input.ExecutionID, ResolutionID: input.ResolutionID})
 		return nil, integrationExecutionMCPDetail(value), integrationError(err)
 	})
+}
+
+func integrationAuthorizationSession(ctx context.Context, actor access.Actor) sessions.Session {
+	value := sessions.Session{UserID: actor.UserID}
+	claims, ok := routecontext.FromContext(ctx)
+	if ok && claims.Authority.StrongAuthenticatedAt != nil {
+		value.ReauthenticatedAt = claims.Authority.StrongAuthenticatedAt.UTC()
+		value.ReauthenticationMethod = sessions.AuthenticationMethodPasskey
+	}
+	return value
+}
+
+func integrationAuthorizationFromSession(value integrationsdomain.AuthorizationSession) integrationAuthorizationOutput {
+	return integrationAuthorizationOutput{ID: value.ID, AccountID: value.AccountID, ConnectionID: value.ConnectionID, Status: string(value.Status),
+		CredentialID: value.CredentialID, CredentialGeneration: value.CredentialGeneration, ErrorCode: value.ErrorCode,
+		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, ExpiresAt: value.ExpiresAt}
+}
+
+func integrationAuthorizationFromSummary(value integrationauthorization.AuthorizationSummary) integrationAuthorizationOutput {
+	return integrationAuthorizationOutput{ID: value.ID, AccountID: value.AccountID, ConnectionID: value.ConnectionID, Status: string(value.Status),
+		CredentialID: value.CredentialID, CredentialGeneration: value.CredentialGeneration, ErrorCode: value.ErrorCode,
+		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, ExpiresAt: value.ExpiresAt}
+}
+
+func integrationAuthorizationError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, integrationauthorization.ErrInvalid):
+		return safeError("invalid_integration_authorization")
+	case errors.Is(err, integrationauthorization.ErrNotFound):
+		return safeError("integration_authorization_not_found")
+	case errors.Is(err, integrationauthorization.ErrConflict):
+		return safeError("integration_authorization_conflict")
+	case errors.Is(err, integrationauthorization.ErrExpired):
+		return safeError("integration_authorization_expired")
+	case errors.Is(err, integrationauthorization.ErrProviderUnavailable):
+		return safeError("integration_authorization_provider_unavailable")
+	case errors.Is(err, integrationauthorization.ErrProviderRejected), errors.Is(err, integrationauthorization.ErrScopeMismatch):
+		return safeError("integration_authorization_provider_rejected")
+	default:
+		return integrationError(err)
+	}
 }
 
 func integrationExecutionMCPDetail(value integrationsapp.ExecutionDetail) integrationExecutionDetailOutput {
@@ -447,3 +570,4 @@ func integrationError(err error) error {
 }
 
 var _ IntegrationsService = (*integrationsapp.Service)(nil)
+var _ IntegrationAuthorizationService = (*integrationauthorization.Service)(nil)

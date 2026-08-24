@@ -9,13 +9,18 @@ web.infiniteocean.localhost {
 
 app.infiniteocean.localhost {
   tls internal
-  @cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?)$
+  @cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?|integrations(?:/.*)?)$
   handle @cell_api {
     reverse_proxy app-router:8080
   }
   handle {
     reverse_proxy account-api:8080
   }
+}
+
+oauth.infiniteocean.localhost {
+  tls internal
+  reverse_proxy google-oauth-fixture:8080
 }
 
 mcp.infiniteocean.localhost {

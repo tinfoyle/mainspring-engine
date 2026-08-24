@@ -1227,6 +1227,30 @@ export type IntegrationAttemptMode = "execute" | "reconcile";
 
 export type IntegrationAttemptOutcome = "succeeded" | "not_applied" | "failed" | "unknown";
 
+export interface IntegrationAuthorization {
+  readonly "account_id": string;
+  readonly "connection_id": string;
+  readonly "created_at": string;
+  readonly "credential_generation"?: number;
+  readonly "credential_id"?: string;
+  readonly "error_code"?: string;
+  readonly "expires_at": string;
+  readonly "id": string;
+  readonly "status": IntegrationAuthorizationStatus;
+  readonly "updated_at": string;
+}
+
+export interface IntegrationAuthorizationBegin {
+  readonly "authorization": IntegrationAuthorization;
+  readonly "authorization_url": string;
+}
+
+export interface IntegrationAuthorizationBeginRequest {
+  readonly "redirect_uri": string;
+}
+
+export type IntegrationAuthorizationStatus = "pending" | "exchanging" | "completed" | "failed" | "expired";
+
 export type IntegrationCapability = "email.read" | "email.send" | "google_drive.read" | "web.publish";
 
 export interface IntegrationConnection {
@@ -1299,6 +1323,19 @@ export interface IntegrationCredentialBindingRequest {
   readonly "provider": string;
   readonly "reference_sha256": string;
 }
+
+export interface IntegrationCredentialRevocation {
+  readonly "account_id": string;
+  readonly "connection_id": string;
+  readonly "created_at": string;
+  readonly "credential_generation": number;
+  readonly "credential_id": string;
+  readonly "id": string;
+  readonly "state": IntegrationCredentialRevocationState;
+  readonly "updated_at": string;
+}
+
+export type IntegrationCredentialRevocationState = "prepared" | "provider_revoking" | "provider_revoked" | "vault_fenced" | "completed";
 
 export interface IntegrationCredentialRotationRequest {
   readonly "expected_generation": number;
@@ -2420,6 +2457,10 @@ export interface ApiSchemas {
   readonly IntegrationAttempt: IntegrationAttempt;
   readonly IntegrationAttemptMode: IntegrationAttemptMode;
   readonly IntegrationAttemptOutcome: IntegrationAttemptOutcome;
+  readonly IntegrationAuthorization: IntegrationAuthorization;
+  readonly IntegrationAuthorizationBegin: IntegrationAuthorizationBegin;
+  readonly IntegrationAuthorizationBeginRequest: IntegrationAuthorizationBeginRequest;
+  readonly IntegrationAuthorizationStatus: IntegrationAuthorizationStatus;
   readonly IntegrationCapability: IntegrationCapability;
   readonly IntegrationConnection: IntegrationConnection;
   readonly IntegrationConnectionDefinitionRequest: IntegrationConnectionDefinitionRequest;
@@ -2431,6 +2472,8 @@ export interface ApiSchemas {
   readonly IntegrationConnectionState: IntegrationConnectionState;
   readonly IntegrationConnectorKind: IntegrationConnectorKind;
   readonly IntegrationCredentialBindingRequest: IntegrationCredentialBindingRequest;
+  readonly IntegrationCredentialRevocation: IntegrationCredentialRevocation;
+  readonly IntegrationCredentialRevocationState: IntegrationCredentialRevocationState;
   readonly IntegrationCredentialRotationRequest: IntegrationCredentialRotationRequest;
   readonly IntegrationExecution: IntegrationExecution;
   readonly IntegrationExecutionDetail: IntegrationExecutionDetail;

@@ -37,3 +37,27 @@ type rejectedRoute struct{}
 func (rejectedRoute) Accept(context.Context, string, routecontext.Binding) (routecontext.Claims, error) {
 	return routecontext.Claims{}, routecontext.ErrInvalid
 }
+
+func TestGoogleOAuthFixtureModeIsLocalOnly(t *testing.T) {
+	config := Config{GoogleOAuthAuthorizationEndpoint: "http://fixture/authorize"}
+	for _, environment := range []string{"", "stage", "production"} {
+		config.Environment = environment
+		if _, err := googleOAuthFixtureMode(config); err == nil {
+			t.Fatalf("environment %q accepted fixture endpoints", environment)
+		}
+	}
+	for _, environment := range []string{"local", "local-secure"} {
+		config.Environment = environment
+		configured, err := googleOAuthFixtureMode(config)
+		if err != nil || !configured {
+			t.Fatalf("environment %q rejected fixture endpoints: configured=%v err=%v", environment, configured, err)
+		}
+	}
+}
+
+func TestGoogleOAuthFixtureModeIgnoresEnvironmentWithoutEndpoints(t *testing.T) {
+	configured, err := googleOAuthFixtureMode(Config{Environment: "production"})
+	if err != nil || configured {
+		t.Fatalf("configured=%v err=%v", configured, err)
+	}
+}

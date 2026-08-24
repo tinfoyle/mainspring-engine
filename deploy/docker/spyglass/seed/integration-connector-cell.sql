@@ -3,6 +3,8 @@ BEGIN;
 SELECT set_config('app.account_id','82100000-0000-4000-8000-000000000001',true);
 
 SELECT set_config('spyglass.erasure_request_id','82ff0000-0000-4000-8000-0000000000ff',true);
+DELETE FROM spyglass.route_context_receipt_cleanup_queue WHERE account_id='82100000-0000-4000-8000-000000000001';
+DELETE FROM spyglass.route_context_receipts WHERE account_id='82100000-0000-4000-8000-000000000001';
 DELETE FROM spyglass.agent_invocations WHERE account_id='82100000-0000-4000-8000-000000000001';
 DELETE FROM spyglass.account_namespaces WHERE account_id='82100000-0000-4000-8000-000000000001';
 SELECT set_config('spyglass.erasure_request_id','',true);

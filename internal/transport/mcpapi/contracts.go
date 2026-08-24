@@ -9,6 +9,7 @@ import (
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
+	integrationauthorization "github.com/tinfoyle/spyglass-engine/internal/application/integrationauthorization"
 	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
@@ -141,6 +142,12 @@ type IntegrationsService interface {
 	ListExecutions(context.Context, access.Actor, ids.AccountID, integrationsapp.ExecutionListQuery) (integrationsapp.ExecutionPage, error)
 	RequestExecutionResolution(context.Context, integrationsapp.RequestExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error)
 	ConfirmExecutionResolution(context.Context, integrationsapp.ConfirmExecutionResolutionCommand) (integrationsapp.ExecutionDetail, error)
+}
+
+type IntegrationAuthorizationService interface {
+	Begin(context.Context, integrationauthorization.BeginCommand) (integrationauthorization.BeginResult, error)
+	Status(context.Context, access.Actor, ids.AccountID, ids.IntegrationAuthorizationSessionID) (integrationauthorization.AuthorizationSummary, error)
+	Revoke(context.Context, integrationauthorization.RevokeCommand) (integrationauthorization.RevocationWorkflow, error)
 }
 
 type requirementInput struct {

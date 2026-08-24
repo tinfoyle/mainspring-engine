@@ -1,7 +1,7 @@
 # Phase 3 local backend completion plan
 
 - Plan date: 2026-08-23
-- Starting revision: `ede239d` plus the reviewed Google Drive work currently in the local worktree
+- Starting revision: `ede239d`; LB0 and the application-owned Google credential lifecycle are now committed in the local Phase 3 history
 - Purpose: complete the remaining product backend locally, establish an objective backend-to-UI handoff boundary, and move overall feature construction to approximately the final ten-percent customer-interface window
 - Parent plan: [Phase 3 final construction plan](phase-3-report.md)
 
@@ -37,16 +37,15 @@ The repository already contains:
 - an immutable prototype transformation/import path and Account-portability coverage; and
 - the Google Drive grant, sync queue, sealed cursor, Knowledge admission/deletion and prior-membership checkpoints already committed through `ede239d`.
 
-The current uncommitted checkpoint adds the production Drive API adapter, exact direct-child crawl, incremental changes/removals, Workspace export, health probe, worker composition, local fixture, least-privilege storage/database policy and safe source resurrection. Focused tests and policy/render checks passed, but the full local Docker gate was interrupted and must be rerun before that checkpoint is accepted.
+LB0 is certified and committed. The production Drive API adapter, exact direct-child crawl, incremental changes/removals, Workspace export, health probe, worker composition, local fixture, least-privilege storage/database policy and safe source resurrection all passed the complete local Docker gate.
 
 The remaining backend gaps are concentrated in provider completion:
 
-1. the Drive checkpoint is not yet fully certified or committed;
-2. Google consent, callback, code exchange, refresh-token rotation and revocation are not a product-owned lifecycle;
-3. `email.read` has a governed scope but no inbound source adapter;
-4. `web.research` exists in the domain but has no hardened retrieval/capture adapter or public contract;
-5. the real SMTP/HTTPS execution path still needs a complete disposable-provider local certificate; and
-6. Marketing and Integrations cannot become executable until every advertised provider path and lifecycle is locally complete.
+1. the OAuth-authorized Drive connection must still be exercised through complete source sync and Knowledge settlement;
+2. `email.read` has a governed scope but no inbound source adapter;
+3. `web.research` exists in the domain but has no hardened retrieval/capture adapter or public contract;
+4. the real SMTP/HTTPS execution path still needs a complete disposable-provider local certificate; and
+5. Marketing and Integrations cannot become executable until every advertised provider path and lifecycle is locally complete.
 
 ## Non-goals for this window
 
@@ -97,7 +96,7 @@ Make provider authorization a product backend capability rather than an operator
 7. Extend Account movement, export omission, erasure, restore gates, metrics and runbooks for the new records and secret-store references.
 8. Provide a deterministic local OAuth server fixture covering consent, code replay, expiry, scope mismatch, rotation, revocation and provider outage.
 
-Status on 2026-08-23: **in progress.** The durable authorization-session aggregate, encrypted provider-secret port, fixed-origin Google protocol adapter and complete manager/recent-passkey application lifecycle are constructed. Begin freezes exact authority; callback claims state once, seals returned refresh material and converges activation/rotation without repeating an uncertain provider effect. Safe status persists expiry without exposing protocol digests. Reviewed Google callback denial is terminal and replay-safe. Migration 74 adds a forced-RLS, non-portable revocation ledger: provider confirmation precedes vault fencing, and vault fencing precedes the guarded serializable credential/connection revocation. Provider outage stays retryable without early fencing, while unsettled workflows block competing connection authority changes. Focused race and fresh PostgreSQL tests cover activation/replay, generation-two rotation/revocation, changed code/state/denial, concurrent exchange leases, scope failure, ambiguous writes, unknown outcomes, expiry, provider-outage retry, required fence ordering, RLS, portability omission, exact erasure coverage and immutable redacted events across all 112 migrations. Canonical HTTP/MCP transports and the deterministic containerized OAuth-to-Drive fixture remain.
+Status on 2026-08-23: **complete.** The durable authorization-session aggregate, encrypted provider-secret port, fixed-origin Google protocol adapter and complete manager/recent-passkey application lifecycle are constructed. Begin freezes exact authority; callback claims state once, seals returned refresh material and converges activation/rotation without repeating an uncertain provider effect. Safe status persists expiry without exposing protocol digests. Reviewed Google callback denial is terminal and replay-safe. Migration 74 adds a forced-RLS, non-portable revocation ledger: provider confirmation precedes vault fencing, and vault fencing precedes the guarded serializable credential/connection revocation. Provider outage stays retryable without early fencing, while unsettled workflows block competing connection authority changes. Canonical HTTP exposes begin, callback, status and revoke; MCP exposes only begin, status and revoke, so no authorization code or token can cross the MCP boundary. Signed routing carries recent passkey evidence to both transports. A generated local-only 32-byte vault key, deterministic OAuth/Drive fixture and Caddy-routed `oauth.infiniteocean.localhost` journey prove connection creation, consent, PKCE code exchange, callback activation, secret-free status and provider/vault/database revocation without a manually provisioned refresh file. Focused race, fresh PostgreSQL and Docker tests cover activation/replay, generation-two rotation/revocation, changed code/state/denial, concurrent exchange leases, scope failure, ambiguous writes, unknown outcomes, expiry, provider-outage retry, required fence ordering, RLS, portability omission, exact erasure coverage, immutable redacted events and PostgreSQL timestamp normalization across all 112 migrations. `make verify-google-oauth` is the repeatable local certificate. No Git push or Stage/release environment mutation is part of this checkpoint.
 
 Exit evidence:
 

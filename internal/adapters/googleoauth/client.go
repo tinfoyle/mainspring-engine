@@ -42,6 +42,12 @@ type Config struct {
 	ClientSecret string
 }
 
+type FixtureEndpoints struct {
+	Authorization string
+	Token         string
+	Revocation    string
+}
+
 type Client struct {
 	client                                               *http.Client
 	clientID, clientSecret                               string
@@ -55,6 +61,13 @@ type clientFile struct {
 
 func New(config Config) (*Client, error) {
 	return newClient(config, productionAuthorizationEndpoint, productionTokenEndpoint, productionRevocationEndpoint, false)
+}
+
+// NewFixture is restricted to deterministic local protocol certification. A
+// caller must supply every endpoint explicitly; production composition uses
+// New or NewFromClientFile and therefore cannot redirect Google traffic.
+func NewFixture(config Config, endpoints FixtureEndpoints) (*Client, error) {
+	return newClient(config, endpoints.Authorization, endpoints.Token, endpoints.Revocation, true)
 }
 
 func NewFromClientFile(config Config, filename string) (*Client, error) {

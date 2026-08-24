@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
+	integrationauthorization "github.com/tinfoyle/spyglass-engine/internal/application/integrationauthorization"
 	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
@@ -43,27 +44,28 @@ type Acceptor interface {
 }
 
 type Server struct {
-	acceptor               Acceptor
-	logger                 *slog.Logger
-	maxBody                int64
-	work                   WorkQueries
-	commands               WorkCommands
-	agents                 AgentService
-	attention              AttentionService
-	actions                ActionRecoveryService
-	knowledge              KnowledgeService
-	documents              KnowledgeDocumentService
-	baseline               BaselineService
-	finance                FinanceQueryService
-	financeCommands        FinanceCommandService
-	marketing              MarketingQueryService
-	marketingCommands      MarketingCommandService
-	integrations           IntegrationsQueryService
-	integrationCommands    IntegrationsCommandService
-	scheduling             SchedulingService
-	scheduleExecution      ScheduleExecutionService
-	scheduleWorkerIdentity string
-	counters               routeCounters
+	acceptor                 Acceptor
+	logger                   *slog.Logger
+	maxBody                  int64
+	work                     WorkQueries
+	commands                 WorkCommands
+	agents                   AgentService
+	attention                AttentionService
+	actions                  ActionRecoveryService
+	knowledge                KnowledgeService
+	documents                KnowledgeDocumentService
+	baseline                 BaselineService
+	finance                  FinanceQueryService
+	financeCommands          FinanceCommandService
+	marketing                MarketingQueryService
+	marketingCommands        MarketingCommandService
+	integrations             IntegrationsQueryService
+	integrationCommands      IntegrationsCommandService
+	integrationAuthorization IntegrationAuthorizationService
+	scheduling               SchedulingService
+	scheduleExecution        ScheduleExecutionService
+	scheduleWorkerIdentity   string
+	counters                 routeCounters
 }
 
 type RouteStats struct {
@@ -254,6 +256,17 @@ func WithIntegrationCommands(service IntegrationsCommandService) Option {
 	return func(server *Server) { server.integrationCommands = service }
 }
 
+type IntegrationAuthorizationService interface {
+	Begin(context.Context, integrationauthorization.BeginCommand) (integrationauthorization.BeginResult, error)
+	Callback(context.Context, integrationauthorization.CallbackCommand) (integrationauthorization.CallbackResult, error)
+	Status(context.Context, access.Actor, ids.AccountID, ids.IntegrationAuthorizationSessionID) (integrationauthorization.AuthorizationSummary, error)
+	Revoke(context.Context, integrationauthorization.RevokeCommand) (integrationauthorization.RevocationWorkflow, error)
+}
+
+func WithIntegrationAuthorization(service IntegrationAuthorizationService) Option {
+	return func(server *Server) { server.integrationAuthorization = service }
+}
+
 type SchedulingService interface {
 	Create(context.Context, schedulingapp.CreateCommand) (schedulingdomain.Schedule, bool, error)
 	Get(context.Context, schedulingapp.GetQuery) (schedulingdomain.Schedule, error)
@@ -421,6 +434,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/disables", s.integrationsConnectionDisable)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/enables", s.integrationsConnectionEnable)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/revocations", s.integrationsConnectionRevoke)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/authorizations", s.integrationAuthorizationBegin)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/connections/{connectionID}/credential-revocations", s.integrationAuthorizationRevoke)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/authorizations/{authorizationID}", s.integrationAuthorizationStatus)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/google/authorization-callback", s.integrationAuthorizationCallback)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/executions", s.integrationsExecutionList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/executions", s.integrationsExecutionPrepare)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/executions/{executionID}", s.integrationsExecutionGet)

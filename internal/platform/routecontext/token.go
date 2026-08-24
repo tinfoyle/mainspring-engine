@@ -114,16 +114,17 @@ type PackageAccess struct {
 }
 
 type Authority struct {
-	RequestID           string         `json:"request_id"`
-	OperationID         string         `json:"operation_id,omitempty"`
-	AccountID           ids.AccountID  `json:"account_id"`
-	ActorKind           string         `json:"actor_kind"`
-	ActorID             string         `json:"actor_id"`
-	Role                string         `json:"role,omitempty"`
-	CellID              ids.CellID     `json:"cell_id"`
-	PlacementGeneration uint64         `json:"placement_generation"`
-	EntitlementVersion  uint64         `json:"entitlement_version"`
-	PackageAccess       *PackageAccess `json:"package_access,omitempty"`
+	RequestID             string         `json:"request_id"`
+	OperationID           string         `json:"operation_id,omitempty"`
+	AccountID             ids.AccountID  `json:"account_id"`
+	ActorKind             string         `json:"actor_kind"`
+	ActorID               string         `json:"actor_id"`
+	Role                  string         `json:"role,omitempty"`
+	StrongAuthenticatedAt *time.Time     `json:"strong_authenticated_at,omitempty"`
+	CellID                ids.CellID     `json:"cell_id"`
+	PlacementGeneration   uint64         `json:"placement_generation"`
+	EntitlementVersion    uint64         `json:"entitlement_version"`
+	PackageAccess         *PackageAccess `json:"package_access,omitempty"`
 }
 
 type Claims struct {
@@ -302,11 +303,12 @@ func validAuthority(authority Authority) bool {
 	}
 	switch authority.ActorKind {
 	case "user":
-		if ids.Validate(authority.ActorID) != nil || !validRole(authority.Role) {
+		if ids.Validate(authority.ActorID) != nil || !validRole(authority.Role) ||
+			authority.StrongAuthenticatedAt != nil && authority.StrongAuthenticatedAt.IsZero() {
 			return false
 		}
 	case "workload":
-		if strings.TrimSpace(authority.ActorID) == "" || len(authority.ActorID) > 200 || authority.Role != "" {
+		if strings.TrimSpace(authority.ActorID) == "" || len(authority.ActorID) > 200 || authority.Role != "" || authority.StrongAuthenticatedAt != nil {
 			return false
 		}
 	default:

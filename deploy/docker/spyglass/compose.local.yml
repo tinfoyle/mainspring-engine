@@ -5,6 +5,50 @@ services:
       - "127.0.0.1:${SPYGLASS_LOCAL_TLS_PORT:-8444}:443"
     volumes:
       - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+    depends_on:
+      google-oauth-fixture: {condition: service_healthy}
+
+  google-oauth-fixture:
+    build:
+      context: ../../..
+      dockerfile: deploy/docker/spyglass/google-fixture/Dockerfile
+      target: fixture
+    image: spyglass-google-oauth-fixture:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      GOOGLE_FIXTURE_CLIENT_ID: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_ID}
+      GOOGLE_FIXTURE_CLIENT_SECRET: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_SECRET}
+      GOOGLE_FIXTURE_REDIRECT_ORIGIN: ${SPYGLASS_APP_ORIGIN}
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /google-oauth-fixture, healthcheck]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 5s
+    networks: [application]
+
+  provider-secret-init:
+    build:
+      context: ../../..
+      dockerfile: deploy/docker/spyglass/google-fixture/Dockerfile
+      target: secret-init
+    image: spyglass-provider-secret-init:local
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+    security_opt: [no-new-privileges:true]
+    command: [/provider-a, /provider-b]
+    volumes:
+      - provider-secrets-a:/provider-a
+      - provider-secrets-b:/provider-b
 
   website:
     build:
@@ -143,11 +187,35 @@ services:
     image: spyglass-application:local
     depends_on:
       cell-a-roles: {condition: service_completed_successfully}
+      provider-secret-init: {condition: service_completed_successfully, required: false}
+      google-oauth-fixture: {condition: service_healthy}
+    environment:
+      SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
+      SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
+      SPYGLASS_GOOGLE_OAUTH_CLIENT_ID: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_ID}
+      SPYGLASS_GOOGLE_OAUTH_CLIENT_SECRET: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_SECRET}
+      SPYGLASS_GOOGLE_OAUTH_AUTHORIZATION_ENDPOINT: ${SPYGLASS_GOOGLE_FIXTURE_PUBLIC_ORIGIN}/o/oauth2/v2/auth
+      SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
+      SPYGLASS_GOOGLE_OAUTH_REVOCATION_ENDPOINT: http://google-oauth-fixture:8080/revoke
+    volumes:
+      - provider-secrets-a:/var/lib/spyglass/provider
 
   app-api-b:
     image: spyglass-application:local
     depends_on:
       cell-b-roles: {condition: service_completed_successfully}
+      provider-secret-init: {condition: service_completed_successfully, required: false}
+      google-oauth-fixture: {condition: service_healthy}
+    environment:
+      SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
+      SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
+      SPYGLASS_GOOGLE_OAUTH_CLIENT_ID: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_ID}
+      SPYGLASS_GOOGLE_OAUTH_CLIENT_SECRET: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_SECRET}
+      SPYGLASS_GOOGLE_OAUTH_AUTHORIZATION_ENDPOINT: ${SPYGLASS_GOOGLE_FIXTURE_PUBLIC_ORIGIN}/o/oauth2/v2/auth
+      SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
+      SPYGLASS_GOOGLE_OAUTH_REVOCATION_ENDPOINT: http://google-oauth-fixture:8080/revoke
+    volumes:
+      - provider-secrets-b:/var/lib/spyglass/provider
 
   app-router:
     image: spyglass-application:local
@@ -368,3 +436,7 @@ services:
     networks:
       - application
       - database
+
+volumes:
+  provider-secrets-a:
+  provider-secrets-b:

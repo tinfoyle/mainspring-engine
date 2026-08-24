@@ -33,21 +33,22 @@ type Config struct {
 }
 
 type Server struct {
-	authority        Authority
-	attention        AttentionService
-	actions          ActionRecoveryService
-	knowledge        KnowledgeService
-	documents        KnowledgeDocumentService
-	baseline         BaselineService
-	finance          FinanceService
-	marketing        MarketingService
-	integrations     IntegrationsService
-	logger           *slog.Logger
-	version          string
-	maxBody          int64
-	origins          map[string]struct{}
-	resourceMetadata string
-	schemaCache      *mcp.SchemaCache
+	authority                Authority
+	attention                AttentionService
+	actions                  ActionRecoveryService
+	knowledge                KnowledgeService
+	documents                KnowledgeDocumentService
+	baseline                 BaselineService
+	finance                  FinanceService
+	marketing                MarketingService
+	integrations             IntegrationsService
+	integrationAuthorization IntegrationAuthorizationService
+	logger                   *slog.Logger
+	version                  string
+	maxBody                  int64
+	origins                  map[string]struct{}
+	resourceMetadata         string
+	schemaCache              *mcp.SchemaCache
 }
 
 type Option func(*Server) error
@@ -118,6 +119,16 @@ func WithIntegrations(service IntegrationsService) Option {
 			return errors.New("MCP Integrations service is required")
 		}
 		server.integrations = service
+		return nil
+	}
+}
+
+func WithIntegrationAuthorization(service IntegrationAuthorizationService) Option {
+	return func(server *Server) error {
+		if service == nil {
+			return errors.New("MCP Integration authorization service is required")
+		}
+		server.integrationAuthorization = service
 		return nil
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/admissionhttp"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/encryptedcredentials"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/googleoauth"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
@@ -18,6 +20,7 @@ import (
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
 	baselineapp "github.com/tinfoyle/spyglass-engine/internal/application/baseline"
 	financeapp "github.com/tinfoyle/spyglass-engine/internal/application/finance"
+	integrationauthorization "github.com/tinfoyle/spyglass-engine/internal/application/integrationauthorization"
 	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
@@ -35,25 +38,35 @@ import (
 )
 
 type Config struct {
-	DatabaseURL            string
-	CellID                 ids.CellID
-	RouteIssuer            string
-	RouteVerifyKeys        map[string][]byte
-	MaxDatabaseConns       int32
-	MaxRequestBody         int64
-	AdmissionOrigin        string
-	AdmissionTransport     http.RoundTripper
-	AllowHTTPAdmission     bool
-	ObjectEndpoint         string
-	ObjectRegion           string
-	ObjectBucket           string
-	ObjectAccessKey        string
-	ObjectSecretKey        string
-	ObjectSecure           bool
-	ObjectSSE              bool
-	ObjectTransport        http.RoundTripper
-	MCPVersion             string
-	MCPResourceMetadataURL string
+	Environment                      string
+	DatabaseURL                      string
+	CellID                           ids.CellID
+	RouteIssuer                      string
+	RouteVerifyKeys                  map[string][]byte
+	MaxDatabaseConns                 int32
+	MaxRequestBody                   int64
+	AdmissionOrigin                  string
+	AdmissionTransport               http.RoundTripper
+	AllowHTTPAdmission               bool
+	ObjectEndpoint                   string
+	ObjectRegion                     string
+	ObjectBucket                     string
+	ObjectAccessKey                  string
+	ObjectSecretKey                  string
+	ObjectSecure                     bool
+	ObjectSSE                        bool
+	ObjectTransport                  http.RoundTripper
+	MCPVersion                       string
+	MCPResourceMetadataURL           string
+	ProviderSecretRoot               string
+	ProviderSecretKeyFile            string
+	GoogleOAuthClientFile            string
+	GoogleOAuthClientID              string
+	GoogleOAuthClientSecret          string
+	GoogleOAuthAuthorizationEndpoint string
+	GoogleOAuthTokenEndpoint         string
+	GoogleOAuthRevocationEndpoint    string
+	GoogleOAuthTransport             http.RoundTripper
 }
 
 type Server struct {
@@ -219,6 +232,43 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
+	var authorizationService *integrationauthorization.Service
+	if config.ProviderSecretRoot != "" || config.ProviderSecretKeyFile != "" || config.GoogleOAuthClientFile != "" || config.GoogleOAuthClientID != "" ||
+		config.GoogleOAuthClientSecret != "" || config.GoogleOAuthAuthorizationEndpoint != "" || config.GoogleOAuthTokenEndpoint != "" || config.GoogleOAuthRevocationEndpoint != "" {
+		fixtureConfigured, fixtureErr := googleOAuthFixtureMode(config)
+		if fixtureErr != nil {
+			pool.Close()
+			return nil, fixtureErr
+		}
+		vault, vaultErr := encryptedcredentials.New(config.ProviderSecretRoot, config.ProviderSecretKeyFile)
+		if vaultErr != nil {
+			pool.Close()
+			return nil, vaultErr
+		}
+		oauthHTTP := &http.Client{Transport: config.GoogleOAuthTransport, Timeout: 20 * time.Second}
+		var provider integrationauthorization.Provider
+		if fixtureConfigured {
+			provider, err = googleoauth.NewFixture(googleoauth.Config{Client: oauthHTTP, ClientID: config.GoogleOAuthClientID, ClientSecret: config.GoogleOAuthClientSecret},
+				googleoauth.FixtureEndpoints{Authorization: config.GoogleOAuthAuthorizationEndpoint, Token: config.GoogleOAuthTokenEndpoint, Revocation: config.GoogleOAuthRevocationEndpoint})
+		} else {
+			provider, err = googleoauth.NewFromClientFile(googleoauth.Config{Client: oauthHTTP}, config.GoogleOAuthClientFile)
+		}
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+		authorizationRepository, repositoryErr := postgres.NewIntegrationAuthorizationRepository(cellPool)
+		if repositoryErr != nil {
+			pool.Close()
+			return nil, repositoryErr
+		}
+		authorizationService, err = integrationauthorization.NewService(routeaccess.NewAuthorizer(), authorizationRepository, vault, provider,
+			integrationauthorization.RandomSecrets{}, clock)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
 	marketingService, err := marketingapp.New(routeaccess.NewAuthorizer(), marketingRepository, clock)
 	if err != nil {
 		pool.Close()
@@ -245,12 +295,20 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	transport, err := cellapi.New(acceptor, logger, maxBody, cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithFinanceCommands(financeService), cellapi.WithMarketing(marketingService), cellapi.WithMarketingCommands(marketingCommands), cellapi.WithIntegrations(integrationsService), cellapi.WithIntegrationCommands(integrationsService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID))
+	cellOptions := []cellapi.Option{cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithFinanceCommands(financeService), cellapi.WithMarketing(marketingService), cellapi.WithMarketingCommands(marketingCommands), cellapi.WithIntegrations(integrationsService), cellapi.WithIntegrationCommands(integrationsService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID)}
+	if authorizationService != nil {
+		cellOptions = append(cellOptions, cellapi.WithIntegrationAuthorization(authorizationService))
+	}
+	transport, err := cellapi.New(acceptor, logger, maxBody, cellOptions...)
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	mcpTransport, err := mcpapi.New(mcpapi.NewRoutedAuthority(), attentionService, logger, mcpapi.Config{Version: config.MCPVersion, MaxBody: maxBody, ResourceMetadataURL: config.MCPResourceMetadataURL}, mcpapi.WithActionRecovery(actionRecoveryService), mcpapi.WithKnowledge(knowledgeService), mcpapi.WithKnowledgeDocuments(documents), mcpapi.WithBaseline(baselineService), mcpapi.WithFinance(financeService), mcpapi.WithMarketing(marketingCommands), mcpapi.WithIntegrations(integrationsService))
+	mcpOptions := []mcpapi.Option{mcpapi.WithActionRecovery(actionRecoveryService), mcpapi.WithKnowledge(knowledgeService), mcpapi.WithKnowledgeDocuments(documents), mcpapi.WithBaseline(baselineService), mcpapi.WithFinance(financeService), mcpapi.WithMarketing(marketingCommands), mcpapi.WithIntegrations(integrationsService)}
+	if authorizationService != nil {
+		mcpOptions = append(mcpOptions, mcpapi.WithIntegrationAuthorization(authorizationService))
+	}
+	mcpTransport, err := mcpapi.New(mcpapi.NewRoutedAuthority(), attentionService, logger, mcpapi.Config{Version: config.MCPVersion, MaxBody: maxBody, ResourceMetadataURL: config.MCPResourceMetadataURL}, mcpOptions...)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -264,6 +322,14 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 	mux.Handle("/internal/v1/mcp", routedMCP)
 	mux.Handle("/", transport.Handler())
 	return &Server{Handler: withHealth(pool, transport, capacity, mux), pool: pool}, nil
+}
+
+func googleOAuthFixtureMode(config Config) (bool, error) {
+	configured := config.GoogleOAuthAuthorizationEndpoint != "" || config.GoogleOAuthTokenEndpoint != "" || config.GoogleOAuthRevocationEndpoint != ""
+	if configured && config.Environment != "local" && config.Environment != "local-secure" {
+		return false, errors.New("Google OAuth fixture endpoints require a local environment")
+	}
+	return configured, nil
 }
 
 type knowledgeDocumentRoutes struct {

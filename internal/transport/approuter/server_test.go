@@ -203,6 +203,44 @@ func TestAttentionRouteAllowlistMatchesCellSurface(t *testing.T) {
 	}
 }
 
+func TestIntegrationsRouteAllowlistIncludesLifecycleAndExistingSurface(t *testing.T) {
+	tests := []struct {
+		method, resource string
+		mutation         bool
+		allowed          bool
+	}{
+		{http.MethodGet, "integrations/connections", false, true},
+		{http.MethodPost, "integrations/connections", true, true},
+		{http.MethodGet, "integrations/connections/" + routerRequest, false, true},
+		{http.MethodPut, "integrations/connections/" + routerRequest, true, true},
+		{http.MethodGet, "integrations/connections/" + routerRequest + "/health", false, true},
+		{http.MethodPost, "integrations/connections/" + routerRequest + "/authorizations", true, true},
+		{http.MethodPost, "integrations/connections/" + routerRequest + "/credential-revocations", true, true},
+		{http.MethodGet, "integrations/authorizations/" + routerRequest, false, true},
+		{http.MethodGet, "integrations/google/authorization-callback", false, true},
+		{http.MethodGet, "integrations/executions", false, true},
+		{http.MethodPost, "integrations/executions", true, true},
+		{http.MethodGet, "integrations/executions/" + routerRequest, false, true},
+		{http.MethodPost, "integrations/executions/" + routerRequest + "/resolution-requests", true, true},
+		{http.MethodPost, "integrations/executions/" + routerRequest + "/resolutions/" + routerRequest + "/confirmations", true, true},
+		{http.MethodPost, "integrations/google/authorization-callback", false, false},
+		{http.MethodGet, "integrations/connections/not-a-uuid", false, false},
+		{http.MethodGet, "integrations/authorizations/not-a-uuid", false, false},
+		{http.MethodDelete, "integrations/connections/" + routerRequest, false, false},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.resource, func(t *testing.T) {
+			requirement, allowed := routeRequirement(test.method, test.resource)
+			if allowed != test.allowed {
+				t.Fatalf("allowed=%t want %t requirement=%+v", allowed, test.allowed, requirement)
+			}
+			if test.allowed && (requirement.Package != catalog.PackageIntegrations || requirement.Mutation != test.mutation) {
+				t.Fatalf("requirement=%+v", requirement)
+			}
+		})
+	}
+}
+
 func TestBaselineRouteAllowlistMatchesCellSurface(t *testing.T) {
 	tests := []struct {
 		method, resource  string

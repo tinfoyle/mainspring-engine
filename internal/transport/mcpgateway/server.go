@@ -233,7 +233,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestID := s.ids.New()
-	outbound, err := s.newCellRequest(r, cellRoute.Origin, body, principal.Actor, accountContext, requestID)
+	outbound, err := s.newCellRequest(r, cellRoute.Origin, body, principal, accountContext, requestID)
 	if err != nil {
 		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable")
 		return
@@ -241,7 +241,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	response, err := s.client.Do(outbound)
 	if err != nil && response == nil && r.Context().Err() == nil {
 		requestID = s.ids.New()
-		outbound, err = s.newCellRequest(r, cellRoute.Origin, body, principal.Actor, accountContext, requestID)
+		outbound, err = s.newCellRequest(r, cellRoute.Origin, body, principal, accountContext, requestID)
 		if err == nil {
 			response, err = s.client.Do(outbound)
 		}
@@ -333,7 +333,7 @@ func (s *Server) classify(request *http.Request, body *requestbody.Capture, acco
 	return requirement, envelope.Method, call.Name, nil
 }
 
-func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body *requestbody.Capture, actor access.Actor, account access.AccountContext, requestID string) (*http.Request, error) {
+func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body *requestbody.Capture, principal Principal, account access.AccountContext, requestID string) (*http.Request, error) {
 	origin.Path, origin.RawPath, origin.RawQuery = cellMCPPath, "", ""
 	reader, err := body.Open()
 	if err != nil {
@@ -352,8 +352,13 @@ func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body *req
 		return nil, err
 	}
 	authority := routecontext.Authority{RequestID: requestID, AccountID: account.AccountID, CellID: account.CellID, PlacementGeneration: account.PlacementGeneration, EntitlementVersion: account.EntitlementVersion, PackageAccess: packageClaim(account.PackageAccess)}
+	actor := principal.Actor
 	if actor.UserID != "" {
 		authority.ActorKind, authority.ActorID, authority.Role = "user", string(actor.UserID), string(account.Role)
+		if principal.StrongAuthenticatedAt != nil {
+			value := principal.StrongAuthenticatedAt.UTC()
+			authority.StrongAuthenticatedAt = &value
+		}
 	} else {
 		authority.ActorKind, authority.ActorID = "workload", actor.WorkloadID
 	}

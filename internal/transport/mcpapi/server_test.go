@@ -212,8 +212,9 @@ func (transport bearerRoundTripper) RoundTrip(request *http.Request) (*http.Resp
 }
 
 type testAuthority struct {
-	authenticatedToken string
-	requirements       []access.Requirement
+	authenticatedToken    string
+	requirements          []access.Requirement
+	strongAuthenticatedAt *time.Time
 }
 
 func (a *testAuthority) Authenticate(_ context.Context, token string) (access.Actor, error) {
@@ -225,7 +226,7 @@ func (a *testAuthority) Authenticate(_ context.Context, token string) (access.Ac
 }
 func (a *testAuthority) Authorize(_ context.Context, actor access.Actor, accountID ids.AccountID, requirement access.Requirement) (routecontext.Claims, error) {
 	a.requirements = append(a.requirements, requirement)
-	return routecontext.Claims{Authority: routecontext.Authority{AccountID: accountID, ActorKind: "user", ActorID: string(actor.UserID), Role: "owner", CellID: "cell-us-east-01", PlacementGeneration: 1, EntitlementVersion: 1, PackageAccess: &routecontext.PackageAccess{Code: string(requirement.Package), Version: 1, Mode: "enabled"}}}, nil
+	return routecontext.Claims{Authority: routecontext.Authority{AccountID: accountID, ActorKind: "user", ActorID: string(actor.UserID), Role: "owner", StrongAuthenticatedAt: a.strongAuthenticatedAt, CellID: "cell-us-east-01", PlacementGeneration: 1, EntitlementVersion: 1, PackageAccess: &routecontext.PackageAccess{Code: string(requirement.Package), Version: 1, Mode: "enabled"}}}, nil
 }
 
 func mcpInformation(t *testing.T, now time.Time) attentiondomain.InformationRequest {

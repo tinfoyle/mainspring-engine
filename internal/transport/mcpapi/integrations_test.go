@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	integrationauthorization "github.com/tinfoyle/spyglass-engine/internal/application/integrationauthorization"
 	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -28,7 +29,41 @@ const (
 	mcpIntegrationExecution  = "cd000000-0000-4000-8000-00000000000d"
 	mcpIntegrationRelease    = "ce000000-0000-4000-8000-00000000000e"
 	mcpIntegrationApproval   = "cf000000-0000-4000-8000-00000000000f"
+	mcpIntegrationAuth       = "d0000000-0000-4000-8000-000000000010"
 )
+
+type integrationAuthorizationMCPStub struct {
+	now    time.Time
+	begin  integrationauthorization.BeginCommand
+	status ids.IntegrationAuthorizationSessionID
+	revoke integrationauthorization.RevokeCommand
+}
+
+func (stub *integrationAuthorizationMCPStub) Begin(_ context.Context, command integrationauthorization.BeginCommand) (integrationauthorization.BeginResult, error) {
+	stub.begin = command
+	return integrationauthorization.BeginResult{Session: integrationsdomain.AuthorizationSession{
+		ID: mcpIntegrationAuth, AccountID: mcpAccount, ConnectionID: mcpIntegrationConnection,
+		Status: integrationsdomain.AuthorizationPending, CreatedAt: stub.now, UpdatedAt: stub.now, ExpiresAt: stub.now.Add(10 * time.Minute),
+	}, AuthorizationURL: "https://accounts.example.test/authorize?opaque=1"}, nil
+}
+
+func (stub *integrationAuthorizationMCPStub) Status(_ context.Context, _ access.Actor, _ ids.AccountID, authorizationID ids.IntegrationAuthorizationSessionID) (integrationauthorization.AuthorizationSummary, error) {
+	stub.status = authorizationID
+	return integrationauthorization.AuthorizationSummary{
+		ID: mcpIntegrationAuth, AccountID: mcpAccount, ConnectionID: mcpIntegrationConnection,
+		Status: integrationsdomain.AuthorizationCompleted, CredentialID: mcpIntegrationCredential, CredentialGeneration: 2,
+		CreatedAt: stub.now, UpdatedAt: stub.now.Add(time.Minute), ExpiresAt: stub.now.Add(10 * time.Minute),
+	}, nil
+}
+
+func (stub *integrationAuthorizationMCPStub) Revoke(_ context.Context, command integrationauthorization.RevokeCommand) (integrationauthorization.RevocationWorkflow, error) {
+	stub.revoke = command
+	return integrationauthorization.RevocationWorkflow{
+		ID: "d1000000-0000-4000-8000-000000000011", AccountID: mcpAccount, ConnectionID: mcpIntegrationConnection,
+		CredentialID: mcpIntegrationCredential, CredentialGeneration: 2, State: integrationauthorization.RevocationCompleted,
+		CreatedAt: stub.now, UpdatedAt: stub.now.Add(time.Minute),
+	}, nil
+}
 
 type integrationMCPStub struct {
 	now               time.Time
@@ -133,6 +168,67 @@ func TestIntegrationsMCPPublishesClassifiedCompleteTools(t *testing.T) {
 	}
 }
 
+func TestIntegrationsMCPAuthorizationLifecycleRequiresStrongEvidenceAndStaysSecretFree(t *testing.T) {
+	now := time.Date(2026, 8, 23, 23, 0, 0, 0, time.UTC)
+	integrations := &integrationMCPStub{now: now}
+	authorizations := &integrationAuthorizationMCPStub{now: now}
+	authority := &testAuthority{strongAuthenticatedAt: &now}
+	session, cleanup := connectIntegrationMCPWithAuthorization(t, authority, integrations, authorizations)
+	defer cleanup()
+
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(listed.Tools))
+	for _, tool := range listed.Tools {
+		names = append(names, tool.Name)
+	}
+	integrationCount := 0
+	for _, name := range names {
+		if strings.HasPrefix(name, "spyglass_integrations_") {
+			integrationCount++
+		}
+	}
+	if integrationCount != 18 || slices.Contains(names, "spyglass_integrations_authorization_callback") {
+		t.Fatalf("tools=%v", names)
+	}
+
+	begun, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_integrations_authorization_begin", Arguments: map[string]any{
+		"account_id": mcpAccount, "operation_id": mcpOperation, "connection_id": mcpIntegrationConnection, "redirect_uri": "https://app.example.test/callback",
+	}})
+	if err != nil || begun.IsError || authorizations.begin.Session.ReauthenticationMethod != "passkey" || !authorizations.begin.Session.ReauthenticatedAt.Equal(now) {
+		t.Fatalf("begun=%+v err=%v command=%+v", begun, err, authorizations.begin)
+	}
+	assertSecretFreeMCPResult(t, begun)
+
+	status, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_integrations_authorization_status", Arguments: map[string]any{
+		"account_id": mcpAccount, "authorization_id": mcpIntegrationAuth,
+	}})
+	if err != nil || status.IsError || authorizations.status != mcpIntegrationAuth {
+		t.Fatalf("status=%+v err=%v authorization=%q", status, err, authorizations.status)
+	}
+	assertSecretFreeMCPResult(t, status)
+
+	revoked, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "spyglass_integrations_credential_revoke", Arguments: map[string]any{
+		"account_id": mcpAccount, "operation_id": mcpOperation, "connection_id": mcpIntegrationConnection,
+	}})
+	if err != nil || revoked.IsError || authorizations.revoke.Session.ReauthenticationMethod != "passkey" || !authorizations.revoke.Session.ReauthenticatedAt.Equal(now) {
+		t.Fatalf("revoked=%+v err=%v command=%+v", revoked, err, authorizations.revoke)
+	}
+	assertSecretFreeMCPResult(t, revoked)
+}
+
+func assertSecretFreeMCPResult(t *testing.T, result *mcp.CallToolResult) {
+	t.Helper()
+	raw := result.Content[0].(*mcp.TextContent).Text
+	for _, forbidden := range []string{"state_sha256", "pkce", "scope", "redirect_uri", "reference_sha256", "refresh_token", "authorization_code"} {
+		if strings.Contains(strings.ToLower(raw), forbidden) {
+			t.Fatalf("unsafe authorization output contains %q: %s", forbidden, raw)
+		}
+	}
+}
+
 func TestIntegrationsMCPBindsMutationDigestAndOpaqueExecutionOutput(t *testing.T) {
 	stub := &integrationMCPStub{now: time.Date(2026, 8, 23, 23, 0, 0, 0, time.UTC)}
 	authority := &testAuthority{}
@@ -193,8 +289,16 @@ func TestIntegrationsMCPRedactsBackendFailuresAndRequiresVersion(t *testing.T) {
 }
 
 func connectIntegrationMCP(t *testing.T, authority Authority, integrations IntegrationsService) (*mcp.ClientSession, func()) {
+	return connectIntegrationMCPWithAuthorization(t, authority, integrations, nil)
+}
+
+func connectIntegrationMCPWithAuthorization(t *testing.T, authority Authority, integrations IntegrationsService, authorization IntegrationAuthorizationService) (*mcp.ClientSession, func()) {
 	t.Helper()
-	server, err := New(authority, &attentionStub{}, slog.New(slog.NewTextHandler(io.Discard, nil)), Config{Version: "0.3.0-test", MaxBody: DefaultMaxBody, TrustedOrigins: []string{"https://trusted.example"}, ResourceMetadataURL: "https://auth.infiniteocean.net/.well-known/oauth-protected-resource"}, WithIntegrations(integrations))
+	options := []Option{WithIntegrations(integrations)}
+	if authorization != nil {
+		options = append(options, WithIntegrationAuthorization(authorization))
+	}
+	server, err := New(authority, &attentionStub{}, slog.New(slog.NewTextHandler(io.Discard, nil)), Config{Version: "0.3.0-test", MaxBody: DefaultMaxBody, TrustedOrigins: []string{"https://trusted.example"}, ResourceMetadataURL: "https://auth.infiniteocean.net/.well-known/oauth-protected-resource"}, options...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,3 +314,4 @@ func connectIntegrationMCP(t *testing.T, authority Authority, integrations Integ
 }
 
 var _ IntegrationsService = (*integrationMCPStub)(nil)
+var _ IntegrationAuthorizationService = (*integrationAuthorizationMCPStub)(nil)

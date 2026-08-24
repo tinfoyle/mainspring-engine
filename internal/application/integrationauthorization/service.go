@@ -362,7 +362,7 @@ func (service *Service) advanceCallback(ctx context.Context, progress CallbackPr
 		defer material.Close()
 		challenge := pkceChallenge(material.Verifier)
 		if progress.Session.StateSHA256 != sha256.Sum256(material.State) || progress.Session.PKCEChallengeSHA256 != sha256.Sum256(challenge) ||
-			!progress.Session.ExpiresAt.Equal(material.ExpiresAt.UTC()) {
+			!sameDurableInstant(progress.Session.ExpiresAt, material.ExpiresAt) {
 			wipe(challenge)
 			return CallbackResult{}, ErrConflict
 		}
@@ -630,7 +630,7 @@ func (service *Service) replay(ctx context.Context, existing domain.Authorizatio
 func (service *Service) replayWithMaterial(existing domain.AuthorizationSession, command BeginCommand, material integrationcredentials.AuthorizationMaterial, now time.Time) (BeginResult, error) {
 	if existing.Status != domain.AuthorizationPending || existing.AccountID != command.AccountID || existing.ConnectionID != command.ConnectionID ||
 		existing.RedirectURI != strings.TrimSpace(command.RedirectURI) || existing.CreatedBy.UserID != command.Actor.UserID || !existing.ExpiresAt.After(now) ||
-		!existing.ExpiresAt.Equal(material.ExpiresAt.UTC()) || existing.StateSHA256 != sha256.Sum256(material.State) {
+		!sameDurableInstant(existing.ExpiresAt, material.ExpiresAt) || existing.StateSHA256 != sha256.Sum256(material.State) {
 		return BeginResult{}, ErrConflict
 	}
 	challenge := pkceChallenge(material.Verifier)
@@ -677,6 +677,14 @@ func validAuthority(authority Authority, accountID ids.AccountID, connectionID i
 func pkceChallenge(verifier []byte) []byte {
 	digest := sha256.Sum256(verifier)
 	return []byte(base64.RawURLEncoding.EncodeToString(digest[:]))
+}
+
+// PostgreSQL persists timestamptz at microsecond resolution while the sealed
+// authorization material retains Go's nanoseconds. Treat only sub-microsecond
+// normalization as the same durable instant; larger drift remains a conflict.
+func sameDurableInstant(left, right time.Time) bool {
+	delta := left.UTC().Sub(right.UTC())
+	return delta > -time.Microsecond && delta < time.Microsecond
 }
 
 func classify(err error) error {

@@ -649,6 +649,9 @@ func (repository *IntegrationsRepository) transitionConnection(ctx context.Conte
 		if err != nil {
 			return err
 		}
+		if target == domain.ConnectionRevoked && current.Kind == domain.ConnectorGoogleDrive {
+			return integrationsapp.ErrConflict
+		}
 		if current.Version == expected+1 {
 			matched, err := integrationEventMatches(ctx, tx, accountID, mutation.EventID, "connection", string(connectionID), mutation.Kind, actor, mutation.CorrelationID)
 			if err != nil {

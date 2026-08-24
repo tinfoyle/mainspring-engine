@@ -202,6 +202,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		operationID = strings.TrimSpace(values[0])
 	}
 	authority := routecontext.Authority{OperationID: operationID, AccountID: accountContext.AccountID, ActorKind: "user", ActorID: string(authenticated.Session.UserID), Role: string(accountContext.Role), CellID: accountContext.CellID, PlacementGeneration: accountContext.PlacementGeneration, EntitlementVersion: accountContext.EntitlementVersion, PackageAccess: packageClaim(accountContext.PackageAccess)}
+	if authenticated.Session.ReauthenticationMethod == sessions.AuthenticationMethodPasskey && !authenticated.Session.ReauthenticatedAt.IsZero() {
+		value := authenticated.Session.ReauthenticatedAt.UTC()
+		authority.StrongAuthenticatedAt = &value
+	}
 	requestID := s.ids.New()
 	outbound, err := s.newCellRequest(r, cellRoute.Origin, body, authority, binding, requestID)
 	if err != nil {
@@ -393,6 +397,50 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 			}
 			if len(parts) == 4 && ids.Validate(parts[2]) == nil && parts[3] == "decisions" {
 				return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, method == http.MethodPost
+			}
+		}
+		return access.Requirement{}, false
+	}
+	if len(parts) >= 2 && parts[0] == "integrations" {
+		read := access.Requirement{Package: catalog.PackageIntegrations}
+		mutation := access.Requirement{Package: catalog.PackageIntegrations, Mutation: true}
+		switch parts[1] {
+		case "connections":
+			if len(parts) == 2 {
+				return access.Requirement{Package: catalog.PackageIntegrations, Mutation: method == http.MethodPost},
+					method == http.MethodGet || method == http.MethodPost
+			}
+			if len(parts) == 3 && ids.Validate(parts[2]) == nil {
+				return access.Requirement{Package: catalog.PackageIntegrations, Mutation: method == http.MethodPut},
+					method == http.MethodGet || method == http.MethodPut
+			}
+			if len(parts) == 4 && ids.Validate(parts[2]) == nil {
+				if parts[3] == "health" {
+					return read, method == http.MethodGet
+				}
+				for _, action := range []string{"credential-bindings", "credential-rotations", "disables", "enables", "revocations", "authorizations", "credential-revocations"} {
+					if parts[3] == action {
+						return mutation, method == http.MethodPost
+					}
+				}
+			}
+		case "authorizations":
+			return read, len(parts) == 3 && ids.Validate(parts[2]) == nil && method == http.MethodGet
+		case "google":
+			return read, len(parts) == 3 && parts[2] == "authorization-callback" && method == http.MethodGet
+		case "executions":
+			if len(parts) == 2 {
+				return access.Requirement{Package: catalog.PackageIntegrations, Mutation: method == http.MethodPost},
+					method == http.MethodGet || method == http.MethodPost
+			}
+			if len(parts) == 3 && ids.Validate(parts[2]) == nil {
+				return read, method == http.MethodGet
+			}
+			if len(parts) == 4 && ids.Validate(parts[2]) == nil && parts[3] == "resolution-requests" {
+				return mutation, method == http.MethodPost
+			}
+			if len(parts) == 6 && ids.Validate(parts[2]) == nil && parts[3] == "resolutions" && ids.Validate(parts[4]) == nil && parts[5] == "confirmations" {
+				return mutation, method == http.MethodPost
 			}
 		}
 		return access.Requirement{}, false
