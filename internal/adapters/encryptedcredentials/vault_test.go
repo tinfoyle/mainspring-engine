@@ -50,8 +50,9 @@ func newTestVault(t *testing.T) (*Vault, string) {
 func TestVaultSealsAuthorizationVerifierAndDeletesExactly(t *testing.T) {
 	vault, root := newTestVault(t)
 	now := time.Now().UTC()
+	state := []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFG")
 	verifier := []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
-	secret := integrationcredentials.AuthorizationSecret{AccountID: vaultAccount, SessionID: vaultSession, Verifier: verifier, ExpiresAt: now.Add(10 * time.Minute)}
+	secret := integrationcredentials.AuthorizationSecret{AccountID: vaultAccount, SessionID: vaultSession, State: state, Verifier: verifier, ExpiresAt: now.Add(10 * time.Minute)}
 	if err := vault.PutAuthorization(context.Background(), secret); err != nil {
 		t.Fatal(err)
 	}
@@ -64,17 +65,19 @@ func TestVaultSealsAuthorizationVerifierAndDeletesExactly(t *testing.T) {
 	if err := vault.PutAuthorization(context.Background(), altered); !errors.Is(err, ErrConflict) {
 		t.Fatalf("altered authorization replay=%v", err)
 	}
-	lease, err := vault.Authorization(context.Background(), vaultAccount, vaultSession, now)
-	if err != nil || !bytes.Equal(lease.Material(), verifier) {
-		t.Fatalf("authorization material=%q err=%v", lease.Material(), err)
+	material, err := vault.Authorization(context.Background(), vaultAccount, vaultSession, now)
+	if err != nil || !bytes.Equal(material.State, state) || !bytes.Equal(material.Verifier, verifier) {
+		t.Fatalf("authorization state=%q verifier=%q err=%v", material.State, material.Verifier, err)
 	}
-	if err := lease.Close(); err != nil || lease.Material() != nil {
-		t.Fatalf("closed authorization lease material=%q err=%v", lease.Material(), err)
+	material.Close()
+	if material.State != nil || material.Verifier != nil {
+		t.Fatalf("closed authorization material=%+v", material)
 	}
 	if _, err := vault.Authorization(context.Background(), vaultAccount, vaultSession, secret.ExpiresAt); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("expired authorization=%v", err)
 	}
 	assertNoPlaintext(t, root, verifier)
+	assertNoPlaintext(t, root, state)
 	if err := vault.DeleteAuthorization(context.Background(), vaultAccount, vaultSession); err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +178,9 @@ func TestVaultRejectsWeakFilesAndCiphertextTamper(t *testing.T) {
 		t.Fatal(err)
 	}
 	verifier := []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+	state := []byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFG")
 	if err := vault.PutAuthorization(context.Background(), integrationcredentials.AuthorizationSecret{AccountID: vaultAccount, SessionID: vaultSession,
-		Verifier: verifier, ExpiresAt: time.Now().UTC().Add(time.Minute)}); err != nil {
+		State: state, Verifier: verifier, ExpiresAt: time.Now().UTC().Add(time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 	path := vault.authorizationPath(vaultAccount, vaultSession)

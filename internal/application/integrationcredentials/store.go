@@ -10,8 +10,25 @@ import (
 type AuthorizationSecret struct {
 	AccountID ids.AccountID
 	SessionID ids.IntegrationAuthorizationSessionID
+	State     []byte
 	Verifier  []byte
 	ExpiresAt time.Time
+}
+
+type AuthorizationMaterial struct {
+	State     []byte
+	Verifier  []byte
+	ExpiresAt time.Time
+}
+
+func (value *AuthorizationMaterial) Close() {
+	for index := range value.State {
+		value.State[index] = 0
+	}
+	for index := range value.Verifier {
+		value.Verifier[index] = 0
+	}
+	value.State, value.Verifier, value.ExpiresAt = nil, nil, time.Time{}
 }
 
 type CredentialSecret struct {
@@ -35,7 +52,7 @@ const (
 // secret material in errors or observable metadata.
 type Store interface {
 	PutAuthorization(context.Context, AuthorizationSecret) error
-	Authorization(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (Lease, error)
+	Authorization(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (AuthorizationMaterial, error)
 	DeleteAuthorization(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID) error
 	PutCredential(context.Context, CredentialSecret) error
 	FenceCredential(context.Context, ids.AccountID, ids.IntegrationCredentialID, uint64, CredentialEndState) error

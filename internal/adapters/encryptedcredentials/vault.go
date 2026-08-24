@@ -57,6 +57,7 @@ type document struct {
 	Reference    []byte `json:"reference,omitempty"`
 	Material     []byte `json:"material,omitempty"`
 	Verifier     []byte `json:"verifier,omitempty"`
+	OAuthState   []byte `json:"oauth_state,omitempty"`
 	State        string `json:"state"`
 	ExpiresAt    string `json:"expires_at,omitempty"`
 }
@@ -133,30 +134,30 @@ func restrictiveKey(filename string) ([]byte, error) {
 
 func (vault *Vault) PutAuthorization(ctx context.Context, secret integrationcredentials.AuthorizationSecret) error {
 	if vault == nil || vault.aead == nil || ctx == nil || ctx.Err() != nil || ids.Validate(string(secret.AccountID)) != nil ||
-		ids.Validate(string(secret.SessionID)) != nil || !validVerifier(secret.Verifier) || secret.ExpiresAt.IsZero() {
+		ids.Validate(string(secret.SessionID)) != nil || !validVerifier(secret.State) || !validVerifier(secret.Verifier) || secret.ExpiresAt.IsZero() {
 		return ErrUnavailable
 	}
 	doc := document{Version: 1, Kind: "authorization", AccountID: string(secret.AccountID), SessionID: string(secret.SessionID),
-		Verifier: append([]byte(nil), secret.Verifier...), State: "active", ExpiresAt: secret.ExpiresAt.UTC().Format(time.RFC3339Nano)}
+		OAuthState: append([]byte(nil), secret.State...), Verifier: append([]byte(nil), secret.Verifier...), State: "active", ExpiresAt: secret.ExpiresAt.UTC().Format(time.RFC3339Nano)}
 	defer doc.wipe()
 	return vault.put(ctx, vault.authorizationPath(secret.AccountID, secret.SessionID), doc)
 }
 
-func (vault *Vault) Authorization(ctx context.Context, accountID ids.AccountID, sessionID ids.IntegrationAuthorizationSessionID, now time.Time) (integrationcredentials.Lease, error) {
+func (vault *Vault) Authorization(ctx context.Context, accountID ids.AccountID, sessionID ids.IntegrationAuthorizationSessionID, now time.Time) (integrationcredentials.AuthorizationMaterial, error) {
 	if vault == nil || vault.aead == nil || ctx == nil || ctx.Err() != nil || ids.Validate(string(accountID)) != nil || ids.Validate(string(sessionID)) != nil || now.IsZero() {
-		return nil, ErrUnavailable
+		return integrationcredentials.AuthorizationMaterial{}, ErrUnavailable
 	}
 	doc, err := vault.read(vault.authorizationPath(accountID, sessionID))
 	if err != nil {
-		return nil, err
+		return integrationcredentials.AuthorizationMaterial{}, err
 	}
 	defer doc.wipe()
 	expiresAt, err := time.Parse(time.RFC3339Nano, doc.ExpiresAt)
 	if err != nil || doc.Version != 1 || doc.Kind != "authorization" || doc.AccountID != string(accountID) || doc.SessionID != string(sessionID) ||
-		doc.State != "active" || !validVerifier(doc.Verifier) || !expiresAt.After(now.UTC()) || len(doc.Material) != 0 || len(doc.Reference) != 0 {
-		return nil, ErrUnavailable
+		doc.State != "active" || !validVerifier(doc.OAuthState) || !validVerifier(doc.Verifier) || !expiresAt.After(now.UTC()) || len(doc.Material) != 0 || len(doc.Reference) != 0 {
+		return integrationcredentials.AuthorizationMaterial{}, ErrUnavailable
 	}
-	return newLease(doc.Verifier), nil
+	return integrationcredentials.AuthorizationMaterial{State: append([]byte(nil), doc.OAuthState...), Verifier: append([]byte(nil), doc.Verifier...), ExpiresAt: expiresAt}, nil
 }
 
 func (vault *Vault) DeleteAuthorization(ctx context.Context, accountID ids.AccountID, sessionID ids.IntegrationAuthorizationSessionID) error {
@@ -439,13 +440,13 @@ func (vault *Vault) credentialPath(accountID ids.AccountID, credentialID ids.Int
 func (value document) matchesCredential(accountID ids.AccountID, credentialID ids.IntegrationCredentialID, generation uint64) bool {
 	return value.Version == 1 && value.Kind == "credential" && value.AccountID == string(accountID) &&
 		value.CredentialID == string(credentialID) && value.Generation == generation && validProvider.MatchString(value.Provider) &&
-		validReference(value.Reference) && len(value.Material) > 0 && len(value.Material) <= maximumMaterial && value.SessionID == "" && len(value.Verifier) == 0
+		validReference(value.Reference) && len(value.Material) > 0 && len(value.Material) <= maximumMaterial && value.SessionID == "" && len(value.Verifier) == 0 && len(value.OAuthState) == 0
 }
 
 func (value document) equal(other document) bool {
 	return value.Version == other.Version && value.Kind == other.Kind && value.AccountID == other.AccountID && value.SessionID == other.SessionID &&
 		value.CredentialID == other.CredentialID && value.Generation == other.Generation && value.Provider == other.Provider &&
-		bytes.Equal(value.Reference, other.Reference) && bytes.Equal(value.Material, other.Material) && bytes.Equal(value.Verifier, other.Verifier) &&
+		bytes.Equal(value.Reference, other.Reference) && bytes.Equal(value.Material, other.Material) && bytes.Equal(value.Verifier, other.Verifier) && bytes.Equal(value.OAuthState, other.OAuthState) &&
 		value.State == other.State && value.ExpiresAt == other.ExpiresAt
 }
 
@@ -453,7 +454,8 @@ func (value *document) wipe() {
 	wipe(value.Reference)
 	wipe(value.Material)
 	wipe(value.Verifier)
-	value.Reference, value.Material, value.Verifier = nil, nil, nil
+	wipe(value.OAuthState)
+	value.Reference, value.Material, value.Verifier, value.OAuthState = nil, nil, nil, nil
 }
 
 func validReference(value []byte) bool {

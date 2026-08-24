@@ -10,6 +10,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationauthorization"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
+	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -48,13 +54,41 @@ func TestIntegrationAuthorizationSessionsAreOneUseRLSAndCredentialBound(t *testi
 		pgx.QueryExecModeSimpleProtocol, accountID, otherAccountID, now, connectionID, userID, revisionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.integration_authorization_sessions
-		(account_id,id,connection_id,connection_revision_id,provider,requested_scope,scope_revision_sha256,redirect_uri,state_sha256,
-		 pkce_challenge_sha256,status,version,created_by_user_id,created_at,updated_at,expires_at)
-		VALUES ($1,$2,$3,$4,'google_oauth','https://www.googleapis.com/auth/drive.readonly',$5,
-		 'https://app.infiniteocean.net/api/v1/accounts/oauth/callback',$6,$7,'pending',1,$8,$9,$9,$10)`,
-		accountID, sessionID, connectionID, revisionID, scopeDigest[:], stateDigest[:], pkceDigest[:], userID, now, now.Add(10*time.Minute)); err != nil {
+	cell, err := database.NewCellPool(owner)
+	if err != nil {
 		t.Fatal(err)
+	}
+	repository, err := postgresadapter.NewIntegrationAuthorizationRepository(cell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := repository.Authority(ctx, ids.AccountID(accountID), ids.IntegrationConnectionID(connectionID))
+	if err != nil || authority.Connection.ID != ids.IntegrationConnectionID(connectionID) || authority.Revision.ID != ids.IntegrationConnectionRevisionID(revisionID) {
+		t.Fatalf("authorization authority=%+v err=%v", authority, err)
+	}
+	scopeDigest = integrationauthorization.ScopeRevisionDigest(authority.Revision)
+	pending, err := domain.NewAuthorizationSession(domain.AuthorizationSessionInput{ID: ids.IntegrationAuthorizationSessionID(sessionID),
+		AccountID: ids.AccountID(accountID), ConnectionID: ids.IntegrationConnectionID(connectionID),
+		ConnectionRevision: ids.IntegrationConnectionRevisionID(revisionID), Provider: domain.GoogleOAuthProvider, Scope: domain.GoogleDriveReadScope,
+		ScopeRevisionSHA256: scopeDigest, RedirectURI: "https://app.infiniteocean.net/api/v1/accounts/oauth/callback",
+		StateSHA256: stateDigest, PKCEChallengeSHA256: pkceDigest, CreatedBy: domain.Actor{UserID: ids.UserID(userID)},
+		CreatedAt: now, ExpiresAt: now.Add(10 * time.Minute)}, accounts.RoleOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startEvent := integrationauthorization.Event{ID: "72800000-0000-4000-8000-000000000008", Type: "authorization_started", ActorKind: "user",
+		ActorID: userID, CorrelationID: sessionID, At: now}
+	stored, created, err := repository.Create(ctx, pending, accounts.RoleOwner, startEvent)
+	if err != nil || !created || stored != pending {
+		t.Fatalf("create authorization stored=%+v created=%t err=%v", stored, created, err)
+	}
+	stored, created, err = repository.Create(ctx, pending, accounts.RoleOwner, startEvent)
+	if err != nil || created || stored != pending {
+		t.Fatalf("replay authorization stored=%+v created=%t err=%v", stored, created, err)
+	}
+	loaded, err := repository.Get(ctx, ids.AccountID(accountID), ids.IntegrationAuthorizationSessionID(sessionID))
+	if err != nil || loaded != pending {
+		t.Fatalf("load authorization=%+v err=%v", loaded, err)
 	}
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.integration_authorization_sessions SET status='exchanging',version=2,
 		claimed_at=$3,updated_at=$3 WHERE account_id=$1 AND id=$2`, accountID, sessionID, now.Add(time.Minute)); err != nil {
@@ -109,7 +143,7 @@ func TestIntegrationAuthorizationSessionsAreOneUseRLSAndCredentialBound(t *testi
 	}
 	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.integration_authorization_events
 		(account_id,id,session_id,event_type,actor_kind,actor_id,correlation_id,redacted_payload,occurred_at)
-		VALUES ($1,'72800000-0000-4000-8000-000000000008',$2,'authorization_completed','provider_callback','google_oauth',$2,'{"generation":1}',$3)`,
+		VALUES ($1,'72900000-0000-4000-8000-000000000009',$2,'authorization_completed','provider_callback','google_oauth',$2,'{"generation":1}',$3)`,
 		accountID, sessionID, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}

@@ -186,6 +186,12 @@ The server-side provider boundary now constructs Google's exact offline-consent 
 
 Focused race tests use a deterministic local HTTP provider to prove exact consent fields, exchange form binding, refresh-material return and clearing, scope drift, redirect refusal, provider failure, restrictive client-file loading, bounded response parsing and idempotent already-revoked handling. The complete ordinary Go suite passes. This is the protocol client, not the lifecycle: durable claim, credential creation/rotation, compensation, public callback, HTTP/MCP operations and the containerized end-to-end provider fixture remain.
 
+## Product authorization begin boundary
+
+The application-owned begin operation now requires a current Integrations mutation entitlement, owner or administrator Membership and recent user-verified passkey authentication before it inspects provider authority. It accepts only a current non-revoked Google Drive connection with the single `google_drive.read` capability, freezes the exact revision and canonical folder-scope digest and creates one 15-minute authorization session plus redacted start event under Account RLS. The state and PKCE verifier remain together in the encrypted secret store; PostgreSQL receives only their SHA-256 evidence and the S256 challenge digest.
+
+The state/verifier pair is keyed by the operation-derived session identity and read back after every attempted write. Consequently an ambiguous filesystem result, process interruption or exact HTTP retry recovers the canonical encrypted material and reproduces the same consent URL instead of minting a second authorization request. Changed actor, connection or callback reuse conflicts, and expired material cannot resume. Pure race tests cover recent-passkey/role/current-authority enforcement, exact replay, changed replay and ambiguous secret writes. A fresh PostgreSQL 17 certificate exercises current-authority restoration, insert, exact replay, load, event comparison, state transitions, credential-bound completion, RLS and event immutability. The full ordinary Go/vet/format gate passes. Callback claim/exchange, credential activation/rotation and compensation, lifecycle transports and the end-to-end provider fixture remain.
+
 ## Invariants
 
 - Provider credentials never enter Marketing, Agent, browser, MCP output, events, logs or telemetry.
