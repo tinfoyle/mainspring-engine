@@ -165,6 +165,8 @@ Exit: privacy and Affiliate state has a tested local application boundary; analy
 
 ### UI0 — Foundation and contract proof
 
+Checkpoint (2026-08-24): the top-level `ui/` workspace now builds separate Nuxt-rendered public and Vue-SPA private images, shares generated API contracts and design tokens/primitives, runs type-check/test/lint/build/audit gates in its Docker test target, and is wired into the local web/app origins. The first-party consent client refuses optional emission before consent, the rendered acquisition shell includes resilient privacy controls, and the private shell loads session/Account choices with Your Turn as its default route. The authenticated idempotent/versioned mutation proof, complete primitive/phone fixture set and applied device/browser acceptance remain UI0 exit work; the current Your Turn cards are explicitly a visual fixture rather than live queue data.
+
 - Scaffold the Vue 3 and TypeScript workspace with independent public acquisition and private SPA build targets plus shared routing, test, lint, type-check and production-build gates.
 - Consume the generated API types and prove one authenticated query and one idempotent, versioned mutation locally.
 - Establish design tokens and accessible primitives for buttons, fields, links, status, alerts, dialogs, drawers, disclosure and live announcements.

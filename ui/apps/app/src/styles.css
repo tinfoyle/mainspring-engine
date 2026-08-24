@@ -1,0 +1,65 @@
+#app { min-height: 100vh; }
+.skip-link { position: fixed; z-index: 100; left: 1rem; top: -5rem; background: white; padding: .75rem 1rem; border-radius: .5rem; }
+.skip-link:focus { top: 1rem; }
+.app-shell { min-height: 100vh; }
+.mobile-header { position: sticky; z-index: 30; top: 0; height: 4rem; padding: 0 1rem; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; text-align: center; background: rgb(251 248 240 / 92%); border-bottom: 1px solid var(--io-line); backdrop-filter: blur(14px); }
+.menu-button { width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: var(--io-ocean-950); font-size: 1.55rem; }
+.sidebar { position: fixed; z-index: 50; inset: 0 auto 0 0; width: min(20rem, 88vw); padding: 1.2rem; display: flex; flex-direction: column; gap: 2rem; background: var(--io-ocean-950); color: white; transform: translateX(-102%); transition: transform .22s ease; }
+.sidebar--open { transform: none; box-shadow: var(--io-shadow); }
+.brand { padding: .25rem; color: white; text-decoration: none; }
+.brand .io-logo__type small { color: var(--io-seafoam); }
+.sidebar nav { display: grid; gap: .35rem; }
+.nav-link { min-height: 48px; padding: .75rem .9rem; display: flex; align-items: center; justify-content: space-between; border-radius: .75rem; color: rgb(255 255 255 / 72%); text-decoration: none; font-weight: 650; }
+.nav-link:hover, .nav-link.router-link-active { color: white; background: rgb(255 255 255 / 10%); }
+.nav-link em { min-width: 1.55rem; height: 1.55rem; display: grid; place-content: center; border-radius: 999px; background: var(--io-coral); font-size: .75rem; font-style: normal; }
+.account-switcher { margin-top: auto; display: grid; gap: .45rem; }
+.account-switcher label { color: var(--io-seafoam); font-size: .75rem; font-weight: 750; text-transform: uppercase; letter-spacing: .12em; }
+.account-switcher select { width: 100%; min-height: 46px; padding: 0 .75rem; border: 1px solid rgb(255 255 255 / 25%); border-radius: .7rem; color: white; background: rgb(255 255 255 / 8%); }
+.account-switcher option { color: var(--io-ink); }
+.scrim { position: fixed; z-index: 40; inset: 0; border: 0; background: rgb(3 20 25 / 55%); }
+main { min-width: 0; }
+.session-notice { padding: .8rem 1rem; text-align: center; background: #fff0d3; }
+.page { width: var(--io-page); margin-inline: auto; padding: 2.2rem 0 5rem; }
+.page-heading { max-width: 44rem; }
+.eyebrow { margin: 0 0 .55rem; color: var(--io-ocean-650); font-size: .76rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+.page h1 { margin: 0; color: var(--io-ocean-950); font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.4rem, 12vw, 4.6rem); font-weight: 500; line-height: .95; letter-spacing: -.055em; }
+.page-heading > p:last-child { color: var(--io-ink-soft); font-size: 1.04rem; line-height: 1.55; }
+.queue-toolbar { margin: 1.8rem 0 1rem; display: flex; gap: .5rem; overflow-x: auto; padding: .25rem 0 .5rem; scrollbar-width: none; }
+.filter-chip, .filter-button { min-height: 44px; white-space: nowrap; border: 1px solid var(--io-line); border-radius: 999px; padding: .55rem .85rem; color: var(--io-ink-soft); background: var(--io-paper); }
+.filter-chip--active { color: white; border-color: var(--io-ocean-950); background: var(--io-ocean-950); }
+.filter-chip strong { margin-left: .35rem; color: var(--io-seafoam); }
+.filter-button { margin-left: auto; }
+.attention-list { margin: 0; padding: 0; display: grid; gap: .8rem; list-style: none; }
+.attention-card { padding: 1.1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); box-shadow: 0 7px 22px rgb(5 47 57 / 5%); }
+.attention-card--urgent { border-left: 4px solid var(--io-coral); }
+.card-meta { display: flex; justify-content: space-between; gap: 1rem; color: var(--io-ocean-650); font-size: .75rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.card-meta time { color: var(--io-ink-soft); font-weight: 550; letter-spacing: 0; text-transform: none; }
+.attention-card h2 { margin: .7rem 0 .35rem; color: var(--io-ocean-950); font-size: 1.15rem; line-height: 1.28; }
+.attention-card p { margin: 0; color: var(--io-ink-soft); font-size: .92rem; line-height: 1.5; }
+.attention-card footer { margin-top: 1.05rem; padding-top: .9rem; display: flex; align-items: center; justify-content: space-between; gap: .7rem; border-top: 1px solid #e8eeeb; }
+.account-dot { color: var(--io-ink-soft); font-size: .78rem; }
+.account-dot::before { content: ""; width: .48rem; height: .48rem; margin-right: .4rem; display: inline-block; border-radius: 50%; background: var(--io-ocean-500); }
+.preference-panel, .privacy-danger { margin-top: 1.5rem; padding: 1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
+.preference-row { min-height: 5rem; padding: .8rem 0; display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #e8eeeb; }
+.preference-row h2, .preference-row p { margin: 0; }
+.preference-row span { display: grid; gap: .25rem; }
+.preference-row small, .preference-row p { color: var(--io-ink-soft); line-height: 1.4; }
+.preference-row input { width: 2.7rem; height: 1.5rem; accent-color: var(--io-ocean-650); }
+.preference-actions { padding-top: 1rem; display: flex; flex-wrap: wrap; gap: .65rem; }
+.privacy-danger h2 { margin-top: 0; font-size: 1.1rem; }
+.privacy-danger p { color: var(--io-ink-soft); line-height: 1.5; }
+.live-message { min-height: 1.5rem; color: var(--io-ocean-800); }
+
+@media (min-width: 52rem) {
+  .app-shell { display: grid; grid-template-columns: 16rem minmax(0, 1fr); }
+  .mobile-header, .scrim { display: none; }
+  .sidebar { position: sticky; top: 0; width: 16rem; height: 100vh; transform: none; }
+  main { min-height: 100vh; }
+  .page { width: min(62rem, calc(100% - 4rem)); padding-top: 4rem; }
+  .attention-card { padding: 1.3rem 1.45rem; }
+}
+
+@media (min-width: 72rem) {
+  .attention-list { grid-template-columns: 1fr 1fr; }
+  .attention-list li:first-child { grid-column: 1 / -1; }
+}

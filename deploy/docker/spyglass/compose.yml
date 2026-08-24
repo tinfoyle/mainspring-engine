@@ -36,6 +36,7 @@ services:
       app-router: {condition: service_healthy}
       mcp-gateway: {condition: service_healthy}
       website: {condition: service_healthy}
+      private-ui: {condition: service_healthy}
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     security_opt:
@@ -48,7 +49,7 @@ services:
       - application
 
   website:
-    image: ${SPYGLASS_WEBSITE_IMAGE:-infinite-ocean-website:local}
+    image: ${SPYGLASS_WEBSITE_IMAGE:-infinite-ocean-public-ui:local}
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -60,7 +61,23 @@ services:
       SPYGLASS_ACCOUNT_API_ORIGIN: http://account-api:8080
       SPYGLASS_APP_ORIGIN: ${SPYGLASS_APP_ORIGIN:?set SPYGLASS_APP_ORIGIN}
       SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      NUXT_PUBLIC_APP_ORIGIN: ${SPYGLASS_APP_ORIGIN:?set SPYGLASS_APP_ORIGIN}
     expose: ["3000"]
+    networks:
+      - application
+
+  private-ui:
+    image: ${SPYGLASS_PRIVATE_UI_IMAGE:-infinite-ocean-private-ui:local}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /config:size=4m,mode=700
+      - /data:size=4m,mode=700
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    expose: ["8080"]
     networks:
       - application
 

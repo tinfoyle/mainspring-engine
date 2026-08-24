@@ -2,20 +2,41 @@
   admin off
 }
 
-web.infiniteocean.localhost {
-  tls internal
-  reverse_proxy website:3000
+(web_routes) {
+  @privacy_api path /api/v1/privacy /api/v1/privacy/* /api/v1/analytics/events
+  handle @privacy_api {
+    reverse_proxy account-api:8080
+  }
+  handle {
+    reverse_proxy website:3000
+  }
 }
 
-app.infiniteocean.localhost {
-  tls internal
-  @cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?|integrations(?:/.*)?)$
+(app_routes) {
+  @cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|attention(?:/.*)?|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?|integrations(?:/.*)?)$
   handle @cell_api {
     reverse_proxy app-router:8080
+  }
+  @vue {
+    method GET HEAD
+    path /app /app/* /ui-assets/*
+  }
+  handle @vue {
+    reverse_proxy private-ui:8080
   }
   handle {
     reverse_proxy account-api:8080
   }
+}
+
+web.infiniteocean.localhost {
+  tls internal
+  import web_routes
+}
+
+app.infiniteocean.localhost {
+  tls internal
+  import app_routes
 }
 
 oauth.infiniteocean.localhost {

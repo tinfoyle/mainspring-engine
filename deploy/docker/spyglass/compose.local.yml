@@ -98,9 +98,17 @@ services:
 
   website:
     build:
-      context: ../../../website
+      context: ../../../ui
       dockerfile: Dockerfile
-    image: infinite-ocean-website:local
+      target: public-runtime
+    image: infinite-ocean-public-ui:local
+
+  private-ui:
+    build:
+      context: ../../../ui
+      dockerfile: Dockerfile
+      target: app-runtime
+    image: infinite-ocean-private-ui:local
 
   global-migrate:
     build: &application-build
@@ -499,10 +507,10 @@ services:
   website-test:
     profiles: [test]
     build:
-      context: ../../../website
+      context: ../../../ui
       dockerfile: Dockerfile
       target: test
-    image: infinite-ocean-website:test
+    image: infinite-ocean-customer-ui:test
 
   test-db:
     profiles: [test]

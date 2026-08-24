@@ -70,9 +70,11 @@ func main() {
 		fatal(err)
 	}
 	outputs := map[string][]byte{
-		"internal/generated/apicontract/routes.go": renderGo(routes),
-		"website/lib/generated/api-contract.ts":    renderTypeScript(routes),
-		"website/lib/generated/api-types.ts":       renderTypeScriptSchemas(schemas),
+		"internal/generated/apicontract/routes.go":      renderGo(routes),
+		"website/lib/generated/api-contract.ts":         renderTypeScript(routes),
+		"website/lib/generated/api-types.ts":            renderTypeScriptSchemas(schemas),
+		"ui/packages/api/src/generated/api-contract.ts": renderTypeScript(routes),
+		"ui/packages/api/src/generated/api-types.ts":    renderTypeScriptSchemas(schemas),
 	}
 	for path, content := range outputs {
 		path = filepath.Join(root, path)

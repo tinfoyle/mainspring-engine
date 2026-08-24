@@ -1,0 +1,23 @@
+{
+  "name": "@spyglass/public",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --host 0.0.0.0",
+    "build": "nuxt build",
+    "typecheck": "nuxt typecheck",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@spyglass/api": "0.1.0",
+    "@spyglass/design-system": "0.1.0",
+    "nuxt": "4.5.2",
+    "vue": "3.5.41"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "vue-tsc": "3.3.11"
+  }
+}
