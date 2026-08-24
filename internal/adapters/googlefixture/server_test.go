@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/googleoauth"
 	integrationauthorization "github.com/tinfoyle/spyglass-engine/internal/application/integrationauthorization"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationsync"
+	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 )
 
 func TestOAuthAndDriveFixtureEnforcesOneUsePKCEAndRevocation(t *testing.T) {
@@ -94,7 +95,7 @@ func TestOAuthAndDriveFixtureEnforcesOneUsePKCEAndRevocation(t *testing.T) {
 	}
 	material, _ := json.Marshal(map[string]string{"refresh_token": string(credential.RefreshToken)})
 	page, err := driveProvider.Sync(context.Background(), integrationsync.ProviderRequest{CredentialProvider: googledrive.ProviderCode,
-		FolderIDs: []string{"folder-a"}, Credential: material})
+		SourceKind: domain.ConnectorGoogleDrive, FolderIDs: []string{"folder-a"}, Credential: material})
 	if err != nil || len(page.Changes) != 1 || page.Changes[0].ObjectID != "fixture-file-1" || string(page.Changes[0].Content) != "Local Google Drive fixture document.\n" {
 		t.Fatalf("Drive page=%+v err=%v", page, err)
 	}

@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 	"time"
 
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -43,6 +45,32 @@ func TestKnowledgeCaptureSinkAdmitsDeterministicInitialDocument(t *testing.T) {
 	replayed, err := sink.Capture(context.Background(), input)
 	if err != nil || replayed != first || admission.upload == nil {
 		t.Fatalf("replayed=%+v first=%+v upload=%+v err=%v", replayed, first, admission.upload, err)
+	}
+}
+
+func TestKnowledgeCaptureSinkPreservesDriveNamespaceAndSeparatesEmail(t *testing.T) {
+	now := time.Date(2026, 8, 24, 16, 0, 0, 0, time.UTC)
+	drive := knowledgeCaptureInput(now)
+	driveDocument, _, _, err := deriveKnowledgeCaptureIdentities(drive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectDigest := sha256.Sum256([]byte("provider-object"))
+	expectedDrive, err := ids.Derive(string(drive.Claim.ConnectionID), "google-drive-object:"+fmt.Sprintf("%x", objectDigest))
+	if err != nil || string(driveDocument) != expectedDrive {
+		t.Fatalf("Drive document=%s expected=%s err=%v", driveDocument, expectedDrive, err)
+	}
+	email := drive
+	email.Claim.SourceKind, email.Claim.FolderIDs, email.FolderID = integrationsdomain.ConnectorEmail, []string{"INBOX"}, "INBOX"
+	emailDocument, _, _, err := deriveKnowledgeCaptureIdentities(email)
+	if err != nil || emailDocument == driveDocument {
+		t.Fatalf("email document=%s Drive document=%s err=%v", emailDocument, driveDocument, err)
+	}
+	admission := &fakeKnowledgeCaptureAdmission{}
+	sink, _ := NewKnowledgeCaptureSink(&fakeKnowledgeCaptureDocuments{err: knowledgeapp.ErrNotFound}, admission)
+	if _, err := sink.Capture(context.Background(), email); err != nil || admission.upload == nil ||
+		admission.upload.ChangeSummary != "Initial email source capture" {
+		t.Fatalf("email upload=%+v err=%v", admission.upload, err)
 	}
 }
 

@@ -163,6 +163,29 @@ func TestVaultCredentialLeaseRequiresExactActiveGenerationAndPurpose(t *testing.
 	}
 }
 
+func TestVaultEmailReadCredentialCannotCrossIntoSendExecution(t *testing.T) {
+	vault, _ := newTestVault(t)
+	reference := []byte("vault-imap-reference-a3000000")
+	material := []byte(`{"username":"reader@example.com","password":"fixture"}`)
+	secret := integrationcredentials.CredentialSecret{AccountID: vaultAccount, CredentialID: vaultCredential, Generation: 1,
+		Provider: "imap", Reference: reference, Material: material}
+	if err := vault.PutCredential(context.Background(), secret); err != nil {
+		t.Fatal(err)
+	}
+	request := integrationcredentials.Request{AccountID: vaultAccount, OperationID: vaultOperation, Purpose: integrationcredentials.PurposeSync,
+		Capability: domain.CapabilityEmailRead, ConnectionID: vaultConnection, CredentialID: vaultCredential, CredentialGeneration: 1,
+		CredentialProvider: "imap", ReferenceSHA256: sha256.Sum256(reference), ExpiresAt: time.Now().UTC().Add(time.Minute)}
+	lease, err := vault.Acquire(context.Background(), request)
+	if err != nil || !bytes.Equal(lease.Material(), material) {
+		t.Fatalf("email read lease=%q err=%v", lease.Material(), err)
+	}
+	_ = lease.Close()
+	request.Purpose, request.Capability = integrationcredentials.PurposeExecute, domain.CapabilityEmailSend
+	if _, err := vault.Acquire(context.Background(), request); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("IMAP material crossed into send execution: %v", err)
+	}
+}
+
 func TestVaultRejectsWeakFilesAndCiphertextTamper(t *testing.T) {
 	base := t.TempDir()
 	root := filepath.Join(base, "secrets")

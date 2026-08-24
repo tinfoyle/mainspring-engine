@@ -47,7 +47,7 @@ func TestProviderCapturesBoundedInitialDirectChildren(t *testing.T) {
 	defer server.Close()
 	provider := testProvider(t, server, 4)
 	page, err := provider.Sync(context.Background(), integrationsync.ProviderRequest{
-		CredentialProvider: ProviderCode, FolderIDs: []string{"folder-a"}, Credential: testCredential(),
+		CredentialProvider: ProviderCode, SourceKind: domain.ConnectorGoogleDrive, FolderIDs: []string{"folder-a"}, Credential: testCredential(),
 	})
 	if err != nil || len(page.Changes) != 1 || !page.HasMore {
 		t.Fatalf("page=%+v err=%v", page, err)
@@ -99,7 +99,7 @@ func TestProviderConsumesChangesAndRemovesLostMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := provider.Sync(context.Background(), integrationsync.ProviderRequest{CredentialProvider: ProviderCode, FolderIDs: []string{"folder-a"}, Cursor: cursor, Credential: testCredential()})
+	page, err := provider.Sync(context.Background(), integrationsync.ProviderRequest{CredentialProvider: ProviderCode, SourceKind: domain.ConnectorGoogleDrive, FolderIDs: []string{"folder-a"}, Cursor: cursor, Credential: testCredential()})
 	if err != nil || len(page.Changes) != 4 || page.HasMore {
 		t.Fatalf("page=%+v err=%v", page, err)
 	}
@@ -135,7 +135,7 @@ func TestProviderExportsSupportedWorkspaceDocuments(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	provider := testProvider(t, server, 3)
-	page, err := provider.Sync(context.Background(), integrationsync.ProviderRequest{CredentialProvider: ProviderCode, FolderIDs: []string{"folder-a"}, Credential: testCredential()})
+	page, err := provider.Sync(context.Background(), integrationsync.ProviderRequest{CredentialProvider: ProviderCode, SourceKind: domain.ConnectorGoogleDrive, FolderIDs: []string{"folder-a"}, Credential: testCredential()})
 	if err != nil || len(page.Changes) != 1 || page.Changes[0].Filename != "Quarterly plan.pdf" ||
 		page.Changes[0].MediaType != "application/pdf" || string(page.Changes[0].Content) != "%PDF-fixture" {
 		t.Fatalf("page=%+v err=%v", page, err)
@@ -147,7 +147,7 @@ func TestProviderRejectsCredentialDriftAndRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provider.Sync(context.Background(), integrationsync.ProviderRequest{CredentialProvider: ProviderCode, FolderIDs: []string{"folder-a"}, Credential: []byte(`{"refresh_token":"c","access_token":"forbidden"}`)}); !errors.Is(err, ErrCredential) {
+	if _, err := provider.Sync(context.Background(), integrationsync.ProviderRequest{CredentialProvider: ProviderCode, SourceKind: domain.ConnectorGoogleDrive, FolderIDs: []string{"folder-a"}, Credential: []byte(`{"refresh_token":"c","access_token":"forbidden"}`)}); !errors.Is(err, ErrCredential) {
 		t.Fatalf("credential err=%v", err)
 	}
 
@@ -163,7 +163,7 @@ func TestProviderRejectsCredentialDriftAndRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = provider.Sync(context.Background(), integrationsync.ProviderRequest{CredentialProvider: ProviderCode, FolderIDs: []string{"folder-a"}, Credential: testCredential()})
+	_, err = provider.Sync(context.Background(), integrationsync.ProviderRequest{CredentialProvider: ProviderCode, SourceKind: domain.ConnectorGoogleDrive, FolderIDs: []string{"folder-a"}, Credential: testCredential()})
 	if !errors.Is(err, ErrProvider) || redirected {
 		t.Fatalf("err=%v redirected=%t", err, redirected)
 	}

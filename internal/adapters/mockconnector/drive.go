@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationsync"
+	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 )
 
 var mockDriveCursor = []byte(`{"v":1,"provider":"mock-drive"}`)
@@ -16,7 +17,7 @@ var mockDriveCursor = []byte(`{"v":1,"provider":"mock-drive"}`)
 type DriveProvider struct{}
 
 func (DriveProvider) Sync(ctx context.Context, request integrationsync.ProviderRequest) (integrationsync.ProviderPage, error) {
-	if ctx == nil || ctx.Err() != nil || len(request.FolderIDs) == 0 || len(request.Credential) == 0 ||
+	if ctx == nil || ctx.Err() != nil || request.SourceKind != domain.ConnectorGoogleDrive || len(request.FolderIDs) == 0 || len(request.Credential) == 0 ||
 		request.CredentialProvider != "mock" ||
 		(len(request.Cursor) != 0 && string(request.Cursor) != string(mockDriveCursor)) {
 		return integrationsync.ProviderPage{}, errors.New("mock Drive request is invalid")

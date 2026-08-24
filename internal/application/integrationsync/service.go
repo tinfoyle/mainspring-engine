@@ -40,7 +40,10 @@ type ProviderRequest struct {
 	AccountID          ids.AccountID
 	GrantID            ids.BaselineSourceGrantID
 	CredentialProvider string
+	SourceKind         domain.ConnectorKind
 	FolderIDs          []string
+	SinceAt            *time.Time
+	UntilAt            *time.Time
 	Cursor             []byte
 	Credential         []byte
 }
@@ -120,7 +123,7 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 		return true, errors.Join(ErrUnavailable, err)
 	}
 	lease, err := service.broker.Acquire(ctx, integrationcredentials.Request{AccountID: claim.AccountID, OperationID: string(claim.SyncID),
-		Purpose: integrationcredentials.PurposeSync, Capability: domain.CapabilityDriveRead, ConnectionID: claim.ConnectionID,
+		Purpose: integrationcredentials.PurposeSync, Capability: claim.Capability(), ConnectionID: claim.ConnectionID,
 		CredentialID: claim.CredentialID, CredentialGeneration: claim.CredentialGeneration, CredentialProvider: claim.CredentialProvider,
 		ReferenceSHA256: claim.CredentialReferenceSHA256, ExpiresAt: claim.LeaseExpiresAt})
 	if err != nil || lease == nil {
@@ -148,7 +151,8 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 	defer wipe(cursor)
 	providerContext, cancel := context.WithDeadline(ctx, minimum(now.Add(service.timeout), claim.LeaseExpiresAt))
 	page, err := service.provider.Sync(providerContext, ProviderRequest{AccountID: claim.AccountID, GrantID: claim.GrantID,
-		CredentialProvider: claim.CredentialProvider, FolderIDs: append([]string(nil), claim.FolderIDs...), Cursor: cursor, Credential: credential})
+		CredentialProvider: claim.CredentialProvider, SourceKind: claim.SourceKind, FolderIDs: append([]string(nil), claim.FolderIDs...),
+		SinceAt: cloneTime(claim.SinceAt), UntilAt: cloneTime(claim.UntilAt), Cursor: cursor, Credential: credential})
 	cancel()
 	if err != nil || !validPage(page, claim) {
 		wipePage(page)
@@ -163,7 +167,7 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 	for index := range page.Changes {
 		change := &page.Changes[index]
 		objectDigest, revisionDigest := sha256.Sum256([]byte(change.ObjectID)), sha256.Sum256([]byte(change.RevisionID))
-		if change.Deleted && change.FolderID == "" {
+		if change.Deleted && change.FolderID == "" && claim.SourceKind == domain.ConnectorGoogleDrive {
 			priorFolder, found, resolveErr := service.repository.ResolvePriorFolder(ctx, claim, objectDigest)
 			if resolveErr != nil {
 				return true, errors.Join(ErrUnavailable, resolveErr)
@@ -196,7 +200,7 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 	completionContext, completionCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer completionCancel()
 	if err := service.repository.Complete(completionContext, completion); err != nil {
-		return true, fmt.Errorf("%w: settle Drive sync: %v", ErrUnavailable, err)
+		return true, fmt.Errorf("%w: settle provider sync: %v", ErrUnavailable, err)
 	}
 	return true, nil
 }
@@ -227,7 +231,7 @@ func validChange(change ProviderChange, claim Claim) bool {
 		return false
 	}
 	if change.Deleted {
-		return (change.FolderID == "" || contains(claim.FolderIDs, change.FolderID)) && change.Title == "" &&
+		return ((claim.SourceKind == domain.ConnectorGoogleDrive && change.FolderID == "") || contains(claim.FolderIDs, change.FolderID)) && change.Title == "" &&
 			change.Filename == "" && change.MediaType == "" && len(change.Content) == 0
 	}
 	return contains(claim.FolderIDs, change.FolderID) && boundedText(change.Title, MaximumTitleBytes, true) && boundedText(change.Filename, MaximumFilenameBytes, true) &&
@@ -278,4 +282,12 @@ func minimum(left, right time.Time) time.Time {
 		return right
 	}
 	return left
+}
+
+func cloneTime(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copy := value.UTC()
+	return &copy
 }

@@ -266,13 +266,27 @@ func (vault *Vault) Acquire(ctx context.Context, request integrationcredentials.
 }
 
 func validRequest(request integrationcredentials.Request, now time.Time) bool {
-	capabilityAllowed := request.Purpose == integrationcredentials.PurposeSync && request.Capability == domain.CapabilityDriveRead ||
-		request.Purpose == integrationcredentials.PurposeHealth && (request.Capability == domain.CapabilityDriveRead || request.Capability == domain.CapabilityEmailSend || request.Capability == domain.CapabilityWebPublish) ||
-		(request.Purpose == integrationcredentials.PurposeExecute || request.Purpose == integrationcredentials.PurposeReconcile) &&
-			(request.Capability == domain.CapabilityEmailSend || request.Capability == domain.CapabilityWebPublish)
+	capabilityAllowed := sourceCredentialPurposeAllowed(request)
 	return ids.Validate(string(request.AccountID)) == nil && ids.Validate(request.OperationID) == nil && ids.Validate(string(request.ConnectionID)) == nil &&
 		ids.Validate(string(request.CredentialID)) == nil && request.CredentialGeneration > 0 && capabilityAllowed &&
 		validProvider.MatchString(request.CredentialProvider) && request.ReferenceSHA256 != [sha256.Size]byte{} && request.ExpiresAt.After(now)
+}
+
+func sourceCredentialPurposeAllowed(request integrationcredentials.Request) bool {
+	switch request.Purpose {
+	case integrationcredentials.PurposeSync:
+		return request.Capability == domain.CapabilityDriveRead ||
+			(request.Capability == domain.CapabilityEmailRead && request.CredentialProvider == "imap")
+	case integrationcredentials.PurposeHealth:
+		return request.Capability == domain.CapabilityDriveRead || request.Capability == domain.CapabilityWebPublish ||
+			(request.Capability == domain.CapabilityEmailRead && request.CredentialProvider == "imap") ||
+			(request.Capability == domain.CapabilityEmailSend && request.CredentialProvider != "imap")
+	case integrationcredentials.PurposeExecute, integrationcredentials.PurposeReconcile:
+		return request.Capability == domain.CapabilityWebPublish ||
+			(request.Capability == domain.CapabilityEmailSend && request.CredentialProvider != "imap")
+	default:
+		return false
+	}
 }
 
 func (vault *Vault) put(ctx context.Context, path string, value document) error {

@@ -10,6 +10,7 @@ import (
 
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	knowledgedomain "github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -65,10 +66,11 @@ func (sink *KnowledgeCaptureSink) Capture(ctx context.Context, input CaptureInpu
 	}
 	contentDigest := sha256.Sum256(input.Content)
 	if errors.Is(detailErr, knowledgeapp.ErrNotFound) {
+		initialSummary, _ := sourceChangeSummaries(input.Claim.SourceKind)
 		document, revision, uploadErr := sink.admission.Upload(ctx, knowledgeapp.UploadDocumentCommand{Actor: actor,
 			AccountID: input.Claim.AccountID, DocumentID: documentID, RevisionID: revisionID, Title: input.Title,
 			Sensitivity: knowledgedomain.SensitivityInternal, Filename: input.Filename, DeclaredType: input.MediaType,
-			Body: bytes.NewReader(input.Content), ChangeSummary: "Initial Google Drive capture", CorrelationID: string(captureID)})
+			Body: bytes.NewReader(input.Content), ChangeSummary: initialSummary, CorrelationID: string(captureID)})
 		if uploadErr != nil {
 			return CaptureReceipt{}, errors.Join(ErrUnavailable, uploadErr)
 		}
@@ -81,10 +83,11 @@ func (sink *KnowledgeCaptureSink) Capture(ctx context.Context, input CaptureInpu
 		return CaptureReceipt{}, ErrUnavailable
 	}
 	if detail.LatestRevision.ID == revisionID && detail.LatestRevision.Number == 1 && detail.Document.CurrentRevision == 0 {
+		initialSummary, _ := sourceChangeSummaries(input.Claim.SourceKind)
 		document, revision, uploadErr := sink.admission.Upload(ctx, knowledgeapp.UploadDocumentCommand{Actor: actor,
 			AccountID: input.Claim.AccountID, DocumentID: documentID, RevisionID: revisionID, Title: input.Title,
 			Sensitivity: knowledgedomain.SensitivityInternal, Filename: input.Filename, DeclaredType: input.MediaType,
-			Body: bytes.NewReader(input.Content), ChangeSummary: "Initial Google Drive capture", CorrelationID: string(captureID)})
+			Body: bytes.NewReader(input.Content), ChangeSummary: initialSummary, CorrelationID: string(captureID)})
 		if uploadErr != nil {
 			return CaptureReceipt{}, errors.Join(ErrUnavailable, uploadErr)
 		}
@@ -93,9 +96,10 @@ func (sink *KnowledgeCaptureSink) Capture(ctx context.Context, input CaptureInpu
 		}
 		return admittedCaptureReceipt(input, captureID, documentID, revisionID, contentDigest), nil
 	}
+	_, revisionSummary := sourceChangeSummaries(input.Claim.SourceKind)
 	revision, err := sink.admission.UploadRevision(ctx, knowledgeapp.UploadDocumentRevisionCommand{Actor: actor,
 		AccountID: input.Claim.AccountID, DocumentID: documentID, RevisionID: revisionID, Filename: input.Filename,
-		DeclaredType: input.MediaType, Body: bytes.NewReader(input.Content), ChangeSummary: "Google Drive source changed",
+		DeclaredType: input.MediaType, Body: bytes.NewReader(input.Content), ChangeSummary: revisionSummary,
 		CorrelationID: string(captureID)})
 	if err != nil {
 		return CaptureReceipt{}, errors.Join(ErrUnavailable, err)
@@ -121,11 +125,12 @@ func validKnowledgeCaptureInput(input CaptureInput) bool {
 
 func deriveKnowledgeCaptureIdentities(input CaptureInput) (ids.KnowledgeDocumentID, ids.KnowledgeDocumentRevisionID, ids.IntegrationSourceCaptureID, error) {
 	objectDigest, revisionDigest := hex.EncodeToString(input.ProviderObjectSHA256[:]), hex.EncodeToString(input.ProviderRevisionSHA256[:])
-	documentRaw, err := ids.Derive(string(input.Claim.ConnectionID), "google-drive-object:"+objectDigest)
+	objectNamespace, revisionNamespace, captureNamespace := sourceIdentityNamespaces(input.Claim.SourceKind)
+	documentRaw, err := ids.Derive(string(input.Claim.ConnectionID), objectNamespace+objectDigest)
 	if err != nil {
 		return "", "", "", err
 	}
-	revisionRaw, err := ids.Derive(documentRaw, "google-drive-revision:"+revisionDigest)
+	revisionRaw, err := ids.Derive(documentRaw, revisionNamespace+revisionDigest)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -133,8 +138,24 @@ func deriveKnowledgeCaptureIdentities(input CaptureInput) (ids.KnowledgeDocument
 	if input.Deleted {
 		operation = string(CaptureDeleted)
 	}
-	captureRaw, err := ids.Derive(string(input.Claim.GrantID), "google-drive-capture:"+operation+":"+objectDigest+":"+revisionDigest)
+	captureRaw, err := ids.Derive(string(input.Claim.GrantID), captureNamespace+operation+":"+objectDigest+":"+revisionDigest)
 	return ids.KnowledgeDocumentID(documentRaw), ids.KnowledgeDocumentRevisionID(revisionRaw), ids.IntegrationSourceCaptureID(captureRaw), err
+}
+
+func sourceIdentityNamespaces(kind integrationsdomain.ConnectorKind) (string, string, string) {
+	if kind == integrationsdomain.ConnectorEmail {
+		return "email-object:", "email-revision:", "email-capture:"
+	}
+	// Preserve the committed Drive namespace so existing captures converge on
+	// their original immutable documents after this provider-neutral expansion.
+	return "google-drive-object:", "google-drive-revision:", "google-drive-capture:"
+}
+
+func sourceChangeSummaries(kind integrationsdomain.ConnectorKind) (string, string) {
+	if kind == integrationsdomain.ConnectorEmail {
+		return "Initial email source capture", "Email source changed"
+	}
+	return "Initial Google Drive capture", "Google Drive source changed"
 }
 
 func admittedCaptureReceipt(input CaptureInput, captureID ids.IntegrationSourceCaptureID, documentID ids.KnowledgeDocumentID,

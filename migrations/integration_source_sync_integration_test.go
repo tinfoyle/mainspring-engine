@@ -13,6 +13,7 @@ import (
 
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationsync"
+	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
@@ -80,7 +81,7 @@ func TestIntegrationSourceSyncPersistsBoundedCursorAndCaptureReceipts(t *testing
 	syncID := ids.IntegrationSourceSyncID("ba000000-0000-4000-8000-000000000010")
 	claim, found, err := repository.Claim(ctx, syncID, claimAt, claimAt.Add(time.Minute))
 	if err != nil || !found || !claim.Valid(claimAt) || claim.GrantID != grantID || len(claim.FolderIDs) != 1 ||
-		claim.FolderIDs[0] != "folder-a" || len(claim.CursorCiphertext) != 0 {
+		claim.SourceKind != domain.ConnectorGoogleDrive || claim.FolderIDs[0] != "folder-a" || len(claim.CursorCiphertext) != 0 {
 		t.Fatalf("claim=%+v found=%v err=%v", claim, found, err)
 	}
 	capture := integrationsync.CaptureReceipt{ID: "bb000000-0000-4000-8000-000000000011", FolderID: "folder-a",
@@ -138,5 +139,66 @@ func TestIntegrationSourceSyncPersistsBoundedCursorAndCaptureReceipts(t *testing
 	}
 	if _, err := pool.Exec(ctx, `UPDATE spyglass.integration_source_captures SET operation='deleted' WHERE account_id=$1 AND id=$2`, accountID, capture.ID); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("capture mutation result=%v", err)
+	}
+}
+
+func TestIntegrationSourceSyncClaimsExactEmailMailboxAndDateScope(t *testing.T) {
+	adminURL := os.Getenv("SPYGLASS_POSTGRES_TEST_URL")
+	if adminURL == "" {
+		t.Skip("SPYGLASS_POSTGRES_TEST_URL is not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	databaseURL, cleanup := createDatabase(t, ctx, adminURL)
+	defer cleanup()
+	pool := openPool(t, ctx, databaseURL, nil)
+	defer pool.Close()
+	if _, err := migrations.Apply(ctx, pool, migrations.Cell); err != nil {
+		t.Fatal(err)
+	}
+	var now time.Time
+	if err := pool.QueryRow(ctx, `SELECT date_trunc('microseconds',statement_timestamp())`).Scan(&now); err != nil {
+		t.Fatal(err)
+	}
+	now = now.UTC()
+	since, until := now.Add(-24*time.Hour), now.Add(24*time.Hour)
+	accountID := ids.AccountID("ca000000-0000-4000-8000-000000000001")
+	userID := "ca000000-0000-4000-8000-000000000002"
+	assessmentID := "ca000000-0000-4000-8000-000000000003"
+	connectionID := "ca000000-0000-4000-8000-000000000004"
+	revisionID := "ca000000-0000-4000-8000-000000000005"
+	credentialID := "ca000000-0000-4000-8000-000000000006"
+	grantID := ids.BaselineSourceGrantID("ca000000-0000-4000-8000-000000000007")
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO spyglass.account_namespaces(account_id,placement_generation,state,created_at) VALUES ($1,1,'active',$2);
+		INSERT INTO spyglass.baseline_assessments(account_id,id,catalog_version,scope_policy_version,state,created_by_user_id,version,created_at,updated_at)
+		VALUES ($1,$3,'catalog-v1','scope-v1','active',$4,1,$2,$2);
+		INSERT INTO spyglass.integration_connections(account_id,id,name,connector_kind,state,current_revision,credential_generation,version,created_by_user_id,created_at,updated_at)
+		VALUES ($1,$5,'Governed mailbox','email','pending',1,0,1,$4,$2,$2);
+		INSERT INTO spyglass.integration_connection_revisions(account_id,id,connection_id,revision,capabilities,email_address,created_by_user_id,created_at)
+		VALUES ($1,$6,$5,1,ARRAY['email.read'],'records@example.com',$4,$2);
+		INSERT INTO spyglass.integration_credentials(account_id,id,connection_id,generation,provider,reference_sha256,state,created_by_user_id,created_at,updated_at)
+		VALUES ($1,$7,$5,1,'imap',decode(repeat('71',32),'hex'),'active',$4,$2,$2);
+		UPDATE spyglass.integration_connections SET state='active',credential_id=$7,credential_generation=1,version=2,updated_at=$2 WHERE account_id=$1 AND id=$5;
+		INSERT INTO spyglass.baseline_source_grants(account_id,id,assessment_id,connection_id,source_kind,folders,since_at,until_at,state,granted_by_user_id,version,created_at,updated_at)
+		VALUES ($1,$8,$3,$5,'email',ARRAY['Archive','INBOX'],$9,$10,'active',$4,1,$2,$2)`,
+		pgx.QueryExecModeSimpleProtocol, accountID, now, assessmentID, userID, connectionID, revisionID, credentialID, grantID, since, until); err != nil {
+		t.Fatal(err)
+	}
+	repository, err := postgresadapter.NewIntegrationSourceSyncRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimAt := now.Add(time.Second)
+	claim, found, err := repository.Claim(ctx, "ca000000-0000-4000-8000-000000000008", claimAt, claimAt.Add(time.Minute))
+	if err != nil || !found || !claim.Valid(claimAt) || claim.SourceKind != domain.ConnectorEmail ||
+		claim.Capability() != domain.CapabilityEmailRead || len(claim.FolderIDs) != 2 || claim.FolderIDs[0] != "Archive" ||
+		claim.FolderIDs[1] != "INBOX" || claim.SinceAt == nil || !claim.SinceAt.Equal(since) || claim.UntilAt == nil || !claim.UntilAt.Equal(until) {
+		t.Fatalf("email claim=%+v found=%v err=%v", claim, found, err)
+	}
+	completion := integrationsync.Completion{Claim: claim, CursorCiphertext: []byte("sealed-email-cursor"),
+		CursorSHA256: sha256.Sum256([]byte("email-cursor")), CompletedAt: claimAt.Add(time.Second)}
+	if err := repository.Complete(ctx, completion); err != nil {
+		t.Fatal(err)
 	}
 }

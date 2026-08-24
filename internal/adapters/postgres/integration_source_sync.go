@@ -26,11 +26,12 @@ func (repository *IntegrationSourceSyncRepository) Claim(ctx context.Context, sy
 	var claim integrationsync.Claim
 	var credentialDigest, cursorDigest []byte
 	err := repository.pool.QueryRow(ctx, `SELECT account_id,sync_id,grant_id,connection_id,connection_revision_id,connection_revision,
-		credential_id,credential_generation,credential_provider,credential_reference_sha256,folder_ids,cursor_ciphertext,
+		credential_id,credential_generation,credential_provider,credential_reference_sha256,source_kind,folder_ids,since_at,until_at,cursor_ciphertext,
 		cursor_sha256,lease_expires_at FROM public.spyglass_claim_integration_source_sync($1,$2,$3)`,
 		syncID, now.UTC(), leaseExpiresAt.UTC()).Scan(&claim.AccountID, &claim.SyncID, &claim.GrantID, &claim.ConnectionID,
 		&claim.ConnectionRevisionID, &claim.ConnectionRevision, &claim.CredentialID, &claim.CredentialGeneration,
-		&claim.CredentialProvider, &credentialDigest, &claim.FolderIDs, &claim.CursorCiphertext, &cursorDigest, &claim.LeaseExpiresAt)
+		&claim.CredentialProvider, &credentialDigest, &claim.SourceKind, &claim.FolderIDs, &claim.SinceAt, &claim.UntilAt,
+		&claim.CursorCiphertext, &cursorDigest, &claim.LeaseExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return integrationsync.Claim{}, false, nil
 	}

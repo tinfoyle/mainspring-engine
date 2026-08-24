@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"testing"
 	"time"
+
+	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 )
 
 func TestClaimAndCompletionAreBoundedAndExact(t *testing.T) {
@@ -14,7 +16,8 @@ func TestClaimAndCompletionAreBoundedAndExact(t *testing.T) {
 		GrantID: "a3000000-0000-4000-8000-000000000003", ConnectionID: "a4000000-0000-4000-8000-000000000004",
 		ConnectionRevisionID: "a5000000-0000-4000-8000-000000000005", ConnectionRevision: 2,
 		CredentialID: "a6000000-0000-4000-8000-000000000006", CredentialGeneration: 3,
-		CredentialProvider: "google_drive", CredentialReferenceSHA256: digest, FolderIDs: []string{"folder-a", "folder-b"},
+		CredentialProvider: "google_drive", CredentialReferenceSHA256: digest, SourceKind: domain.ConnectorGoogleDrive,
+		FolderIDs:      []string{"folder-a", "folder-b"},
 		LeaseExpiresAt: now.Add(time.Minute),
 	}
 	if !claim.Valid(now) {
@@ -49,5 +52,15 @@ func TestClaimAndCompletionAreBoundedAndExact(t *testing.T) {
 	unsorted.FolderIDs = []string{"folder-b", "folder-a"}
 	if unsorted.Valid(now) {
 		t.Fatal("noncanonical grant scope was accepted")
+	}
+	since, until := now.Add(-time.Hour), now.Add(time.Hour)
+	email := claim
+	email.SourceKind, email.FolderIDs, email.SinceAt, email.UntilAt = domain.ConnectorEmail, []string{"Archive", "INBOX"}, &since, &until
+	if !email.Valid(now) || email.Capability() != domain.CapabilityEmailRead {
+		t.Fatal("bounded email source claim was rejected")
+	}
+	email.UntilAt, email.SinceAt = &since, &until
+	if email.Valid(now) {
+		t.Fatal("reversed email date scope was accepted")
 	}
 }

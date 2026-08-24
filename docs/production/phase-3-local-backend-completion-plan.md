@@ -139,6 +139,8 @@ Complete the already modeled `email.read` capability independently of outbound c
 6. Add a no-network unit fixture plus a containerized TLS mail fixture for initial sync, incremental mail, attachment, deletion, reset, outage and revocation tests.
 7. Add HTTP/MCP connection and source-grant contract coverage without exposing message content on Integration status surfaces.
 
+Status on 2026-08-24: **in progress — provider-neutral source foundation complete.** Migration `000075` extends the existing private cursor/capture queue to exact active email grants while retaining the Drive checks. Claims now freeze source kind, one-to-twenty canonical mailbox folders and optional UTC date bounds; the serializable completion path repeats the live grant, matching email connection, current revision carrying `email.read`, active credential generation and exact folder membership. The application sync kernel derives the credential capability from the claimed source kind and passes the frozen mailbox/date scope to the provider. Both encrypted and mounted brokers lease provider `imap` material only for `email.read` sync/health and reject it for `email.send` execution or reconciliation. Knowledge identity derivation preserves the committed Drive namespace and uses a separate email namespace. Focused race tests and the complete 113-migration PostgreSQL suite pass. The implicit-TLS IMAP adapter, UIDVALIDITY/UID cursor, bounded MIME body/attachment parser, TLS fixture, deletion/reset behavior, health and composed local journey remain before LB3 is complete.
+
 Exit evidence:
 
 - an exact scoped mailbox can populate and update Knowledge locally;

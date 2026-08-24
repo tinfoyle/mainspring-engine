@@ -191,7 +191,8 @@ func newProvider(config Config, tokenEndpoint, driveEndpoint string, allowHTTP b
 }
 
 func (provider *Provider) Sync(ctx context.Context, request integrationsync.ProviderRequest) (integrationsync.ProviderPage, error) {
-	if provider == nil || provider.client == nil || ctx == nil || ctx.Err() != nil || request.CredentialProvider != ProviderCode || len(request.FolderIDs) == 0 ||
+	if provider == nil || provider.client == nil || ctx == nil || ctx.Err() != nil || request.SourceKind != domain.ConnectorGoogleDrive ||
+		request.CredentialProvider != ProviderCode || len(request.FolderIDs) == 0 ||
 		len(request.FolderIDs) > 50 || len(request.Cursor) > integrationsync.MaximumCursorBytes {
 		return integrationsync.ProviderPage{}, ErrProvider
 	}

@@ -5,11 +5,13 @@ import (
 	"testing"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationsync"
+	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 )
 
 func TestDriveProviderAdvancesOnlyItsBoundedCursor(t *testing.T) {
 	provider := DriveProvider{}
-	request := integrationsync.ProviderRequest{CredentialProvider: "mock", FolderIDs: []string{"folder-a"}, Credential: []byte("leased")}
+	request := integrationsync.ProviderRequest{CredentialProvider: "mock", SourceKind: domain.ConnectorGoogleDrive,
+		FolderIDs: []string{"folder-a"}, Credential: []byte("leased")}
 	page, err := provider.Sync(context.Background(), request)
 	if err != nil || len(page.Changes) != 0 || page.HasMore || len(page.NextCursor) == 0 {
 		t.Fatalf("page=%+v err=%v", page, err)

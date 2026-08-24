@@ -125,6 +125,38 @@ func TestBrokerAllowsDriveMaterialOnlyForSyncAndHealth(t *testing.T) {
 	}
 }
 
+func TestBrokerAllowsIMAPMaterialOnlyForEmailReadSyncAndHealth(t *testing.T) {
+	root := t.TempDir()
+	writeSecret(t, root, "imap.json", []byte(`{"username":"reader@example.com","password":"fixture"}`))
+	reference := "secret://stage/integrations/imap/v1"
+	value := fmt.Sprintf(`{"version":1,"credentials":[{"account_id":"%s","credential_id":"%s","generation":1,"provider":"imap","reference":"%s","file":"imap.json"}]}`,
+		testAccount, testCredential, reference)
+	if err := os.WriteFile(filepath.Join(root, indexFilename), []byte(value), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := credentialRequest(reference)
+	request.Purpose, request.Capability, request.CredentialProvider = integrationcredentials.PurposeSync, domain.CapabilityEmailRead, "imap"
+	lease, err := broker.Acquire(context.Background(), request)
+	if err != nil || len(lease.Material()) == 0 {
+		t.Fatalf("IMAP sync lease=%v err=%v", lease, err)
+	}
+	_ = lease.Close()
+	request.Purpose = integrationcredentials.PurposeHealth
+	healthLease, err := broker.Acquire(context.Background(), request)
+	if err != nil || len(healthLease.Material()) == 0 {
+		t.Fatalf("IMAP health lease=%v err=%v", healthLease, err)
+	}
+	_ = healthLease.Close()
+	request.Purpose, request.Capability = integrationcredentials.PurposeExecute, domain.CapabilityEmailSend
+	if _, err := broker.Acquire(context.Background(), request); err == nil {
+		t.Fatal("IMAP credential was leased for email send")
+	}
+}
+
 func credentialRequest(reference string) integrationcredentials.Request {
 	return integrationcredentials.Request{AccountID: testAccount, OperationID: testAttempt,
 		Purpose: integrationcredentials.PurposeExecute, Capability: domain.CapabilityEmailSend, ConnectionID: testConnection, CredentialID: testCredential,

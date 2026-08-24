@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationcredentials"
+	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -101,12 +102,40 @@ func TestServiceIgnoresUnknownRemovalAndAdvancesCursor(t *testing.T) {
 	}
 }
 
+func TestServiceCarriesExactEmailReadAndDateScopeToProvider(t *testing.T) {
+	now := time.Date(2026, 8, 24, 15, 0, 0, 0, time.UTC)
+	since, until := now.Add(-24*time.Hour), now.Add(time.Hour)
+	claim := syncClaim(now)
+	claim.SourceKind, claim.FolderIDs, claim.SinceAt, claim.UntilAt = domain.ConnectorEmail, []string{"INBOX"}, &since, &until
+	claim.CredentialProvider = "imap"
+	repository := &fakeSyncRepository{claim: claim, found: true}
+	provider := &fakeDriveProvider{page: ProviderPage{NextCursor: []byte("email-cursor"), Changes: []ProviderChange{{
+		FolderID: "INBOX", ObjectID: "uidvalidity:7/uid:42/body", RevisionID: "message-sha256:fixture", Title: "Quarterly record",
+		Filename: "message.eml", MediaType: "message/rfc822", Content: []byte("bounded message")}}}}
+	broker := &fakeSyncBroker{material: []byte(`{"username":"reader@example.com","password":"fixture"}`)}
+	service, err := New(repository, &fakeSyncAuthority{}, broker, &fakeCursorCipher{}, provider, &fakeCaptureSink{},
+		fixedSyncIDs{id: string(claim.SyncID)}, fixedSyncClock{now}, time.Minute, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worked, err := service.ProcessOne(context.Background())
+	if err != nil || !worked || repository.completed == nil || len(repository.completed.Captures) != 1 {
+		t.Fatalf("worked=%v completion=%+v err=%v", worked, repository.completed, err)
+	}
+	if broker.request.Purpose != integrationcredentials.PurposeSync || broker.request.Capability != domain.CapabilityEmailRead ||
+		provider.request.SourceKind != domain.ConnectorEmail || provider.request.SinceAt == nil || !provider.request.SinceAt.Equal(since) ||
+		provider.request.UntilAt == nil || !provider.request.UntilAt.Equal(until) {
+		t.Fatalf("broker=%+v provider=%+v", broker.request, provider.request)
+	}
+}
+
 func syncClaim(now time.Time) Claim {
 	return Claim{AccountID: "d1000000-0000-4000-8000-000000000001", SyncID: "d2000000-0000-4000-8000-000000000002",
 		GrantID: "d3000000-0000-4000-8000-000000000003", ConnectionID: "d4000000-0000-4000-8000-000000000004",
 		ConnectionRevisionID: "d5000000-0000-4000-8000-000000000005", ConnectionRevision: 1,
 		CredentialID: "d6000000-0000-4000-8000-000000000006", CredentialGeneration: 1, CredentialProvider: "google_drive",
-		CredentialReferenceSHA256: sha256.Sum256([]byte("reference")), FolderIDs: []string{"folder-a"}, LeaseExpiresAt: now.Add(time.Minute)}
+		CredentialReferenceSHA256: sha256.Sum256([]byte("reference")), SourceKind: domain.ConnectorGoogleDrive,
+		FolderIDs: []string{"folder-a"}, LeaseExpiresAt: now.Add(time.Minute)}
 }
 
 type fakeSyncRepository struct {
@@ -168,9 +197,13 @@ func (value *fakeCursorCipher) Seal(_ context.Context, _ ids.AccountID, _ ids.Ba
 	return []byte("sealed-next-page"), sha256.Sum256(plaintext), nil
 }
 
-type fakeDriveProvider struct{ page ProviderPage }
+type fakeDriveProvider struct {
+	page    ProviderPage
+	request ProviderRequest
+}
 
-func (value *fakeDriveProvider) Sync(context.Context, ProviderRequest) (ProviderPage, error) {
+func (value *fakeDriveProvider) Sync(_ context.Context, request ProviderRequest) (ProviderPage, error) {
+	value.request = request
 	return value.page, nil
 }
 

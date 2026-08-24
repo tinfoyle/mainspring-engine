@@ -9,8 +9,11 @@ import (
 	"errors"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
+	"unicode/utf8"
 
+	domain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -36,7 +39,10 @@ type Claim struct {
 	CredentialGeneration      uint64
 	CredentialProvider        string
 	CredentialReferenceSHA256 [sha256.Size]byte
+	SourceKind                domain.ConnectorKind
 	FolderIDs                 []string
+	SinceAt                   *time.Time
+	UntilAt                   *time.Time
 	CursorCiphertext          []byte
 	CursorSHA256              [sha256.Size]byte
 	LeaseExpiresAt            time.Time
@@ -47,24 +53,56 @@ func (claim Claim) Valid(now time.Time) bool {
 		ids.Validate(string(claim.GrantID)) != nil || ids.Validate(string(claim.ConnectionID)) != nil ||
 		ids.Validate(string(claim.ConnectionRevisionID)) != nil || ids.Validate(string(claim.CredentialID)) != nil ||
 		claim.ConnectionRevision == 0 || claim.CredentialGeneration == 0 || !validProvider.MatchString(claim.CredentialProvider) ||
-		claim.CredentialReferenceSHA256 == [sha256.Size]byte{} || len(claim.FolderIDs) == 0 || len(claim.FolderIDs) > 50 ||
+		claim.CredentialReferenceSHA256 == [sha256.Size]byte{} || len(claim.FolderIDs) == 0 ||
 		!claim.LeaseExpiresAt.After(now.UTC()) || len(claim.CursorCiphertext) > MaximumCursorCiphertextBytes {
+		return false
+	}
+	maximumFolders, maximumFolderBytes := 0, 0
+	switch claim.SourceKind {
+	case domain.ConnectorGoogleDrive:
+		maximumFolders, maximumFolderBytes = 50, 200
+		if claim.SinceAt != nil || claim.UntilAt != nil {
+			return false
+		}
+	case domain.ConnectorEmail:
+		maximumFolders, maximumFolderBytes = 20, 512
+		if claim.SinceAt != nil && claim.UntilAt != nil && claim.SinceAt.After(*claim.UntilAt) {
+			return false
+		}
+	default:
+		return false
+	}
+	if len(claim.FolderIDs) > maximumFolders {
 		return false
 	}
 	if (len(claim.CursorCiphertext) == 0) != (claim.CursorSHA256 == [sha256.Size]byte{}) {
 		return false
 	}
 	for index, folder := range claim.FolderIDs {
-		if folder == "" || len(folder) > 255 || (index > 0 && claim.FolderIDs[index-1] >= folder) {
+		if folder == "" || folder != strings.TrimSpace(folder) || len(folder) > maximumFolderBytes || !utf8.ValidString(folder) ||
+			strings.ContainsRune(folder, '\x00') || (index > 0 && claim.FolderIDs[index-1] >= folder) {
 			return false
 		}
-		for _, character := range []byte(folder) {
-			if character < 0x21 || character > 0x7e {
-				return false
+		if claim.SourceKind == domain.ConnectorGoogleDrive {
+			for _, character := range []byte(folder) {
+				if character < 0x21 || character > 0x7e {
+					return false
+				}
 			}
 		}
 	}
 	return true
+}
+
+func (claim Claim) Capability() domain.Capability {
+	switch claim.SourceKind {
+	case domain.ConnectorEmail:
+		return domain.CapabilityEmailRead
+	case domain.ConnectorGoogleDrive:
+		return domain.CapabilityDriveRead
+	default:
+		return ""
+	}
 }
 
 type CaptureOperation string
