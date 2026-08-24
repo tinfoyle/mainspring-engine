@@ -96,6 +96,40 @@ func (s *Server) setPrivacyConsent(w http.ResponseWriter, r *http.Request) {
 		Analytics: decision.Analytics, Marketing: decision.Marketing, Decided: true, EffectiveAt: &effective})
 }
 
+func (s *Server) getPrivacyConsentHistory(w http.ResponseWriter, r *http.Request) {
+	surface, _, ok := s.privacyRequestContext(w, r, false)
+	if !ok {
+		return
+	}
+	claims, valid := s.readPrivacyClaims(r, surface)
+	if !valid {
+		writeJSON(w, http.StatusOK, map[string]any{"decisions": []privacy.Decision{}})
+		return
+	}
+	decisions, err := s.privacyConsent.History(r.Context(), claims.SubjectID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy history is temporarily unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"decisions": decisions})
+}
+
+func (s *Server) erasePrivacyData(w http.ResponseWriter, r *http.Request) {
+	surface, _, ok := s.privacyRequestContext(w, r, true)
+	if !ok {
+		return
+	}
+	if claims, valid := s.readPrivacyClaims(r, surface); valid {
+		if err := s.privacyConsent.Erase(r.Context(), claims.SubjectID); err != nil {
+			writeProblem(w, http.StatusServiceUnavailable, "privacy_erasure_failed", "privacy data could not be erased")
+			return
+		}
+	}
+	http.SetCookie(w, &http.Cookie{Name: s.privacyCookieName(), Value: "", Path: "/", HttpOnly: true,
+		Secure: s.privacyHTTP.Secure, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) ingestAnalyticsEvent(w http.ResponseWriter, r *http.Request) {
 	surface, _, ok := s.privacyRequestContext(w, r, true)
 	if !ok {

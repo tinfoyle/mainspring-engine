@@ -158,7 +158,9 @@ GRANT SELECT ON memberships, subscriptions, billing_checkout_attempts TO spyglas
 GRANT INSERT ON account_lifecycle_events TO spyglass_account_lifecycle_worker;
 
 GRANT EXECUTE ON FUNCTION spyglass_prune_passkey_ceremonies(timestamptz,bigint,integer),
-  spyglass_passkey_ceremony_retention_stats(timestamptz,bigint)
+  spyglass_passkey_ceremony_retention_stats(timestamptz,bigint),
+  spyglass_prune_analytics_events(timestamptz,bigint,integer),
+  spyglass_analytics_retention_stats(timestamptz,bigint)
   TO spyglass_identity_maintenance_worker;
 
 GRANT SELECT ON accounts TO spyglass_work_reconciler;

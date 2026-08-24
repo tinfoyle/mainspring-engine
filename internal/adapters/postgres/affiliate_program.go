@@ -41,15 +41,23 @@ func (r *AffiliateProgramRepository) CreateEnrollment(ctx context.Context, enrol
 }
 
 func (r *AffiliateProgramRepository) EnrollmentByUser(ctx context.Context, userID ids.UserID) (affiliates.Enrollment, error) {
-	return scanAffiliateEnrollment(r.pool.QueryRow(ctx, `
+	value, err := scanAffiliateEnrollment(r.pool.QueryRow(ctx, `
 		SELECT affiliate_id,user_id,settlement_account_id::text,public_code,terms_version,rule_version,state,version,created_at
 		FROM affiliate_enrollments WHERE user_id=$1`, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentNotFound
+	}
+	return value, err
 }
 
 func (r *AffiliateProgramRepository) EnrollmentByCode(ctx context.Context, code string) (affiliates.Enrollment, error) {
-	return scanAffiliateEnrollment(r.pool.QueryRow(ctx, `
+	value, err := scanAffiliateEnrollment(r.pool.QueryRow(ctx, `
 		SELECT affiliate_id,user_id,settlement_account_id::text,public_code,terms_version,rule_version,state,version,created_at
 		FROM affiliate_enrollments WHERE public_code=$1 AND state='active'`, affiliates.NormalizeCode(code)))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return affiliates.Enrollment{}, affiliateprogram.ErrCodeUnavailable
+	}
+	return value, err
 }
 
 func scanAffiliateEnrollment(row pgx.Row) (affiliates.Enrollment, error) {
@@ -59,9 +67,6 @@ func scanAffiliateEnrollment(row pgx.Row) (affiliates.Enrollment, error) {
 		&value.RuleVersion, &value.State, &value.Version, &value.CreatedAt)
 	if settlement != nil {
 		value.SettlementAccountID = ids.AccountID(*settlement)
-	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		return affiliates.Enrollment{}, affiliateprogram.ErrCodeUnavailable
 	}
 	return value, err
 }
@@ -189,6 +194,72 @@ func (r *AffiliateProgramRepository) AppendCommission(ctx context.Context, entry
 	return stored, nil
 }
 
+func (r *AffiliateProgramRepository) RecordPaidCommission(ctx context.Context, id ids.CommissionEntryID, attribution affiliates.Attribution, rule affiliates.CommissionRule, invoiceID string, initial bool, now time.Time) (affiliates.CommissionEntry, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return affiliates.CommissionEntry{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "spyglass:affiliate-commission:"+attribution.SubscriptionID); err != nil {
+		return affiliates.CommissionEntry{}, err
+	}
+	existing, err := scanAffiliateCommission(tx.QueryRow(ctx, affiliateCommissionSelect+`
+		WHERE provider_subscription_id=$1 AND provider_invoice_id=$2 AND rule_version=$3 AND kind='earned'`,
+		attribution.SubscriptionID, invoiceID, rule.Version))
+	if err == nil {
+		if existing.AffiliateID != attribution.AffiliateID || existing.AttributionID != attribution.ID ||
+			existing.AmountMinor != rule.CommissionMinor || existing.Currency != rule.Currency {
+			return affiliates.CommissionEntry{}, fmt.Errorf("affiliate commission idempotency conflict")
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return affiliates.CommissionEntry{}, err
+		}
+		return existing, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return affiliates.CommissionEntry{}, err
+	}
+	var maximumCycle int64
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(MAX(cycle),0) FROM affiliate_commission_entries
+		WHERE provider_subscription_id=$1 AND rule_version=$2 AND kind='earned'`,
+		attribution.SubscriptionID, rule.Version).Scan(&maximumCycle); err != nil {
+		return affiliates.CommissionEntry{}, err
+	}
+	if maximumCycle < 0 || maximumCycle >= int64(^uint32(0)) {
+		return affiliates.CommissionEntry{}, affiliates.ErrInvalidCommission
+	}
+	cycle := uint32(1)
+	if initial {
+		if maximumCycle != 0 {
+			return affiliates.CommissionEntry{}, affiliates.ErrInvalidCommission
+		}
+	} else {
+		cycle = uint32(maximumCycle) + 1
+		if cycle < 2 {
+			cycle = 2
+		}
+	}
+	entry, err := affiliates.NewEarnedEntry(id, attribution, rule, invoiceID, cycle, now)
+	if err != nil {
+		return affiliates.CommissionEntry{}, err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO affiliate_commission_entries
+			(entry_id,affiliate_id,attribution_id,rule_version,provider_subscription_id,provider_invoice_id,
+			 cycle,kind,state,amount_minor,currency,reverses_entry_id,available_at,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULL,$12,$13)`, entry.ID, entry.AffiliateID,
+		entry.AttributionID, entry.RuleVersion, entry.SubscriptionID, entry.InvoiceID, entry.Cycle,
+		entry.Kind, entry.State, entry.AmountMinor, entry.Currency, entry.AvailableAt, entry.CreatedAt)
+	if err != nil {
+		return affiliates.CommissionEntry{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return affiliates.CommissionEntry{}, err
+	}
+	return entry, nil
+}
+
 func (r *AffiliateProgramRepository) CommissionEntries(ctx context.Context, affiliateID ids.AffiliateID) ([]affiliates.CommissionEntry, error) {
 	rows, err := r.pool.Query(ctx, affiliateCommissionSelect+` WHERE affiliate_id=$1 ORDER BY created_at DESC,entry_id DESC`, affiliateID)
 	if err != nil {
@@ -228,8 +299,7 @@ func sameCommissionEvidence(left, right affiliates.CommissionEntry) bool {
 	return left.AffiliateID == right.AffiliateID && left.AttributionID == right.AttributionID &&
 		left.RuleVersion == right.RuleVersion && left.SubscriptionID == right.SubscriptionID &&
 		left.InvoiceID == right.InvoiceID && left.Cycle == right.Cycle && left.Kind == right.Kind &&
-		left.State == right.State && left.AmountMinor == right.AmountMinor && left.Currency == right.Currency &&
-		left.AvailableAt.Equal(right.AvailableAt) && left.CreatedAt.Equal(right.CreatedAt)
+		left.State == right.State && left.AmountMinor == right.AmountMinor && left.Currency == right.Currency
 }
 
 var _ affiliateprogram.Repository = (*AffiliateProgramRepository)(nil)

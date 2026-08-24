@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -20,6 +22,7 @@ var (
 	ErrAttributionNotFound     = errors.New("affiliate checkout attribution was not found")
 	ErrAttributionConflict     = errors.New("affiliate checkout attribution conflicts with the existing request")
 	ErrProgramUnavailable      = errors.New("affiliate program rule is unavailable")
+	ErrEnrollmentNotFound      = errors.New("Affiliate enrollment was not found")
 )
 
 type Clock interface{ Now() time.Time }
@@ -37,6 +40,7 @@ type Repository interface {
 	AttributionBySubscription(context.Context, string) (affiliates.Attribution, error)
 	CommissionRule(context.Context, uint64) (affiliates.CommissionRule, error)
 	AppendCommission(context.Context, affiliates.CommissionEntry) (affiliates.CommissionEntry, error)
+	RecordPaidCommission(context.Context, ids.CommissionEntryID, affiliates.Attribution, affiliates.CommissionRule, string, bool, time.Time) (affiliates.CommissionEntry, error)
 	CommissionEntries(context.Context, ids.AffiliateID) ([]affiliates.CommissionEntry, error)
 }
 
@@ -58,11 +62,15 @@ func New(repository Repository, generator ids.Generator, codes CodeGenerator, cl
 
 type EnrollCommand struct {
 	UserID               ids.UserID
+	Session              sessions.Session
 	SettlementAccountID  ids.AccountID
 	AcceptedTermsVersion uint64
 }
 
 func (s *Service) Enroll(ctx context.Context, command EnrollCommand) (affiliates.Enrollment, error) {
+	if err := strongauth.Require(command.Session, command.UserID, s.clock.Now()); err != nil {
+		return affiliates.Enrollment{}, err
+	}
 	if command.AcceptedTermsVersion != s.termsVersion {
 		return affiliates.Enrollment{}, ErrTermsRequired
 	}
@@ -170,7 +178,7 @@ type PaidInvoice struct {
 	InvoiceID       string
 	AmountPaidMinor int64
 	Currency        string
-	Cycle           uint32
+	Initial         bool
 }
 
 func (s *Service) RecordPaidInvoice(ctx context.Context, paid PaidInvoice) (affiliates.CommissionEntry, error) {
@@ -185,11 +193,7 @@ func (s *Service) RecordPaidInvoice(ctx context.Context, paid PaidInvoice) (affi
 	if paid.AmountPaidMinor != rule.EligibleInvoiceMinor || strings.ToUpper(paid.Currency) != rule.Currency {
 		return affiliates.CommissionEntry{}, ErrInvoiceIneligible
 	}
-	entry, err := affiliates.NewEarnedEntry(ids.CommissionEntryID(s.ids.New()), attribution, rule, paid.InvoiceID, paid.Cycle, s.clock.Now())
-	if err != nil {
-		return affiliates.CommissionEntry{}, err
-	}
-	stored, err := s.repository.AppendCommission(ctx, entry)
+	stored, err := s.repository.RecordPaidCommission(ctx, ids.CommissionEntryID(s.ids.New()), attribution, rule, paid.InvoiceID, paid.Initial, s.clock.Now())
 	if err != nil {
 		return affiliates.CommissionEntry{}, err
 	}
@@ -233,6 +237,9 @@ func (s *Service) Statement(ctx context.Context, userID ids.UserID) (Statement, 
 	}
 	return statement, nil
 }
+
+func (s *Service) TermsVersion() uint64 { return s.termsVersion }
+func (s *Service) RuleVersion() uint64  { return s.ruleVersion }
 
 type RandomCodeGenerator struct{}
 

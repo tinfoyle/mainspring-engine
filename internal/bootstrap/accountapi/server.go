@@ -48,28 +48,30 @@ import (
 )
 
 type Config struct {
-	DatabaseURL               string
-	StripeWebhookSecret       string
-	StripeSecretKey           string
-	StripeAPIVersion          string
-	StripeMode                string
-	StripeHTTPClient          *http.Client
-	MaxDatabaseConns          int32
-	AppOrigin                 string
-	PublicOrigin              string
-	MCPResourceOrigin         string
-	NotificationEncryptionKey []byte
-	NetworkActorKey           []byte
-	PrivacyPreferenceKey      []byte
-	PasskeyEncryptionKeys     map[int][]byte
-	PasskeyActiveKeyVersion   int
-	PasskeyRPID               string
-	TrustedProxyCIDRs         []string
-	CatalogRefreshInterval    time.Duration
-	ExportObject              s3objects.Config
-	ExportDownloadKeyID       string
-	ExportDownloadKeys        map[string][]byte
-	ExportDownloadLifetime    time.Duration
+	DatabaseURL                 string
+	StripeWebhookSecret         string
+	StripeSecretKey             string
+	StripeAPIVersion            string
+	StripeMode                  string
+	StripeHTTPClient            *http.Client
+	MaxDatabaseConns            int32
+	AppOrigin                   string
+	PublicOrigin                string
+	MCPResourceOrigin           string
+	NotificationEncryptionKey   []byte
+	NetworkActorKey             []byte
+	PrivacyPreferenceKey        []byte
+	PasskeyEncryptionKeys       map[int][]byte
+	PasskeyActiveKeyVersion     int
+	PasskeyRPID                 string
+	TrustedProxyCIDRs           []string
+	CatalogRefreshInterval      time.Duration
+	AffiliateEnrollmentOpen     bool
+	AffiliateAttributionEnabled bool
+	ExportObject                s3objects.Config
+	ExportDownloadKeyID         string
+	ExportDownloadKeys          map[string][]byte
+	ExportDownloadLifetime      time.Duration
 }
 
 type Server struct {
@@ -281,7 +283,11 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	commercialService, err := commercialaccess.New(stripeProvider, postgres.NewCommercialAccessRepository(pool), authorizer, catalogCache.Current, clock, config.AppOrigin, config.StripeMode, commercialaccess.WithReferralAttributor(affiliateService))
+	commercialOptions := make([]commercialaccess.Option, 0, 1)
+	if config.AffiliateAttributionEnabled {
+		commercialOptions = append(commercialOptions, commercialaccess.WithReferralAttributor(affiliateService))
+	}
+	commercialService, err := commercialaccess.New(stripeProvider, postgres.NewCommercialAccessRepository(pool), authorizer, catalogCache.Current, clock, config.AppOrigin, config.StripeMode, commercialOptions...)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -319,6 +325,10 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithContactChanges(contactChangeService, nil, false),
 		httpapi.WithPrivacy(privacyService, analyticsService, privacySigner, httpapi.PrivacyHTTPConfig{
 			PublicOrigin: config.PublicOrigin, AppOrigin: config.AppOrigin, Secure: true,
+		}),
+		httpapi.WithAffiliateProgram(affiliateService, httpapi.AffiliateHTTPConfig{
+			EnrollmentOpen: config.AffiliateEnrollmentOpen, AttributionEnabled: config.AffiliateAttributionEnabled,
+			SettlementMode: "unconfigured",
 		}),
 	).Handler()
 	mcpAuthorization, err := mcpauth.New(postgres.NewMCPAuthRepository(pool), ids.RandomGenerator{}, mcpauth.RandomSecrets{}, clock, config.AppOrigin, config.MCPResourceOrigin)

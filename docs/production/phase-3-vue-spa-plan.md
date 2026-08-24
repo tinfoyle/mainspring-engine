@@ -153,6 +153,8 @@ Your Turn is the first complete feature slice and the acceptance reference for t
 
 ### PA0 — Privacy, analytics and Affiliate backend extension
 
+Checkpoint (2026-08-24): the consent, event-ingestion, browser-subject rights, raw-event retention, enrollment, attribution, qualifying recurring-invoice and statement kernels plus generated contracts are implemented and pass disposable PostgreSQL 17. The event/processing registry and legal-copy drafts are revision controlled. Remaining PA0 release gates are commercial approval, refund/dispute reversal projection, enrollment suspension/closure operations, the authenticated Affiliate rights/support path and final legal/vendor/transfer approval. Feature flags remain closed while these decisions are unresolved.
+
 - Approve the lawful-purpose/event registry, consent-policy version, retention schedule and analytics provider boundary.
 - Implement consent receipts and server-side optional-event enforcement.
 - Implement Affiliate enrollment, generated codes, checkout attribution, versioned commission rules and an immutable recurring commission ledger.

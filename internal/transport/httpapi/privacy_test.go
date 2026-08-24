@@ -45,6 +45,38 @@ func (m *privacyMemory) Current(_ context.Context, subjectID ids.ConsentSubjectI
 	return privacy.Decision{}, privacyconsent.ErrNotFound
 }
 
+func (m *privacyMemory) History(_ context.Context, subjectID ids.ConsentSubjectID, limit int) ([]privacy.Decision, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]privacy.Decision, 0)
+	for index := len(m.decisions) - 1; index >= 0 && len(result) < limit; index-- {
+		if m.decisions[index].SubjectID == subjectID {
+			result = append(result, m.decisions[index])
+		}
+	}
+	return result, nil
+}
+
+func (m *privacyMemory) Erase(_ context.Context, subjectID ids.ConsentSubjectID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	decisions := m.decisions[:0]
+	for _, decision := range m.decisions {
+		if decision.SubjectID != subjectID {
+			decisions = append(decisions, decision)
+		}
+	}
+	m.decisions = decisions
+	events := m.events[:0]
+	for _, event := range m.events {
+		if event.Envelope.SubjectID != subjectID {
+			events = append(events, event)
+		}
+	}
+	m.events = events
+	return nil
+}
+
 func (m *privacyMemory) AppendEvent(_ context.Context, event analyticsingest.AcceptedEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -102,6 +134,21 @@ func TestPrivacyConsentGatesAnalyticsAndWithdrawalStopsIngestion(t *testing.T) {
 	cookie = putConsent(t, handler, cookie, false, false)
 	if status := postAnalytics(t, handler, cookie, "10000000-0000-4000-8000-000000000012", now); status != http.StatusForbidden || len(memory.events) != 1 {
 		t.Fatalf("analytics after withdrawal status=%d events=%d", status, len(memory.events))
+	}
+	history := httptest.NewRequest(http.MethodGet, "https://web.example.test/api/v1/privacy/consent/history", nil)
+	history.AddCookie(cookie)
+	historyResponse := httptest.NewRecorder()
+	handler.ServeHTTP(historyResponse, history)
+	if historyResponse.Code != http.StatusOK || !bytes.Contains(historyResponse.Body.Bytes(), []byte(`"decisions"`)) || len(memory.decisions) != 3 {
+		t.Fatalf("history status=%d body=%s decisions=%d", historyResponse.Code, historyResponse.Body.String(), len(memory.decisions))
+	}
+	erase := httptest.NewRequest(http.MethodDelete, "https://web.example.test/api/v1/privacy/data", nil)
+	erase.Header.Set("Origin", "https://web.example.test")
+	erase.AddCookie(cookie)
+	eraseResponse := httptest.NewRecorder()
+	handler.ServeHTTP(eraseResponse, erase)
+	if eraseResponse.Code != http.StatusNoContent || len(memory.decisions) != 0 || len(memory.events) != 0 || len(eraseResponse.Result().Cookies()) != 1 || eraseResponse.Result().Cookies()[0].MaxAge != -1 {
+		t.Fatalf("erase status=%d decisions=%d events=%d cookies=%+v", eraseResponse.Code, len(memory.decisions), len(memory.events), eraseResponse.Result().Cookies())
 	}
 }
 

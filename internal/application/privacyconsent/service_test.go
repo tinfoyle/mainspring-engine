@@ -25,6 +25,25 @@ func (r *repository) Current(_ context.Context, subject ids.ConsentSubjectID, su
 	}
 	return privacy.Decision{}, privacyconsent.ErrNotFound
 }
+func (r *repository) History(_ context.Context, subject ids.ConsentSubjectID, limit int) ([]privacy.Decision, error) {
+	result := make([]privacy.Decision, 0)
+	for index := len(r.decisions) - 1; index >= 0 && len(result) < limit; index-- {
+		if r.decisions[index].SubjectID == subject {
+			result = append(result, r.decisions[index])
+		}
+	}
+	return result, nil
+}
+func (r *repository) Erase(_ context.Context, subject ids.ConsentSubjectID) error {
+	kept := r.decisions[:0]
+	for _, decision := range r.decisions {
+		if decision.SubjectID != subject {
+			kept = append(kept, decision)
+		}
+	}
+	r.decisions = kept
+	return nil
+}
 
 type generator struct{ next int }
 

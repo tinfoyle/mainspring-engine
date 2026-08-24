@@ -14,6 +14,9 @@ Current audit and execution reports:
 - [HTTP API and MCP interaction guide](api-mcp-interaction-guide.md)
 - [Local, stage and production deployment report](stage-production-deployment-report.md)
 - [Phase 3 product-journey certification](journey-certification.md)
+- [Privacy and analytics processing registry](privacy-processing-registry.md)
+- [Privacy and cookie notice launch draft](privacy-cookie-notice-launch-draft.md)
+- [Affiliate program terms launch draft](affiliate-program-terms-launch-draft.md)
 - [Account movement operations](account-movement.md)
 - [Consequential action execution](consequential-actions.md)
 

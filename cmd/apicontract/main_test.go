@@ -193,8 +193,8 @@ func TestEveryCustomerOperationRemainsTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 191 {
-		t.Fatalf("customer operation count = %d, want 191", len(routes))
+	if len(routes) != 196 {
+		t.Fatalf("customer operation count = %d, want 196", len(routes))
 	}
 	for _, route := range routes {
 		if route.Contract != "typed" {

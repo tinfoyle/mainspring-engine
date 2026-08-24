@@ -184,7 +184,7 @@ func TestLaunchAccountExportSourcesBuildExactObjectVersions(t *testing.T) {
 	if err := json.Unmarshal(entries["manifest.json"], &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest.Sections) != 13 || len(manifest.Objects) != 2 || manifest.Objects[0].Path != knowledgePath || manifest.Objects[1].Path != marketingPath {
+	if len(manifest.Sections) != 14 || len(manifest.Objects) != 2 || manifest.Objects[0].Path != knowledgePath || manifest.Objects[1].Path != marketingPath {
 		t.Fatalf("manifest sections=%d objects=%+v", len(manifest.Sections), manifest.Objects)
 	}
 	if strings.Contains(string(entries["sections/knowledge.jsonl"]), "object_key") || strings.Contains(string(entries["sections/knowledge.jsonl"]), "object_version") ||

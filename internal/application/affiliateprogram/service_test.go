@@ -8,6 +8,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -56,13 +57,33 @@ func (r *repository) LockAttribution(_ context.Context, _ ids.ReferralAttributio
 	}
 	return locked, err
 }
-func (r *repository) AttributionBySubscription(context.Context, string) (affiliates.Attribution, error) {
+func (r *repository) AttributionBySubscription(_ context.Context, subscriptionID string) (affiliates.Attribution, error) {
+	if r.attribution.SubscriptionID != subscriptionID || subscriptionID == "" {
+		return affiliates.Attribution{}, affiliateprogram.ErrAttributionNotFound
+	}
 	return r.attribution, nil
 }
 func (r *repository) CommissionRule(context.Context, uint64) (affiliates.CommissionRule, error) {
 	return r.rule, nil
 }
 func (r *repository) AppendCommission(_ context.Context, entry affiliates.CommissionEntry) (affiliates.CommissionEntry, error) {
+	r.entries = append(r.entries, entry)
+	return entry, nil
+}
+func (r *repository) RecordPaidCommission(_ context.Context, id ids.CommissionEntryID, attribution affiliates.Attribution, rule affiliates.CommissionRule, invoiceID string, initial bool, now time.Time) (affiliates.CommissionEntry, error) {
+	cycle := uint32(1)
+	if !initial {
+		cycle = 2
+		for _, entry := range r.entries {
+			if entry.SubscriptionID == attribution.SubscriptionID && entry.Kind == affiliates.CommissionEarned && entry.Cycle >= cycle {
+				cycle = entry.Cycle + 1
+			}
+		}
+	}
+	entry, err := affiliates.NewEarnedEntry(id, attribution, rule, invoiceID, cycle, now)
+	if err != nil {
+		return affiliates.CommissionEntry{}, err
+	}
 	r.entries = append(r.entries, entry)
 	return entry, nil
 }
@@ -93,21 +114,25 @@ type clock struct{ now time.Time }
 
 func (c clock) Now() time.Time { return c.now }
 
+func strongSession(now time.Time) sessions.Session {
+	return sessions.Session{UserID: userID, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey}
+}
+
 func TestEnrollRequiresCurrentTermsAndOwnedSettlementAccount(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	repository := &repository{owned: map[ids.AccountID]bool{ids.AccountID(affiliateAcct): true}}
 	service, _ := affiliateprogram.New(repository, &generator{values: []string{"10000000-0000-4000-8000-000000000010"}}, codes{"IO-PARTNER1"}, clock{now}, 2, 3)
-	if _, err := service.Enroll(context.Background(), affiliateprogram.EnrollCommand{UserID: ids.UserID(userID), SettlementAccountID: ids.AccountID(affiliateAcct), AcceptedTermsVersion: 1}); !errors.Is(err, affiliateprogram.ErrTermsRequired) {
+	if _, err := service.Enroll(context.Background(), affiliateprogram.EnrollCommand{UserID: ids.UserID(userID), Session: strongSession(now), SettlementAccountID: ids.AccountID(affiliateAcct), AcceptedTermsVersion: 1}); !errors.Is(err, affiliateprogram.ErrTermsRequired) {
 		t.Fatalf("old terms returned %v", err)
 	}
-	enrollment, err := service.Enroll(context.Background(), affiliateprogram.EnrollCommand{UserID: ids.UserID(userID), SettlementAccountID: ids.AccountID(affiliateAcct), AcceptedTermsVersion: 2})
+	enrollment, err := service.Enroll(context.Background(), affiliateprogram.EnrollCommand{UserID: ids.UserID(userID), Session: strongSession(now), SettlementAccountID: ids.AccountID(affiliateAcct), AcceptedTermsVersion: 2})
 	if err != nil || enrollment.PublicCode != "IO-PARTNER1" || enrollment.RuleVersion != 3 {
 		t.Fatalf("enrollment=%+v err=%v", enrollment, err)
 	}
 	repository.owned = nil
 	repository.canSettle = false
 	service, _ = affiliateprogram.New(repository, &generator{values: []string{"10000000-0000-4000-8000-000000000011"}}, codes{"IO-PARTNER2"}, clock{now}, 2, 3)
-	if _, err := service.Enroll(context.Background(), affiliateprogram.EnrollCommand{UserID: ids.UserID(userID), SettlementAccountID: ids.AccountID(affiliateAcct), AcceptedTermsVersion: 2}); !errors.Is(err, affiliateprogram.ErrSettlementAccountDenied) {
+	if _, err := service.Enroll(context.Background(), affiliateprogram.EnrollCommand{UserID: ids.UserID(userID), Session: strongSession(now), SettlementAccountID: ids.AccountID(affiliateAcct), AcceptedTermsVersion: 2}); !errors.Is(err, affiliateprogram.ErrSettlementAccountDenied) {
 		t.Fatalf("foreign settlement account returned %v", err)
 	}
 }
@@ -121,7 +146,7 @@ func TestReferralAndPaidRenewalProduceOneLedgerEntry(t *testing.T) {
 		"10000000-0000-4000-8000-000000000011",
 		"10000000-0000-4000-8000-000000000012",
 	}}, codes{"IO-PARTNER1"}, clock{now}, 2, 3)
-	_, _ = service.Enroll(context.Background(), affiliateprogram.EnrollCommand{UserID: ids.UserID(userID), SettlementAccountID: ids.AccountID(affiliateAcct), AcceptedTermsVersion: 2})
+	_, _ = service.Enroll(context.Background(), affiliateprogram.EnrollCommand{UserID: ids.UserID(userID), Session: strongSession(now), SettlementAccountID: ids.AccountID(affiliateAcct), AcceptedTermsVersion: 2})
 	attribution, err := service.Reserve(context.Background(), affiliateprogram.ReserveCommand{PublicCode: "io-partner1", ReferredAccountID: ids.AccountID(referredAcct), CheckoutRequestID: "10000000-0000-4000-8000-000000000030", OfferCode: "team-monthly-v1", OfferVersion: 4})
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +154,7 @@ func TestReferralAndPaidRenewalProduceOneLedgerEntry(t *testing.T) {
 	if _, err := service.Lock(context.Background(), attribution.ID, "sub_paid"); err != nil {
 		t.Fatal(err)
 	}
-	entry, err := service.RecordPaidInvoice(context.Background(), affiliateprogram.PaidInvoice{SubscriptionID: "sub_paid", InvoiceID: "in_renewal", AmountPaidMinor: 5000, Currency: "usd", Cycle: 2})
+	entry, err := service.RecordPaidInvoice(context.Background(), affiliateprogram.PaidInvoice{SubscriptionID: "sub_paid", InvoiceID: "in_renewal", AmountPaidMinor: 5000, Currency: "usd", Initial: false})
 	if err != nil || entry.AmountMinor != 1000 || len(repository.entries) != 1 {
 		t.Fatalf("entry=%+v err=%v entries=%d", entry, err, len(repository.entries))
 	}
@@ -144,7 +169,7 @@ func TestPaidInvoiceMustMatchFrozenRule(t *testing.T) {
 	repository := &repository{rule: affiliates.CommissionRule{ID: ids.CommissionRuleID("10000000-0000-4000-8000-000000000020"), Version: 3, OfferCode: "team-monthly-v1", Currency: "USD", EligibleInvoiceMinor: 5000, CommissionMinor: 1000, InitialInvoiceQualifies: true, EffectiveFrom: now}}
 	repository.attribution = affiliates.Attribution{ID: ids.ReferralAttributionID("10000000-0000-4000-8000-000000000011"), AffiliateID: ids.AffiliateID("10000000-0000-4000-8000-000000000010"), OfferCode: "team-monthly-v1", RuleVersion: 3, State: affiliates.AttributionLocked, SubscriptionID: "sub_paid"}
 	service, _ := affiliateprogram.New(repository, &generator{values: []string{"10000000-0000-4000-8000-000000000012"}}, codes{"IO-PARTNER1"}, clock{now}, 2, 3)
-	if _, err := service.RecordPaidInvoice(context.Background(), affiliateprogram.PaidInvoice{SubscriptionID: "sub_paid", InvoiceID: "in_discounted", AmountPaidMinor: 4900, Currency: "USD", Cycle: 1}); !errors.Is(err, affiliateprogram.ErrInvoiceIneligible) {
+	if _, err := service.RecordPaidInvoice(context.Background(), affiliateprogram.PaidInvoice{SubscriptionID: "sub_paid", InvoiceID: "in_discounted", AmountPaidMinor: 4900, Currency: "USD", Initial: true}); !errors.Is(err, affiliateprogram.ErrInvoiceIneligible) {
 		t.Fatalf("discounted invoice returned %v", err)
 	}
 }

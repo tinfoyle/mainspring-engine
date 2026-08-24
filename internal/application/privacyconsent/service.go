@@ -16,6 +16,8 @@ type Clock interface{ Now() time.Time }
 type Repository interface {
 	Append(context.Context, privacy.Decision) error
 	Current(context.Context, ids.ConsentSubjectID, privacy.Surface) (privacy.Decision, error)
+	History(context.Context, ids.ConsentSubjectID, int) ([]privacy.Decision, error)
+	Erase(context.Context, ids.ConsentSubjectID) error
 }
 
 type Service struct {
@@ -62,3 +64,17 @@ func (s *Service) Current(ctx context.Context, subjectID ids.ConsentSubjectID, s
 }
 
 func (s *Service) PolicyVersion() uint64 { return s.policyVersion }
+
+func (s *Service) History(ctx context.Context, subjectID ids.ConsentSubjectID) ([]privacy.Decision, error) {
+	if ids.Validate(string(subjectID)) != nil {
+		return nil, privacy.ErrInvalidDecision
+	}
+	return s.repository.History(ctx, subjectID, 1000)
+}
+
+func (s *Service) Erase(ctx context.Context, subjectID ids.ConsentSubjectID) error {
+	if ids.Validate(string(subjectID)) != nil {
+		return privacy.ErrInvalidDecision
+	}
+	return s.repository.Erase(ctx, subjectID)
+}

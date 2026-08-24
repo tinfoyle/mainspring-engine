@@ -21,6 +21,20 @@ type EventHandler interface {
 	Project(context.Context, WorkItem) error
 }
 
+type SequenceHandler []EventHandler
+
+func (handlers SequenceHandler) Project(ctx context.Context, item WorkItem) error {
+	for _, handler := range handlers {
+		if handler == nil {
+			return errors.New("billing event handler sequence contains a nil handler")
+		}
+		if err := handler.Project(ctx, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type Processor struct {
 	queue   WorkQueue
 	handler EventHandler

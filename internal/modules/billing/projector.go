@@ -99,6 +99,11 @@ func subscriptionID(eventType string, payload []byte) string {
 			Object struct {
 				ID           string          `json:"id"`
 				Subscription json.RawMessage `json:"subscription"`
+				Parent       struct {
+					SubscriptionDetails struct {
+						Subscription json.RawMessage `json:"subscription"`
+					} `json:"subscription_details"`
+				} `json:"parent"`
 			} `json:"object"`
 		} `json:"data"`
 	}
@@ -109,15 +114,17 @@ func subscriptionID(eventType string, payload []byte) string {
 		return event.Data.Object.ID
 	}
 	if eventType == "checkout.session.completed" || strings.HasPrefix(eventType, "invoice.") {
-		var id string
-		if json.Unmarshal(event.Data.Object.Subscription, &id) == nil && strings.HasPrefix(id, "sub_") {
-			return id
-		}
-		var expanded struct {
-			ID string `json:"id"`
-		}
-		if json.Unmarshal(event.Data.Object.Subscription, &expanded) == nil && strings.HasPrefix(expanded.ID, "sub_") {
-			return expanded.ID
+		for _, raw := range []json.RawMessage{event.Data.Object.Parent.SubscriptionDetails.Subscription, event.Data.Object.Subscription} {
+			var id string
+			if json.Unmarshal(raw, &id) == nil && strings.HasPrefix(id, "sub_") {
+				return id
+			}
+			var expanded struct {
+				ID string `json:"id"`
+			}
+			if json.Unmarshal(raw, &expanded) == nil && strings.HasPrefix(expanded.ID, "sub_") {
+				return expanded.ID
+			}
 		}
 	}
 	return ""

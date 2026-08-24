@@ -6,6 +6,8 @@
 - Commercial boundary: [Website, Accounts, Packages, and Billing Architecture](accounts-packages-billing.md)
 - Release boundary: Local construction only until the parent plan's exit gate passes
 
+Implementation checkpoint (2026-08-24): global migrations 37–41, signed host-only preference references, immutable consent receipts/history, consent-bound first-party event ingestion, browser-subject erasure, 395-day raw-event pruning, Affiliate enrollment/code/attribution/ledger services, replay-safe recurring `invoice.paid` projection and generated HTTP contracts are implemented and pass fresh PostgreSQL 17 tests. Enrollment and attribution remain off until the [Affiliate terms draft](affiliate-program-terms-launch-draft.md) commercial decisions are approved. The executable registry is paired with the [launch processing registry](privacy-processing-registry.md) and [privacy/cookie copy draft](privacy-cookie-notice-launch-draft.md). Vue consent, instrumentation, checkout review, Affiliate dashboard, authenticated rights/support UX and legal release approval remain open.
+
 ## 1. Outcomes
 
 The launch UI must measure acquisition and onboarding well enough to improve them without collecting customer business content or excluding EU customers. It must also support an affiliate program whose referral attribution and recurring earnings survive browser loss, webhook replay, subscription renewal and analytics-consent withdrawal.

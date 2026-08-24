@@ -172,7 +172,7 @@ func loadContract(path string) ([]route, error) {
 			}
 			if (path == "/webhooks/stripe") != (auth == "stripeSignature") ||
 				(path == "/api/v1/account-exports/{exportID}/artifact") != (auth == "exportDownloadCapability") ||
-				(auth == "privacyPreferenceCookie" && path != "/api/v1/analytics/events") ||
+				(auth == "privacyPreferenceCookie" && path != "/api/v1/analytics/events" && path != "/api/v1/privacy/consent/history" && path != "/api/v1/privacy/data") ||
 				(op.Service == "cell-api" && auth != "sessionCookie") {
 				return nil, fmt.Errorf("operation %s authentication does not match its boundary", op.ID)
 			}

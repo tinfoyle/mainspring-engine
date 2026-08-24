@@ -174,6 +174,53 @@ export interface ActiveSessions {
   readonly "sessions": ReadonlyArray<ActiveSession>;
 }
 
+export interface AffiliateCommissionEntry {
+  readonly "affiliate_id": string;
+  readonly "amount_minor": number;
+  readonly "attribution_id": string;
+  readonly "available_at": string;
+  readonly "created_at": string;
+  readonly "currency": string;
+  readonly "cycle": number;
+  readonly "entry_id": string;
+  readonly "kind": "earned" | "reversal";
+  readonly "reverses_entry_id"?: string;
+  readonly "rule_version": number;
+  readonly "state": "pending" | "settled";
+}
+
+export interface AffiliateEnrollment {
+  readonly "affiliate_id": string;
+  readonly "created_at": string;
+  readonly "public_code": string;
+  readonly "rule_version": number;
+  readonly "settlement_account_id"?: string;
+  readonly "state": AffiliateEnrollmentState;
+  readonly "terms_version": number;
+  readonly "user_id": string;
+  readonly "version": number;
+}
+
+export type AffiliateEnrollmentState = "active" | "suspended" | "closed";
+
+export interface AffiliateProgram {
+  readonly "attribution_enabled": boolean;
+  readonly "enrollment"?: AffiliateEnrollment;
+  readonly "enrollment_open": boolean;
+  readonly "rule_version": number;
+  readonly "settlement_mode": "unconfigured" | "account_credit" | "cash";
+  readonly "terms_version": number;
+}
+
+export interface AffiliateStatement {
+  readonly "affiliate_id": string;
+  readonly "currency": string;
+  readonly "entries": ReadonlyArray<AffiliateCommissionEntry>;
+  readonly "pending_minor": number;
+  readonly "reversed_minor": number;
+  readonly "settled_minor": number;
+}
+
 export interface AgentBoardroom {
   readonly "created_at": string;
   readonly "id": string;
@@ -936,6 +983,11 @@ export interface DispositionBaselineRequirementRequest {
 }
 
 export type EmptyObject = Readonly<Record<string, never>>;
+
+export interface EnrollAffiliateRequest {
+  readonly "accepted_terms_version": number;
+  readonly "settlement_account_id"?: string;
+}
 
 export type EntitlementGrantSource = "free_plan" | "subscription" | "trial" | "promotion" | "support_override" | "grandfathered";
 
@@ -1869,9 +1921,23 @@ export interface PrivacyConsent {
   readonly "surface": PrivacySurface;
 }
 
+export interface PrivacyConsentHistory {
+  readonly "decisions": ReadonlyArray<PrivacyDecision>;
+}
+
 export interface PrivacyConsentSelection {
   readonly "analytics": boolean;
   readonly "marketing": boolean;
+}
+
+export interface PrivacyDecision {
+  readonly "analytics": boolean;
+  readonly "decision_id": string;
+  readonly "effective_at": string;
+  readonly "marketing": boolean;
+  readonly "policy_version": number;
+  readonly "subject_id": string;
+  readonly "surface": PrivacySurface;
 }
 
 export type PrivacySurface = "public" | "private";
@@ -2369,6 +2435,11 @@ export interface ApiSchemas {
   readonly ActivateMarketingCampaignRequest: ActivateMarketingCampaignRequest;
   readonly ActiveSession: ActiveSession;
   readonly ActiveSessions: ActiveSessions;
+  readonly AffiliateCommissionEntry: AffiliateCommissionEntry;
+  readonly AffiliateEnrollment: AffiliateEnrollment;
+  readonly AffiliateEnrollmentState: AffiliateEnrollmentState;
+  readonly AffiliateProgram: AffiliateProgram;
+  readonly AffiliateStatement: AffiliateStatement;
   readonly AgentBoardroom: AgentBoardroom;
   readonly AgentBoardroomState: AgentBoardroomState;
   readonly AgentBoardrooms: AgentBoardrooms;
@@ -2482,6 +2553,7 @@ export interface ApiSchemas {
   readonly DecideWorkReviewRequest: DecideWorkReviewRequest;
   readonly DispositionBaselineRequirementRequest: DispositionBaselineRequirementRequest;
   readonly EmptyObject: EmptyObject;
+  readonly EnrollAffiliateRequest: EnrollAffiliateRequest;
   readonly EntitlementGrantSource: EntitlementGrantSource;
   readonly EntitlementPackageAccess: EntitlementPackageAccess;
   readonly EntitlementSnapshot: EntitlementSnapshot;
@@ -2613,7 +2685,9 @@ export interface ApiSchemas {
   readonly PasskeyLoginSession: PasskeyLoginSession;
   readonly Passkeys: Passkeys;
   readonly PrivacyConsent: PrivacyConsent;
+  readonly PrivacyConsentHistory: PrivacyConsentHistory;
   readonly PrivacyConsentSelection: PrivacyConsentSelection;
+  readonly PrivacyDecision: PrivacyDecision;
   readonly PrivacySurface: PrivacySurface;
   readonly Problem: Problem;
   readonly ProposeKnowledgeClaimRequest: ProposeKnowledgeClaimRequest;

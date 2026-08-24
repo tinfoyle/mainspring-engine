@@ -43,6 +43,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	agentqueueapp "github.com/tinfoyle/spyglass-engine/internal/application/agentqueueadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsretention"
 	baselinemaintenanceapp "github.com/tinfoyle/spyglass-engine/internal/application/baselinemaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
@@ -998,7 +999,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	stripeClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(nil), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval,
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval, AffiliateEnrollmentOpen: config.affiliateEnrollmentOpen, AffiliateAttributionEnabled: config.affiliateAttributionEnabled,
 		ExportObject:        s3objects.Config{Endpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: envOr("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "spyglass-account-exports"), AccessKey: exportObjectAccessKey, SecretKey: exportObjectSecretKey, Secure: objectSecure, ServerSideEncryption: objectSSE},
 		ExportDownloadKeyID: exportKeyID, ExportDownloadKeys: exportKeys, ExportDownloadLifetime: exportLifetime}, logger)
 	if err != nil {
@@ -1728,9 +1729,28 @@ func runIdentityMaintenanceWorker(ctx context.Context, logger *slog.Logger) erro
 	if err := identitymaintenance.ValidateBounds(retention, int(batch)); err != nil {
 		return err
 	}
+	analyticsRetention, err := durationEnv("SPYGLASS_ANALYTICS_EVENT_RETENTION", analyticsretention.DefaultRetention)
+	if err != nil {
+		return err
+	}
+	analyticsBatch, err := int32Env("SPYGLASS_ANALYTICS_RETENTION_PRUNE_BATCH", analyticsretention.DefaultBatch)
+	if err != nil {
+		return err
+	}
+	analyticsAlertBacklog, err := int32Env("SPYGLASS_ANALYTICS_RETENTION_ALERT_BACKLOG", 100000)
+	if err != nil || analyticsAlertBacklog < 1 || analyticsAlertBacklog > 10000000 {
+		return errors.New("SPYGLASS_ANALYTICS_RETENTION_ALERT_BACKLOG must be between 1 and 10000000")
+	}
+	if err := analyticsretention.ValidateBounds(analyticsRetention, int(analyticsBatch)); err != nil {
+		return err
+	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	worker, err := identitymaintenanceworker.New(startup, identitymaintenanceworker.Config{DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, Interval: interval, Retention: retention, PruneBatch: int(batch), AlertBacklog: uint64(alertBacklog)}, logger)
+	worker, err := identitymaintenanceworker.New(startup, identitymaintenanceworker.Config{
+		DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, Interval: interval,
+		Retention: retention, PruneBatch: int(batch), AlertBacklog: uint64(alertBacklog),
+		AnalyticsRetention: analyticsRetention, AnalyticsPruneBatch: int(analyticsBatch), AnalyticsAlertBacklog: uint64(analyticsAlertBacklog),
+	}, logger)
 	if err != nil {
 		return err
 	}
@@ -2992,6 +3012,7 @@ type persistentConfig struct {
 	trustedProxyCIDRs                                                                                                                        []string
 	maxDatabaseConns                                                                                                                         int32
 	catalogRefreshInterval                                                                                                                   time.Duration
+	affiliateEnrollmentOpen, affiliateAttributionEnabled                                                                                     bool
 }
 
 func productionConfig() (persistentConfig, error) {
@@ -3030,6 +3051,14 @@ func productionConfig() (persistentConfig, error) {
 		return persistentConfig{}, err
 	}
 	result.catalogRefreshInterval, err = durationEnv("SPYGLASS_CATALOG_REFRESH_INTERVAL", 5*time.Second)
+	if err != nil {
+		return persistentConfig{}, err
+	}
+	result.affiliateEnrollmentOpen, err = boolEnv("SPYGLASS_AFFILIATE_ENROLLMENT_OPEN", false)
+	if err != nil {
+		return persistentConfig{}, err
+	}
+	result.affiliateAttributionEnabled, err = boolEnv("SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED", false)
 	return result, err
 }
 

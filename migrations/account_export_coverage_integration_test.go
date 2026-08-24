@@ -61,6 +61,13 @@ func TestAccountExportCoverageMatchesAccountOwnedSchema(t *testing.T) {
 	// These Account-associated tables do not use a direct account_id column.
 	seen["public.accounts"] = true
 	seen["public.billing_reconciliation_queue"] = true
+	seen["public.affiliate_attributions"] = true
+	seen["public.affiliate_enrollments"] = true
+	seen["public.affiliate_commission_entries"] = true
+	seen["public.affiliate_commission_rules"] = true
+	seen["public.privacy_consent_subjects"] = true
+	seen["public.privacy_consent_decisions"] = true
+	seen["public.analytics_events"] = true
 	for _, coverage := range registry.Tables() {
 		if !seen[coverage.Schema+"."+coverage.Table] {
 			t.Fatalf("portability policy references missing table %s.%s", coverage.Schema, coverage.Table)

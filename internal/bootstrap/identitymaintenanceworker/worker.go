@@ -12,26 +12,36 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsretention"
 	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 )
 
 type Config struct {
-	DatabaseURL      string
-	MaxDatabaseConns int32
-	Interval         time.Duration
-	Retention        time.Duration
-	PruneBatch       int
-	AlertBacklog     uint64
+	DatabaseURL           string
+	MaxDatabaseConns      int32
+	Interval              time.Duration
+	Retention             time.Duration
+	PruneBatch            int
+	AlertBacklog          uint64
+	AnalyticsRetention    time.Duration
+	AnalyticsPruneBatch   int
+	AnalyticsAlertBacklog uint64
 }
 
 type Status struct {
-	Total                    uint64 `json:"total_ceremonies"`
-	Eligible                 uint64 `json:"eligible_ceremonies"`
-	OldestEligibleAgeSeconds int64  `json:"oldest_eligible_age_seconds"`
-	Pruned                   int64  `json:"pruned_ceremonies"`
-	Failures                 uint64 `json:"failures"`
-	Alerting                 bool   `json:"alerting"`
+	Total                             uint64 `json:"total_ceremonies"`
+	Eligible                          uint64 `json:"eligible_ceremonies"`
+	OldestEligibleAgeSeconds          int64  `json:"oldest_eligible_age_seconds"`
+	Pruned                            int64  `json:"pruned_ceremonies"`
+	Failures                          uint64 `json:"failures"`
+	Alerting                          bool   `json:"alerting"`
+	TotalAnalyticsEvents              uint64 `json:"total_analytics_events"`
+	EligibleAnalyticsEvents           uint64 `json:"eligible_analytics_events"`
+	OldestEligibleAnalyticsAgeSeconds int64  `json:"oldest_eligible_analytics_age_seconds"`
+	PrunedAnalyticsEvents             int64  `json:"pruned_analytics_events"`
+	AnalyticsFailures                 uint64 `json:"analytics_failures"`
+	AnalyticsAlerting                 bool   `json:"analytics_alerting"`
 }
 
 type processor interface {
@@ -39,15 +49,25 @@ type processor interface {
 	Stats(context.Context) (identitymaintenance.Stats, error)
 }
 
+type analyticsProcessor interface {
+	Process(context.Context) (int64, error)
+	Stats(context.Context) (analyticsretention.Stats, error)
+}
+
 type Worker struct {
-	pool         *pgxpool.Pool
-	processor    processor
-	interval     time.Duration
-	retention    time.Duration
-	alertBacklog uint64
-	logger       *slog.Logger
-	pruned       atomic.Int64
-	failures     atomic.Uint64
+	pool                  *pgxpool.Pool
+	processor             processor
+	analyticsProcessor    analyticsProcessor
+	interval              time.Duration
+	retention             time.Duration
+	alertBacklog          uint64
+	analyticsRetention    time.Duration
+	analyticsAlertBacklog uint64
+	logger                *slog.Logger
+	pruned                atomic.Int64
+	failures              atomic.Uint64
+	analyticsPruned       atomic.Int64
+	analyticsFailures     atomic.Uint64
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
@@ -66,10 +86,22 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 	if config.AlertBacklog == 0 {
 		config.AlertBacklog = 10000
 	}
-	if config.Interval < time.Minute || config.Interval > 24*time.Hour || config.AlertBacklog > 10000000 {
+	if config.AnalyticsRetention == 0 {
+		config.AnalyticsRetention = analyticsretention.DefaultRetention
+	}
+	if config.AnalyticsPruneBatch == 0 {
+		config.AnalyticsPruneBatch = analyticsretention.DefaultBatch
+	}
+	if config.AnalyticsAlertBacklog == 0 {
+		config.AnalyticsAlertBacklog = 100000
+	}
+	if config.Interval < time.Minute || config.Interval > 24*time.Hour || config.AlertBacklog > 10000000 || config.AnalyticsAlertBacklog > 10000000 {
 		return nil, errors.New("identity maintenance schedule or alert threshold is out of bounds")
 	}
 	if err := identitymaintenance.ValidateBounds(config.Retention, config.PruneBatch); err != nil {
+		return nil, err
+	}
+	if err := analyticsretention.ValidateBounds(config.AnalyticsRetention, config.AnalyticsPruneBatch); err != nil {
 		return nil, err
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
@@ -92,7 +124,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	return &Worker{pool: pool, processor: processor, interval: config.Interval, retention: config.Retention, alertBacklog: config.AlertBacklog, logger: logger}, nil
+	analyticsProcessor, err := analyticsretention.NewProcessor(postgres.NewAnalyticsRetentionRepository(pool), registration.SystemClock{}, config.AnalyticsRetention, config.AnalyticsPruneBatch)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return &Worker{pool: pool, processor: processor, analyticsProcessor: analyticsProcessor, interval: config.Interval, retention: config.Retention, alertBacklog: config.AlertBacklog, analyticsRetention: config.AnalyticsRetention, analyticsAlertBacklog: config.AnalyticsAlertBacklog, logger: logger}, nil
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -128,6 +165,31 @@ func (w *Worker) runOnce(ctx context.Context) {
 	} else if count > 0 {
 		w.logger.Info("Pruned passkey ceremonies", "count", count)
 	}
+	w.runAnalyticsOnce(ctx)
+}
+
+func (w *Worker) runAnalyticsOnce(ctx context.Context) {
+	if w.analyticsProcessor == nil {
+		return
+	}
+	count, err := w.analyticsProcessor.Process(ctx)
+	if err != nil {
+		w.analyticsFailures.Add(1)
+		w.logger.Error("Analytics retention failed", "error", err)
+		return
+	}
+	w.analyticsPruned.Add(count)
+	stats, err := w.analyticsProcessor.Stats(ctx)
+	if err != nil {
+		w.analyticsFailures.Add(1)
+		w.logger.Error("Analytics retention stats failed", "error", err)
+		return
+	}
+	if stats.Eligible >= w.analyticsAlertBacklog || stats.OldestEligibleAge > 2*w.analyticsRetention {
+		w.logger.Warn("Analytics retention backlog is abnormal", "eligible", stats.Eligible, "oldest_eligible_age_seconds", int64(stats.OldestEligibleAge/time.Second))
+	} else if count > 0 {
+		w.logger.Info("Pruned analytics events", "count", count)
+	}
 }
 
 func (w *Worker) Ready(ctx context.Context) error { return w.pool.Ping(ctx) }
@@ -137,7 +199,14 @@ func (w *Worker) Status(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return Status{Total: stats.Total, Eligible: stats.Eligible, OldestEligibleAgeSeconds: int64(stats.OldestEligibleAge / time.Second), Pruned: w.pruned.Load(), Failures: w.failures.Load(), Alerting: stats.Eligible >= w.alertBacklog || stats.OldestEligibleAge > 2*w.retention}, nil
+	analyticsStats, err := w.analyticsProcessor.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return Status{
+		Total: stats.Total, Eligible: stats.Eligible, OldestEligibleAgeSeconds: int64(stats.OldestEligibleAge / time.Second), Pruned: w.pruned.Load(), Failures: w.failures.Load(), Alerting: stats.Eligible >= w.alertBacklog || stats.OldestEligibleAge > 2*w.retention,
+		TotalAnalyticsEvents: analyticsStats.Total, EligibleAnalyticsEvents: analyticsStats.Eligible, OldestEligibleAnalyticsAgeSeconds: int64(analyticsStats.OldestEligibleAge / time.Second), PrunedAnalyticsEvents: w.analyticsPruned.Load(), AnalyticsFailures: w.analyticsFailures.Load(), AnalyticsAlerting: analyticsStats.Eligible >= w.analyticsAlertBacklog || analyticsStats.OldestEligibleAge > 2*w.analyticsRetention,
+	}, nil
 }
 
 func (w *Worker) Close() { w.pool.Close() }

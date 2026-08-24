@@ -66,6 +66,8 @@ type Server struct {
 	exposeContactToken    bool
 	accountExports        *accountexport.Service
 	exportDownloads       *accountexport.DownloadService
+	affiliateProgram      *affiliateprogram.Service
+	affiliateHTTP         AffiliateHTTPConfig
 	privacyConsent        *privacyconsent.Service
 	analyticsIngest       *analyticsingest.Service
 	privacyTokens         PrivacyTokenCodec
@@ -190,6 +192,10 @@ func WithPrivacy(consent *privacyconsent.Service, ingestion *analyticsingest.Ser
 	}
 }
 
+func WithAffiliateProgram(service *affiliateprogram.Service, config AffiliateHTTPConfig) Option {
+	return func(server *Server) { server.affiliateProgram, server.affiliateHTTP = service, config }
+}
+
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
 	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
 	for _, option := range options {
@@ -205,7 +211,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/catalog/public", s.publicCatalog)
 	mux.HandleFunc("GET /api/v1/privacy/consent", s.getPrivacyConsent)
 	mux.HandleFunc("PUT /api/v1/privacy/consent", s.setPrivacyConsent)
+	mux.HandleFunc("GET /api/v1/privacy/consent/history", s.getPrivacyConsentHistory)
+	mux.HandleFunc("DELETE /api/v1/privacy/data", s.erasePrivacyData)
 	mux.HandleFunc("POST /api/v1/analytics/events", s.ingestAnalyticsEvent)
+	mux.HandleFunc("GET /api/v1/affiliate", s.getAffiliateProgram)
+	mux.HandleFunc("POST /api/v1/affiliate", s.enrollAffiliate)
+	mux.HandleFunc("GET /api/v1/affiliate/statement", s.getAffiliateStatement)
 	mux.HandleFunc("POST /api/v1/registrations", s.beginRegistration)
 	mux.HandleFunc("POST /api/v1/registrations/verify", s.completeRegistration)
 	mux.HandleFunc("POST /api/v1/recovery-challenges", s.beginRecovery)
