@@ -933,7 +933,16 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "account_access_failed", "accounts could not be loaded")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"accounts": choices})
+	response := map[string]any{"user_id": authenticated.Session.UserID, "accounts": choices}
+	if selected, err := r.Cookie(s.cookie.AccountName); err == nil {
+		for _, choice := range choices {
+			if string(choice.AccountID) == selected.Value {
+				response["selected_account_id"] = choice.AccountID
+				break
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Server) selectAccount(w http.ResponseWriter, r *http.Request) {

@@ -17,6 +17,16 @@ const navigation = [
   { to: "/app/agents", label: "Agents" },
   { to: "/app/privacy", label: "Privacy" }
 ];
+
+async function selectAccount(event: Event): Promise<void> {
+  const target = event.target as HTMLSelectElement;
+  const previous = session.selectedID ?? "";
+  try {
+    await session.select(target.value);
+  } catch {
+    target.value = previous;
+  }
+}
 </script>
 
 <template>
@@ -40,7 +50,7 @@ const navigation = [
       </nav>
       <div class="account-switcher">
         <label for="account">Account</label>
-        <select id="account" v-model="session.selectedID" :disabled="session.loading || session.accounts.length === 0">
+        <select id="account" :value="session.selectedID" :disabled="session.loading || session.selecting || session.accounts.length === 0" @change="selectAccount">
           <option v-if="session.accounts.length === 0" value="">{{ session.loading ? "Loading…" : "No Account" }}</option>
           <option v-for="account in session.accounts" :key="account.account_id" :value="account.account_id">{{ account.display_name }}</option>
         </select>
@@ -52,6 +62,7 @@ const navigation = [
       <div v-if="session.unavailable" class="session-notice" role="status">
         We could not load your Account. <a href="/login?return_to=%2Fapp">Sign in again</a>
       </div>
+      <div v-else-if="session.selectionError" class="session-notice" role="alert">{{ session.selectionError }}</div>
       <RouterView />
     </main>
   </div>

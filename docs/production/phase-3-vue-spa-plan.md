@@ -165,7 +165,7 @@ Exit: privacy and Affiliate state has a tested local application boundary; analy
 
 ### UI0 — Foundation and contract proof
 
-Checkpoint (2026-08-24): the top-level `ui/` workspace now builds separate Nuxt-rendered public and Vue-SPA private images, shares generated API contracts and design tokens/primitives, runs type-check/test/lint/build/audit gates in its Docker test target, and is wired into the local web/app origins. The first-party consent client refuses optional emission before consent, the rendered acquisition shell includes resilient privacy controls, and the private shell loads session/Account choices with Your Turn as its default route. The authenticated idempotent/versioned mutation proof, complete primitive/phone fixture set and applied device/browser acceptance remain UI0 exit work; the current Your Turn cards are explicitly a visual fixture rather than live queue data.
+Checkpoint (2026-08-24): the top-level `ui/` workspace now builds separate Nuxt-rendered public and Vue-SPA private images, shares generated API contracts and design tokens/primitives, runs type-check/test/lint/build/audit gates in its Docker test target, and is wired into the local web/app origins. The first-party consent client refuses optional emission before consent, the rendered acquisition shell includes resilient privacy controls, and the private shell loads the current User, selected Account and Account choices with Your Turn as its default route. The Attention client proves assigned authenticated queries plus stable-idempotency/current-ETag mutations and conflict recovery without copied DTOs. Complete primitive/phone fixture coverage and applied device/browser acceptance remain UI0 exit work.
 
 - Scaffold the Vue 3 and TypeScript workspace with independent public acquisition and private SPA build targets plus shared routing, test, lint, type-check and production-build gates.
 - Consume the generated API types and prove one authenticated query and one idempotent, versioned mutation locally.
@@ -186,6 +186,8 @@ Exit: both UI targets build reproducibly, run through their local Docker origins
 Exit: users can authenticate, select an Account and navigate the complete empty shell at supported phone, tablet and desktop widths.
 
 ### UI2 — Your Turn vertical slice
+
+Checkpoint (2026-08-24): the hard-coded queue fixture has been replaced by entitlement- and role-aware live information, assigned-review, approval and recovery queues using generated types. Durable detail routes inspect exact version/digest/payload context; answer, review, approval, resolution-request and independent-confirmation forms use current versions, stable retry keys, tab-local drafts, conflict reload and consented content-free completion dimensions. Exact Knowledge facts are selectable for information completion, and unfinished legacy `/app/*` routes remain served by the Go shell instead of being prematurely swallowed by the SPA. Pagination, automated component/browser recovery coverage, applied accessibility/device acceptance and locally seeded end-to-end completion of all four categories remain open.
 
 - Build the queue, filters, detail routes and completion flows for information requests, Work reviews, consequential approvals and action recovery.
 - Implement tab drafts, current-ETag mutation handling, fresh idempotency keys, conflict recovery, dual control, live announcements and next-item flow.

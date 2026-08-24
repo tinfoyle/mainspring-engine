@@ -86,6 +86,9 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 		t.Fatalf("unexpected response: %s", complete.Body)
 	}
 	var provisioned struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
 		Account struct {
 			ID string `json:"id"`
 		} `json:"account"`
@@ -226,7 +229,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	accountsBody, _ := io.ReadAll(accountsResponse.Body)
 	accountsResponse.Body.Close()
 	validateOpenAPIResponse(t, http.MethodGet, accountsRequest.URL.String(), accountsResponse.StatusCode, accountsResponse.Header, accountsBody)
-	if accountsResponse.StatusCode != http.StatusOK || !bytes.Contains(accountsBody, []byte(provisioned.Account.ID)) || !bytes.Contains(accountsBody, []byte(`"owner_enrollment_required":true`)) {
+	if accountsResponse.StatusCode != http.StatusOK || !bytes.Contains(accountsBody, []byte(provisioned.User.ID)) || !bytes.Contains(accountsBody, []byte(provisioned.Account.ID)) || !bytes.Contains(accountsBody, []byte(`"owner_enrollment_required":true`)) {
 		t.Fatalf("accounts response: %d %s", accountsResponse.StatusCode, accountsBody)
 	}
 	selectRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/session/account", strings.NewReader(`{"account_id":"`+provisioned.Account.ID+`"}`))
@@ -296,6 +299,19 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	selectedCookies := selectResponse.Cookies()
 	if len(selectedCookies) != 1 || selectedCookies[0].Name != "spyglass_development_account" || !selectedCookies[0].HttpOnly {
 		t.Fatalf("unexpected account cookie: %#v", selectedCookies)
+	}
+	selectedAccountsRequest, _ := http.NewRequest(http.MethodGet, server.URL+"/api/v1/session/accounts", nil)
+	selectedAccountsRequest.AddCookie(cookies[0])
+	selectedAccountsRequest.AddCookie(selectedCookies[0])
+	selectedAccountsResponse, err := http.DefaultClient.Do(selectedAccountsRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectedAccountsBody, _ := io.ReadAll(selectedAccountsResponse.Body)
+	selectedAccountsResponse.Body.Close()
+	validateOpenAPIResponse(t, http.MethodGet, selectedAccountsRequest.URL.String(), selectedAccountsResponse.StatusCode, selectedAccountsResponse.Header, selectedAccountsBody)
+	if selectedAccountsResponse.StatusCode != http.StatusOK || !bytes.Contains(selectedAccountsBody, []byte(`"selected_account_id":"`+provisioned.Account.ID+`"`)) {
+		t.Fatalf("selected accounts response: %d %s", selectedAccountsResponse.StatusCode, selectedAccountsBody)
 	}
 	invite = postJSONCookie(t, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/invitations", `{"email":"member@example.com","role":"member"}`, cookies[0])
 	if invite.StatusCode != http.StatusCreated {

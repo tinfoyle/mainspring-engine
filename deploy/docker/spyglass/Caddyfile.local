@@ -13,13 +13,13 @@
 }
 
 (app_routes) {
-  @cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|attention(?:/.*)?|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?|integrations(?:/.*)?)$
+  @cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|attention(?:/.*)?|knowledge(?:/.*)?|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?|integrations(?:/.*)?)$
   handle @cell_api {
     reverse_proxy app-router:8080
   }
   @vue {
     method GET HEAD
-    path /app /app/* /ui-assets/*
+    path /app /app/your-turn /app/your-turn/* /app/work /app/knowledge /app/agents /app/privacy /ui-assets/*
   }
   handle @vue {
     reverse_proxy private-ui:8080

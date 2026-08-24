@@ -29,6 +29,8 @@ export interface AccountChoice {
 
 export interface AccountChoices {
   readonly "accounts": ReadonlyArray<AccountChoice>;
+  readonly "selected_account_id"?: string;
+  readonly "user_id": string;
 }
 
 export interface AccountClosure {

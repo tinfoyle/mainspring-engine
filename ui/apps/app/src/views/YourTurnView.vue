@@ -1,51 +1,157 @@
 <script setup lang="ts">
-import { emitAnalytics } from "@spyglass/api";
+import {
+  APIProblem,
+  attentionItemID,
+  emitAnalytics,
+  getPrivacyConsent,
+  listAttentionQueue,
+  type AttentionKind,
+  type AttentionQueueItem
+} from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
-import { onMounted } from "vue";
+import { computed, ref, watch } from "vue";
+import { RouterLink } from "vue-router";
+import { useSessionStore } from "../stores/session";
 
-onMounted(() => void emitAnalytics(false, { name: "your_turn_opened", fields: { queue_state: "placeholder" } }));
+const session = useSessionStore();
+const items = ref<ReadonlyArray<AttentionQueueItem>>([]);
+const loading = ref(false);
+const error = ref("");
+const announcement = ref("");
+const filter = ref<"all" | AttentionKind>("all");
+let requestSequence = 0;
+
+const visibleItems = computed(() => filter.value === "all" ? items.value : items.value.filter((item) => item.kind === filter.value));
+const counts = computed(() => ({
+  all: items.value.length,
+  information: items.value.filter((item) => item.kind === "information").length,
+  review: items.value.filter((item) => item.kind === "review").length,
+  approval: items.value.filter((item) => item.kind === "approval").length,
+  action: items.value.filter((item) => item.kind === "action").length
+}));
+
+function label(value: string): string {
+  return ({ information: "Information", review: "Work review", approval: "Approval", action: "Recovery" } as Record<string, string>)[value]
+    ?? value.replaceAll("_", " ");
+}
+
+function title(item: AttentionQueueItem): string {
+  if (item.kind === "information" || item.kind === "review") return item.question;
+  return item.capability;
+}
+
+function context(item: AttentionQueueItem): string {
+  if (item.kind === "information") return "A fact is blocking related Work.";
+  if (item.kind === "review") return `Review Work version ${item.work_version}.`;
+  if (item.kind === "approval") return "Inspect the exact proposed action before deciding.";
+  return `Attempt ${item.attempt_count} needs an evidence-based outcome.`;
+}
+
+function detailRoute(item: AttentionQueueItem): string {
+  return `/app/your-turn/${item.kind}/${encodeURIComponent(attentionItemID(item))}`;
+}
+
+function relativeTime(value: string): string {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "Recently";
+  const seconds = Math.round((timestamp - Date.now()) / 1000);
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (Math.abs(seconds) < 60) return formatter.format(seconds, "second");
+  const minutes = Math.round(seconds / 60);
+  if (Math.abs(minutes) < 60) return formatter.format(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) return formatter.format(hours, "hour");
+  return formatter.format(Math.round(hours / 24), "day");
+}
+
+async function refresh(announce = false): Promise<void> {
+  const accountID = session.selectedID;
+  const userID = session.userID;
+  if (!accountID || !userID) {
+    items.value = [];
+    return;
+  }
+  const sequence = ++requestSequence;
+  loading.value = true;
+  error.value = "";
+  try {
+    const result = await listAttentionQueue(accountID, userID, session.attentionAccess);
+    if (sequence !== requestSequence) return;
+    items.value = result;
+    if (announce) announcement.value = `Your Turn refreshed. ${result.length} open ${result.length === 1 ? "item" : "items"}.`;
+    try {
+      const consent = await getPrivacyConsent();
+      await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, {
+        name: "your_turn_opened", fields: { queue_state: result.length === 0 ? "empty" : "open" }
+      });
+    } catch {
+      // Product analytics never gates the governed queue.
+    }
+  } catch (cause) {
+    if (sequence !== requestSequence) return;
+    items.value = [];
+    error.value = cause instanceof APIProblem ? cause.message : "Your Turn is unavailable right now.";
+  } finally {
+    if (sequence === requestSequence) loading.value = false;
+  }
+}
+
+watch(() => [session.selectedID, session.userID, session.attentionAccess.work, session.attentionAccess.approvals], () => void refresh(), { immediate: true });
 </script>
 
 <template>
   <section class="page your-turn">
-    <header class="page-heading">
-      <p class="eyebrow">Monday · Your workspace</p>
-      <h1>Your Turn</h1>
-      <p>Decisions, answers, and approvals that need you—nothing else competing for attention.</p>
+    <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
+    <header class="page-heading page-heading--action">
+      <div>
+        <p class="eyebrow">Focused owner attention</p>
+        <h1>Your Turn</h1>
+        <p>Questions, reviews, consequential decisions and uncertain outcomes—ordered around the judgment only you can provide.</p>
+      </div>
+      <IoButton kind="secondary" :disabled="loading || !session.selectedID" @click="refresh(true)">{{ loading ? "Refreshing…" : "Refresh" }}</IoButton>
     </header>
 
-    <div class="queue-toolbar" aria-label="Queue controls">
-      <button type="button" class="filter-chip filter-chip--active">Needs action <strong>3</strong></button>
-      <button type="button" class="filter-chip">Waiting</button>
-      <button type="button" class="filter-chip">All</button>
-      <button type="button" class="filter-button">Filters <span aria-hidden="true">⌄</span></button>
-    </div>
+    <section v-if="session.selected?.owner_enrollment_required" class="queue-state queue-state--warning">
+      <h2>Secure this owner Account first</h2>
+      <p>Add a passkey and save recovery codes before Spyglass enables owner authority.</p>
+      <a href="/app/security">Continue security setup</a>
+    </section>
 
-    <ol class="attention-list" aria-label="Items needing your attention">
-      <li>
-        <article class="attention-card attention-card--urgent">
-          <div class="card-meta"><span>Approval</span><time>18 min ago</time></div>
-          <h2>Approve the August campaign launch</h2>
-          <p>The Marketing team is ready to publish. Review the final channels and audience before anything goes live.</p>
-          <footer><span class="account-dot">Infinite Ocean</span><IoButton>Review approval</IoButton></footer>
-        </article>
-      </li>
-      <li>
-        <article class="attention-card">
-          <div class="card-meta"><span>Information</span><time>2 hr ago</time></div>
-          <h2>What is our standard refund window?</h2>
-          <p>Finance needs one policy detail before it can finish the customer billing baseline.</p>
-          <footer><span class="account-dot">Infinite Ocean</span><IoButton kind="secondary">Answer question</IoButton></footer>
-        </article>
-      </li>
-      <li>
-        <article class="attention-card">
-          <div class="card-meta"><span>Work review</span><time>Yesterday</time></div>
-          <h2>Review the onboarding email sequence</h2>
-          <p>An Agent prepared three drafts and cited the approved messaging brief.</p>
-          <footer><span class="account-dot">Infinite Ocean</span><IoButton kind="secondary">Open review</IoButton></footer>
-        </article>
-      </li>
-    </ol>
+    <section v-else-if="!session.attentionAccess.work && !session.attentionAccess.approvals" class="queue-state">
+      <h2>Your Turn is not enabled for this Account</h2>
+      <p>The Work or Agents package makes Account-scoped questions and decisions available here.</p>
+      <a href="/app#billing">Review Account plans</a>
+    </section>
+
+    <template v-else>
+      <div class="queue-toolbar" aria-label="Filter Your Turn queue">
+        <button v-for="choice in ([['all', 'All'], ['information', 'Information'], ['review', 'Reviews'], ['approval', 'Approvals'], ['action', 'Recovery']] as const)" :key="choice[0]" type="button" class="filter-chip" :class="{ 'filter-chip--active': filter === choice[0] }" :aria-pressed="filter === choice[0]" @click="filter = choice[0]">
+          {{ choice[1] }} <strong>{{ counts[choice[0]] }}</strong>
+        </button>
+      </div>
+
+      <div v-if="loading && items.length === 0" class="attention-list attention-list--loading" aria-label="Loading Your Turn">
+        <div v-for="index in 3" :key="index" class="attention-card attention-card--skeleton" />
+      </div>
+      <section v-else-if="error" class="queue-state queue-state--error" role="alert">
+        <h2>That did not load cleanly</h2><p>{{ error }}</p><IoButton kind="secondary" @click="refresh()">Try again</IoButton>
+      </section>
+      <section v-else-if="visibleItems.length === 0" class="queue-state" role="status">
+        <h2>Nothing needs you in this view</h2><p>When an Agent or teammate reaches a governed decision boundary, it will appear here.</p>
+      </section>
+      <ol v-else class="attention-list" aria-label="Items needing your attention">
+        <li v-for="item in visibleItems" :key="`${item.kind}:${attentionItemID(item)}`">
+          <article class="attention-card" :class="{ 'attention-card--urgent': item.kind === 'approval' || item.kind === 'action' }">
+            <div class="card-meta"><span>{{ label(item.kind) }}</span><time :datetime="item.updated_at">{{ relativeTime(item.updated_at) }}</time></div>
+            <h2>{{ title(item) }}</h2>
+            <p>{{ context(item) }}</p>
+            <footer>
+              <span class="account-dot">{{ session.selected?.display_name }}</span>
+              <RouterLink class="card-action" :to="detailRoute(item)">Review <span class="sr-only">{{ title(item) }}</span></RouterLink>
+            </footer>
+          </article>
+        </li>
+      </ol>
+    </template>
   </section>
 </template>
