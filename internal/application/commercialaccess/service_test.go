@@ -127,7 +127,7 @@ func TestCheckoutResolvesLocalOfferAndCreatesCustomer(t *testing.T) {
 	if session.ID != "cs_test" || provider.customerCalls != 1 || provider.checkoutCalls != 1 {
 		t.Fatalf("unexpected calls/session: %+v provider=%+v", session, provider)
 	}
-	if provider.checkout.StripePriceID != "price_private" || provider.checkout.OfferCode != "team-monthly-v1" || provider.checkout.SuccessURL != "https://app.infiniteocean.net/app?status=billing#billing" {
+	if provider.checkout.StripePriceID != "price_private" || provider.checkout.OfferCode != "team-monthly-v1" || provider.checkout.SuccessURL != "https://app.infiniteocean.net/app/checkout?offer=team-monthly-v1&status=billing" || provider.checkout.CancelURL != "https://app.infiniteocean.net/app/checkout?offer=team-monthly-v1&status=billing_cancelled" {
 		t.Fatalf("unsafe checkout projection: %+v", provider.checkout)
 	}
 }

@@ -84,6 +84,24 @@ main { min-width: 0; }
 .decision-card input[type="radio"], .decision-card input[type="checkbox"] { flex: 0 0 auto; width: 1.35rem; height: 1.35rem; accent-color: var(--io-ocean-650); }
 .form-note { margin: 0; color: var(--io-ink-soft); font-size: .85rem; line-height: 1.45; }
 .form-error { margin: 0; color: #9b2f24; font-weight: 700; line-height: 1.45; }
+.checkout-layout { margin-top: 1.5rem; display: grid; gap: 1rem; }
+.checkout-card { min-width: 0; padding: 1.1rem; display: grid; gap: .85rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
+.checkout-card h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.55rem/1.2 Georgia, serif; }
+.checkout-card h2 small { color: var(--io-ink-soft); font: 600 .75rem/1 Inter, sans-serif; text-transform: uppercase; letter-spacing: .06em; }
+.checkout-card > label:not(.confirmation) { color: var(--io-ocean-950); font-size: .82rem; font-weight: 780; }
+.checkout-card select, .checkout-card input[type="text"], .checkout-card input:not([type]) { width: 100%; min-height: 48px; padding: .75rem; border: 1px solid var(--io-line); border-radius: .7rem; color: var(--io-ink); background: white; font: inherit; }
+.offer-summary { padding: 1rem; border-radius: .8rem; background: var(--io-sky); }
+.offer-summary > strong { color: var(--io-ocean-950); }
+.offer-summary > p { margin: .45rem 0 1rem; color: var(--io-ink-soft); line-height: 1.45; }
+.offer-summary ul { margin: 0; padding: 0; display: grid; gap: .45rem; list-style: none; }
+.offer-summary li { display: flex; justify-content: space-between; gap: 1rem; text-transform: capitalize; }
+.offer-summary li small { color: var(--io-ocean-650); }
+.referral-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; }
+.referral-entry input { min-width: 0; text-transform: uppercase; }
+.referral-confirmed { margin: 0; padding: .8rem; border-radius: .7rem; color: var(--io-ocean-800); background: #e6f5ed; line-height: 1.45; }
+.checkout-confirm .confirmation { margin-top: .25rem; align-items: flex-start; }
+.checkout-confirm .confirmation span { padding-top: .05rem; }
+.checkout-confirm > .io-button { width: 100%; justify-content: center; }
 
 @keyframes shimmer { to { background-position: -200% 0; } }
 
@@ -104,6 +122,9 @@ main { min-width: 0; }
   .state-badge { justify-self: end; }
   .detail-layout { grid-template-columns: minmax(0, 1.08fr) minmax(19rem, .92fr); align-items: start; }
   .detail-card, .decision-card { padding: 1.35rem; }
+  .checkout-layout { grid-template-columns: 1fr 1fr; align-items: start; }
+  .checkout-card { padding: 1.35rem; }
+  .checkout-confirm { grid-column: 1 / -1; }
 }
 
 @media (min-width: 72rem) {

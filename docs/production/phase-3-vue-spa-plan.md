@@ -197,6 +197,8 @@ Exit: Your Turn is locally feature-complete and becomes the interaction-quality 
 
 ### UI3 — Public acquisition, feature catalog and checkout
 
+Checkpoint (2026-08-24): the rendered public surface now tells the Your Turn-centered operating story, exposes a twelve-route feature and governance map, explains a cross-package workflow, and renders paid offer names, packages and current prices from the server-fetched public Catalog. Landing, feature, pricing, offer-selection and signup-handoff events remain consent-gated and content-free. The private SPA now provides an owner/billing-administrator checkout review with an actively applied optional Affiliate code, explicit offer/referral confirmation, stable request idempotency and a dedicated Stripe return route that waits for the local signed-webhook subscription projection. A referral proposed by a link is never silently applied, and analytics refusal does not change referral or checkout behavior. Free/paid journey HTTP certification, registration/onboarding instrumentation, Catalog last-known-good policy, Stripe failure fixtures, structured data/social imagery, Affiliate dashboard and approved commercial settlement/reversal policy remain open.
+
 - Build the public landing page around the governed Spyglass operating loop and Your Turn value proposition.
 - Build the complete feature/package index, durable package pages, cross-package workflows and Catalog-backed plan comparison.
 - Complete free signup handoff, selected-offer continuation, authenticated pre-checkout review, Stripe Checkout initiation and return/pending/failure states.

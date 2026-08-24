@@ -204,7 +204,8 @@ func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billin
 	if !strings.HasPrefix(customerID, "cus_") {
 		return billing.HostedSession{}, ErrBillingUnavailable
 	}
-	session, err := s.provider.CreateCheckoutSession(ctx, billing.CreateCheckoutCommand{AccountID: command.AccountID, CustomerID: customerID, StripePriceID: priceID, OfferCode: offer.Code, OfferVersion: published.Version, AffiliateAttributionID: attributionID, SuccessURL: s.appOrigin + "/app?status=billing#billing", CancelURL: s.appOrigin + "/app?status=billing_cancelled#billing", IdempotencyKey: "spyglass/checkout/" + string(command.AccountID) + "/" + command.RequestID})
+	returnPath := "/app/checkout?offer=" + url.QueryEscape(offer.Code)
+	session, err := s.provider.CreateCheckoutSession(ctx, billing.CreateCheckoutCommand{AccountID: command.AccountID, CustomerID: customerID, StripePriceID: priceID, OfferCode: offer.Code, OfferVersion: published.Version, AffiliateAttributionID: attributionID, SuccessURL: s.appOrigin + returnPath + "&status=billing", CancelURL: s.appOrigin + returnPath + "&status=billing_cancelled", IdempotencyKey: "spyglass/checkout/" + string(command.AccountID) + "/" + command.RequestID})
 	if err != nil {
 		return billing.HostedSession{}, err
 	}

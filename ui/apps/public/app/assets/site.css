@@ -55,11 +55,39 @@
 .feature-grid h2 { margin: 1rem 0 .4rem; font-family: Georgia, serif; font-size: 1.7rem; font-weight: 500; }
 .feature-grid p, .pricing-grid p { color: var(--io-ink-soft); line-height: 1.55; }
 .feature-grid a { color: var(--io-ocean-800); font-weight: 750; }
+.workflow-story { margin-bottom: 5rem; padding: 2rem; border-radius: var(--io-radius-lg); color: white; background: var(--io-ocean-950); }
+.workflow-story h2 { max-width: 28ch; margin: 0; color: white; font: 500 clamp(2rem, 7vw, 3.4rem)/1.05 Georgia, serif; letter-spacing: -.04em; }
+.workflow-story p { max-width: 48rem; color: rgb(255 255 255 / 70%); line-height: 1.65; }
+.workflow-story a { color: var(--io-seafoam); font-weight: 750; }
+.feature-detail { padding-block: 3rem 6rem; }
+.feature-back { min-height: 44px; display: inline-flex; align-items: center; color: var(--io-ocean-800); font-weight: 750; text-decoration: none; }
+.feature-detail header { margin-top: 1.5rem; }
+.feature-detail h1 { max-width: 14ch; margin: 0; color: var(--io-ocean-950); font: 500 clamp(3rem, 13vw, 6rem)/.92 Georgia, serif; letter-spacing: -.055em; }
+.feature-detail .lede { max-width: 46rem; color: var(--io-ink-soft); font-size: 1.12rem; line-height: 1.65; }
+.feature-detail__grid { margin-top: 2.5rem; display: grid; gap: 1rem; }
+.feature-detail__grid section, .availability { padding: 1.3rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
+.feature-detail h2 { margin: 0 0 1rem; color: var(--io-ocean-950); font: 500 1.7rem/1.2 Georgia, serif; }
+.feature-detail__grid ol, .feature-detail__grid ul { margin: 0; padding-left: 1.25rem; display: grid; gap: .8rem; color: var(--io-ink-soft); line-height: 1.5; }
+.availability { margin-top: 1rem; }
+.availability p { color: var(--io-ink-soft); line-height: 1.55; }
 .pricing-grid { padding-bottom: 5rem; display: grid; gap: 1rem; }
 .pricing-grid h2 { margin: 0; font: 500 2.7rem/1 Georgia, serif; }
+.pricing-grid h2 small { margin-left: .25rem; font: 600 .85rem/1 Inter, sans-serif; }
 .pricing-card--featured { color: white; background: var(--io-ocean-950) !important; }
 .pricing-card--featured h2 { color: var(--io-seafoam); }
 .pricing-card--featured p { color: rgb(255 255 255 / 70%); }
+.plan-packages { margin: 1rem 0 1.4rem; padding: 0; display: grid; gap: .55rem; list-style: none; }
+.plan-packages li { min-height: 2rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; text-transform: capitalize; }
+.plan-packages li::before { content: "✓"; margin-right: .45rem; color: var(--io-ocean-500); }
+.plan-packages li span { margin-right: auto; }
+.plan-packages li small { color: var(--io-seafoam); }
+.pricing-unavailable { grid-column: 1 / -1; }
+.pricing-trust { padding-bottom: 5rem; }
+.pricing-trust h2 { color: var(--io-ocean-950); font: 500 2rem/1.1 Georgia, serif; }
+.pricing-trust ol { margin: 1.5rem 0 0; padding: 0; display: grid; gap: .8rem; list-style: none; counter-reset: checkout; }
+.pricing-trust li { padding: 1rem; display: grid; gap: .35rem; border-left: 3px solid var(--io-ocean-500); background: var(--io-paper); counter-increment: checkout; }
+.pricing-trust li strong::before { content: counter(checkout) ". "; color: var(--io-ocean-650); }
+.pricing-trust li span { color: var(--io-ink-soft); line-height: 1.5; }
 .legal-copy { max-width: 52rem; padding-block: 4rem 6rem; }
 .legal-copy h2 { margin-top: 2.5rem; color: var(--io-ocean-950); font-family: Georgia, serif; font-size: 1.8rem; font-weight: 500; }
 .legal-copy p { line-height: 1.7; }
@@ -89,6 +117,8 @@
   .turn-preview { margin-top: 4rem; }
   .promise ol, .feature-grid, .pricing-grid { grid-template-columns: 1fr 1fr; gap: 1rem; }
   .your-turn-story { grid-template-columns: 1.15fr .85fr; align-items: center; padding-block: 6rem; }
+  .pricing-trust ol { grid-template-columns: repeat(3, 1fr); }
+  .feature-detail__grid { grid-template-columns: 1fr 1fr; }
   .consent { left: auto; right: 1.5rem; bottom: 1.5rem; width: min(31rem, calc(100% - 3rem)); padding: 1.4rem; }
   .consent__actions { grid-template-columns: 1fr 1fr; }
   .consent__actions .io-button:last-child { grid-column: 1 / -1; }

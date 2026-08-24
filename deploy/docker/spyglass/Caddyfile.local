@@ -19,7 +19,7 @@
   }
   @vue {
     method GET HEAD
-    path /app /app/your-turn /app/your-turn/* /app/work /app/knowledge /app/agents /app/privacy /ui-assets/*
+    path /app /app/your-turn /app/your-turn/* /app/work /app/knowledge /app/agents /app/privacy /app/checkout /ui-assets/*
   }
   handle @vue {
     reverse_proxy private-ui:8080
