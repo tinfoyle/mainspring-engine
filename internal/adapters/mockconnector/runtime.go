@@ -145,6 +145,7 @@ func ParseRuntime(reader io.Reader) (Runtime, error) {
 		{Capability: domain.CapabilityWebPublish, Timeout: timeout, Connector: connector},
 	}, HealthDefinitions: []integrationhealth.Definition{
 		{Kind: domain.ConnectorEmail, Timeout: timeout, Probe: HealthProbe{}},
+		{Kind: domain.ConnectorGoogleDrive, Timeout: timeout, Probe: HealthProbe{}},
 		{Kind: domain.ConnectorWebPublish, Timeout: timeout, Probe: HealthProbe{}},
 	}}, nil
 }

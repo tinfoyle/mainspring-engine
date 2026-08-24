@@ -105,12 +105,13 @@ func (value Document) Publish(revision DocumentRevision, expectedVersion uint64,
 	if expectedVersion != value.Version {
 		return Document{}, ErrConflict
 	}
-	if (value.State != DocumentProcessing && value.State != DocumentReady && value.State != DocumentFailed) || revision.AccountID != value.AccountID || revision.DocumentID != value.ID || revision.State != RevisionReady || revision.Number <= value.CurrentRevision || now.IsZero() || now.Before(value.UpdatedAt) {
+	if (value.State != DocumentProcessing && value.State != DocumentReady && value.State != DocumentFailed && value.State != DocumentDeleted) || revision.AccountID != value.AccountID || revision.DocumentID != value.ID || revision.State != RevisionReady || revision.Number <= value.CurrentRevision || now.IsZero() || now.Before(value.UpdatedAt) {
 		return Document{}, ErrState
 	}
 	result := value
 	result.CurrentRevisionID, result.CurrentRevision = revision.ID, revision.Number
 	result.State, result.Version, result.UpdatedAt = DocumentReady, result.Version+1, now.UTC()
+	result.DeletionRequested, result.DeletedAt = nil, nil
 	return RestoreDocument(result)
 }
 

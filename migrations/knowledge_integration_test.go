@@ -490,6 +490,82 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if _, err := owner.Exec(ctx, `UPDATE spyglass.knowledge_document_deletion_receipts SET object_version='changed' WHERE account_id=$1 AND document_id=$2`, accountID, documentID); err == nil || !strings.Contains(err.Error(), "immutable") {
 		t.Fatalf("deletion receipt update=%v", err)
 	}
+	deletedRevision2, err := repository.GetDocumentRevision(ctx, accountID, revision2ID)
+	if err != nil || deletedRevision2.State != knowledgedomain.RevisionDeleted {
+		t.Fatalf("deleted latest revision=%+v err=%v", deletedRevision2, err)
+	}
+	restoredRevisionID := ids.KnowledgeDocumentRevisionID("fa000000-0000-4000-8000-00000000000a")
+	restoredAt := now.Add(11*time.Second + 100*time.Millisecond)
+	restoredRevision, err := knowledgedomain.NewDocumentRevision(knowledgedomain.DocumentRevisionDraft{
+		ID: restoredRevisionID, DocumentID: documentID, AccountID: accountID, Number: 3, Filename: "operating-plan-restored.md",
+		DeclaredType: "text/markdown", VerifiedType: "text/markdown", ByteSize: 21,
+		ContentSHA256: sha256.Sum256([]byte("restored source bytes")), ObjectKey: "accounts/" + string(accountID) +
+			"/documents/" + string(documentID) + "/revisions/" + string(restoredRevisionID) + "/source",
+		ObjectVersion: "version-restored", ChangeSummary: "Provider source restored", CreatedBy: worker,
+	}, restoredAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admittedRestored, err := repository.AdmitDocumentRevision(ctx, deletedDocument, restoredRevision,
+		knowledgeapp.Mutation{Actor: worker, CorrelationID: "fb000000-0000-4000-8000-00000000000b", ReasonCode: "document_revision_admitted", At: restoredAt})
+	if err != nil || admittedRestored.ID != restoredRevisionID || admittedRestored.Number != 3 {
+		t.Fatalf("admit restored source revision=%+v err=%v", admittedRestored, err)
+	}
+	restoredClaim, found, err := queue.Claim(ctx, "fc000000-0000-4000-8000-00000000000c", now.Add(11*time.Second+200*time.Millisecond), 10*time.Minute)
+	if err != nil || !found || restoredClaim.RevisionID != restoredRevisionID {
+		t.Fatalf("restored revision processing claim=%+v found=%v err=%v", restoredClaim, found, err)
+	}
+	restoredRevision, err = restoredRevision.RecordScan(knowledgedomain.ScanClean, "clamav/1.4.3", "daily.cvd:27810", now.Add(11*time.Second+300*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredRevision, err = repository.SaveDocumentRevision(ctx, restoredRevision, admittedRestored.UpdatedAt, "scan_completed",
+		knowledgeapp.Mutation{Actor: worker, CorrelationID: "fd000000-0000-4000-8000-00000000000d", ReasonCode: "scan_completed", At: restoredRevision.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredText := "Restored extracted operating plan"
+	restoredRevision, err = restoredRevision.RecordExtraction(sha256.Sum256([]byte(restoredText)), int64(len(restoredText)), "spyglass/text-v1",
+		"accounts/"+string(accountID)+"/documents/"+string(documentID)+"/revisions/"+string(restoredRevisionID)+"/extracted/text",
+		"extracted-version-restored", now.Add(11*time.Second+400*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredRevision, err = repository.SaveDocumentRevision(ctx, restoredRevision, restoredRevision.ScannedAt.UTC(), "extraction_completed",
+		knowledgeapp.Mutation{Actor: worker, CorrelationID: "fe000000-0000-4000-8000-00000000000e", ReasonCode: "extraction_completed", At: restoredRevision.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredBeforeIndex := restoredRevision
+	restoredRevision, err = restoredRevision.RecordIndex("knowledge-v1", 1, now.Add(11*time.Second+500*time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredChunk, err := knowledgedomain.NewDocumentChunk(knowledgedomain.DocumentChunk{ID: "ff000000-0000-4000-8000-00000000000f",
+		AccountID: accountID, RevisionID: restoredRevisionID, Index: 0, StartByte: 0, EndByte: int64(len(restoredText)),
+		Content: restoredText, ContentSHA256: sha256.Sum256([]byte(restoredText)), TokenCount: 4,
+		IndexGeneration: "knowledge-v1", CreatedAt: restoredRevision.UpdatedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredRevision, err = repository.IndexDocumentRevision(ctx, restoredRevision, restoredBeforeIndex.UpdatedAt,
+		[]knowledgedomain.DocumentChunk{restoredChunk}, knowledgeapp.Mutation{Actor: worker,
+			CorrelationID: "f1000000-0000-4000-8000-00000000000f", ReasonCode: "index_completed", At: restoredRevision.UpdatedAt})
+	if err != nil || restoredRevision.State != knowledgedomain.RevisionReady {
+		t.Fatalf("index restored revision=%+v err=%v", restoredRevision, err)
+	}
+	if err := queue.Complete(ctx, restoredClaim, now.Add(11*time.Second+600*time.Millisecond)); err != nil {
+		t.Fatalf("complete restored revision processing: %v", err)
+	}
+	resurrected, err := repository.PublishDocumentRevision(ctx, accountID, documentID, restoredRevisionID, deletedDocument.Version,
+		knowledgeapp.Mutation{Actor: worker, CorrelationID: "f2000000-0000-4000-8000-00000000000f", ReasonCode: "source_revision_published", At: now.Add(11*time.Second + 700*time.Millisecond)})
+	if err != nil || resurrected.State != knowledgedomain.DocumentReady || resurrected.CurrentRevisionID != restoredRevisionID ||
+		resurrected.CurrentRevision != 3 || resurrected.Version != 6 || resurrected.DeletionRequested != nil || resurrected.DeletedAt != nil {
+		t.Fatalf("resurrected source document=%+v err=%v", resurrected, err)
+	}
+	if historical, historyErr := repository.GetDocumentRevision(ctx, accountID, revision2ID); historyErr != nil || historical.State != knowledgedomain.RevisionDeleted {
+		t.Fatalf("resurrection changed deleted history=%+v err=%v", historical, historyErr)
+	}
 	failedDocumentID := ids.KnowledgeDocumentID("db000000-0000-4000-8000-00000000000b")
 	failedRevisionID := ids.KnowledgeDocumentRevisionID("dc000000-0000-4000-8000-00000000000c")
 	failedDocument, err := knowledgedomain.NewDocument(failedDocumentID, accountID, "Rejected source", knowledgedomain.SensitivityInternal, nil, actor, now.Add(12*time.Second))

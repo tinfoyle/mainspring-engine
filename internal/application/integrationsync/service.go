@@ -37,11 +37,12 @@ type CursorCipher interface {
 }
 
 type ProviderRequest struct {
-	AccountID  ids.AccountID
-	GrantID    ids.BaselineSourceGrantID
-	FolderIDs  []string
-	Cursor     []byte
-	Credential []byte
+	AccountID          ids.AccountID
+	GrantID            ids.BaselineSourceGrantID
+	CredentialProvider string
+	FolderIDs          []string
+	Cursor             []byte
+	Credential         []byte
 }
 
 type ProviderChange struct {
@@ -147,7 +148,7 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 	defer wipe(cursor)
 	providerContext, cancel := context.WithDeadline(ctx, minimum(now.Add(service.timeout), claim.LeaseExpiresAt))
 	page, err := service.provider.Sync(providerContext, ProviderRequest{AccountID: claim.AccountID, GrantID: claim.GrantID,
-		FolderIDs: append([]string(nil), claim.FolderIDs...), Cursor: cursor, Credential: credential})
+		CredentialProvider: claim.CredentialProvider, FolderIDs: append([]string(nil), claim.FolderIDs...), Cursor: cursor, Credential: credential})
 	cancel()
 	if err != nil || !validPage(page, claim) {
 		wipePage(page)

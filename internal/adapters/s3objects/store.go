@@ -48,6 +48,25 @@ type Store struct {
 	sse    encrypt.ServerSide
 }
 
+// RestrictedSourceStore exposes the source-object contract while preserving a
+// readiness check that does not require bucket listing. Exact create/read/delete
+// authority is certified separately against the scoped object policy.
+type RestrictedSourceStore struct{ *Store }
+
+func NewRestrictedSourceStore(store *Store) (*RestrictedSourceStore, error) {
+	if store == nil {
+		return nil, ErrConfiguration
+	}
+	return &RestrictedSourceStore{Store: store}, nil
+}
+
+func (store *RestrictedSourceStore) Verify(ctx context.Context) error {
+	if store == nil || store.Store == nil {
+		return ErrConfiguration
+	}
+	return store.Store.VerifyReadOnly(ctx)
+}
+
 func New(config Config) (*Store, error) {
 	config.Endpoint, config.Region, config.Bucket = strings.TrimSpace(config.Endpoint), strings.TrimSpace(config.Region), strings.TrimSpace(config.Bucket)
 	if config.Endpoint == "" || config.Bucket == "" || strings.Contains(config.Endpoint, "://") || config.AccessKey == "" || config.SecretKey == "" {

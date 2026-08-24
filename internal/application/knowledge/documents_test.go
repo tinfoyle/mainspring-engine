@@ -313,6 +313,28 @@ func TestRevisionAdmissionIsReplaySafeAndAllowsOnlyOnePendingRevision(t *testing
 	}
 }
 
+func TestRevisionAdmissionAllowsDeletedSourceToReturn(t *testing.T) {
+	service, _, repository, clock := documentServiceFixture(t)
+	requested, deleted := clock.now.Add(time.Second), clock.now.Add(2*time.Second)
+	repository.document = knowledgedomain.Document{ID: appKnowledgeDocument, AccountID: appKnowledgeAccount, Title: "Deleted source",
+		Sensitivity: knowledgedomain.SensitivityInternal, CurrentRevisionID: appKnowledgeRevision, CurrentRevision: 2,
+		State: knowledgedomain.DocumentDeleted, Version: 5, CreatedBy: knowledgedomain.Actor{Kind: knowledgedomain.ActorWorkload,
+			ID: IntegrationSourceSyncWorkloadID}, CreatedAt: clock.now, UpdatedAt: deleted, DeletionRequested: &requested, DeletedAt: &deleted}
+	repository.revision = knowledgedomain.DocumentRevision{ID: appKnowledgeRevision, DocumentID: appKnowledgeDocument,
+		AccountID: appKnowledgeAccount, Number: 2, State: knowledgedomain.RevisionDeleted}
+	clock.now = clock.now.Add(3 * time.Second)
+	command := AdmitDocumentRevisionCommand{Actor: access.Actor{WorkloadID: IntegrationSourceSyncWorkloadID},
+		AccountID: appKnowledgeAccount, DocumentID: appKnowledgeDocument, RevisionID: "9a000000-0000-4000-8000-000000000009",
+		Filename: "restored.txt", DeclaredType: "text/plain", VerifiedType: "text/plain", ByteSize: 8,
+		ContentSHA256: sha256.Sum256([]byte("restored")), ObjectKey: "accounts/" + string(appKnowledgeAccount) +
+			"/documents/" + string(appKnowledgeDocument) + "/revisions/9a000000-0000-4000-8000-000000000009/source",
+		ObjectVersion: "version-restored", ChangeSummary: "Provider source restored", CorrelationID: "9b000000-0000-4000-8000-000000000009"}
+	revision, err := service.AdmitRevision(context.Background(), command)
+	if err != nil || revision.Number != 3 || revision.ID != command.RevisionID {
+		t.Fatalf("resurrection revision=%+v err=%v", revision, err)
+	}
+}
+
 func TestUploadRevisionCleansNewObjectWhenAdmissionLosesRace(t *testing.T) {
 	documents, _, repository, clock := documentServiceFixture(t)
 	_, _ = readyDocumentFixture(t, documents, repository, clock)

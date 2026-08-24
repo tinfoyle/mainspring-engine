@@ -21,8 +21,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/aescursor"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerengine"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerlauncherhttp"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/googledrive"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/mockconnector"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/mountedcredentials"
@@ -39,6 +41,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationhealth"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationsync"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -2305,7 +2308,47 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 	var contents integrationexecution.ContentSource
 	var definitions []integrationexecution.Definition
 	var healthDefinitions []integrationhealth.Definition
+	var sourceProvider integrationsync.Provider
+	var driveHealthProbe integrationhealth.Probe
 	var connectorReadiness func(context.Context) error
+	endpoint, endpointErr := requiredEnv("SPYGLASS_OBJECT_STORE_ENDPOINT")
+	if endpointErr != nil {
+		return endpointErr
+	}
+	bucket, bucketErr := requiredEnv("SPYGLASS_OBJECT_STORE_BUCKET")
+	if bucketErr != nil {
+		return bucketErr
+	}
+	accessKey, accessErr := requiredEnv("SPYGLASS_OBJECT_STORE_ACCESS_KEY")
+	if accessErr != nil {
+		return accessErr
+	}
+	secretKey, secretErr := requiredEnv("SPYGLASS_OBJECT_STORE_SECRET_KEY")
+	if secretErr != nil {
+		return secretErr
+	}
+	secure, secureErr := boolEnv("SPYGLASS_OBJECT_STORE_SECURE", false)
+	if secureErr != nil {
+		return secureErr
+	}
+	sse, sseErr := boolEnv("SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", true)
+	if sseErr != nil {
+		return sseErr
+	}
+	objectStore, storeErr := s3objects.New(s3objects.Config{Endpoint: endpoint, Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: bucket,
+		AccessKey: accessKey, SecretKey: secretKey, Secure: secure, ServerSideEncryption: sse})
+	if storeErr != nil {
+		return storeErr
+	}
+	sourceObjects, storeErr := s3objects.NewRestrictedSourceStore(objectStore)
+	if storeErr != nil {
+		return storeErr
+	}
+	connectorReadiness = sourceObjects.Verify
+	driveSyncTimeout, err := durationEnv("SPYGLASS_GOOGLE_DRIVE_SYNC_TIMEOUT", 90*time.Second)
+	if err != nil || driveSyncTimeout < 100*time.Millisecond || driveSyncTimeout > integrationsync.MaximumLease {
+		return errors.New("SPYGLASS_GOOGLE_DRIVE_SYNC_TIMEOUT must be between 100ms and 5m")
+	}
 	switch adapter {
 	case "mock":
 		if environment != "local" && environment != "local-secure" {
@@ -2320,6 +2363,7 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 			return runtimeErr
 		}
 		broker, contents, definitions, healthDefinitions = runtime.Broker, runtime.Contents, runtime.Definitions, runtime.HealthDefinitions
+		sourceProvider = mockconnector.DriveProvider{}
 	case "production":
 		if environment != "stage" && environment != "preproduction" && environment != "production" {
 			return errors.New("production Integration connectors require stage, preproduction, or production")
@@ -2332,35 +2376,6 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 		if brokerErr != nil {
 			return brokerErr
 		}
-		endpoint, endpointErr := requiredEnv("SPYGLASS_OBJECT_STORE_ENDPOINT")
-		if endpointErr != nil {
-			return endpointErr
-		}
-		bucket, bucketErr := requiredEnv("SPYGLASS_OBJECT_STORE_BUCKET")
-		if bucketErr != nil {
-			return bucketErr
-		}
-		accessKey, accessErr := requiredEnv("SPYGLASS_OBJECT_STORE_ACCESS_KEY")
-		if accessErr != nil {
-			return accessErr
-		}
-		secretKey, secretErr := requiredEnv("SPYGLASS_OBJECT_STORE_SECRET_KEY")
-		if secretErr != nil {
-			return secretErr
-		}
-		secure, secureErr := boolEnv("SPYGLASS_OBJECT_STORE_SECURE", false)
-		if secureErr != nil {
-			return secureErr
-		}
-		sse, sseErr := boolEnv("SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", true)
-		if sseErr != nil {
-			return sseErr
-		}
-		objectStore, storeErr := s3objects.New(s3objects.Config{Endpoint: endpoint, Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: bucket,
-			AccessKey: accessKey, SecretKey: secretKey, Secure: secure, ServerSideEncryption: sse})
-		if storeErr != nil {
-			return storeErr
-		}
 		smtpTimeout, timeoutErr := durationEnv("SPYGLASS_SMTP_CONNECTOR_TIMEOUT", 30*time.Second)
 		if timeoutErr != nil || smtpTimeout < 100*time.Millisecond || smtpTimeout > integrationexecution.MaximumLease {
 			return errors.New("SPYGLASS_SMTP_CONNECTOR_TIMEOUT must be between 100ms and 5m")
@@ -2369,7 +2384,28 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 		if timeoutErr != nil || webTimeout < 100*time.Millisecond || webTimeout > integrationexecution.MaximumLease {
 			return errors.New("SPYGLASS_WEB_PUBLISH_CONNECTOR_TIMEOUT must be between 100ms and 5m")
 		}
-		broker, contents, connectorReadiness = mountedBroker, objectStore, objectStore.VerifyReadOnly
+		switch envOr("SPYGLASS_GOOGLE_DRIVE_ADAPTER", "disabled") {
+		case "disabled":
+			sourceProvider = disabledDriveProvider{}
+		case "production":
+			oauthClientFile, oauthErr := requiredEnv("SPYGLASS_GOOGLE_DRIVE_OAUTH_CLIENT_FILE")
+			if oauthErr != nil {
+				return oauthErr
+			}
+			drivePageSize, pageErr := int32Env("SPYGLASS_GOOGLE_DRIVE_PAGE_SIZE", 2)
+			if pageErr != nil || drivePageSize < 1 || drivePageSize > 4 {
+				return errors.New("SPYGLASS_GOOGLE_DRIVE_PAGE_SIZE must be between 1 and 4")
+			}
+			driveHTTPClient := &http.Client{Transport: observability.TracingFromContext(ctx).Transport(nil)}
+			sourceProvider, oauthErr = googledrive.NewFromClientFile(googledrive.Config{Client: driveHTTPClient, PageSize: int(drivePageSize)}, oauthClientFile)
+			if oauthErr != nil {
+				return oauthErr
+			}
+			driveHealthProbe = sourceProvider.(*googledrive.Provider)
+		default:
+			return errors.New("SPYGLASS_GOOGLE_DRIVE_ADAPTER must be disabled or production with production connectors")
+		}
+		broker, contents = mountedBroker, objectStore
 		definitions = []integrationexecution.Definition{
 			{Capability: integrationsdomain.CapabilityEmailSend, Timeout: smtpTimeout, Connector: smtpconnector.New()},
 			{Capability: integrationsdomain.CapabilityWebPublish, Timeout: webTimeout, Connector: webpublishconnector.New()},
@@ -2378,8 +2414,26 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 			{Kind: integrationsdomain.ConnectorEmail, Timeout: smtpTimeout, Probe: smtpconnector.New()},
 			{Kind: integrationsdomain.ConnectorWebPublish, Timeout: webTimeout, Probe: webpublishconnector.New()},
 		}
+		if driveHealthProbe != nil {
+			healthDefinitions = append(healthDefinitions, integrationhealth.Definition{
+				Kind: integrationsdomain.ConnectorGoogleDrive, Timeout: driveSyncTimeout, Probe: driveHealthProbe,
+			})
+		}
 	default:
 		return errors.New("SPYGLASS_CONNECTOR_ADAPTER must be mock or production")
+	}
+	var cursorCipher integrationsync.CursorCipher
+	if adapter == "mock" {
+		cursorCipher, err = aescursor.NewLocalFixture()
+	} else {
+		var cursorKeyFile string
+		cursorKeyFile, err = requiredEnv("SPYGLASS_INTEGRATION_SOURCE_CURSOR_KEY_FILE")
+		if err == nil {
+			cursorCipher, err = aescursor.New(cursorKeyFile)
+		}
+	}
+	if err != nil {
+		return err
 	}
 	globalDatabaseURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
 	if err != nil {
@@ -2429,13 +2483,21 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 	worker, err := integrationconnectorworker.New(startup, integrationconnectorworker.Config{
 		GlobalDatabaseURL: globalDatabaseURL, CellDatabaseURL: cellDatabaseURL, CellID: ids.CellID(cellID),
 		MaxGlobalConns: globalConns, MaxCellConns: cellConns, PollInterval: poll, Lease: lease,
-	}, broker, contents, definitions, healthDefinitions, logger)
+	}, broker, contents, definitions, healthDefinitions, integrationconnectorworker.SourceDependencies{
+		Provider: sourceProvider, Cursors: cursorCipher, Objects: sourceObjects, Timeout: driveSyncTimeout,
+	}, logger)
 	if err != nil {
 		return err
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "integration-connector", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"),
 		&restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{globalRestore, cellRestore}}, logger)
+}
+
+type disabledDriveProvider struct{}
+
+func (disabledDriveProvider) Sync(context.Context, integrationsync.ProviderRequest) (integrationsync.ProviderPage, error) {
+	return integrationsync.ProviderPage{}, errors.New("Google Drive source adapter is disabled")
 }
 
 func runAgentDispatchWorker(ctx context.Context, logger *slog.Logger) error {

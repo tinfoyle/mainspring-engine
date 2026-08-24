@@ -82,6 +82,8 @@ Exit evidence:
 - a removed then restored file becomes a new immutable ready revision; and
 - the repository documentation no longer describes the Drive adapter or worker as absent.
 
+Status on 2026-08-23: **complete.** The real adapter, health probe, worker composition, source-object role and local fixture are constructed. The complete `ubunturojo` Docker gate passed uncached and race-enabled Go tests, 109 fresh migrations, vet, formatting, generated-contract drift, process inventory, object-policy verification and website checks. Exact connector source create/read/delete permission is certified while bucket listing, derived Knowledge writes and Marketing mutation remain denied. Interrupted pages retain their prior sealed cursor, and removal followed by return creates a new immutable ready revision without rewriting deleted history. This checkpoint is committed locally with no provider credential or environment evidence and without a Git push or Stage mutation.
+
 ## LB1 — construct the provider credential and OAuth control plane
 
 Make provider authorization a product backend capability rather than an operator-authored refresh-token file:

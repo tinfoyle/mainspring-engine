@@ -186,6 +186,9 @@ func canAdmitDocumentRevision(document knowledgedomain.Document, latest knowledg
 	if document.State == knowledgedomain.DocumentReady && latest.Number == document.CurrentRevision {
 		return latest.ID == document.CurrentRevisionID && latest.State == knowledgedomain.RevisionReady
 	}
+	if document.State == knowledgedomain.DocumentDeleted && latest.Number == document.CurrentRevision {
+		return latest.ID == document.CurrentRevisionID && latest.State == knowledgedomain.RevisionDeleted
+	}
 	return (document.State == knowledgedomain.DocumentReady || document.State == knowledgedomain.DocumentFailed) &&
 		latest.State == knowledgedomain.RevisionFailed
 }

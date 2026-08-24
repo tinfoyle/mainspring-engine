@@ -41,6 +41,9 @@ bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$carried_dir" "$net
 sed -E 's|^SPYGLASS_STAGE_SECRETS_DIRECTORY=.*$|SPYGLASS_STAGE_SECRETS_DIRECTORY=<normalized>|' "$env_file" >"$temporary/original.normalized"
 sed -E 's|^SPYGLASS_STAGE_SECRETS_DIRECTORY=.*$|SPYGLASS_STAGE_SECRETS_DIRECTORY=<normalized>|' "$carried_dir/stage.env" >"$temporary/carried.normalized"
 cmp "$temporary/original.normalized" "$temporary/carried.normalized"
+cmp "$secret_dir/integration-source/cursor.key" "$carried_dir/integration-source/cursor.key"
+test "$(stat -c %s "$secret_dir/integration-source/cursor.key")" = 32
+test "$(stat -c %a "$secret_dir/integration-source/cursor.key")" = 640
 
 legacy_env="$temporary/legacy-stage.env"
 cp "$env_file" "$legacy_env"

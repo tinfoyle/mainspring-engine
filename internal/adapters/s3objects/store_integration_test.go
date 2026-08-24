@@ -153,8 +153,37 @@ func TestS3StoreHonorsAdmissionAndWorkerCredentials(t *testing.T) {
 	if readErr != nil || closeErr != nil {
 		t.Fatalf("worker source read: %v", errors.Join(readErr, closeErr))
 	}
-	if _, err := connector.Open(ctx, source.Identity); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("connector Knowledge-source read err=%v", err)
+	connectorReader, err := connector.Open(ctx, source.Identity)
+	if err != nil {
+		t.Fatalf("connector Knowledge-source read: %v", err)
+	}
+	readSource, readSourceErr := io.ReadAll(connectorReader)
+	closeSourceErr := connectorReader.Close()
+	if readSourceErr != nil || closeSourceErr != nil || !bytes.Equal(readSource, body) {
+		t.Fatalf("connector Knowledge-source read=%q err=%v", readSource, errors.Join(readSourceErr, closeSourceErr))
+	}
+	connectorBody := []byte("connector-owned immutable source")
+	connectorRequest := knowledgeapp.SourceObjectWrite{
+		AccountID:     "f7000000-0000-4000-8000-000000000007",
+		DocumentID:    "f8000000-0000-4000-8000-000000000008",
+		RevisionID:    "f9000000-0000-4000-8000-000000000009",
+		MediaType:     "text/plain",
+		Size:          int64(len(connectorBody)),
+		ContentSHA256: sha256.Sum256(connectorBody),
+		Body:          bytes.NewReader(connectorBody),
+	}
+	connectorSource, err := connector.PutImmutable(ctx, connectorRequest)
+	if err != nil || !connectorSource.Created {
+		t.Fatalf("connector Knowledge-source write created=%t err=%v", connectorSource.Created, err)
+	}
+	if err := connector.Delete(ctx, connectorSource.Identity); err != nil {
+		t.Fatalf("connector Knowledge-source delete: %v", err)
+	}
+	if err := connector.Delete(ctx, connectorSource.Identity); err != nil {
+		t.Fatalf("connector Knowledge-source delete replay: %v", err)
+	}
+	if _, err := connector.Open(ctx, connectorSource.Identity); err == nil {
+		t.Fatal("connector-deleted Knowledge source remained readable")
 	}
 	marketingBody := []byte("scoped Marketing creative")
 	marketingWrite := marketingapp.AssetObjectWrite{AccountID: "f4100000-0000-4000-8000-000000000004", CampaignID: "f4200000-0000-4000-8000-000000000004",

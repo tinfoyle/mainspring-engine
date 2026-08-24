@@ -91,6 +91,25 @@ func TestServiceProbesExactAttestedBindingAndRecordsHealth(t *testing.T) {
 	}
 }
 
+func TestServiceUsesDriveReadForGoogleHealth(t *testing.T) {
+	now := time.Date(2026, 8, 23, 17, 0, 0, 0, time.UTC)
+	driveClaim := claim(now)
+	driveClaim.ConnectorKind = domain.ConnectorGoogleDrive
+	driveClaim.Capabilities = []domain.Capability{domain.CapabilityDriveRead}
+	driveClaim.Scope = domain.ConnectionScope{DriveFolderIDs: []string{"folder-a"}}
+	driveClaim.CredentialProvider = "google_oauth"
+	repository := &repository{claim: driveClaim}
+	broker := &broker{}
+	service, err := integrationhealth.New(repository, authority{}, broker, generator("a1600000-0000-4000-8000-000000000006"), clock{at: now}, time.Minute,
+		[]integrationhealth.Definition{{Kind: domain.ConnectorGoogleDrive, Timeout: time.Second, Probe: &probe{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := service.ProcessOne(context.Background()); err != nil || !worked || broker.request.Capability != domain.CapabilityDriveRead {
+		t.Fatalf("worked=%t err=%v request=%+v", worked, err, broker.request)
+	}
+}
+
 func TestServiceRecordsCredentialFailureWithoutProviderCall(t *testing.T) {
 	now := time.Date(2026, 8, 23, 17, 0, 0, 0, time.UTC)
 	repository := &repository{claim: claim(now)}

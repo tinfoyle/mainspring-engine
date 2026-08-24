@@ -108,7 +108,7 @@ func New(repository Repository, authority Authority, broker integrationcredentia
 	}
 	registered := make(map[domain.ConnectorKind]Definition, len(definitions))
 	for _, definition := range definitions {
-		if (definition.Kind != domain.ConnectorEmail && definition.Kind != domain.ConnectorWebPublish) || definition.Probe == nil ||
+		if (definition.Kind != domain.ConnectorEmail && definition.Kind != domain.ConnectorWebPublish && definition.Kind != domain.ConnectorGoogleDrive) || definition.Probe == nil ||
 			definition.Timeout < 100*time.Millisecond || definition.Timeout > MaximumLease {
 			return nil, ErrInvalid
 		}
@@ -140,9 +140,14 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 	if err := service.authority.AuthorizeAccount(ctx, claim.AccountID); err != nil {
 		return true, errors.Join(service.complete(ctx, claim, ProbeResult{State: domain.HealthUnavailable, ErrorCode: "health_authority_unavailable"}, now), err)
 	}
-	capability := domain.CapabilityWebPublish
-	if claim.ConnectorKind == domain.ConnectorEmail {
+	var capability domain.Capability
+	switch claim.ConnectorKind {
+	case domain.ConnectorEmail:
 		capability = domain.CapabilityEmailSend
+	case domain.ConnectorGoogleDrive:
+		capability = domain.CapabilityDriveRead
+	default:
+		capability = domain.CapabilityWebPublish
 	}
 	credentialLease, err := service.broker.Acquire(ctx, integrationcredentials.Request{AccountID: claim.AccountID, OperationID: string(claim.ProbeID),
 		Purpose: integrationcredentials.PurposeHealth, Capability: capability, ConnectionID: claim.ConnectionID, CredentialID: claim.CredentialID,

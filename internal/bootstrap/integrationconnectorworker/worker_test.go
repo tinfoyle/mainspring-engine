@@ -45,7 +45,28 @@ func TestWorkerCountsContentFreeOutcomesAndStopsOnCancellation(t *testing.T) {
 
 func TestWorkerRejectsIncompleteCompositionBeforeDatabaseAccess(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if _, err := New(context.Background(), Config{}, nil, nil, nil, nil, logger); err == nil {
+	if _, err := New(context.Background(), Config{}, nil, nil, nil, nil, SourceDependencies{}, logger); err == nil {
 		t.Fatal("incomplete worker composition succeeded")
+	}
+}
+
+func TestCombinedProcessorRotatesAcrossSources(t *testing.T) {
+	first := &scriptedProcessor{results: []struct {
+		worked bool
+		err    error
+	}{{worked: true}, {worked: true}}}
+	second := &scriptedProcessor{results: []struct {
+		worked bool
+		err    error
+	}{{worked: true}, {worked: true}}}
+	processor := &combinedProcessor{processors: []processor{first, second}}
+	for index := 0; index < 4; index++ {
+		worked, err := processor.ProcessOne(context.Background())
+		if err != nil || !worked {
+			t.Fatalf("iteration=%d worked=%t err=%v", index, worked, err)
+		}
+	}
+	if len(first.results) != 0 || len(second.results) != 0 {
+		t.Fatalf("remaining first=%d second=%d", len(first.results), len(second.results))
 	}
 }

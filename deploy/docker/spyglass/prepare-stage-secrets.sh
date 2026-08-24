@@ -369,15 +369,37 @@ issue docker-runner-launcher-a docker-runner-launcher-a 'spiffe://infiniteocean.
 issue docker-runner-launcher-b docker-runner-launcher-b 'spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/docker-runner-launcher' serverAuth
 issue model-gateway model-gateway 'spiffe://infiniteocean.net/spyglass/workloads/model-gateway' serverAuth
 
+# Drive cursors are cell/grant-bound by AEAD and survive connector restarts.
+# The OAuth client file is intentionally operator-furnished only when the
+# Google adapter is enabled; disabled Stage deployments need no Google secret.
+mkdir -p "$work/integration-source"
+previous_source_dir=""
+if [[ -n "$previous_env" ]]; then
+  previous_source_dir="$(dirname "$previous_env")/integration-source"
+fi
+if [[ -n "$previous_source_dir" && -f "$previous_source_dir/cursor.key" && ! -L "$previous_source_dir/cursor.key" ]]; then
+  [[ "$(stat -c %s "$previous_source_dir/cursor.key")" = 32 ]] || fail "previous Integration source cursor key must be exactly 32 bytes"
+  cp -- "$previous_source_dir/cursor.key" "$work/integration-source/cursor.key"
+else
+  openssl rand 32 >"$work/integration-source/cursor.key"
+fi
+chmod 640 "$work/integration-source/cursor.key"
+if [[ -n "$previous_source_dir" && -f "$previous_source_dir/google-oauth-client.json" && ! -L "$previous_source_dir/google-oauth-client.json" ]]; then
+  case "$(stat -c %a "$previous_source_dir/google-oauth-client.json")" in 400|440|600|640) ;; *) fail "previous Google OAuth client file has unsafe permissions";; esac
+  [[ "$(stat -c %s "$previous_source_dir/google-oauth-client.json")" -le 16384 ]] || fail "previous Google OAuth client file is too large"
+  cp -- "$previous_source_dir/google-oauth-client.json" "$work/integration-source/google-oauth-client.json"
+  chmod 640 "$work/integration-source/google-oauth-client.json"
+fi
+
 rm -f -- "$work"/*.csr "$work"/*.cnf
 mkdir -p "$work/runner-identities-a" "$work/runner-identities-b"
 rm -f -- "$ca_dir/ca.key" "$ca_dir/ca.srl"
-chgrp -R "$secrets_gid" "$work/workload" "$work/runner-identities-a" "$work/runner-identities-b"
+chgrp -R "$secrets_gid" "$work/workload" "$work/integration-source" "$work/runner-identities-a" "$work/runner-identities-b"
 find "$work/workload" -mindepth 1 -maxdepth 1 -type d -exec chmod 750 {} +
 find "$work/workload" -mindepth 2 -maxdepth 2 -type f -name tls.key -exec chmod 640 {} +
 chmod 770 "$work/runner-identities-a" "$work/runner-identities-b"
 chmod 600 "$work/stage.env"
-chmod 700 "$work" "$ca_dir" "$work/workload"
+chmod 700 "$work" "$ca_dir" "$work/workload" "$work/integration-source"
 if [[ -d "$target" ]]; then
   rmdir "$target"
 fi

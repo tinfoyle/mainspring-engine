@@ -103,6 +103,12 @@ GRANT SELECT ON spyglass.account_erasure_restore_ledger TO spyglass_route_receip
 GRANT SELECT ON spyglass.marketing_release_plans, spyglass.marketing_release_assets,
   spyglass.marketing_asset_revisions, spyglass.integration_connections,
   spyglass.integration_connection_revisions TO spyglass_integration_connector_worker;
+-- Source capture admits immutable quarantined Knowledge revisions and requests
+-- exact source deletion. It receives no fact/evidence/chunk or processing
+-- mutation authority; forced Account RLS remains active on these tables.
+GRANT SELECT, INSERT, UPDATE ON spyglass.knowledge_documents TO spyglass_integration_connector_worker;
+GRANT SELECT, INSERT ON spyglass.knowledge_document_revisions TO spyglass_integration_connector_worker;
+GRANT SELECT, INSERT, UPDATE ON spyglass.knowledge_document_events TO spyglass_integration_connector_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_integration_execution(uuid,timestamptz,timestamptz),
   public.spyglass_claim_integration_execution_v2(uuid,timestamptz,timestamptz),
   public.spyglass_complete_integration_execution(uuid,uuid,uuid,text,text,timestamptz,timestamptz),

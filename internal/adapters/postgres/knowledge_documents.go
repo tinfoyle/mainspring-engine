@@ -79,7 +79,8 @@ func (r *KnowledgeRepository) AdmitDocumentRevision(ctx context.Context, documen
 		}
 		currentIsLatest := current.State == knowledgedomain.DocumentReady && current.CurrentRevision == latest && current.CurrentRevisionID == latestID && latestState == knowledgedomain.RevisionReady
 		failedLatest := (current.State == knowledgedomain.DocumentReady || current.State == knowledgedomain.DocumentFailed) && latest >= current.CurrentRevision && latestState == knowledgedomain.RevisionFailed
-		if (!currentIsLatest && !failedLatest) || revision.Number != latest+1 ||
+		deletedLatest := current.State == knowledgedomain.DocumentDeleted && current.CurrentRevision == latest && current.CurrentRevisionID == latestID && latestState == knowledgedomain.RevisionDeleted
+		if (!currentIsLatest && !failedLatest && !deletedLatest) || revision.Number != latest+1 ||
 			revision.DocumentID != current.ID || revision.AccountID != current.AccountID {
 			return knowledgeapp.ErrConstraint
 		}
@@ -236,7 +237,7 @@ func (r *KnowledgeRepository) PublishDocumentRevision(ctx context.Context, accou
 		if err != nil {
 			return err
 		}
-		tag, err := tx.Exec(ctx, `UPDATE spyglass.knowledge_documents SET current_revision_id=$4,current_revision=$5,state=$6,version=$7,updated_at=$8 WHERE account_id=$1 AND id=$2 AND version=$3`, accountID, documentID, expectedVersion, result.CurrentRevisionID, result.CurrentRevision, result.State, result.Version, result.UpdatedAt)
+		tag, err := tx.Exec(ctx, `UPDATE spyglass.knowledge_documents SET current_revision_id=$4,current_revision=$5,state=$6,version=$7,updated_at=$8,deletion_requested_at=$9,deleted_at=$10 WHERE account_id=$1 AND id=$2 AND version=$3`, accountID, documentID, expectedVersion, result.CurrentRevisionID, result.CurrentRevision, result.State, result.Version, result.UpdatedAt, result.DeletionRequested, result.DeletedAt)
 		if err == nil && tag.RowsAffected() != 1 {
 			return knowledgeapp.ErrConflict
 		}

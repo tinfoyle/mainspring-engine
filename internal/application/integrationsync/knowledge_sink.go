@@ -77,7 +77,7 @@ func (sink *KnowledgeCaptureSink) Capture(ctx context.Context, input CaptureInpu
 		}
 		return admittedCaptureReceipt(input, captureID, documentID, revisionID, contentDigest), nil
 	}
-	if detail.Document.State == knowledgedomain.DocumentDeletionPending || detail.Document.State == knowledgedomain.DocumentDeleted {
+	if detail.Document.State == knowledgedomain.DocumentDeletionPending {
 		return CaptureReceipt{}, ErrUnavailable
 	}
 	if detail.LatestRevision.ID == revisionID && detail.LatestRevision.Number == 1 && detail.Document.CurrentRevision == 0 {

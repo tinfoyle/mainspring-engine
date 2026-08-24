@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,7 +16,11 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationexecution"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationhealth"
+	"github.com/tinfoyle/spyglass-engine/internal/application/integrationsync"
+	"github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
@@ -32,20 +37,41 @@ type processor interface {
 }
 
 type combinedProcessor struct {
-	health, execution processor
+	mu         sync.Mutex
+	processors []processor
+	next       int
 }
 
 func (processor *combinedProcessor) ProcessOne(ctx context.Context) (bool, error) {
-	worked, err := processor.health.ProcessOne(ctx)
-	if worked || err != nil {
-		return worked, err
+	processor.mu.Lock()
+	defer processor.mu.Unlock()
+	if len(processor.processors) == 0 {
+		return false, errors.New("Integration connector processors are required")
 	}
-	return processor.execution.ProcessOne(ctx)
+	start := processor.next % len(processor.processors)
+	for offset := range processor.processors {
+		index := (start + offset) % len(processor.processors)
+		worked, err := processor.processors[index].ProcessOne(ctx)
+		if worked || err != nil {
+			processor.next = (index + 1) % len(processor.processors)
+			return worked, err
+		}
+	}
+	processor.next = (start + 1) % len(processor.processors)
+	return false, nil
+}
+
+type SourceDependencies struct {
+	Provider integrationsync.Provider
+	Cursors  integrationsync.CursorCipher
+	Objects  knowledge.SourceObjectStore
+	Timeout  time.Duration
 }
 
 type Worker struct {
 	global, cell        *pgxpool.Pool
 	processor           processor
+	sourceObjects       knowledge.SourceObjectStore
 	poll                time.Duration
 	logger              *slog.Logger
 	processed, failures atomic.Uint64
@@ -57,9 +83,10 @@ type Status struct {
 }
 
 func New(ctx context.Context, config Config, broker integrationexecution.CredentialBroker, contents integrationexecution.ContentSource,
-	definitions []integrationexecution.Definition, healthDefinitions []integrationhealth.Definition, logger *slog.Logger) (*Worker, error) {
+	definitions []integrationexecution.Definition, healthDefinitions []integrationhealth.Definition, source SourceDependencies, logger *slog.Logger) (*Worker, error) {
 	if config.GlobalDatabaseURL == "" || config.CellDatabaseURL == "" || !routecontext.ValidCellID(config.CellID) ||
-		broker == nil || contents == nil || len(definitions) == 0 || len(healthDefinitions) == 0 || logger == nil {
+		broker == nil || contents == nil || len(definitions) == 0 || len(healthDefinitions) == 0 || source.Provider == nil ||
+		source.Cursors == nil || source.Objects == nil || source.Timeout < 100*time.Millisecond || source.Timeout > integrationsync.MaximumLease || logger == nil {
 		return nil, errors.New("Integration connector worker configuration is required")
 	}
 	if config.PollInterval == 0 {
@@ -85,11 +112,12 @@ func New(ctx context.Context, config Config, broker integrationexecution.Credent
 		global.Close()
 		return nil, err
 	}
+	accessRepository := postgres.NewAccessRepository(global)
 	repository, err := postgres.NewIntegrationExecutionRepository(cell)
 	if err != nil {
 		return closeOnError(err)
 	}
-	authority, err := integrationexecution.NewCurrentAuthority(postgres.NewAccessRepository(global), config.CellID)
+	authority, err := integrationexecution.NewCurrentAuthority(accessRepository, config.CellID)
 	if err != nil {
 		return closeOnError(err)
 	}
@@ -109,7 +137,45 @@ func New(ctx context.Context, config Config, broker integrationexecution.Credent
 	if err != nil {
 		return closeOnError(err)
 	}
-	return &Worker{global: global, cell: cell, processor: &combinedProcessor{health: healthApplication, execution: application}, poll: config.PollInterval, logger: logger}, nil
+	sourceRepository, err := postgres.NewIntegrationSourceSyncRepository(cell)
+	if err != nil {
+		return closeOnError(err)
+	}
+	sourceAuthority, err := integrationsync.NewCurrentAuthority(accessRepository, config.CellID)
+	if err != nil {
+		return closeOnError(err)
+	}
+	workloadAuthorizer, err := access.NewWorkloadAuthorizer(accessRepository)
+	if err != nil {
+		return closeOnError(err)
+	}
+	cellPool, err := database.NewCellPool(cell)
+	if err != nil {
+		return closeOnError(err)
+	}
+	knowledgeRepository, err := postgres.NewKnowledgeRepository(cellPool)
+	if err != nil {
+		return closeOnError(err)
+	}
+	documents, err := knowledge.NewDocumentService(workloadAuthorizer, knowledgeRepository, registration.SystemClock{})
+	if err != nil {
+		return closeOnError(err)
+	}
+	admission, err := knowledge.NewDocumentAdmissionService(documents, source.Objects)
+	if err != nil {
+		return closeOnError(err)
+	}
+	sink, err := integrationsync.NewKnowledgeCaptureSink(documents, admission)
+	if err != nil {
+		return closeOnError(err)
+	}
+	sourceApplication, err := integrationsync.New(sourceRepository, sourceAuthority, broker, source.Cursors, source.Provider, sink,
+		ids.RandomGenerator{}, registration.SystemClock{}, config.Lease, source.Timeout)
+	if err != nil {
+		return closeOnError(err)
+	}
+	return &Worker{global: global, cell: cell, processor: &combinedProcessor{processors: []processor{healthApplication, application, sourceApplication}},
+		sourceObjects: source.Objects, poll: config.PollInterval, logger: logger}, nil
 }
 
 func openPool(ctx context.Context, databaseURL string, maximum int32) (*pgxpool.Pool, error) {
@@ -160,7 +226,7 @@ func (worker *Worker) Run(ctx context.Context) error {
 }
 
 func (worker *Worker) Ready(ctx context.Context) error {
-	return errors.Join(worker.global.Ping(ctx), worker.cell.Ping(ctx))
+	return errors.Join(worker.global.Ping(ctx), worker.cell.Ping(ctx), worker.sourceObjects.Verify(ctx))
 }
 
 func (worker *Worker) Status(context.Context) (any, error) {

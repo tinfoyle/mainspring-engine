@@ -23,6 +23,10 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
   printf marketing | mc pipe "app/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null
   mc cat "app/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null
   mc cat "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null
+  connector_source_prefix="accounts/policy-certification/documents/connector-source/revisions/revision/source"
+  printf connector-source | mc pipe "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$connector_source_prefix" >/dev/null
+  mc cat "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$connector_source_prefix" >/dev/null
+  mc rm --force "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$connector_source_prefix" >/dev/null
   mc cat "export-source/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null
   mc cat "export-source/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null
   printf extracted | mc pipe "worker/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null
@@ -49,8 +53,12 @@ compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME:-spyglass-local}"
     echo "document worker object policy permitted a Marketing-object read" >&2
     exit 1
   fi
-  if mc cat "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/source" >/dev/null 2>&1; then
-    echo "Integration connector object policy permitted a Knowledge-source read" >&2
+  if mc cat "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null 2>&1; then
+    echo "Integration connector object policy permitted a derived Knowledge-object read" >&2
+    exit 1
+  fi
+  if printf denied | mc pipe "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$prefix/extracted/text" >/dev/null 2>&1; then
+    echo "Integration connector object policy permitted a derived Knowledge-object write" >&2
     exit 1
   fi
   if printf denied | mc pipe "connector/$SPYGLASS_OBJECT_STORE_BUCKET/$marketing_prefix" >/dev/null 2>&1; then

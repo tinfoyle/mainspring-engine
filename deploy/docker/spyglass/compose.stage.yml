@@ -217,6 +217,7 @@ services:
       SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
     depends_on: {global-roles: {condition: service_completed_successfully}, cell-b-roles: {condition: service_completed_successfully}}
   integration-connector-worker-a:
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
     environment:
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
@@ -224,10 +225,15 @@ services:
       SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
       SPYGLASS_CONNECTOR_ADAPTER: production
       SPYGLASS_INTEGRATION_CREDENTIAL_ROOT: /run/spyglass/integration-credentials
-    volumes: ["${SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY:?set Integration credentials directory}:/run/spyglass/integration-credentials:ro"]
+      SPYGLASS_INTEGRATION_SOURCE_CURSOR_KEY_FILE: /var/run/secrets/spyglass/integration-source/cursor.key
+      SPYGLASS_GOOGLE_DRIVE_OAUTH_CLIENT_FILE: /var/run/secrets/spyglass/integration-source/google-oauth-client.json
+    volumes:
+      - "${SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY:?set Integration credentials directory}:/run/spyglass/integration-credentials:ro"
+      - "${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/integration-source:/var/run/secrets/spyglass/integration-source:ro"
     networks: [application, database, provider-egress]
     depends_on: {global-roles: {condition: service_completed_successfully}, cell-a-roles: {condition: service_completed_successfully}, object-store-init: {condition: service_completed_successfully}}
   integration-connector-worker-b:
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
     environment:
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
@@ -235,7 +241,11 @@ services:
       SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
       SPYGLASS_CONNECTOR_ADAPTER: production
       SPYGLASS_INTEGRATION_CREDENTIAL_ROOT: /run/spyglass/integration-credentials
-    volumes: ["${SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY:?set Integration credentials directory}:/run/spyglass/integration-credentials:ro"]
+      SPYGLASS_INTEGRATION_SOURCE_CURSOR_KEY_FILE: /var/run/secrets/spyglass/integration-source/cursor.key
+      SPYGLASS_GOOGLE_DRIVE_OAUTH_CLIENT_FILE: /var/run/secrets/spyglass/integration-source/google-oauth-client.json
+    volumes:
+      - "${SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY:?set Integration credentials directory}:/run/spyglass/integration-credentials:ro"
+      - "${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/integration-source:/var/run/secrets/spyglass/integration-source:ro"
     networks: [application, database, provider-egress]
     depends_on: {global-roles: {condition: service_completed_successfully}, cell-b-roles: {condition: service_completed_successfully}, object-store-init: {condition: service_completed_successfully}}
   route-receipt-worker-a:

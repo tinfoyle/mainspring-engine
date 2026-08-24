@@ -255,6 +255,11 @@ spec:
             - {name: SPYGLASS_CELL_ID, value: reference}
             - {name: SPYGLASS_CONNECTOR_ADAPTER, value: production}
             - {name: SPYGLASS_INTEGRATION_CREDENTIAL_ROOT, value: /run/spyglass/integration-credentials}
+            - {name: SPYGLASS_INTEGRATION_SOURCE_CURSOR_KEY_FILE, value: /var/run/secrets/spyglass/integration-source/cursor.key}
+            - {name: SPYGLASS_GOOGLE_DRIVE_ADAPTER, value: production}
+            - {name: SPYGLASS_GOOGLE_DRIVE_OAUTH_CLIENT_FILE, value: /var/run/secrets/spyglass/integration-source/google-oauth-client.json}
+            - {name: SPYGLASS_GOOGLE_DRIVE_PAGE_SIZE, value: "2"}
+            - {name: SPYGLASS_GOOGLE_DRIVE_SYNC_TIMEOUT, value: "90s"}
             - {name: SPYGLASS_SMTP_CONNECTOR_TIMEOUT, value: "30s"}
             - {name: SPYGLASS_WEB_PUBLISH_CONNECTOR_TIMEOUT, value: "30s"}
             - {name: SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL, value: "1s"}
@@ -270,6 +275,7 @@ spec:
             limits: {cpu: "1", memory: 512Mi}
           volumeMounts:
             - {name: credentials, mountPath: /run/spyglass/integration-credentials, readOnly: true}
+            - {name: integration-source, mountPath: /var/run/secrets/spyglass/integration-source, readOnly: true}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -282,6 +288,10 @@ spec:
         - name: credentials
           secret:
             secretName: spyglass-integration-connector-worker-cell-a-provider-credentials
+            defaultMode: 0400
+        - name: integration-source
+          secret:
+            secretName: spyglass-integration-connector-worker-cell-a-source-secrets
             defaultMode: 0400
 ---
 apiVersion: policy/v1

@@ -52,6 +52,18 @@ func New(keyFile string) (*Cipher, error) {
 		wipe(key)
 		return nil, fmt.Errorf("%w: key must be exactly 32 bytes", ErrConfiguration)
 	}
+	return newFromKey(key)
+}
+
+// NewLocalFixture returns the stable cipher used only with the network-free
+// mock connector. Production composition always requires New and a restrictive
+// mounted key file.
+func NewLocalFixture() (*Cipher, error) {
+	key := sha256.Sum256([]byte("spyglass/local/mock-integration-source-cursor/v1"))
+	return newFromKey(key[:])
+}
+
+func newFromKey(key []byte) (*Cipher, error) {
 	block, err := aes.NewCipher(key)
 	wipe(key)
 	if err != nil {

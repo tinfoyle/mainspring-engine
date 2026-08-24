@@ -69,6 +69,13 @@ func TestKnowledgeCaptureSinkAdmitsRevisionAndFencesDeletingDocument(t *testing.
 	if _, err := sink.Capture(context.Background(), input); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("capture into deleting document err=%v", err)
 	}
+	documents.detail.Document.State = knowledgedomain.DocumentDeleted
+	documents.detail.LatestRevision.State = knowledgedomain.RevisionDeleted
+	admission.revision = nil
+	if receipt, err := sink.Capture(context.Background(), input); err != nil || admission.revision == nil ||
+		admission.revision.RevisionID != receipt.DocumentRevisionID {
+		t.Fatalf("capture into deleted document receipt=%+v revision=%+v err=%v", receipt, admission.revision, err)
+	}
 }
 
 func TestKnowledgeCaptureSinkRequestsExactSourceDeletion(t *testing.T) {
