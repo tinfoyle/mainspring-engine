@@ -48,7 +48,7 @@ The production system must provide:
 - Stable, generated API contracts rather than manually mirrored Go and TypeScript models.
 - Idempotent, payload-bound external actions and deterministic recovery from ambiguous outcomes.
 - Production authentication, authorization, secret storage, audit, backup, restore, monitoring, and incident procedures.
-- A feature-organized, accessible React application with reliable streaming and error recovery.
+- A feature-organized, accessible, mobile-first Vue SPA with reliable streaming and error recovery, simple navigation and Your Turn as the primary signed-in workflow.
 - Safe global and cell database evolution with upgrade, rollback, reconciliation, and cell-cohort rollout procedures.
 - Shared, horizontally scalable Kubernetes workloads with bounded noisy-neighbor impact and no always-on stack per account.
 - Enough observability to answer what happened, for which account, in which cell, under whose authority, and how to recover it.
@@ -117,7 +117,7 @@ The current implementation is functionally rich but structurally concentrated:
 - `boardroom.Service.ExecuteTurn` performs context building, policy construction, capacity admission, tool execution, citation binding, escalation, artifact publication, usage reconciliation, and approval projection in one method.
 - `internal/tools` combines the capability-security kernel with approvals, owner input, shared knowledge, finance adapters, and action persistence.
 - `/api/v2` response structures reuse server-rendered Templ view models, while TypeScript mirrors them manually.
-- The React workspace concentrates routing, server-state behavior, streaming, and most pages in one source file.
+- The prototype React workspace concentrates routing, server-state behavior, streaming, and most pages in one source file; it is evidence for replacement, not the foundation of the final Vue SPA.
 - Workflow, runner, gateway, and scheduling behavior relies heavily on smoke coverage rather than focused replay and contract tests.
 - Lifecycle fields and policies are often raw strings crossing handlers, services, and SQL.
 
@@ -224,7 +224,7 @@ The Work-owned Persona execution and crash-convergence boundary is specified in 
 2. Module application logic depends on its own domain types and consumer-owned ports.
 3. Infrastructure adapters implement ports and are connected only in `bootstrap`.
 4. One module cannot query another module's tables directly.
-5. A module cannot import HTTP, MCP, React, Templ, Temporal, pgx, or a provider SDK into its domain model.
+5. A module cannot import HTTP, MCP, a frontend framework, Templ, Temporal, pgx, or a provider SDK into its domain model.
 6. Cross-module synchronous calls use narrow interfaces defined by the consumer.
 7. Durable asynchronous behavior uses explicit events or Temporal commands with versioned payloads.
 8. Shared code is limited to technical primitives. Business concepts never move into `platform` merely because two modules reference them.
@@ -263,7 +263,7 @@ The production HTTP API will be contract-first.
 - Optimistic concurrency uses version numbers or ETags on records vulnerable to lost updates.
 - SSE events use versioned envelopes, monotonic cursors, heartbeat behavior, and documented replay limits.
 - MCP tools call the same use cases and authorization policies as HTTP; they are not a parallel business implementation.
-- The prototype `/api/v2` contract remains behind a compatibility adapter until all React routes have migrated.
+- The prototype `/api/v2` contract remains behind a compatibility adapter until all final Vue SPA routes have migrated.
 
 ## 10. Data evolution
 
@@ -428,18 +428,20 @@ Exit gate:
 - Finance invariants hold under concurrent writes and retries.
 - External-action reconciliation has an operator-visible queue and runbook.
 
-### Phase 7 — Replace application transports and React workspace
+### Phase 7 — Replace application transports and build the Vue SPA
 
 Deliverables:
 
 - Thin HTTP route groups by feature.
 - Thin MCP server registering use-case adapters.
-- React application organized by feature and route.
+- Mobile-first Vue 3 and TypeScript SPA organized by feature and route, following the [Phase 3 Vue SPA product-surface plan](phase-3-vue-spa-plan.md).
+- Your Turn as the authenticated default route and first completed feature slice.
+- One compact mobile header and a simple, focus-contained navigation menu; the same route taxonomy enhances into a collapsible desktop rail.
 - Account switcher, package-aware navigation, upgrade entry, usage display, and consistent entitlement-denied states.
 - Router with nested layouts, not-found handling, route-level error boundaries, and navigation blocking for unsaved drafts.
 - Query-key conventions, request cancellation, optimistic-update policy, retry policy, and normalized problem handling.
 - One reusable SSE client supporting resume cursors, backoff, visibility changes, and terminal states.
-- Accessible design system primitives, keyboard behavior, reduced motion, responsive navigation, and automated accessibility checks.
+- Accessible design-system primitives, keyboard behavior, reduced motion, mobile-first responsive navigation, touch-size enforcement and automated accessibility checks.
 - Prototype compatibility routes only where migration remains unfinished.
 
 Exit gate:

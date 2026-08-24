@@ -364,7 +364,7 @@ Acceptance:
 
 ### P3.4 Attention domain
 
-Implementation checkpoint: separate typed `InformationRequest`, `WorkReview`, and `ConsequentialApproval` kernels now enforce Account/object identifiers, optimistic versions, exact fact eligibility, assigned-reviewer decisions, proposal invalidation, canonical duplicate-key-free JSON, evidence/policy binding, bounded expiry, optional independent review and the exact action-authorization projection shape. The cell foundation adds four forced-RLS tables with composite parent references, query indexes, immutable redacted event shapes, movement write fences and exact cascade-safe erasure accounting. Classified PostgreSQL repositories restore every row through the kernel, provide bounded stable keyset queries, make identical creates idempotent, enforce expected-version updates and append redacted events atomically. Package-authorized application commands/queries apply the narrower role/object matrix, require active eligible reviewers and emit content-minimized queue views. Exact shared-fact completion is bounded and serializable, and its explicit plan includes only waiting parents with no open information blocker; concurrency tests prove duplicate submissions converge without duplicate events. The routed cell runtime resolves reviewer eligibility through an exact route-proof-bound global broker without receiving global database access, and consumes the replay-safe parent plan through an atomic Work-owned transition boundary. Approval and exact execute-only runner authorization commit together, approved-proposal invalidation cancels the projection, and conflicting runner state rolls the aggregate/event back. Nineteen customer HTTP operations now cover redacted queues, authorized detail, lifecycle mutations and action recovery with route-bound idempotency, ETag concurrency where applicable, exact package allowlists and generated Go/TypeScript contracts. An equivalent 19-tool MCP adapter uses the same services with Bearer-only protocol authentication, per-call Account/package/role authority, typed structured results, safe outcome parity and raw canonical-payload preservation. The private Your Turn surface combines open information, signed-in-reviewer Work, role-gated approval and redacted action-recovery queues with detail-on-selection, package read-only behavior, tab-scoped drafts, stable retries, dual control, version-conflict recovery, keyboard movement and live announcements. Production MCP token/routing composition, applied browser/assistive-technology certification and final React consolidation remain. See [Attention module](attention-module.md) and [MCP transport](mcp-transport.md).
+Implementation checkpoint: separate typed `InformationRequest`, `WorkReview`, and `ConsequentialApproval` kernels now enforce Account/object identifiers, optimistic versions, exact fact eligibility, assigned-reviewer decisions, proposal invalidation, canonical duplicate-key-free JSON, evidence/policy binding, bounded expiry, optional independent review and the exact action-authorization projection shape. The cell foundation adds four forced-RLS tables with composite parent references, query indexes, immutable redacted event shapes, movement write fences and exact cascade-safe erasure accounting. Classified PostgreSQL repositories restore every row through the kernel, provide bounded stable keyset queries, make identical creates idempotent, enforce expected-version updates and append redacted events atomically. Package-authorized application commands/queries apply the narrower role/object matrix, require active eligible reviewers and emit content-minimized queue views. Exact shared-fact completion is bounded and serializable, and its explicit plan includes only waiting parents with no open information blocker; concurrency tests prove duplicate submissions converge without duplicate events. The routed cell runtime resolves reviewer eligibility through the exact route-proof-bound global broker without receiving global database access, and consumes the replay-safe parent plan through an atomic Work-owned transition boundary. Approval and exact execute-only runner authorization commit together, approved-proposal invalidation cancels the projection, and conflicting runner state rolls the aggregate/event back. Nineteen customer HTTP operations now cover redacted queues, authorized detail, lifecycle mutations and action recovery with route-bound idempotency, ETag concurrency where applicable, exact package allowlists and generated Go/TypeScript contracts. An equivalent 19-tool MCP adapter uses the same services with Bearer-only protocol authentication, per-call Account/package/role authority, typed structured results, safe outcome parity and raw canonical-payload preservation. The private Your Turn surface combines open information, signed-in-reviewer Work, role-gated approval and redacted action-recovery queues with detail-on-selection, package read-only behavior, tab-scoped drafts, stable retries, dual control, version-conflict recovery, keyboard movement and live announcements. Production MCP token/routing composition, applied browser/assistive-technology certification and final mobile-first Vue SPA consolidation remain. See [Attention module](attention-module.md), [MCP transport](mcp-transport.md) and the [Vue SPA product-surface plan](phase-3-vue-spa-plan.md).
 
 - Separate `InformationRequest`, `WorkReview`, and `ConsequentialApproval` aggregates.
 - Link information questions to explicit fact requirements with scope.
@@ -398,7 +398,7 @@ Implementation checkpoint: the runner gateway now requires distinct execute and 
 - Production HTTP queue, detail, mutation, attention, and decision endpoints.
 - MCP tools over the same commands and queries.
 - Prototype compatibility adapter and response comparator.
-- React feature slices for Work and Your Turn.
+- Vue SPA feature slices led by Your Turn, followed by Work and its supporting context.
 
 Acceptance:
 
@@ -639,26 +639,27 @@ Acceptance for Phase 5:
 - Bounded result payloads and problem translation.
 - Audit parity with HTTP.
 
-### P7.3 React application foundation
+### P7.3 Vue SPA application foundation
 
-- Router, layouts, session boundary, query client, error boundary, and design tokens.
+- Vue Router, mobile-first layouts, session boundary, query client, error boundary, and design tokens.
 - Account switcher, package-aware navigation, entitlement-denied/upgrade states, billing settings, and usage display.
 - Generated API client and problem normalization.
 - SSE manager with cursor resume and test harness.
 - Accessible dialog, form, table/list, status, notification, and command components.
 - Story and visual-regression environment.
+- A compact mobile header and simple menu drawer, with Your Turn as the authenticated default route.
+- Phone-width fixtures and horizontal-overflow checks from the first feature slice.
 
 ### P7.4 Feature migration order
 
-1. Home and inbox read models.
+1. Your Turn queues, detail and completion flows.
 2. Work queue and ticket workspace.
-3. Your Turn and approvals.
-4. Documents and document detail.
-5. Boardroom and conversation streaming.
-6. Baseline interview and plan.
-7. Agents.
-8. Finance.
-9. Team, schedules, email, Drive, and operations.
+3. Knowledge, documents and Baseline context.
+4. Boardroom and conversation streaming.
+5. Agents.
+6. Finance and Marketing.
+7. Integrations, schedules, email and Drive.
+8. Account, team, billing, security, export and operations.
 
 Each feature requires loading, empty, partial, stale, error, unauthorized, offline/reconnect, and reduced-motion behavior before cutover.
 

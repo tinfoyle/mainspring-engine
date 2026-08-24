@@ -21,7 +21,7 @@ For this plan, **backend** includes:
 - Account movement, portability, erasure and restore participation; and
 - complete deterministic local Docker fixtures and certification.
 
-The final customer-facing React implementation, mobile visual design and applied browser/accessibility/device acceptance are outside this plan. Existing browser surfaces may be used for diagnostics, but their visual completion cannot block the backend boundary.
+The final customer-facing Vue SPA implementation, mobile visual design and applied browser/accessibility/device acceptance are outside this completed backend plan and are governed by the [Phase 3 Vue SPA product-surface plan](phase-3-vue-spa-plan.md). Existing browser surfaces may be used for diagnostics, but their visual completion cannot block the backend boundary.
 
 ## Starting position and completed position
 
@@ -59,7 +59,7 @@ The following work is deliberately deferred, not silently discarded:
 - live-provider Stage acceptance;
 - LKE inventory, controller installation, overlay application or production database creation;
 - production backup configuration, canary, observation window and general availability;
-- the final React information architecture and visual system;
+- the final Vue SPA information architecture and mobile-first visual system;
 - mobile layout refinement and applied browser, screen-reader and supported-device certification; and
 - final production security/privacy, load, game-day, soak and rollback approval.
 
@@ -232,7 +232,7 @@ The backend feature boundary is reached only when all of the following are true:
 - Scheduling and Baseline maintenance execute through their canonical workers;
 - Drive, inbound email, outbound email, HTTPS publication and web research have real adapters plus deterministic local conformance suites;
 - all customer backend operations exist in shared application services and are exposed consistently through HTTP and MCP where product policy calls for both;
-- generated contracts are stable enough for the final React application to consume without inventing domain behavior;
+- generated contracts are stable enough for the final Vue SPA to consume without inventing domain behavior;
 - all Account-owned state is isolated, movable, exportable where appropriate, restorable and erasable;
 - no known backend feature is deferred into the UI implementation; and
 - the complete local certificate passes from a clean checkout with no external provider or deployment dependency.

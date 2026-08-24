@@ -6,9 +6,9 @@
 - Purpose: complete every remaining application capability, migrate validated prototype behavior, certify the final LKE deployment and release the complete product
 - Production rule: **all construction phases and advertised packages must be complete before production release**
 
-## Current local backend execution window
+## Current local product-surface execution window
 
-The active construction order is the [Phase 3 local backend completion plan](phase-3-local-backend-completion-plan.md). It completes domain, persistence, workers, provider adapters, OAuth/credential lifecycle, HTTP/MCP contracts and local certification, then produces a verified API/MCP interaction guide and stops before the final customer-facing React workstream begins.
+The [Phase 3 local backend completion plan](phase-3-local-backend-completion-plan.md) has reached its local boundary. The active construction order is now the [Phase 3 Vue SPA product-surface plan](phase-3-vue-spa-plan.md): build the mobile-first customer application locally, lead with Your Turn, and stop before GHCR, Stage, LKE or production release work.
 
 Git pushes, GHCR releases, Hostinger Stage mutation, LKE work and production promotion are explicitly outside this window. Local commits remain permitted. This changes execution order, not the Phase 3 completion or production-release rules below.
 
@@ -20,7 +20,7 @@ Phase 3 consolidates the historical Phase 3-8 backlog into one final body of wor
 2. Knowledge and Baseline.
 3. Agent workspace and durable execution.
 4. Scheduling, Finance, Marketing and integrations.
-5. HTTP, MCP and private React product surfaces.
+5. HTTP, MCP and the private mobile-first Vue SPA product surface.
 6. Prototype data/behavior migration and retirement.
 7. Production hardening, Linode deployment, canary and release.
 
@@ -46,7 +46,7 @@ The foundations do not yet constitute the full product. In particular:
 - Agent orchestration is limited to one durable sequential Boardroom pass; manager synthesis, delegation and resumable owner questions remain;
 - production MCP is constructed and deployed on Stage; its signed-in external-client acceptance sequence remains open;
 - Finance, Marketing and most integrations remain prototype-only or unimplemented;
-- the private application is not yet the final React product surface;
+- the private application is not yet the final Vue SPA product surface;
 - no complete prototype migration/cutover has occurred.
 
 The Hostinger Phase 2.5 entry gate is complete. Stage is intentionally pristine: there are no users, Accounts, provider-price mappings, billing profiles or subscriptions. This prevents temporary Catalog/customer state from being mistaken for final-product release evidence. Phase 3 must publish reviewed stage mappings through the signed `catalog-admin` boundary and then run real email/passkey/Stripe journeys against the product capabilities being accepted. The LKE kubeconfig is first needed in P3.7: its initial use is a read-only cluster inventory, followed by explicit replacement of every fail-closed storage/CNI/API/add-on/secret/runtime placeholder before any apply.
@@ -85,7 +85,7 @@ Create separate Account-scoped aggregates:
 
 Add forced-RLS persistence, optimistic versions, immutable events, queries, redacted DTOs and authorization matrices. Answering shared information may complete only eligible requests; altering a proposal invalidates its approval.
 
-Implementation checkpoint (2026-08-21): the three aggregates now have separate typed kernels and persistence restore boundaries. Information requests bind exact fact key/scope and parent Work, reviews bind an assigned User to a Work version and proposal digest, and consequential approvals bind canonical duplicate-key-free JSON, evidence, capability, operation/invocation, policy, expiry and optional independent review. Four Account-owned cell tables add forced RLS, composite Work/Conversation/Agent references, queue/detail indexes, immutable redacted event shapes, movement write fences and cascade-safe exact erasure counts. Classified PostgreSQL repositories restore every row through the domain kernel, provide bounded stable keyset queries, make identical creates idempotent, enforce expected-version updates and append redacted events atomically. Package-authorized application commands/queries now apply the narrower role/object matrix, require an active eligible assigned reviewer and expose content-minimized queue views. Exact shared-fact completion is a bounded serializable transaction and returns only waiting parent Work items with no open information blocker; concurrent duplicate submissions converge without duplicate events. The routed cell runtime resolves assigned reviewers through the exact signed request proof and a read-only global broker, preserving the cell-only `app-api` credential. It passes identifier-only completion plans into one atomic Work-owned transition boundary, and replay reconstructs the original answer cohort so an interrupted resumption can safely finish. An approved aggregate records its exact execute-only runner authorization in the same transaction, and approved-proposal invalidation cancels that projection; conflicting runner state rolls back the aggregate and event. Nineteen customer HTTP operations now cover redacted queues, authorized detail, creation, decisions, cancellations and action recovery with route-bound idempotency, ETag concurrency where applicable, exact package allowlists and generated typed Go/TypeScript contracts. The 19-tool MCP adapter reuses those application services with Bearer-only protocol authentication, exact per-call Account/package/role authority, typed structured results, safe error parity and raw canonical-payload preservation. The private Your Turn surface combines open information, signed-in-reviewer Work, Owner/Administrator approval and unknown/manual action-recovery queues with exact detail, read-only modes, tab drafts, stable retries, version-conflict recovery, independent confirmation, keyboard movement and live announcements. Tests cover role/object/package authority, exact information eligibility and parent planning, routed reviewer eligibility, Work resumption/replay, review/proposal invalidation, approval projection/time/binding rollback, payload/evidence/policy invalidation, action recovery/redaction/dual control, repository replay/concurrency/conflict/isolation/redaction, RLS, cross-Account constraints, event immutability, movement participation, erasure/restore, HTTP/MCP boundary behavior and private-shell contracts. The production MCP token/Account-routing gateway, applied browser/assistive-technology certification and final React consolidation remain. See [Attention module](attention-module.md) and [MCP transport](mcp-transport.md).
+Implementation checkpoint (2026-08-21): the three aggregates now have separate typed kernels and persistence restore boundaries. Information requests bind exact fact key/scope and parent Work, reviews bind an assigned User to a Work version and proposal digest, and consequential approvals bind canonical duplicate-key-free JSON, evidence, capability, operation/invocation, policy, expiry and optional independent review. Four Account-owned cell tables add forced RLS, composite Work/Conversation/Agent references, queue/detail indexes, immutable redacted event shapes, movement write fences and cascade-safe exact erasure counts. Classified PostgreSQL repositories restore every row through the domain kernel, provide bounded stable keyset queries, make identical creates idempotent, enforce expected-version updates and append redacted events atomically. Package-authorized application commands/queries now apply the narrower role/object matrix, require an active eligible assigned reviewer and expose content-minimized queue views. Exact shared-fact completion is a bounded serializable transaction and returns only waiting parent Work items with no open information blocker; concurrent duplicate submissions converge without duplicate events. The routed cell runtime resolves assigned reviewers through the exact signed request proof and a read-only global broker, preserving the cell-only `app-api` credential. It passes identifier-only completion plans into one atomic Work-owned transition boundary, and replay reconstructs the original answer cohort so an interrupted resumption can safely finish. An approved aggregate records its exact execute-only runner authorization in the same transaction, and approved-proposal invalidation cancels that projection; conflicting runner state rolls back the aggregate and event. Nineteen customer HTTP operations now cover redacted queues, authorized detail, creation, decisions, cancellations and action recovery with route-bound idempotency, ETag concurrency where applicable, exact package allowlists and generated typed Go/TypeScript contracts. The 19-tool MCP adapter reuses those application services with Bearer-only protocol authentication, exact per-call Account/package/role authority, typed structured results, safe error parity and raw canonical-payload preservation. The private Your Turn surface combines open information, signed-in-reviewer Work, Owner/Administrator approval and unknown/manual action-recovery queues with exact detail, read-only modes, tab drafts, stable retries, version-conflict recovery, independent confirmation, keyboard movement and live announcements. Tests cover role/object/package authority, exact information eligibility and parent planning, routed reviewer eligibility, Work resumption/replay, review/proposal invalidation, approval projection/time/binding rollback, payload/evidence/policy invalidation, action recovery/redaction/dual control, repository replay/concurrency/conflict/isolation/redaction, RLS, cross-Account constraints, event immutability, movement participation, erasure/restore, HTTP/MCP boundary behavior and private-shell contracts. The production MCP token/Account-routing gateway, applied browser/assistive-technology certification and final mobile-first Vue SPA consolidation remain. See [Attention module](attention-module.md) and [MCP transport](mcp-transport.md).
 
 ### Connect Work to Agent execution
 
@@ -353,7 +353,7 @@ Exit: the Catalog, website claims and application capabilities reconcile exactly
 - Implement one canonical application boundary per use case.
 - Publish complete generated HTTP contracts and sanitized OpenAPI artifacts.
 - Implement production MCP tools over the same commands/queries and prove HTTP/MCP outcome parity.
-- Build the private feature-organized React application for Account, Work, Your Turn, Knowledge, Baseline, Agents, Finance, Marketing, integrations, billing and security.
+- Build the private feature-organized, mobile-first Vue SPA for Account, Work, Your Turn, Knowledge, Baseline, Agents, Finance, Marketing, integrations, billing and security; complete Your Turn first and make it the authenticated default route.
 - Add reliable streaming/event replay, optimistic concurrency, draft preservation and session/network recovery.
 - Complete keyboard, screen-reader, contrast, zoom/reflow, forced-colors, reduced-motion and supported-device behavior.
 - Remove prototype compatibility adapters only after migration evidence and rollback windows close.
@@ -461,7 +461,7 @@ Phase 2.5 platform/deployment final form
   -> Knowledge + Baseline
   -> complete Agent workspace/execution
   -> Scheduling + Finance + Marketing + integrations
-  -> final HTTP/MCP/React surfaces
+  -> final HTTP/MCP/Vue SPA surfaces
   -> prototype migration + operational completion
   -> LKE certification + production release
 ```
@@ -476,7 +476,7 @@ Phase 3—and therefore application construction—is complete only when:
 - Work, Attention, Knowledge, Baseline, Agents, Scheduling, Finance, Marketing and integrations are complete;
 - HTTP, MCP, schedules, workers, runners and UI share canonical authorization and entitlement outcomes;
 - all production data is Account-isolated, movable, exportable, restorable and erasable;
-- the final React application and public site pass the complete accessibility/device matrix;
+- the final Vue SPA and public site pass the complete accessibility/device matrix;
 - containerized PostgreSQL and all application workloads pass local, Hostinger and LKE certification appropriate to each environment;
 - production backup/restore configuration has recorded owner verification;
 - the exact signed artifact pair passes migration, load, resilience, security/privacy, canary and rollback gates; and

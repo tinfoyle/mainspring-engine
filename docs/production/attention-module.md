@@ -1,6 +1,6 @@
 # Attention module
 
-- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized routed runtime, Work resumption, runner authorization projection, customer HTTP/OpenAPI, routed production MCP, consequential-action recovery and private Your Turn surface implemented; applied accessibility certification and final React consolidation pending
+- Status: typed aggregate kernel, forced-RLS persistence, classified PostgreSQL repositories, package-authorized routed runtime, Work resumption, runner authorization projection, customer HTTP/OpenAPI, routed production MCP, consequential-action recovery and private Your Turn surface implemented; applied accessibility certification and final mobile-first Vue SPA consolidation pending
 - Phase: 3.1
 - Owns: human information requests, Work review decisions and consequential approvals
 - Does not own: Work lifecycle persistence, Knowledge facts, Agent invocation or provider execution
@@ -74,7 +74,7 @@ The private Your Turn surface combines the three open Attention queues plus unkn
 ## Remaining delivery order
 
 1. Capture the signed-in external-client authorization, routed tool call, refresh rotation and revocation certificate through the applied Stage gateway.
-2. Run applied private-route browser and assistive-technology certification for Your Turn, then carry the verified behavior into the final React product surface without changing the HTTP/MCP authorization outcome.
+2. Build and certify Your Turn as the first and primary mobile-first Vue SPA workflow without changing the HTTP/MCP authorization outcome.
 3. Prove concurrent review/approval decisions and any remaining provider-specific execution cases; action-ledger retry/reconciliation/manual-resolution replay, reviewer lookup, Work resumption/replay, approval projection/invalidation/conflict rollback, shared-information concurrency/replay, repository isolation/redaction, forced-RLS isolation, cross-Account foreign keys, movement fencing, immutable events and exact erasure accounting are already covered.
 
-The typed kernel, schema, repositories, routed application composition, Work resumption execution, runner authorization projection, customer HTTP/OpenAPI surface, routed MCP Attention/action-recovery tools and private Your Turn behavior are complete. The Stage MCP topology is deployed, but external-client acceptance, applied browser/assistive-technology certification and final React completion remain explicit evidence gates.
+The typed kernel, schema, repositories, routed application composition, Work resumption execution, runner authorization projection, customer HTTP/OpenAPI surface, routed MCP Attention/action-recovery tools and private Your Turn behavior are complete. The Stage MCP topology is deployed, but external-client acceptance, applied browser/assistive-technology certification and final Vue SPA completion remain explicit evidence gates. Your Turn is the authenticated default route and first feature slice under the [Vue SPA product-surface plan](phase-3-vue-spa-plan.md).

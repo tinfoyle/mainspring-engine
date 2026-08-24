@@ -1,6 +1,6 @@
 # Marketing module
 
-- Status: local backend complete and executable across browser, HTTP, MCP, Agent drafts, Attention activation and Integration delivery; final customer React and environment release acceptance remain
+- Status: local backend complete and executable across browser, HTTP, MCP, Agent drafts, Attention activation and Integration delivery; final customer Vue SPA and environment release acceptance remain
 - Package boundary: Marketing
 - Decision: [ADR-0007](decisions/0007-marketing-governed-release.md)
 
