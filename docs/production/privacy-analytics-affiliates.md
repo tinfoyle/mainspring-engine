@@ -1,0 +1,227 @@
+# Privacy, analytics and affiliate architecture
+
+- Status: GDPR-capable analytics scope approved for Phase 3; affiliate attribution approved in principle; settlement mode requires commercial approval
+- Decision date: 2026-08-24
+- Parent plan: [Phase 3 Vue customer-surface and SPA plan](phase-3-vue-spa-plan.md)
+- Commercial boundary: [Website, Accounts, Packages, and Billing Architecture](accounts-packages-billing.md)
+- Release boundary: Local construction only until the parent plan's exit gate passes
+
+## 1. Outcomes
+
+The launch UI must measure acquisition and onboarding well enough to improve them without collecting customer business content or excluding EU customers. It must also support an affiliate program whose referral attribution and recurring earnings survive browser loss, webhook replay, subscription renewal and analytics-consent withdrawal.
+
+Launch analytics prioritize:
+
+1. the public landing page and product/feature discovery;
+2. offer selection, signup and Stripe Checkout;
+3. identity verification, Account creation, security enrollment and first successful application entry; and
+4. first value in Your Turn without recording the task's content.
+
+Affiliate attribution is commercial transaction state. It is not marketing analytics and cannot disappear when analytics consent is refused or withdrawn.
+
+## 2. Fixed privacy decisions
+
+- GDPR-capable operation is a Phase 3 product-surface release requirement, not a future regional enhancement.
+- The public site and private application expose one clear, versioned privacy-preference experience.
+- Strictly necessary storage is enabled by default. Analytics and marketing storage, scripts and requests remain disabled until the applicable consent is granted.
+- The first consent layer gives equally accessible **Accept analytics**, **Reject non-essential** and **Manage preferences** actions. Optional categories are never preselected.
+- Access to the landing page, signup, checkout and Spyglass cannot depend on optional analytics or marketing consent.
+- Withdrawal is as easy as granting consent and takes effect before the next optional event is emitted.
+- Consent is purpose-specific. A new purpose, vendor or materially expanded field set requires a new policy version and, where required, renewed consent.
+- Consent receipts, referral state, product analytics and operational telemetry remain separate data classes with separate retention and access rules.
+- Pseudonymous identifiers are treated as personal data until irreversible anonymization is proven.
+- No fingerprinting, cross-site identity, advertising pixel, session replay, heatmap, keystroke capture, form recording or customer-content analytics is permitted at launch.
+
+## 3. Lawful-purpose registry
+
+Every emitted event and stored identifier must have one revision-controlled registry entry containing:
+
+- stable event or data name;
+- controller purpose and lawful basis;
+- consent category, if any;
+- public or private surface;
+- exact allowed fields and enum values;
+- prohibited fields;
+- recipients and processor/subprocessor path;
+- retention and aggregation schedule;
+- User/Account access, erasure, restriction and objection behavior;
+- international-transfer disposition; and
+- owner and tests.
+
+An event absent from the registry fails build and contract tests. Arbitrary event properties, full URLs, query strings, referrers, free text and provider payloads are rejected at the ingestion boundary.
+
+## 4. Consent system
+
+### 4.1 Preference model
+
+The initial categories are:
+
+- `necessary`: authentication, security, checkout continuity and privacy-preference storage;
+- `analytics`: first-party acquisition and product-improvement measurement; and
+- `marketing`: future advertising or campaign integrations. It remains operationally empty until a separately reviewed provider and event inventory exist.
+
+The browser stores only a signed or integrity-protected preference reference and policy version. The server retains an immutable, content-minimized receipt history with random receipt ID, policy version, selected categories, public/private surface, effective time and optional withdrawal time. It does not use a full IP address or browser fingerprint as proof.
+
+### 4.2 Enforcement
+
+- Optional SDKs are not downloaded and optional endpoints are not called before consent.
+- Route transitions and SPA hydration cannot race ahead of preference resolution.
+- Server ingestion rechecks the receipt/category and rejects events that the browser should not have sent.
+- Withdrawal disables optional emission immediately and schedules deletion or de-identification according to the event registry.
+- Consent-denied and consent-withdrawn journeys are first-class automated tests.
+- Necessary operational logs remain content-free and are governed by their documented non-consent lawful basis and retention.
+
+## 5. Analytics architecture
+
+### 5.1 Separate streams
+
+| Stream | Purpose | Identity boundary |
+|---|---|---|
+| Acquisition | Landing, feature, pricing, campaign, signup and checkout funnel | short-lived anonymous session and one-time conversion receipt |
+| Product | Onboarding and feature usability | environment-keyed pseudonymous User/Account subject, never exported to marketing |
+| Operational | Availability, latency, error class and capacity | existing content-safe OpenTelemetry rules |
+| Commercial | Checkout, subscription, affiliate attribution and commission | durable application aggregates; never an analytics source of authority |
+
+The analytics sink is replaceable behind a first-party ingestion adapter. Browser code sends only reviewed event envelopes to an Infinite Ocean origin. No browser analytics SDK receives customer API responses or DOM scraping authority.
+
+### 5.2 Launch funnel
+
+The initial event inventory must measure, at minimum:
+
+- landing impression and primary-call-to-action selection;
+- feature/package and cross-package workflow views;
+- pricing view, comparison interaction and published offer selection;
+- signup handoff, registration start, verification completion and Account creation;
+- security/passkey enrollment completion;
+- checkout review, referral-code acceptance, Checkout redirect, cancellation return, pending projection, payment failure and projected subscription success;
+- first authenticated application entry;
+- first Your Turn queue view; and
+- first eligible Your Turn completion by task category and result class.
+
+No event contains name, email, Account/User UUID, customer text, prompt, answer, evidence, decision, document, payment method, Stripe object ID, authentication value or full route parameters.
+
+### 5.3 Attribution
+
+- Campaign parameters are parsed through a bounded allowlist and normalized before storage; arbitrary query parameters and referrers are discarded.
+- Public acquisition uses a short-lived random first-party session.
+- A one-time opaque conversion receipt may cross the public-to-private signup handoff. It contains no identity, email, Account ID, offer internals or campaign text.
+- After conversion, the receipt records an aggregate outcome and expires. It cannot become a durable cross-site User profile.
+- Affiliate referral intent uses a distinct token and lifecycle. Analytics consent cannot create, alter or erase a commercial referral attribution.
+
+### 5.4 GDPR operations
+
+Before release, analytics must join:
+
+- the record of processing activities and privacy/cookie notices;
+- processor agreements and international-transfer review;
+- consent access and withdrawal history;
+- User and Account access/export, erasure, restriction and objection workflows;
+- retention, aggregation and backup-expiry schedules;
+- incident response and breach assessment; and
+- a documented data-protection impact assessment decision.
+
+## 6. Affiliate program
+
+### 6.1 Enrollment and identity
+
+- A normal Infinite Ocean identity may apply to or enable an Affiliate enrollment. Affiliate status does not create a second login system.
+- The Affiliate is a distinct commercial aggregate bound to the responsible User and, when required for billing-credit settlement, one owned Spyglass Account.
+- Enrollment records accepted affiliate-terms version, program/rule version, state, generated public code, creation time and suspension/closure history.
+- Public codes are case-insensitive, human-enterable, unique and replaceable for future referrals. A replaced or suspended code cannot affect an attribution already locked to a subscription.
+- Affiliate terms require truthful claims and clear, conspicuous disclosure that the Affiliate earns recurring value from qualifying purchases.
+
+### 6.2 Referral capture
+
+- A customer may enter an Affiliate code during the authenticated pre-checkout review.
+- A future affiliate link may display a proposed code, but it does not silently persist attribution. The visitor must actively apply the referral before the server establishes a short-lived transactional intent; checkout then displays the attributed Affiliate and allows the customer to remove or replace it before purchase.
+- The server validates the code, Affiliate state, offer eligibility, terms version and anti-self-referral policy before creating Checkout.
+- One subscription can have at most one locked Affiliate attribution.
+- Attribution becomes immutable when the Checkout subscription is durably projected. Later code changes apply only to a new subscription under an explicitly reviewed policy.
+- Stripe Checkout and Subscription metadata carry only an opaque local attribution ID for webhook reconciliation. The public code, Affiliate identity and referred customer identity do not need to enter Stripe metadata.
+- Referred customer identity and business details are never disclosed in the Affiliate dashboard.
+
+### 6.3 Commission rules and ledger
+
+Commission policy is versioned and frozen with the locked attribution. It defines:
+
+- eligible Catalog offer and version;
+- currency and exact commission amount or formula;
+- whether the initial invoice qualifies;
+- qualifying renewal cadence and any maximum cycle count;
+- treatment of trials, coupons, proration, upgrades, downgrades and taxes;
+- refund, credit-note, dispute and chargeback reversal policy;
+- pending/hold period before settlement; and
+- code/Enrollment suspension behavior.
+
+The proposed launch example is **$10 USD for each qualifying successfully paid $50 USD monthly renewal**. It remains a commercial candidate until the initial-invoice, discount/proration, refund window and settlement-mode decisions below are approved.
+
+Each verified `invoice.paid` projection evaluates the frozen rule and appends at most one immutable commission entry. A unique subscription/invoice/rule binding makes webhook replay exactly once. Failed, void, zero-value or ineligible invoices earn nothing. Refund, dispute or chargeback policy appends a reversal; it never edits history. Entitlement projection and customer access never depend on affiliate settlement success.
+
+### 6.4 Affiliate dashboard
+
+The private Vue surface provides:
+
+- current public code and copyable disclosure-safe referral link;
+- accepted terms and current program summary;
+- aggregate referred subscriptions without customer identity;
+- pending, earned, reversed and settled commission totals;
+- monthly statement history; and
+- suspension, dispute and support paths.
+
+Analytics consent does not control access to this commercial ledger. Affiliate dashboard analytics, if enabled, follow the ordinary optional product-analytics category and never copy ledger detail to the acquisition sink.
+
+### 6.5 Abuse and compliance
+
+- Deny referral between the same User, the same controlled Account or another deterministically known self-referral relationship.
+- Rate-limit code validation without treating code secrecy as an authorization boundary.
+- Detect repeated checkout creation, code cycling and suspicious concentration through content-free risk signals and manual review.
+- Affiliate content must disclose the financial relationship clearly and conspicuously near the endorsement or link.
+- Program suspension stops new attribution while preserving earned/reversed ledger history and referred-customer subscriptions.
+- Affiliate identity, terms acceptance, tax/payout material and earnings are personal/commercial data with explicit retention, access, erasure limitations and legal-hold rules.
+
+## 7. Settlement decision required
+
+Before affiliate implementation reaches payout/credit acceptance, the release owner must choose one launch settlement:
+
+### Account billing credit
+
+Earned commission is applied as a bounded credit toward invoices for one Affiliate-owned Spyglass Account. This avoids a cash-withdrawal promise but requires exact Stripe/customer-balance reconciliation, expiry/non-transferability rules and treatment when the Affiliate has no paid subscription.
+
+### Cash settlement
+
+Earned commission becomes withdrawable. This requires payee onboarding, supported countries, identity/tax collection, payout-provider integration, minimums, reserves, failed payout/recovery, statements and applicable tax reporting. Stripe Connect is a candidate adapter, not an assumed implementation.
+
+The immutable earning ledger is independent of this choice. The UI cannot label pending earnings as payable cash or account credit until the settlement mode and terms are approved.
+
+## 8. Construction and acceptance order
+
+1. Approve the processing/event registry, consent policy, retention schedule and analytics provider boundary.
+2. Implement consent receipts and enforcement plus first-party analytics ingestion locally.
+3. Implement the Affiliate enrollment, code, attribution, rule and commission-ledger backend with generated HTTP contracts.
+4. Add landing, checkout and onboarding event instrumentation with consent-denied parity.
+5. Add referral entry/review and immutable Checkout/Subscription attribution.
+6. Add webhook-driven recurring commission earning, reversal and reconciliation.
+7. Build the consent center, Affiliate enrollment/dashboard and commercial statements in Vue.
+8. Complete GDPR rights, erasure/retention, vendor/transfer, disclosure, abuse and settlement acceptance.
+
+Release requires automated proof that:
+
+- optional analytics emits nothing before consent and stops after withdrawal;
+- refusing analytics does not alter signup, checkout, onboarding, referral or application outcomes;
+- every accepted event conforms to the registry and contains no prohibited data;
+- affiliate attribution survives browser loss and analytics withdrawal;
+- Checkout and invoice webhook replay cannot duplicate commission;
+- failed/refunded/disputed policy outcomes cannot leave unearned settled value;
+- Affiliates cannot see referred-customer identity or content;
+- Affiliate disclosures and terms are presented before enrollment; and
+- analytics and Affiliate data participate in the documented GDPR lifecycle.
+
+## 9. Authoritative external guidance
+
+- [GDPR Article 3 and territorial scope](https://eur-lex.europa.eu/eli/reg/2016/679/art_3/oj)
+- [EDPB consent guidance](https://www.edpb.europa.eu/our-work-tools/our-documents/guidelines/guidelines-052020-consent-under-regulation-2016679_en)
+- [EDPB cookie-banner taskforce report](https://www.edpb.europa.eu/documents/task-force-report/report-of-the-work-undertaken-by-the-cookie-banner-taskforce_en)
+- [Stripe metadata use cases, including affiliate attribution](https://docs.stripe.com/metadata/use-cases)
+- [Stripe subscription Checkout and recurring `invoice.paid` events](https://docs.stripe.com/payments/checkout/build-subscriptions)
+- [FTC affiliate and endorsement disclosure guidance](https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking)
+- [European Commission Influencer Legal Hub](https://commission.europa.eu/topics/consumers/consumer-rights-and-complaints/influencer-legal-hub_en)

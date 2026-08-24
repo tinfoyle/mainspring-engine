@@ -5,11 +5,12 @@
 - Application: Infinite Ocean: Spyglass
 - Predecessor: [Phase 3 local backend completion plan](phase-3-local-backend-completion-plan.md)
 - Contract guide: [Spyglass API and MCP interaction guide](api-mcp-interaction-guide.md)
+- Privacy/commercial extension: [Privacy, analytics and affiliate architecture](privacy-analytics-affiliates.md)
 - Deployment work: Deferred until this plan's local product-surface exit gate passes
 
 ## 1. Objective
 
-Replace the desktop-first private browser shell and the provisional acquisition experience with one coherent customer-facing Vue 3 and TypeScript product surface. The authenticated application operates as a single-page application; the public landing, feature and pricing routes are rendered or pre-rendered for discovery, performance and resilient first load. The complete experience is mobile-first, uses the generated HTTP contracts without inventing domain behavior, and makes **Your Turn** the primary signed-in workflow.
+Replace the desktop-first private browser shell and the provisional acquisition experience with one coherent customer-facing Vue 3 and TypeScript product surface. The authenticated application operates as a single-page application; the public landing, feature and pricing routes are rendered or pre-rendered for discovery, performance and resilient first load. The complete experience is mobile-first, uses the generated HTTP contracts without inventing domain behavior, makes **Your Turn** the primary signed-in workflow, measures landing/checkout/onboarding through a consented first-party analytics boundary, and remains available to EU customers through GDPR-capable operation.
 
 The product surface must feel deliberately designed at phone widths. Narrow layouts are not reduced desktop grids: navigation, information density, action placement and detail disclosure must change to match the user's immediate task.
 
@@ -17,6 +18,10 @@ The product surface must feel deliberately designed at phone widths. Narrow layo
 
 - The private Spyglass application is a Vue 3, TypeScript SPA.
 - The new UI program includes the public Infinite Ocean landing page, complete Spyglass feature/package breakdown, pricing, signup handoff, checkout initiation and checkout-return experience.
+- GDPR-capable consent, analytics, data-subject rights and lifecycle evidence are required in this phase; EU support is not deferred behind a US-only launch.
+- Launch analytics prioritize landing-page acquisition, checkout conversion and onboarding completion, with optional Your Turn usability events that never contain task content.
+- The phase includes the minimal backend extension required for consent receipts, first-party analytics enforcement, Affiliate enrollment/codes, immutable referral attribution and recurring commission accounting.
+- Affiliate attribution is commercial transaction state and remains valid when optional analytics consent is refused or withdrawn.
 - Public acquisition and the private application remain separate security, caching and deployment surfaces. They share a Vue design system and customer journey, not private session data or cache policy.
 - Public acquisition routes must be server-rendered or pre-rendered where practical; essential product, feature and pricing content cannot depend on client-side JavaScript to become discoverable.
 - The SPA consumes `api/spyglass.openapi.json` through the generated TypeScript contract and types.
@@ -93,6 +98,14 @@ The public experience must be a first-class product surface, not a decorative sp
 - Checkout retry uses exact idempotency semantics and cannot create duplicate purchase intent from repeated taps, back navigation or network recovery.
 - Billing management and later plan changes use the same understandable package language and hand off to the short-lived Stripe Customer Portal where required.
 
+### 3.5 Privacy, analytics and Affiliates
+
+- Use the consent behavior, lawful-purpose registry, event boundaries, GDPR lifecycle and Affiliate architecture in [Privacy, analytics and affiliate architecture](privacy-analytics-affiliates.md).
+- Landing, checkout and onboarding instrumentation is complete only when consent-granted, consent-denied and consent-withdrawn journeys produce identical customer outcomes.
+- Affiliate code entry appears in the authenticated checkout review and is confirmed before Stripe redirection.
+- The Affiliate dashboard exposes code, terms and aggregate earning states without identifying referred customers.
+- Recurring commission is earned only from the durable local projection of a qualifying paid subscription invoice; browser analytics and redirect state are never financial authority.
+
 ## 4. Your Turn — primary product workflow
 
 Your Turn is the first complete feature slice and the acceptance reference for the rest of the SPA. It unifies information requests, assigned Work reviews, consequential approvals and uncertain-action recovery without erasing their different authority and safety rules.
@@ -138,11 +151,22 @@ Your Turn is the first complete feature slice and the acceptance reference for t
 
 ## 6. Construction order
 
+### PA0 — Privacy, analytics and Affiliate backend extension
+
+- Approve the lawful-purpose/event registry, consent-policy version, retention schedule and analytics provider boundary.
+- Implement consent receipts and server-side optional-event enforcement.
+- Implement Affiliate enrollment, generated codes, checkout attribution, versioned commission rules and an immutable recurring commission ledger.
+- Generate the HTTP contracts required by the Vue consent center, checkout review and Affiliate dashboard.
+- Approve account-credit versus cash settlement before either is presented as available value.
+
+Exit: privacy and Affiliate state has a tested local application boundary; analytics withdrawal cannot alter commercial attribution, and invoice replay cannot duplicate commission.
+
 ### UI0 — Foundation and contract proof
 
 - Scaffold the Vue 3 and TypeScript workspace with independent public acquisition and private SPA build targets plus shared routing, test, lint, type-check and production-build gates.
 - Consume the generated API types and prove one authenticated query and one idempotent, versioned mutation locally.
 - Establish design tokens and accessible primitives for buttons, fields, links, status, alerts, dialogs, drawers, disclosure and live announcements.
+- Establish the consent center, optional-event client boundary and generated Affiliate client types without loading an analytics SDK before consent.
 - Add phone-width visual fixtures before building feature pages.
 
 Exit: both UI targets build reproducibly, run through their local Docker origins and exercise the appropriate generated public/private boundaries without copied DTOs.
@@ -153,6 +177,7 @@ Exit: both UI targets build reproducibly, run through their local Docker origins
 - Implement the sticky mobile header, single navigation drawer and desktop enhancement.
 - Make Your Turn the authenticated default route.
 - Establish loading, offline, error, unauthorized, locked and read-only application states.
+- Instrument registration, verification, Account creation, security enrollment and first application entry through the reviewed onboarding event registry.
 
 Exit: users can authenticate, select an Account and navigate the complete empty shell at supported phone, tablet and desktop widths.
 
@@ -169,7 +194,8 @@ Exit: Your Turn is locally feature-complete and becomes the interaction-quality 
 - Build the public landing page around the governed Spyglass operating loop and Your Turn value proposition.
 - Build the complete feature/package index, durable package pages, cross-package workflows and Catalog-backed plan comparison.
 - Complete free signup handoff, selected-offer continuation, authenticated pre-checkout review, Stripe Checkout initiation and return/pending/failure states.
-- Add structured metadata, crawlable content, social previews, performance budgets, link checks and acquisition analytics that collect no customer business content.
+- Add Affiliate code entry and actively confirmed link intent, explicit attribution review and disclosure-safe referral behavior without coupling commercial credit to analytics consent.
+- Add structured metadata, crawlable content, social previews, performance budgets, link checks and consented acquisition analytics that collect no customer business content.
 - Certify the anonymous-to-free and anonymous-to-paid customer journeys at supported phone widths before later package pages are copied from these patterns.
 
 Exit: a visitor can understand the complete product, select the correct offer, create an Account and safely reach a projected checkout outcome without encountering a visual or terminology break between the public and private surfaces.
@@ -191,7 +217,7 @@ Exit: users can inspect and operate Agent workflows on supported devices without
 
 ### UI6 — Remaining product packages and Account management
 
-- Migrate Finance, Marketing, Integrations, schedules, billing, membership, security, export and Account lifecycle surfaces.
+- Migrate Finance, Marketing, Integrations, schedules, billing, Affiliate enrollment/dashboard, membership, security, export and Account lifecycle surfaces.
 - Apply the same route clarity, menu behavior, list/detail separation and responsive acceptance established by Your Turn.
 
 Exit: every supported customer use case has a Vue route using the generated boundary; no launch package depends on a prototype page.
@@ -221,6 +247,8 @@ Every feature slice covers:
 
 Public acquisition and checkout additionally cover crawlability without client execution, metadata, structured content, broken links, Catalog fallback, offer discontinuation during signup, repeated checkout initiation, Stripe cancellation, delayed webhook projection and payment failure.
 
+Privacy, analytics and Affiliate acceptance additionally covers zero optional emission before consent, immediate withdrawal, registry field enforcement, GDPR access/erasure/objection/retention behavior, consent-independent referral survival, self-referral denial, code suspension, invoice replay, refund/dispute reversal and referred-customer concealment.
+
 ## 8. Final exit gate
 
 Phase 3 product-surface construction is complete only when:
@@ -229,6 +257,8 @@ Phase 3 product-surface construction is complete only when:
 - the landing page clearly communicates the product and Your Turn value proposition on mobile;
 - every launch feature and package has an accurate, browsable public explanation;
 - free signup and paid checkout form one complete, safe and locally certified acquisition journey;
+- landing, checkout and onboarding analytics are GDPR-capable, consented, content-free and lifecycle-complete;
+- Affiliate enrollment, code attribution, recurring commission and aggregate dashboard behavior are locally complete under an approved settlement policy;
 - every launch use case is available through the Vue SPA;
 - the mobile menu and route hierarchy remain consistent across packages;
 - supported phone routes are clear, touch-usable and free of horizontal page scrolling;

@@ -185,7 +185,8 @@ Architecture prerequisites are accepted in [ADR-0001](decisions/0001-product-ide
 - Implement `infiniteocean.net` public information architecture: company, product overview, package pages, cross-package outcomes, pricing, security/privacy, legal, support, login, and signup.
 - Separate public cacheable routes from private authenticated routes and host-scope cookies.
 - Publish a read-only Catalog API for package and pricing presentation with a last-known-published fallback.
-- Add analytics consent and event taxonomy without collecting customer business content.
+- Add GDPR-capable analytics consent, a lawful-purpose/event registry and landing/checkout/onboarding measurement without collecting customer business content.
+- Add Affiliate enrollment, generated codes, immutable Checkout/Subscription attribution and exactly-once recurring commission accounting without exposing referred-customer identity.
 
 Acceptance:
 
@@ -642,6 +643,7 @@ Acceptance for Phase 5:
 ### P7.3 Vue customer-interface foundation
 
 - Independent public acquisition and private SPA build targets with a shared Vue design system and generated client boundary.
+- The [privacy, analytics and Affiliate architecture](privacy-analytics-affiliates.md): consent receipts/enforcement, GDPR lifecycle, Affiliate attribution and recurring commission ledger.
 - Vue Router, mobile-first layouts, session boundary, query client, error boundary, and design tokens.
 - Account switcher, package-aware navigation, entitlement-denied/upgrade states, billing settings, and usage display.
 - Generated API client and problem normalization.
@@ -652,11 +654,12 @@ Acceptance for Phase 5:
 - Phone-width fixtures and horizontal-overflow checks from the first feature slice.
 - Rendered or pre-rendered public landing, feature/package and pricing routes with metadata, crawlability, performance and link gates.
 - Catalog-backed offer selection, free signup continuation, authenticated checkout review and Stripe return-state components.
+- Affiliate code review and aggregate Affiliate enrollment/earnings surfaces, with settlement wording disabled until the commercial mode is approved.
 
 ### P7.4 Feature migration order
 
 1. Your Turn queues, detail and completion flows.
-2. Public landing, complete feature/package breakdown, pricing and checkout journey.
+2. Public landing, complete feature/package breakdown, consented analytics, pricing, Affiliate attribution and checkout journey.
 3. Work queue and ticket workspace.
 4. Knowledge, documents and Baseline context.
 5. Boardroom and conversation streaming.

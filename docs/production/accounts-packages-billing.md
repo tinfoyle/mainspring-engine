@@ -88,6 +88,14 @@ An effective account-level right to use a Feature Package, optionally subject to
 
 An authenticated account billing administrator requests a short-lived Stripe Customer Portal session and is redirected to it. Subscription and payment changes return through webhooks; the browser redirect is not authoritative.
 
+### Affiliate attribution and recurring commission
+
+A normal Infinite Ocean identity may enroll in the Affiliate program and receive one active public code. A referred customer may enter that code during the authenticated checkout review. The server validates it, displays the attribution before redirect, and locks at most one immutable Affiliate attribution to the projected subscription. Analytics consent does not create, change or erase this commercial state.
+
+Stripe metadata carries only an opaque local attribution ID for reconciliation. Each qualifying projected `invoice.paid` renewal appends at most one entry to the local immutable commission ledger under the versioned rule frozen at attribution. Failed or ineligible invoices earn nothing; refunds, disputes and chargebacks append reversals according to the approved rule. Affiliate views expose aggregate earnings and statements without referred-customer identity.
+
+The proposed launch example is $10 USD for each qualifying successfully paid $50 USD monthly renewal. Initial-invoice treatment, discounts/proration, reversal window and whether settlement becomes Affiliate Account billing credit or withdrawable cash require explicit commercial approval before the UI describes earned value as available. The complete boundary is in [Privacy, analytics and affiliate architecture](privacy-analytics-affiliates.md).
+
 ## 4. Identity and account model
 
 ```text

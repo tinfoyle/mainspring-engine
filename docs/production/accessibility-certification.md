@@ -27,10 +27,10 @@ Certify both the successful path and its validation, denial, empty, loading, and
 
 | Surface | Required journey |
 |---|---|
-| Public acquisition | Home -> product/packages -> pricing -> free or selected paid offer -> private signup handoff |
+| Public acquisition | Home -> consent accept/reject/manage -> product/packages -> pricing -> optional Affiliate attribution -> free or selected paid offer -> private signup handoff |
 | Identity | Registration, verification, login, logout, forgotten password, reset, passkey login, passkey enrollment/removal, and recovery-code replacement |
 | Account entry | Owner security enrollment, Account create/join/select/switch, invitation acceptance, and no-Account state |
-| Account administration | Member roster, role change, suspend/reactivate/remove, ownership transfer, session revocation, closure request/cancel, billing status, Checkout, and Portal handoff |
+| Account administration | Member roster, role change, suspend/reactivate/remove, ownership transfer, session revocation, closure request/cancel, billing status, Checkout, Portal handoff, Affiliate enrollment/code and aggregate earning statements |
 | Work | Package locked, read-only, list, detail, child navigation, create, transition, assignment, optimistic conflict, and capacity denial |
 | Agents | Package locked, read-only, Boardroom/conversation selection, message history, Run submission, progress, failed Run, retry, and accept-partial-result |
 | Lifecycle | Downgrade, failed payment/grace, export, closure, retention notice, and terminal access removal |

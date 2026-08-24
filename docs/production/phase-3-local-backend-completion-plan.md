@@ -21,7 +21,7 @@ For this plan, **backend** includes:
 - Account movement, portability, erasure and restore participation; and
 - complete deterministic local Docker fixtures and certification.
 
-The final Vue customer surface—including public acquisition, feature/package education, checkout, the private SPA, mobile visual design and applied browser/accessibility/device acceptance—is outside this completed backend plan and governed by the [Phase 3 Vue SPA product-surface plan](phase-3-vue-spa-plan.md). Existing browser surfaces may be used for diagnostics, but their visual completion cannot block the backend boundary.
+The final Vue customer surface—including GDPR-capable consent/analytics, Affiliate attribution and commission accounting, public acquisition, feature/package education, checkout, the private SPA, mobile visual design and applied browser/accessibility/device acceptance—is outside this completed backend plan and governed by the [Phase 3 Vue SPA product-surface plan](phase-3-vue-spa-plan.md) plus its [privacy, analytics and Affiliate extension](privacy-analytics-affiliates.md). Existing browser surfaces may be used for diagnostics, but their visual completion cannot block the backend boundary.
 
 ## Starting position and completed position
 
