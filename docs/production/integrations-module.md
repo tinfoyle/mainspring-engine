@@ -180,6 +180,12 @@ The provider-secret port now has a production-shaped local filesystem implementa
 
 Credential acquisition repeats the exact Account, operation, connection, credential generation, provider, reference digest, purpose, capability and lease-expiry checks. A generation fenced as rotated or revoked cannot be leased and may then be purged idempotently. Drive material is available only to source sync and non-mutating health; it cannot enter email/web execution or reconciliation. This checkpoint also corrected and certified that the existing mounted production broker permits Drive health while retaining the same execution denial. Focused race tests prove authorization expiry/deletion, lease zeroing, exact replay/conflict, ciphertext tamper refusal, restrictive permissions, absence of plaintext at rest, ended-state monotonicity and purge replay. The complete ordinary Go suite passes. Google code exchange, transactional orchestration, lifecycle HTTP/MCP operations and the deterministic protocol fixture remain before LB1 is complete.
 
+## Google OAuth protocol adapter
+
+The server-side provider boundary now constructs Google's exact offline-consent request with S256 PKCE, the single reviewed Drive-read scope, disabled incremental scope accumulation and one exact callback URI. Authorization-code exchange posts only to the fixed Google token origin; refresh-token revocation posts only to the fixed revocation origin. Both reject redirects, credentialed/query-bearing/traversing callback URIs, malformed protocol values, oversized or unexpected JSON and widened or missing scope. Real Google-style authorization codes are accepted without weakening the stricter state and PKCE alphabet. The adapter returns only refresh material to the application-owned secret boundary; access and identity tokens never cross its interface.
+
+Focused race tests use a deterministic local HTTP provider to prove exact consent fields, exchange form binding, refresh-material return and clearing, scope drift, redirect refusal, provider failure, restrictive client-file loading, bounded response parsing and idempotent already-revoked handling. The complete ordinary Go suite passes. This is the protocol client, not the lifecycle: durable claim, credential creation/rotation, compensation, public callback, HTTP/MCP operations and the containerized end-to-end provider fixture remain.
+
 ## Invariants
 
 - Provider credentials never enter Marketing, Agent, browser, MCP output, events, logs or telemetry.
