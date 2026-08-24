@@ -84,9 +84,16 @@ type Probe interface {
 }
 
 type Definition struct {
-	Kind    domain.ConnectorKind
-	Timeout time.Duration
-	Probe   Probe
+	Kind               domain.ConnectorKind
+	CredentialProvider string
+	Capability         domain.Capability
+	Timeout            time.Duration
+	Probe              Probe
+}
+
+type definitionKey struct {
+	kind     domain.ConnectorKind
+	provider string
 }
 
 type Clock interface{ Now() time.Time }
@@ -98,7 +105,7 @@ type Service struct {
 	ids         ids.Generator
 	clock       Clock
 	lease       time.Duration
-	definitions map[domain.ConnectorKind]Definition
+	definitions map[definitionKey]Definition
 }
 
 func New(repository Repository, authority Authority, broker integrationcredentials.Broker, generator ids.Generator, clock Clock,
@@ -106,16 +113,24 @@ func New(repository Repository, authority Authority, broker integrationcredentia
 	if repository == nil || authority == nil || broker == nil || generator == nil || clock == nil || lease < time.Second || lease > MaximumLease || len(definitions) == 0 {
 		return nil, ErrInvalid
 	}
-	registered := make(map[domain.ConnectorKind]Definition, len(definitions))
+	registered := make(map[definitionKey]Definition, len(definitions))
 	for _, definition := range definitions {
 		if (definition.Kind != domain.ConnectorEmail && definition.Kind != domain.ConnectorWebPublish && definition.Kind != domain.ConnectorGoogleDrive) || definition.Probe == nil ||
-			definition.Timeout < 100*time.Millisecond || definition.Timeout > MaximumLease {
+			definition.Timeout < 100*time.Millisecond || definition.Timeout > MaximumLease ||
+			(definition.CredentialProvider != "" && !validCode.MatchString(definition.CredentialProvider)) {
 			return nil, ErrInvalid
 		}
-		if _, exists := registered[definition.Kind]; exists {
+		if definition.Capability == "" {
+			definition.Capability = defaultCapability(definition.Kind)
+		}
+		if !capabilityMatchesKind(definition.Kind, definition.Capability) {
 			return nil, ErrInvalid
 		}
-		registered[definition.Kind] = definition
+		key := definitionKey{kind: definition.Kind, provider: definition.CredentialProvider}
+		if _, exists := registered[key]; exists {
+			return nil, ErrInvalid
+		}
+		registered[key] = definition
 	}
 	return &Service{repository: repository, authority: authority, broker: broker, ids: generator, clock: clock, lease: lease, definitions: registered}, nil
 }
@@ -133,24 +148,18 @@ func (service *Service) ProcessOne(ctx context.Context) (bool, error) {
 	if claim.ProbeID != probeID || !claim.Valid(now) {
 		return true, ErrInvalid
 	}
-	definition, exists := service.definitions[claim.ConnectorKind]
+	definition, exists := service.definitions[definitionKey{kind: claim.ConnectorKind, provider: claim.CredentialProvider}]
+	if !exists {
+		definition, exists = service.definitions[definitionKey{kind: claim.ConnectorKind}]
+	}
 	if !exists {
 		return true, errors.Join(service.complete(ctx, claim, ProbeResult{State: domain.HealthUnavailable, ErrorCode: "health_probe_unavailable"}, now), ErrUnavailable)
 	}
 	if err := service.authority.AuthorizeAccount(ctx, claim.AccountID); err != nil {
 		return true, errors.Join(service.complete(ctx, claim, ProbeResult{State: domain.HealthUnavailable, ErrorCode: "health_authority_unavailable"}, now), err)
 	}
-	var capability domain.Capability
-	switch claim.ConnectorKind {
-	case domain.ConnectorEmail:
-		capability = domain.CapabilityEmailSend
-	case domain.ConnectorGoogleDrive:
-		capability = domain.CapabilityDriveRead
-	default:
-		capability = domain.CapabilityWebPublish
-	}
 	credentialLease, err := service.broker.Acquire(ctx, integrationcredentials.Request{AccountID: claim.AccountID, OperationID: string(claim.ProbeID),
-		Purpose: integrationcredentials.PurposeHealth, Capability: capability, ConnectionID: claim.ConnectionID, CredentialID: claim.CredentialID,
+		Purpose: integrationcredentials.PurposeHealth, Capability: definition.Capability, ConnectionID: claim.ConnectionID, CredentialID: claim.CredentialID,
 		CredentialGeneration: claim.CredentialGeneration, CredentialProvider: claim.CredentialProvider,
 		ReferenceSHA256: claim.CredentialReferenceSHA256, ExpiresAt: claim.LeaseExpiresAt})
 	if err != nil || credentialLease == nil {
@@ -217,4 +226,30 @@ func minimum(left, right time.Time) time.Time {
 		return right
 	}
 	return left
+}
+
+func defaultCapability(kind domain.ConnectorKind) domain.Capability {
+	switch kind {
+	case domain.ConnectorEmail:
+		return domain.CapabilityEmailSend
+	case domain.ConnectorGoogleDrive:
+		return domain.CapabilityDriveRead
+	case domain.ConnectorWebPublish:
+		return domain.CapabilityWebPublish
+	default:
+		return ""
+	}
+}
+
+func capabilityMatchesKind(kind domain.ConnectorKind, capability domain.Capability) bool {
+	switch kind {
+	case domain.ConnectorEmail:
+		return capability == domain.CapabilityEmailRead || capability == domain.CapabilityEmailSend
+	case domain.ConnectorGoogleDrive:
+		return capability == domain.CapabilityDriveRead
+	case domain.ConnectorWebPublish:
+		return capability == domain.CapabilityWebPublish
+	default:
+		return false
+	}
 }

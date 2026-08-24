@@ -7,6 +7,8 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/google-oauth-fixture ./cmd/google-oauth-fixture
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/imap-fixture ./cmd/imap-fixture
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/provider-credential-fixture ./cmd/provider-credential-fixture
 RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/provider-secret-init ./cmd/provider-secret-init
 
 FROM scratch AS fixture
@@ -18,3 +20,14 @@ ENTRYPOINT ["/google-oauth-fixture"]
 FROM scratch AS secret-init
 COPY --from=build /out/provider-secret-init /provider-secret-init
 ENTRYPOINT ["/provider-secret-init"]
+
+FROM scratch AS imap-fixture
+COPY --from=build --chown=65532:65532 /out/imap-fixture /imap-fixture
+USER 65532:65532
+EXPOSE 9993
+ENTRYPOINT ["/imap-fixture"]
+
+FROM scratch AS provider-credential-fixture
+COPY --from=build --chown=65532:65532 /out/provider-credential-fixture /provider-credential-fixture
+USER 65532:65532
+ENTRYPOINT ["/provider-credential-fixture"]

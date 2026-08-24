@@ -110,6 +110,29 @@ func TestServiceUsesDriveReadForGoogleHealth(t *testing.T) {
 	}
 }
 
+func TestServiceRoutesIMAPHealthWithEmailReadAuthority(t *testing.T) {
+	now := time.Date(2026, 8, 23, 17, 0, 0, 0, time.UTC)
+	imapClaim := claim(now)
+	imapClaim.Capabilities = []domain.Capability{domain.CapabilityEmailRead}
+	imapClaim.Scope = domain.ConnectionScope{EmailAddress: "reader@example.com"}
+	imapClaim.CredentialProvider = "imap"
+	repository := &repository{claim: imapClaim}
+	broker := &broker{}
+	imapProbe, smtpProbe := &probe{}, &probe{}
+	service, err := integrationhealth.New(repository, authority{}, broker, generator("a1600000-0000-4000-8000-000000000006"), clock{at: now}, time.Minute,
+		[]integrationhealth.Definition{
+			{Kind: domain.ConnectorEmail, CredentialProvider: "smtp", Capability: domain.CapabilityEmailSend, Timeout: time.Second, Probe: smtpProbe},
+			{Kind: domain.ConnectorEmail, CredentialProvider: "imap", Capability: domain.CapabilityEmailRead, Timeout: time.Second, Probe: imapProbe},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := service.ProcessOne(context.Background()); err != nil || !worked || broker.request.Capability != domain.CapabilityEmailRead ||
+		imapProbe.call.Claim.CredentialProvider != "imap" || smtpProbe.call.Claim.ConnectionID != "" {
+		t.Fatalf("worked=%t err=%v request=%+v imap=%+v smtp=%+v", worked, err, broker.request, imapProbe.call, smtpProbe.call)
+	}
+}
+
 func TestServiceRecordsCredentialFailureWithoutProviderCall(t *testing.T) {
 	now := time.Date(2026, 8, 23, 17, 0, 0, 0, time.UTC)
 	repository := &repository{claim: claim(now)}

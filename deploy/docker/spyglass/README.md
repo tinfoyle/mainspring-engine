@@ -50,6 +50,8 @@ The local role jobs are idempotent and give each serving process a non-superuser
 
 Mailpit captures local notification traffic at `http://127.0.0.1:8025`. Its SMTP listener is exposed only on `127.0.0.1:1026` and requires implicit TLS. The checked-in CA, leaf certificate, and key are deterministic local test fixtures; the notification worker trusts that CA through the optional custom SMTP root setting. The smoke gate performs a certificate-verified, content-free delivery and confirms it appears in Mailpit.
 
+The local IMAP fixture exposes an authenticated, deterministic mailbox through implicit TLS only at `127.0.0.1:1993`. Its checked-in certificate and key are local-test material, and connector workers mount only the fixture CA. The opt-in IMAP certification uses the real encrypted provider vault, `email.read` health authority, UIDVALIDITY/UID cursor, MIME admission, source-object store, and Knowledge processing path; it never enables Stage or production deployment.
+
 An optional, digest-pinned Prometheus profile verifies the content-safe metrics surface for every implemented long-running process:
 
 ```bash

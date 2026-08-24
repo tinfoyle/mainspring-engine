@@ -50,6 +50,24 @@ services:
       - provider-secrets-a:/provider-a
       - provider-secrets-b:/provider-b
 
+  provider-credential-fixture-a:
+    profiles: [credential-fixture]
+    build:
+      context: ../../..
+      dockerfile: deploy/docker/spyglass/google-fixture/Dockerfile
+      target: provider-credential-fixture
+    image: spyglass-provider-credential-fixture:local
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      SPYGLASS_ENVIRONMENT: local
+      SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
+      SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
+    volumes:
+      - provider-secrets-a:/var/lib/spyglass/provider
+
   website:
     build:
       context: ../../../website
@@ -222,6 +240,37 @@ services:
     depends_on:
       global-roles: {condition: service_completed_successfully}
 
+  imap-fixture:
+    build:
+      context: ../../..
+      dockerfile: deploy/docker/spyglass/google-fixture/Dockerfile
+      target: imap-fixture
+    image: spyglass-imap-fixture:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      IMAP_FIXTURE_USERNAME: ${SPYGLASS_IMAP_FIXTURE_USERNAME}
+      IMAP_FIXTURE_PASSWORD: ${SPYGLASS_IMAP_FIXTURE_PASSWORD}
+    volumes:
+      - ./imap-fixture/ca.crt:/run/imap-fixture/ca.crt:ro
+      - ./imap-fixture/imap-fixture.crt:/run/imap-fixture/tls.crt:ro
+      - ./imap-fixture/imap-fixture.key:/run/imap-fixture/tls.key:ro
+    ports:
+      - "127.0.0.1:${SPYGLASS_LOCAL_IMAP_PORT:-1993}:9993"
+    expose: ["9993"]
+    healthcheck:
+      test: [CMD, /imap-fixture, healthcheck]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 5s
+    networks: [application]
+
   mailpit:
     image: axllent/mailpit:v1.30.7@sha256:d5ecbb067db3705fa953d79e1b7f81ef84038df67aba6c52825d8c02a1ea748a
     restart: unless-stopped
@@ -321,6 +370,7 @@ services:
       cell-a-roles: {condition: service_completed_successfully}
       provider-secret-init: {condition: service_completed_successfully, required: false}
       google-oauth-fixture: {condition: service_healthy, required: false}
+      imap-fixture: {condition: service_healthy, required: false}
     environment:
       SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
       SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
@@ -328,8 +378,10 @@ services:
       SPYGLASS_GOOGLE_OAUTH_CLIENT_SECRET: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_SECRET}
       SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
       SPYGLASS_GOOGLE_DRIVE_ENDPOINT: http://google-oauth-fixture:8080/drive/v3
+      SPYGLASS_IMAP_ROOT_CA_FILE: /etc/spyglass/imap-fixture-ca.crt
     volumes:
       - ./mock-connector/local.json:/run/spyglass/mock-connector.json:ro
+      - ./imap-fixture/ca.crt:/etc/spyglass/imap-fixture-ca.crt:ro
       - provider-secrets-a:/var/lib/spyglass/provider
 
   integration-connector-worker-b:
@@ -338,6 +390,7 @@ services:
       cell-b-roles: {condition: service_completed_successfully}
       provider-secret-init: {condition: service_completed_successfully, required: false}
       google-oauth-fixture: {condition: service_healthy, required: false}
+      imap-fixture: {condition: service_healthy, required: false}
     environment:
       SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
       SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
@@ -345,8 +398,10 @@ services:
       SPYGLASS_GOOGLE_OAUTH_CLIENT_SECRET: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_SECRET}
       SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
       SPYGLASS_GOOGLE_DRIVE_ENDPOINT: http://google-oauth-fixture:8080/drive/v3
+      SPYGLASS_IMAP_ROOT_CA_FILE: /etc/spyglass/imap-fixture-ca.crt
     volumes:
       - ./mock-connector/local.json:/run/spyglass/mock-connector.json:ro
+      - ./imap-fixture/ca.crt:/etc/spyglass/imap-fixture-ca.crt:ro
       - provider-secrets-b:/var/lib/spyglass/provider
 
   route-receipt-worker-a:

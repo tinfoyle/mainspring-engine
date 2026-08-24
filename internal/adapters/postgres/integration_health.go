@@ -25,12 +25,12 @@ func (repository *IntegrationHealthRepository) Claim(ctx context.Context, probeI
 	var claim integrationhealth.Claim
 	var referenceDigest []byte
 	err := repository.pool.QueryRow(ctx, `SELECT account_id,probe_id,connection_id,connection_revision_id,connection_revision,
-		connector_kind,capabilities,email_address,audience_reference,https_origin,path_prefix,credential_id,credential_generation,
+		connector_kind,capabilities,email_address,audience_reference,https_origin,path_prefix,drive_folder_ids,credential_id,credential_generation,
 		credential_provider,credential_reference_sha256,lease_expires_at
 		FROM public.spyglass_claim_integration_health_probe($1,$2,$3)`, probeID, now.UTC(), leaseExpiresAt.UTC()).Scan(
 		&claim.AccountID, &claim.ProbeID, &claim.ConnectionID, &claim.ConnectionRevisionID, &claim.ConnectionRevision,
 		&claim.ConnectorKind, &claim.Capabilities, &claim.Scope.EmailAddress, &claim.Scope.AudienceReference, &claim.Scope.HTTPSOrigin,
-		&claim.Scope.PathPrefix, &claim.CredentialID, &claim.CredentialGeneration, &claim.CredentialProvider, &referenceDigest,
+		&claim.Scope.PathPrefix, &claim.Scope.DriveFolderIDs, &claim.CredentialID, &claim.CredentialGeneration, &claim.CredentialProvider, &referenceDigest,
 		&claim.LeaseExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return integrationhealth.Claim{}, false, nil

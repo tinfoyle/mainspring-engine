@@ -26,6 +26,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerlauncherhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/encryptedcredentials"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/googledrive"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/imapemail"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/mockconnector"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/mountedcredentials"
@@ -2316,7 +2317,7 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 	var contents integrationexecution.ContentSource
 	var definitions []integrationexecution.Definition
 	var healthDefinitions []integrationhealth.Definition
-	var sourceProvider integrationsync.Provider
+	var sourceRoutes []integrationsync.ProviderRoute
 	var driveHealthProbe integrationhealth.Probe
 	var connectorReadiness func(context.Context) error
 	endpoint, endpointErr := requiredEnv("SPYGLASS_OBJECT_STORE_ENDPOINT")
@@ -2371,7 +2372,7 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 			return runtimeErr
 		}
 		broker, contents, definitions, healthDefinitions = runtime.Broker, runtime.Contents, runtime.Definitions, runtime.HealthDefinitions
-		sourceProvider = mockconnector.DriveProvider{}
+		sourceRoutes = []integrationsync.ProviderRoute{{Kind: integrationsdomain.ConnectorGoogleDrive, CredentialProvider: "mock", Provider: mockconnector.DriveProvider{}}}
 	case "local-google":
 		if environment != "local" && environment != "local-secure" {
 			return errors.New("local Google Integration connectors require a local environment")
@@ -2399,6 +2400,13 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 		if providerErr != nil {
 			return providerErr
 		}
+		imapProvider, imapSyncTimeout, imapErr := imapProviderFromEnvironment()
+		if imapErr != nil {
+			return imapErr
+		}
+		if imapSyncTimeout > driveSyncTimeout {
+			driveSyncTimeout = imapSyncTimeout
+		}
 		broker, contents, definitions = vault, runtime.Contents, runtime.Definitions
 		for _, definition := range runtime.HealthDefinitions {
 			if definition.Kind != integrationsdomain.ConnectorGoogleDrive {
@@ -2406,9 +2414,17 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 			}
 		}
 		healthDefinitions = append(healthDefinitions, integrationhealth.Definition{
-			Kind: integrationsdomain.ConnectorGoogleDrive, Timeout: driveSyncTimeout, Probe: driveProvider,
+			Kind: integrationsdomain.ConnectorGoogleDrive, CredentialProvider: googledrive.ProviderCode,
+			Capability: integrationsdomain.CapabilityDriveRead, Timeout: driveSyncTimeout, Probe: driveProvider,
+		}, integrationhealth.Definition{
+			Kind: integrationsdomain.ConnectorEmail, CredentialProvider: imapemail.ProviderCode,
+			Capability: integrationsdomain.CapabilityEmailRead, Timeout: imapSyncTimeout, Probe: imapProvider,
 		})
-		sourceProvider, driveHealthProbe = driveProvider, driveProvider
+		sourceRoutes = []integrationsync.ProviderRoute{
+			{Kind: integrationsdomain.ConnectorGoogleDrive, CredentialProvider: googledrive.ProviderCode, Provider: driveProvider},
+			{Kind: integrationsdomain.ConnectorEmail, CredentialProvider: imapemail.ProviderCode, Provider: imapProvider},
+		}
+		driveHealthProbe = driveProvider
 	case "production":
 		if environment != "stage" && environment != "preproduction" && environment != "production" {
 			return errors.New("production Integration connectors require stage, preproduction, or production")
@@ -2429,9 +2445,18 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 		if timeoutErr != nil || webTimeout < 100*time.Millisecond || webTimeout > integrationexecution.MaximumLease {
 			return errors.New("SPYGLASS_WEB_PUBLISH_CONNECTOR_TIMEOUT must be between 100ms and 5m")
 		}
+		imapProvider, imapSyncTimeout, imapErr := imapProviderFromEnvironment()
+		if imapErr != nil {
+			return imapErr
+		}
+		if imapSyncTimeout > driveSyncTimeout {
+			driveSyncTimeout = imapSyncTimeout
+		}
 		switch envOr("SPYGLASS_GOOGLE_DRIVE_ADAPTER", "disabled") {
 		case "disabled":
-			sourceProvider = disabledDriveProvider{}
+			sourceRoutes = append(sourceRoutes, integrationsync.ProviderRoute{
+				Kind: integrationsdomain.ConnectorGoogleDrive, CredentialProvider: googledrive.ProviderCode, Provider: disabledDriveProvider{},
+			})
 		case "production":
 			oauthClientFile, oauthErr := requiredEnv("SPYGLASS_GOOGLE_DRIVE_OAUTH_CLIENT_FILE")
 			if oauthErr != nil {
@@ -2442,11 +2467,14 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 				return errors.New("SPYGLASS_GOOGLE_DRIVE_PAGE_SIZE must be between 1 and 4")
 			}
 			driveHTTPClient := &http.Client{Transport: observability.TracingFromContext(ctx).Transport(nil)}
-			sourceProvider, oauthErr = googledrive.NewFromClientFile(googledrive.Config{Client: driveHTTPClient, PageSize: int(drivePageSize)}, oauthClientFile)
-			if oauthErr != nil {
-				return oauthErr
+			driveProvider, providerErr := googledrive.NewFromClientFile(googledrive.Config{Client: driveHTTPClient, PageSize: int(drivePageSize)}, oauthClientFile)
+			if providerErr != nil {
+				return providerErr
 			}
-			driveHealthProbe = sourceProvider.(*googledrive.Provider)
+			sourceRoutes = append(sourceRoutes, integrationsync.ProviderRoute{
+				Kind: integrationsdomain.ConnectorGoogleDrive, CredentialProvider: googledrive.ProviderCode, Provider: driveProvider,
+			})
+			driveHealthProbe = driveProvider
 		default:
 			return errors.New("SPYGLASS_GOOGLE_DRIVE_ADAPTER must be disabled or production with production connectors")
 		}
@@ -2456,16 +2484,27 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 			{Capability: integrationsdomain.CapabilityWebPublish, Timeout: webTimeout, Connector: webpublishconnector.New()},
 		}
 		healthDefinitions = []integrationhealth.Definition{
-			{Kind: integrationsdomain.ConnectorEmail, Timeout: smtpTimeout, Probe: smtpconnector.New()},
+			{Kind: integrationsdomain.ConnectorEmail, CredentialProvider: smtpconnector.ProviderCode,
+				Capability: integrationsdomain.CapabilityEmailSend, Timeout: smtpTimeout, Probe: smtpconnector.New()},
+			{Kind: integrationsdomain.ConnectorEmail, CredentialProvider: imapemail.ProviderCode,
+				Capability: integrationsdomain.CapabilityEmailRead, Timeout: imapSyncTimeout, Probe: imapProvider},
 			{Kind: integrationsdomain.ConnectorWebPublish, Timeout: webTimeout, Probe: webpublishconnector.New()},
 		}
+		sourceRoutes = append(sourceRoutes, integrationsync.ProviderRoute{
+			Kind: integrationsdomain.ConnectorEmail, CredentialProvider: imapemail.ProviderCode, Provider: imapProvider,
+		})
 		if driveHealthProbe != nil {
 			healthDefinitions = append(healthDefinitions, integrationhealth.Definition{
-				Kind: integrationsdomain.ConnectorGoogleDrive, Timeout: driveSyncTimeout, Probe: driveHealthProbe,
+				Kind: integrationsdomain.ConnectorGoogleDrive, CredentialProvider: googledrive.ProviderCode,
+				Capability: integrationsdomain.CapabilityDriveRead, Timeout: driveSyncTimeout, Probe: driveHealthProbe,
 			})
 		}
 	default:
 		return errors.New("SPYGLASS_CONNECTOR_ADAPTER must be mock, local-google, or production")
+	}
+	sourceProvider, err := integrationsync.NewProviderRouter(sourceRoutes)
+	if err != nil {
+		return err
 	}
 	var cursorCipher integrationsync.CursorCipher
 	if adapter == "mock" || adapter == "local-google" {
@@ -2543,6 +2582,32 @@ type disabledDriveProvider struct{}
 
 func (disabledDriveProvider) Sync(context.Context, integrationsync.ProviderRequest) (integrationsync.ProviderPage, error) {
 	return integrationsync.ProviderPage{}, errors.New("Google Drive source adapter is disabled")
+}
+
+func imapProviderFromEnvironment() (*imapemail.Provider, time.Duration, error) {
+	dialTimeout, err := durationEnv("SPYGLASS_IMAP_DIAL_TIMEOUT", 15*time.Second)
+	if err != nil || dialTimeout < time.Second || dialTimeout > time.Minute {
+		return nil, 0, errors.New("SPYGLASS_IMAP_DIAL_TIMEOUT must be between 1s and 1m")
+	}
+	syncTimeout, err := durationEnv("SPYGLASS_IMAP_SYNC_TIMEOUT", 90*time.Second)
+	if err != nil || syncTimeout < time.Second || syncTimeout > integrationsync.MaximumLease {
+		return nil, 0, errors.New("SPYGLASS_IMAP_SYNC_TIMEOUT must be between 1s and 5m")
+	}
+	pageMessages, err := int32Env("SPYGLASS_IMAP_PAGE_MESSAGES", 4)
+	if err != nil || pageMessages < 1 || pageMessages > 10 {
+		return nil, 0, errors.New("SPYGLASS_IMAP_PAGE_MESSAGES must be between 1 and 10")
+	}
+	maximumMessageBytes, err := int64Env("SPYGLASS_IMAP_MAXIMUM_MESSAGE_BYTES", 20<<20)
+	if err != nil || maximumMessageBytes < 1024 || maximumMessageBytes > integrationsync.MaximumChangeBytes {
+		return nil, 0, errors.New("SPYGLASS_IMAP_MAXIMUM_MESSAGE_BYTES must be between 1024 and 52428800")
+	}
+	maximumPartBytes, err := int64Env("SPYGLASS_IMAP_MAXIMUM_PART_BYTES", 10<<20)
+	if err != nil || maximumPartBytes < 1024 || maximumPartBytes > maximumMessageBytes {
+		return nil, 0, errors.New("SPYGLASS_IMAP_MAXIMUM_PART_BYTES must be between 1024 and the message byte limit")
+	}
+	provider, err := imapemail.New(imapemail.Config{RootCAFile: os.Getenv("SPYGLASS_IMAP_ROOT_CA_FILE"), DialTimeout: dialTimeout,
+		PageMessages: int(pageMessages), MaximumMessageBytes: maximumMessageBytes, MaximumPartBytes: maximumPartBytes})
+	return provider, syncTimeout, err
 }
 
 func runAgentDispatchWorker(ctx context.Context, logger *slog.Logger) error {
