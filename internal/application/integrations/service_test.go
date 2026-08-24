@@ -312,10 +312,10 @@ func TestReadsNormalizeBoundedQueriesAndManagementRejectsMemberOrWorkload(t *tes
 	if _, err := service.GetConnection(context.Background(), actor, accountID, connectionID); err != nil {
 		t.Fatal(err)
 	}
-	page, err := service.ListConnections(context.Background(), actor, accountID, ConnectionListQuery{States: []domain.ConnectionState{domain.ConnectionRevoked, domain.ConnectionActive}, Kinds: []domain.ConnectorKind{domain.ConnectorWebPublish, domain.ConnectorGoogleDrive, domain.ConnectorEmail}})
+	page, err := service.ListConnections(context.Background(), actor, accountID, ConnectionListQuery{States: []domain.ConnectionState{domain.ConnectionRevoked, domain.ConnectionActive}, Kinds: []domain.ConnectorKind{domain.ConnectorWebPublish, domain.ConnectorWebResearch, domain.ConnectorGoogleDrive, domain.ConnectorEmail}})
 	if err != nil || len(page.Items) != 1 || store.listQuery.Limit != DefaultConnectionPageSize ||
 		!slices.Equal(store.listQuery.States, []domain.ConnectionState{domain.ConnectionActive, domain.ConnectionRevoked}) ||
-		!slices.Equal(store.listQuery.Kinds, []domain.ConnectorKind{domain.ConnectorEmail, domain.ConnectorGoogleDrive, domain.ConnectorWebPublish}) {
+		!slices.Equal(store.listQuery.Kinds, []domain.ConnectorKind{domain.ConnectorEmail, domain.ConnectorGoogleDrive, domain.ConnectorWebPublish, domain.ConnectorWebResearch}) {
 		t.Fatalf("page=%+v query=%+v err=%v", page, store.listQuery, err)
 	}
 	_, _, err = service.CreateConnection(context.Background(), CreateConnectionCommand{Actor: actor, AccountID: accountID,
@@ -328,9 +328,6 @@ func TestReadsNormalizeBoundedQueriesAndManagementRejectsMemberOrWorkload(t *tes
 		RequestID: "95500000-0000-4000-8000-000000000005"})
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("workload management error=%v", err)
-	}
-	if _, err := service.ListConnections(context.Background(), actor, accountID, ConnectionListQuery{Kinds: []domain.ConnectorKind{domain.ConnectorWebResearch}}); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("unconstructed connector query error=%v", err)
 	}
 	if _, err := service.ListHealth(context.Background(), actor, accountID, HealthListQuery{ConnectionID: connectionID}); err != nil || store.healthQuery.Limit != DefaultConnectionPageSize {
 		t.Fatalf("health query=%+v err=%v", store.healthQuery, err)

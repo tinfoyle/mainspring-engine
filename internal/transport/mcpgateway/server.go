@@ -221,6 +221,21 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthorizationError(w, err)
 		return
 	}
+	var additionalPackageAccesses []routecontext.PackageAccess
+	if additional, required := mcpapi.AdditionalToolRequirement(tool); required {
+		additionalContext, additionalErr := s.authorizer.Authorize(r.Context(), principal.Actor, accountID, additional)
+		if additionalErr != nil {
+			s.writeAuthorizationError(w, additionalErr)
+			return
+		}
+		if additionalContext.AccountID != accountContext.AccountID || additionalContext.CellID != accountContext.CellID ||
+			additionalContext.PlacementGeneration != accountContext.PlacementGeneration || additionalContext.EntitlementVersion != accountContext.EntitlementVersion ||
+			additionalContext.Role != accountContext.Role || additionalContext.PackageAccess == nil {
+			writeProblem(w, http.StatusServiceUnavailable, "authorization_unavailable")
+			return
+		}
+		additionalPackageAccesses = append(additionalPackageAccesses, *packageClaim(additionalContext.PackageAccess))
+	}
 	if s.exports != nil && s.exports.handles(tool) {
 		requestID := s.ids.New()
 		s.exports.call(w, r, body, principal, accountContext, requestID)
@@ -233,7 +248,8 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	requestID := s.ids.New()
-	outbound, err := s.newCellRequest(r, cellRoute.Origin, body, principal, accountContext, requestID)
+	delegateWebResearch := tool == "spyglass_integrations_web_read"
+	outbound, err := s.newCellRequest(r, cellRoute.Origin, body, principal, accountContext, additionalPackageAccesses, delegateWebResearch, requestID)
 	if err != nil {
 		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable")
 		return
@@ -241,7 +257,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	response, err := s.client.Do(outbound)
 	if err != nil && response == nil && r.Context().Err() == nil {
 		requestID = s.ids.New()
-		outbound, err = s.newCellRequest(r, cellRoute.Origin, body, principal, accountContext, requestID)
+		outbound, err = s.newCellRequest(r, cellRoute.Origin, body, principal, accountContext, additionalPackageAccesses, delegateWebResearch, requestID)
 		if err == nil {
 			response, err = s.client.Do(outbound)
 		}
@@ -333,7 +349,7 @@ func (s *Server) classify(request *http.Request, body *requestbody.Capture, acco
 	return requirement, envelope.Method, call.Name, nil
 }
 
-func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body *requestbody.Capture, principal Principal, account access.AccountContext, requestID string) (*http.Request, error) {
+func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body *requestbody.Capture, principal Principal, account access.AccountContext, additionalPackageAccesses []routecontext.PackageAccess, delegateWebResearch bool, requestID string) (*http.Request, error) {
 	origin.Path, origin.RawPath, origin.RawQuery = cellMCPPath, "", ""
 	reader, err := body.Open()
 	if err != nil {
@@ -351,7 +367,10 @@ func (s *Server) newCellRequest(inbound *http.Request, origin url.URL, body *req
 		_ = reader.Close()
 		return nil, err
 	}
-	authority := routecontext.Authority{RequestID: requestID, AccountID: account.AccountID, CellID: account.CellID, PlacementGeneration: account.PlacementGeneration, EntitlementVersion: account.EntitlementVersion, PackageAccess: packageClaim(account.PackageAccess)}
+	authority := routecontext.Authority{RequestID: requestID, AccountID: account.AccountID, CellID: account.CellID, PlacementGeneration: account.PlacementGeneration, EntitlementVersion: account.EntitlementVersion, PackageAccess: packageClaim(account.PackageAccess), PackageAccesses: additionalPackageAccesses}
+	if delegateWebResearch && len(additionalPackageAccesses) == 1 {
+		authority.DelegatedWorkloadIDs = []string{"integration-web-research"}
+	}
 	actor := principal.Actor
 	if actor.UserID != "" {
 		authority.ActorKind, authority.ActorID, authority.Role = "user", string(actor.UserID), string(account.Role)

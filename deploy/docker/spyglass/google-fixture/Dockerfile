@@ -8,6 +8,7 @@ COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/google-oauth-fixture ./cmd/google-oauth-fixture
 RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/imap-fixture ./cmd/imap-fixture
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/web-research-fixture ./cmd/web-research-fixture
 RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/provider-credential-fixture ./cmd/provider-credential-fixture
 RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/provider-secret-init ./cmd/provider-secret-init
 
@@ -31,3 +32,9 @@ FROM scratch AS provider-credential-fixture
 COPY --from=build --chown=65532:65532 /out/provider-credential-fixture /provider-credential-fixture
 USER 65532:65532
 ENTRYPOINT ["/provider-credential-fixture"]
+
+FROM scratch AS web-research-fixture
+COPY --from=build --chown=65532:65532 /out/web-research-fixture /web-research-fixture
+USER 65532:65532
+EXPOSE 9443
+ENTRYPOINT ["/web-research-fixture"]

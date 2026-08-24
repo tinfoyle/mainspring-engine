@@ -6,7 +6,7 @@
 
 ## Implemented boundary
 
-`internal/transport/mcpapi` is a thin transport over the same application services used by customer HTTP. Its complete composition publishes 86 typed Attention, action-recovery, Knowledge, Baseline, Finance, Marketing and Integrations tools when provider authorization is configured. The app-api runtime mounts that composition only at private `/internal/v1/mcp` behind the same one-use signed route-proof acceptor as customer HTTP.
+`internal/transport/mcpapi` is a thin transport over the same application services used by customer HTTP. Its complete composition publishes 89 typed Attention, action-recovery, Knowledge, Baseline, Finance, Marketing and Integrations tools when provider authorization and web research are configured. The global gateway adds five Account-export tools. The app-api runtime mounts its package composition only at private `/internal/v1/mcp` behind the same one-use signed route-proof acceptor as customer HTTP.
 
 The boundary:
 

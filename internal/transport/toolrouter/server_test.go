@@ -235,3 +235,30 @@ func TestMarketingDispatchUsesBoundedReadsAndDraftOnlyMutationRoutes(t *testing.
 		t.Fatal("invalid Marketing state was routed")
 	}
 }
+
+func TestWebResearchDispatchSeparatesReadOnlySearchFromCrossPackageCapture(t *testing.T) {
+	connectionID := "85000000-0000-4000-8000-000000000008"
+	search, ok := dispatchCapability(WebResearchSearchCapability, testAccount,
+		[]byte(`{"connection_id":"`+connectionID+`","query":"current rule","limit":3}`))
+	if !ok || search.method != http.MethodPost || search.target != "/api/v1/accounts/"+testAccount+"/integrations/web-research/search" ||
+		search.requirement.Package != catalog.PackageIntegrations || search.requirement.Mutation || search.additionalRequirement != nil ||
+		!strings.Contains(string(search.body), `"query":"current rule"`) {
+		t.Fatalf("search=%+v body=%s ok=%v", search, search.body, ok)
+	}
+	read, ok := dispatchCapability(WebResearchReadCapability, testAccount,
+		[]byte(`{"connection_id":"`+connectionID+`","url":"https://research.example/rule"}`))
+	if !ok || read.method != http.MethodPost || read.target != "/api/v1/accounts/"+testAccount+"/integrations/web-research/read" ||
+		read.requirement.Package != catalog.PackageIntegrations || !read.requirement.Mutation || !read.createdOK ||
+		read.additionalRequirement == nil || read.additionalRequirement.Package != catalog.PackageKnowledge || !read.additionalRequirement.Mutation {
+		t.Fatalf("read=%+v body=%s ok=%v", read, read.body, ok)
+	}
+	for _, invalid := range []string{
+		`{"connection_id":"invalid","query":"rule"}`,
+		`{"connection_id":"` + connectionID + `","query":"rule","unexpected":true}`,
+		`{"connection_id":"` + connectionID + `","url":"http://research.example/rule","unexpected":true}`,
+	} {
+		if _, ok := dispatchCapability(WebResearchSearchCapability, testAccount, []byte(invalid)); ok {
+			t.Fatalf("invalid web research input was routed: %s", invalid)
+		}
+	}
+}

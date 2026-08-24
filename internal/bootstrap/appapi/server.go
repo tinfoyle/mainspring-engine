@@ -2,6 +2,7 @@ package appapi
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/googleoauth"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
+	webresearchadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/webresearch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/actionrecovery"
 	agentapp "github.com/tinfoyle/spyglass-engine/internal/application/agents"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
@@ -26,6 +28,7 @@ import (
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routeaccess"
 	schedulingapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
+	webresearchapp "github.com/tinfoyle/spyglass-engine/internal/application/webresearch"
 	workapp "github.com/tinfoyle/spyglass-engine/internal/application/work"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/knowledge"
@@ -67,6 +70,11 @@ type Config struct {
 	GoogleOAuthTokenEndpoint         string
 	GoogleOAuthRevocationEndpoint    string
 	GoogleOAuthTransport             http.RoundTripper
+	WebResearchSearchEndpoint        string
+	WebResearchProviderTransport     http.RoundTripper
+	WebResearchResolver              webresearchadapter.Resolver
+	WebResearchDialer                webresearchadapter.Dialer
+	WebResearchRootCAs               *x509.CertPool
 }
 
 type Server struct {
@@ -232,18 +240,25 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
+	var providerVault *encryptedcredentials.Vault
+	if config.ProviderSecretRoot != "" || config.ProviderSecretKeyFile != "" {
+		providerVault, err = encryptedcredentials.New(config.ProviderSecretRoot, config.ProviderSecretKeyFile)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
 	var authorizationService *integrationauthorization.Service
-	if config.ProviderSecretRoot != "" || config.ProviderSecretKeyFile != "" || config.GoogleOAuthClientFile != "" || config.GoogleOAuthClientID != "" ||
-		config.GoogleOAuthClientSecret != "" || config.GoogleOAuthAuthorizationEndpoint != "" || config.GoogleOAuthTokenEndpoint != "" || config.GoogleOAuthRevocationEndpoint != "" {
+	if config.GoogleOAuthClientFile != "" || config.GoogleOAuthClientID != "" || config.GoogleOAuthClientSecret != "" ||
+		config.GoogleOAuthAuthorizationEndpoint != "" || config.GoogleOAuthTokenEndpoint != "" || config.GoogleOAuthRevocationEndpoint != "" {
+		if providerVault == nil {
+			pool.Close()
+			return nil, errors.New("Google OAuth requires the encrypted provider-secret vault")
+		}
 		fixtureConfigured, fixtureErr := googleOAuthFixtureMode(config)
 		if fixtureErr != nil {
 			pool.Close()
 			return nil, fixtureErr
-		}
-		vault, vaultErr := encryptedcredentials.New(config.ProviderSecretRoot, config.ProviderSecretKeyFile)
-		if vaultErr != nil {
-			pool.Close()
-			return nil, vaultErr
 		}
 		oauthHTTP := &http.Client{Transport: config.GoogleOAuthTransport, Timeout: 20 * time.Second}
 		var provider integrationauthorization.Provider
@@ -262,8 +277,34 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 			pool.Close()
 			return nil, repositoryErr
 		}
-		authorizationService, err = integrationauthorization.NewService(routeaccess.NewAuthorizer(), authorizationRepository, vault, provider,
+		authorizationService, err = integrationauthorization.NewService(routeaccess.NewAuthorizer(), authorizationRepository, providerVault, provider,
 			integrationauthorization.RandomSecrets{}, clock)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
+	var webResearchService *webresearchapp.Service
+	if config.WebResearchSearchEndpoint != "" {
+		if providerVault == nil {
+			pool.Close()
+			return nil, errors.New("public web research requires the encrypted provider-secret vault")
+		}
+		retriever, retrieverErr := webresearchadapter.New(webresearchadapter.Config{Resolver: config.WebResearchResolver,
+			Dialer: config.WebResearchDialer, RootCAs: config.WebResearchRootCAs, UserAgent: "InfiniteOcean-Spyglass/1.0", Now: clock.Now})
+		if retrieverErr != nil {
+			pool.Close()
+			return nil, retrieverErr
+		}
+		providerHTTP := &http.Client{Transport: config.WebResearchProviderTransport, Timeout: webresearchadapter.DefaultTimeout}
+		provider, providerErr := webresearchadapter.NewFirecrawl(webresearchadapter.FirecrawlConfig{SearchEndpoint: config.WebResearchSearchEndpoint,
+			HTTPClient: providerHTTP, Retriever: retriever, Now: clock.Now})
+		if providerErr != nil {
+			pool.Close()
+			return nil, providerErr
+		}
+		webResearchService, err = webresearchapp.New(routeaccess.NewAuthorizer(), integrationsRepository, providerVault, provider,
+			documentService, documentAdmission, clock, 0)
 		if err != nil {
 			pool.Close()
 			return nil, err
@@ -299,6 +340,9 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 	if authorizationService != nil {
 		cellOptions = append(cellOptions, cellapi.WithIntegrationAuthorization(authorizationService))
 	}
+	if webResearchService != nil {
+		cellOptions = append(cellOptions, cellapi.WithWebResearch(webResearchService))
+	}
 	transport, err := cellapi.New(acceptor, logger, maxBody, cellOptions...)
 	if err != nil {
 		pool.Close()
@@ -307,6 +351,9 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 	mcpOptions := []mcpapi.Option{mcpapi.WithActionRecovery(actionRecoveryService), mcpapi.WithKnowledge(knowledgeService), mcpapi.WithKnowledgeDocuments(documents), mcpapi.WithBaseline(baselineService), mcpapi.WithFinance(financeService), mcpapi.WithMarketing(marketingCommands), mcpapi.WithIntegrations(integrationsService)}
 	if authorizationService != nil {
 		mcpOptions = append(mcpOptions, mcpapi.WithIntegrationAuthorization(authorizationService))
+	}
+	if webResearchService != nil {
+		mcpOptions = append(mcpOptions, mcpapi.WithWebResearch(webResearchService))
 	}
 	mcpTransport, err := mcpapi.New(mcpapi.NewRoutedAuthority(), attentionService, logger, mcpapi.Config{Version: config.MCPVersion, MaxBody: maxBody, ResourceMetadataURL: config.MCPResourceMetadataURL}, mcpOptions...)
 	if err != nil {
@@ -348,6 +395,10 @@ func (routes marketingRoutes) UploadAssetRevision(ctx context.Context, command m
 
 func (routes knowledgeDocumentRoutes) Upload(ctx context.Context, command knowledgeapp.UploadDocumentCommand) (knowledge.Document, knowledge.DocumentRevision, error) {
 	return routes.admission.Upload(ctx, command)
+}
+
+func (routes knowledgeDocumentRoutes) UploadRevision(ctx context.Context, command knowledgeapp.UploadDocumentRevisionCommand) (knowledge.DocumentRevision, error) {
+	return routes.admission.UploadRevision(ctx, command)
 }
 
 func (routes knowledgeDocumentRoutes) List(ctx context.Context, actor access.Actor, accountID ids.AccountID, query knowledgeapp.DocumentListQuery) (knowledgeapp.DocumentPage, error) {

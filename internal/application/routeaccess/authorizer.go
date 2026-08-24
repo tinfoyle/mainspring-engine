@@ -27,7 +27,7 @@ func (a *Authorizer) Authorize(ctx context.Context, actor access.Actor, accountI
 	if authority.AccountID != accountID {
 		return access.AccountContext{}, &access.DeniedError{Code: access.DenialCorruptContext}
 	}
-	if !actorMatches(actor, authority) {
+	if !actorMatches(actor, authority) && !delegatedActorMatches(actor, authority, requirement) {
 		return access.AccountContext{}, &access.DeniedError{Code: access.DenialUnauthenticated}
 	}
 	role := accounts.MembershipRole(authority.Role)
@@ -36,10 +36,20 @@ func (a *Authorizer) Authorize(ctx context.Context, actor access.Actor, accountI
 	}
 	var packageAccess *entitlements.PackageAccess
 	if requirement.Package != "" {
-		if authority.PackageAccess == nil || catalog.PackageCode(authority.PackageAccess.Code) != requirement.Package {
+		claimed := authority.PackageAccess
+		if claimed == nil || catalog.PackageCode(claimed.Code) != requirement.Package {
+			claimed = nil
+			for index := range authority.PackageAccesses {
+				if catalog.PackageCode(authority.PackageAccesses[index].Code) == requirement.Package {
+					claimed = &authority.PackageAccesses[index]
+					break
+				}
+			}
+		}
+		if claimed == nil {
 			return access.AccountContext{}, &access.DeniedError{Code: access.DenialPackageNotEntitled, Package: requirement.Package}
 		}
-		converted, err := convertPackage(*authority.PackageAccess)
+		converted, err := convertPackage(*claimed)
 		if err != nil {
 			return access.AccountContext{}, &access.DeniedError{Code: access.DenialCorruptContext, Package: requirement.Package}
 		}
@@ -52,6 +62,18 @@ func (a *Authorizer) Authorize(ctx context.Context, actor access.Actor, accountI
 		packageAccess = &converted
 	}
 	return access.AccountContext{AccountID: accountID, CellID: authority.CellID, PlacementGeneration: authority.PlacementGeneration, EntitlementVersion: authority.EntitlementVersion, Role: role, PackageAccess: packageAccess}, nil
+}
+
+func delegatedActorMatches(actor access.Actor, authority routecontext.Authority, requirement access.Requirement) bool {
+	if actor.UserID != "" || actor.WorkloadID == "" || requirement.Package != catalog.PackageKnowledge || !requirement.Mutation {
+		return false
+	}
+	for _, workloadID := range authority.DelegatedWorkloadIDs {
+		if actor.WorkloadID == workloadID {
+			return true
+		}
+	}
+	return false
 }
 
 func actorMatches(actor access.Actor, authority routecontext.Authority) bool {

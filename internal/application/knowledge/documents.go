@@ -385,7 +385,7 @@ func (s *DocumentService) publishSourceRevision(ctx context.Context, actor knowl
 		return knowledgedomain.Document{}, err
 	}
 	if revision.DocumentID != documentID || revision.CreatedBy.Kind != knowledgedomain.ActorWorkload ||
-		revision.CreatedBy.ID != IntegrationSourceSyncWorkloadID || revision.State != knowledgedomain.RevisionReady {
+		(revision.CreatedBy.ID != IntegrationSourceSyncWorkloadID && revision.CreatedBy.ID != WebResearchCaptureWorkloadID) || revision.State != knowledgedomain.RevisionReady {
 		return knowledgedomain.Document{}, ErrConstraint
 	}
 	now := s.clock.Now().UTC()

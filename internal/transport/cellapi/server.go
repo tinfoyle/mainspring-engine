@@ -21,6 +21,7 @@ import (
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
 	schedulingapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
+	webresearchapp "github.com/tinfoyle/spyglass-engine/internal/application/webresearch"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
 	financedomain "github.com/tinfoyle/spyglass-engine/internal/modules/finance"
@@ -62,6 +63,7 @@ type Server struct {
 	integrations             IntegrationsQueryService
 	integrationCommands      IntegrationsCommandService
 	integrationAuthorization IntegrationAuthorizationService
+	webResearch              WebResearchService
 	scheduling               SchedulingService
 	scheduleExecution        ScheduleExecutionService
 	scheduleWorkerIdentity   string
@@ -256,6 +258,15 @@ func WithIntegrationCommands(service IntegrationsCommandService) Option {
 	return func(server *Server) { server.integrationCommands = service }
 }
 
+type WebResearchService interface {
+	Search(context.Context, webresearchapp.SearchCommand) (webresearchapp.SearchResult, error)
+	Read(context.Context, webresearchapp.ReadCommand) (webresearchapp.ReadResult, error)
+}
+
+func WithWebResearch(service WebResearchService) Option {
+	return func(server *Server) { server.webResearch = service }
+}
+
 type IntegrationAuthorizationService interface {
 	Begin(context.Context, integrationauthorization.BeginCommand) (integrationauthorization.BeginResult, error)
 	Callback(context.Context, integrationauthorization.CallbackCommand) (integrationauthorization.CallbackResult, error)
@@ -443,6 +454,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/integrations/executions/{executionID}", s.integrationsExecutionGet)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/executions/{executionID}/resolution-requests", s.integrationsExecutionResolutionRequest)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/executions/{executionID}/resolutions/{resolutionID}/confirmations", s.integrationsExecutionResolutionConfirm)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/web-research/search", s.webResearchSearch)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/integrations/web-research/read", s.webResearchRead)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleGet)

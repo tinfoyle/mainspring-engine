@@ -192,6 +192,8 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		{Capability: toolrouter.MarketingCampaignDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
 		{Capability: toolrouter.MarketingAssetDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
 		{Capability: toolrouter.MarketingReleaseDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
+		{Capability: toolrouter.WebResearchSearchCapability, Effect: runnercapability.EffectReadOnly, Timeout: 45 * time.Second, Handler: toolHandler},
+		{Capability: toolrouter.WebResearchReadCapability, Effect: runnercapability.EffectAdditive, Timeout: 45 * time.Second, Handler: toolHandler},
 		{Capability: modelgateway.ModelTurnCapability, Effect: runnercapability.EffectReadOnly, Timeout: modelgateway.MaximumProviderTimeout, Handler: modelHandler},
 		{Capability: stripeaction.CustomerCreateCapability, Effect: runnercapability.EffectConsequential, Timeout: 20 * time.Second, Handler: stripeCustomerHandler},
 	})

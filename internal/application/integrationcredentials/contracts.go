@@ -18,6 +18,7 @@ const (
 	PurposeReconcile Purpose = "reconcile"
 	PurposeHealth    Purpose = "health"
 	PurposeSync      Purpose = "sync"
+	PurposeResearch  Purpose = "research"
 )
 
 type Request struct {

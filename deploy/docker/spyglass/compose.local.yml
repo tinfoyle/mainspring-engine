@@ -68,6 +68,34 @@ services:
     volumes:
       - provider-secrets-a:/var/lib/spyglass/provider
 
+  web-research-fixture:
+    build:
+      context: ../../..
+      dockerfile: deploy/docker/spyglass/google-fixture/Dockerfile
+      target: web-research-fixture
+    image: spyglass-web-research-fixture:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      WEB_RESEARCH_FIXTURE_PUBLIC_ORIGIN: ${SPYGLASS_WEB_RESEARCH_FIXTURE_PUBLIC_ORIGIN}
+      WEB_RESEARCH_FIXTURE_TOKEN: ${SPYGLASS_WEB_RESEARCH_FIXTURE_TOKEN}
+    volumes:
+      - ./web-research-fixture/ca.crt:/run/web-research-fixture/ca.crt:ro
+      - ./web-research-fixture/web-research-fixture.crt:/run/web-research-fixture/tls.crt:ro
+      - ./web-research-fixture/web-research-fixture.key:/run/web-research-fixture/tls.key:ro
+    expose: ["9443"]
+    healthcheck:
+      test: [CMD, /web-research-fixture, healthcheck]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 5s
+    networks: [application]
+
   website:
     build:
       context: ../../../website
@@ -207,6 +235,7 @@ services:
       cell-a-roles: {condition: service_completed_successfully}
       provider-secret-init: {condition: service_completed_successfully, required: false}
       google-oauth-fixture: {condition: service_healthy}
+      web-research-fixture: {condition: service_healthy}
     environment:
       SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
       SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
@@ -215,8 +244,13 @@ services:
       SPYGLASS_GOOGLE_OAUTH_AUTHORIZATION_ENDPOINT: ${SPYGLASS_GOOGLE_FIXTURE_PUBLIC_ORIGIN}/o/oauth2/v2/auth
       SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
       SPYGLASS_GOOGLE_OAUTH_REVOCATION_ENDPOINT: http://google-oauth-fixture:8080/revoke
+      SPYGLASS_WEB_RESEARCH_SEARCH_ENDPOINT: ${SPYGLASS_WEB_RESEARCH_FIXTURE_PUBLIC_ORIGIN}/v2/search
+      SPYGLASS_WEB_RESEARCH_FIXTURE_HOST: research.infiniteocean.test
+      SPYGLASS_WEB_RESEARCH_FIXTURE_ADDRESS: web-research-fixture:9443
+      SPYGLASS_WEB_RESEARCH_FIXTURE_CA_FILE: /etc/spyglass/web-research-fixture-ca.crt
     volumes:
       - provider-secrets-a:/var/lib/spyglass/provider
+      - ./web-research-fixture/ca.crt:/etc/spyglass/web-research-fixture-ca.crt:ro
 
   app-api-b:
     image: spyglass-application:local
@@ -224,6 +258,7 @@ services:
       cell-b-roles: {condition: service_completed_successfully}
       provider-secret-init: {condition: service_completed_successfully, required: false}
       google-oauth-fixture: {condition: service_healthy}
+      web-research-fixture: {condition: service_healthy}
     environment:
       SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
       SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
@@ -232,8 +267,13 @@ services:
       SPYGLASS_GOOGLE_OAUTH_AUTHORIZATION_ENDPOINT: ${SPYGLASS_GOOGLE_FIXTURE_PUBLIC_ORIGIN}/o/oauth2/v2/auth
       SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
       SPYGLASS_GOOGLE_OAUTH_REVOCATION_ENDPOINT: http://google-oauth-fixture:8080/revoke
+      SPYGLASS_WEB_RESEARCH_SEARCH_ENDPOINT: ${SPYGLASS_WEB_RESEARCH_FIXTURE_PUBLIC_ORIGIN}/v2/search
+      SPYGLASS_WEB_RESEARCH_FIXTURE_HOST: research.infiniteocean.test
+      SPYGLASS_WEB_RESEARCH_FIXTURE_ADDRESS: web-research-fixture:9443
+      SPYGLASS_WEB_RESEARCH_FIXTURE_CA_FILE: /etc/spyglass/web-research-fixture-ca.crt
     volumes:
       - provider-secrets-b:/var/lib/spyglass/provider
+      - ./web-research-fixture/ca.crt:/etc/spyglass/web-research-fixture-ca.crt:ro
 
   app-router:
     image: spyglass-application:local
@@ -371,6 +411,7 @@ services:
       provider-secret-init: {condition: service_completed_successfully, required: false}
       google-oauth-fixture: {condition: service_healthy, required: false}
       imap-fixture: {condition: service_healthy, required: false}
+      web-research-fixture: {condition: service_healthy, required: false}
     environment:
       SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
       SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
@@ -379,9 +420,14 @@ services:
       SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
       SPYGLASS_GOOGLE_DRIVE_ENDPOINT: http://google-oauth-fixture:8080/drive/v3
       SPYGLASS_IMAP_ROOT_CA_FILE: /etc/spyglass/imap-fixture-ca.crt
+      SPYGLASS_WEB_RESEARCH_SEARCH_ENDPOINT: ${SPYGLASS_WEB_RESEARCH_FIXTURE_PUBLIC_ORIGIN}/v2/search
+      SPYGLASS_WEB_RESEARCH_FIXTURE_HOST: research.infiniteocean.test
+      SPYGLASS_WEB_RESEARCH_FIXTURE_ADDRESS: web-research-fixture:9443
+      SPYGLASS_WEB_RESEARCH_FIXTURE_CA_FILE: /etc/spyglass/web-research-fixture-ca.crt
     volumes:
       - ./mock-connector/local.json:/run/spyglass/mock-connector.json:ro
       - ./imap-fixture/ca.crt:/etc/spyglass/imap-fixture-ca.crt:ro
+      - ./web-research-fixture/ca.crt:/etc/spyglass/web-research-fixture-ca.crt:ro
       - provider-secrets-a:/var/lib/spyglass/provider
 
   integration-connector-worker-b:
@@ -391,6 +437,7 @@ services:
       provider-secret-init: {condition: service_completed_successfully, required: false}
       google-oauth-fixture: {condition: service_healthy, required: false}
       imap-fixture: {condition: service_healthy, required: false}
+      web-research-fixture: {condition: service_healthy, required: false}
     environment:
       SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
       SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
@@ -399,9 +446,14 @@ services:
       SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
       SPYGLASS_GOOGLE_DRIVE_ENDPOINT: http://google-oauth-fixture:8080/drive/v3
       SPYGLASS_IMAP_ROOT_CA_FILE: /etc/spyglass/imap-fixture-ca.crt
+      SPYGLASS_WEB_RESEARCH_SEARCH_ENDPOINT: ${SPYGLASS_WEB_RESEARCH_FIXTURE_PUBLIC_ORIGIN}/v2/search
+      SPYGLASS_WEB_RESEARCH_FIXTURE_HOST: research.infiniteocean.test
+      SPYGLASS_WEB_RESEARCH_FIXTURE_ADDRESS: web-research-fixture:9443
+      SPYGLASS_WEB_RESEARCH_FIXTURE_CA_FILE: /etc/spyglass/web-research-fixture-ca.crt
     volumes:
       - ./mock-connector/local.json:/run/spyglass/mock-connector.json:ro
       - ./imap-fixture/ca.crt:/etc/spyglass/imap-fixture-ca.crt:ro
+      - ./web-research-fixture/ca.crt:/etc/spyglass/web-research-fixture-ca.crt:ro
       - provider-secrets-b:/var/lib/spyglass/provider
 
   route-receipt-worker-a:

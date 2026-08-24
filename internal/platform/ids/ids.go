@@ -60,6 +60,7 @@ type IntegrationResolutionID string
 type IntegrationSourceSyncID string
 type IntegrationSourceCaptureID string
 type IntegrationAuthorizationSessionID string
+type WebResearchCaptureID string
 
 type Generator interface {
 	New() string

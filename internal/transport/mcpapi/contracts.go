@@ -13,6 +13,7 @@ import (
 	integrationsapp "github.com/tinfoyle/spyglass-engine/internal/application/integrations"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	marketingapp "github.com/tinfoyle/spyglass-engine/internal/application/marketing"
+	webresearchapp "github.com/tinfoyle/spyglass-engine/internal/application/webresearch"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
 	baselinedomain "github.com/tinfoyle/spyglass-engine/internal/modules/baseline"
@@ -148,6 +149,11 @@ type IntegrationAuthorizationService interface {
 	Begin(context.Context, integrationauthorization.BeginCommand) (integrationauthorization.BeginResult, error)
 	Status(context.Context, access.Actor, ids.AccountID, ids.IntegrationAuthorizationSessionID) (integrationauthorization.AuthorizationSummary, error)
 	Revoke(context.Context, integrationauthorization.RevokeCommand) (integrationauthorization.RevocationWorkflow, error)
+}
+
+type WebResearchService interface {
+	Search(context.Context, webresearchapp.SearchCommand) (webresearchapp.SearchResult, error)
+	Read(context.Context, webresearchapp.ReadCommand) (webresearchapp.ReadResult, error)
 }
 
 type requirementInput struct {

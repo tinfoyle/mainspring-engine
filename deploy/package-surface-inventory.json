@@ -13,8 +13,8 @@
     },
     {"code": "knowledge", "executable": true, "boundaries": ["browser", "http", "mcp", "document-processing-worker"]},
     {"code": "finance", "executable": true, "boundaries": ["browser", "http", "mcp", "agent-tool", "approved-action-worker"]},
-    {"code": "marketing", "executable": false, "boundaries": []},
-    {"code": "integrations", "executable": false, "boundaries": []}
+    {"code": "marketing", "executable": true, "boundaries": ["browser", "http", "mcp", "agent-tool", "approved-action-worker", "integration-connector-worker"]},
+    {"code": "integrations", "executable": true, "boundaries": ["browser", "http", "mcp", "agent-tool", "integration-connector-worker"]}
   ],
   "absent_surface_kinds": [
     "search-vector-store",

@@ -69,18 +69,30 @@ func ToolRequirement(name string) (access.Requirement, bool) {
 		return write(catalog.PackageMarketing), true
 	case "spyglass_integrations_connection_list", "spyglass_integrations_connection_get",
 		"spyglass_integrations_health_list", "spyglass_integrations_execution_list",
-		"spyglass_integrations_execution_get", "spyglass_integrations_authorization_status":
+		"spyglass_integrations_execution_get", "spyglass_integrations_authorization_status",
+		"spyglass_integrations_web_search":
 		return read(catalog.PackageIntegrations), true
 	case "spyglass_integrations_connection_create", "spyglass_integrations_connection_revise",
 		"spyglass_integrations_credential_activate", "spyglass_integrations_credential_rotate",
 		"spyglass_integrations_connection_disable", "spyglass_integrations_connection_enable",
 		"spyglass_integrations_connection_revoke", "spyglass_integrations_execution_prepare",
 		"spyglass_integrations_authorization_begin", "spyglass_integrations_credential_revoke",
-		"spyglass_integrations_execution_request_resolution", "spyglass_integrations_execution_confirm_resolution":
+		"spyglass_integrations_execution_request_resolution", "spyglass_integrations_execution_confirm_resolution",
+		"spyglass_integrations_web_read":
 		return write(catalog.PackageIntegrations), true
 	default:
 		return access.Requirement{}, false
 	}
+}
+
+// AdditionalToolRequirement returns the secondary package grant required by
+// an intentionally cross-package tool. The primary requirement remains the
+// owner of the tool and both grants are independently authorized by gateways.
+func AdditionalToolRequirement(name string) (access.Requirement, bool) {
+	if name == "spyglass_integrations_web_read" {
+		return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, true
+	}
+	return access.Requirement{}, false
 }
 
 func actionRecoveryRoles() []accounts.MembershipRole {

@@ -43,14 +43,17 @@ const (
 	MarketingCampaignDraftCapability = runnercapability.MarketingCampaignDraftCapability
 	MarketingAssetDraftCapability    = runnercapability.MarketingAssetDraftCapability
 	MarketingReleaseDraftCapability  = runnercapability.MarketingReleaseDraftCapability
+	WebResearchSearchCapability      = runnercapability.WebResearchSearchCapability
+	WebResearchReadCapability        = runnercapability.WebResearchReadCapability
 )
 
 type dispatch struct {
-	method      string
-	target      string
-	body        []byte
-	requirement access.Requirement
-	createdOK   bool
+	method                string
+	target                string
+	body                  []byte
+	requirement           access.Requirement
+	additionalRequirement *access.Requirement
+	createdOK             bool
 }
 
 type financeAccountsInput struct {
@@ -137,6 +140,17 @@ type marketingReleaseDraftBody struct {
 	Name             string                         `json:"name"`
 	Channels         []marketingdomain.Channel      `json:"channels"`
 	AssetRevisionIDs []ids.MarketingAssetRevisionID `json:"asset_revision_ids"`
+}
+
+type webResearchSearchInput struct {
+	ConnectionID ids.IntegrationConnectionID `json:"connection_id"`
+	Query        string                      `json:"query"`
+	Limit        int                         `json:"limit,omitempty"`
+}
+
+type webResearchReadInput struct {
+	ConnectionID ids.IntegrationConnectionID `json:"connection_id"`
+	URL          string                      `json:"url"`
 }
 
 type Acceptor interface {
@@ -239,6 +253,21 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusForbidden, "tool_authorization_denied")
 		return
 	}
+	var additionalPackageAccesses []routecontext.PackageAccess
+	if dispatched.additionalRequirement != nil {
+		additionalContext, additionalErr := s.authorizer.Authorize(r.Context(), actor, claims.Authority.AccountID, *dispatched.additionalRequirement)
+		if additionalErr != nil {
+			writeProblem(w, http.StatusForbidden, "tool_authorization_denied")
+			return
+		}
+		if additionalContext.AccountID != accountContext.AccountID || additionalContext.CellID != accountContext.CellID ||
+			additionalContext.PlacementGeneration != accountContext.PlacementGeneration || additionalContext.EntitlementVersion != accountContext.EntitlementVersion ||
+			additionalContext.PackageAccess == nil {
+			writeProblem(w, http.StatusServiceUnavailable, "tool_routing_unavailable")
+			return
+		}
+		additionalPackageAccesses = append(additionalPackageAccesses, *packageClaim(additionalContext.PackageAccess))
+	}
 	cellRoute, err := s.directory.Resolve(r.Context(), claims.Authority.AccountID, accountContext.CellID, accountContext.PlacementGeneration)
 	if err != nil {
 		s.logger.Error("resolve tool Account route", "account_id", claims.Authority.AccountID, "error", err)
@@ -259,7 +288,11 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 		RequestID: requestID, OperationID: claims.Authority.OperationID, AccountID: accountContext.AccountID,
 		ActorKind: "workload", ActorID: actor.WorkloadID, CellID: accountContext.CellID,
 		PlacementGeneration: accountContext.PlacementGeneration, EntitlementVersion: accountContext.EntitlementVersion,
-		PackageAccess: packageClaim(accountContext.PackageAccess),
+		PackageAccess:   packageClaim(accountContext.PackageAccess),
+		PackageAccesses: additionalPackageAccesses,
+	}
+	if claims.Authority.Capability == WebResearchReadCapability {
+		authority.DelegatedWorkloadIDs = []string{"integration-web-research"}
 	}
 	routeToken, err := s.signer.Issue(routecontext.Audience(accountContext.CellID), authority, cellBinding)
 	if err != nil {
@@ -315,7 +348,8 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 func knownCapability(capability string) bool {
 	return capability == WorkSummaryCapability || capability == FinanceLedgersReadCapability || capability == FinanceAccountsReadCapability || capability == FinanceEntryDraftCapability ||
 		capability == MarketingCampaignsReadCapability || capability == MarketingAssetsReadCapability || capability == MarketingReleasesReadCapability ||
-		capability == MarketingCampaignDraftCapability || capability == MarketingAssetDraftCapability || capability == MarketingReleaseDraftCapability
+		capability == MarketingCampaignDraftCapability || capability == MarketingAssetDraftCapability || capability == MarketingReleaseDraftCapability ||
+		capability == WebResearchSearchCapability || capability == WebResearchReadCapability
 }
 
 func dispatchCapability(capability string, accountID ids.AccountID, raw []byte) (dispatch, bool) {
@@ -403,6 +437,29 @@ func dispatchCapability(capability string, accountID ids.AccountID, raw []byte) 
 			return dispatch{}, false
 		}
 		return dispatch{method: http.MethodPost, target: "/internal/v1/accounts/" + string(accountID) + "/marketing/campaigns/" + string(input.CampaignID) + "/releases:draft", body: body, requirement: access.Requirement{Package: catalog.PackageMarketing, Mutation: true}, createdOK: true}, true
+	case WebResearchSearchCapability:
+		var input webResearchSearchInput
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.ConnectionID)) != nil {
+			return dispatch{}, false
+		}
+		body, err := json.Marshal(input)
+		if err != nil {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodPost, target: accountPath + "/integrations/web-research/search", body: body,
+			requirement: access.Requirement{Package: catalog.PackageIntegrations}}, true
+	case WebResearchReadCapability:
+		var input webResearchReadInput
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.ConnectionID)) != nil {
+			return dispatch{}, false
+		}
+		body, err := json.Marshal(input)
+		if err != nil {
+			return dispatch{}, false
+		}
+		knowledge := access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}
+		return dispatch{method: http.MethodPost, target: accountPath + "/integrations/web-research/read", body: body,
+			requirement: access.Requirement{Package: catalog.PackageIntegrations, Mutation: true}, additionalRequirement: &knowledge, createdOK: true}, true
 	default:
 		return dispatch{}, false
 	}

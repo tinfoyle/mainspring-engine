@@ -32,7 +32,7 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 	packages := make([]string, 0, len(inventory.Packages))
 	for _, item := range inventory.Packages {
 		packages = append(packages, item.Code)
-		if item.Executable != (item.Code == "work" || item.Code == "agents" || item.Code == "knowledge" || item.Code == "finance") {
+		if !item.Executable {
 			t.Fatalf("package %q executable=%t", item.Code, item.Executable)
 		}
 		if item.Executable && len(item.Boundaries) == 0 || !item.Executable && len(item.Boundaries) != 0 {
@@ -45,6 +45,20 @@ func TestPackageSurfaceInventoryIsExplicit(t *testing.T) {
 			for _, boundary := range []string{"browser", "http", "agent-tool", "approved-action-worker"} {
 				if !slices.Contains(item.Boundaries, boundary) {
 					t.Fatalf("Finance must declare its %s boundary", boundary)
+				}
+			}
+		}
+		if item.Code == "marketing" {
+			for _, boundary := range []string{"browser", "http", "mcp", "agent-tool", "approved-action-worker", "integration-connector-worker"} {
+				if !slices.Contains(item.Boundaries, boundary) {
+					t.Fatalf("Marketing must declare its %s boundary", boundary)
+				}
+			}
+		}
+		if item.Code == "integrations" {
+			for _, boundary := range []string{"browser", "http", "mcp", "agent-tool", "integration-connector-worker"} {
+				if !slices.Contains(item.Boundaries, boundary) {
+					t.Fatalf("Integrations must declare its %s boundary", boundary)
 				}
 			}
 		}

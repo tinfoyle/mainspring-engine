@@ -45,3 +45,32 @@ func TestRoutedReadOnlyPackageRejectsMutation(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestRoutedDelegationIsExactKnowledgeMutationOnly(t *testing.T) {
+	authority := routecontext.Authority{AccountID: ids.AccountID(accountID), ActorKind: "user", ActorID: userID, Role: "owner",
+		CellID: "cell-us-east-01", PlacementGeneration: 1, EntitlementVersion: 1,
+		PackageAccess:        &routecontext.PackageAccess{Code: "integrations", Version: 1, Mode: "enabled"},
+		PackageAccesses:      []routecontext.PackageAccess{{Code: "knowledge", Version: 1, Mode: "enabled"}},
+		DelegatedWorkloadIDs: []string{"integration-web-research"}}
+	ctx := routecontext.WithClaims(context.Background(), routecontext.Claims{Authority: authority})
+	authorizer := NewAuthorizer()
+	delegated := access.Actor{WorkloadID: "integration-web-research"}
+	result, err := authorizer.Authorize(ctx, delegated, ids.AccountID(accountID), access.Requirement{Package: catalog.PackageKnowledge, Mutation: true})
+	if err != nil || result.PackageAccess == nil || result.PackageAccess.Code != catalog.PackageKnowledge {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	for name, test := range map[string]struct {
+		actor       access.Actor
+		requirement access.Requirement
+	}{
+		"knowledge read":        {delegated, access.Requirement{Package: catalog.PackageKnowledge}},
+		"integrations mutation": {delegated, access.Requirement{Package: catalog.PackageIntegrations, Mutation: true}},
+		"unsigned workload":     {access.Actor{WorkloadID: "integration-email-sync"}, access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := authorizer.Authorize(ctx, test.actor, ids.AccountID(accountID), test.requirement); !access.IsDenied(err, access.DenialUnauthenticated) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}

@@ -2,7 +2,7 @@ COMPOSE = docker compose --project-name spyglass-local --env-file env/local.env 
 TLS_COMPOSE = docker compose --project-name spyglass-local-tls --env-file env/local.env --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml
 RUNNER_COMPOSE = docker compose --project-name spyglass-local-runner --env-file env/local.env --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml --file compose.runner.yml
 
-.PHONY: build test up verify verify-stage-contract verify-observability verify-workload-tls verify-docker-runner verify-integration-connector verify-google-oauth verify-imap down down-workload-tls down-docker-runner reset
+.PHONY: build test up verify verify-stage-contract verify-observability verify-workload-tls verify-docker-runner verify-integration-connector verify-google-oauth verify-imap verify-web-research down down-workload-tls down-docker-runner reset
 
 build:
 	$(COMPOSE) build global-migrate website
@@ -36,6 +36,9 @@ verify-google-oauth:
 
 verify-imap:
 	bash verify-imap.sh
+
+verify-web-research:
+	bash verify-web-research.sh
 
 down:
 	$(COMPOSE) down --remove-orphans

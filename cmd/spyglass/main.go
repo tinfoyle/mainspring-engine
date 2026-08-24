@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -11,7 +12,9 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"sort"
@@ -35,6 +38,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/smtpconnector"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/webpublishconnector"
+	webresearchadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/webresearch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
@@ -1247,6 +1251,10 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 		}
 	}
 	admissionTransport = observability.TracingFromContext(ctx).Transport(admissionTransport)
+	webResolver, webDialer, webRoots, webProviderTransport, err := localWebResearchNetwork(developmentMode)
+	if err != nil {
+		return err
+	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	server, err := appapi.New(startup, appapi.Config{
@@ -1262,6 +1270,11 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 		GoogleOAuthAuthorizationEndpoint: os.Getenv("SPYGLASS_GOOGLE_OAUTH_AUTHORIZATION_ENDPOINT"),
 		GoogleOAuthTokenEndpoint:         os.Getenv("SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT"),
 		GoogleOAuthRevocationEndpoint:    os.Getenv("SPYGLASS_GOOGLE_OAUTH_REVOCATION_ENDPOINT"),
+		WebResearchSearchEndpoint:        os.Getenv("SPYGLASS_WEB_RESEARCH_SEARCH_ENDPOINT"),
+		WebResearchResolver:              webResolver,
+		WebResearchDialer:                webDialer,
+		WebResearchRootCAs:               webRoots,
+		WebResearchProviderTransport:     webProviderTransport,
 	}, logger, registration.SystemClock{})
 	if err != nil {
 		return err
@@ -1275,6 +1288,60 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	return serveHTTPS(ctx, "app-api", httpAddress(":8443"), withRestoreGate([]*restoregate.Gate{restoreGate}, secured), serverTLS, logger)
+}
+
+type fixedWebResearchResolver struct {
+	host string
+	ip   netip.Addr
+}
+
+func (resolver fixedWebResearchResolver) LookupNetIP(_ context.Context, network, host string) ([]netip.Addr, error) {
+	if network != "ip" || !strings.EqualFold(strings.TrimSuffix(host, "."), resolver.host) {
+		return nil, errors.New("local web research fixture DNS name is denied")
+	}
+	return []netip.Addr{resolver.ip}, nil
+}
+
+type mappedWebResearchDialer struct {
+	host, target string
+	dialer       net.Dialer
+}
+
+func (dialer *mappedWebResearchDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(address)
+	if dialer == nil || err != nil || (network != "tcp" && network != "tcp4" && network != "tcp6") || port != "443" ||
+		(host != "1.1.1.1" && !strings.EqualFold(strings.TrimSuffix(host, "."), dialer.host)) {
+		return nil, errors.New("local web research fixture destination is denied")
+	}
+	return dialer.dialer.DialContext(ctx, "tcp", dialer.target)
+}
+
+func localWebResearchNetwork(development bool) (webresearchadapter.Resolver, webresearchadapter.Dialer, *x509.CertPool, http.RoundTripper, error) {
+	host := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(os.Getenv("SPYGLASS_WEB_RESEARCH_FIXTURE_HOST")), "."))
+	target := strings.TrimSpace(os.Getenv("SPYGLASS_WEB_RESEARCH_FIXTURE_ADDRESS"))
+	caFile := strings.TrimSpace(os.Getenv("SPYGLASS_WEB_RESEARCH_FIXTURE_CA_FILE"))
+	if host == "" && target == "" && caFile == "" {
+		return nil, nil, nil, nil, nil
+	}
+	if !development || os.Getenv("SPYGLASS_ENVIRONMENT") != "local" || host == "" || target == "" || caFile == "" || net.ParseIP(host) != nil {
+		return nil, nil, nil, nil, errors.New("web research fixture networking requires a complete local development configuration")
+	}
+	if _, _, err := net.SplitHostPort(target); err != nil {
+		return nil, nil, nil, nil, errors.New("web research fixture address is invalid")
+	}
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(pem) {
+		return nil, nil, nil, nil, errors.New("web research fixture CA is invalid")
+	}
+	resolver := fixedWebResearchResolver{host: host, ip: netip.MustParseAddr("1.1.1.1")}
+	dialer := &mappedWebResearchDialer{host: host, target: target, dialer: net.Dialer{Timeout: 5 * time.Second, KeepAlive: -1}}
+	transport := &http.Transport{Proxy: nil, DisableCompression: true, DisableKeepAlives: true, MaxResponseHeaderBytes: 64 << 10,
+		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}, DialContext: dialer.DialContext}
+	return resolver, dialer, roots, transport, nil
 }
 
 func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
@@ -2420,6 +2487,15 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 			Kind: integrationsdomain.ConnectorEmail, CredentialProvider: imapemail.ProviderCode,
 			Capability: integrationsdomain.CapabilityEmailRead, Timeout: imapSyncTimeout, Probe: imapProvider,
 		})
+		webResearchProvider, webResearchErr := webResearchHealthProvider(environment == "local")
+		if webResearchErr != nil {
+			return webResearchErr
+		}
+		if webResearchProvider != nil {
+			healthDefinitions = append(healthDefinitions, integrationhealth.Definition{Kind: integrationsdomain.ConnectorWebResearch,
+				CredentialProvider: webresearchadapter.ProviderCode, Capability: integrationsdomain.CapabilityWebResearch,
+				Timeout: webresearchadapter.DefaultTimeout, Probe: webResearchProvider})
+		}
 		sourceRoutes = []integrationsync.ProviderRoute{
 			{Kind: integrationsdomain.ConnectorGoogleDrive, CredentialProvider: googledrive.ProviderCode, Provider: driveProvider},
 			{Kind: integrationsdomain.ConnectorEmail, CredentialProvider: imapemail.ProviderCode, Provider: imapProvider},
@@ -2499,6 +2575,15 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 				Capability: integrationsdomain.CapabilityDriveRead, Timeout: driveSyncTimeout, Probe: driveHealthProbe,
 			})
 		}
+		webResearchProvider, webResearchErr := webResearchHealthProvider(false)
+		if webResearchErr != nil {
+			return webResearchErr
+		}
+		if webResearchProvider != nil {
+			healthDefinitions = append(healthDefinitions, integrationhealth.Definition{Kind: integrationsdomain.ConnectorWebResearch,
+				CredentialProvider: webresearchadapter.ProviderCode, Capability: integrationsdomain.CapabilityWebResearch,
+				Timeout: webresearchadapter.DefaultTimeout, Probe: webResearchProvider})
+		}
 	default:
 		return errors.New("SPYGLASS_CONNECTOR_ADAPTER must be mock, local-google, or production")
 	}
@@ -2576,6 +2661,24 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 	defer worker.Close()
 	return serveWorker(ctx, "integration-connector", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"),
 		&restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{globalRestore, cellRestore}}, logger)
+}
+
+func webResearchHealthProvider(local bool) (*webresearchadapter.Firecrawl, error) {
+	endpoint := strings.TrimSpace(os.Getenv("SPYGLASS_WEB_RESEARCH_SEARCH_ENDPOINT"))
+	if endpoint == "" {
+		return nil, nil
+	}
+	resolver, dialer, roots, providerTransport, err := localWebResearchNetwork(local)
+	if err != nil {
+		return nil, err
+	}
+	retriever, err := webresearchadapter.New(webresearchadapter.Config{Resolver: resolver, Dialer: dialer, RootCAs: roots,
+		UserAgent: "InfiniteOcean-Spyglass/1.0"})
+	if err != nil {
+		return nil, err
+	}
+	return webresearchadapter.NewFirecrawl(webresearchadapter.FirecrawlConfig{SearchEndpoint: endpoint,
+		HTTPClient: &http.Client{Transport: providerTransport, Timeout: webresearchadapter.DefaultTimeout}, Retriever: retriever})
 }
 
 type disabledDriveProvider struct{}

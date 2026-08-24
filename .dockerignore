@@ -18,6 +18,9 @@
 !api/**
 !deploy/
 !deploy/package-surface-inventory.json
+!docs/
+!docs/production/
+!docs/production/api-mcp-interaction-guide.md
 !website/
 !website/lib/
 !website/lib/generated/

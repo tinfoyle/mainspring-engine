@@ -1,6 +1,7 @@
 package integrations
 
 import (
+	"net"
 	"net/mail"
 	"net/url"
 	"path"
@@ -89,23 +90,35 @@ func (scope ConnectionScope) normalize(kind ConnectorKind, capabilities []Capabi
 			}
 		}
 		slices.Sort(scope.DriveFolderIDs)
-	case ConnectorWebPublish:
+	case ConnectorWebResearch, ConnectorWebPublish:
 		if scope.EmailAddress != "" || scope.AudienceReference != "" || len(scope.DriveFolderIDs) != 0 || !validText(scope.HTTPSOrigin, MaximumReferenceBytes, true) || !validText(scope.PathPrefix, MaximumReferenceBytes, true) {
 			return ConnectionScope{}, ErrInvalid
 		}
+		expected := CapabilityWebPublish
+		if kind == ConnectorWebResearch {
+			expected = CapabilityWebResearch
+		}
+		if len(capabilities) != 1 || capabilities[0] != expected {
+			return ConnectionScope{}, ErrCapability
+		}
 		parsed, err := url.Parse(scope.HTTPSOrigin)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") ||
+			parsed.Hostname() == "" || parsed.Port() != "" || net.ParseIP(parsed.Hostname()) != nil {
+			return ConnectionScope{}, ErrInvalid
+		}
+		host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+		if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".home.arpa") {
 			return ConnectionScope{}, ErrInvalid
 		}
 		parsed.Path, parsed.RawPath = "", ""
-		scope.HTTPSOrigin = strings.ToLower(parsed.String())
+		parsed.Host = host
+		scope.HTTPSOrigin = parsed.String()
 		clean := path.Clean(scope.PathPrefix)
-		if !strings.HasPrefix(scope.PathPrefix, "/") || clean != scope.PathPrefix || strings.Contains(scope.PathPrefix, "//") {
+		if !strings.HasPrefix(scope.PathPrefix, "/") || clean != scope.PathPrefix || strings.Contains(scope.PathPrefix, "//") || strings.Contains(scope.PathPrefix, "\\") {
 			return ConnectionScope{}, ErrInvalid
 		}
 		scope.PathPrefix = clean
 	default:
-		// Research receives its reviewed scope shape in a later slice.
 		return ConnectionScope{}, ErrCapability
 	}
 	return scope, nil

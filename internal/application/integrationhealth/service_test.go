@@ -110,6 +110,25 @@ func TestServiceUsesDriveReadForGoogleHealth(t *testing.T) {
 	}
 }
 
+func TestServiceUsesWebResearchCapabilityForResearchHealth(t *testing.T) {
+	now := time.Date(2026, 8, 23, 17, 0, 0, 0, time.UTC)
+	researchClaim := claim(now)
+	researchClaim.ConnectorKind = domain.ConnectorWebResearch
+	researchClaim.Capabilities = []domain.Capability{domain.CapabilityWebResearch}
+	researchClaim.Scope = domain.ConnectionScope{HTTPSOrigin: "https://research.example", PathPrefix: "/authoritative"}
+	researchClaim.CredentialProvider = "firecrawl"
+	repository := &repository{claim: researchClaim}
+	broker := &broker{}
+	service, err := integrationhealth.New(repository, authority{}, broker, generator("a1600000-0000-4000-8000-000000000006"), clock{at: now}, time.Minute,
+		[]integrationhealth.Definition{{Kind: domain.ConnectorWebResearch, CredentialProvider: "firecrawl", Timeout: time.Second, Probe: &probe{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if worked, err := service.ProcessOne(context.Background()); err != nil || !worked || broker.request.Capability != domain.CapabilityWebResearch {
+		t.Fatalf("worked=%t err=%v request=%+v", worked, err, broker.request)
+	}
+}
+
 func TestServiceRoutesIMAPHealthWithEmailReadAuthority(t *testing.T) {
 	now := time.Date(2026, 8, 23, 17, 0, 0, 0, time.UTC)
 	imapClaim := claim(now)

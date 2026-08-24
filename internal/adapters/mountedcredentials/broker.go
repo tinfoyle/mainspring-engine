@@ -177,9 +177,11 @@ func credentialPurposeAllowed(request integrationcredentials.Request) bool {
 		return request.Capability == domain.CapabilityDriveRead ||
 			(request.Capability == domain.CapabilityEmailRead && request.CredentialProvider == "imap")
 	case integrationcredentials.PurposeHealth:
-		return request.Capability == domain.CapabilityDriveRead || request.Capability == domain.CapabilityWebPublish ||
+		return request.Capability == domain.CapabilityDriveRead || request.Capability == domain.CapabilityWebResearch || request.Capability == domain.CapabilityWebPublish ||
 			(request.Capability == domain.CapabilityEmailRead && request.CredentialProvider == "imap") ||
 			(request.Capability == domain.CapabilityEmailSend && request.CredentialProvider != "imap")
+	case integrationcredentials.PurposeResearch:
+		return request.Capability == domain.CapabilityWebResearch
 	case integrationcredentials.PurposeExecute, integrationcredentials.PurposeReconcile:
 		return request.Capability == domain.CapabilityWebPublish ||
 			(request.Capability == domain.CapabilityEmailSend && request.CredentialProvider != "imap")

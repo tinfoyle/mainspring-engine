@@ -1251,7 +1251,7 @@ export interface IntegrationAuthorizationBeginRequest {
 
 export type IntegrationAuthorizationStatus = "pending" | "exchanging" | "completed" | "failed" | "expired";
 
-export type IntegrationCapability = "email.read" | "email.send" | "google_drive.read" | "web.publish";
+export type IntegrationCapability = "email.read" | "email.send" | "google_drive.read" | "web.research" | "web.publish";
 
 export interface IntegrationConnection {
   readonly "account_id": string;
@@ -1316,7 +1316,7 @@ export interface IntegrationConnectionScope {
 
 export type IntegrationConnectionState = "pending" | "active" | "disabled" | "revoked";
 
-export type IntegrationConnectorKind = "email" | "google_drive" | "web_publish";
+export type IntegrationConnectorKind = "email" | "google_drive" | "web_research" | "web_publish";
 
 export interface IntegrationCredentialBindingRequest {
   readonly "expires_at"?: string;
@@ -1427,6 +1427,43 @@ export type IntegrationHealthState = "healthy" | "degraded" | "unavailable";
 export type IntegrationResolutionOutcome = "succeeded" | "failed";
 
 export type IntegrationResolutionState = "pending" | "applied";
+
+export interface IntegrationWebResearchReadRequest {
+  readonly "connection_id": string;
+  readonly "url": string;
+}
+
+export interface IntegrationWebResearchReadResult {
+  readonly "capture_id": string;
+  readonly "citation_id": string;
+  readonly "content_sha256": string;
+  readonly "document_id": string;
+  readonly "document_revision_id": string;
+  readonly "excerpt"?: string;
+  readonly "media_type": "text/html" | "text/plain" | "application/pdf";
+  readonly "retrieved_at": string;
+  readonly "title": string;
+  readonly "url": string;
+}
+
+export interface IntegrationWebResearchSearchItem {
+  readonly "citation_id": string;
+  readonly "description"?: string;
+  readonly "retrieved_at": string;
+  readonly "title": string;
+  readonly "url": string;
+}
+
+export interface IntegrationWebResearchSearchRequest {
+  readonly "connection_id": string;
+  readonly "limit"?: number;
+  readonly "query": string;
+}
+
+export interface IntegrationWebResearchSearchResult {
+  readonly "items": ReadonlyArray<IntegrationWebResearchSearchItem>;
+  readonly "query": string;
+}
 
 export interface InvitationAcceptance {
   readonly "membership": AcceptedMembership;
@@ -2487,6 +2524,11 @@ export interface ApiSchemas {
   readonly IntegrationHealthState: IntegrationHealthState;
   readonly IntegrationResolutionOutcome: IntegrationResolutionOutcome;
   readonly IntegrationResolutionState: IntegrationResolutionState;
+  readonly IntegrationWebResearchReadRequest: IntegrationWebResearchReadRequest;
+  readonly IntegrationWebResearchReadResult: IntegrationWebResearchReadResult;
+  readonly IntegrationWebResearchSearchItem: IntegrationWebResearchSearchItem;
+  readonly IntegrationWebResearchSearchRequest: IntegrationWebResearchSearchRequest;
+  readonly IntegrationWebResearchSearchResult: IntegrationWebResearchSearchResult;
   readonly InvitationAcceptance: InvitationAcceptance;
   readonly InvitationCreated: InvitationCreated;
   readonly KnowledgeActor: KnowledgeActor;

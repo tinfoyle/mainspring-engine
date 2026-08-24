@@ -218,12 +218,16 @@ func TestIntegrationsRouteAllowlistIncludesLifecycleAndExistingSurface(t *testin
 		{http.MethodPost, "integrations/connections/" + routerRequest + "/credential-revocations", true, true},
 		{http.MethodGet, "integrations/authorizations/" + routerRequest, false, true},
 		{http.MethodGet, "integrations/google/authorization-callback", false, true},
+		{http.MethodPost, "integrations/web-research/search", false, true},
+		{http.MethodPost, "integrations/web-research/read", true, true},
 		{http.MethodGet, "integrations/executions", false, true},
 		{http.MethodPost, "integrations/executions", true, true},
 		{http.MethodGet, "integrations/executions/" + routerRequest, false, true},
 		{http.MethodPost, "integrations/executions/" + routerRequest + "/resolution-requests", true, true},
 		{http.MethodPost, "integrations/executions/" + routerRequest + "/resolutions/" + routerRequest + "/confirmations", true, true},
 		{http.MethodPost, "integrations/google/authorization-callback", false, false},
+		{http.MethodGet, "integrations/web-research/search", false, false},
+		{http.MethodGet, "integrations/web-research/read", false, false},
 		{http.MethodGet, "integrations/connections/not-a-uuid", false, false},
 		{http.MethodGet, "integrations/authorizations/not-a-uuid", false, false},
 		{http.MethodDelete, "integrations/connections/" + routerRequest, false, false},
@@ -238,6 +242,22 @@ func TestIntegrationsRouteAllowlistIncludesLifecycleAndExistingSurface(t *testin
 				t.Fatalf("requirement=%+v", requirement)
 			}
 		})
+	}
+}
+
+func TestWebResearchReadRequiresIndependentKnowledgeMutation(t *testing.T) {
+	requirement, ok := additionalRouteRequirement(http.MethodPost, "integrations/web-research/read")
+	if !ok || requirement.Package != catalog.PackageKnowledge || !requirement.Mutation {
+		t.Fatalf("requirement=%+v ok=%t", requirement, ok)
+	}
+	for _, test := range []struct{ method, resource string }{
+		{http.MethodPost, "integrations/web-research/search"},
+		{http.MethodGet, "integrations/web-research/read"},
+		{http.MethodPost, "integrations/web-research/read/extra"},
+	} {
+		if requirement, ok := additionalRouteRequirement(test.method, test.resource); ok {
+			t.Fatalf("unexpected secondary requirement=%+v for %s %s", requirement, test.method, test.resource)
+		}
 	}
 }
 

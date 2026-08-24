@@ -1,0 +1,13 @@
+[req]
+distinguished_name = subject
+prompt = no
+req_extensions = leaf
+
+[subject]
+CN = research.infiniteocean.test
+
+[leaf]
+subjectAltName = DNS:research.infiniteocean.test
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth

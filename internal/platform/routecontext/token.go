@@ -114,17 +114,19 @@ type PackageAccess struct {
 }
 
 type Authority struct {
-	RequestID             string         `json:"request_id"`
-	OperationID           string         `json:"operation_id,omitempty"`
-	AccountID             ids.AccountID  `json:"account_id"`
-	ActorKind             string         `json:"actor_kind"`
-	ActorID               string         `json:"actor_id"`
-	Role                  string         `json:"role,omitempty"`
-	StrongAuthenticatedAt *time.Time     `json:"strong_authenticated_at,omitempty"`
-	CellID                ids.CellID     `json:"cell_id"`
-	PlacementGeneration   uint64         `json:"placement_generation"`
-	EntitlementVersion    uint64         `json:"entitlement_version"`
-	PackageAccess         *PackageAccess `json:"package_access,omitempty"`
+	RequestID             string          `json:"request_id"`
+	OperationID           string          `json:"operation_id,omitempty"`
+	AccountID             ids.AccountID   `json:"account_id"`
+	ActorKind             string          `json:"actor_kind"`
+	ActorID               string          `json:"actor_id"`
+	Role                  string          `json:"role,omitempty"`
+	StrongAuthenticatedAt *time.Time      `json:"strong_authenticated_at,omitempty"`
+	CellID                ids.CellID      `json:"cell_id"`
+	PlacementGeneration   uint64          `json:"placement_generation"`
+	EntitlementVersion    uint64          `json:"entitlement_version"`
+	PackageAccess         *PackageAccess  `json:"package_access,omitempty"`
+	PackageAccesses       []PackageAccess `json:"package_accesses,omitempty"`
+	DelegatedWorkloadIDs  []string        `json:"delegated_workload_ids,omitempty"`
 }
 
 type Claims struct {
@@ -314,7 +316,39 @@ func validAuthority(authority Authority) bool {
 	default:
 		return false
 	}
-	return authority.PackageAccess == nil || validPackageAccess(*authority.PackageAccess)
+	seen := make(map[string]struct{}, len(authority.PackageAccesses)+1)
+	if authority.PackageAccess != nil {
+		if !validPackageAccess(*authority.PackageAccess) {
+			return false
+		}
+		seen[authority.PackageAccess.Code] = struct{}{}
+	}
+	if len(authority.PackageAccesses) > 7 {
+		return false
+	}
+	for _, packageAccess := range authority.PackageAccesses {
+		if !validPackageAccess(packageAccess) {
+			return false
+		}
+		if _, exists := seen[packageAccess.Code]; exists {
+			return false
+		}
+		seen[packageAccess.Code] = struct{}{}
+	}
+	if len(authority.DelegatedWorkloadIDs) > 4 {
+		return false
+	}
+	delegated := make(map[string]struct{}, len(authority.DelegatedWorkloadIDs))
+	for _, workloadID := range authority.DelegatedWorkloadIDs {
+		if workloadID == "" || workloadID != strings.TrimSpace(workloadID) || len(workloadID) > 200 {
+			return false
+		}
+		if _, exists := delegated[workloadID]; exists {
+			return false
+		}
+		delegated[workloadID] = struct{}{}
+	}
+	return true
 }
 
 func validPackageAccess(access PackageAccess) bool {

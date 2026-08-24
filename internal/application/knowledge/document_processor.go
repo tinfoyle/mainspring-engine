@@ -73,7 +73,10 @@ type DocumentProcessor struct {
 	actor       knowledgedomain.Actor
 }
 
-const IntegrationSourceSyncWorkloadID = "integration-source-sync"
+const (
+	IntegrationSourceSyncWorkloadID = "integration-source-sync"
+	WebResearchCaptureWorkloadID    = "integration-web-research"
+)
 
 func NewDocumentProcessor(queue DocumentProcessingQueue, documents *DocumentService, objects DocumentObjectStore, scanner MalwareScanner, extractor TextExtractor, clock Clock, generator ids.Generator, lease time.Duration, maxAttempts int) (*DocumentProcessor, error) {
 	if queue == nil || documents == nil || objects == nil || scanner == nil || extractor == nil || clock == nil || generator == nil || lease < time.Second || lease > 30*time.Minute || maxAttempts < 1 || maxAttempts > MaximumDocumentProcessingMaxAttempts {
@@ -122,7 +125,8 @@ func (processor *DocumentProcessor) ProcessOne(ctx context.Context) (DocumentPro
 		}
 	}
 	if revision.State == knowledgedomain.RevisionReady {
-		if revision.CreatedBy.Kind == knowledgedomain.ActorWorkload && revision.CreatedBy.ID == IntegrationSourceSyncWorkloadID {
+		if revision.CreatedBy.Kind == knowledgedomain.ActorWorkload &&
+			(revision.CreatedBy.ID == IntegrationSourceSyncWorkloadID || revision.CreatedBy.ID == WebResearchCaptureWorkloadID) {
 			if _, err := processor.documents.publishSourceRevision(ctx, processor.actor, claim.AccountID, revision.DocumentID, revision.ID); err != nil {
 				return processor.retry(ctx, claim, "source_publication_failed", err)
 			}

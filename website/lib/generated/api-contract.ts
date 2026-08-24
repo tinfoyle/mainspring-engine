@@ -156,6 +156,8 @@ export const apiRoutes = [
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/integrations/executions", operationId: "integrationExecutionPrepare", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/integrations/executions/{executionID}/resolution-requests", operationId: "integrationExecutionRequestResolution", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/integrations/executions/{executionID}/resolutions/{resolutionID}/confirmations", operationId: "integrationExecutionConfirmResolution", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/integrations/web-research/read", operationId: "integrationWebResearchRead", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/integrations/web-research/search", operationId: "integrationWebResearchSearch", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/knowledge/claims", operationId: "knowledgeClaimPropose", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/knowledge/claims/{claimID}/decisions", operationId: "knowledgeClaimDecide", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "POST", path: "/api/v1/accounts/{accountID}/knowledge/documents", operationId: "knowledgeDocumentUpload", authentication: "sessionCookie", contract: "typed" },

@@ -33,6 +33,8 @@ const (
 	MarketingAssetDraftCapability      = "marketing.asset-revision.draft"
 	MarketingReleaseDraftCapability    = "marketing.release.draft"
 	MarketingReleaseActivateCapability = "marketing.release.activate"
+	WebResearchSearchCapability        = "integrations.web.search"
+	WebResearchReadCapability          = "integrations.web.read"
 )
 
 var (

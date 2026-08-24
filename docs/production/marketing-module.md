@@ -1,6 +1,6 @@
 # Marketing module
 
-- Status: governed kernel, persistence, routed HTTP/MCP/private-browser, Agent drafts and Attention activation constructed; Integrations delivery remains closed
+- Status: local backend complete and executable across browser, HTTP, MCP, Agent drafts, Attention activation and Integration delivery; final customer React and environment release acceptance remain
 - Package boundary: Marketing
 - Decision: [ADR-0007](decisions/0007-marketing-governed-release.md)
 
@@ -19,8 +19,8 @@ A release freezes one campaign version, sorted unique asset revisions and its ex
 3. Stable detail/list queries, bounded cursors and the classified package-authorized application service. **Constructed.**
 4. Generated HTTP and MCP operations plus the private package-aware Marketing workspace. **Constructed.**
 5. Narrow Agent draft tools and Attention-governed release proposals; no workload-direct approval or delivery. **Constructed.**
-6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability. **Persistence and governed preparation constructed; application worker and adapters remain.**
-7. Catalog/entitlement lifecycle, retention, prototype reconciliation, Stage recovery/erasure and production role grants.
+6. Integration execution records for email/web, credential/capability checks, retry/unknown reconciliation and delivery observability. **Constructed and locally certified through worker/adapters.**
+7. Catalog/entitlement lifecycle, retention, prototype reconciliation, recovery/erasure and production role grants. **Local lifecycle coverage complete; environment application remains release work.**
 
 ## Kernel checkpoint
 
@@ -28,7 +28,7 @@ The provider-free Go package implements optimistic campaign revision and governe
 
 Asset content is append-only by construction: each revision has a distinct identity and monotonically increasing revision number over the same Account/campaign/asset tuple. Images require alternative text, media types are bounded, zero digests and empty content are rejected, and the previous value is never mutated.
 
-Release plans normalize and freeze supported channels and unique revision identities. Only a User can submit; only an Owner or Administrator can approve with a valid consequential-approval identity. Workloads may prepare drafts only with complete Run/invocation provenance. The deployment inventory deliberately keeps Marketing non-executable until the remaining construction sequence is complete.
+Release plans normalize and freeze supported channels and unique revision identities. Only a User can submit; only an Owner or Administrator can approve with a valid consequential-approval identity. Workloads may prepare drafts only with complete Run/invocation provenance. The completed construction sequence now permits Marketing to be executable in the local package inventory.
 
 ## Persistence checkpoint
 
@@ -62,7 +62,7 @@ Campaign state and optional asset filters use the closed typed vocabularies. Opa
 
 Eleven generated commands complete the customer HTTP lifecycle: create/revise/archive campaigns, append immutable asset revisions, create/submit/approve/cancel releases and activate/pause/complete campaigns. Every mutation binds its `Idempotency-Key` to the signed route operation UUID; versioned commands require exactly one weak `If-Match` ETag and return the resulting version. Create responses distinguish first application from exact replay while preserving stable locations where a detail route exists.
 
-Browser-created campaigns, assets and releases are explicitly stamped with human provenance. Asset creation is now a bounded multipart upload: Spyglass computes the byte count and SHA-256 and creates the immutable object identity, so a browser cannot supply a bucket, key, version, digest or size. Other commands use strict JSON that rejects unknown fields, trailing values, query parameters and the wrong media type. Governance still executes only through the application role checks and exact Attention approval binding; the HTTP adapter cannot supply Agent provenance or elevate a workload. Focused contract tests cover all eleven operations plus missing versions, malformed uploads and cross-Account concealment. MCP/Agent creative admission and Integration delivery remain closed, so Marketing correctly remains non-executable.
+Browser-created campaigns, assets and releases are explicitly stamped with human provenance. Asset creation is now a bounded multipart upload: Spyglass computes the byte count and SHA-256 and creates the immutable object identity, so a browser cannot supply a bucket, key, version, digest or size. Other commands use strict JSON that rejects unknown fields, trailing values, query parameters and the wrong media type. Governance still executes only through the application role checks and exact Attention approval binding; the HTTP adapter cannot supply Agent provenance or elevate a workload. Focused contract tests cover all eleven operations plus missing versions, malformed uploads and cross-Account concealment. The following MCP, Agent and Integration checkpoints close the surfaces that remained here.
 
 ## MCP checkpoint
 
@@ -86,7 +86,7 @@ The worker refuses stale campaign or release versions, mismatched campaign owner
 
 Published Personas may receive three bounded Marketing reads—campaigns, immutable asset revisions and release snapshots—and three additive draft tools for campaign, asset-revision and release creation. Every invocation is reauthorized at the private tool router against current Account placement and Marketing package mode before a one-use cell proof is minted. Read calls are capped at 100 records. Mutation calls reach dedicated internal draft-only routes; the public human commands are not reused and no governance transition is registered as a runner tool.
 
-The cell derives the invocation identity from the authenticated `runner-invocation:<uuid>` principal and requires an explicit valid Run in each draft. It supplies both values to the canonical Marketing application service, whose database foreign key independently proves the exact `(Account, invocation, Run)` tuple. The asset capability is intentionally narrower than human upload: it accepts at most 64 KiB of valid UTF-8 copy, fixes the asset kind to `copy` and media type to `text/plain`, and sends those bytes through governed object admission. The router and cell both reject caller-supplied kind, media type, content reference, digest and byte count. Tool input rejects unknown fields and invalid identities before routing; the campaign identity remains in the signed path rather than being duplicated in mutation bodies. Persona policy, tool-router dispatch and cell transport tests prove current-package reauthorization, read-only versus additive classification, private-route mapping, human rejection, derived Agent provenance and canonical creative admission. Construction step 5 is complete. Integration delivery, Catalog/retention and applied acceptance remain, so Marketing stays non-executable.
+The cell derives the invocation identity from the authenticated `runner-invocation:<uuid>` principal and requires an explicit valid Run in each draft. It supplies both values to the canonical Marketing application service, whose database foreign key independently proves the exact `(Account, invocation, Run)` tuple. The asset capability is intentionally narrower than human upload: it accepts at most 64 KiB of valid UTF-8 copy, fixes the asset kind to `copy` and media type to `text/plain`, and sends those bytes through governed object admission. The router and cell both reject caller-supplied kind, media type, content reference, digest and byte count. Tool input rejects unknown fields and invalid identities before routing; the campaign identity remains in the signed path rather than being duplicated in mutation bodies. Persona policy, tool-router dispatch and cell transport tests prove current-package reauthorization, read-only versus additive classification, private-route mapping, human rejection, derived Agent provenance and canonical creative admission. Construction step 5 is complete; the following Integration checkpoints close delivery and lifecycle coverage.
 
 ## Integration persistence checkpoint
 
@@ -104,7 +104,7 @@ The execution digest is computed from a canonical content-free manifest over the
 
 A provider-neutral connector worker kernel now consumes the prepared execution through execute-only leased database functions. It separates execute from side-effect-free reconciliation, rejects `not_applied` from an execute adapter, treats malformed post-call results as unknown and keeps payload material only in connector-runtime memory. The deterministic local mock can certify success, definite failure, ambiguous acceptance and provider-confirmed absence without network I/O.
 
-Marketing remains non-executable pending applied provider certification. The real implicit-TLS SMTP and create-only HTTPS publication adapters, mounted credential broker, exact-version S3 reader, manifest source, one-operation lease boundary, worker bootstrap, customer/MCP/Agent creative admission and connector-only object-read policy are constructed and composed in Stage/LKE topology. No generic app or Agent runner receives provider authority.
+Marketing is executable in the local backend inventory after the connector, object, recovery, export/erasure and package gates passed. The real implicit-TLS SMTP and create-only HTTPS publication adapters, mounted credential broker, exact-version S3 reader, manifest source, one-operation lease boundary, worker bootstrap, customer/MCP/Agent creative admission and connector-only object-read policy are constructed. No generic app or Agent runner receives provider authority. Applied Stage/LKE provider acceptance remains a later release gate.
 
 The cell claim boundary now independently requires a health observation no more than five minutes old for the frozen connector revision and credential generation. Missing, stale or unavailable health postpones delivery without consuming an attempt; a fresh degraded connector remains eligible so the dedicated adapter can return a classified definite or uncertain outcome. This database check does not replace current Marketing/Integrations package and placement authorization in the worker.
 
@@ -116,7 +116,7 @@ The dedicated payload source is now constructed through the provider-neutral bou
 
 Provider credentials remain outside this envelope. The connector service now acquires one exact-operation lease only after Marketing/package/placement authority and creative integrity pass, binds it to the frozen credential generation and attempt expiry, then zeroes and releases it immediately after the connector returns. Marketing cannot request or observe that lease.
 
-A dedicated per-cell worker bootstrap now composes the global authority, cell execution store, payload assembler and connector-only dependencies with bounded pools and health/status. The restore-gated ubunturojo Docker profile certifies queue/state behavior with a local no-network mock and least-privilege split database roles. The production selection is environment-gated and composes the exact-version S3 reader, mounted broker and closed SMTP/HTTPS adapters; Hostinger and LKE references isolate its provider egress and secret mount. Applied disposable-provider, recovery and erasure certification remains before Marketing becomes executable.
+A dedicated per-cell worker bootstrap now composes the global authority, cell execution store, payload assembler and connector-only dependencies with bounded pools and health/status. The restore-gated ubunturojo Docker profile certifies queue/state behavior with a local no-network mock and least-privilege split database roles. The production selection is environment-gated and composes the exact-version S3 reader, mounted broker and closed SMTP/HTTPS adapters; Hostinger and LKE references isolate its provider egress and secret mount. Environment-specific provider credentials and applied acceptance remain after the final customer UI, without reopening the local backend construction boundary.
 
 ## Immutable creative object checkpoint
 

@@ -115,7 +115,7 @@ func New(repository Repository, authority Authority, broker integrationcredentia
 	}
 	registered := make(map[definitionKey]Definition, len(definitions))
 	for _, definition := range definitions {
-		if (definition.Kind != domain.ConnectorEmail && definition.Kind != domain.ConnectorWebPublish && definition.Kind != domain.ConnectorGoogleDrive) || definition.Probe == nil ||
+		if (definition.Kind != domain.ConnectorEmail && definition.Kind != domain.ConnectorWebPublish && definition.Kind != domain.ConnectorGoogleDrive && definition.Kind != domain.ConnectorWebResearch) || definition.Probe == nil ||
 			definition.Timeout < 100*time.Millisecond || definition.Timeout > MaximumLease ||
 			(definition.CredentialProvider != "" && !validCode.MatchString(definition.CredentialProvider)) {
 			return nil, ErrInvalid
@@ -234,6 +234,8 @@ func defaultCapability(kind domain.ConnectorKind) domain.Capability {
 		return domain.CapabilityEmailSend
 	case domain.ConnectorGoogleDrive:
 		return domain.CapabilityDriveRead
+	case domain.ConnectorWebResearch:
+		return domain.CapabilityWebResearch
 	case domain.ConnectorWebPublish:
 		return domain.CapabilityWebPublish
 	default:
@@ -247,6 +249,8 @@ func capabilityMatchesKind(kind domain.ConnectorKind, capability domain.Capabili
 		return capability == domain.CapabilityEmailRead || capability == domain.CapabilityEmailSend
 	case domain.ConnectorGoogleDrive:
 		return capability == domain.CapabilityDriveRead
+	case domain.ConnectorWebResearch:
+		return capability == domain.CapabilityWebResearch
 	case domain.ConnectorWebPublish:
 		return capability == domain.CapabilityWebPublish
 	default:

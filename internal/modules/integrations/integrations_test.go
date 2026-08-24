@@ -59,6 +59,21 @@ func TestConnectionFreezesNormalizedScopeAndManagerAuthority(t *testing.T) {
 	if _, _, err := NewConnection(input, accounts.RoleOwner); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("unsafe path error=%v", err)
 	}
+	input.Kind, input.Capabilities = ConnectorWebResearch, []Capability{CapabilityWebResearch}
+	input.Scope = ConnectionScope{HTTPSOrigin: "https://Research.Example./", PathPrefix: "/authoritative"}
+	_, researchRevision, err := NewConnection(input, accounts.RoleOwner)
+	if err != nil || researchRevision.Scope.HTTPSOrigin != "https://research.example" || researchRevision.Scope.PathPrefix != "/authoritative" {
+		t.Fatalf("research revision=%+v error=%v", researchRevision, err)
+	}
+	for name, origin := range map[string]string{
+		"plain HTTP": "http://research.example", "IP literal": "https://127.0.0.1", "local": "https://service.internal",
+		"port": "https://research.example:8443", "credentials": "https://user:secret@research.example",
+	} {
+		input.Scope = ConnectionScope{HTTPSOrigin: origin, PathPrefix: "/"}
+		if _, _, err := NewConnection(input, accounts.RoleOwner); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s research origin error=%v", name, err)
+		}
+	}
 	input.Kind, input.Capabilities = ConnectorGoogleDrive, []Capability{CapabilityDriveRead}
 	input.Scope = ConnectionScope{DriveFolderIDs: []string{"folder_Z", "folder-a", "folder_0"}}
 	_, driveRevision, err := NewConnection(input, accounts.RoleOwner)

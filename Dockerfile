@@ -42,6 +42,7 @@ COPY .github/workflows/release-website-image.yml ./.github/workflows/release-web
 COPY .github/workflows/verify.yml ./.github/workflows/verify.yml
 COPY api ./api
 COPY deploy/package-surface-inventory.json ./deploy/package-surface-inventory.json
+COPY docs/production/api-mcp-interaction-guide.md ./docs/production/api-mcp-interaction-guide.md
 COPY website/lib/generated ./website/lib/generated
 
 FROM scratch

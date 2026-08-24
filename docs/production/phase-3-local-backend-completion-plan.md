@@ -23,9 +23,9 @@ For this plan, **backend** includes:
 
 The final customer-facing React implementation, mobile visual design and applied browser/accessibility/device acceptance are outside this plan. Existing browser surfaces may be used for diagnostics, but their visual completion cannot block the backend boundary.
 
-## Starting position
+## Starting position and completed position
 
-The machine-readable package inventory currently marks Work, Agents, Knowledge and Finance executable. Marketing and Integrations remain deliberately non-executable.
+At the start of this window the machine-readable package inventory marked Work, Agents, Knowledge and Finance executable while Marketing and Integrations were deliberately closed. The completed local certificate now marks all six packages executable with their exact browser, HTTP, MCP, Agent/action and worker boundaries.
 
 The repository already contains:
 
@@ -39,13 +39,15 @@ The repository already contains:
 
 LB0 is certified and committed. The production Drive API adapter, exact direct-child crawl, incremental changes/removals, Workspace export, health probe, worker composition, local fixture, least-privilege storage/database policy and safe source resurrection all passed the complete local Docker gate.
 
-The remaining backend gaps are concentrated in provider completion:
+The provider gaps identified at the start were:
 
-1. the OAuth-authorized Drive connection must still be exercised through complete source sync and Knowledge settlement;
-2. `email.read` has a governed scope but no inbound source adapter;
-3. `web.research` exists in the domain but has no hardened retrieval/capture adapter or public contract;
-4. the real SMTP/HTTPS execution path still needs a complete disposable-provider local certificate; and
-5. Marketing and Integrations cannot become executable until every advertised provider path and lifecycle is locally complete.
+1. exercising OAuth-authorized Drive through complete source sync and Knowledge settlement;
+2. adding the governed `email.read` inbound source adapter;
+3. adding hardened `web.research` retrieval/capture and public contracts;
+4. certifying outbound SMTP/HTTPS execution and recovery locally; and
+5. opening Marketing and Integrations only after every advertised provider lifecycle passed.
+
+LB1 through LB5 close those gaps. LB6 extends movement/export/erasure/restore coverage, LB7 records the complete local gate, and LB8 publishes the revision-controlled interaction guide before the required stop.
 
 ## Non-goals for this window
 
@@ -139,7 +141,7 @@ Complete the already modeled `email.read` capability independently of outbound c
 6. Add a no-network unit fixture plus a containerized TLS mail fixture for initial sync, incremental mail, attachment, deletion, reset, outage and revocation tests.
 7. Add HTTP/MCP connection and source-grant contract coverage without exposing message content on Integration status surfaces.
 
-Status on 2026-08-24: **in progress — provider-neutral source foundation complete.** Migration `000075` extends the existing private cursor/capture queue to exact active email grants while retaining the Drive checks. Claims now freeze source kind, one-to-twenty canonical mailbox folders and optional UTC date bounds; the serializable completion path repeats the live grant, matching email connection, current revision carrying `email.read`, active credential generation and exact folder membership. The application sync kernel derives the credential capability from the claimed source kind and passes the frozen mailbox/date scope to the provider. Both encrypted and mounted brokers lease provider `imap` material only for `email.read` sync/health and reject it for `email.send` execution or reconciliation. Knowledge identity derivation preserves the committed Drive namespace and uses a separate email namespace. Focused race tests and the complete 113-migration PostgreSQL suite pass. The implicit-TLS IMAP adapter, UIDVALIDITY/UID cursor, bounded MIME body/attachment parser, TLS fixture, deletion/reset behavior, health and composed local journey remain before LB3 is complete.
+Status on 2026-08-24: **complete.** Migration `000075` extends the private cursor/capture queue to exact active email grants while retaining Drive checks. The implicit-TLS IMAP adapter implements UIDVALIDITY/UID cursor semantics, bounded pagination and reviewed MIME body/attachment admission. Claims freeze one-to-twenty mailbox folders and optional UTC date bounds, and completion repeats the current connection/revision/credential/folder authority before advancing a cursor. Provider `imap` material is available only for `email.read` sync/health and remains unusable for `email.send`. The composed TLS fixture covers initial/incremental mail, attachment, expunge, UIDVALIDITY reset, outage and revocation. `make verify-imap` passes the capture-to-immutable-Knowledge journey.
 
 Exit evidence:
 
@@ -160,6 +162,8 @@ Turn the existing `web.research` kind into a bounded evidence-source capability:
 6. Add deterministic local HTTP/TLS fixtures for valid content, redirect chains, DNS rebinding attempts, private-address denial, decompression bombs, oversized bodies, timeouts, unsupported types and changed content.
 7. Add health, degradation, revocation, HTTP/MCP contracts and content-free operator recovery.
 
+Status on 2026-08-24: **complete.** Immutable connection scope, a fixed-purpose Firecrawl adapter and the hardened retriever enforce reviewed origins/paths, public-address DNS pinning, redirect revalidation and bounded DNS/connect/header/body/decompression/type/time work. Search returns safe metadata. Read freezes canonical URL, retrieval time, digest, type and attribution before immutable Knowledge admission. HTTP and MCP share the application service; read additionally requires Knowledge mutation authority. The deterministic HTTPS fixture proves SSRF denial, health degradation, exact replay, changed-content revision creation and secret isolation. `make verify-web-research` passes.
+
 Exit evidence:
 
 - the adapter passes an SSRF and resource-exhaustion regression suite;
@@ -178,6 +182,8 @@ Bring the two remaining non-executable packages through their complete local bac
 5. Expose every retained Integration use case through canonical HTTP and MCP services, including `web.research`, without transport-owned authorization logic.
 6. Reconcile generated OpenAPI, Go and TypeScript contracts and the package/process/surface inventories.
 7. Mark Marketing and Integrations executable only after all positive and negative local gates pass.
+
+Status on 2026-08-24: **complete for the local construction boundary.** The outbound connector certificate proves exact Marketing execution preparation, fresh content-free health, execute settlement, database/object/credential least authority and worker readiness. SMTP and HTTPS adapter suites retain exact scope, immutable payload, ambiguous outcome, digest reconciliation and no-blind-resend behavior. The OAuth/Drive, IMAP and web-research certificates cover the remaining advertised connectors. Generated contracts now contain 188 operations and the complete Integrations MCP composition contains 20 tools. Marketing and Integrations are executable in the machine inventory. Applied Stage or production provider credentials remain environment release evidence, not local backend construction.
 
 Exit evidence:
 
@@ -198,6 +204,8 @@ Close integration-created drift across the already constructed platform:
 6. Ensure operational metrics, alerts and status endpoints remain content-free and identify each bounded recovery action.
 7. Remove backend compatibility code only when its final replacement and migration/rollback evidence exist.
 
+Status on 2026-08-24: **complete for the new provider state and the local backend boundary.** Movement/namespace fencing covers the durable Integration connection, OAuth, capture and research families while derived queues are regenerated. Account export carries reviewed non-secret connection/capture provenance and content while excluding credentials, security digests, leases, sealed cursors and broker references. Erasure policy and fresh PostgreSQL tests include web-research captures and every source queue. The complete migration, portability, erasure, object-policy and process/package inventory suites pass with no executable prototype dependency.
+
 Exit evidence:
 
 - fresh, retained, moved, exported, restored and erased Accounts reconcile across all product packages;
@@ -215,6 +223,8 @@ Run one final local certificate before opening the customer-interface workstream
 4. Run complete local HTTP/MCP parity journeys for every package, including OAuth and provider failure/recovery.
 5. Run bounded concurrency, lease-loss, unknown-commit, provider-degradation and worker-restart tests.
 6. Produce a content-free, revision-bound backend completion report listing every use case, canonical operation, worker/adapter and acceptance test.
+
+Status on 2026-08-24: **complete.** `go test ./...`, the full Docker `make test` gate, provider certificates, generated-contract drift, migration/RLS/movement/export/erasure, object policy, website and package/process inventory checks pass from UbuntuRojo. The revision-controlled [backend completion report](phase-3-backend-completion-report.md) records the use-case/operation/worker/adapter/acceptance matrix and the deliberate UI/release exclusions.
 
 The backend feature boundary is reached only when all of the following are true:
 
@@ -247,6 +257,8 @@ Only after LB7 passes, create a revision-controlled API/MCP guide from the gener
 - operator-only boundaries that must never be surfaced as customer actions.
 
 The guide must be verified against the local HTTP and MCP services rather than inferred only from OpenAPI. Its examples must pass as a local documentation test or executable fixture.
+
+Status on 2026-08-24: **complete.** The revision-controlled [API and MCP interaction guide](api-mcp-interaction-guide.md) documents the 188-operation generated HTTP inventory, all 94 published MCP tools (89 routed cell tools plus five global export tools), local origins, session/OAuth routing, package/role/read-only behavior, safe retry/recovery rules and deterministic local fixtures. `TestAPIMCPGuideMatchesGeneratedInventories` fails on operation/tool-count drift, missing published tools, missing required protocol contracts or invalid fenced JSON examples.
 
 After the backend completion report and API/MCP guide are committed locally, this execution window stops. It does not begin the customer-facing UI workstream automatically. UI planning and implementation resume only under a later explicit direction. GHCR, Stage, LKE and production remain later release work after both backend and UI feature completion.
 

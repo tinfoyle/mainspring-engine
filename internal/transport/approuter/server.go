@@ -166,6 +166,21 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthorizationError(w, err)
 		return
 	}
+	var additionalPackageAccesses []routecontext.PackageAccess
+	if additional, required := additionalRouteRequirement(r.Method, r.PathValue("resource")); required {
+		additionalContext, additionalErr := s.authorizer.Authorize(r.Context(), actor, accountID, additional)
+		if additionalErr != nil {
+			s.writeAuthorizationError(w, additionalErr)
+			return
+		}
+		if additionalContext.AccountID != accountContext.AccountID || additionalContext.CellID != accountContext.CellID ||
+			additionalContext.PlacementGeneration != accountContext.PlacementGeneration || additionalContext.EntitlementVersion != accountContext.EntitlementVersion ||
+			additionalContext.Role != accountContext.Role || additionalContext.PackageAccess == nil {
+			writeProblem(w, http.StatusServiceUnavailable, "authorization_unavailable", "cross-package Account authority could not be verified")
+			return
+		}
+		additionalPackageAccesses = append(additionalPackageAccesses, *packageClaim(additionalContext.PackageAccess))
+	}
 	cellRoute, err := s.directory.Resolve(r.Context(), accountID, accountContext.CellID, accountContext.PlacementGeneration)
 	if err != nil {
 		s.logger.Error("resolve Account route", "cell_id", accountContext.CellID, "placement_generation", accountContext.PlacementGeneration, "error", err)
@@ -201,7 +216,10 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		}
 		operationID = strings.TrimSpace(values[0])
 	}
-	authority := routecontext.Authority{OperationID: operationID, AccountID: accountContext.AccountID, ActorKind: "user", ActorID: string(authenticated.Session.UserID), Role: string(accountContext.Role), CellID: accountContext.CellID, PlacementGeneration: accountContext.PlacementGeneration, EntitlementVersion: accountContext.EntitlementVersion, PackageAccess: packageClaim(accountContext.PackageAccess)}
+	authority := routecontext.Authority{OperationID: operationID, AccountID: accountContext.AccountID, ActorKind: "user", ActorID: string(authenticated.Session.UserID), Role: string(accountContext.Role), CellID: accountContext.CellID, PlacementGeneration: accountContext.PlacementGeneration, EntitlementVersion: accountContext.EntitlementVersion, PackageAccess: packageClaim(accountContext.PackageAccess), PackageAccesses: additionalPackageAccesses}
+	if r.Method == http.MethodPost && r.PathValue("resource") == "integrations/web-research/read" {
+		authority.DelegatedWorkloadIDs = []string{"integration-web-research"}
+	}
 	if authenticated.Session.ReauthenticationMethod == sessions.AuthenticationMethodPasskey && !authenticated.Session.ReauthenticatedAt.IsZero() {
 		value := authenticated.Session.ReauthenticatedAt.UTC()
 		authority.StrongAuthenticatedAt = &value
@@ -442,6 +460,13 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 			if len(parts) == 6 && ids.Validate(parts[2]) == nil && parts[3] == "resolutions" && ids.Validate(parts[4]) == nil && parts[5] == "confirmations" {
 				return mutation, method == http.MethodPost
 			}
+		case "web-research":
+			if len(parts) == 3 && parts[2] == "search" {
+				return read, method == http.MethodPost
+			}
+			if len(parts) == 3 && parts[2] == "read" {
+				return mutation, method == http.MethodPost
+			}
 		}
 		return access.Requirement{}, false
 	}
@@ -478,6 +503,13 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 		if len(parts) == 6 && parts[1] == "actions" && ids.Validate(parts[2]) == nil && parts[3] == "resolutions" && ids.Validate(parts[4]) == nil && parts[5] == "confirmations" {
 			return access.Requirement{Package: packageCode, Mutation: true}, method == http.MethodPost
 		}
+	}
+	return access.Requirement{}, false
+}
+
+func additionalRouteRequirement(method, resource string) (access.Requirement, bool) {
+	if strings.EqualFold(method, http.MethodPost) && resource == "integrations/web-research/read" {
+		return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, true
 	}
 	return access.Requirement{}, false
 }

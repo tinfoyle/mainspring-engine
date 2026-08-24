@@ -43,6 +43,7 @@ type Server struct {
 	marketing                MarketingService
 	integrations             IntegrationsService
 	integrationAuthorization IntegrationAuthorizationService
+	webResearch              WebResearchService
 	logger                   *slog.Logger
 	version                  string
 	maxBody                  int64
@@ -133,6 +134,16 @@ func WithIntegrationAuthorization(service IntegrationAuthorizationService) Optio
 	}
 }
 
+func WithWebResearch(service WebResearchService) Option {
+	return func(server *Server) error {
+		if service == nil {
+			return errors.New("MCP public web research service is required")
+		}
+		server.webResearch = service
+		return nil
+	}
+}
+
 type principalContextKey struct{}
 
 func New(authority Authority, attention AttentionService, logger *slog.Logger, config Config, options ...Option) (*Server, error) {
@@ -214,6 +225,9 @@ func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 	}
 	if s.integrations != nil {
 		s.registerIntegrations(server, actor)
+	}
+	if s.webResearch != nil {
+		s.registerWebResearch(server, actor)
 	}
 	return server
 }

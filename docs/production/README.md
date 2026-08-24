@@ -10,6 +10,8 @@ Current audit and execution reports:
 - [Phase 2.5 closeout report](phase-2-5-closeout-report.md)
 - [Phase 3 final construction plan](phase-3-report.md)
 - [Phase 3 local backend completion plan](phase-3-local-backend-completion-plan.md)
+- [Phase 3 local backend completion report](phase-3-backend-completion-report.md)
+- [HTTP API and MCP interaction guide](api-mcp-interaction-guide.md)
 - [Local, stage and production deployment report](stage-production-deployment-report.md)
 - [Phase 3 product-journey certification](journey-certification.md)
 - [Account movement operations](account-movement.md)

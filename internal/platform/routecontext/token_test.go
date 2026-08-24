@@ -103,13 +103,20 @@ func TestInvalidAuthorityAndConfigurationFailClosed(t *testing.T) {
 		t.Fatalf("mismatched cell audience = %v", err)
 	}
 	cases := map[string]func(*Authority){
-		"account":    func(a *Authority) { a.AccountID = "wrong" },
-		"request":    func(a *Authority) { a.RequestID = "wrong" },
-		"generation": func(a *Authority) { a.PlacementGeneration = 0 },
-		"role":       func(a *Authority) { a.Role = "superuser" },
-		"package":    func(a *Authority) { a.PackageAccess.Code = "Work!" },
-		"limit":      func(a *Authority) { a.PackageAccess.Limits["active_items"] = -1 },
-		"operation":  func(a *Authority) { a.OperationID = "wrong" },
+		"account":          func(a *Authority) { a.AccountID = "wrong" },
+		"request":          func(a *Authority) { a.RequestID = "wrong" },
+		"generation":       func(a *Authority) { a.PlacementGeneration = 0 },
+		"role":             func(a *Authority) { a.Role = "superuser" },
+		"package":          func(a *Authority) { a.PackageAccess.Code = "Work!" },
+		"limit":            func(a *Authority) { a.PackageAccess.Limits["active_items"] = -1 },
+		"operation":        func(a *Authority) { a.OperationID = "wrong" },
+		"empty delegation": func(a *Authority) { a.DelegatedWorkloadIDs = []string{""} },
+		"duplicate delegation": func(a *Authority) {
+			a.DelegatedWorkloadIDs = []string{"integration-web-research", "integration-web-research"}
+		},
+		"duplicate package": func(a *Authority) {
+			a.PackageAccesses = []PackageAccess{{Code: "work", Version: 1, Mode: "enabled"}}
+		},
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
