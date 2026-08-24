@@ -7,6 +7,7 @@ package accountexport
 func LaunchRegistry() (*Registry, error) {
 	sections := []Descriptor{
 		{Code: "account", SchemaVersion: 1, Stores: []string{"cell-postgresql", "global-postgresql"}},
+		{Code: "affiliate", SchemaVersion: 1, Stores: []string{"global-postgresql"}},
 		{Code: "agents", SchemaVersion: 1, Stores: []string{"cell-postgresql"}},
 		{Code: "attention", SchemaVersion: 1, Stores: []string{"cell-postgresql"}},
 		{Code: "baseline", SchemaVersion: 1, Stores: []string{"cell-postgresql"}},
@@ -40,6 +41,10 @@ func LaunchRegistry() (*Registry, error) {
 	exclude("public", Operational, "Export request workflow and audit rows describe artifact processing; the artifact contains the portable customer projections.", "account_export_events", "account_export_requests")
 	exclude("public", Operational, "Movement coordination state is transient infrastructure metadata, not portable customer content.", "account_moves")
 	include("public", "billing", "billing_checkout_attempts", "billing_profiles", "subscriptions")
+	include("public", "affiliate", "affiliate_attributions")
+	exclude("public", IdentityScoped, "Affiliate enrollment and earnings belong to the Affiliate identity and require the separate identity-rights export workflow.", "affiliate_enrollments", "affiliate_commission_entries")
+	exclude("public", Operational, "Versioned Affiliate commission rules are controller commercial policy, not Account-owned customer content.", "affiliate_commission_rules")
+	exclude("public", IdentityScoped, "Consent subjects, consent receipts and pseudonymous analytics require the separate privacy-subject rights workflow.", "privacy_consent_subjects", "privacy_consent_decisions", "analytics_events")
 	exclude("public", Secret, "Verified provider event envelopes and encrypted payload references are internal security material.", "billing_event_inbox")
 	exclude("public", Operational, "Billing operator interventions are internal processing audit records.", "billing_operator_events")
 	exclude("public", Operational, "Provider subscription reconciliation rows are transient billing synchronization controls.", "billing_reconciliation_queue")

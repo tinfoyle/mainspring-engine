@@ -54,9 +54,21 @@ type Service struct {
 	clock      Clock
 	appOrigin  string
 	mode       string
+	referrals  ReferralAttributor
 }
 
-func New(provider billing.Provider, repository Repository, authorizer *access.Authorizer, catalogSource func() catalog.PublishedCatalog, clock Clock, appOrigin, mode string) (*Service, error) {
+type ReferralAttributor interface {
+	ReserveCheckout(context.Context, string, ids.AccountID, string, string, uint64) (ids.ReferralAttributionID, error)
+	CheckoutAttribution(context.Context, string) (ids.ReferralAttributionID, bool, error)
+}
+
+type Option func(*Service)
+
+func WithReferralAttributor(referrals ReferralAttributor) Option {
+	return func(service *Service) { service.referrals = referrals }
+}
+
+func New(provider billing.Provider, repository Repository, authorizer *access.Authorizer, catalogSource func() catalog.PublishedCatalog, clock Clock, appOrigin, mode string, options ...Option) (*Service, error) {
 	if provider == nil || repository == nil || authorizer == nil || catalogSource == nil || clock == nil {
 		return nil, errors.New("commercial access dependencies are required")
 	}
@@ -67,15 +79,20 @@ func New(provider billing.Provider, repository Repository, authorizer *access.Au
 	if mode != "test" && mode != "live" {
 		return nil, errors.New("billing mode must be test or live")
 	}
-	return &Service{provider: provider, repository: repository, authorizer: authorizer, catalog: catalogSource, clock: clock, appOrigin: strings.TrimSuffix(appOrigin, "/"), mode: mode}, nil
+	service := &Service{provider: provider, repository: repository, authorizer: authorizer, catalog: catalogSource, clock: clock, appOrigin: strings.TrimSuffix(appOrigin, "/"), mode: mode}
+	for _, option := range options {
+		option(service)
+	}
+	return service, nil
 }
 
 type CheckoutCommand struct {
-	ActorUserID ids.UserID
-	Session     sessions.Session
-	AccountID   ids.AccountID
-	OfferCode   string
-	RequestID   string
+	ActorUserID   ids.UserID
+	Session       sessions.Session
+	AccountID     ids.AccountID
+	OfferCode     string
+	AffiliateCode string
+	RequestID     string
 }
 
 type CheckoutReservation struct {
@@ -150,6 +167,22 @@ func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billin
 	if !reservation.Proceed {
 		return billing.HostedSession{}, ErrCheckoutInProgress
 	}
+	var attributionID ids.ReferralAttributionID
+	if s.referrals != nil {
+		if strings.TrimSpace(command.AffiliateCode) != "" {
+			attributionID, err = s.referrals.ReserveCheckout(ctx, command.AffiliateCode, command.AccountID,
+				command.RequestID, offer.Code, published.Version)
+		} else {
+			var found bool
+			attributionID, found, err = s.referrals.CheckoutAttribution(ctx, command.RequestID)
+			if !found {
+				attributionID = ""
+			}
+		}
+		if err != nil {
+			return billing.HostedSession{}, err
+		}
+	}
 	profile, err := s.repository.AccountProfile(ctx, command.AccountID)
 	if err != nil {
 		return billing.HostedSession{}, err
@@ -171,7 +204,7 @@ func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billin
 	if !strings.HasPrefix(customerID, "cus_") {
 		return billing.HostedSession{}, ErrBillingUnavailable
 	}
-	session, err := s.provider.CreateCheckoutSession(ctx, billing.CreateCheckoutCommand{AccountID: command.AccountID, CustomerID: customerID, StripePriceID: priceID, OfferCode: offer.Code, OfferVersion: published.Version, SuccessURL: s.appOrigin + "/app?status=billing#billing", CancelURL: s.appOrigin + "/app?status=billing_cancelled#billing", IdempotencyKey: "spyglass/checkout/" + string(command.AccountID) + "/" + command.RequestID})
+	session, err := s.provider.CreateCheckoutSession(ctx, billing.CreateCheckoutCommand{AccountID: command.AccountID, CustomerID: customerID, StripePriceID: priceID, OfferCode: offer.Code, OfferVersion: published.Version, AffiliateAttributionID: attributionID, SuccessURL: s.appOrigin + "/app?status=billing#billing", CancelURL: s.appOrigin + "/app?status=billing_cancelled#billing", IdempotencyKey: "spyglass/checkout/" + string(command.AccountID) + "/" + command.RequestID})
 	if err != nil {
 		return billing.HostedSession{}, err
 	}

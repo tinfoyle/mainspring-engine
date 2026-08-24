@@ -8,6 +8,11 @@ import "github.com/jackc/pgx/v5"
 // enforces that union exactly.
 func AccountExportGlobalProjectionTables(tx pgx.Tx) map[string][]AccountExportProjectionTable {
 	result := map[string][]AccountExportProjectionTable{
+		"affiliate": {
+			projectionTable(tx, "public", "affiliate_attributions", "referred_account_id", []string{"attribution_id"},
+				[]string{"attribution_id", "referred_account_id", "checkout_request_id", "offer_code", "offer_version", "state", "version", "created_at", "locked_at"},
+				[]string{"affiliate_id", "rule_version", "provider_subscription_id"}),
+		},
 		"account": {
 			projectionTable(tx, "public", "account_closure_requests", "account_id", []string{"id"},
 				[]string{"id", "account_id", "state", "requested_by_user_id", "reason", "account_version", "requested_at", "execute_after", "blocker_code", "canceled_by_user_id", "cancel_reason", "canceled_at", "closed_at", "delete_after"},

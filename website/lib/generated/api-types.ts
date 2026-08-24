@@ -404,6 +404,15 @@ export interface AgentToolGrantInput {
   readonly "name": string;
 }
 
+export interface AnalyticsEventInput {
+  readonly "event_id": string;
+  readonly "fields": Readonly<Record<string, string>>;
+  readonly "name": AnalyticsEventName;
+  readonly "occurred_at": string;
+}
+
+export type AnalyticsEventName = "landing_viewed" | "primary_cta_selected" | "feature_viewed" | "pricing_viewed" | "offer_selected" | "signup_handoff_started" | "registration_started" | "verification_completed" | "account_created" | "security_enrollment_completed" | "checkout_reviewed" | "referral_code_accepted" | "checkout_redirected" | "checkout_returned" | "subscription_projected" | "application_entered" | "your_turn_opened" | "your_turn_item_completed";
+
 export interface AnswerBaselineRequest {
   readonly "fact"?: BaselineFactReference;
   readonly "kind": "fact" | "unknown";
@@ -800,6 +809,7 @@ export interface CreateBaselineSourceGrantRequest {
 }
 
 export interface CreateCheckoutSessionRequest {
+  readonly "affiliate_code"?: string;
   readonly "offer_code": string;
 }
 
@@ -1849,6 +1859,23 @@ export interface Passkeys {
   readonly "passkeys": ReadonlyArray<PasskeyCredential>;
 }
 
+export interface PrivacyConsent {
+  readonly "analytics": boolean;
+  readonly "decided": boolean;
+  readonly "effective_at"?: string;
+  readonly "marketing": boolean;
+  readonly "policy_version": number;
+  readonly "renewal_required": boolean;
+  readonly "surface": PrivacySurface;
+}
+
+export interface PrivacyConsentSelection {
+  readonly "analytics": boolean;
+  readonly "marketing": boolean;
+}
+
+export type PrivacySurface = "public" | "private";
+
 export interface Problem {
   readonly "code": string;
   readonly "detail": string;
@@ -2373,6 +2400,8 @@ export interface ApiSchemas {
   readonly AgentRunUsage: AgentRunUsage;
   readonly AgentToolGrant: AgentToolGrant;
   readonly AgentToolGrantInput: AgentToolGrantInput;
+  readonly AnalyticsEventInput: AnalyticsEventInput;
+  readonly AnalyticsEventName: AnalyticsEventName;
   readonly AnswerBaselineRequest: AnswerBaselineRequest;
   readonly AnswerInformationRequestInput: AnswerInformationRequestInput;
   readonly Approval: Approval;
@@ -2583,6 +2612,9 @@ export interface ApiSchemas {
   readonly PasskeyCredential: PasskeyCredential;
   readonly PasskeyLoginSession: PasskeyLoginSession;
   readonly Passkeys: Passkeys;
+  readonly PrivacyConsent: PrivacyConsent;
+  readonly PrivacyConsentSelection: PrivacyConsentSelection;
+  readonly PrivacySurface: PrivacySurface;
   readonly Problem: Problem;
   readonly ProposeKnowledgeClaimRequest: ProposeKnowledgeClaimRequest;
   readonly ProvisionedAccount: ProvisionedAccount;

@@ -57,6 +57,8 @@ func billingFailureCode(err error, fallback string) string {
 	switch {
 	case errors.Is(err, ErrSubscriptionMismatch):
 		return "subscription_mapping_mismatch"
+	case errors.Is(err, ErrAffiliateAttributionMismatch):
+		return "affiliate_attribution_mismatch"
 	case errors.Is(err, ErrUnmappedSubscription):
 		return "subscription_unmapped"
 	default:

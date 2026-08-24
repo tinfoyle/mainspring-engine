@@ -998,7 +998,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	stripeClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(nil), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval,
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval,
 		ExportObject:        s3objects.Config{Endpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: envOr("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "spyglass-account-exports"), AccessKey: exportObjectAccessKey, SecretKey: exportObjectSecretKey, Secure: objectSecure, ServerSideEncryption: objectSSE},
 		ExportDownloadKeyID: exportKeyID, ExportDownloadKeys: exportKeys, ExportDownloadLifetime: exportLifetime}, logger)
 	if err != nil {
@@ -2986,6 +2986,7 @@ type persistentConfig struct {
 	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, mcpResourceOrigin, passkeyRPID string
 	notificationEncryptionKey                                                                                                                []byte
 	networkActorKey                                                                                                                          []byte
+	privacyPreferenceKey                                                                                                                     []byte
 	passkeyEncryptionKeys                                                                                                                    map[int][]byte
 	passkeyActiveKeyVersion                                                                                                                  int
 	trustedProxyCIDRs                                                                                                                        []string
@@ -3012,6 +3013,10 @@ func productionConfig() (persistentConfig, error) {
 		return persistentConfig{}, err
 	}
 	result.networkActorKey, err = base64KeyEnv("SPYGLASS_NETWORK_ACTOR_KEY")
+	if err != nil {
+		return persistentConfig{}, err
+	}
+	result.privacyPreferenceKey, err = base64KeyEnv("SPYGLASS_PRIVACY_PREFERENCE_KEY")
 	if err != nil {
 		return persistentConfig{}, err
 	}

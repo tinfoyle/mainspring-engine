@@ -124,6 +124,23 @@ func (r *BillingProjectionRepository) ApplyProjection(ctx context.Context, proje
 	if err != nil {
 		return err
 	}
+	if projection.Subscription.AffiliateAttributionID != "" {
+		var lockedID ids.ReferralAttributionID
+		err = tx.QueryRow(ctx, `
+			UPDATE affiliate_attributions
+			SET state='locked',provider_subscription_id=$2,locked_at=COALESCE(locked_at,$3),version=CASE WHEN state='reserved' THEN version+1 ELSE version END
+			WHERE attribution_id=$1 AND referred_account_id=$4 AND offer_code=$5 AND offer_version=$6
+			  AND (state='reserved' OR (state='locked' AND provider_subscription_id=$2))
+			RETURNING attribution_id`, projection.Subscription.AffiliateAttributionID, projection.Subscription.ID,
+			projection.SyncedAt.UTC(), projection.Mapping.AccountID, projection.Mapping.Offer.Code,
+			projection.Mapping.CatalogVersion).Scan(&lockedID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return billing.ErrAffiliateAttributionMismatch
+		}
+		if err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM entitlement_grants WHERE account_id=$1 AND source='subscription' AND source_reference=$2`, projection.Mapping.AccountID, projection.Subscription.ID); err != nil {
 		return err
 	}

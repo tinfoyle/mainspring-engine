@@ -77,6 +77,22 @@ type serviceProvider struct {
 	checkout                                  billing.CreateCheckoutCommand
 }
 
+type referralAttributor struct {
+	code, requestID, offerCode string
+	accountID                  ids.AccountID
+	offerVersion               uint64
+	id                         ids.ReferralAttributionID
+}
+
+func (a *referralAttributor) ReserveCheckout(_ context.Context, code string, accountID ids.AccountID, requestID, offerCode string, offerVersion uint64) (ids.ReferralAttributionID, error) {
+	a.code, a.accountID, a.requestID, a.offerCode, a.offerVersion = code, accountID, requestID, offerCode, offerVersion
+	return a.id, nil
+}
+
+func (a *referralAttributor) CheckoutAttribution(context.Context, string) (ids.ReferralAttributionID, bool, error) {
+	return "", false, nil
+}
+
 func (p *serviceProvider) CreateCustomer(context.Context, billing.CreateCustomerCommand) (billing.CustomerReference, error) {
 	p.customerCalls++
 	return billing.CustomerReference{ID: "cus_test"}, nil
@@ -113,6 +129,26 @@ func TestCheckoutResolvesLocalOfferAndCreatesCustomer(t *testing.T) {
 	}
 	if provider.checkout.StripePriceID != "price_private" || provider.checkout.OfferCode != "team-monthly-v1" || provider.checkout.SuccessURL != "https://app.infiniteocean.net/app?status=billing#billing" {
 		t.Fatalf("unsafe checkout projection: %+v", provider.checkout)
+	}
+}
+
+func TestCheckoutFreezesAffiliateAttributionIntoProviderMetadata(t *testing.T) {
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_private"}
+	provider := &serviceProvider{}
+	referrals := &referralAttributor{id: "44444444-4444-4444-8444-444444444444"}
+	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
+	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test", WithReferralAttributor(referrals))
+	command := checkoutCommand(now)
+	command.AffiliateCode = "IO-PARTNER1"
+	if _, err := service.Checkout(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	if referrals.code != "IO-PARTNER1" || referrals.accountID != testAccountID || referrals.requestID != testRequestID || referrals.offerCode != "team-monthly-v1" || referrals.offerVersion != 2 {
+		t.Fatalf("referral=%+v", referrals)
+	}
+	if provider.checkout.AffiliateAttributionID != referrals.id {
+		t.Fatalf("provider attribution=%q want=%q", provider.checkout.AffiliateAttributionID, referrals.id)
 	}
 }
 

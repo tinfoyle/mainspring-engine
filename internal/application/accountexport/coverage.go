@@ -8,10 +8,11 @@ import (
 type Disposition string
 
 const (
-	Included    Disposition = "included"
-	Derived     Disposition = "derived"
-	Operational Disposition = "operational"
-	Secret      Disposition = "secret"
+	Included       Disposition = "included"
+	Derived        Disposition = "derived"
+	Operational    Disposition = "operational"
+	Secret         Disposition = "secret"
+	IdentityScoped Disposition = "identity_scoped"
 )
 
 type TableCoverage struct {
@@ -43,7 +44,7 @@ func NewRegistry(sections []Descriptor, tables []TableCoverage) (*Registry, erro
 		key := coverage.Schema + "." + coverage.Table
 		_, sectionExists := registry.sections[coverage.Section]
 		validIncluded := coverage.Disposition == Included && sectionExists && coverage.Reason == ""
-		validExcluded := slices.Contains([]Disposition{Derived, Operational, Secret}, coverage.Disposition) && coverage.Section == "" && validReason(coverage.Reason)
+		validExcluded := slices.Contains([]Disposition{Derived, Operational, Secret, IdentityScoped}, coverage.Disposition) && coverage.Section == "" && validReason(coverage.Reason)
 		if !validTableName(coverage.Schema, coverage.Table) || registry.tables[key].Table != "" || (!validIncluded && !validExcluded) {
 			return nil, ErrInvalid
 		}

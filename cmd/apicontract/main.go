@@ -167,11 +167,12 @@ func loadContract(path string) ([]route, error) {
 					auth = name
 				}
 			}
-			if auth != "public" && auth != "sessionCookie" && auth != "stripeSignature" && auth != "exportDownloadCapability" {
+			if auth != "public" && auth != "sessionCookie" && auth != "privacyPreferenceCookie" && auth != "stripeSignature" && auth != "exportDownloadCapability" {
 				return nil, fmt.Errorf("operation %s has unsupported authentication %q", op.ID, auth)
 			}
 			if (path == "/webhooks/stripe") != (auth == "stripeSignature") ||
 				(path == "/api/v1/account-exports/{exportID}/artifact") != (auth == "exportDownloadCapability") ||
+				(auth == "privacyPreferenceCookie" && path != "/api/v1/analytics/events") ||
 				(op.Service == "cell-api" && auth != "sessionCookie") {
 				return nil, fmt.Errorf("operation %s authentication does not match its boundary", op.ID)
 			}

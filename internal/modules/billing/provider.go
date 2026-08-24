@@ -26,14 +26,15 @@ type CreateCustomerCommand struct {
 type CustomerReference struct{ ID string }
 
 type CreateCheckoutCommand struct {
-	AccountID      ids.AccountID
-	CustomerID     string
-	StripePriceID  string
-	OfferCode      string
-	OfferVersion   uint64
-	SuccessURL     string
-	CancelURL      string
-	IdempotencyKey string
+	AccountID              ids.AccountID
+	CustomerID             string
+	StripePriceID          string
+	OfferCode              string
+	OfferVersion           uint64
+	AffiliateAttributionID ids.ReferralAttributionID
+	SuccessURL             string
+	CancelURL              string
+	IdempotencyKey         string
 }
 
 type CreatePortalCommand struct {
@@ -50,17 +51,18 @@ type HostedSession struct {
 }
 
 type ProviderSubscription struct {
-	ID                 string
-	Mode               string
-	CustomerID         string
-	State              string
-	PriceIDs           []string
-	CurrentPeriodStart time.Time
-	CurrentPeriodEnd   time.Time
-	CancelAt           *time.Time
-	CollectionPaused   bool
-	ObjectVersion      string
-	AccountID          ids.AccountID
-	OfferCode          string
-	OfferVersion       uint64
+	ID                     string
+	Mode                   string
+	CustomerID             string
+	State                  string
+	PriceIDs               []string
+	CurrentPeriodStart     time.Time
+	CurrentPeriodEnd       time.Time
+	CancelAt               *time.Time
+	CollectionPaused       bool
+	ObjectVersion          string
+	AccountID              ids.AccountID
+	OfferCode              string
+	OfferVersion           uint64
+	AffiliateAttributionID ids.ReferralAttributionID
 }

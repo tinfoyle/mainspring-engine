@@ -13,11 +13,14 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountexport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
+	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
+	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -25,8 +28,10 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
@@ -61,6 +66,10 @@ type Server struct {
 	exposeContactToken    bool
 	accountExports        *accountexport.Service
 	exportDownloads       *accountexport.DownloadService
+	privacyConsent        *privacyconsent.Service
+	analyticsIngest       *analyticsingest.Service
+	privacyTokens         PrivacyTokenCodec
+	privacyHTTP           PrivacyHTTPConfig
 }
 
 type SessionCookie struct {
@@ -170,6 +179,17 @@ func WithContactChanges(service *contactchange.Service, tokens ContactChangeToke
 	}
 }
 
+type PrivacyTokenCodec interface {
+	Sign(privacy.PreferenceReference) (string, error)
+	Verify(string, privacy.Surface) (privacy.PreferenceReference, error)
+}
+
+func WithPrivacy(consent *privacyconsent.Service, ingestion *analyticsingest.Service, tokens PrivacyTokenCodec, config PrivacyHTTPConfig) Option {
+	return func(server *Server) {
+		server.privacyConsent, server.analyticsIngest, server.privacyTokens, server.privacyHTTP = consent, ingestion, tokens, config
+	}
+}
+
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
 	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
 	for _, option := range options {
@@ -183,6 +203,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health/live", s.live)
 	mux.HandleFunc("GET /health/ready", s.ready)
 	mux.HandleFunc("GET /api/v1/catalog/public", s.publicCatalog)
+	mux.HandleFunc("GET /api/v1/privacy/consent", s.getPrivacyConsent)
+	mux.HandleFunc("PUT /api/v1/privacy/consent", s.setPrivacyConsent)
+	mux.HandleFunc("POST /api/v1/analytics/events", s.ingestAnalyticsEvent)
 	mux.HandleFunc("POST /api/v1/registrations", s.beginRegistration)
 	mux.HandleFunc("POST /api/v1/registrations/verify", s.completeRegistration)
 	mux.HandleFunc("POST /api/v1/recovery-challenges", s.beginRecovery)
@@ -506,13 +529,14 @@ func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		OfferCode string `json:"offer_code"`
+		OfferCode     string `json:"offer_code"`
+		AffiliateCode string `json:"affiliate_code"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	session, err := s.commercialAccess.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, OfferCode: input.OfferCode, RequestID: r.Header.Get("Idempotency-Key")})
+	session, err := s.commercialAccess.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, OfferCode: input.OfferCode, AffiliateCode: input.AffiliateCode, RequestID: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		s.writeCommercialError(w, err)
 		return
@@ -570,6 +594,13 @@ func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusConflict, "subscription_exists", "manage the existing subscription in the billing portal")
 	case errors.Is(err, commercialaccess.ErrCheckoutInProgress):
 		writeProblem(w, http.StatusConflict, "checkout_in_progress", "a checkout session is already in progress")
+	case errors.Is(err, affiliateprogram.ErrCodeUnavailable), errors.Is(err, affiliateprogram.ErrTermsRequired),
+		errors.Is(err, affiliateprogram.ErrProgramUnavailable):
+		writeProblem(w, http.StatusBadRequest, "affiliate_code_unavailable", "the Affiliate code is not available for this offer")
+	case errors.Is(err, affiliates.ErrSelfReferral):
+		writeProblem(w, http.StatusBadRequest, "affiliate_self_referral", "an Affiliate cannot refer an Account they own")
+	case errors.Is(err, affiliateprogram.ErrAttributionConflict):
+		writeProblem(w, http.StatusConflict, "affiliate_attribution_conflict", "the checkout request already has a different Affiliate attribution")
 	case errors.Is(err, commercialaccess.ErrBillingUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "billing_unavailable", "billing is temporarily unavailable")
 	case access.IsDenied(err, access.DenialRole), access.IsDenied(err, access.DenialMembership), access.IsDenied(err, access.DenialAccountUnavailable):

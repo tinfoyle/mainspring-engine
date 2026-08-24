@@ -61,6 +61,13 @@ type IntegrationSourceSyncID string
 type IntegrationSourceCaptureID string
 type IntegrationAuthorizationSessionID string
 type WebResearchCaptureID string
+type ConsentSubjectID string
+type ConsentDecisionID string
+type AnalyticsEventID string
+type AffiliateID string
+type ReferralAttributionID string
+type CommissionRuleID string
+type CommissionEntryID string
 
 type Generator interface {
 	New() string

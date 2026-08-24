@@ -4,6 +4,8 @@
   "servers": [{"url": "https://app.infiniteocean.net"}],
   "paths": {
     "/api/v1/catalog/public": {"get": {"operationId": "publicCatalog", "x-spyglass-service": "account-api", "security": [], "responses": {"200": {"$ref": "#/components/responses/PublicCatalogOK"}, "default": {"$ref": "#/components/responses/Problem"}}}},
+    "/api/v1/privacy/consent": {"get": {"operationId": "getPrivacyConsent", "x-spyglass-service": "account-api", "security": [], "responses": {"200": {"$ref": "#/components/responses/PrivacyConsentOK"}, "default": {"$ref": "#/components/responses/Problem"}}}, "put": {"operationId": "setPrivacyConsent", "x-spyglass-service": "account-api", "security": [], "parameters": [{"$ref": "#/components/parameters/origin"}], "requestBody": {"$ref": "#/components/requestBodies/SetPrivacyConsent"}, "responses": {"200": {"$ref": "#/components/responses/PrivacyConsentSaved"}, "default": {"$ref": "#/components/responses/Problem"}}}},
+    "/api/v1/analytics/events": {"post": {"operationId": "ingestAnalyticsEvent", "x-spyglass-service": "account-api", "security": [{"privacyPreferenceCookie": []}], "parameters": [{"$ref": "#/components/parameters/origin"}], "requestBody": {"$ref": "#/components/requestBodies/IngestAnalyticsEvent"}, "responses": {"204": {"$ref": "#/components/responses/NoContent"}, "default": {"$ref": "#/components/responses/Problem"}}}},
     "/api/v1/registrations": {"post": {"operationId": "beginRegistration", "x-spyglass-service": "account-api", "security": [], "requestBody": {"$ref": "#/components/requestBodies/BeginRegistration"}, "responses": {"202": {"$ref": "#/components/responses/RegistrationAccepted"}, "default": {"$ref": "#/components/responses/Problem"}}}},
     "/api/v1/registrations/verify": {"post": {"operationId": "completeRegistration", "x-spyglass-service": "account-api", "security": [], "requestBody": {"$ref": "#/components/requestBodies/CompleteRegistration"}, "responses": {"201": {"$ref": "#/components/responses/RegistrationCompleted"}, "default": {"$ref": "#/components/responses/Problem"}}}},
     "/api/v1/recovery-challenges": {"post": {"operationId": "beginRecovery", "x-spyglass-service": "account-api", "security": [], "requestBody": {"$ref": "#/components/requestBodies/BeginRecovery"}, "responses": {"202": {"$ref": "#/components/responses/RecoveryAccepted"}, "default": {"$ref": "#/components/responses/Problem"}}}},
@@ -164,6 +166,7 @@
   "components": {
     "securitySchemes": {
       "sessionCookie": {"type": "apiKey", "in": "cookie", "name": "__Host-spyglass_session"},
+      "privacyPreferenceCookie": {"type": "apiKey", "in": "cookie", "name": "__Host-spyglass_privacy", "description": "Integrity-protected, host-only privacy preference reference; not an authentication credential"},
       "stripeSignature": {"type": "apiKey", "in": "header", "name": "Stripe-Signature"},
       "exportDownloadCapability": {"type": "apiKey", "in": "header", "name": "Authorization", "description": "Short-lived SPYGLASS-ACCOUNT-EXPORT capability; never place it in a URL"}
     },
@@ -234,6 +237,11 @@
     },
     "schemas": {
       "Problem": {"type": "object", "required": ["type", "title", "status", "code", "detail"], "properties": {"type": {"type": "string", "format": "uri", "pattern": "^https://infiniteocean\\.net/problems/[a-z][a-z0-9_]{0,99}$"}, "title": {"type": "string", "minLength": 1}, "status": {"type": "integer", "minimum": 400, "maximum": 599}, "code": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,99}$"}, "detail": {"type": "string", "minLength": 1}}, "additionalProperties": false},
+      "PrivacySurface": {"type": "string", "enum": ["public", "private"]},
+      "PrivacyConsentSelection": {"type": "object", "required": ["analytics", "marketing"], "properties": {"analytics": {"type": "boolean"}, "marketing": {"type": "boolean"}}, "additionalProperties": false},
+      "PrivacyConsent": {"type": "object", "required": ["policy_version", "surface", "analytics", "marketing", "decided", "renewal_required"], "properties": {"policy_version": {"type": "integer", "minimum": 1}, "surface": {"$ref": "#/components/schemas/PrivacySurface"}, "analytics": {"type": "boolean"}, "marketing": {"type": "boolean"}, "decided": {"type": "boolean"}, "renewal_required": {"type": "boolean"}, "effective_at": {"type": "string", "format": "date-time"}}, "additionalProperties": false},
+      "AnalyticsEventName": {"type": "string", "enum": ["landing_viewed", "primary_cta_selected", "feature_viewed", "pricing_viewed", "offer_selected", "signup_handoff_started", "registration_started", "verification_completed", "account_created", "security_enrollment_completed", "checkout_reviewed", "referral_code_accepted", "checkout_redirected", "checkout_returned", "subscription_projected", "application_entered", "your_turn_opened", "your_turn_item_completed"]},
+      "AnalyticsEventInput": {"type": "object", "required": ["event_id", "name", "occurred_at", "fields"], "properties": {"event_id": {"type": "string", "format": "uuid"}, "name": {"$ref": "#/components/schemas/AnalyticsEventName"}, "occurred_at": {"type": "string", "format": "date-time"}, "fields": {"type": "object", "maxProperties": 8, "propertyNames": {"enum": ["device_class", "locale", "route_name", "cta_code", "feature_code", "package_code", "offer_code", "campaign_code", "method", "referral_present", "entry_method", "result", "entry_point", "queue_state", "task_category", "duration_bucket"]}, "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 80, "pattern": "^[\\p{L}\\p{N}_./-]+$"}}}, "additionalProperties": false},
       "CatalogPackageCode": {"type": "string", "enum": ["knowledge", "work", "agents", "finance", "marketing", "integrations"]},
       "CatalogPackageMode": {"type": "string", "enum": ["enabled", "read_only", "suspended"]},
       "CatalogFeaturePackage": {"type": "object", "required": ["code", "version", "name", "description", "features"], "properties": {"code": {"$ref": "#/components/schemas/CatalogPackageCode"}, "version": {"type": "integer", "minimum": 1}, "name": {"type": "string", "minLength": 1, "maxLength": 120}, "description": {"type": "string", "maxLength": 1000}, "dependencies": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/components/schemas/CatalogPackageCode"}}, "features": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{1,99}$"}}, "default_limits": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}}, "additionalProperties": false},
@@ -314,7 +322,7 @@
       "AccountExports": {"type": "object", "required": ["exports"], "properties": {"exports": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/AccountExport"}}}, "additionalProperties": false},
       "CancelAccountExportRequest": {"type": "object", "required": ["expected_version"], "properties": {"expected_version": {"type": "integer", "minimum": 1}}, "additionalProperties": false},
       "AccountExportDownloadCapability": {"type": "object", "required": ["token", "expires_at"], "properties": {"token": {"type": "string", "minLength": 64, "maxLength": 8192, "writeOnly": true}, "expires_at": {"type": "string", "format": "date-time"}}, "additionalProperties": false},
-      "CreateCheckoutSessionRequest": {"type": "object", "required": ["offer_code"], "properties": {"offer_code": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,79}$"}}, "additionalProperties": false},
+      "CreateCheckoutSessionRequest": {"type": "object", "required": ["offer_code"], "properties": {"offer_code": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,79}$"}, "affiliate_code": {"type": "string", "minLength": 6, "maxLength": 24, "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{4,22}[A-Za-z0-9]$"}}, "additionalProperties": false},
       "HostedBillingSession": {"type": "object", "required": ["session_id", "url", "expires_at"], "properties": {"session_id": {"type": "string", "minLength": 1, "maxLength": 255}, "url": {"type": "string", "format": "uri", "maxLength": 4096}, "expires_at": {"type": "string", "format": "date-time"}}, "additionalProperties": false},
       "StripeEvent": {"type": "object"},
       "StripeWebhookReceipt": {"type": "object", "required": ["status", "event_id"], "properties": {"status": {"type": "string", "enum": ["accepted", "duplicate"]}, "event_id": {"type": "string", "pattern": "^evt_[A-Za-z0-9_]+$"}}, "additionalProperties": false},
@@ -572,6 +580,8 @@
       "EmptyObject": {"type": "object", "additionalProperties": false}
     },
     "requestBodies": {
+      "SetPrivacyConsent": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrivacyConsentSelection"}}}},
+      "IngestAnalyticsEvent": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AnalyticsEventInput"}}}},
       "BeginRegistration": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BeginRegistrationRequest"}}}},
       "CompleteRegistration": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CompleteRegistrationRequest"}}}},
       "Login": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoginRequest"}}}},
@@ -660,6 +670,8 @@
       "TransitionSchedule": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TransitionScheduleRequest"}}}}
     },
     "responses": {
+      "PrivacyConsentOK": {"description": "Current content-minimized consent state or an undecided necessary-only default", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrivacyConsent"}}}},
+      "PrivacyConsentSaved": {"description": "Immutable consent decision recorded and integrity-protected preference reference refreshed", "headers": {"Set-Cookie": {"required": true, "schema": {"type": "string", "minLength": 1}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PrivacyConsent"}}}},
       "PublicCatalogOK": {"description": "Published customer-visible packages, plans, limits, and effective offers; provider identifiers are never exposed", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PublicCatalog"}}}},
       "RegistrationAccepted": {"description": "Verification delivery accepted", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RegistrationAccepted"}}}},
       "RegistrationCompleted": {"description": "Verified system identity, free Account, owner Membership, and initial entitlement snapshot created atomically", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RegistrationCompleted"}}}},

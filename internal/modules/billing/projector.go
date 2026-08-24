@@ -13,8 +13,9 @@ import (
 )
 
 var (
-	ErrUnmappedSubscription = errors.New("subscription is not mapped to a Spyglass offer")
-	ErrSubscriptionMismatch = errors.New("subscription account mapping is inconsistent")
+	ErrUnmappedSubscription         = errors.New("subscription is not mapped to a Spyglass offer")
+	ErrSubscriptionMismatch         = errors.New("subscription account mapping is inconsistent")
+	ErrAffiliateAttributionMismatch = errors.New("subscription Affiliate attribution is inconsistent")
 )
 
 type MappedOffer struct {
@@ -83,6 +84,9 @@ func (p *Projector) Refresh(ctx context.Context, subscriptionID string) error {
 	}
 	if mapping.Catalog.Version != mapping.CatalogVersion {
 		return ErrSubscriptionMismatch
+	}
+	if current.AffiliateAttributionID != "" && ids.Validate(string(current.AffiliateAttributionID)) != nil {
+		return ErrAffiliateAttributionMismatch
 	}
 	now := p.clock.Now().UTC()
 	grants := subscriptionGrants(current, mapping, p.ids, now)

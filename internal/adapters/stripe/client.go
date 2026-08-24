@@ -86,6 +86,13 @@ func (c *Client) CreateCheckoutSession(ctx context.Context, command billing.Crea
 		"subscription_data[metadata][spyglass_offer_code]":    {command.OfferCode},
 		"subscription_data[metadata][spyglass_offer_version]": {strconv.FormatUint(command.OfferVersion, 10)},
 	}
+	if command.AffiliateAttributionID != "" {
+		if ids.Validate(string(command.AffiliateAttributionID)) != nil {
+			return billing.HostedSession{}, errors.New("invalid Affiliate attribution ID")
+		}
+		values["metadata[spyglass_affiliate_attribution_id]"] = []string{string(command.AffiliateAttributionID)}
+		values["subscription_data[metadata][spyglass_affiliate_attribution_id]"] = []string{string(command.AffiliateAttributionID)}
+	}
 	var response hostedResponse
 	if err := c.request(ctx, http.MethodPost, "/v1/checkout/sessions", values, command.IdempotencyKey, &response); err != nil {
 		return billing.HostedSession{}, err
@@ -125,8 +132,11 @@ func (c *Client) RetrieveSubscription(ctx context.Context, subscriptionID string
 	if err := c.request(ctx, http.MethodGet, path, nil, "", &response); err != nil {
 		return billing.ProviderSubscription{}, err
 	}
-	result := billing.ProviderSubscription{ID: response.ID, Mode: c.mode, CustomerID: response.Customer, State: response.Status, CancelAt: unixPointer(response.CancelAt), CollectionPaused: response.PauseCollection != nil, AccountID: ids.AccountID(response.Metadata.AccountID), OfferCode: response.Metadata.OfferCode}
+	result := billing.ProviderSubscription{ID: response.ID, Mode: c.mode, CustomerID: response.Customer, State: response.Status, CancelAt: unixPointer(response.CancelAt), CollectionPaused: response.PauseCollection != nil, AccountID: ids.AccountID(response.Metadata.AccountID), OfferCode: response.Metadata.OfferCode, AffiliateAttributionID: ids.ReferralAttributionID(response.Metadata.AffiliateAttributionID)}
 	result.OfferVersion, _ = strconv.ParseUint(response.Metadata.OfferVersion, 10, 64)
+	if result.AffiliateAttributionID != "" && ids.Validate(string(result.AffiliateAttributionID)) != nil {
+		return billing.ProviderSubscription{}, errors.New("Stripe returned an invalid Affiliate attribution")
+	}
 	for _, item := range response.Items.Data {
 		if item.Price.ID != "" {
 			result.PriceIDs = append(result.PriceIDs, item.Price.ID)
@@ -160,9 +170,10 @@ type subscriptionResponse struct {
 	CancelAt           int64  `json:"cancel_at"`
 	PauseCollection    any    `json:"pause_collection"`
 	Metadata           struct {
-		AccountID    string `json:"spyglass_account_id"`
-		OfferCode    string `json:"spyglass_offer_code"`
-		OfferVersion string `json:"spyglass_offer_version"`
+		AccountID              string `json:"spyglass_account_id"`
+		OfferCode              string `json:"spyglass_offer_code"`
+		OfferVersion           string `json:"spyglass_offer_version"`
+		AffiliateAttributionID string `json:"spyglass_affiliate_attribution_id"`
 	} `json:"metadata"`
 	Items struct {
 		Data []struct {

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/privacytoken"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
 	stripeadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
@@ -18,6 +19,8 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountexport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
+	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
@@ -25,11 +28,13 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
+	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/securityposture"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/analytics"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
@@ -55,6 +60,7 @@ type Config struct {
 	MCPResourceOrigin         string
 	NotificationEncryptionKey []byte
 	NetworkActorKey           []byte
+	PrivacyPreferenceKey      []byte
 	PasskeyEncryptionKeys     map[int][]byte
 	PasskeyActiveKeyVersion   int
 	PasskeyRPID               string
@@ -270,7 +276,29 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, errors.New("Stripe secret key mode does not match configured mode")
 	}
-	commercialService, err := commercialaccess.New(stripeProvider, postgres.NewCommercialAccessRepository(pool), authorizer, catalogCache.Current, clock, config.AppOrigin, config.StripeMode)
+	affiliateService, err := affiliateprogram.New(postgres.NewAffiliateProgramRepository(pool), ids.RandomGenerator{}, affiliateprogram.RandomCodeGenerator{}, clock, 1, 1)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	commercialService, err := commercialaccess.New(stripeProvider, postgres.NewCommercialAccessRepository(pool), authorizer, catalogCache.Current, clock, config.AppOrigin, config.StripeMode, commercialaccess.WithReferralAttributor(affiliateService))
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	const privacyPolicyVersion = 1
+	privacyRepository := postgres.NewPrivacyConsentRepository(pool)
+	privacyService, err := privacyconsent.New(privacyRepository, ids.RandomGenerator{}, clock, privacyPolicyVersion)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	analyticsService, err := analyticsingest.New(privacyRepository, postgres.NewAnalyticsEventSink(pool), analytics.LaunchRegistry(), clock, privacyPolicyVersion)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	privacySigner, err := privacytoken.New(config.PrivacyPreferenceKey)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -289,6 +317,9 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithRecoveryCodes(recoveryCodeService),
 		httpapi.WithSecurityPosture(securityPosture),
 		httpapi.WithContactChanges(contactChangeService, nil, false),
+		httpapi.WithPrivacy(privacyService, analyticsService, privacySigner, httpapi.PrivacyHTTPConfig{
+			PublicOrigin: config.PublicOrigin, AppOrigin: config.AppOrigin, Secure: true,
+		}),
 	).Handler()
 	mcpAuthorization, err := mcpauth.New(postgres.NewMCPAuthRepository(pool), ids.RandomGenerator{}, mcpauth.RandomSecrets{}, clock, config.AppOrigin, config.MCPResourceOrigin)
 	if err != nil {
