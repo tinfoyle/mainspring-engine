@@ -177,6 +177,7 @@ func TestDocumentProcessorPreservesScannedPlainTextBytesWithoutTikaNormalization
 func TestDocumentProcessorPublishesOnlyIntegrationSourceRevision(t *testing.T) {
 	source := []byte("synced source document")
 	processor, repository, queue, _, _, _, clock := documentProcessorFixture(t, source, source)
+	processor.documents.authorizer = deniedDocumentAuthorizer{}
 	repository.revision.CreatedBy = knowledgedomain.Actor{Kind: knowledgedomain.ActorWorkload, ID: IntegrationSourceSyncWorkloadID}
 	repository.publishErr = errors.New("publication transaction unavailable")
 	queue.state = "retry"
@@ -195,6 +196,12 @@ func TestDocumentProcessorPublishesOnlyIntegrationSourceRevision(t *testing.T) {
 		t.Fatalf("result=%+v document=%+v revision=%+v mutation=%+v completed=%d err=%v", result, repository.document,
 			repository.revision, repository.mutation, queue.completed, err)
 	}
+}
+
+type deniedDocumentAuthorizer struct{}
+
+func (deniedDocumentAuthorizer) Authorize(context.Context, access.Actor, ids.AccountID, access.Requirement) (access.AccountContext, error) {
+	return access.AccountContext{}, errors.New("external authorization unavailable")
 }
 
 func TestDocumentProcessorCompletesInfectedRevisionWithoutExtraction(t *testing.T) {

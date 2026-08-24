@@ -319,15 +319,35 @@ services:
     depends_on:
       global-roles: {condition: service_completed_successfully}
       cell-a-roles: {condition: service_completed_successfully}
+      provider-secret-init: {condition: service_completed_successfully, required: false}
+      google-oauth-fixture: {condition: service_healthy, required: false}
+    environment:
+      SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
+      SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
+      SPYGLASS_GOOGLE_OAUTH_CLIENT_ID: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_ID}
+      SPYGLASS_GOOGLE_OAUTH_CLIENT_SECRET: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_SECRET}
+      SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
+      SPYGLASS_GOOGLE_DRIVE_ENDPOINT: http://google-oauth-fixture:8080/drive/v3
     volumes:
       - ./mock-connector/local.json:/run/spyglass/mock-connector.json:ro
+      - provider-secrets-a:/var/lib/spyglass/provider
 
   integration-connector-worker-b:
     depends_on:
       global-roles: {condition: service_completed_successfully}
       cell-b-roles: {condition: service_completed_successfully}
+      provider-secret-init: {condition: service_completed_successfully, required: false}
+      google-oauth-fixture: {condition: service_healthy, required: false}
+    environment:
+      SPYGLASS_PROVIDER_SECRET_ROOT: /var/lib/spyglass/provider/vault
+      SPYGLASS_PROVIDER_SECRET_KEY_FILE: /var/lib/spyglass/provider/key
+      SPYGLASS_GOOGLE_OAUTH_CLIENT_ID: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_ID}
+      SPYGLASS_GOOGLE_OAUTH_CLIENT_SECRET: ${SPYGLASS_GOOGLE_FIXTURE_CLIENT_SECRET}
+      SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT: http://google-oauth-fixture:8080/token
+      SPYGLASS_GOOGLE_DRIVE_ENDPOINT: http://google-oauth-fixture:8080/drive/v3
     volumes:
       - ./mock-connector/local.json:/run/spyglass/mock-connector.json:ro
+      - provider-secrets-b:/var/lib/spyglass/provider
 
   route-receipt-worker-a:
     depends_on:

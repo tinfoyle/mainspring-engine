@@ -24,6 +24,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/aescursor"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerengine"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/dockerlauncherhttp"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/encryptedcredentials"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/googledrive"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/kubernetes"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/mockconnector"
@@ -2371,6 +2372,43 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 		}
 		broker, contents, definitions, healthDefinitions = runtime.Broker, runtime.Contents, runtime.Definitions, runtime.HealthDefinitions
 		sourceProvider = mockconnector.DriveProvider{}
+	case "local-google":
+		if environment != "local" && environment != "local-secure" {
+			return errors.New("local Google Integration connectors require a local environment")
+		}
+		runtimeFile, runtimeErr := requiredEnv("SPYGLASS_MOCK_CONNECTOR_CONFIG_FILE")
+		if runtimeErr != nil {
+			return runtimeErr
+		}
+		runtime, runtimeErr := mockconnector.LoadRuntime(runtimeFile)
+		if runtimeErr != nil {
+			return runtimeErr
+		}
+		vault, vaultErr := encryptedcredentials.New(os.Getenv("SPYGLASS_PROVIDER_SECRET_ROOT"), os.Getenv("SPYGLASS_PROVIDER_SECRET_KEY_FILE"))
+		if vaultErr != nil {
+			return vaultErr
+		}
+		drivePageSize, pageErr := int32Env("SPYGLASS_GOOGLE_DRIVE_PAGE_SIZE", 2)
+		if pageErr != nil || drivePageSize < 1 || drivePageSize > 4 {
+			return errors.New("SPYGLASS_GOOGLE_DRIVE_PAGE_SIZE must be between 1 and 4")
+		}
+		driveHTTPClient := &http.Client{Transport: observability.TracingFromContext(ctx).Transport(nil)}
+		driveProvider, providerErr := googledrive.NewFixture(googledrive.Config{Client: driveHTTPClient, PageSize: int(drivePageSize),
+			ClientID: os.Getenv("SPYGLASS_GOOGLE_OAUTH_CLIENT_ID"), ClientSecret: os.Getenv("SPYGLASS_GOOGLE_OAUTH_CLIENT_SECRET")},
+			googledrive.FixtureEndpoints{Token: os.Getenv("SPYGLASS_GOOGLE_OAUTH_TOKEN_ENDPOINT"), Drive: os.Getenv("SPYGLASS_GOOGLE_DRIVE_ENDPOINT")})
+		if providerErr != nil {
+			return providerErr
+		}
+		broker, contents, definitions = vault, runtime.Contents, runtime.Definitions
+		for _, definition := range runtime.HealthDefinitions {
+			if definition.Kind != integrationsdomain.ConnectorGoogleDrive {
+				healthDefinitions = append(healthDefinitions, definition)
+			}
+		}
+		healthDefinitions = append(healthDefinitions, integrationhealth.Definition{
+			Kind: integrationsdomain.ConnectorGoogleDrive, Timeout: driveSyncTimeout, Probe: driveProvider,
+		})
+		sourceProvider, driveHealthProbe = driveProvider, driveProvider
 	case "production":
 		if environment != "stage" && environment != "preproduction" && environment != "production" {
 			return errors.New("production Integration connectors require stage, preproduction, or production")
@@ -2427,10 +2465,10 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 			})
 		}
 	default:
-		return errors.New("SPYGLASS_CONNECTOR_ADAPTER must be mock or production")
+		return errors.New("SPYGLASS_CONNECTOR_ADAPTER must be mock, local-google, or production")
 	}
 	var cursorCipher integrationsync.CursorCipher
-	if adapter == "mock" {
+	if adapter == "mock" || adapter == "local-google" {
 		cursorCipher, err = aescursor.NewLocalFixture()
 	} else {
 		var cursorKeyFile string

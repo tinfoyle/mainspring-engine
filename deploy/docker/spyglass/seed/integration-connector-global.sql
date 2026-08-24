@@ -20,7 +20,7 @@ VALUES ('82200000-0000-4000-8000-000000000002','82100000-0000-4000-8000-00000000
 
 INSERT INTO entitlement_snapshots(account_id,version,catalog_version,evaluated_at,source_hash,effective_packages)
 SELECT '82100000-0000-4000-8000-000000000001',1,version,transaction_timestamp(),decode(repeat('91',32),'hex'),
-  '[{"code":"marketing","mode":"enabled","limits":{},"sources":["support_override"],"version":1,"limit_policies":{}},{"code":"integrations","mode":"enabled","limits":{},"sources":["support_override"],"version":1,"limit_policies":{}}]'::jsonb
+  '[{"code":"knowledge","mode":"enabled","limits":{},"sources":["support_override"],"version":1,"limit_policies":{}},{"code":"marketing","mode":"enabled","limits":{},"sources":["support_override"],"version":1,"limit_policies":{}},{"code":"integrations","mode":"enabled","limits":{},"sources":["support_override"],"version":1,"limit_policies":{}}]'::jsonb
 FROM catalog_publications WHERE state='published' ORDER BY version DESC LIMIT 1;
 
 INSERT INTO account_directory(account_id,cell_id,placement_generation,state,data_region,updated_at)

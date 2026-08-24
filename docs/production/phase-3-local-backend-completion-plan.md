@@ -118,6 +118,8 @@ Exercise the OAuth and source-sync paths as one backend journey:
 6. Prove Baseline source grants cannot widen the connection folder scope and only admitted capture evidence can satisfy governed evidence selection.
 7. Add content-free health, queue-age, retry, removal and capture metrics with bounded operator recovery.
 
+Status on 2026-08-24: **complete.** The protocol fixture and adapter suites cover direct-child crawl, pagination, incremental updates, movement, deletion/access loss, restoration, Workspace export, unsupported and oversized content, health degradation and cursor settlement. The composed Docker certificate now joins that coverage to the application-owned OAuth lifecycle: it authorizes a Drive connection without a manually provisioned refresh token, leases the encrypted generation to the real connector adapter, captures exactly one immutable source revision, passes it through the ordinary Knowledge scan/extract/index pipeline, publishes it under the exact internal source workload, and then proves revocation leaves history intact while preventing more sync work. The certificate exposed and corrected two orchestration defects: stale mock workers could consume seeded work, and the Knowledge worker lacked the narrow document-row update needed to publish a ready source revision. Forced Account RLS remains active. `make verify-google-oauth` now certifies the complete OAuth-to-Knowledge-and-revocation path; focused race tests prove fixture protocol use and publication without an external routed authorization context. This checkpoint is local only and does not push, release or mutate Stage/LKE.
+
 Exit evidence:
 
 - the complete local OAuth-to-Knowledge journey is deterministic and replay-safe;

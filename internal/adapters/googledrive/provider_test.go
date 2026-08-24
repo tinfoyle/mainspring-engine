@@ -63,6 +63,17 @@ func TestProviderCapturesBoundedInitialDirectChildren(t *testing.T) {
 	}
 }
 
+func TestFixtureConstructorRequiresExplicitValidEndpoints(t *testing.T) {
+	config := Config{ClientID: "client", ClientSecret: "secret"}
+	if _, err := NewFixture(config, FixtureEndpoints{}); !errors.Is(err, ErrConfiguration) {
+		t.Fatalf("empty fixture endpoints error=%v", err)
+	}
+	provider, err := NewFixture(config, FixtureEndpoints{Token: "http://fixture.test/token", Drive: "http://fixture.test/drive/v3"})
+	if err != nil || provider.tokenEndpoint != "http://fixture.test/token" || provider.driveAPI != "http://fixture.test/drive/v3" {
+		t.Fatalf("provider=%+v err=%v", provider, err)
+	}
+}
+
 func TestProviderConsumesChangesAndRemovesLostMembership(t *testing.T) {
 	handler := http.NewServeMux()
 	handler.HandleFunc("/token", tokenHandler)

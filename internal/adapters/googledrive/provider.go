@@ -55,6 +55,11 @@ type Config struct {
 	ClientSecret string
 }
 
+type FixtureEndpoints struct {
+	Token string
+	Drive string
+}
+
 type Provider struct {
 	client                  *http.Client
 	tokenEndpoint, driveAPI string
@@ -118,6 +123,13 @@ type changeList struct {
 
 func New(config Config) (*Provider, error) {
 	return newProvider(config, productionTokenEndpoint, productionDriveEndpoint, false)
+}
+
+// NewFixture is restricted to deterministic local conformance. Production
+// composition uses New or NewFromClientFile and retains the fixed Google
+// token and Drive origins.
+func NewFixture(config Config, endpoints FixtureEndpoints) (*Provider, error) {
+	return newProvider(config, endpoints.Token, endpoints.Drive, true)
 }
 
 func NewFromClientFile(config Config, filename string) (*Provider, error) {

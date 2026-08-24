@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-compose=(docker compose --project-name spyglass-local --env-file "$script_dir/env/local.env" --file "$script_dir/compose.yml" --file "$script_dir/compose.local.yml")
+compose=(docker compose --project-name spyglass-local --env-file "$script_dir/env/local.env" --file "$script_dir/compose.yml" --file "$script_dir/compose.local.yml" --profile integration-connectors --profile knowledge-processing)
 app_origin=https://app.infiniteocean.localhost:8444
 oauth_host=oauth.infiniteocean.localhost
 app_host=app.infiniteocean.localhost
@@ -10,6 +10,8 @@ root_ca="$(mktemp /tmp/spyglass-google-oauth-ca.XXXXXX)"
 headers="$(mktemp /tmp/spyglass-google-oauth-headers.XXXXXX)"
 response="$(mktemp /tmp/spyglass-google-oauth-response.XXXXXX)"
 session_id="$(cat /proc/sys/kernel/random/uuid)"
+assessment_id="$(cat /proc/sys/kernel/random/uuid)"
+grant_id="$(cat /proc/sys/kernel/random/uuid)"
 
 cleanup() {
   "${compose[@]}" exec --no-TTY global-db psql --username=spyglass_migrator --dbname=spyglass \
@@ -19,6 +21,7 @@ cleanup() {
 trap cleanup EXIT
 
 "${compose[@]}" build global-migrate google-oauth-fixture provider-secret-init
+"${compose[@]}" stop integration-connector-worker-a integration-connector-worker-b >/dev/null 2>&1 || true
 "${compose[@]}" up --detach --wait google-oauth-fixture provider-secret-init app-api-a app-api-b app-router edge
 "${compose[@]}" cp edge:/data/caddy/pki/authorities/local/root.crt "$root_ca" >/dev/null
 "${compose[@]}" exec --no-TTY global-db psql --username=spyglass_migrator --dbname=spyglass \
@@ -87,6 +90,40 @@ if jq -e 'paths | map(tostring) | join("_") | test("state|pkce|scope|redirect|re
   exit 1
 fi
 
+"${compose[@]}" exec --no-TTY cell-a-db psql --username=spyglass_migrator --dbname=spyglass --set=ON_ERROR_STOP=1 \
+  --command="
+    BEGIN;
+    SELECT set_config('app.account_id','$account_id',true);
+    INSERT INTO spyglass.baseline_assessments(account_id,id,catalog_version,scope_policy_version,state,created_by_user_id,version,created_at,updated_at)
+    VALUES ('$account_id','$assessment_id','local-google-oauth','local-drive-scope-v1','active','$user_id',1,statement_timestamp(),statement_timestamp());
+    INSERT INTO spyglass.baseline_source_grants(account_id,id,assessment_id,connection_id,source_kind,folders,state,granted_by_user_id,version,created_at,updated_at)
+    VALUES ('$account_id','$grant_id','$assessment_id','$connection_id','google_drive',ARRAY['folder-a'],'active','$user_id',1,statement_timestamp(),statement_timestamp());
+    COMMIT;" >/dev/null
+
+SPYGLASS_CONNECTOR_ADAPTER=local-google "${compose[@]}" up --detach --build --force-recreate --wait \
+  integration-connector-worker-a knowledge-document-worker-a
+
+capture_count=0
+document_state=""
+revision_state=""
+for _ in $(seq 1 300); do
+  IFS='|' read -r capture_count document_state revision_state <<<"$("${compose[@]}" exec --no-TTY cell-a-db \
+    psql --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align --field-separator='|' --command="
+      SELECT count(*),coalesce(max(document.state),''),coalesce(max(revision.state),'')
+      FROM spyglass.integration_source_captures capture
+      JOIN spyglass.knowledge_documents document ON document.account_id=capture.account_id AND document.id=capture.document_id
+      JOIN spyglass.knowledge_document_revisions revision ON revision.account_id=capture.account_id AND revision.id=capture.document_revision_id
+      WHERE capture.account_id='$account_id' AND capture.grant_id='$grant_id'")"
+  if [[ "$capture_count" == 1 && "$document_state" == ready && "$revision_state" == ready ]]; then
+    break
+  fi
+  sleep 0.2
+done
+test "$capture_count" = 1 -a "$document_state" = ready -a "$revision_state" = ready
+
+"${compose[@]}" exec --no-TTY integration-connector-worker-a /spyglass healthcheck --url=http://127.0.0.1:8081/health/ready
+"${compose[@]}" exec --no-TTY knowledge-document-worker-a /spyglass healthcheck --url=http://127.0.0.1:8081/health/ready
+
 operation_id="$(cat /proc/sys/kernel/random/uuid)"
 status="$("${curl_app[@]}" --output "$response" --write-out '%{http_code}' --request POST \
   --header "Idempotency-Key: $operation_id" \
@@ -98,4 +135,9 @@ database_state="$("${compose[@]}" exec --no-TTY cell-a-db psql --username=spygla
   --command="SELECT state FROM spyglass.integration_connections WHERE account_id='$account_id' AND id='$connection_id'")"
 test "$database_state" = revoked
 
-printf '%s\n' "local Google OAuth authorization, callback, status, and revocation certification passed"
+post_revoke="$("${compose[@]}" exec --no-TTY cell-a-db psql --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align --field-separator='|' \
+  --command="SELECT (SELECT count(*) FROM spyglass.integration_source_sync_queue WHERE account_id='$account_id' AND grant_id='$grant_id'),
+    (SELECT count(*) FROM spyglass.integration_source_captures WHERE account_id='$account_id' AND grant_id='$grant_id')")"
+test "$post_revoke" = "0|1"
+
+printf '%s\n' "local Google OAuth, Drive-to-Knowledge capture, and revocation certification passed"

@@ -180,7 +180,10 @@ GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_result_projection(uuid,uuid
 GRANT EXECUTE ON FUNCTION public.spyglass_agent_result_projection_stats(timestamptz)
   TO spyglass_agent_projection_worker;
 
-GRANT SELECT ON spyglass.knowledge_documents TO spyglass_knowledge_document_worker;
+-- Processing publishes the newly ready revision by advancing the owning
+-- document's current revision. Forced Account RLS still scopes the update to
+-- the worker's transaction account.
+GRANT SELECT, UPDATE ON spyglass.knowledge_documents TO spyglass_knowledge_document_worker;
 GRANT SELECT, UPDATE ON spyglass.knowledge_document_revisions TO spyglass_knowledge_document_worker;
 GRANT INSERT ON spyglass.knowledge_document_chunks TO spyglass_knowledge_document_worker;
 -- Event insertion uses ON CONFLICT DO NOTHING for exact crash replay. With

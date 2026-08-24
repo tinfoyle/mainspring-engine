@@ -373,9 +373,6 @@ func (s *DocumentService) publishSourceRevision(ctx context.Context, actor knowl
 		return knowledgedomain.Document{}, ErrInvalid
 	}
 	correlationID := string(revisionID)
-	if _, _, err := s.authorizeMutation(ctx, access.Actor{WorkloadID: actor.ID}, accountID, correlationID); err != nil {
-		return knowledgedomain.Document{}, err
-	}
 	document, err := s.repository.GetDocument(ctx, accountID, documentID)
 	if err != nil {
 		return knowledgedomain.Document{}, err

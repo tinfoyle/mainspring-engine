@@ -263,7 +263,9 @@ func (worker *Worker) Close() { worker.pool.Close() }
 
 // Processing transitions never enter the routed command surface. This guard
 // makes an accidental call to an externally authorized DocumentService method
-// fail closed; the processor uses only its queue-claimed internal methods.
+// fail closed. The processor uses only queue-claimed internal methods; its
+// source-publication method additionally requires the exact processor and
+// source-sync workload identities plus a ready captured revision.
 type denyExternalAuthorization struct{}
 
 func (denyExternalAuthorization) Authorize(context.Context, access.Actor, ids.AccountID, access.Requirement) (access.AccountContext, error) {
