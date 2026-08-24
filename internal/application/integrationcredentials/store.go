@@ -55,6 +55,7 @@ type Store interface {
 	Authorization(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (AuthorizationMaterial, error)
 	DeleteAuthorization(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID) error
 	PutCredential(context.Context, CredentialSecret) error
+	CredentialExists(context.Context, ids.AccountID, ids.IntegrationCredentialID, uint64, string, [32]byte) (bool, error)
 	FenceCredential(context.Context, ids.AccountID, ids.IntegrationCredentialID, uint64, CredentialEndState) error
 	PurgeCredential(context.Context, ids.AccountID, ids.IntegrationCredentialID, uint64) error
 }

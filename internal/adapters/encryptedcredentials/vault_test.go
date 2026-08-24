@@ -95,6 +95,10 @@ func TestVaultCredentialLeaseRequiresExactActiveGenerationAndPurpose(t *testing.
 	if err := vault.PutCredential(context.Background(), secret); err != nil {
 		t.Fatal(err)
 	}
+	exists, err := vault.CredentialExists(context.Background(), vaultAccount, vaultCredential, 1, domain.GoogleOAuthProvider, sha256.Sum256(reference))
+	if err != nil || !exists {
+		t.Fatalf("credential exists=%t err=%v", exists, err)
+	}
 	if err := vault.PutCredential(context.Background(), secret); err != nil {
 		t.Fatalf("exact credential replay: %v", err)
 	}
@@ -142,6 +146,9 @@ func TestVaultCredentialLeaseRequiresExactActiveGenerationAndPurpose(t *testing.
 	}
 	if err := vault.PurgeCredential(context.Background(), vaultAccount, vaultCredential, 1); err != nil {
 		t.Fatal(err)
+	}
+	if exists, err := vault.CredentialExists(context.Background(), vaultAccount, vaultCredential, 1, domain.GoogleOAuthProvider, sha256.Sum256(reference)); err != nil || exists {
+		t.Fatalf("purged credential exists=%t err=%v", exists, err)
 	}
 	if err := vault.PurgeCredential(context.Background(), vaultAccount, vaultCredential, 1); err != nil {
 		t.Fatalf("purge replay: %v", err)

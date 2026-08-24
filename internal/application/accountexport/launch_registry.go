@@ -63,6 +63,7 @@ func LaunchRegistry() (*Registry, error) {
 	include("spyglass", "integrations", "integration_connection_revisions", "integration_connections", "integration_events", "integration_execution_attempts", "integration_execution_resolutions", "integration_executions", "integration_health_observations", "integration_source_captures")
 	exclude("spyglass", Secret, "Provider authorization sessions retain state and PKCE digests plus transient credential-generation bindings; they are security controls, not portable customer content.", "integration_authorization_sessions")
 	exclude("spyglass", Operational, "Provider authorization events are content-free security workflow evidence and are not customer content.", "integration_authorization_events")
+	exclude("spyglass", Secret, "Provider authorization workflows contain code digests, credential-generation plans and recovery state; they are security controls, not portable customer content.", "integration_authorization_workflows")
 	exclude("spyglass", Secret, "Credential references and their digests are security material and never enter portability artifacts.", "integration_credentials")
 	exclude("spyglass", Operational, "Integration execution queue leases and retries are transient processing controls.", "integration_execution_queue")
 	exclude("spyglass", Derived, "Provider health probe leases are regenerated from active Integration connection bindings.", "integration_health_probe_queue")

@@ -15,6 +15,7 @@ var (
 	ErrInvalid             = errors.New("integration authorization request is invalid")
 	ErrNotFound            = errors.New("integration authorization session was not found")
 	ErrConflict            = errors.New("integration authorization request conflicts with durable state")
+	ErrExpired             = errors.New("integration authorization request expired")
 	ErrRepository          = errors.New("integration authorization repository is unavailable")
 	ErrProviderUnavailable = errors.New("integration authorization provider is unavailable")
 	ErrProviderRejected    = errors.New("integration authorization provider rejected the request")

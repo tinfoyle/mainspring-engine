@@ -87,6 +87,114 @@ func TestBeginRecoversStoredSecretAndRejectsChangedReplay(t *testing.T) {
 	}
 }
 
+func TestCallbackSealsCredentialCompletesAndReplaysWithoutSecondExchange(t *testing.T) {
+	repository := newAuthorizationRepository(t)
+	secretStore := newAuthorizationSecretStore()
+	provider := &authorizationProvider{}
+	service := newAuthorizationService(t, repository, secretStore, provider)
+	begin, err := service.Begin(context.Background(), authorizationCommand())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := append([]byte(nil), secretStore.value.State...)
+	code := []byte("4/0code-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn")
+	result, err := service.Callback(context.Background(), CallbackCommand{AccountID: authorizationAccount, State: state, Code: code})
+	if err != nil || result.Session.Status != domain.AuthorizationCompleted || result.Session.CredentialGeneration != 1 ||
+		secretStore.credential == nil || string(secretStore.credential.Material) != `{"refresh_token":"refresh-token"}` || !secretStore.authorizationGone {
+		t.Fatalf("callback=%+v credential=%+v err=%v", result, secretStore.credential, err)
+	}
+	exchangeCalls := provider.calls
+	replayed, err := service.Callback(context.Background(), CallbackCommand{AccountID: authorizationAccount, State: state, Code: code})
+	if err != nil || replayed.Session != result.Session || provider.calls != exchangeCalls {
+		t.Fatalf("callback replay=%+v err=%v provider_calls=%d begin=%+v", replayed, err, provider.calls, begin)
+	}
+}
+
+func TestCallbackRotatesAndFencesPreviousGeneration(t *testing.T) {
+	repository := newAuthorizationRepository(t)
+	previousID := ids.IntegrationCredentialID("ba000000-0000-4000-8000-000000000010")
+	previous, err := domain.NewCredentialBinding(domain.CredentialInput{ID: previousID, AccountID: authorizationAccount,
+		ConnectionID: authorizationConnection, Generation: 1, Provider: domain.GoogleOAuthProvider,
+		ReferenceSHA256: sha256.Sum256([]byte("previous-reference")), CreatedBy: domain.Actor{UserID: authorizationUser}, CreatedAt: authorizationNow.Add(-30 * time.Minute)}, accounts.RoleOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := repository.authority.Connection.Activate(repository.authority.Connection.Version, previous, domain.Actor{UserID: authorizationUser}, accounts.RoleOwner, authorizationNow.Add(-20*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.authority.Connection = active
+	secretStore := newAuthorizationSecretStore()
+	provider := &authorizationProvider{}
+	service := newAuthorizationService(t, repository, secretStore, provider)
+	if _, err := service.Begin(context.Background(), authorizationCommand()); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Callback(context.Background(), CallbackCommand{AccountID: authorizationAccount, State: append([]byte(nil), secretStore.value.State...),
+		Code: []byte("4/0rotation-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk")})
+	if err != nil || result.Session.CredentialGeneration != 2 || secretStore.fencedID != previousID || secretStore.fencedGeneration != 1 ||
+		repository.workflow.State != WorkflowCompleted {
+		t.Fatalf("rotation=%+v workflow=%+v fenced=%s/%d err=%v", result, repository.workflow, secretStore.fencedID, secretStore.fencedGeneration, err)
+	}
+}
+
+func TestCallbackRecoversAmbiguousCredentialWriteAndFailsStaleUnknownExchange(t *testing.T) {
+	repository := newAuthorizationRepository(t)
+	secretStore := newAuthorizationSecretStore()
+	secretStore.failCredentialPutAfterStore = true
+	service := newAuthorizationService(t, repository, secretStore, &authorizationProvider{})
+	if _, err := service.Begin(context.Background(), authorizationCommand()); err != nil {
+		t.Fatal(err)
+	}
+	state := append([]byte(nil), secretStore.value.State...)
+	code := []byte("4/0ambiguous-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijk")
+	if result, err := service.Callback(context.Background(), CallbackCommand{AccountID: authorizationAccount, State: state, Code: code}); err != nil || result.Session.Status != domain.AuthorizationCompleted {
+		t.Fatalf("ambiguous credential write=%+v err=%v", result, err)
+	}
+
+	repository = newAuthorizationRepository(t)
+	secretStore = newAuthorizationSecretStore()
+	provider := &authorizationProvider{}
+	clock := &authorizationClock{at: authorizationNow}
+	service, err := NewService(authorizationAuthorizer{}, repository, secretStore, provider,
+		&authorizationSecrets{values: [][]byte{[]byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"), []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ")}}, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Begin(context.Background(), authorizationCommand()); err != nil {
+		t.Fatal(err)
+	}
+	state = append([]byte(nil), secretStore.value.State...)
+	code = []byte("4/0unknown-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn")
+	progress, err := repository.ClaimCallback(context.Background(), authorizationAccount, sha256.Sum256(state), sha256.Sum256(code), authorizationNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := repository.StartProviderExchange(context.Background(), authorizationAccount, progress.Session.ID, authorizationNow); err != nil {
+		t.Fatal(err)
+	}
+	clock.at = authorizationNow.Add(ProviderExchangeLease + time.Second)
+	result, err := service.Callback(context.Background(), CallbackCommand{AccountID: authorizationAccount, State: state, Code: code})
+	if !errors.Is(err, ErrProviderUnavailable) || result.Session.Status != domain.AuthorizationFailed || result.Session.ErrorCode != "provider_exchange_outcome_unknown" || provider.calls != 1 {
+		t.Fatalf("unknown exchange=%+v err=%v provider_calls=%d", result, err, provider.calls)
+	}
+}
+
+func TestCallbackPersistsProviderScopeFailure(t *testing.T) {
+	repository := newAuthorizationRepository(t)
+	secretStore := newAuthorizationSecretStore()
+	provider := &authorizationProvider{exchangeErr: ErrScopeMismatch}
+	service := newAuthorizationService(t, repository, secretStore, provider)
+	if _, err := service.Begin(context.Background(), authorizationCommand()); err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.Callback(context.Background(), CallbackCommand{AccountID: authorizationAccount, State: append([]byte(nil), secretStore.value.State...),
+		Code: []byte("4/0scope-ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop")})
+	if !errors.Is(err, ErrScopeMismatch) || result.Session.Status != domain.AuthorizationFailed || result.Session.ErrorCode != "provider_scope_mismatch" || !secretStore.authorizationGone {
+		t.Fatalf("scope failure=%+v err=%v", result, err)
+	}
+}
+
 func authorizationCommand() BeginCommand {
 	return BeginCommand{Actor: access.Actor{UserID: authorizationUser}, Session: sessions.Session{ID: ids.SessionID("b6000000-0000-4000-8000-000000000006"),
 		UserID: authorizationUser, ReauthenticatedAt: authorizationNow.Add(-time.Minute), ReauthenticationMethod: sessions.AuthenticationMethodPasskey},
@@ -96,7 +204,7 @@ func authorizationCommand() BeginCommand {
 func newAuthorizationService(t *testing.T, repository *authorizationRepository, secrets integrationcredentials.Store, provider Provider) *Service {
 	t.Helper()
 	service, err := NewService(authorizationAuthorizer{}, repository, secrets, provider,
-		&authorizationSecrets{values: [][]byte{[]byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"), []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ")}}, authorizationClock{})
+		&authorizationSecrets{values: [][]byte{[]byte("0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"), []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ")}}, &authorizationClock{at: authorizationNow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,9 +217,9 @@ func (authorizationAuthorizer) Authorize(context.Context, access.Actor, ids.Acco
 	return access.AccountContext{AccountID: authorizationAccount, Role: accounts.RoleAdministrator}, nil
 }
 
-type authorizationClock struct{}
+type authorizationClock struct{ at time.Time }
 
-func (authorizationClock) Now() time.Time { return authorizationNow }
+func (clock *authorizationClock) Now() time.Time { return clock.at }
 
 type authorizationSecrets struct {
 	values [][]byte
@@ -127,20 +235,28 @@ func (generator *authorizationSecrets) New() ([]byte, error) {
 	return value, nil
 }
 
-type authorizationProvider struct{ calls int }
+type authorizationProvider struct {
+	calls       int
+	exchangeErr error
+}
 
 func (provider *authorizationProvider) AuthorizationURL(state, challenge []byte, redirect string) (string, error) {
 	provider.calls++
 	return "https://provider.invalid/authorize?state=" + string(state) + "&challenge=" + string(challenge) + "&redirect=" + redirect, nil
 }
-func (*authorizationProvider) Exchange(context.Context, ExchangeRequest) (RefreshCredential, error) {
-	return RefreshCredential{}, errors.New("unused")
+func (provider *authorizationProvider) Exchange(context.Context, ExchangeRequest) (RefreshCredential, error) {
+	provider.calls++
+	if provider.exchangeErr != nil {
+		return RefreshCredential{}, provider.exchangeErr
+	}
+	return RefreshCredential{RefreshToken: []byte("refresh-token")}, nil
 }
 func (*authorizationProvider) Revoke(context.Context, []byte) error { return errors.New("unused") }
 
 type authorizationRepository struct {
 	authority   Authority
 	session     *domain.AuthorizationSession
+	workflow    *CredentialWorkflow
 	createCalls int
 }
 
@@ -173,9 +289,84 @@ func (repository *authorizationRepository) Get(_ context.Context, _ ids.AccountI
 	return *repository.session, nil
 }
 
+func (repository *authorizationRepository) ClaimCallback(_ context.Context, accountID ids.AccountID, stateDigest, codeDigest [sha256.Size]byte, at time.Time) (CallbackProgress, error) {
+	if repository.session == nil || repository.session.AccountID != accountID || repository.session.StateSHA256 != stateDigest {
+		return CallbackProgress{}, ErrNotFound
+	}
+	if repository.workflow != nil {
+		if repository.workflow.CodeSHA256 != codeDigest {
+			return CallbackProgress{}, ErrConflict
+		}
+		return CallbackProgress{Session: *repository.session, Workflow: *repository.workflow}, nil
+	}
+	next, err := repository.session.BeginExchange(stateDigest, repository.session.Version, at)
+	if err != nil {
+		return CallbackProgress{}, err
+	}
+	targetID, _ := TargetCredentialID(next.ID)
+	workflow := CredentialWorkflow{AccountID: accountID, SessionID: next.ID, State: WorkflowClaimed, ConnectionID: next.ConnectionID,
+		ConnectionVersion: repository.authority.Connection.Version, TargetCredentialID: targetID,
+		TargetGeneration: repository.authority.Connection.CredentialGeneration + 1, PreviousCredentialID: repository.authority.Connection.CredentialID,
+		PreviousGeneration: repository.authority.Connection.CredentialGeneration, CodeSHA256: codeDigest, CreatedAt: at, UpdatedAt: at}
+	workflow.ReferenceSHA256 = sha256.Sum256(CredentialReference(workflow))
+	repository.session, repository.workflow = &next, &workflow
+	return CallbackProgress{Session: next, Workflow: workflow}, nil
+}
+
+func (repository *authorizationRepository) StartProviderExchange(_ context.Context, _ ids.AccountID, _ ids.IntegrationAuthorizationSessionID, at time.Time) (CallbackProgress, bool, error) {
+	if repository.workflow.State != WorkflowClaimed {
+		return CallbackProgress{Session: *repository.session, Workflow: *repository.workflow}, false, nil
+	}
+	repository.workflow.State, repository.workflow.ExchangeStartedAt, repository.workflow.UpdatedAt = WorkflowProviderExchanging, timePointerForTest(at), at
+	return CallbackProgress{Session: *repository.session, Workflow: *repository.workflow}, true, nil
+}
+
+func (repository *authorizationRepository) MarkCredentialStored(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, error) {
+	if repository.workflow.State == WorkflowProviderExchanging {
+		repository.workflow.State = WorkflowCredentialStored
+	}
+	return CallbackProgress{Session: *repository.session, Workflow: *repository.workflow}, nil
+}
+
+func (repository *authorizationRepository) MarkPreviousFenced(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, error) {
+	if repository.workflow.State == WorkflowCredentialStored {
+		repository.workflow.State = WorkflowPreviousFenced
+	}
+	return CallbackProgress{Session: *repository.session, Workflow: *repository.workflow}, nil
+}
+
+func (repository *authorizationRepository) CompleteCallback(_ context.Context, _ ids.AccountID, _ ids.IntegrationAuthorizationSessionID, at time.Time) (CallbackProgress, error) {
+	if repository.workflow.State == WorkflowCompleted {
+		return CallbackProgress{Session: *repository.session, Workflow: *repository.workflow}, nil
+	}
+	next, err := repository.session.Complete(repository.workflow.TargetCredentialID, repository.workflow.TargetGeneration, repository.session.Version, at)
+	if err != nil {
+		return CallbackProgress{}, err
+	}
+	repository.session, repository.workflow.State = &next, WorkflowCompleted
+	return CallbackProgress{Session: next, Workflow: *repository.workflow}, nil
+}
+
+func (repository *authorizationRepository) FailCallback(_ context.Context, _ ids.AccountID, _ ids.IntegrationAuthorizationSessionID, code string, at time.Time) (CallbackProgress, error) {
+	next, err := repository.session.Fail(code, repository.session.Version, at)
+	if err != nil {
+		return CallbackProgress{}, err
+	}
+	repository.session, repository.workflow.State, repository.workflow.FailureCode = &next, WorkflowFailed, code
+	return CallbackProgress{Session: next, Workflow: *repository.workflow}, nil
+}
+
+func timePointerForTest(value time.Time) *time.Time { return &value }
+
 type authorizationSecretStore struct {
-	value             integrationcredentials.AuthorizationSecret
-	failPutAfterStore bool
+	value                       integrationcredentials.AuthorizationSecret
+	credential                  *integrationcredentials.CredentialSecret
+	credentialFenced            bool
+	fencedID                    ids.IntegrationCredentialID
+	fencedGeneration            uint64
+	authorizationGone           bool
+	failPutAfterStore           bool
+	failCredentialPutAfterStore bool
 }
 
 func newAuthorizationSecretStore() *authorizationSecretStore { return &authorizationSecretStore{} }
@@ -192,19 +383,33 @@ func (store *authorizationSecretStore) PutAuthorization(_ context.Context, value
 	return nil
 }
 func (store *authorizationSecretStore) Authorization(_ context.Context, accountID ids.AccountID, sessionID ids.IntegrationAuthorizationSessionID, now time.Time) (integrationcredentials.AuthorizationMaterial, error) {
-	if store.value.AccountID != accountID || store.value.SessionID != sessionID || !store.value.ExpiresAt.After(now) {
+	if store.authorizationGone || store.value.AccountID != accountID || store.value.SessionID != sessionID || !store.value.ExpiresAt.After(now) {
 		return integrationcredentials.AuthorizationMaterial{}, errors.New("not found")
 	}
 	return integrationcredentials.AuthorizationMaterial{State: append([]byte(nil), store.value.State...), Verifier: append([]byte(nil), store.value.Verifier...), ExpiresAt: store.value.ExpiresAt}, nil
 }
-func (*authorizationSecretStore) DeleteAuthorization(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID) error {
+
+func (store *authorizationSecretStore) DeleteAuthorization(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID) error {
+	store.authorizationGone = true
 	return nil
 }
-func (*authorizationSecretStore) PutCredential(context.Context, integrationcredentials.CredentialSecret) error {
-	return errors.New("unused")
+func (store *authorizationSecretStore) PutCredential(_ context.Context, value integrationcredentials.CredentialSecret) error {
+	copyValue := value
+	copyValue.Reference, copyValue.Material = append([]byte(nil), value.Reference...), append([]byte(nil), value.Material...)
+	store.credential = &copyValue
+	if store.failCredentialPutAfterStore {
+		return errors.New("ambiguous credential write")
+	}
+	return nil
 }
-func (*authorizationSecretStore) FenceCredential(context.Context, ids.AccountID, ids.IntegrationCredentialID, uint64, integrationcredentials.CredentialEndState) error {
-	return errors.New("unused")
+func (store *authorizationSecretStore) CredentialExists(_ context.Context, accountID ids.AccountID, credentialID ids.IntegrationCredentialID, generation uint64, provider string, referenceDigest [32]byte) (bool, error) {
+	return store.credential != nil && !store.credentialFenced && store.credential.AccountID == accountID && store.credential.CredentialID == credentialID &&
+		store.credential.Generation == generation && store.credential.Provider == provider && sha256.Sum256(store.credential.Reference) == referenceDigest, nil
+}
+func (store *authorizationSecretStore) FenceCredential(_ context.Context, _ ids.AccountID, credentialID ids.IntegrationCredentialID, generation uint64, _ integrationcredentials.CredentialEndState) error {
+	store.credentialFenced = true
+	store.fencedID, store.fencedGeneration = credentialID, generation
+	return nil
 }
 func (*authorizationSecretStore) PurgeCredential(context.Context, ids.AccountID, ids.IntegrationCredentialID, uint64) error {
 	return errors.New("unused")

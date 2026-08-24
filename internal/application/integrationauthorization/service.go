@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strconv"
@@ -20,7 +21,10 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
-const AuthorizationTTL = 15 * time.Minute
+const (
+	AuthorizationTTL      = 15 * time.Minute
+	ProviderExchangeLease = 2 * time.Minute
+)
 
 type Authorizer interface {
 	Authorize(context.Context, access.Actor, ids.AccountID, access.Requirement) (access.AccountContext, error)
@@ -51,6 +55,46 @@ type Repository interface {
 	Authority(context.Context, ids.AccountID, ids.IntegrationConnectionID) (Authority, error)
 	Create(context.Context, domain.AuthorizationSession, accounts.MembershipRole, Event) (domain.AuthorizationSession, bool, error)
 	Get(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID) (domain.AuthorizationSession, error)
+	ClaimCallback(context.Context, ids.AccountID, [sha256.Size]byte, [sha256.Size]byte, time.Time) (CallbackProgress, error)
+	StartProviderExchange(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, bool, error)
+	MarkCredentialStored(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, error)
+	MarkPreviousFenced(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, error)
+	CompleteCallback(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, time.Time) (CallbackProgress, error)
+	FailCallback(context.Context, ids.AccountID, ids.IntegrationAuthorizationSessionID, string, time.Time) (CallbackProgress, error)
+}
+
+type WorkflowState string
+
+const (
+	WorkflowClaimed            WorkflowState = "claimed"
+	WorkflowProviderExchanging WorkflowState = "provider_exchanging"
+	WorkflowCredentialStored   WorkflowState = "credential_stored"
+	WorkflowPreviousFenced     WorkflowState = "previous_fenced"
+	WorkflowCompleted          WorkflowState = "completed"
+	WorkflowFailed             WorkflowState = "failed"
+)
+
+type CredentialWorkflow struct {
+	AccountID            ids.AccountID
+	SessionID            ids.IntegrationAuthorizationSessionID
+	State                WorkflowState
+	ConnectionID         ids.IntegrationConnectionID
+	ConnectionVersion    uint64
+	TargetCredentialID   ids.IntegrationCredentialID
+	TargetGeneration     uint64
+	ReferenceSHA256      [sha256.Size]byte
+	PreviousCredentialID ids.IntegrationCredentialID
+	PreviousGeneration   uint64
+	CodeSHA256           [sha256.Size]byte
+	ExchangeStartedAt    *time.Time
+	FailureCode          string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type CallbackProgress struct {
+	Session  domain.AuthorizationSession
+	Workflow CredentialWorkflow
 }
 
 type Service struct {
@@ -81,6 +125,16 @@ type BeginCommand struct {
 type BeginResult struct {
 	Session          domain.AuthorizationSession
 	AuthorizationURL string
+}
+
+type CallbackCommand struct {
+	AccountID ids.AccountID
+	State     []byte
+	Code      []byte
+}
+
+type CallbackResult struct {
+	Session domain.AuthorizationSession
 }
 
 func (service *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult, error) {
@@ -164,6 +218,177 @@ func (service *Service) Begin(ctx context.Context, command BeginCommand) (BeginR
 	return service.result(stored, command, material, now)
 }
 
+func (service *Service) Callback(ctx context.Context, command CallbackCommand) (CallbackResult, error) {
+	if ids.Validate(string(command.AccountID)) != nil || !validOAuthSecret(command.State) || !validAuthorizationCode(command.Code) {
+		return CallbackResult{}, ErrInvalid
+	}
+	now := service.clock.Now().UTC()
+	progress, err := service.repository.ClaimCallback(ctx, command.AccountID, sha256.Sum256(command.State), sha256.Sum256(command.Code), now)
+	if err != nil {
+		return CallbackResult{}, classify(err)
+	}
+	return service.advanceCallback(ctx, progress, command.Code, now)
+}
+
+func (service *Service) advanceCallback(ctx context.Context, progress CallbackProgress, code []byte, now time.Time) (CallbackResult, error) {
+	if progress.Session.AccountID != progress.Workflow.AccountID || progress.Session.ID != progress.Workflow.SessionID ||
+		progress.Session.ConnectionID != progress.Workflow.ConnectionID ||
+		(progress.Session.Status == domain.AuthorizationCompleted) != (progress.Workflow.State == WorkflowCompleted) ||
+		(progress.Session.Status == domain.AuthorizationFailed) != (progress.Workflow.State == WorkflowFailed) {
+		return CallbackResult{}, ErrRepository
+	}
+	if progress.Workflow.State == WorkflowCompleted {
+		_ = service.secrets.DeleteAuthorization(ctx, progress.Session.AccountID, progress.Session.ID)
+		return CallbackResult{Session: progress.Session}, nil
+	}
+	if progress.Workflow.State == WorkflowFailed {
+		_ = service.secrets.DeleteAuthorization(ctx, progress.Session.AccountID, progress.Session.ID)
+		return CallbackResult{Session: progress.Session}, ErrProviderRejected
+	}
+	if progress.Workflow.State == WorkflowClaimed {
+		material, err := service.secrets.Authorization(ctx, progress.Session.AccountID, progress.Session.ID, now)
+		if err != nil {
+			return CallbackResult{}, ErrRepository
+		}
+		defer material.Close()
+		challenge := pkceChallenge(material.Verifier)
+		if progress.Session.StateSHA256 != sha256.Sum256(material.State) || progress.Session.PKCEChallengeSHA256 != sha256.Sum256(challenge) ||
+			!progress.Session.ExpiresAt.Equal(material.ExpiresAt.UTC()) {
+			wipe(challenge)
+			return CallbackResult{}, ErrConflict
+		}
+		wipe(challenge)
+		started, changed, err := service.repository.StartProviderExchange(ctx, progress.Session.AccountID, progress.Session.ID, now)
+		if err != nil {
+			return CallbackResult{}, classify(err)
+		}
+		progress = started
+		if !changed {
+			return service.advanceCallback(ctx, progress, code, now)
+		}
+		codeCopy := append([]byte(nil), code...)
+		credential, err := service.provider.Exchange(ctx, ExchangeRequest{Code: codeCopy, PKCEVerifier: material.Verifier, RedirectURI: progress.Session.RedirectURI})
+		wipe(codeCopy)
+		if err != nil {
+			failed, failErr := service.repository.FailCallback(ctx, progress.Session.AccountID, progress.Session.ID, providerFailureCode(err), now)
+			_ = service.secrets.DeleteAuthorization(ctx, progress.Session.AccountID, progress.Session.ID)
+			if failErr != nil {
+				return CallbackResult{}, classify(failErr)
+			}
+			return CallbackResult{Session: failed.Session}, err
+		}
+		defer credential.Close()
+		materialJSON, err := json.Marshal(struct {
+			RefreshToken string `json:"refresh_token"`
+		}{RefreshToken: string(credential.RefreshToken)})
+		if err != nil {
+			return CallbackResult{}, ErrRepository
+		}
+		defer wipe(materialJSON)
+		reference := CredentialReference(progress.Workflow)
+		defer wipe(reference)
+		secret := integrationcredentials.CredentialSecret{AccountID: progress.Session.AccountID, CredentialID: progress.Workflow.TargetCredentialID,
+			Generation: progress.Workflow.TargetGeneration, Provider: domain.GoogleOAuthProvider, Reference: reference, Material: materialJSON}
+		for attempt := 0; attempt < 2; attempt++ {
+			_ = service.secrets.PutCredential(ctx, secret)
+			exists, existsErr := service.secrets.CredentialExists(ctx, secret.AccountID, secret.CredentialID, secret.Generation, secret.Provider, progress.Workflow.ReferenceSHA256)
+			if existsErr == nil && exists {
+				progress, err = service.repository.MarkCredentialStored(ctx, progress.Session.AccountID, progress.Session.ID, now)
+				if err != nil {
+					return CallbackResult{}, classify(err)
+				}
+				return service.advanceCallback(ctx, progress, code, now)
+			}
+		}
+		return CallbackResult{}, ErrRepository
+	}
+	if progress.Workflow.State == WorkflowProviderExchanging {
+		exists, err := service.secrets.CredentialExists(ctx, progress.Session.AccountID, progress.Workflow.TargetCredentialID,
+			progress.Workflow.TargetGeneration, domain.GoogleOAuthProvider, progress.Workflow.ReferenceSHA256)
+		if err == nil && exists {
+			progress, err = service.repository.MarkCredentialStored(ctx, progress.Session.AccountID, progress.Session.ID, now)
+			if err != nil {
+				return CallbackResult{}, classify(err)
+			}
+			return service.advanceCallback(ctx, progress, code, now)
+		}
+		if progress.Workflow.ExchangeStartedAt == nil || now.Sub(progress.Workflow.ExchangeStartedAt.UTC()) < ProviderExchangeLease {
+			return CallbackResult{}, ErrConflict
+		}
+		failed, failErr := service.repository.FailCallback(ctx, progress.Session.AccountID, progress.Session.ID, "provider_exchange_outcome_unknown", now)
+		_ = service.secrets.DeleteAuthorization(ctx, progress.Session.AccountID, progress.Session.ID)
+		if failErr != nil {
+			return CallbackResult{}, classify(failErr)
+		}
+		return CallbackResult{Session: failed.Session}, ErrProviderUnavailable
+	}
+	if progress.Workflow.State == WorkflowCredentialStored && progress.Workflow.PreviousCredentialID != "" {
+		if err := service.secrets.FenceCredential(ctx, progress.Session.AccountID, progress.Workflow.PreviousCredentialID,
+			progress.Workflow.PreviousGeneration, integrationcredentials.CredentialRotated); err != nil {
+			return CallbackResult{}, ErrRepository
+		}
+		var err error
+		progress, err = service.repository.MarkPreviousFenced(ctx, progress.Session.AccountID, progress.Session.ID, now)
+		if err != nil {
+			return CallbackResult{}, classify(err)
+		}
+		return service.advanceCallback(ctx, progress, code, now)
+	}
+	if progress.Workflow.State != WorkflowCredentialStored && progress.Workflow.State != WorkflowPreviousFenced {
+		return CallbackResult{}, ErrRepository
+	}
+	completed, err := service.repository.CompleteCallback(ctx, progress.Session.AccountID, progress.Session.ID, now)
+	if err != nil {
+		return CallbackResult{}, classify(err)
+	}
+	_ = service.secrets.DeleteAuthorization(ctx, completed.Session.AccountID, completed.Session.ID)
+	return CallbackResult{Session: completed.Session}, nil
+}
+
+func TargetCredentialID(sessionID ids.IntegrationAuthorizationSessionID) (ids.IntegrationCredentialID, error) {
+	value, err := ids.Derive(string(sessionID), "integration-oauth-credential")
+	return ids.IntegrationCredentialID(value), err
+}
+
+func CredentialReference(workflow CredentialWorkflow) []byte {
+	return []byte("spyglass-encrypted://accounts/" + string(workflow.AccountID) + "/credentials/" + string(workflow.TargetCredentialID) + "/generations/" + strconv.FormatUint(workflow.TargetGeneration, 10))
+}
+
+func providerFailureCode(err error) string {
+	switch {
+	case errors.Is(err, ErrScopeMismatch):
+		return "provider_scope_mismatch"
+	case errors.Is(err, ErrProviderRejected):
+		return "provider_exchange_rejected"
+	default:
+		return "provider_exchange_unavailable"
+	}
+}
+
+func validOAuthSecret(value []byte) bool {
+	if len(value) < 43 || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if !(character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || strings.ContainsRune("-._~", rune(character))) {
+			return false
+		}
+	}
+	return true
+}
+
+func validAuthorizationCode(value []byte) bool {
+	if len(value) < 16 || len(value) > 2048 {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x21 || character > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 func (service *Service) replay(ctx context.Context, existing domain.AuthorizationSession, command BeginCommand, now time.Time) (BeginResult, error) {
 	material, err := service.secrets.Authorization(ctx, command.AccountID, existing.ID, now)
 	if err != nil {
@@ -226,7 +451,7 @@ func pkceChallenge(verifier []byte) []byte {
 }
 
 func classify(err error) error {
-	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) ||
+	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) || errors.Is(err, ErrExpired) ||
 		errors.Is(err, ErrProviderUnavailable) || errors.Is(err, ErrProviderRejected) || errors.Is(err, ErrScopeMismatch) {
 		return err
 	}
