@@ -211,7 +211,7 @@ onBeforeUnmount(() => { if (pollTimer !== undefined) window.clearTimeout(pollTim
     </div>
 
     <div v-if="loading" class="queue-state" role="status">Loading the published Catalog and Account billing state…</div>
-    <div v-else-if="errorMessage && !catalog" class="queue-state queue-state--error" role="alert"><h2>Checkout is unavailable</h2><p>{{ errorMessage }}</p><IoButton variant="secondary" @click="load">Try again</IoButton></div>
+    <div v-else-if="errorMessage && !catalog" class="queue-state queue-state--error" role="alert"><h2>Checkout is unavailable</h2><p>{{ errorMessage }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>
     <div v-else class="checkout-layout">
       <section class="checkout-card" aria-labelledby="offer-heading">
         <p class="eyebrow">1 · Offer</p><h2 id="offer-heading">Choose the published offer</h2>
@@ -232,7 +232,7 @@ onBeforeUnmount(() => { if (pollTimer !== undefined) window.clearTimeout(pollTim
         <p class="eyebrow">2 · Referral</p><h2 id="referral-heading">Affiliate code <small>optional</small></h2>
         <p class="form-note">A valid code gives the Affiliate recurring credit under their program terms. It does not change your price and works whether or not you allow analytics.</p>
         <label for="affiliate-code">Affiliate code</label>
-        <div class="referral-entry"><input id="affiliate-code" v-model="referralInput" :disabled="referralApplied" autocomplete="off" spellcheck="false" placeholder="IO-PARTNER1" @input="referralError = ''" /><IoButton v-if="!referralApplied" variant="secondary" @click="applyReferral">Apply</IoButton><IoButton v-else variant="secondary" @click="removeReferral">Remove</IoButton></div>
+        <div class="referral-entry"><input id="affiliate-code" v-model="referralInput" :disabled="referralApplied" autocomplete="off" spellcheck="false" placeholder="IO-PARTNER1" @input="referralError = ''" /><IoButton v-if="!referralApplied" kind="secondary" @click="applyReferral">Apply</IoButton><IoButton v-else kind="secondary" @click="removeReferral">Remove</IoButton></div>
         <p v-if="referralError" class="form-error" role="alert">{{ referralError }}</p>
         <p v-else-if="referralApplied" class="referral-confirmed" role="status">Referral <strong>{{ appliedReferral }}</strong> will be validated by Spyglass when checkout begins.</p>
         <p v-else-if="referralEntryMethod === 'link' && referralInput" class="queue-inline-status">A referral was proposed by your link. Select Apply to use it; it is not attached automatically.</p>

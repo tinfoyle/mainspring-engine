@@ -173,6 +173,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /assets/marketing.js", s.marketingScript)
 	mux.HandleFunc("GET /assets/integrations.js", s.integrationsScript)
 	mux.HandleFunc("GET /assets/passkeys.js", s.passkeyScript)
+	mux.HandleFunc("GET /assets/privacy-analytics.js", s.privacyAnalyticsScript)
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("GET /forgot-password", s.forgotPasswordPage)
@@ -293,6 +294,9 @@ func (s *Server) styles(w http.ResponseWriter, _ *http.Request) {
 	if extra, err := assets.ReadFile("assets/shell.css"); err == nil {
 		_, _ = w.Write(extra)
 	}
+	if privacyStyles, err := assets.ReadFile("assets/privacy.css"); err == nil {
+		_, _ = w.Write(privacyStyles)
+	}
 	if schedules, err := assets.ReadFile("assets/schedules.css"); err == nil {
 		_, _ = w.Write(schedules)
 	}
@@ -406,6 +410,17 @@ func (s *Server) passkeyScript(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(raw)
 }
 
+func (s *Server) privacyAnalyticsScript(w http.ResponseWriter, _ *http.Request) {
+	raw, err := assets.ReadFile("assets/privacy-analytics.js")
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(raw)
+}
+
 type pageData struct {
 	Title, Page, Error, Notice, Email, Name, AccountName, Token, ReturnTo, DevelopmentToken, OfferCode string
 	CurrentEmail, NewEmail                                                                             string
@@ -446,6 +461,8 @@ type pageData struct {
 	IntegrationsAvailable, IntegrationsReadOnly                                                        bool
 	AttentionAvailable, ApprovalsAvailable                                                             bool
 	Script                                                                                             string
+	PrivacyControls                                                                                    bool
+	AnalyticsEvent, AnalyticsEventSecond, AnalyticsMethod                                              string
 }
 
 type billingPlan struct {
@@ -483,7 +500,10 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
-	data := pageData{Title: "Sign in", Notice: loginNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), PasskeysConfigured: s.passkeys != nil}
+	data := pageData{Title: "Sign in", Notice: loginNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), PasskeysConfigured: s.passkeys != nil, PrivacyControls: true}
+	if r.URL.Query().Get("status") == "verified" {
+		data.AnalyticsEvent, data.AnalyticsEventSecond = "verification_completed", "account_created"
+	}
 	if data.PasskeysConfigured {
 		data.Script = "/assets/passkeys.js"
 	}
@@ -491,17 +511,17 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !s.validOrigin(r, false) {
-		s.render(w, http.StatusForbidden, "login", pageData{Title: "Sign in", Error: "This sign-in request could not be verified."})
+		s.render(w, http.StatusForbidden, "login", pageData{Title: "Sign in", Error: "This sign-in request could not be verified.", PrivacyControls: true})
 		return
 	}
 	if err := s.parseForm(w, r); err != nil {
-		s.render(w, http.StatusBadRequest, "login", pageData{Title: "Sign in", Error: "The sign-in form could not be read."})
+		s.render(w, http.StatusBadRequest, "login", pageData{Title: "Sign in", Error: "The sign-in form could not be read.", PrivacyControls: true})
 		return
 	}
 	actor, _ := networkactor.FromContext(r.Context())
 	issued, err := s.authentication.Login(r.Context(), authentication.LoginCommand{Email: r.FormValue("email"), Password: r.FormValue("password"), ClientLabel: r.UserAgent(), NetworkActor: actor})
 	if err != nil {
-		s.render(w, http.StatusUnauthorized, "login", pageData{Title: "Sign in", Error: "The email or password is incorrect.", Email: r.FormValue("email"), ReturnTo: safeReturnTo(r.FormValue("return_to"))})
+		s.render(w, http.StatusUnauthorized, "login", pageData{Title: "Sign in", Error: "The email or password is incorrect.", Email: r.FormValue("email"), ReturnTo: safeReturnTo(r.FormValue("return_to")), PrivacyControls: true})
 		return
 	}
 	s.setSessionCookie(w, issued.Token, issued.Session.ExpiresAt)
@@ -514,15 +534,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) signupPage(w http.ResponseWriter, r *http.Request) {
 	offerCode := availableOfferCode(s.catalog(), r.URL.Query().Get("offer"), time.Now().UTC())
-	s.render(w, http.StatusOK, "signup", pageData{Title: "Create your Account", Notice: signupNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), OfferCode: offerCode})
+	s.render(w, http.StatusOK, "signup", pageData{Title: "Create your Account", Notice: signupNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), OfferCode: offerCode, PrivacyControls: true})
 }
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	if !s.validOrigin(r, false) {
-		s.render(w, http.StatusForbidden, "signup", pageData{Title: "Create your Account", Error: "This signup request could not be verified."})
+		s.render(w, http.StatusForbidden, "signup", pageData{Title: "Create your Account", Error: "This signup request could not be verified.", PrivacyControls: true})
 		return
 	}
 	if err := s.parseForm(w, r); err != nil {
-		s.render(w, http.StatusBadRequest, "signup", pageData{Title: "Create your Account", Error: "The signup form could not be read."})
+		s.render(w, http.StatusBadRequest, "signup", pageData{Title: "Create your Account", Error: "The signup form could not be read.", PrivacyControls: true})
 		return
 	}
 	name := r.FormValue("name")
@@ -532,10 +552,10 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	offerCode := availableOfferCode(s.catalog(), r.FormValue("offer_code"), time.Now().UTC())
 	result, err := s.registrations.Begin(r.Context(), registration.BeginCommand{Email: r.FormValue("email"), DisplayName: name, AccountName: r.FormValue("account_name"), Region: r.FormValue("region"), OfferCode: offerCode})
 	if err != nil {
-		s.render(w, http.StatusBadRequest, "signup", pageData{Title: "Create your Account", Error: "We could not start this registration. Check the details or sign in if the email is already registered.", Email: r.FormValue("email"), Name: name, AccountName: r.FormValue("account_name"), OfferCode: offerCode})
+		s.render(w, http.StatusBadRequest, "signup", pageData{Title: "Create your Account", Error: "We could not start this registration. Check the details or sign in if the email is already registered.", Email: r.FormValue("email"), Name: name, AccountName: r.FormValue("account_name"), OfferCode: offerCode, PrivacyControls: true})
 		return
 	}
-	data := pageData{Title: "Check your email", Notice: "Your verification link is on its way.", Email: r.FormValue("email"), OfferCode: offerCode}
+	data := pageData{Title: "Check your email", Notice: "Your verification link is on its way.", Email: r.FormValue("email"), OfferCode: offerCode, PrivacyControls: true, AnalyticsEvent: "registration_started"}
 	if s.config.ExposeDevelopmentTokens && s.verificationTokens != nil {
 		if message, ok := s.verificationTokens.Latest(); ok && message.RegistrationID == result.RegistrationID {
 			data.DevelopmentToken = message.Token
@@ -547,25 +567,25 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) verifyPage(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Verify identity", Error: "The verification link is incomplete."})
+		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Verify identity", Error: "The verification link is incomplete.", PrivacyControls: true})
 		return
 	}
 	offerCode := availableOfferCode(s.catalog(), r.URL.Query().Get("offer"), time.Now().UTC())
-	s.render(w, http.StatusOK, "verify", pageData{Title: "Secure your identity", Token: token, OfferCode: offerCode})
+	s.render(w, http.StatusOK, "verify", pageData{Title: "Secure your identity", Token: token, OfferCode: offerCode, PrivacyControls: true})
 }
 func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 	if !s.validOrigin(r, false) {
-		s.render(w, http.StatusForbidden, "verify", pageData{Title: "Secure your identity", Error: "This verification request could not be verified."})
+		s.render(w, http.StatusForbidden, "verify", pageData{Title: "Secure your identity", Error: "This verification request could not be verified.", PrivacyControls: true})
 		return
 	}
 	if err := s.parseForm(w, r); err != nil {
-		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Error: "The verification form could not be read."})
+		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Error: "The verification form could not be read.", PrivacyControls: true})
 		return
 	}
 	offerCode := availableOfferCode(s.catalog(), r.FormValue("offer_code"), time.Now().UTC())
 	_, err := s.registrations.Complete(r.Context(), registration.CompleteCommand{Token: r.FormValue("token"), Password: r.FormValue("password")})
 	if err != nil {
-		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Token: r.FormValue("token"), OfferCode: offerCode, Error: "The link is invalid or expired, or the password does not meet the 12-character minimum."})
+		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Token: r.FormValue("token"), OfferCode: offerCode, Error: "The link is invalid or expired, or the password does not meet the 12-character minimum.", PrivacyControls: true})
 		return
 	}
 	loginQuery := url.Values{"status": {"verified"}}
@@ -1123,7 +1143,7 @@ func (s *Server) securityPageData(r *http.Request, authenticated sessions.Authen
 	if err != nil {
 		return pageData{}, err
 	}
-	data := pageData{Title: "Identity security", ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil, ContactChangesConfigured: s.contactChanges != nil, MCPGrantsConfigured: s.mcpGrants != nil}
+	data := pageData{Title: "Identity security", ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil, ContactChangesConfigured: s.contactChanges != nil, MCPGrantsConfigured: s.mcpGrants != nil, PrivacyControls: true}
 	if s.contactChanges != nil {
 		user, loadErr := s.contactChanges.Current(r.Context(), authenticated.Session.UserID)
 		if loadErr != nil {
@@ -1321,6 +1341,7 @@ func (s *Server) rotateRecoveryCodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.Notice = "New recovery codes created. Save them now; Spyglass will not show them again."
+	data.AnalyticsEvent, data.AnalyticsMethod = "security_enrollment_completed", "passkey_recovery_codes"
 	data.RecoveryCodes = rotation.Codes
 	data.RecoveryCodeStatus = rotation.Status
 	s.render(w, http.StatusCreated, "security", data)

@@ -177,6 +177,8 @@ Exit: both UI targets build reproducibly, run through their local Docker origins
 
 ### UI1 — Session, Account and simple navigation shell
 
+Checkpoint (2026-08-24): signup, verification/login and security setup now expose the same equal-choice first-party privacy control on the application origin while retaining a host-only signed preference reference. Successful registration, verification, Account creation and completed passkey-plus-recovery-code enrollment emit reviewed content-free events only after their authoritative server transitions; first Vue application entry is likewise consent-gated and tab-deduplicated. A public-site choice is not silently widened across subdomains, and declining or failing the optional measurement path leaves every onboarding transition unchanged. Package-aware route guards, complete shell destinations and applied phone/browser certification remain open.
+
 - Implement authentication/session-expiry states, Account selection and package-aware route guards.
 - Implement the sticky mobile header, single navigation drawer and desktop enhancement.
 - Make Your Turn the authenticated default route.

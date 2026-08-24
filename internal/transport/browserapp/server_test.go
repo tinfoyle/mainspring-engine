@@ -27,7 +27,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	loginBody, _ := io.ReadAll(login.Body)
 	login.Body.Close()
-	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Find the signal")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) || !bytes.Contains(loginBody, []byte("Sign in with a passkey")) || !bytes.Contains(loginBody, []byte("/assets/passkeys.js")) {
+	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Find the signal")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) || !bytes.Contains(loginBody, []byte("Sign in with a passkey")) || !bytes.Contains(loginBody, []byte("/assets/passkeys.js")) || !bytes.Contains(loginBody, []byte("/assets/privacy-analytics.js")) || !bytes.Contains(loginBody, []byte("Accept analytics")) || !bytes.Contains(loginBody, []byte("Reject non-essential")) || !bytes.Contains(loginBody, []byte("Manage preferences")) {
 		t.Fatalf("login page: %d %s", login.StatusCode, loginBody)
 	}
 	protected, err := client.Get(server.URL + "/app")
@@ -42,13 +42,16 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	if signup.status != http.StatusAccepted {
 		t.Fatalf("signup: %d %s", signup.status, signup.body)
 	}
+	if !bytes.Contains(signup.body, []byte(`data-event="registration_started"`)) {
+		t.Fatalf("successful registration analytics marker missing: %s", signup.body)
+	}
 	match := regexp.MustCompile(`/verify\?token=([^"&]+)`).FindSubmatch(signup.body)
 	if len(match) != 2 {
 		t.Fatalf("development verification link missing: %s", signup.body)
 	}
 	token, _ := url.QueryUnescape(string(match[1]))
 	verified := postForm(t, client, server.URL+"/verify", url.Values{"token": {token}, "password": {"correct horse battery staple"}})
-	if verified.status != http.StatusOK || !bytes.Contains(verified.body, []byte("Identity verified")) {
+	if verified.status != http.StatusOK || !bytes.Contains(verified.body, []byte("Identity verified")) || !bytes.Contains(verified.body, []byte(`data-event="verification_completed"`)) || !bytes.Contains(verified.body, []byte(`data-event-second="account_created"`)) {
 		t.Fatalf("verify: %d %s", verified.status, verified.body)
 	}
 	signedIn := postForm(t, client, server.URL+"/login", url.Values{"email": {"avery@example.com"}, "password": {"correct horse battery staple"}})
@@ -155,6 +158,7 @@ func TestPrivateBrowserAssetsRequireReleaseRevalidation(t *testing.T) {
 		{path: "/assets/attention.js", contentType: "text/javascript; charset=utf-8"},
 		{path: "/assets/agents.js", contentType: "text/javascript; charset=utf-8"},
 		{path: "/assets/passkeys.js", contentType: "text/javascript; charset=utf-8"},
+		{path: "/assets/privacy-analytics.js", contentType: "text/javascript; charset=utf-8"},
 	} {
 		response, err := http.Get(server.URL + asset.path)
 		if err != nil {

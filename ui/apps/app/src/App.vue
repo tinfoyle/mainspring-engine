@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { IoLogo } from "@spyglass/design-system";
+import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
 import { onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { useSessionStore } from "./stores/session";
@@ -8,7 +9,19 @@ const route = useRoute();
 const session = useSessionStore();
 const menuOpen = ref(false);
 watch(() => route.fullPath, () => { menuOpen.value = false; });
-onMounted(() => void session.load());
+onMounted(async () => {
+  await session.load();
+  if (!session.userID || sessionStorage.getItem("spyglass_application_entered") === "1") return;
+  try {
+    const consent = await getPrivacyConsent();
+    const emitted = await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, {
+      name: "application_entered", fields: { entry_point: "your_turn" }
+    });
+    if (emitted) sessionStorage.setItem("spyglass_application_entered", "1");
+  } catch {
+    // Optional measurement never interrupts the application shell.
+  }
+});
 
 const navigation = [
   { to: "/app/your-turn", label: "Your Turn", marker: "3" },

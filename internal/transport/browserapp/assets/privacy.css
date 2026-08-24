@@ -1,0 +1,16 @@
+.privacy-consent { position: fixed; z-index: 100; right: 14px; bottom: 14px; width: min(31rem, calc(100% - 28px)); max-height: calc(100vh - 28px); overflow: auto; border: 1px solid var(--line); border-radius: 16px; background: #fff; padding: 18px; box-shadow: 0 24px 70px #102d2050; }
+.privacy-consent h2 { margin: 0; font: 500 1.65rem/1.1 var(--display); }
+.privacy-consent > p:not(.eyebrow):not(.privacy-error) { color: var(--muted); font-size: .82rem; line-height: 1.5; }
+.privacy-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.privacy-actions button, .privacy-options button { min-height: 46px; border: 0; border-radius: 10px; background: var(--green); padding: 8px 12px; color: #fff; font-weight: 760; cursor: pointer; }
+.privacy-actions .secondary { border: 1px solid var(--line); background: #fff; color: var(--green-dark); }
+.privacy-actions button:last-child { grid-column: 1 / -1; }
+.privacy-options { margin: 12px 0; display: grid; border-top: 1px solid var(--line); }
+.privacy-options[hidden], .privacy-reopen[hidden] { display: none; }
+.privacy-options label { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.privacy-options label span { display: grid; gap: 2px; }
+.privacy-options input { width: 28px; min-height: 28px; accent-color: var(--green); }
+.privacy-options button { margin-top: 10px; }
+.privacy-error { margin: 10px 0 0; color: #884739; font-size: .75rem; }
+.privacy-reopen { position: fixed; z-index: 90; right: 14px; bottom: 14px; min-height: 44px; border: 1px solid var(--line); border-radius: 999px; background: #fff; padding: 8px 13px; color: var(--green-dark); box-shadow: 0 8px 24px #102d2025; font-weight: 750; }
+@media (max-width: 520px) { .privacy-actions { grid-template-columns: 1fr; } .privacy-actions button:last-child { grid-column: auto; } }
