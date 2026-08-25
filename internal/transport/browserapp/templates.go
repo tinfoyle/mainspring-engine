@@ -4,7 +4,7 @@ const pageTemplates = `
 {{define "head"}}
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{.Title}} · Infinite Ocean: Spyglass</title><meta name="description" content="Infinite Ocean: Spyglass business operating system">
-<link rel="stylesheet" href="/assets/spyglass.css?v=3">{{if .Script}}<script src="{{.Script}}?v=3" defer></script>{{end}}{{if .PrivacyControls}}<script src="/assets/privacy-analytics.js?v=1" defer></script>{{end}}</head><body><a class="skip-link" href="#main-content">Skip to main content</a>{{if .PrivacyControls}}{{template "privacy-controls" .}}{{end}}
+<link rel="stylesheet" href="/assets/spyglass.css?v=3">{{if .Script}}<script src="{{.Script}}?v=3" defer></script>{{end}}{{if .PrivacyControls}}<script src="/assets/privacy-analytics.js?v=2" defer></script>{{end}}</head><body><a class="skip-link" href="#main-content">Skip to main content</a>{{if .PrivacyControls}}{{template "privacy-controls" .}}{{end}}
 {{end}}
 
 {{define "privacy-controls"}}

@@ -24,6 +24,7 @@ const errorMessage = ref("");
 const copied = ref(false);
 const ownerAccounts = computed(() => session.accounts.filter((account) => account.role === "owner"));
 const enrollmentAvailable = computed(() => program.value?.enrollment_open && program.value.settlement_mode !== "unconfigured");
+const codeShareable = computed(() => program.value?.enrollment?.state === "active" && program.value.attribution_enabled);
 
 function money(minor: number, currency: string): string {
   if (!currency) return "Not classified";
@@ -72,7 +73,7 @@ async function enroll(): Promise<void> {
 
 async function copyCode(): Promise<void> {
   const code = program.value?.enrollment?.public_code;
-  if (!code) return;
+  if (!code || !codeShareable.value) return;
   try {
     await navigator.clipboard.writeText(code);
     copied.value = true;
@@ -90,7 +91,7 @@ onMounted(() => void load());
     <div v-else-if="errorMessage && !program" class="queue-state queue-state--error" role="alert"><h2>Affiliate details are unavailable</h2><p>{{ errorMessage }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>
 
     <template v-else-if="program?.enrollment">
-      <section class="affiliate-code" aria-labelledby="affiliate-code-heading"><div><p class="eyebrow">Your generated code</p><h2 id="affiliate-code-heading">{{ program.enrollment.public_code }}</h2><p>Share this code with a clear disclosure that you may earn recurring value from qualifying purchases. Customers choose whether to apply it in their checkout review.</p></div><IoButton kind="secondary" @click="copyCode">{{ copied ? "Copied" : "Copy code" }}</IoButton></section>
+      <section class="affiliate-code" aria-labelledby="affiliate-code-heading"><div><p class="eyebrow">Your generated code · {{ program.enrollment.state }}</p><h2 id="affiliate-code-heading">{{ program.enrollment.public_code }}</h2><p v-if="codeShareable">Share this code with a clear disclosure that you may earn recurring value from qualifying purchases. Customers choose whether to apply it in their checkout review.</p><p v-else-if="program.enrollment.state === 'suspended'">Referral attribution is paused for this enrollment. Do not promote the code while support reviews its status; historical commission records remain available below.</p><p v-else-if="program.enrollment.state === 'closed'">This enrollment is closed and the code cannot create new attribution. Historical commission records remain available below.</p><p v-else>New referral attribution is paused for the program. Do not promote the code until the program reopens; historical commission records remain available below.</p></div><IoButton kind="secondary" :disabled="!codeShareable" @click="copyCode">{{ copied ? "Copied" : "Copy code" }}</IoButton></section>
       <div class="affiliate-totals" aria-label="Commission totals"><article><small>Pending</small><strong>{{ money(statement?.pending_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Settled</small><strong>{{ money(statement?.settled_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Reversed</small><strong>{{ money(statement?.reversed_minor ?? 0, statement?.currency ?? '') }}</strong></article></div>
       <section class="affiliate-statement"><header><div><p class="eyebrow">Commission history</p><h2>Renewal ledger</h2></div><span>{{ settlementLabel(program.settlement_mode) }}</span></header><p v-if="!statement?.entries.length" class="form-note">No qualifying commission entries have been recorded. Referred customer identities and business details are never shown here.</p><ol v-else><li v-for="entry in statement.entries" :key="entry.entry_id"><div><strong>{{ entry.kind === 'reversal' ? 'Reversal' : `Qualifying cycle ${entry.cycle}` }}</strong><small>{{ new Date(entry.created_at).toLocaleDateString() }} · rule {{ entry.rule_version }}</small></div><span>{{ entry.kind === 'reversal' ? '−' : '' }}{{ money(entry.amount_minor, entry.currency) }}<small>{{ entry.state }}</small></span></li></ol></section>
       <p v-if="errorMessage" class="form-error" role="alert">{{ errorMessage }}</p>

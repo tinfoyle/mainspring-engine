@@ -36,6 +36,7 @@
     if (!needsChoice) void emit();
   };
   const save = async (analyticsChoice, marketingChoice) => {
+    const previous = decision;
     error.textContent = "";
     try {
       const response = await fetch("/api/v1/privacy/consent", {
@@ -47,9 +48,15 @@
       options.hidden = true;
       render();
     } catch {
-      decision = { decided: false, analytics: false, marketing: false };
-      error.textContent = "We could not save that choice. Optional tracking remains off; please try again.";
-      render();
+      decision = previous || { decided: false, analytics: false, marketing: false, renewal_required: false };
+      analytics.checked = Boolean(decision.analytics);
+      marketing.checked = Boolean(decision.marketing);
+      panel.hidden = false;
+      reopen.hidden = true;
+      options.hidden = false;
+      error.textContent = decision.decided && !decision.renewal_required
+        ? "We could not save that change. Your previous choice remains in effect; please try again."
+        : "We could not save that choice. Optional tracking remains off; please try again.";
     }
   };
   panel.querySelector("[data-privacy-accept]")?.addEventListener("click", () => void save(true, false));

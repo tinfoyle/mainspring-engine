@@ -2,6 +2,7 @@
 import { getPrivacyConsent, setPrivacyConsent, type PrivacyConsent } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
 import { onMounted, ref } from "vue";
+import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
 
 const preference = ref<PrivacyConsent>();
 const ready = ref(false);
@@ -10,27 +11,38 @@ const analytics = ref(false);
 const marketing = ref(false);
 const saving = ref(false);
 const error = ref("");
+const consentState = useAnalyticsConsent();
 
 onMounted(async () => {
   try {
     preference.value = await getPrivacyConsent();
+    consentState.apply(preference.value);
     analytics.value = preference.value.analytics;
     marketing.value = preference.value.marketing;
   } catch {
+    consentState.failClosed();
     error.value = "Privacy choices are temporarily unavailable. Optional tracking remains off.";
   } finally { ready.value = true; }
 });
 
 async function choose(nextAnalytics: boolean, nextMarketing = false): Promise<void> {
+  const previous = preference.value;
   saving.value = true;
   error.value = "";
   try {
     preference.value = await setPrivacyConsent({ analytics: nextAnalytics, marketing: nextMarketing });
+    consentState.apply(preference.value);
     analytics.value = nextAnalytics;
     marketing.value = nextMarketing;
     managing.value = false;
   } catch {
-    error.value = "We could not save that choice. Optional tracking remains off; please try again.";
+    analytics.value = previous?.analytics ?? false;
+    marketing.value = previous?.marketing ?? false;
+    if (previous) consentState.apply(previous);
+    else consentState.failClosed();
+    error.value = previous?.decided && !previous.renewal_required
+      ? "We could not save that change. Your previous choice remains in effect; please try again."
+      : "We could not save that choice. Optional tracking remains off; please try again.";
   } finally {
     saving.value = false;
   }
@@ -38,7 +50,7 @@ async function choose(nextAnalytics: boolean, nextMarketing = false): Promise<vo
 </script>
 
 <template>
-  <section v-if="ready && (!preference?.decided || managing)" class="consent" aria-labelledby="consent-title">
+  <section v-if="ready && (!preference?.decided || preference.renewal_required || managing)" class="consent" aria-labelledby="consent-title">
     <div class="consent__copy">
       <p class="eyebrow">Your choice</p>
       <h2 id="consent-title">Privacy without the fog</h2>

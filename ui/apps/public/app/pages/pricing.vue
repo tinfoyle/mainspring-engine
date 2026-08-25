@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { emitAnalytics, getPrivacyConsent, type CatalogOffer, type CatalogPlan, type PublicCatalog } from "@spyglass/api";
 import { useFetch, useRuntimeConfig, useSeoMeta } from "#imports";
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted } from "vue";
+import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
 
 useSeoMeta({ title: "Spyglass pricing · Infinite Ocean", description: "Start Spyglass free and compare current published plans before continuing to secure Stripe Checkout." });
 const appOrigin = useRuntimeConfig().public.appOrigin;
-const analyticsAllowed = ref(false);
+const analyticsConsent = useAnalyticsConsent();
 const { data: catalog, error: catalogError, refresh } = await useFetch<PublicCatalog>("/catalog.json", { key: "public-catalog" });
 const paidOffers = computed(() => (catalog.value?.offers ?? []).filter((offer) => offer.amount_minor > 0 && offer.billing_interval !== "none"));
 
@@ -23,8 +24,8 @@ async function chooseOffer(event: MouseEvent, offer: CatalogOffer): Promise<void
   try {
     await Promise.race([
       Promise.all([
-        emitAnalytics(analyticsAllowed.value, { name: "offer_selected", fields: { offer_code: offer.code, route_name: "pricing" } }),
-        emitAnalytics(analyticsAllowed.value, { name: "signup_handoff_started", fields: { offer_code: offer.code } })
+        emitAnalytics(analyticsConsent.allowed.value, { name: "offer_selected", fields: { offer_code: offer.code, route_name: "pricing" } }),
+        emitAnalytics(analyticsConsent.allowed.value, { name: "signup_handoff_started", fields: { offer_code: offer.code } })
       ]),
       new Promise((resolve) => window.setTimeout(resolve, 180))
     ]);
@@ -37,10 +38,10 @@ async function chooseOffer(event: MouseEvent, offer: CatalogOffer): Promise<void
 onMounted(async () => {
   try {
     const consent = await getPrivacyConsent();
-    analyticsAllowed.value = consent.decided && consent.analytics && !consent.renewal_required;
-    await emitAnalytics(analyticsAllowed.value, { name: "pricing_viewed", fields: { route_name: "pricing" } });
+    analyticsConsent.apply(consent);
+    await emitAnalytics(analyticsConsent.allowed.value, { name: "pricing_viewed", fields: { route_name: "pricing" } });
   } catch {
-    analyticsAllowed.value = false;
+    analyticsConsent.failClosed();
   }
 });
 </script>

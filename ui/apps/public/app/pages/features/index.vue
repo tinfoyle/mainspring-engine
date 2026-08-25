@@ -3,12 +3,15 @@ import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
 import { useSeoMeta } from "#imports";
 import { onMounted } from "vue";
 import { publicFeatures } from "~/content/features";
+import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
 useSeoMeta({ title: "Spyglass features · Infinite Ocean", description: "Explore Your Turn, Work, Knowledge, Agents, Finance, Marketing and governed integrations in Spyglass." });
+const analyticsConsent = useAnalyticsConsent();
 onMounted(async () => {
   try {
     const consent = await getPrivacyConsent();
-    await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, { name: "feature_viewed", fields: { feature_code: "feature_index", route_name: "features" } });
-  } catch { /* Optional measurement never interrupts discovery. */ }
+    analyticsConsent.apply(consent);
+    await emitAnalytics(analyticsConsent.allowed.value, { name: "feature_viewed", fields: { feature_code: "feature_index", route_name: "features" } });
+  } catch { analyticsConsent.failClosed(); }
 });
 </script>
 

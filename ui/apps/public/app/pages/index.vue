@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
 import { useRuntimeConfig, useSeoMeta } from "#imports";
-import { onMounted, ref } from "vue";
+import { onMounted } from "vue";
+import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
 
 useSeoMeta({
   title: "Spyglass — Know what needs you next",
@@ -11,7 +12,7 @@ useSeoMeta({
   ogType: "website"
 });
 const appOrigin = useRuntimeConfig().public.appOrigin;
-const analyticsAllowed = ref(false);
+const analyticsConsent = useAnalyticsConsent();
 
 async function startFree(event: MouseEvent, ctaCode: string): Promise<void> {
   event.preventDefault();
@@ -19,8 +20,8 @@ async function startFree(event: MouseEvent, ctaCode: string): Promise<void> {
   try {
     await Promise.race([
       Promise.all([
-        emitAnalytics(analyticsAllowed.value, { name: "primary_cta_selected", fields: { cta_code: ctaCode, route_name: "landing" } }),
-        emitAnalytics(analyticsAllowed.value, { name: "signup_handoff_started", fields: {} })
+        emitAnalytics(analyticsConsent.allowed.value, { name: "primary_cta_selected", fields: { cta_code: ctaCode, route_name: "landing" } }),
+        emitAnalytics(analyticsConsent.allowed.value, { name: "signup_handoff_started", fields: {} })
       ]),
       new Promise((resolve) => window.setTimeout(resolve, 180))
     ]);
@@ -31,9 +32,10 @@ async function startFree(event: MouseEvent, ctaCode: string): Promise<void> {
 onMounted(async () => {
   try {
     const consent = await getPrivacyConsent();
-    analyticsAllowed.value = consent.decided && consent.analytics && !consent.renewal_required;
-    await emitAnalytics(analyticsAllowed.value, { name: "landing_viewed", fields: { route_name: "landing" } });
+    analyticsConsent.apply(consent);
+    await emitAnalytics(analyticsConsent.allowed.value, { name: "landing_viewed", fields: { route_name: "landing" } });
   } catch {
+    analyticsConsent.failClosed();
     // Analytics and its consent lookup must never interrupt the public experience.
   }
 });

@@ -3,12 +3,14 @@ import { emitAnalytics, getPrivacyConsent, type PublicCatalog } from "@spyglass/
 import { createError, useFetch, useRoute, useSeoMeta } from "#imports";
 import { computed, onMounted } from "vue";
 import { featureBySlug } from "~/content/features";
+import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
 
 const route = useRoute();
 const feature = featureBySlug(String(route.params.slug));
 if (!feature) throw createError({ statusCode: 404, statusMessage: "Feature not found" });
 useSeoMeta({ title: `${feature.name} · Spyglass features`, description: feature.summary });
 const { data: catalog } = await useFetch<PublicCatalog>("/catalog.json", { key: "public-catalog" });
+const analyticsConsent = useAnalyticsConsent();
 const availablePlans = computed(() => {
   if (!feature.packageCode) return [];
   return (catalog.value?.plans ?? []).filter((plan) => plan.packages[feature.packageCode!] && plan.packages[feature.packageCode!] !== "suspended");
@@ -16,8 +18,9 @@ const availablePlans = computed(() => {
 onMounted(async () => {
   try {
     const consent = await getPrivacyConsent();
-    await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, { name: "feature_viewed", fields: { feature_code: feature.slug, ...(feature.packageCode ? { package_code: feature.packageCode } : {}) } });
-  } catch { /* Optional measurement never interrupts discovery. */ }
+    analyticsConsent.apply(consent);
+    await emitAnalytics(analyticsConsent.allowed.value, { name: "feature_viewed", fields: { feature_code: feature.slug, ...(feature.packageCode ? { package_code: feature.packageCode } : {}) } });
+  } catch { analyticsConsent.failClosed(); }
 });
 </script>
 

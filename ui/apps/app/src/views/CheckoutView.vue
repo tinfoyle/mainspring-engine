@@ -31,7 +31,8 @@ const referralEntryMethod = ref<"manual" | "link">("manual");
 const confirmed = ref(false);
 const requestID = ref("");
 const analyticsAllowed = ref(false);
-const returnState = ref<"none" | "cancelled" | "pending" | "projected">("none");
+const requestedOfferUnavailable = ref(false);
+const returnState = ref<"none" | "cancelled" | "pending" | "projected" | "attention" | "failed">("none");
 let pollTimer: number | undefined;
 let pollCount = 0;
 
@@ -77,6 +78,11 @@ function removeReferral(): void {
   requestID.value = "";
 }
 
+function noteReferralEdit(): void {
+  referralError.value = "";
+  referralEntryMethod.value = "manual";
+}
+
 async function emit(name: Parameters<typeof emitAnalytics>[1]["name"], fields: Readonly<Record<string, string>>): Promise<void> {
   try {
     await emitAnalytics(analyticsAllowed.value, { name, fields });
@@ -98,9 +104,10 @@ async function loadBilling(): Promise<void> {
 
 function chooseOffer(): void {
   const requested = typeof route.query.offer === "string" ? route.query.offer : "";
-  selectedOfferCode.value = paidOffers.value.some((offer) => offer.code === requested)
-    ? requested
-    : paidOffers.value[0]?.code ?? "";
+  requestedOfferUnavailable.value = Boolean(requested) && !paidOffers.value.some((offer) => offer.code === requested);
+  selectedOfferCode.value = requestedOfferUnavailable.value
+    ? ""
+    : requested || paidOffers.value[0]?.code || "";
 }
 
 function evaluateReturn(): void {
@@ -111,12 +118,24 @@ function evaluateReturn(): void {
     return;
   }
   if (status !== "billing") return;
-  const projected = billing.value?.subscriptions.some((item) => item.state !== "canceled" && item.state !== "incomplete_expired");
-  returnState.value = projected ? "projected" : "pending";
-  if (projected) {
-    void emit("subscription_projected", { offer_code: selectedOfferCode.value, result: "active" });
+  const projectionOfferCode = typeof route.query.offer === "string" ? route.query.offer : selectedOfferCode.value;
+  const latest = [...(billing.value?.subscriptions ?? [])]
+    .filter((item) => projectionOfferCode && item.offer_code === projectionOfferCode)
+    .sort((left, right) => Date.parse(right.last_synced_at) - Date.parse(left.last_synced_at))[0];
+  if (latest?.state === "active" || latest?.state === "trialing") {
+    returnState.value = "projected";
+    void emit("subscription_projected", { offer_code: projectionOfferCode, result: "active" });
     return;
   }
+  if (latest?.state === "incomplete_expired" || latest?.state === "unpaid" || latest?.state === "canceled") {
+    returnState.value = "failed";
+    return;
+  }
+  if (latest?.state === "past_due" || latest?.state === "paused") {
+    returnState.value = "attention";
+    return;
+  }
+  returnState.value = "pending";
   if (pollCount >= 12) return;
   pollTimer = window.setTimeout(async () => {
     pollCount += 1;
@@ -128,10 +147,13 @@ function evaluateReturn(): void {
 async function load(): Promise<void> {
   loading.value = true;
   errorMessage.value = "";
+  analyticsAllowed.value = false;
   try {
-    const [published, consent] = await Promise.all([getPublicCatalog(), getPrivacyConsent()]);
+    void getPrivacyConsent()
+      .then((consent) => { analyticsAllowed.value = consent.decided && consent.analytics && !consent.renewal_required; })
+      .catch(() => { analyticsAllowed.value = false; });
+    const published = await getPublicCatalog();
     catalog.value = published;
-    analyticsAllowed.value = consent.decided && consent.analytics && !consent.renewal_required;
     chooseOffer();
     const proposed = typeof route.query.ref === "string" ? normalizeReferral(route.query.ref) : "";
     if (referralPattern.test(proposed)) {
@@ -185,6 +207,7 @@ watch(() => session.selectedID, async (current, previous) => {
   if (current && current !== previous) await loadBilling();
 });
 watch(selectedOfferCode, () => {
+  if (selectedOfferCode.value) requestedOfferUnavailable.value = false;
   confirmed.value = false;
   requestID.value = "";
 });
@@ -209,6 +232,12 @@ onBeforeUnmount(() => { if (pollTimer !== undefined) window.clearTimeout(pollTim
     <div v-else-if="returnState === 'projected'" class="queue-state" role="status">
       <h2>Your subscription is active</h2><p>The local entitlement snapshot now includes the projected subscription.</p>
     </div>
+    <div v-else-if="returnState === 'attention'" class="queue-state queue-state--warning" role="status">
+      <h2>Payment needs attention</h2><p>Stripe returned a subscription that is past due or paused. Access is based only on the current local entitlement snapshot; review Billing before relying on paid packages.</p>
+    </div>
+    <div v-else-if="returnState === 'failed'" class="queue-state queue-state--error" role="alert">
+      <h2>The subscription did not become active</h2><p>The signed Stripe projection is expired, unpaid, or canceled. No paid access was granted from the browser redirect.</p>
+    </div>
 
     <div v-if="loading" class="queue-state" role="status">Loading the published Catalog and Account billing state…</div>
     <div v-else-if="errorMessage && !catalog" class="queue-state queue-state--error" role="alert"><h2>Checkout is unavailable</h2><p>{{ errorMessage }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>
@@ -217,10 +246,13 @@ onBeforeUnmount(() => { if (pollTimer !== undefined) window.clearTimeout(pollTim
         <p class="eyebrow">1 · Offer</p><h2 id="offer-heading">Choose the published offer</h2>
         <label for="checkout-offer">Plan and billing interval</label>
         <select id="checkout-offer" v-model="selectedOfferCode">
+          <option value="" disabled>Choose a current offer</option>
           <option v-for="offer in paidOffers" :key="offer.code" :value="offer.code">
             {{ catalog?.plans.find((plan) => plan.code === offer.plan_code)?.name ?? offer.plan_code }} · {{ formatPrice(offer) }}/{{ offer.billing_interval }}
           </option>
         </select>
+        <div v-if="requestedOfferUnavailable" class="queue-inline-status queue-inline-status--error" role="alert">The offer selected before signup is no longer available. Review and choose a current offer before continuing.</div>
+        <div v-else-if="paidOffers.length === 0" class="queue-inline-status" role="status">No paid offer is currently published. Your free Account remains available and unchanged.</div>
         <div v-if="selectedOffer && selectedPlan" class="offer-summary">
           <strong>{{ selectedPlan.name }} · {{ formatPrice(selectedOffer) }} per {{ selectedOffer.billing_interval }}</strong>
           <p>{{ selectedPlan.description }}</p>
@@ -232,7 +264,7 @@ onBeforeUnmount(() => { if (pollTimer !== undefined) window.clearTimeout(pollTim
         <p class="eyebrow">2 · Referral</p><h2 id="referral-heading">Affiliate code <small>optional</small></h2>
         <p class="form-note">A valid code gives the Affiliate recurring credit under their program terms. It does not change your price and works whether or not you allow analytics.</p>
         <label for="affiliate-code">Affiliate code</label>
-        <div class="referral-entry"><input id="affiliate-code" v-model="referralInput" :disabled="referralApplied" autocomplete="off" spellcheck="false" placeholder="IO-PARTNER1" @input="referralError = ''" /><IoButton v-if="!referralApplied" kind="secondary" @click="applyReferral">Apply</IoButton><IoButton v-else kind="secondary" @click="removeReferral">Remove</IoButton></div>
+        <div class="referral-entry"><input id="affiliate-code" v-model="referralInput" :disabled="referralApplied" autocomplete="off" spellcheck="false" placeholder="IO-PARTNER1" @input="noteReferralEdit" /><IoButton v-if="!referralApplied" kind="secondary" @click="applyReferral">Apply</IoButton><IoButton v-else kind="secondary" @click="removeReferral">Remove</IoButton></div>
         <p v-if="referralError" class="form-error" role="alert">{{ referralError }}</p>
         <p v-else-if="referralApplied" class="referral-confirmed" role="status">Referral <strong>{{ appliedReferral }}</strong> will be validated by Spyglass when checkout begins.</p>
         <p v-else-if="referralEntryMethod === 'link' && referralInput" class="queue-inline-status">A referral was proposed by your link. Select Apply to use it; it is not attached automatically.</p>

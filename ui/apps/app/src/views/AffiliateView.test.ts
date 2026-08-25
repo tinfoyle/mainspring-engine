@@ -47,4 +47,19 @@ describe("Affiliate identity dashboard", () => {
     expect(wrapper.text()).toContain("$10.00");
     expect(wrapper.text()).not.toContain("referred customer@example.com");
   });
+
+  it("keeps historical ledger access while disabling a suspended referral code", async () => {
+    api.getAffiliateProgram.mockResolvedValue({ enrollment_open: false, attribution_enabled: false, terms_version: 2, rule_version: 3, settlement_mode: "account_credit", enrollment: {
+      affiliate_id: "10000000-0000-4000-8000-000000000001", user_id: "20000000-0000-4000-8000-000000000002", public_code: "IO-PAUSED1", terms_version: 2, rule_version: 3, state: "suspended", version: 2, created_at: "2026-08-24T20:00:00Z"
+    } });
+    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", currency: "USD", pending_minor: 0, settled_minor: 2000, reversed_minor: 1000, entries: [] });
+
+    const wrapper = await mountView();
+    expect(wrapper.text()).toContain("Referral attribution is paused");
+    expect(wrapper.text()).toContain("historical commission records remain available");
+    const copy = wrapper.findAll("button").find((button) => button.text() === "Copy code");
+    expect(copy?.attributes("disabled")).toBeDefined();
+    expect(wrapper.text()).toContain("$20.00");
+    expect(wrapper.text()).toContain("$10.00");
+  });
 });
