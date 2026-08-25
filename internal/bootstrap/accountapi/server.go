@@ -3,6 +3,7 @@ package accountapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -70,6 +71,9 @@ type Config struct {
 	CatalogRefreshInterval      time.Duration
 	AffiliateEnrollmentOpen     bool
 	AffiliateAttributionEnabled bool
+	AffiliateSettlementMode     string
+	AffiliateTermsVersion       uint64
+	AffiliateRuleVersion        uint64
 	ExportObject                s3objects.Config
 	ExportDownloadKeyID         string
 	ExportDownloadKeys          map[string][]byte
@@ -91,6 +95,21 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	}
 	if config.StripeMode != "test" && config.StripeMode != "live" {
 		return nil, errors.New("Stripe mode must be test or live")
+	}
+	if config.AffiliateSettlementMode == "" {
+		config.AffiliateSettlementMode = "unconfigured"
+	}
+	if config.AffiliateSettlementMode != "unconfigured" && config.AffiliateSettlementMode != "account_credit" && config.AffiliateSettlementMode != "cash" {
+		return nil, errors.New("Affiliate settlement mode must be unconfigured, account_credit or cash")
+	}
+	if (config.AffiliateEnrollmentOpen || config.AffiliateAttributionEnabled) && config.AffiliateSettlementMode == "unconfigured" {
+		return nil, errors.New("Affiliate enrollment and attribution cannot open before settlement mode is configured")
+	}
+	if config.AffiliateTermsVersion == 0 {
+		config.AffiliateTermsVersion = 1
+	}
+	if config.AffiliateRuleVersion == 0 {
+		config.AffiliateRuleVersion = 1
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
 	if err != nil {
@@ -280,7 +299,14 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, errors.New("Stripe secret key mode does not match configured mode")
 	}
-	affiliateService, err := affiliateprogram.New(postgres.NewAffiliateProgramRepository(pool), ids.RandomGenerator{}, affiliateprogram.RandomCodeGenerator{}, clock, 1, 1)
+	affiliateRepository := postgres.NewAffiliateProgramRepository(pool)
+	if config.AffiliateEnrollmentOpen || config.AffiliateAttributionEnabled {
+		if _, err := affiliateRepository.CommissionRule(ctx, config.AffiliateRuleVersion); err != nil {
+			pool.Close()
+			return nil, fmt.Errorf("configured Affiliate rule version %d is unavailable: %w", config.AffiliateRuleVersion, err)
+		}
+	}
+	affiliateService, err := affiliateprogram.New(affiliateRepository, ids.RandomGenerator{}, affiliateprogram.RandomCodeGenerator{}, clock, config.AffiliateTermsVersion, config.AffiliateRuleVersion)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -347,7 +373,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithPrivacyRights(privacyRightsService),
 		httpapi.WithAffiliateProgram(affiliateService, httpapi.AffiliateHTTPConfig{
 			EnrollmentOpen: config.AffiliateEnrollmentOpen, AttributionEnabled: config.AffiliateAttributionEnabled,
-			SettlementMode: "unconfigured",
+			SettlementMode: config.AffiliateSettlementMode,
 		}),
 		httpapi.WithAffiliateSupport(affiliateSupportService),
 	).Handler()

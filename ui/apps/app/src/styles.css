@@ -10,10 +10,10 @@
 .sidebar-close { flex: 0 0 auto; width: 44px; height: 44px; border: 1px solid rgb(255 255 255 / 28%); border-radius: 50%; color: white; background: transparent; font-size: 1.5rem; }
 .brand { padding: .25rem; color: white; text-decoration: none; }
 .brand .io-logo__type small { color: var(--io-seafoam); }
-.sidebar nav { display: grid; gap: .35rem; }
+.sidebar nav { min-height: 0; padding-inline-end: .25rem; display: grid; flex: 1 1 auto; gap: .35rem; overflow-y: auto; overscroll-behavior: contain; }
 .nav-link { min-height: 48px; padding: .75rem .9rem; display: flex; align-items: center; justify-content: space-between; border-radius: .75rem; color: rgb(255 255 255 / 72%); text-decoration: none; font-weight: 650; }
 .nav-link:hover, .nav-link.router-link-active { color: white; background: rgb(255 255 255 / 10%); }
-.account-switcher { margin-top: auto; display: grid; gap: .45rem; }
+.account-switcher { flex: 0 0 auto; display: grid; gap: .45rem; }
 .account-switcher label { color: var(--io-seafoam); font-size: .75rem; font-weight: 750; text-transform: uppercase; letter-spacing: .12em; }
 .account-switcher select { width: 100%; min-height: 46px; padding: 0 .75rem; border: 1px solid rgb(255 255 255 / 25%); border-radius: .7rem; color: white; background: rgb(255 255 255 / 8%); }
 .account-switcher option { color: var(--io-ink); }
@@ -277,7 +277,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .affiliate-statement li div, .affiliate-statement li > span { display: grid; gap: .25rem; }
 .affiliate-statement li > span { flex: 0 0 auto; text-align: right; font-weight: 750; }
 .affiliate-statement li small { color: var(--io-ink-soft); font-size: .76rem; font-weight: 500; }
-.affiliate-review-link { width: fit-content; padding: .2rem 0; border: 0; background: transparent; color: var(--io-ocean-800); font: inherit; font-size: .78rem; font-weight: 760; text-decoration: underline; text-underline-offset: .16rem; cursor: pointer; }
+.affiliate-review-link { width: fit-content; min-height: 44px; padding: .55rem 0; display: inline-flex; align-items: center; border: 0; background: transparent; color: var(--io-ocean-800); font: inherit; font-size: .78rem; font-weight: 760; text-decoration: underline; text-underline-offset: .16rem; cursor: pointer; }
 .affiliate-review-link:disabled { color: var(--io-ink-soft); cursor: default; text-decoration: none; }
 .affiliate-support ol { margin: .75rem 0 0; padding: 0; display: grid; list-style: none; }
 .affiliate-support li { padding: .8rem 0; display: flex; align-items: start; justify-content: space-between; gap: 1rem; border-top: 1px solid #e8eeeb; }

@@ -57,20 +57,28 @@ onMounted(async () => {
 });
 
 async function save(): Promise<void> {
+  if (saving.value) return;
   saving.value = true;
   message.value = "";
   errorMessage.value = "";
+  const previous = preference.value;
   try {
     preference.value = await setPrivacyConsent({ analytics: analytics.value, marketing: marketing.value });
+    analytics.value = preference.value.analytics;
+    marketing.value = preference.value.marketing;
     message.value = "Your privacy preferences were saved.";
   } catch (error) {
+    analytics.value = previous?.analytics ?? false;
+    marketing.value = previous?.marketing ?? false;
     errorMessage.value = error instanceof APIProblem ? error.message : "Privacy preferences could not be saved.";
   } finally { saving.value = false; }
 }
 
-function rejectNonEssential(): void {
+async function rejectNonEssential(): Promise<void> {
+  if (saving.value) return;
   analytics.value = false;
   marketing.value = false;
+  await save();
 }
 
 async function eraseBrowserSubject(): Promise<void> {
@@ -155,7 +163,7 @@ function date(value: string): string {
         <div class="preference-row"><div><h3>Necessary</h3><p>Security, sign-in, checkout continuity and this preference.</p></div><strong>Always on</strong></div>
         <label class="preference-row"><span><strong>Analytics</strong><small>First-party, content-free journey and usability events.</small></span><input v-model="analytics" type="checkbox" /></label>
         <label class="preference-row"><span><strong>Marketing</strong><small>No marketing tracker or processor is configured at launch.</small></span><input v-model="marketing" type="checkbox" /></label>
-        <div class="preference-actions"><IoButton type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save preferences" }}</IoButton><IoButton kind="secondary" @click="rejectNonEssential">Reject non-essential</IoButton></div>
+        <div class="preference-actions"><IoButton type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save preferences" }}</IoButton><IoButton kind="secondary" :disabled="saving" @click="rejectNonEssential">{{ saving ? "Saving…" : "Reject non-essential" }}</IoButton></div>
       </form>
 
       <section class="rights-panel" aria-labelledby="rights-heading">

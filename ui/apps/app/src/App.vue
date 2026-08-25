@@ -105,7 +105,7 @@ function containMenuFocus(event: KeyboardEvent): void {
 <template>
   <a class="skip-link" href="#main">Skip to content</a>
   <div class="app-shell">
-    <header class="mobile-header">
+    <header class="mobile-header" :inert="menuOpen || undefined">
       <RouterLink to="/app/your-turn"><IoLogo compact /></RouterLink>
       <strong>{{ String(route.meta.title ?? "Spyglass") }}</strong>
       <button ref="menuButton" class="menu-button" type="button" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="toggleMenu">
@@ -114,7 +114,16 @@ function containMenuFocus(event: KeyboardEvent): void {
       </button>
     </header>
 
-    <aside id="app-navigation" ref="sidebar" class="sidebar" :class="{ 'sidebar--open': menuOpen }" @keydown="containMenuFocus">
+    <aside
+      id="app-navigation"
+      ref="sidebar"
+      class="sidebar"
+      :class="{ 'sidebar--open': menuOpen }"
+      :role="menuOpen ? 'dialog' : undefined"
+      :aria-modal="menuOpen ? 'true' : undefined"
+      aria-label="Application navigation"
+      @keydown="containMenuFocus"
+    >
       <div class="sidebar-header">
         <RouterLink class="brand" to="/app/your-turn"><IoLogo /></RouterLink>
         <button class="sidebar-close" type="button" aria-label="Close navigation" @click="closeMenu(true)">×</button>
@@ -132,9 +141,9 @@ function containMenuFocus(event: KeyboardEvent): void {
         </select>
       </div>
     </aside>
-    <button v-if="menuOpen" class="scrim" aria-label="Close navigation" @click="closeMenu(true)" />
+    <button v-if="menuOpen" class="scrim" type="button" tabindex="-1" aria-hidden="true" @click="closeMenu(true)" />
 
-    <main id="main" ref="main" tabindex="-1">
+    <main id="main" ref="main" tabindex="-1" :inert="menuOpen || undefined">
       <div v-if="session.unavailable" class="session-notice" role="status">
         We could not load your Account. <a href="/login?return_to=%2Fapp">Sign in again</a>
       </div>

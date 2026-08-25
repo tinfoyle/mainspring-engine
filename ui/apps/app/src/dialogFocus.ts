@@ -9,12 +9,30 @@ const focusableSelector = [
 
 interface DialogState {
   previous: HTMLElement | undefined;
+  isolated: Array<{ element: HTMLElement; wasInert: boolean }>;
   keydown: (event: KeyboardEvent) => void;
 }
 
 function focusableChildren(dialog: HTMLElement): HTMLElement[] {
   return Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector))
     .filter((item) => !item.hidden && item.getAttribute("aria-hidden") !== "true");
+}
+
+function isolateBackground(dialog: HTMLElement, root: HTMLElement): Array<{ element: HTMLElement; wasInert: boolean }> {
+  const isolated: Array<{ element: HTMLElement; wasInert: boolean }> = [];
+  let branch: HTMLElement | null = dialog;
+  while (branch && branch !== root) {
+    const parent: HTMLElement | null = branch.parentElement;
+    if (!parent) break;
+    for (const sibling of Array.from(parent.children)) {
+      if (!(sibling instanceof HTMLElement) || sibling === branch) continue;
+      const wasInert = sibling.hasAttribute("inert");
+      isolated.push({ element: sibling, wasInert });
+      sibling.setAttribute("inert", "");
+    }
+    branch = parent;
+  }
+  return isolated;
 }
 
 export function installDialogFocus(root: HTMLElement): () => void {
@@ -25,6 +43,7 @@ export function installDialogFocus(root: HTMLElement): () => void {
     const active = document.activeElement;
     const state: DialogState = {
       previous: active instanceof HTMLElement ? active : undefined,
+      isolated: isolateBackground(dialog, root),
       keydown: (event) => {
         if (event.key !== "Tab") return;
         const focusable = focusableChildren(dialog);
@@ -55,6 +74,9 @@ export function installDialogFocus(root: HTMLElement): () => void {
     if (!state) return;
     dialog.removeEventListener("keydown", state.keydown);
     states.delete(dialog);
+    for (const { element, wasInert } of state.isolated) {
+      if (!wasInert) element.removeAttribute("inert");
+    }
     if (restore && state.previous?.isConnected) queueMicrotask(() => state.previous?.focus());
   }
 

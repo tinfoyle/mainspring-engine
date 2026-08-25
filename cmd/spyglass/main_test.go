@@ -89,6 +89,27 @@ func TestEnvironmentParsersFailClosed(t *testing.T) {
 	if _, err := durationEnv("SPYGLASS_TEST_DURATION", time.Second); err == nil {
 		t.Fatal("expected invalid duration failure")
 	}
+	t.Setenv("SPYGLASS_TEST_AFFILIATE_MODE", "future")
+	if _, err := enumEnv("SPYGLASS_TEST_AFFILIATE_MODE", "unconfigured", "unconfigured", "account_credit", "cash"); err == nil {
+		t.Fatal("expected invalid enum failure")
+	}
+	t.Setenv("SPYGLASS_TEST_VERSION", "0")
+	if _, err := uint64EnvOr("SPYGLASS_TEST_VERSION", 1); err == nil {
+		t.Fatal("expected invalid version failure")
+	}
+}
+
+func TestAffiliateEnvironmentDefaultsAreClosed(t *testing.T) {
+	t.Setenv("SPYGLASS_TEST_AFFILIATE_MODE", "")
+	mode, err := enumEnv("SPYGLASS_TEST_AFFILIATE_MODE", "unconfigured", "unconfigured", "account_credit", "cash")
+	if err != nil || mode != "unconfigured" {
+		t.Fatalf("mode=%q err=%v", mode, err)
+	}
+	t.Setenv("SPYGLASS_TEST_AFFILIATE_VERSION", "")
+	version, err := uint64EnvOr("SPYGLASS_TEST_AFFILIATE_VERSION", 1)
+	if err != nil || version != 1 {
+		t.Fatalf("version=%d err=%v", version, err)
+	}
 }
 
 func TestTracingEnvironmentIsOptInAndRejectsRunnerCredentialExpansion(t *testing.T) {

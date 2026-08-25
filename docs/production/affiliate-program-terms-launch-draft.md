@@ -30,4 +30,4 @@ Technical invariants already fixed:
 - customer identity and business content never appear in the Affiliate statement; and
 - analytics consent has no effect on referral or commission state.
 
-Until the commercial register is approved, `SPYGLASS_AFFILIATE_ENROLLMENT_OPEN` and `SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED` remain `false`, settlement mode remains `unconfigured`, and the UI must describe the program as unavailable rather than advertise candidate economics.
+Until the commercial register is approved, `SPYGLASS_AFFILIATE_ENROLLMENT_OPEN` and `SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED` remain `false`, `SPYGLASS_AFFILIATE_SETTLEMENT_MODE` remains `unconfigured`, and the UI must describe the program as unavailable rather than advertise candidate economics. `SPYGLASS_AFFILIATE_TERMS_VERSION` and `SPYGLASS_AFFILIATE_RULE_VERSION` select the exact accepted policy and immutable database rule; opening enrollment or attribution while settlement is unconfigured fails process startup, enabling either gate requires the selected rule to exist, and enrollment requests fail closed when their settlement Account shape does not match the selected mode.

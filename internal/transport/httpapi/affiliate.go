@@ -25,6 +25,28 @@ type affiliateProgramResponse struct {
 	Enrollment         any    `json:"enrollment,omitempty"`
 }
 
+var (
+	errAffiliateSettlementUnconfigured = errors.New("Affiliate settlement is not configured")
+	errAffiliateSettlementRequired     = errors.New("an owned settlement Account is required for Account credit")
+	errAffiliateSettlementNotAllowed   = errors.New("a settlement Account is not accepted for cash settlement")
+)
+
+func validateAffiliateSettlement(mode string, accountID ids.AccountID) error {
+	switch mode {
+	case "account_credit":
+		if accountID == "" {
+			return errAffiliateSettlementRequired
+		}
+	case "cash":
+		if accountID != "" {
+			return errAffiliateSettlementNotAllowed
+		}
+	default:
+		return errAffiliateSettlementUnconfigured
+	}
+	return nil
+}
+
 func (s *Server) getAffiliateProgram(w http.ResponseWriter, r *http.Request) {
 	authenticated, ok := s.authenticateAffiliateRequest(w, r, false)
 	if !ok {
@@ -59,6 +81,17 @@ func (s *Server) enrollAffiliate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(w, r, &input); err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if err := validateAffiliateSettlement(s.affiliateHTTP.SettlementMode, input.SettlementAccountID); err != nil {
+		switch {
+		case errors.Is(err, errAffiliateSettlementRequired):
+			writeProblem(w, http.StatusBadRequest, "affiliate_settlement_account_required", err.Error())
+		case errors.Is(err, errAffiliateSettlementNotAllowed):
+			writeProblem(w, http.StatusBadRequest, "affiliate_settlement_account_not_allowed", err.Error())
+		default:
+			writeProblem(w, http.StatusConflict, "affiliate_settlement_unconfigured", err.Error())
+		}
 		return
 	}
 	enrollment, err := s.affiliateProgram.Enroll(r.Context(), affiliateprogram.EnrollCommand{UserID: authenticated.Session.UserID, Session: authenticated.Session,

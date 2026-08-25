@@ -1207,7 +1207,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	stripeClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(nil), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval, AffiliateEnrollmentOpen: config.affiliateEnrollmentOpen, AffiliateAttributionEnabled: config.affiliateAttributionEnabled,
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval, AffiliateEnrollmentOpen: config.affiliateEnrollmentOpen, AffiliateAttributionEnabled: config.affiliateAttributionEnabled, AffiliateSettlementMode: config.affiliateSettlementMode, AffiliateTermsVersion: config.affiliateTermsVersion, AffiliateRuleVersion: config.affiliateRuleVersion,
 		ExportObject:        s3objects.Config{Endpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: envOr("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "spyglass-account-exports"), AccessKey: exportObjectAccessKey, SecretKey: exportObjectSecretKey, Secure: objectSecure, ServerSideEncryption: objectSSE},
 		ExportDownloadKeyID: exportKeyID, ExportDownloadKeys: exportKeys, ExportDownloadLifetime: exportLifetime}, logger)
 	if err != nil {
@@ -3221,6 +3221,8 @@ type persistentConfig struct {
 	maxDatabaseConns                                                                                                                         int32
 	catalogRefreshInterval                                                                                                                   time.Duration
 	affiliateEnrollmentOpen, affiliateAttributionEnabled                                                                                     bool
+	affiliateSettlementMode                                                                                                                  string
+	affiliateTermsVersion, affiliateRuleVersion                                                                                              uint64
 }
 
 func productionConfig() (persistentConfig, error) {
@@ -3267,6 +3269,18 @@ func productionConfig() (persistentConfig, error) {
 		return persistentConfig{}, err
 	}
 	result.affiliateAttributionEnabled, err = boolEnv("SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED", false)
+	if err != nil {
+		return persistentConfig{}, err
+	}
+	result.affiliateSettlementMode, err = enumEnv("SPYGLASS_AFFILIATE_SETTLEMENT_MODE", "unconfigured", "unconfigured", "account_credit", "cash")
+	if err != nil {
+		return persistentConfig{}, err
+	}
+	result.affiliateTermsVersion, err = uint64EnvOr("SPYGLASS_AFFILIATE_TERMS_VERSION", 1)
+	if err != nil {
+		return persistentConfig{}, err
+	}
+	result.affiliateRuleVersion, err = uint64EnvOr("SPYGLASS_AFFILIATE_RULE_VERSION", 1)
 	return result, err
 }
 
@@ -3627,6 +3641,24 @@ func uint64Env(name string) (uint64, error) {
 		return 0, fmt.Errorf("%s must be a positive integer", name)
 	}
 	return value, nil
+}
+func uint64EnvOr(name string, fallback uint64) (uint64, error) {
+	if os.Getenv(name) == "" {
+		if fallback == 0 {
+			return 0, fmt.Errorf("%s fallback must be a positive integer", name)
+		}
+		return fallback, nil
+	}
+	return uint64Env(name)
+}
+func enumEnv(name, fallback string, allowed ...string) (string, error) {
+	value := envOr(name, fallback)
+	for _, candidate := range allowed {
+		if value == candidate {
+			return value, nil
+		}
+	}
+	return "", fmt.Errorf("%s must be one of %s", name, strings.Join(allowed, ", "))
 }
 func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 	raw := os.Getenv(name)

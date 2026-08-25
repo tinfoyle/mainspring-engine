@@ -35,14 +35,28 @@ describe("application shell", () => {
 
     const close = wrapper.get<HTMLButtonElement>(".sidebar-close");
     expect(document.activeElement).toBe(close.element);
-    const account = wrapper.get<HTMLSelectElement>("#account");
-    account.element.focus();
-    await account.trigger("keydown", { key: "Tab" });
-    expect(document.activeElement).toBe(close.element);
+    expect(wrapper.get("#app-navigation").attributes("role")).toBe("dialog");
+    expect(wrapper.get("#app-navigation").attributes("aria-modal")).toBe("true");
+    expect(wrapper.get("main").attributes()).toHaveProperty("inert");
+    expect(wrapper.get(".mobile-header").attributes()).toHaveProperty("inert");
+    expect(wrapper.get(".scrim").attributes("tabindex")).toBe("-1");
+    expect(wrapper.get(".scrim").attributes("aria-hidden")).toBe("true");
 
-    await close.trigger("keydown", { key: "Escape" });
+    const links = wrapper.findAll<HTMLAnchorElement>(".nav-link");
+    const last = links.at(-1);
+    const first = wrapper.get<HTMLAnchorElement>(".brand");
+    expect(last?.text()).toBe("Privacy");
+    last?.element.focus();
+    await last?.trigger("keydown", { key: "Tab" });
+    expect(document.activeElement).toBe(first.element);
+    await first.trigger("keydown", { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last?.element);
+
+    await last?.trigger("keydown", { key: "Escape" });
     await wrapper.vm.$nextTick();
     expect(toggle.attributes("aria-expanded")).toBe("false");
+    expect(wrapper.get("#app-navigation").attributes("role")).toBeUndefined();
+    expect(wrapper.get("main").attributes("inert")).toBeUndefined();
     expect(document.activeElement).toBe(toggle.element);
     wrapper.unmount();
   });

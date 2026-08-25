@@ -8,6 +8,11 @@ describe("dialog focus management", () => {
   it("announces a modal, contains Tab focus and restores its opener", async () => {
     const opener = document.createElement("button");
     const root = document.createElement("div");
+    const page = document.createElement("main");
+    const dialogHost = document.createElement("div");
+    const preserved = document.createElement("aside");
+    preserved.setAttribute("inert", "");
+    root.append(page, dialogHost, preserved);
     document.body.append(opener, root);
     opener.focus();
     const stop = installDialogFocus(root);
@@ -17,11 +22,14 @@ describe("dialog focus management", () => {
     const first = document.createElement("button");
     const last = document.createElement("button");
     dialog.append(first, last);
-    root.append(dialog);
+    dialogHost.append(dialog);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(dialog.tabIndex).toBe(-1);
     expect(document.activeElement).toBe(dialog);
+    expect(page.hasAttribute("inert")).toBe(true);
+    expect(preserved.hasAttribute("inert")).toBe(true);
+    expect(dialogHost.hasAttribute("inert")).toBe(false);
     last.focus();
     last.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
     expect(document.activeElement).toBe(first);
@@ -30,6 +38,8 @@ describe("dialog focus management", () => {
 
     dialog.remove();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(page.hasAttribute("inert")).toBe(false);
+    expect(preserved.hasAttribute("inert")).toBe(true);
     expect(document.activeElement).toBe(opener);
     stop();
   });
