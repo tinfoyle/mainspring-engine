@@ -996,6 +996,8 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
   await expect(page.getByText("customer@example.test", { exact: false })).toHaveCount(0);
   await expect(page.getByText("Customer Company", { exact: false })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Copy code" })).toBeEnabled();
+  await expect(page.getByRole("textbox", { name: "Referral link" })).toHaveValue(new URL("/app/checkout?ref=IO-PARTNER1", page.url()).href);
+  await expect(page.getByRole("button", { name: "Copy referral link" })).toBeEnabled();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
@@ -1005,6 +1007,8 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
   await expect(page.getByText("historical commission records remain available below.", { exact: false })).toBeVisible();
   await expect(page.getByText("Qualifying cycle 2")).toBeVisible();
   await expect(page.getByRole("button", { name: "Copy code" })).toBeDisabled();
+  await expect(page.getByRole("textbox", { name: "Referral link" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copy referral link" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Request status review" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
@@ -1792,6 +1796,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     if (compact) await menu.click();
     await page.getByRole("link", { name: "Your Turn", exact: true }).click();
     await expect(page).toHaveURL(/\/app\/your-turn$/);
+    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
   });
 
   await test.step("Finance failure keeps the exact posting confirmation", async () => {
@@ -1824,6 +1829,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     page.once("dialog", (browserDialog) => browserDialog.accept());
     await page.evaluate(() => history.back());
     await expect(page).toHaveURL(/\/app\/your-turn$/);
+    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
   });
 
   await test.step("Marketing failure retains revised campaign intent", async () => {
@@ -1858,6 +1864,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     page.once("dialog", (browserDialog) => browserDialog.accept());
     await page.evaluate(() => history.back());
     await expect(page).toHaveURL(/\/app\/your-turn$/);
+    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
   });
 
   await test.step("Integration failure leaves the reviewed command ready to retry", async () => {
@@ -1888,6 +1895,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     page.once("dialog", (browserDialog) => browserDialog.accept());
     await page.evaluate(() => history.back());
     await expect(page).toHaveURL(/\/app\/your-turn$/);
+    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
   });
 
   await test.step("Schedule failure exposes the error inside the retry dialog", async () => {
@@ -1920,6 +1928,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     page.once("dialog", (browserDialog) => browserDialog.accept());
     await page.evaluate(() => history.back());
     await expect(page).toHaveURL(/\/app\/your-turn$/);
+    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
   });
 });
 
@@ -2013,6 +2022,39 @@ test("GDPR rights requests are tracked, deduplicated, and cancelable", async ({ 
   if (compact) await menu.click();
   await page.getByRole("link", { name: "Your Turn", exact: true }).click();
   await expect(page).toHaveURL(/\/app\/your-turn$/);
+});
+
+test("browser privacy erasure is single-flight and blocks navigation until confirmed", async ({ page }) => {
+  let releaseErasure: (() => void) | undefined;
+  const erasureReleased = new Promise<void>((resolve) => { releaseErasure = resolve; });
+  let erasureRequests = 0;
+  await page.route("**/api/v1/privacy/data", async (route) => {
+    erasureRequests += 1;
+    await erasureReleased;
+    await route.fulfill({ status: 204 });
+  });
+
+  await page.goto("/app/privacy");
+  await page.getByRole("button", { name: "Erase browser privacy data" }).click();
+  await page.getByRole("button", { name: "Confirm browser-data erasure" }).click();
+  const pending = page.getByRole("button", { name: "Erasing browser data…" });
+  await expect(pending).toBeDisabled();
+  await pending.evaluate((button: HTMLButtonElement) => button.click());
+  expect(erasureRequests).toBe(1);
+
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  const compact = await menu.isVisible();
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/privacy$/);
+  await expect(page.getByRole("status").filter({ hasText: "This Privacy request is still in progress" })).toBeVisible();
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+
+  releaseErasure?.();
+  await expect(page.getByRole("status").filter({ hasText: "privacy receipt and raw analytics were erased" })).toBeVisible();
+  expect(erasureRequests).toBe(1);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
 });
 
 test("GDPR rights requests hand off exact context for passkey confirmation", async ({ page }) => {

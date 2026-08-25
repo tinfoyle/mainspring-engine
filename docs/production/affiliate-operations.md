@@ -2,6 +2,8 @@
 
 Status: implemented and verified locally on 2026-08-25. The enrollment and attribution feature flags remain closed. Nothing in this runbook authorizes Stage or production use.
 
+The customer dashboard derives a proposal-only link from the application origin and generated public code. It carries no Affiliate identity, customer identity, offer, analytics subject or commercial attribution. Checkout displays the proposed code but requires the customer to select **Apply** before server validation. Suspension or closure removes the URL and disables both code/link copying while preserving the immutable statement and structured support path.
+
 ## Provider event projection
 
 The billing worker projects Affiliate commercial evidence only from events already accepted by the signed Stripe webhook inbox. The launch webhook selection must include:

@@ -29,6 +29,7 @@ const saving = ref(false);
 const submitting = ref(false);
 const cancelingID = ref("");
 const confirmingBrowserErase = ref(false);
+const erasingBrowserData = ref(false);
 const message = ref("");
 const errorMessage = ref("");
 const navigationNotice = ref("");
@@ -38,7 +39,7 @@ const openEquivalent = computed(() => requests.value.some((request) =>
 const privacyDirty = computed(() => confirmingBrowserErase.value
   || analytics.value !== (preference.value?.analytics ?? false)
   || marketing.value !== (preference.value?.marketing ?? false));
-const privacyPending = computed(() => saving.value || submitting.value || Boolean(cancelingID.value));
+const privacyPending = computed(() => saving.value || submitting.value || erasingBrowserData.value || Boolean(cancelingID.value));
 const { allowNextNavigation } = useSafeNavigation({
   dirty: privacyDirty,
   pending: privacyPending,
@@ -99,11 +100,14 @@ async function rejectNonEssential(): Promise<void> {
 }
 
 async function eraseBrowserSubject(): Promise<void> {
+  if (erasingBrowserData.value) return;
   if (!confirmingBrowserErase.value) {
     confirmingBrowserErase.value = true;
     return;
   }
   errorMessage.value = "";
+  message.value = "";
+  erasingBrowserData.value = true;
   try {
     await erasePrivacyData();
     analytics.value = false;
@@ -113,6 +117,8 @@ async function eraseBrowserSubject(): Promise<void> {
     message.value = "This browser's privacy receipt and raw analytics were erased.";
   } catch (error) {
     errorMessage.value = error instanceof APIProblem ? error.message : "This browser's privacy data could not be erased.";
+  } finally {
+    erasingBrowserData.value = false;
   }
 }
 
@@ -203,7 +209,7 @@ function date(value: string): string {
 
         <div class="rights-history">
           <h3>Request history</h3>
-          <p v-if="requests.length === 0" class="form-note">No identity-level privacy rights requests have been submitted.</p>
+          <p v-if="requests.length === 0" class="form-note">No privacy rights requests have been submitted.</p>
           <ol v-else>
             <li v-for="request in requests" :key="request.request_id">
               <div><strong>{{ label(request.kind) }} · {{ label(request.scope) }}</strong><small>Submitted {{ date(request.requested_at) }} · response due {{ date(request.response_due_at) }}</small></div>
@@ -226,7 +232,7 @@ function date(value: string): string {
         <h2 id="browser-erasure-heading">Erase this browser's privacy data</h2>
         <p>Immediately deletes the current host-only privacy subject's consent receipts and raw analytics. It does not delete your login, Account, billing, or Affiliate records.</p>
         <div v-if="confirmingBrowserErase" class="queue-inline-status queue-inline-status--error">This action signs this browser out of its saved privacy choice. Optional tracking remains off until you choose again.</div>
-        <div class="preference-actions"><IoButton kind="quiet" @click="eraseBrowserSubject">{{ confirmingBrowserErase ? "Confirm browser-data erasure" : "Erase browser privacy data" }}</IoButton><IoButton v-if="confirmingBrowserErase" kind="secondary" @click="confirmingBrowserErase = false">Keep browser data</IoButton></div>
+        <div class="preference-actions"><IoButton kind="quiet" :disabled="erasingBrowserData" @click="eraseBrowserSubject">{{ erasingBrowserData ? "Erasing browser data…" : confirmingBrowserErase ? "Confirm browser-data erasure" : "Erase browser privacy data" }}</IoButton><IoButton v-if="confirmingBrowserErase" kind="secondary" :disabled="erasingBrowserData" @click="confirmingBrowserErase = false">Keep browser data</IoButton></div>
       </section>
     </template>
     <p v-if="errorMessage" class="form-error privacy-feedback" role="alert">{{ errorMessage }}</p>

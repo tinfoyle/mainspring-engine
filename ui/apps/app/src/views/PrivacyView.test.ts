@@ -98,6 +98,25 @@ describe("privacy controls", () => {
     expect(wrapper.text()).toContain("privacy receipt and raw analytics were erased");
   });
 
+  it("treats browser-data erasure as one pending consequential request", async () => {
+    let resolveErase: (() => void) | undefined;
+    api.erasePrivacyData.mockReturnValue(new Promise<void>((resolve) => { resolveErase = resolve; }));
+    const wrapper = await mountView();
+    const initial = wrapper.findAll("button").find((button) => button.text() === "Erase browser privacy data");
+    await initial?.trigger("click");
+    const confirm = wrapper.findAll("button").find((button) => button.text() === "Confirm browser-data erasure");
+    await confirm?.trigger("click");
+
+    const pending = wrapper.findAll("button").find((button) => button.text() === "Erasing browser data…");
+    expect(pending?.attributes("disabled")).toBeDefined();
+    await pending?.trigger("click");
+    expect(api.erasePrivacyData).toHaveBeenCalledOnce();
+
+    resolveErase?.();
+    await flushPromises();
+    expect(wrapper.text()).toContain("privacy receipt and raw analytics were erased");
+  });
+
   it("tracks one verified Affiliate erasure request and permits cancellation", async () => {
     api.submitPrivacyRightsRequest.mockResolvedValue(rightsRequest);
     const wrapper = await mountView();

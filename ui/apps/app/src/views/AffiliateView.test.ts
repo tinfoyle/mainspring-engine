@@ -56,6 +56,9 @@ describe("Affiliate identity dashboard", () => {
     }] });
     const wrapper = await mountView();
     expect(wrapper.text()).toContain("IO-PARTNER1");
+    expect(wrapper.get<HTMLInputElement>('#affiliate-referral-link').element.value).toBe(new URL("/app/checkout?ref=IO-PARTNER1", window.location.origin).href);
+    expect(wrapper.text()).toContain("A link only proposes the code");
+    expect(wrapper.findAll("button").some((button) => button.text() === "Copy referral link" && !button.attributes("disabled"))).toBe(true);
     expect(wrapper.text()).toContain("Qualifying cycle 2");
     expect(wrapper.text()).toContain("$10.00");
     expect(wrapper.text()).not.toContain("referred customer@example.com");
@@ -73,6 +76,8 @@ describe("Affiliate identity dashboard", () => {
     expect(wrapper.text()).toContain("historical commission records remain available");
     const copy = wrapper.findAll("button").find((button) => button.text() === "Copy code");
     expect(copy?.attributes("disabled")).toBeDefined();
+    expect(wrapper.find("#affiliate-referral-link").exists()).toBe(false);
+    expect(wrapper.findAll("button").find((button) => button.text() === "Copy referral link")?.attributes("disabled")).toBeDefined();
     expect(wrapper.text()).toContain("$20.00");
     expect(wrapper.text()).toContain("$10.00");
   });
