@@ -279,6 +279,24 @@ function fulfillJSON(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
+function accountWithPackageModes(mode: "enabled" | "read_only", excluded: ReadonlyArray<string> = []) {
+  return {
+    ...account,
+    entitlements: {
+      ...account.entitlements,
+      packages: account.entitlements.packages
+        .filter((item) => !excluded.includes(item.code))
+        .map((item) => ({ ...item, mode }))
+    }
+  };
+}
+
+async function overrideSession(page: Page, selectedAccount: ReturnType<typeof accountWithPackageModes>): Promise<void> {
+  await page.route("**/api/v1/session/accounts", async (route) => {
+    await fulfillJSON(route, { user_id: userID, selected_account_id: accountID, accounts: [selectedAccount] });
+  });
+}
+
 async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
   const state: SyntheticAPIState = { analyticsEvents: [], unhandled: [], securityReady: false };
   await page.route("**/api/v1/**", async (route) => {
@@ -579,10 +597,12 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
 
 let state: SyntheticAPIState;
 let browserErrors: string[] = [];
+let allowedBrowserErrors: RegExp[] = [];
 
 test.beforeEach(async ({ page }) => {
   state = await installSyntheticAPI(page);
   browserErrors = [];
+  allowedBrowserErrors = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") browserErrors.push(message.text());
@@ -592,7 +612,7 @@ test.beforeEach(async ({ page }) => {
 
 test.afterEach(async () => {
   expect(state.unhandled, "every private API call must have an intentional synthetic response").toEqual([]);
-  expect(browserErrors, "the browser emitted runtime errors").toEqual([]);
+  expect(browserErrors.filter((message) => !allowedBrowserErrors.some((pattern) => pattern.test(message))), "the browser emitted unexpected runtime errors").toEqual([]);
 });
 
 test("Your Turn renders the owner queue without responsive overflow", async ({ page }) => {
@@ -773,4 +793,90 @@ test("package workspaces preserve governed list and durable detail context", asy
       await expectAccessible(page);
     });
   }
+});
+
+test("read-only packages preserve evidence while removing mutation authority", async ({ page }) => {
+  await overrideSession(page, accountWithPackageModes("read_only"));
+  const routes = [
+    {
+      path: `/app/work/${workItem.id}`,
+      heading: workItem.title,
+      evidence: [workItem.description, "read-only access"],
+      forbiddenButtons: ["Complete", "Edit responsibility"]
+    },
+    {
+      path: `/app/schedules/${schedule.id}`,
+      heading: schedule.name,
+      evidence: [schedule.timezone, "read-only access"],
+      forbiddenButtons: ["Run now", "Edit definition", "Delete schedule"]
+    },
+    {
+      path: `/app/finance/entries/${financeEntry.id}`,
+      heading: "A governed ledger for operating truth",
+      evidence: ["#8 · Monthly close", "Read-only access"],
+      forbiddenButtons: ["Edit draft", "Post entry"]
+    },
+    {
+      path: `/app/integrations/connections/${integrationConnection.id}`,
+      heading: "Connect deliberately. Observe every effect.",
+      evidence: [integrationConnection.name, "https://example.com/policy", "Read-only access"],
+      forbiddenButtons: ["Revise scope", "Disable", "Revoke connection"]
+    },
+    {
+      path: `/app/marketing/releases/${marketingRelease.id}`,
+      heading: "Prepare the message. Govern the release.",
+      evidence: [marketingRelease.name, "never accepts an internal approval identifier", "Read-only access"],
+      forbiddenButtons: ["Cancel release", "Activate release", "New campaign"]
+    }
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(route.path);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      for (const evidence of route.evidence) await expect(page.getByText(evidence, { exact: false }).first()).toBeVisible();
+      for (const label of route.forbiddenButtons) await expect(page.getByRole("button", { name: label, exact: true })).toHaveCount(0);
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    });
+  }
+});
+
+test("missing packages expose an explicit upgrade boundary", async ({ page }) => {
+  await overrideSession(page, accountWithPackageModes("enabled", ["integrations", "marketing"]));
+  const routes = [
+    {
+      path: `/app/integrations/connections/${integrationConnection.id}`,
+      heading: "Integrations is not active",
+      evidence: ["Add the Integrations package", "Review Account plans"]
+    },
+    {
+      path: `/app/marketing/releases/${marketingRelease.id}`,
+      heading: "Marketing is not included",
+      evidence: ["does not expose Marketing", "Review Account billing"]
+    }
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(route.path);
+      await expect(page.getByRole("heading", { level: 2, name: route.heading })).toBeVisible();
+      for (const evidence of route.evidence) await expect(page.getByText(evidence, { exact: false }).first()).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    });
+  }
+});
+
+test("the application shell keeps Account-load failure recoverable", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*503/);
+  await page.route("**/api/v1/session/accounts", async (route) => {
+    await fulfillJSON(route, { title: "Account service temporarily unavailable", status: 503 }, 503);
+  });
+  await page.goto("/app/your-turn");
+  await expect(page.getByRole("status")).toContainText("We could not load your Account.");
+  await expect(page.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/login?return_to=%2Fapp");
+  await expect(page.locator("#account")).toHaveValue("");
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
 });
