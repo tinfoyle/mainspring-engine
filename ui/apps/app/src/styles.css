@@ -162,6 +162,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .agents-roster > header, .agents-conversations > header, .agents-transcript > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .agents-roster > header h2, .agents-conversations > header h2, .agents-transcript > header h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.55rem/1.2 Georgia, serif; }
 .agents-roster > header > span, .agents-conversations > header > span, .agents-transcript > header > span { color: var(--io-ink-soft); font-size: .78rem; }
+.agents-roster > header > div:last-child { display: flex; flex-wrap: wrap; align-items: center; justify-content: end; gap: .55rem; color: var(--io-ink-soft); font-size: .78rem; }
 .agents-personas { margin-top: 1rem; display: grid; gap: .65rem; }
 .agents-persona { border: 1px solid var(--io-line); border-radius: .75rem; background: var(--io-sky); }
 .agents-persona summary { min-height: 4.8rem; padding: .75rem; display: grid; grid-template-columns: 2.75rem 1fr; align-items: center; gap: .75rem; cursor: pointer; list-style: none; }
@@ -173,9 +174,27 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .agents-persona dl div { display: grid; grid-template-columns: 7rem 1fr; gap: .5rem; }
 .agents-persona dt { font-size: .72rem; font-weight: 800; text-transform: uppercase; }
 .agents-persona dd { margin: 0; overflow-wrap: anywhere; }
+.agents-persona > .io-button { margin: 0 .9rem 1rem; }
 .agents-manager { margin-top: 1rem; padding-top: 1rem; display: grid; gap: .65rem; border-top: 1px solid #e8eeeb; }
 .agents-manager label { display: grid; gap: .35rem; color: var(--io-ocean-950); font-size: .78rem; font-weight: 780; }
 .agents-manager select, .agents-composer input, .agents-composer select { width: 100%; min-height: 48px; padding: .7rem; border: 1px solid var(--io-line); border-radius: .65rem; background: white; font: inherit; }
+.persona-modal { max-height: min(92vh, 60rem); overflow-y: auto; }
+.persona-modal-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.persona-modal-heading h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.55rem/1.2 Georgia, serif; }
+.persona-modal-heading > button { width: 44px; height: 44px; flex: 0 0 auto; border: 0; color: var(--io-ocean-950); background: transparent; font-size: 1.6rem; }
+.persona-modal > label, .persona-modal fieldset > label, .persona-advanced label { display: grid; gap: .35rem; color: var(--io-ocean-950); font-size: .78rem; font-weight: 780; }
+.persona-modal input:not([type="checkbox"]), .persona-modal select, .persona-modal textarea { width: 100%; min-height: 48px; padding: .72rem; border: 1px solid var(--io-line); border-radius: .68rem; color: var(--io-ink); background: white; font: inherit; }
+.persona-modal small, .persona-modal fieldset p { color: var(--io-ink-soft); font-weight: 500; line-height: 1.4; }
+.persona-modal fieldset { margin: 0; padding: 1rem; display: grid; gap: .7rem; border: 1px solid var(--io-line); border-radius: .75rem; }
+.persona-modal legend { padding: 0 .35rem; color: var(--io-ocean-950); font-weight: 800; }
+.persona-choice-grid { display: grid; gap: .5rem; }
+.persona-choice-grid > label { min-height: 52px; padding: .65rem; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .65rem; border: 1px solid var(--io-line); border-radius: .65rem; background: var(--io-sky); }
+.persona-choice-grid input { width: 1.2rem; height: 1.2rem; accent-color: var(--io-ocean-650); }
+.persona-choice-grid span { min-width: 0; display: grid; gap: .15rem; }
+.persona-choice-grid strong, .persona-choice-grid small { overflow-wrap: anywhere; }
+.persona-modal details { border: 1px solid var(--io-line); border-radius: .75rem; }
+.persona-modal details > summary { min-height: 48px; padding: .8rem 1rem; color: var(--io-ocean-950); font-weight: 800; cursor: pointer; }
+.persona-advanced { padding: 0 1rem 1rem; display: grid; gap: .7rem; }
 .agents-composer { margin-top: 1.25rem; }
 .agents-composer fieldset label { align-items: flex-start; }
 .agents-composer fieldset label span { display: grid; gap: .2rem; }
@@ -609,6 +628,8 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .agents-roster, .agents-conversations, .agents-transcript { padding: 1.35rem; }
   .agents-personas { grid-template-columns: 1fr 1fr; }
   .agents-manager { grid-template-columns: 1fr auto; align-items: end; }
+  .persona-modal { width: min(54rem, calc(100vw - 2rem)); }
+  .persona-choice-grid, .persona-advanced { grid-template-columns: 1fr 1fr; }
   .schedule-grid { grid-template-columns: repeat(2, 1fr); }
   .weekday-grid { grid-template-columns: repeat(4, 1fr); }
   .schedule-list { grid-template-columns: 1fr 1fr; }

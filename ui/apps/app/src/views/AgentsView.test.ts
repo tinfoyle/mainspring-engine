@@ -9,6 +9,7 @@ import AgentsView from "./AgentsView.vue";
 
 const api = vi.hoisted(() => ({
   listAgentBoardrooms: vi.fn(), createAgentBoardroom: vi.fn(), listAgentPersonas: vi.fn(), configureAgentManager: vi.fn(),
+  publishAgentPersona: vi.fn(),
   listAgentConversations: vi.fn(), getAgentConversation: vi.fn(), listAgentMessages: vi.fn(), startAgentRun: vi.fn(),
   getAgentRun: vi.fn(), resolveAgentRun: vi.fn()
 }));
@@ -65,5 +66,18 @@ describe("Agents surface", () => {
     expect(api.listAgentMessages).toHaveBeenCalledWith(account.account_id, conversation.id);
     expect(wrapper.text()).toContain("Two readiness gaps remain"); expect(wrapper.text()).toContain("Security review is open");
     expect(wrapper.text()).toContain("Review consequential proposals in Your Turn"); expect(wrapper.text()).not.toContain("secret_internal_field");
+  });
+
+  it("publishes a new immutable Persona with bounded proposal policy", async () => {
+    api.publishAgentPersona.mockResolvedValue({ ...persona, id: "b0000000-0000-4000-8000-00000000000b", latest_version: 1 });
+    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`); await wrapper.findAll("button").find((item) => item.text() === "New Persona")?.trigger("click");
+    const modal = wrapper.get(".persona-modal"); const inputs = modal.findAll("input:not([type=checkbox])"); await inputs[0]!.setValue("Finance Reviewer"); await inputs[1]!.setValue("Finance specialist"); const textareas = modal.findAll("textarea"); await textareas[0]!.setValue("Reviews operating evidence."); await textareas[1]!.setValue("Review current evidence and make bounded recommendations only.");
+    const selects = modal.findAll("select"); await selects[1]!.setValue("propose"); await flushPromises(); const activation = modal.findAll("label").find((item) => item.text().includes("Marketing release activation")); expect(activation).toBeTruthy(); await activation!.find("input").setValue(true); await modal.trigger("submit"); await flushPromises();
+    expect(api.publishAgentPersona).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ expected_latest_version: 0, name: "Finance Reviewer", policy: expect.objectContaining({ action_policy: "propose", action_capabilities: ["marketing.release.activate"], tools: [] }) }));
+  });
+
+  it("lets members run Boardrooms without exposing manager configuration", async () => {
+    const session = useSessionStore(); session.accounts = [{ ...account, role: "member" }]; const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
+    expect(wrapper.text()).toContain("Convene Boardroom"); expect(wrapper.text()).not.toContain("New Persona"); expect(wrapper.text()).not.toContain("Set manager"); expect(wrapper.text()).not.toContain("Publish new version");
   });
 });

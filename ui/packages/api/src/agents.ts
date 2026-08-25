@@ -11,6 +11,7 @@ import type {
   AgentRunResolution,
   ConfigureAgentBoardroomManagerRequest,
   CreateAgentBoardroomRequest,
+  PublishAgentPersonaRequest,
   ResolveAgentRunRequest,
   StartAgentRunRequest
 } from "./generated/api-types";
@@ -67,6 +68,10 @@ export async function listAgentPersonas(accountID: string, roomID: string): Prom
 
 export function configureAgentManager(accountID: string, roomID: string, input: ConfigureAgentBoardroomManagerRequest): Promise<AgentBoardroom> {
   return command("PUT", collectionPath(accountID, roomID, "manager"), input);
+}
+
+export function publishAgentPersona(accountID: string, roomID: string, input: PublishAgentPersonaRequest): Promise<AgentPersona> {
+  return command("POST", collectionPath(accountID, roomID, "personas"), input);
 }
 
 export function listAgentConversations(accountID: string, roomID: string): Promise<ReadonlyArray<AgentConversation>> {

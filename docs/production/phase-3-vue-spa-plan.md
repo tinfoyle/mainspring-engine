@@ -222,7 +222,7 @@ Exit: the core task loop from Your Turn through Work and governed knowledge is c
 
 ### UI5 — Agents and conversations
 
-Checkpoint (2026-08-24): the private Vue Agents route now creates and lists Boardrooms, inspects the active Persona policy and manager configuration, presents durable conversation transcripts, and submits, polls and recovers Runs. Boardroom and Conversation detail use durable routes, polling is bounded and canceled on unmount, and consequential proposals link into Your Turn without rendering hidden approval payloads in chat. Component tests cover Boardroom creation, transcript loading and terminal Run recovery. Persona authoring/publishing, applied streaming/failure fixtures and supported-device/browser/assistive-technology acceptance remain UI5 exit work.
+Checkpoint (2026-08-25): the private Vue Agents route now creates and lists Boardrooms, publishes new Personas and immutable successor versions, inspects exact policy/digest/manager configuration, presents durable conversation transcripts, and submits, polls and recovers Runs. The mobile-first Persona editor owns the complete server allowlists for read/additive tool grants and consequential proposal capabilities, supplies exact closed input schemas, exposes bounded model/token/cost/tool-step settings and makes clear that proposals still require human approval in Your Turn. Boardroom/Persona configuration is Owner/Administrator-only while members may run published specialists; package read-only mode retains inspection only. Boardroom and Conversation detail use durable routes, polling is bounded and canceled on unmount, and hidden proposal payloads never render in chat. Client/component tests cover retained publish identity, immutable latest-version binding, role separation, transcript loading and terminal Run recovery. Applied streaming/failure fixtures and supported-device/browser/assistive-technology acceptance remain UI5 exit evidence.
 
 - Build mobile conversation, Persona, Boardroom and Run surfaces with bounded streaming and recovery.
 - Keep consequential proposals routed through Your Turn rather than embedding unsafe shortcut approvals in chat.
@@ -256,7 +256,7 @@ Marketing checkpoint (2026-08-24): `/app/marketing` plus durable campaign and re
 - Retain the completed Marketing, Baseline, Affiliate, Scheduling, Account-team, Billing, Finance, Integrations, Security, export and Account-lifecycle routes as UI6 reference implementations during consolidation.
 - Apply the same route clarity, menu behavior, list/detail separation and responsive acceptance established by Your Turn.
 
-Exit checkpoint: every UI6 package surface now has a Vue route using the generated boundary and no launch package depends on a prototype page. UI6 construction is complete. The UI5 Persona-authoring checkpoint and applied cross-browser, supported-device and accessibility certification remain open before UI7 can exit.
+Exit checkpoint: every UI6 package surface now has a Vue route using the generated boundary and no launch package depends on a prototype page. UI5 and UI6 customer-surface construction are complete. Applied cross-feature, streaming/failure, browser, supported-device and accessibility certification remains open before UI7 can exit.
 
 ### UI7 — Consolidation and local release boundary
 
