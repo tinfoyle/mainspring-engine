@@ -15,6 +15,24 @@ const undecidedConsent = {
   surface: "public"
 };
 
+const publicFeatureAndPolicyRoutes = [
+  { path: "/features", heading: "One operating loop. Clear boundaries." },
+  { path: "/features/your-turn", heading: "Decide with context" },
+  { path: "/features/work", heading: "Turn gaps into progress" },
+  { path: "/features/knowledge", heading: "Build memory with evidence" },
+  { path: "/features/baseline", heading: "See what is missing" },
+  { path: "/features/agents", heading: "Delegate inside boundaries" },
+  { path: "/features/schedules", heading: "Make recurrence explicit" },
+  { path: "/features/finance", heading: "Keep records governed" },
+  { path: "/features/marketing", heading: "Move from plan to release" },
+  { path: "/features/integrations", heading: "Connect without surrendering control" },
+  { path: "/features/account-administration", heading: "Keep authority understandable" },
+  { path: "/features/security", heading: "Protect consequential authority" },
+  { path: "/features/export-lifecycle", heading: "Leave with a traceable boundary" },
+  { path: "/privacy", heading: "Privacy, in plain language." },
+  { path: "/affiliate-terms", heading: "Affiliate program terms" }
+] as const;
+
 function fulfillJSON(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
@@ -140,4 +158,17 @@ test("public phone menu contains focus and restores the opener", async ({ page }
   await expect(menu).toBeFocused();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+});
+
+test("complete feature and policy inventory remains rendered, private, and accessible", async ({ page }) => {
+  for (const route of publicFeatureAndPolicyRoutes) {
+    await test.step(route.path, async () => {
+      await page.goto(`http://127.0.0.1:4174${route.path}`);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Privacy without the fog" })).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+      expect(state.analyticsEvents, `${route.path} emitted before an analytics decision`).toEqual([]);
+    });
+  }
 });
