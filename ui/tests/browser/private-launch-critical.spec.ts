@@ -633,7 +633,7 @@ test("Your Turn renders the owner queue without responsive overflow", async ({ p
 });
 
 test("mobile navigation traps and restores focus", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-phone", "phone-only interaction contract");
+  test.skip(!["chromium-phone", "chromium-reflow"].includes(testInfo.project.name), "compact-navigation interaction contract");
   await page.goto("/app/your-turn");
   const menu = page.getByRole("button", { name: "Open navigation" });
   await menu.click();

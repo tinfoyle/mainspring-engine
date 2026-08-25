@@ -58,6 +58,14 @@ export default defineConfig({
     {
       name: "chromium-phone",
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } }
+    },
+    {
+      name: "chromium-reflow",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 320, height: 800 } }
+    },
+    {
+      name: "chromium-forced-colors",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 }, forcedColors: "active" }
     }
   ]
 });
