@@ -223,7 +223,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .agents-message section ul { margin: .45rem 0 0; padding-left: 1.1rem; }
 .agents-proposals { border-left: 3px solid var(--io-coral); padding-left: .7rem; }
 .agents-proposals a { min-height: 44px; display: inline-flex; align-items: center; color: var(--io-ocean-800); font-weight: 750; }
-.agents-confidence { display: inline-block; margin-top: .75rem; color: var(--io-ocean-650); font-weight: 750; }
+.agents-confidence { display: inline-block; margin-top: .75rem; color: var(--io-ocean-800); font-weight: 750; }
 .schedule-editor { margin-top: 1.25rem; }
 .schedule-editor > h3 { margin: .7rem 0 0; color: var(--io-ocean-950); font: 500 1.25rem/1.2 Georgia, serif; }
 .schedule-editor > label, .schedule-grid label, .schedule-options label { display: grid; gap: .35rem; color: var(--io-ocean-950); font-size: .8rem; font-weight: 780; }
@@ -490,6 +490,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .marketing-collection li span, .marketing-collection li small, .marketing-collection li em { color: var(--io-ink-soft); font-size: .72rem; font-style: normal; overflow-wrap: anywhere; }
 .marketing-release-layout { display: grid; gap: 1rem; }
 .marketing-release-detail { margin-top: 1rem; padding: 1rem; align-content: start; border-radius: .85rem; background: var(--io-sky); }
+.marketing-release-detail .eyebrow { color: var(--io-ocean-800); }
 .marketing-release-detail .marketing-actions { margin-top: 1rem; }
 .marketing-modal { max-height: min(90vh, 56rem); overflow-y: auto; }
 .marketing-modal fieldset { margin: 0; padding: 1rem; display: grid; gap: .6rem; border: 1px solid var(--io-line); border-radius: .75rem; }

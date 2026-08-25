@@ -153,6 +153,121 @@ const baseline = {
   created_at: "2026-08-24T20:00:00Z",
   updated_at: "2026-08-24T20:00:00Z"
 };
+const agentRoom = {
+  id: "12000000-0000-4000-8000-000000000012",
+  manager_persona_id: "13000000-0000-4000-8000-000000000013",
+  name: "Operating review",
+  purpose: "Resolve launch constraints.",
+  state: "active",
+  version: 4,
+  created_at: "2026-08-24T20:00:00Z",
+  updated_at: "2026-08-24T20:00:00Z"
+};
+const agentPersona = {
+  id: agentRoom.manager_persona_id,
+  boardroom_id: agentRoom.id,
+  state: "active",
+  latest_version: 2,
+  persona_version_id: "14000000-0000-4000-8000-000000000014",
+  name: "Operations Lead",
+  role: "Synthesis manager",
+  description: "Synthesizes evidence and open risks.",
+  system_instructions: "Review the evidence and state bounded recommendations.",
+  content_digest: "b".repeat(64),
+  policy: {
+    provider: "openai",
+    model: "gpt-5.4",
+    fallback_models: [],
+    maximum_input_tokens: 10000,
+    maximum_output_tokens: 2000,
+    maximum_cost_micros: 100000,
+    maximum_tool_steps: 2,
+    citation_policy: "required",
+    action_policy: "propose",
+    tools: [],
+    output_schema: {}
+  },
+  created_at: "2026-08-24T20:00:00Z",
+  updated_at: "2026-08-24T20:00:00Z"
+};
+const agentConversation = {
+  id: "15000000-0000-4000-8000-000000000015",
+  boardroom_id: agentRoom.id,
+  subject: "Launch readiness",
+  state: "open",
+  message_count: 2,
+  created_by: userID,
+  created_at: "2026-08-24T20:00:00Z",
+  updated_at: "2026-08-24T20:05:00Z"
+};
+const agentRunID = "16000000-0000-4000-8000-000000000016";
+const agentMessage = {
+  id: "17000000-0000-4000-8000-000000000017",
+  conversation_id: agentConversation.id,
+  sequence: 2,
+  role: "persona",
+  body: "Two readiness gaps remain.",
+  run_id: agentRunID,
+  invocation_id: "18000000-0000-4000-8000-000000000018",
+  persona_version_id: agentPersona.persona_version_id,
+  created_at: "2026-08-24T20:05:00Z",
+  result: {
+    contribution: "Two readiness gaps remain.",
+    findings: ["Security review is open."],
+    recommendations: ["Close the review."],
+    questions: [],
+    citations: [],
+    delegations: [],
+    confidence: "high",
+    proposed_actions: [{ kind: "marketing.release.publish", reason: "Publish only after approval.", payload: {}, evidence: ["release-checklist"] }]
+  }
+};
+const agentRun = {
+  id: agentRunID,
+  boardroom_id: agentRoom.id,
+  conversation_id: agentConversation.id,
+  subject: agentConversation.subject,
+  prompt: "Review launch readiness.",
+  mode: "selected",
+  state: "succeeded",
+  context: [],
+  context_digest: "c".repeat(64),
+  entitlement_version: 3,
+  plan_digest: "d".repeat(64),
+  policy_version: 2,
+  invocation_ids: [],
+  invocations: [],
+  turns: [],
+  resolutions: [],
+  user_message_id: "19000000-0000-4000-8000-000000000019",
+  created_at: "2026-08-24T20:00:00Z"
+};
+const schedule = {
+  id: "21000000-0000-4000-8000-000000000021",
+  account_id: accountID,
+  name: "Monday launch review",
+  timezone: "America/New_York",
+  recurrence: { frequency: "weekly", weekdays: [1], local_hour: 9, local_minute: 30, gap_policy: "next_valid", overlap_policy: "first" },
+  missed_run_policy: "catch_up_one",
+  template: { boardroom_id: agentRoom.id, mode: "selected", persona_ids: [agentPersona.id], subject: "Launch review", prompt: "Review launch readiness.", work_item_ids: null, knowledge_fact_ids: null, knowledge_document_ids: null, baseline_assessment_ids: null },
+  state: "active",
+  next_run_at: "2026-08-31T13:30:00Z",
+  version: 4,
+  created_by: userID,
+  created_at: "2026-08-24T20:00:00Z",
+  updated_at: "2026-08-24T20:00:00Z"
+};
+const financeLedger = { id: "22000000-0000-4000-8000-000000000022", account_id: accountID, name: "Operating", code: "OPS", description: "Primary book", currency: "USD", state: "active", version: 3, created_by: { kind: "user", id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
+const financeSummary = { ...financeLedger, account_count: 2, draft_count: 1, income_minor: 5000, expense_minor: 2000, net_minor: 3000 };
+const financeEntry = { id: "23000000-0000-4000-8000-000000000023", account_id: accountID, ledger_id: financeLedger.id, number: 8, entry_date: "2026-08-24T00:00:00Z", description: "Monthly close", reference: "CLOSE-8", currency: "USD", total_minor: 5000, state: "draft", version: 5, lines: [{ account_id: "cash", memo: "", debit_minor: 5000, credit_minor: 0 }, { account_id: "income", memo: "", debit_minor: 0, credit_minor: 5000 }], evidence: [], provenance: { source: "manual" }, created_by: { kind: "user", id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
+const integrationConnection = { id: "24000000-0000-4000-8000-000000000024", account_id: accountID, name: "Policy research", kind: "web_research", state: "active", current_revision_id: "25000000-0000-4000-8000-000000000025", current_revision: 2, credential_id: "26000000-0000-4000-8000-000000000026", credential_generation: 1, version: 4, created_by: { user_id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
+const integrationHealth = { id: "27000000-0000-4000-8000-000000000027", account_id: accountID, connection_id: integrationConnection.id, connection_revision_id: integrationConnection.current_revision_id, credential_id: integrationConnection.credential_id, state: "healthy", latency_milliseconds: 81, checked_at: "2026-08-24T00:00:00Z" };
+const integrationDetail = { connection: integrationConnection, revision: { id: integrationConnection.current_revision_id, account_id: accountID, connection_id: integrationConnection.id, revision: 2, capabilities: ["web.research"], scope: { https_origin: "https://example.com", path_prefix: "/policy" }, created_by: { user_id: userID }, created_at: "2026-08-24T00:00:00Z" }, latest_health: integrationHealth };
+const integrationExecution = { id: "28000000-0000-4000-8000-000000000028", account_id: accountID, release_id: "29000000-0000-4000-8000-000000000029", release_version: 3, approval_id: "31000000-0000-4000-8000-000000000031", capability: "web.publish", connection_id: integrationConnection.id, connection_revision_id: integrationConnection.current_revision_id, connection_revision: 2, credential_id: integrationConnection.credential_id, credential_generation: 1, payload_sha256: "e".repeat(64), state: "manual_resolution", attempt_count: 1, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
+const integrationExecutionDetail = { execution: integrationExecution, attempts: [], resolution: { id: "32000000-0000-4000-8000-000000000032", execution_id: integrationExecution.id, requested_outcome: "succeeded", evidence_sha256: "f".repeat(64), requested_by_user_id: userID, requested_at: "2026-08-24T00:00:00Z", state: "pending" } };
+const marketingCampaign = { id: "33000000-0000-4000-8000-000000000033", account_id: accountID, name: "Launch", objective: "Explain the operating model", audience: "Business owners", channels: ["email", "web"], state: "draft", version: 4, created_by: { kind: "user", id: userID }, provenance: { origin: "human" }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T01:00:00Z" };
+const marketingAsset = { id: "34000000-0000-4000-8000-000000000034", account_id: accountID, campaign_id: marketingCampaign.id, asset_id: "35000000-0000-4000-8000-000000000035", revision: 2, kind: "copy", title: "Launch copy", media_type: "text/plain", content_reference: "opaque", content_sha256: "1".repeat(64), content_bytes: 120, created_by: { kind: "user", id: userID }, provenance: { origin: "human" }, created_at: "2026-08-24T00:30:00Z" };
+const marketingRelease = { id: "36000000-0000-4000-8000-000000000036", account_id: accountID, campaign_id: marketingCampaign.id, campaign_version: 4, name: "Launch release", channels: ["email", "web"], asset_revision_ids: [marketingAsset.id], state: "submitted", version: 2, created_by: { kind: "user", id: userID }, provenance: { origin: "human" }, submitted_by: { kind: "user", id: userID }, created_at: "2026-08-24T00:40:00Z", updated_at: "2026-08-24T00:50:00Z" };
 
 interface SyntheticAPIState {
   readonly analyticsEvents: Array<{ name: string; fields?: Record<string, string> }>;
@@ -329,8 +444,104 @@ async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
       await fulfillJSON(route, baseline);
       return;
     }
-    if (path === `/api/v1/accounts/${accountID}/integrations/connections` && request.method() === "GET") {
+    const accountBase = `/api/v1/accounts/${accountID}`;
+    if (path === `${accountBase}/agent-boardrooms`) {
+      await fulfillJSON(route, { items: [agentRoom] });
+      return;
+    }
+    if (path === `${accountBase}/agent-boardrooms/${agentRoom.id}/personas`) {
+      await fulfillJSON(route, { items: [agentPersona] });
+      return;
+    }
+    if (path === `${accountBase}/agent-boardrooms/${agentRoom.id}/conversations`) {
+      await fulfillJSON(route, { items: [agentConversation] });
+      return;
+    }
+    if (path === `${accountBase}/agent-conversations/${agentConversation.id}`) {
+      await fulfillJSON(route, agentConversation);
+      return;
+    }
+    if (path === `${accountBase}/agent-conversations/${agentConversation.id}/messages`) {
+      await fulfillJSON(route, { items: [agentMessage] });
+      return;
+    }
+    if (path === `${accountBase}/agent-runs/${agentRunID}`) {
+      await fulfillJSON(route, agentRun);
+      return;
+    }
+    if (path === `${accountBase}/schedules/${schedule.id}`) {
+      await fulfillJSON(route, schedule);
+      return;
+    }
+    if (path === `${accountBase}/schedules` && request.method() === "GET") {
+      await fulfillJSON(route, { items: [schedule] });
+      return;
+    }
+    const financeBase = `${accountBase}/finance`;
+    if (path === `${financeBase}/entries/${financeEntry.id}`) {
+      await fulfillJSON(route, financeEntry);
+      return;
+    }
+    if (path === `${financeBase}/ledgers/${financeLedger.id}`) {
+      await fulfillJSON(route, financeLedger);
+      return;
+    }
+    if (path === `${financeBase}/ledgers`) {
+      await fulfillJSON(route, { items: [financeSummary] });
+      return;
+    }
+    if (path === `${financeBase}/ledgers/${financeLedger.id}/accounts`) {
       await fulfillJSON(route, { items: [] });
+      return;
+    }
+    if (path === `${financeBase}/ledgers/${financeLedger.id}/entries`) {
+      await fulfillJSON(route, { items: [financeEntry] });
+      return;
+    }
+    if (path === `${financeBase}/ledgers/${financeLedger.id}/reconciliations`) {
+      await fulfillJSON(route, { items: [] });
+      return;
+    }
+    const integrationsBase = `${accountBase}/integrations`;
+    if (path === `${integrationsBase}/connections/${integrationConnection.id}`) {
+      await fulfillJSON(route, integrationDetail);
+      return;
+    }
+    if (path === `${integrationsBase}/connections/${integrationConnection.id}/health`) {
+      await fulfillJSON(route, { items: [integrationHealth] });
+      return;
+    }
+    if (path === `${integrationsBase}/connections` && request.method() === "GET") {
+      await fulfillJSON(route, { items: [integrationConnection] });
+      return;
+    }
+    if (path === `${integrationsBase}/executions/${integrationExecution.id}`) {
+      await fulfillJSON(route, integrationExecutionDetail);
+      return;
+    }
+    if (path === `${integrationsBase}/executions` && request.method() === "GET") {
+      await fulfillJSON(route, { items: [integrationExecution] });
+      return;
+    }
+    const marketingBase = `${accountBase}/marketing`;
+    if (path === `${marketingBase}/campaigns/${marketingCampaign.id}/asset-revisions`) {
+      await fulfillJSON(route, { items: [marketingAsset] });
+      return;
+    }
+    if (path === `${marketingBase}/campaigns/${marketingCampaign.id}/releases`) {
+      await fulfillJSON(route, { items: [marketingRelease] });
+      return;
+    }
+    if (path === `${marketingBase}/campaigns/${marketingCampaign.id}`) {
+      await fulfillJSON(route, marketingCampaign);
+      return;
+    }
+    if (path === `${marketingBase}/campaigns` && request.method() === "GET") {
+      await fulfillJSON(route, { items: [marketingCampaign] });
+      return;
+    }
+    if (path === `${marketingBase}/releases/${marketingRelease.id}`) {
+      await fulfillJSON(route, marketingRelease);
       return;
     }
     if (path === "/api/v1/affiliate") {
@@ -529,6 +740,34 @@ test("Work, Knowledge, and Baseline preserve governed operating context", async 
     await test.step(route.path, async () => {
       await page.goto(route.path);
       await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      for (const evidence of route.evidence) await expect(page.getByText(evidence, { exact: false }).first()).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    });
+  }
+});
+
+test("package workspaces preserve governed list and durable detail context", async ({ page }) => {
+  const routes = [
+    { path: "/app/agents", heading: "Agents", evidence: [agentRoom.name, agentRoom.purpose, "New Boardroom"] },
+    { path: `/app/agents/boardrooms/${agentRoom.id}`, heading: agentRoom.name, evidence: [agentPersona.name, "Propose only—human approval remains external", "Convene Boardroom"] },
+    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name, evidence: [agentMessage.body, "Security review is open", "Review consequential proposals in Your Turn"] },
+    { path: "/app/schedules", heading: "Schedules", evidence: [schedule.name, "Mon at 09:30", "New schedule"] },
+    { path: `/app/schedules/${schedule.id}`, heading: schedule.name, evidence: [schedule.timezone, "Run now", "Missed run"] },
+    { path: `/app/finance/entries/${financeEntry.id}`, heading: "A governed ledger for operating truth", evidence: ["#8 · Monthly close", "Post entry", "General journal"] },
+    { path: `/app/integrations/connections/${integrationConnection.id}`, heading: "Connect deliberately. Observe every effect.", evidence: [integrationConnection.name, "https://example.com/policy", "Healthy"] },
+    { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Connect deliberately. Observe every effect.", evidence: ["web.publish · Manual resolution", "A different owner or administrator must confirm this exact outcome"] },
+    { path: `/app/marketing/campaigns/${marketingCampaign.id}`, heading: "Prepare the message. Govern the release.", evidence: [marketingCampaign.name, marketingCampaign.objective, "Revise intent"] },
+    { path: `/app/marketing/releases/${marketingRelease.id}`, heading: "Prepare the message. Govern the release.", evidence: [marketingRelease.name, "never accepts an internal approval identifier", "Open Your Turn"] }
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(route.path);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      if (route.path === `/app/agents/boardrooms/${agentRoom.id}`) {
+        await page.locator("details.agents-persona").first().locator("summary").click();
+      }
       for (const evidence of route.evidence) await expect(page.getByText(evidence, { exact: false }).first()).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
