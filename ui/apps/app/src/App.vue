@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { IoLogo } from "@spyglass/design-system";
-import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
-import { nextTick, onMounted, ref, watch } from "vue";
+import { emitAnalytics, getPrivacyConsent, type CatalogPackageCode } from "@spyglass/api";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { useSessionStore } from "./stores/session";
 
@@ -31,16 +31,24 @@ onMounted(async () => {
   }
 });
 
-const navigation = [
+interface NavigationItem {
+  to: string;
+  label: string;
+  packageCode?: CatalogPackageCode;
+}
+
+const workspaceNavigation: NavigationItem[] = [
   { to: "/app/your-turn", label: "Your Turn" },
-  { to: "/app/work", label: "Work" },
-  { to: "/app/knowledge", label: "Knowledge" },
+  { to: "/app/work", label: "Work", packageCode: "work" },
+  { to: "/app/knowledge", label: "Knowledge", packageCode: "knowledge" },
   { to: "/app/baseline", label: "Baseline" },
-  { to: "/app/agents", label: "Agents" },
-  { to: "/app/schedules", label: "Schedules" },
-  { to: "/app/finance", label: "Finance" },
-  { to: "/app/integrations", label: "Integrations" },
-  { to: "/app/marketing", label: "Marketing" },
+  { to: "/app/agents", label: "Agents", packageCode: "agents" },
+  { to: "/app/schedules", label: "Schedules", packageCode: "agents" },
+  { to: "/app/finance", label: "Finance", packageCode: "finance" },
+  { to: "/app/integrations", label: "Integrations", packageCode: "integrations" },
+  { to: "/app/marketing", label: "Marketing", packageCode: "marketing" }
+];
+const accountNavigation: NavigationItem[] = [
   { to: "/app/account", label: "Account" },
   { to: "/app/billing", label: "Billing" },
   { to: "/app/security", label: "Security" },
@@ -49,6 +57,19 @@ const navigation = [
   { to: "/app/affiliate", label: "Affiliate" },
   { to: "/app/privacy", label: "Privacy" }
 ];
+const availablePackageCodes = computed(() => new Set(
+  session.selected?.entitlements.packages
+    .filter((item) => item.mode !== "suspended")
+    .map((item) => item.code) ?? []
+));
+const visibleWorkspaceNavigation = computed(() => workspaceNavigation.filter(
+  (item) => !item.packageCode || availablePackageCodes.value.has(item.packageCode)
+));
+const hiddenPackageCount = computed(() => new Set(
+  workspaceNavigation
+    .map((item) => item.packageCode)
+    .filter((code): code is CatalogPackageCode => code !== undefined && !availablePackageCodes.value.has(code))
+).size);
 
 async function selectAccount(event: Event): Promise<void> {
   const target = event.target as HTMLSelectElement;
@@ -129,9 +150,21 @@ function containMenuFocus(event: KeyboardEvent): void {
         <button class="sidebar-close" type="button" aria-label="Close navigation" @click="closeMenu(true)">×</button>
       </div>
       <nav aria-label="Main navigation">
-        <RouterLink v-for="item in navigation" :key="item.to" :to="item.to" class="nav-link">
-          <span>{{ item.label }}</span>
-        </RouterLink>
+        <div class="nav-group" role="group" aria-labelledby="workspace-navigation-label">
+          <p id="workspace-navigation-label" class="nav-group-title">Workspace</p>
+          <RouterLink v-for="item in visibleWorkspaceNavigation" :key="item.to" :to="item.to" class="nav-link">
+            <span>{{ item.label }}</span>
+          </RouterLink>
+          <RouterLink v-if="hiddenPackageCount" to="/app/checkout" class="nav-link nav-link--packages">
+            <span>Explore plans</span><small>{{ hiddenPackageCount }} more areas</small>
+          </RouterLink>
+        </div>
+        <div class="nav-group" role="group" aria-labelledby="account-navigation-label">
+          <p id="account-navigation-label" class="nav-group-title">Account</p>
+          <RouterLink v-for="item in accountNavigation" :key="item.to" :to="item.to" class="nav-link">
+            <span>{{ item.label }}</span>
+          </RouterLink>
+        </div>
       </nav>
       <div class="account-switcher">
         <label for="account">Account</label>

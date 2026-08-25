@@ -10,9 +10,13 @@
 .sidebar-close { flex: 0 0 auto; width: 44px; height: 44px; border: 1px solid rgb(255 255 255 / 28%); border-radius: 50%; color: white; background: transparent; font-size: 1.5rem; }
 .brand { padding: .25rem; color: white; text-decoration: none; }
 .brand .io-logo__type small { color: var(--io-seafoam); }
-.sidebar nav { min-height: 0; padding-inline-end: .25rem; display: grid; flex: 1 1 auto; gap: .35rem; overflow-y: auto; overscroll-behavior: contain; }
+.sidebar nav { min-height: 0; padding-inline-end: .25rem; display: grid; flex: 1 1 auto; gap: 1.2rem; overflow-y: auto; overscroll-behavior: contain; }
+.nav-group { display: grid; gap: .35rem; }
+.nav-group-title { margin: 0 .9rem .2rem; color: var(--io-seafoam); font-size: .68rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
 .nav-link { min-height: 48px; padding: .75rem .9rem; display: flex; align-items: center; justify-content: space-between; border-radius: .75rem; color: rgb(255 255 255 / 72%); text-decoration: none; font-weight: 650; }
 .nav-link:hover, .nav-link.router-link-active { color: white; background: rgb(255 255 255 / 10%); }
+.nav-link--packages { border: 1px solid rgb(189 235 220 / 24%); }
+.nav-link--packages small { color: var(--io-seafoam); font-size: .68rem; font-weight: 650; }
 .account-switcher { flex: 0 0 auto; display: grid; gap: .45rem; }
 .account-switcher label { color: var(--io-seafoam); font-size: .75rem; font-weight: 750; text-transform: uppercase; letter-spacing: .12em; }
 .account-switcher select { width: 100%; min-height: 46px; padding: 0 .75rem; border: 1px solid rgb(255 255 255 / 25%); border-radius: .7rem; color: white; background: rgb(255 255 255 / 8%); }
