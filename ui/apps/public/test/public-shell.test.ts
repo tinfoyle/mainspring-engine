@@ -4,13 +4,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../app/app.vue";
 
 const route = vi.hoisted(() => ({ fullPath: "/" }));
+const nuxtState = vi.hoisted(() => new Map<string, { value: unknown }>());
 
 vi.mock("#imports", () => ({
   useRoute: () => route,
-  useRuntimeConfig: () => ({ public: { appOrigin: "https://app.infiniteocean.test" } })
+  useRuntimeConfig: () => ({ public: { appOrigin: "https://app.infiniteocean.test" } }),
+  useState: (key: string, initialize: () => unknown) => {
+    if (!nuxtState.has(key)) nuxtState.set(key, { value: initialize() });
+    return nuxtState.get(key);
+  }
 }));
 
 beforeEach(() => {
+  nuxtState.clear();
   document.body.innerHTML = "";
   document.body.className = "";
   vi.stubGlobal("matchMedia", vi.fn(() => ({

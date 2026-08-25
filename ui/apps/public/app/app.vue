@@ -3,6 +3,7 @@ import { IoLogo } from "@spyglass/design-system";
 import { useRoute, useRuntimeConfig } from "#imports";
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import ConsentBanner from "~/components/ConsentBanner.vue";
+import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
 
 const menuOpen = ref(false);
 const menuButton = ref<HTMLButtonElement>();
@@ -10,6 +11,7 @@ const navigation = ref<HTMLElement>();
 const main = ref<HTMLElement>();
 const route = useRoute();
 const appOrigin = useRuntimeConfig().public.appOrigin;
+const analyticsConsent = useAnalyticsConsent();
 let desktopQuery: MediaQueryList | undefined;
 
 watch(() => route.fullPath, async () => {
@@ -76,6 +78,24 @@ function containMenuFocus(event: KeyboardEvent): void {
     first.focus();
   }
 }
+
+async function startFree(event: MouseEvent): Promise<void> {
+  event.preventDefault();
+  const destination = `${appOrigin}/signup`;
+  try {
+    await Promise.race([
+      Promise.all([
+        analyticsConsent.track({
+          name: "primary_cta_selected",
+          fields: { cta_code: "navigation_start_free", route_name: route.name?.toString() ?? "unknown" }
+        }),
+        analyticsConsent.track({ name: "signup_handoff_started", fields: {} })
+      ]),
+      new Promise((resolve) => window.setTimeout(resolve, 180))
+    ]);
+  } catch { /* Optional measurement never interrupts signup. */ }
+  window.location.assign(destination);
+}
 </script>
 
 <template>
@@ -104,7 +124,7 @@ function containMenuFocus(event: KeyboardEvent): void {
           <NuxtLink to="/pricing">Pricing</NuxtLink>
           <NuxtLink to="/privacy">Privacy</NuxtLink>
           <a :href="`${appOrigin}/login?return_to=%2Fapp`">Sign in</a>
-          <a class="nav-cta" :href="`${appOrigin}/signup`">Start free</a>
+          <a class="nav-cta" :href="`${appOrigin}/signup`" @click="startFree">Start free</a>
         </nav>
       </div>
     </div>

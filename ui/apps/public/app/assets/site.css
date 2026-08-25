@@ -39,7 +39,7 @@ body.site-menu-open { overflow: hidden; }
 .promise h2, .your-turn-story h2, .closing-cta h2 { max-width: 18ch; margin: 0; color: var(--io-ocean-950); font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.25rem, 9vw, 4.5rem); font-weight: 500; line-height: 1; letter-spacing: -.05em; }
 .promise ol { margin: 2rem 0 0; padding: 0; display: grid; list-style: none; }
 .promise li { padding: 1.25rem 0; display: grid; grid-template-columns: 2.5rem 1fr; gap: .8rem; border-top: 1px solid var(--io-line); }
-.promise li b { color: var(--io-coral); font-family: Georgia, serif; font-weight: 500; }
+.promise li b { color: var(--io-ocean-800); font-family: Georgia, serif; font-weight: 500; }
 .promise li span { display: grid; gap: .3rem; color: var(--io-ink-soft); line-height: 1.45; }
 .promise li strong { color: var(--io-ink); font-size: 1.1rem; }
 .your-turn-story { padding: 4rem max(1rem, calc((100% - 72rem) / 2)); display: grid; gap: 2rem; color: white; background: var(--io-ocean-950); }

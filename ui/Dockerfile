@@ -20,6 +20,9 @@ COPY . .
 FROM source AS app-build
 RUN npm run build --workspace=@spyglass/app
 
+FROM source AS public-build
+RUN npm run build --workspace=@spyglass/public
+
 FROM ${PLAYWRIGHT_IMAGE} AS browser-test
 WORKDIR /workspace
 ENV CI=1 \
@@ -31,6 +34,7 @@ COPY packages/api/package.json packages/api/package.json
 COPY packages/design-system/package.json packages/design-system/package.json
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
 COPY --from=app-build /workspace/apps/app/dist apps/app/dist
+COPY --from=public-build /workspace/apps/public/.output apps/public/.output
 COPY playwright.config.ts playwright.config.ts
 COPY tests/browser tests/browser
 RUN npm run browser:app && touch /tmp/spyglass-private-browser-passed
@@ -38,9 +42,6 @@ RUN npm run browser:app && touch /tmp/spyglass-private-browser-passed
 FROM source AS test
 COPY --from=browser-test /tmp/spyglass-private-browser-passed /tmp/spyglass-private-browser-passed
 RUN test -f /tmp/spyglass-private-browser-passed && npm run verify && npm audit --audit-level=high
-
-FROM source AS public-build
-RUN npm run build --workspace=@spyglass/public
 
 FROM ${CADDY_IMAGE} AS app-runtime
 ARG VERSION=development

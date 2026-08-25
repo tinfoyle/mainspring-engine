@@ -13,12 +13,34 @@ export default defineConfig({
     timezoneId: "America/New_York",
     trace: "retain-on-failure"
   },
-  webServer: {
-    command: "npm exec --workspace=@spyglass/app -- vite preview --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173/health/ready",
-    reuseExistingServer: false,
-    timeout: 30_000
-  },
+  webServer: [
+    {
+      command: "node tests/browser/public-catalog-fixture.mjs",
+      url: "http://127.0.0.1:4175/health/ready",
+      reuseExistingServer: false,
+      timeout: 30_000
+    },
+    {
+      command: "npm exec --workspace=@spyglass/app -- vite preview --host 127.0.0.1 --port 4173",
+      url: "http://127.0.0.1:4173/health/ready",
+      reuseExistingServer: false,
+      timeout: 30_000
+    },
+    {
+      command: "node apps/public/.output/server/index.mjs",
+      url: "http://127.0.0.1:4174/",
+      reuseExistingServer: false,
+      timeout: 30_000,
+      env: {
+        HOST: "127.0.0.1",
+        NITRO_HOST: "127.0.0.1",
+        NITRO_PORT: "4174",
+        NUXT_ACCOUNT_API_ORIGIN: "http://127.0.0.1:4175",
+        NUXT_PUBLIC_APP_ORIGIN: "http://127.0.0.1:4173",
+        SPYGLASS_ACCOUNT_API_ORIGIN: "http://127.0.0.1:4175"
+      }
+    }
+  ],
   projects: [
     {
       name: "chromium-desktop",
