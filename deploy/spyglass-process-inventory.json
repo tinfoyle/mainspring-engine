@@ -396,6 +396,18 @@
       "actions": ["inspect", "activate", "suspend", "close"]
     },
     {
+      "mode": "affiliate-support-admin",
+      "kind": "operator_job",
+      "scope": "global",
+      "port": null,
+      "health": null,
+      "database_roles": ["global.affiliate-support-operator"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_AFFILIATE_SUPPORT_REQUEST_ID", "SPYGLASS_AFFILIATE_SUPPORT_VERSION", "SPYGLASS_AFFILIATE_SUPPORT_OUTCOME", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": ["traced", "operator_authorization"],
+      "dependencies": ["global-postgresql"],
+      "actions": ["inspect", "start-review", "resolve"]
+    },
+    {
       "mode": "schedule-queue-admin",
       "kind": "operator_job",
       "scope": "cell",

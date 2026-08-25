@@ -70,6 +70,7 @@ import (
 	accountmovecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountmoveadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	affiliatecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/affiliateadmin"
+	affiliatesupportcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/affiliatesupportadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentdispatchworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentprojectionworker"
 	agentqueuecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentqueueadmin"
@@ -96,6 +97,7 @@ import (
 	schedulequeuecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/schedulequeueadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
 	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo"
@@ -218,12 +220,14 @@ func main() {
 		err = runPrivacyRightsAdmin(ctx, logger)
 	case "affiliate-admin":
 		err = runAffiliateAdmin(ctx, logger)
+	case "affiliate-support-admin":
+		err = runAffiliateSupportAdmin(ctx, logger)
 	case "catalog-admin":
 		err = runCatalogAdmin(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | affiliate-support-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -504,6 +508,70 @@ func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	return affiliatecommand.Run(startup, config, logger)
+}
+
+func runAffiliateSupportAdmin(ctx context.Context, logger *slog.Logger) error {
+	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "start-review" && os.Args[2] != "resolve") {
+		return errors.New("usage: spyglass affiliate-support-admin inspect|start-review|resolve")
+	}
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	actor, err := requiredEnv("SPYGLASS_OPERATOR_ID")
+	if err != nil {
+		return err
+	}
+	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
+	if err != nil {
+		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	confirmation, err := requiredEnv("SPYGLASS_CONFIRM_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	requestID, err := requiredEnv("SPYGLASS_AFFILIATE_SUPPORT_REQUEST_ID")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	config := affiliatesupportcommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Actor: actor, Reason: reason,
+		Environment: environment, ConfirmEnvironment: confirmation, RequestID: ids.AffiliateSupportRequestID(requestID), MaxDatabaseConns: maxConns}
+	if config.Action != "inspect" {
+		config.ExpectedVersion, err = uint64Env("SPYGLASS_AFFILIATE_SUPPORT_VERSION")
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action == "resolve" {
+		outcome, err := requiredEnv("SPYGLASS_AFFILIATE_SUPPORT_OUTCOME")
+		if err != nil {
+			return err
+		}
+		config.Outcome = affiliates.SupportOutcome(outcome)
+	}
+	scopeValues := map[string]string{"request_id": string(config.RequestID)}
+	if config.Action != "inspect" {
+		scopeValues["expected_version"] = strconv.FormatUint(config.ExpectedVersion, 10)
+	}
+	if config.Action == "resolve" {
+		scopeValues["outcome"] = string(config.Outcome)
+	}
+	config.Reason, err = requireOperatorAuthorization(logger, "affiliate-support-admin", config.Action, config.Actor,
+		config.Reason, config.Environment, operatorScope(scopeValues))
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return affiliatesupportcommand.Run(startup, config, logger)
 }
 
 func runCatalogAdmin(ctx context.Context, logger *slog.Logger) error {

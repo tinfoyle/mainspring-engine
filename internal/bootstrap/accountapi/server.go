@@ -20,6 +20,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliatesupport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
@@ -284,6 +285,11 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	affiliateSupportService, err := affiliatesupport.New(postgres.NewAffiliateSupportRepository(pool), ids.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	commercialOptions := make([]commercialaccess.Option, 0, 1)
 	if config.AffiliateAttributionEnabled {
 		commercialOptions = append(commercialOptions, commercialaccess.WithReferralAttributor(affiliateService))
@@ -343,6 +349,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 			EnrollmentOpen: config.AffiliateEnrollmentOpen, AttributionEnabled: config.AffiliateAttributionEnabled,
 			SettlementMode: "unconfigured",
 		}),
+		httpapi.WithAffiliateSupport(affiliateSupportService),
 	).Handler()
 	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService), browserapp.WithContactChanges(contactChangeService, nil), browserapp.WithMCPGrants(mcpAuthorization), browserapp.WithAccountExports(exportService, exportDownloads))
 	if err != nil {

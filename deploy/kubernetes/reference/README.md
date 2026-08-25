@@ -227,6 +227,15 @@ for every state change. It must not inherit Account API, billing worker, Stripe,
 settlement or serving credentials. See
 [affiliate-operations.md](../../../docs/production/affiliate-operations.md).
 
+Affiliate support administration is also absent as a standing Deployment.
+Environments run `spyglass affiliate-support-admin inspect|start-review|resolve`
+as a short-lived, human-authorized Job with a distinct execute-only global
+database role, exact environment confirmation, exact observed request version
+for transitions, and an explicit approved/denied decision. It must not inherit
+serving, enrollment-administration, commission, settlement, billing-worker, or
+Stripe credentials. See
+[affiliate-operations.md](../../../docs/production/affiliate-operations.md).
+
 Work release administration is also intentionally absent as a standing
 Deployment. Environments run `spyglass work-release-admin inspect|requeue` as a
 short-lived, human-authorized Job with the target cell's execute-only operator

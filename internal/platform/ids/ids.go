@@ -66,6 +66,8 @@ type ConsentDecisionID string
 type AnalyticsEventID string
 type AffiliateID string
 type AffiliateEnrollmentEventID string
+type AffiliateSupportRequestID string
+type AffiliateSupportEventID string
 type ReferralAttributionID string
 type CommissionRuleID string
 type CommissionEntryID string

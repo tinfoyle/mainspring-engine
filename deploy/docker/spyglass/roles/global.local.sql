@@ -144,6 +144,7 @@ GRANT SELECT, INSERT, DELETE ON entitlement_grants TO spyglass_billing_worker;
 GRANT SELECT, UPDATE ON affiliate_attributions TO spyglass_billing_worker;
 GRANT SELECT ON affiliate_enrollments, affiliate_commission_rules TO spyglass_billing_worker;
 GRANT SELECT, INSERT ON affiliate_commission_entries TO spyglass_billing_worker;
+GRANT SELECT, INSERT ON affiliate_provider_adverse_events TO spyglass_billing_worker;
 
 GRANT SELECT, UPDATE ON identity_notification_outbox TO spyglass_notification_worker;
 

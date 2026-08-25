@@ -223,6 +223,28 @@ export interface AffiliateStatement {
   readonly "settled_minor": number;
 }
 
+export type AffiliateSupportKind = "enrollment_appeal" | "commission_review";
+
+export type AffiliateSupportOutcome = "approved" | "denied";
+
+export interface AffiliateSupportRequest {
+  readonly "affiliate_id": string;
+  readonly "commission_entry_id"?: string;
+  readonly "created_at": string;
+  readonly "kind": AffiliateSupportKind;
+  readonly "outcome"?: AffiliateSupportOutcome;
+  readonly "request_id": string;
+  readonly "state": AffiliateSupportState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
+export interface AffiliateSupportRequestCollection {
+  readonly "requests": ReadonlyArray<AffiliateSupportRequest>;
+}
+
+export type AffiliateSupportState = "submitted" | "in_review" | "resolved" | "declined" | "canceled";
+
 export interface AgentBoardroom {
   readonly "created_at": string;
   readonly "id": string;
@@ -2265,6 +2287,11 @@ export interface StripeWebhookReceipt {
   readonly "status": "accepted" | "duplicate";
 }
 
+export interface SubmitAffiliateSupportRequest {
+  readonly "commission_entry_id"?: string;
+  readonly "kind": AffiliateSupportKind;
+}
+
 export interface SubmitMarketingReleaseRequest {
   readonly "campaign_version": number;
 }
@@ -2485,6 +2512,11 @@ export interface ApiSchemas {
   readonly AffiliateEnrollmentState: AffiliateEnrollmentState;
   readonly AffiliateProgram: AffiliateProgram;
   readonly AffiliateStatement: AffiliateStatement;
+  readonly AffiliateSupportKind: AffiliateSupportKind;
+  readonly AffiliateSupportOutcome: AffiliateSupportOutcome;
+  readonly AffiliateSupportRequest: AffiliateSupportRequest;
+  readonly AffiliateSupportRequestCollection: AffiliateSupportRequestCollection;
+  readonly AffiliateSupportState: AffiliateSupportState;
   readonly AgentBoardroom: AgentBoardroom;
   readonly AgentBoardroomState: AgentBoardroomState;
   readonly AgentBoardrooms: AgentBoardrooms;
@@ -2787,6 +2819,7 @@ export interface ApiSchemas {
   readonly StartAgentRunRequest: StartAgentRunRequest;
   readonly StripeEvent: StripeEvent;
   readonly StripeWebhookReceipt: StripeWebhookReceipt;
+  readonly SubmitAffiliateSupportRequest: SubmitAffiliateSupportRequest;
   readonly SubmitMarketingReleaseRequest: SubmitMarketingReleaseRequest;
   readonly TransferOwnershipRequest: TransferOwnershipRequest;
   readonly TransitionScheduleRequest: TransitionScheduleRequest;

@@ -52,8 +52,43 @@ GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_enrollment(uuid,u
 
 Do not grant this role direct access to `affiliate_enrollments`, `affiliate_enrollment_events`, the attribution tables, or the commission ledger. Workload identity maps this logical permission to `global.affiliate-operator`; no standing operator deployment is required.
 
+## Customer appeals and commission reviews
+
+An enrolled Affiliate can submit one of two structured requests from the ordinary authenticated Vue dashboard:
+
+- `enrollment_appeal`, only while the enrollment is suspended or closed; or
+- `commission_review`, bound to one commission entry owned by that Affiliate.
+
+The request contains no free text, attachment, referred-customer identity, payment method, or referred-business detail. Submission and pre-review cancellation require the authenticated User and exact application Origin. Owner-scoped reads and generic not-found responses prevent another User from probing commission or request identifiers. Only one open request for the same subject is allowed.
+
+`affiliate-support-admin` is a separate short-lived operator job. `inspect` records an audit event, `start-review` moves a submitted request to review at its exact version, and `resolve` records either `approved` or `denied` after review. Approval resolves the support request; it does not automatically reactivate an enrollment or mutate a commission entry. Any commercial correction or enrollment transition remains a separate reviewed operation at its own least-authority boundary.
+
+Example decision shape:
+
+```sh
+SPYGLASS_ENVIRONMENT=local \
+SPYGLASS_CONFIRM_ENVIRONMENT=local \
+SPYGLASS_AFFILIATE_SUPPORT_REQUEST_ID=00000000-0000-4000-8000-000000000000 \
+SPYGLASS_AFFILIATE_SUPPORT_VERSION=2 \
+SPYGLASS_AFFILIATE_SUPPORT_OUTCOME=approved \
+spyglass affiliate-support-admin resolve
+```
+
+The command uses the standard operator authorization variables described above. Its environment database role is execute-only:
+
+```sql
+CREATE ROLE spyglass_affiliate_support_operator NOLOGIN;
+GRANT USAGE ON SCHEMA public TO spyglass_affiliate_support_operator;
+GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_support_request(uuid,uuid,text,text,text)
+  TO spyglass_affiliate_support_operator;
+GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_support_request(uuid,uuid,bigint,text,text,text,text,text,text)
+  TO spyglass_affiliate_support_operator;
+```
+
+Do not grant this role direct support-request/event table access or any enrollment, attribution, commission, settlement, Stripe, or serving credential. Immutable events retain each customer and staff transition. Workload identity maps this logical permission to `global.affiliate-support-operator`.
+
 ## Launch boundary
 
-The operational ledger and lifecycle do not approve candidate economics or settlement. Enrollment and attribution flags stay closed until the release owner approves commercial terms, settlement, disclosure, support/appeal handling, and legal/privacy/vendor/transfer decisions. Stage and production credentials are not required for local verification.
+The operational ledger, lifecycle and structured review channel do not approve candidate economics or settlement. Enrollment and attribution flags stay closed until the release owner approves commercial terms, settlement, disclosure handling, and legal/privacy/vendor/transfer decisions. Stage and production credentials are not required for local verification.
 
 Stripe references: [event types](https://docs.stripe.com/api/events/types), [Refund object](https://docs.stripe.com/api/refunds/object), [Dispute object](https://docs.stripe.com/api/disputes/object), and [Invoice Payment object](https://docs.stripe.com/api/invoice-payment/object).

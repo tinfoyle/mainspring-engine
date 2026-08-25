@@ -14,6 +14,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliatesupport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
@@ -70,6 +71,7 @@ type Server struct {
 	accountExports        *accountexport.Service
 	exportDownloads       *accountexport.DownloadService
 	affiliateProgram      *affiliateprogram.Service
+	affiliateSupport      *affiliatesupport.Service
 	affiliateHTTP         AffiliateHTTPConfig
 	privacyConsent        *privacyconsent.Service
 	privacyRights         *privacyrights.Service
@@ -208,6 +210,10 @@ func WithAffiliateProgram(service *affiliateprogram.Service, config AffiliateHTT
 	return func(server *Server) { server.affiliateProgram, server.affiliateHTTP = service, config }
 }
 
+func WithAffiliateSupport(service *affiliatesupport.Service) Option {
+	return func(server *Server) { server.affiliateSupport = service }
+}
+
 func NewServer(registrations *registration.Service, catalogSource func() catalog.PublishedCatalog, verification VerificationTokenSource, exposeDevToken bool, logger *slog.Logger, options ...Option) *Server {
 	server := &Server{registrations: registrations, catalog: catalogSource, verification: verification, exposeDevToken: exposeDevToken, logger: logger}
 	for _, option := range options {
@@ -232,6 +238,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/affiliate", s.getAffiliateProgram)
 	mux.HandleFunc("POST /api/v1/affiliate", s.enrollAffiliate)
 	mux.HandleFunc("GET /api/v1/affiliate/statement", s.getAffiliateStatement)
+	mux.HandleFunc("GET /api/v1/affiliate/support-requests", s.listAffiliateSupportRequests)
+	mux.HandleFunc("POST /api/v1/affiliate/support-requests", s.submitAffiliateSupportRequest)
+	mux.HandleFunc("DELETE /api/v1/affiliate/support-requests/{requestID}", s.cancelAffiliateSupportRequest)
 	mux.HandleFunc("POST /api/v1/registrations", s.beginRegistration)
 	mux.HandleFunc("POST /api/v1/registrations/verify", s.completeRegistration)
 	mux.HandleFunc("POST /api/v1/recovery-challenges", s.beginRecovery)

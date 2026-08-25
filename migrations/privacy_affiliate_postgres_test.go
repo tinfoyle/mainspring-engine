@@ -10,6 +10,8 @@ import (
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliatesupport"
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliatesupportadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrights"
@@ -288,6 +290,81 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		has_function_privilege($1,'public.spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text)','EXECUTE')`, affiliateOperatorRole).Scan(
 		&affiliateDirectAccess, &affiliateInspectAccess, &affiliateTransitionAccess); err != nil || affiliateDirectAccess || !affiliateInspectAccess || !affiliateTransitionAccess {
 		t.Fatalf("Affiliate operator table=%v inspect=%v transition=%v err=%v", affiliateDirectAccess, affiliateInspectAccess, affiliateTransitionAccess, err)
+	}
+
+	supportService, err := affiliatesupport.New(postgresadapter.NewAffiliateSupportRepository(pool), ids.RandomGenerator{}, fixedLifecycleClock{now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appeal, err := supportService.Submit(ctx, affiliatesupport.SubmitCommand{UserID: affiliateUser, Kind: affiliates.SupportEnrollmentAppeal})
+	if err != nil || appeal.State != affiliates.SupportSubmitted || appeal.UserID != affiliateUser {
+		t.Fatalf("Affiliate appeal=%+v err=%v", appeal, err)
+	}
+	if _, err := supportService.Submit(ctx, affiliatesupport.SubmitCommand{UserID: affiliateUser, Kind: affiliates.SupportEnrollmentAppeal}); !errors.Is(err, affiliatesupport.ErrAlreadyOpen) {
+		t.Fatalf("duplicate Affiliate appeal error=%v", err)
+	}
+	commissionReview, err := supportService.Submit(ctx, affiliatesupport.SubmitCommand{UserID: affiliateUser,
+		Kind: affiliates.SupportCommissionReview, CommissionEntryID: first.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := supportService.Submit(ctx, affiliatesupport.SubmitCommand{UserID: customerUser,
+		Kind: affiliates.SupportCommissionReview, CommissionEntryID: first.ID}); err == nil {
+		t.Fatal("another user submitted an Affiliate commission review")
+	}
+	listedSupport, err := supportService.List(ctx, affiliateUser)
+	if err != nil || len(listedSupport) != 2 {
+		t.Fatalf("listed Affiliate support=%+v err=%v", listedSupport, err)
+	}
+	canceledReview, err := supportService.Cancel(ctx, commissionReview.ID, affiliateUser)
+	if err != nil || canceledReview.State != affiliates.SupportCanceled || canceledReview.Version != 2 {
+		t.Fatalf("canceled Affiliate review=%+v err=%v", canceledReview, err)
+	}
+	if _, err := supportService.Cancel(ctx, commissionReview.ID, customerUser); !errors.Is(err, affiliatesupport.ErrNotFound) {
+		t.Fatalf("cross-user support cancellation error=%v", err)
+	}
+	supportAdmin, err := affiliatesupportadmin.New(postgresadapter.NewAffiliateSupportAdminRepository(pool), ids.RandomGenerator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspectedAppeal, err := supportAdmin.Inspect(ctx, appeal.ID, "affiliate-support@example.test", "Inspect the submitted enrollment appeal", "local")
+	if err != nil || inspectedAppeal.Version != 1 {
+		t.Fatalf("inspected Affiliate appeal=%+v err=%v", inspectedAppeal, err)
+	}
+	reviewedAppeal, err := supportAdmin.StartReview(ctx, appeal.ID, inspectedAppeal.Version,
+		"affiliate-support@example.test", "Begin review of the enrollment appeal", "local")
+	if err != nil || reviewedAppeal.State != affiliates.SupportInReview || reviewedAppeal.Version != 2 {
+		t.Fatalf("reviewed Affiliate appeal=%+v err=%v", reviewedAppeal, err)
+	}
+	if _, err := supportAdmin.Resolve(ctx, appeal.ID, inspectedAppeal.Version, affiliates.SupportApproved,
+		"affiliate-support@example.test", "Attempt a stale support decision", "local"); !errors.Is(err, affiliatesupportadmin.ErrStateConflict) {
+		t.Fatalf("stale Affiliate support resolution error=%v", err)
+	}
+	resolvedAppeal, err := supportAdmin.Resolve(ctx, appeal.ID, reviewedAppeal.Version, affiliates.SupportApproved,
+		"affiliate-support@example.test", "Approve after the documented enrollment review", "local")
+	if err != nil || resolvedAppeal.State != affiliates.SupportResolved || resolvedAppeal.Outcome != affiliates.SupportApproved || resolvedAppeal.Version != 3 {
+		t.Fatalf("resolved Affiliate appeal=%+v err=%v", resolvedAppeal, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE affiliate_support_request_events SET state='declined' WHERE request_id=$1 AND action='resolved'`, appeal.ID); err == nil {
+		t.Fatal("Affiliate support decision evidence was mutable")
+	}
+	const affiliateSupportOperatorRole = "spyglass_affiliate_support_operator_contract"
+	if _, err := pool.Exec(ctx, `CREATE ROLE `+affiliateSupportOperatorRole+` NOLOGIN;
+		GRANT USAGE ON SCHEMA public TO `+affiliateSupportOperatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_support_request(uuid,uuid,text,text,text) TO `+affiliateSupportOperatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_support_request(uuid,uuid,bigint,text,text,text,text,text,text) TO `+affiliateSupportOperatorRole); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `DROP OWNED BY `+affiliateSupportOperatorRole+`; DROP ROLE `+affiliateSupportOperatorRole)
+	}()
+	var supportDirectAccess, supportInspectAccess, supportTransitionAccess bool
+	if err := pool.QueryRow(ctx, `SELECT
+		has_table_privilege($1,'public.affiliate_support_requests','SELECT'),
+		has_function_privilege($1,'public.spyglass_inspect_affiliate_support_request(uuid,uuid,text,text,text)','EXECUTE'),
+		has_function_privilege($1,'public.spyglass_transition_affiliate_support_request(uuid,uuid,bigint,text,text,text,text,text,text)','EXECUTE')`, affiliateSupportOperatorRole).Scan(
+		&supportDirectAccess, &supportInspectAccess, &supportTransitionAccess); err != nil || supportDirectAccess || !supportInspectAccess || !supportTransitionAccess {
+		t.Fatalf("Affiliate support operator table=%v inspect=%v transition=%v err=%v", supportDirectAccess, supportInspectAccess, supportTransitionAccess, err)
 	}
 
 	privacyRepository := postgresadapter.NewPrivacyConsentRepository(pool)
