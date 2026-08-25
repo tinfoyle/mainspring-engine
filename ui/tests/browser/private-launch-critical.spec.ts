@@ -832,6 +832,55 @@ test("@text-zoom authenticated routes retain content and reflow at 200% text siz
   }
 });
 
+test("@browser-zoom authenticated routes reflow at 400% browser scale", async ({ page, context }) => {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setDeviceMetricsOverride", {
+    width: 320,
+    height: 225,
+    deviceScaleFactor: 4,
+    mobile: false,
+    screenWidth: 1280,
+    screenHeight: 900,
+    screenOrientation: { type: "landscapePrimary", angle: 0 }
+  });
+  await expect.poll(() => page.evaluate(() => ({
+    cssWidth: innerWidth,
+    cssHeight: innerHeight,
+    devicePixelRatio,
+    screenWidth: screen.width,
+    screenHeight: screen.height
+  }))).toEqual({ cssWidth: 320, cssHeight: 225, devicePixelRatio: 4, screenWidth: 1280, screenHeight: 900 });
+
+  const routes = [
+    { path: "/app/your-turn", heading: "Your Turn" },
+    { path: "/app/checkout?offer=team-monthly-v1", heading: "Review before Stripe." },
+    { path: "/app/privacy", heading: "Privacy you can act on." },
+    { path: "/app/affiliate", heading: "One identity. One clear ledger." },
+    { path: "/app/account", heading: "People and authority" },
+    { path: `/app/work/${workItem.id}`, heading: workItem.title },
+    { path: `/app/knowledge/claims/${knowledgeClaim.id}`, heading: knowledgeClaim.key },
+    { path: `/app/baseline/${baselineID}`, heading: "Business Baseline" },
+    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name },
+    { path: `/app/schedules/${schedule.id}`, heading: schedule.name },
+    { path: `/app/finance/entries/${financeEntry.id}`, heading: "A governed ledger for operating truth" },
+    { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Connect deliberately. Observe every effect." },
+    { path: `/app/marketing/releases/${marketingRelease.id}`, heading: "Prepare the message. Govern the release." },
+    { path: "/app/billing", heading: "Know what the Account pays for" },
+    { path: "/app/security", heading: "Security follows you" },
+    { path: "/app/account-exports", heading: "Take your Account with you" },
+    { path: "/app/account-closures", heading: "Deliberate and recoverable" }
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(route.path);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    });
+  }
+});
+
 test("mobile navigation traps and restores focus", async ({ page }, testInfo) => {
   test.skip(!["chromium-phone-360", "chromium-phone", "chromium-phone-412", "chromium-reflow", "chromium-tablet"].includes(testInfo.project.name), "compact-navigation interaction contract");
   await page.goto("/app/your-turn");

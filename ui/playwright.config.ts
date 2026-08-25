@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const textZoomChecks = /@text-zoom/;
+const browserZoomChecks = /@browser-zoom/;
+const standardChecks = /@text-zoom|@browser-zoom/;
 
 export default defineConfig({
   testDir: "./tests/browser",
@@ -47,57 +49,62 @@ export default defineConfig({
   projects: [
     {
       name: "chromium-desktop",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } }
     },
     {
       name: "firefox-desktop",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Desktop Firefox"], viewport: { width: 1280, height: 900 } }
     },
     {
       name: "webkit-desktop",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Desktop Safari"], viewport: { width: 1280, height: 900 } }
     },
     {
       name: "chromium-phone-360",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Pixel 7"], viewport: { width: 360, height: 800 } }
     },
     {
       name: "chromium-phone",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } }
     },
     {
       name: "chromium-phone-412",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Pixel 7"], viewport: { width: 412, height: 915 } }
     },
     {
       name: "chromium-reflow",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Desktop Chrome"], viewport: { width: 320, height: 800 } }
     },
     {
       name: "chromium-tablet",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Desktop Chrome"], viewport: { width: 768, height: 1024 }, hasTouch: true }
     },
     {
       name: "chromium-forced-colors",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 }, forcedColors: "active" }
     },
     {
       name: "chromium-reduced-motion",
-      grepInvert: textZoomChecks,
+      grepInvert: standardChecks,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 }, contextOptions: { reducedMotion: "reduce" } }
     },
     {
       name: "chromium-text-zoom",
       grep: textZoomChecks,
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } }
+    },
+    {
+      name: "chromium-browser-zoom-400",
+      grep: browserZoomChecks,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } }
     }
   ]

@@ -196,3 +196,39 @@ test("@text-zoom public acquisition remains usable at 200% text size", async ({ 
     });
   }
 });
+
+test("@browser-zoom public acquisition reflows at 400% browser scale", async ({ page, context }) => {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setDeviceMetricsOverride", {
+    width: 320,
+    height: 225,
+    deviceScaleFactor: 4,
+    mobile: false,
+    screenWidth: 1280,
+    screenHeight: 900,
+    screenOrientation: { type: "landscapePrimary", angle: 0 }
+  });
+  await expect.poll(() => page.evaluate(() => ({
+    cssWidth: innerWidth,
+    cssHeight: innerHeight,
+    devicePixelRatio,
+    screenWidth: screen.width,
+    screenHeight: screen.height
+  }))).toEqual({ cssWidth: 320, cssHeight: 225, devicePixelRatio: 4, screenWidth: 1280, screenHeight: 900 });
+
+  const routes = [
+    { path: "/", heading: "Know what needs you next." },
+    { path: "/pricing", heading: /Start free/ },
+    ...publicFeatureAndPolicyRoutes
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(`http://127.0.0.1:4174${route.path}`);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+      expect(state.analyticsEvents, `${route.path} emitted before an analytics decision`).toEqual([]);
+    });
+  }
+});
