@@ -45,6 +45,16 @@ const consent = {
   renewal_required: false,
   surface: "private"
 };
+const privacyRightsRequest = {
+  request_id: "11000000-0000-4000-8000-000000000011",
+  kind: "erasure",
+  scope: "affiliate",
+  state: "submitted",
+  requested_at: "2026-08-25T12:00:00Z",
+  response_due_at: "2026-09-24T12:00:00Z",
+  updated_at: "2026-08-25T12:00:00Z",
+  verified_at: "2026-08-25T12:00:00Z"
+};
 const catalog = {
   version: 2,
   published_at: "2026-08-24T20:00:00Z",
@@ -1046,6 +1056,53 @@ test("Integration research failure retains the scoped customer query", async ({ 
   await expect(query).toHaveValue("current policy retention requirements");
   await expect(connection).toHaveValue(integrationConnection.id);
   expect(searches).toEqual([{ connection_id: integrationConnection.id, query: "current policy retention requirements", limit: 10 }]);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("GDPR rights requests are tracked, deduplicated, and cancelable", async ({ page }) => {
+  const submissions: unknown[] = [];
+  const cancellations: string[] = [];
+  await page.route("**/api/v1/privacy/rights-requests", async (route) => {
+    if (route.request().method() === "POST") {
+      submissions.push(route.request().postDataJSON());
+      await fulfillJSON(route, privacyRightsRequest, 201);
+    } else await fulfillJSON(route, { requests: [] });
+  });
+  await page.route(`**/api/v1/privacy/rights-requests/${privacyRightsRequest.request_id}`, async (route) => {
+    cancellations.push(route.request().method());
+    await fulfillJSON(route, { ...privacyRightsRequest, state: "canceled", updated_at: "2026-08-25T12:05:00Z" });
+  });
+  await page.goto("/app/privacy");
+  await page.getByLabel("What would you like to do?").selectOption("erasure");
+  await page.getByLabel("Which records?").selectOption("affiliate");
+  await page.getByRole("button", { name: "Submit verified request" }).click();
+  await expect(page.getByRole("status")).toContainText("Your Erasure request for Affiliate data was received.");
+  const historyItem = page.getByRole("listitem").filter({ hasText: "Erasure · Affiliate" });
+  await expect(historyItem).toContainText("Submitted");
+  await expect(page.getByRole("button", { name: "Submit verified request" })).toBeDisabled();
+  await historyItem.getByRole("button", { name: "Cancel" }).click();
+  await expect(historyItem).toContainText("Canceled");
+  await expect(page.getByRole("button", { name: "Submit verified request" })).toBeEnabled();
+  expect(submissions).toEqual([{ kind: "erasure", scope: "affiliate" }]);
+  expect(cancellations).toEqual(["DELETE"]);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("GDPR rights requests hand off exact context for passkey confirmation", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*403/);
+  await page.route("**/api/v1/privacy/rights-requests", async (route) => {
+    if (route.request().method() === "POST") {
+      await fulfillProblem(route, 403, "strong_reauthentication_required", "Confirm this privacy-rights request with a passkey.");
+    } else await fulfillJSON(route, { requests: [] });
+  });
+  await page.goto("/app/privacy");
+  await page.getByLabel("What would you like to do?").selectOption("portability");
+  await page.getByLabel("Which records?").selectOption("account");
+  await page.getByRole("button", { name: "Submit verified request" }).click();
+  await expect(page).toHaveURL(/\/app\/security\?return_to=%2Fapp%2Fprivacy&status=strong_reauthentication_required$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });

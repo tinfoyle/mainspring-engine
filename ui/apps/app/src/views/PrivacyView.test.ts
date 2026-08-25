@@ -26,6 +26,16 @@ const consent = {
   renewal_required: false,
   surface: "private" as const
 };
+const rightsRequest = {
+  request_id: "11000000-0000-4000-8000-000000000011",
+  kind: "erasure" as const,
+  scope: "affiliate" as const,
+  state: "submitted" as const,
+  requested_at: "2026-08-25T12:00:00Z",
+  response_due_at: "2026-09-24T12:00:00Z",
+  updated_at: "2026-08-25T12:00:00Z",
+  verified_at: "2026-08-25T12:00:00Z"
+};
 
 async function mountView() {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/privacy", component: PrivacyView }] });
@@ -42,7 +52,7 @@ beforeEach(() => {
   api.listPrivacyRightsRequests.mockReset().mockResolvedValue({ requests: [] });
   api.setPrivacyConsent.mockReset().mockResolvedValue({ ...consent, analytics: false, marketing: false });
   api.submitPrivacyRightsRequest.mockReset();
-  api.cancelPrivacyRightsRequest.mockReset();
+  api.cancelPrivacyRightsRequest.mockReset().mockResolvedValue({ ...rightsRequest, state: "canceled" });
   api.erasePrivacyData.mockReset().mockResolvedValue(undefined);
 });
 
@@ -86,5 +96,25 @@ describe("privacy controls", () => {
 
     expect(api.erasePrivacyData).toHaveBeenCalledOnce();
     expect(wrapper.text()).toContain("privacy receipt and raw analytics were erased");
+  });
+
+  it("tracks one verified Affiliate erasure request and permits cancellation", async () => {
+    api.submitPrivacyRightsRequest.mockResolvedValue(rightsRequest);
+    const wrapper = await mountView();
+    await wrapper.get("#rights-kind").setValue("erasure");
+    await wrapper.get("#rights-scope").setValue("affiliate");
+    await wrapper.get(".rights-form").trigger("submit");
+    await flushPromises();
+
+    expect(api.submitPrivacyRightsRequest).toHaveBeenCalledWith({ kind: "erasure", scope: "affiliate" });
+    expect(wrapper.text()).toContain("Your Erasure request for Affiliate data was received.");
+    expect(wrapper.text()).toContain("Erasure · Affiliate");
+    expect(wrapper.get<HTMLButtonElement>('.rights-form button[type="submit"]').element.disabled).toBe(true);
+
+    await wrapper.findAll("button").find((button) => button.text() === "Cancel")?.trigger("click");
+    await flushPromises();
+    expect(api.cancelPrivacyRightsRequest).toHaveBeenCalledWith(rightsRequest.request_id);
+    expect(wrapper.text()).toContain("The submitted request was canceled.");
+    expect(wrapper.get<HTMLButtonElement>('.rights-form button[type="submit"]').element.disabled).toBe(false);
   });
 });
