@@ -6,5 +6,6 @@ export * from "./attention";
 export * from "./catalog";
 export * from "./affiliate";
 export * from "./work";
+export * from "./knowledge";
 export * from "./generated/api-types";
 export { apiRoutes } from "./generated/api-contract";

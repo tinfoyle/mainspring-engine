@@ -134,6 +134,22 @@ main { min-width: 0; }
 .modal-backdrop { position: fixed; z-index: 80; inset: 0; padding: 1rem; display: grid; place-items: end center; background: rgb(3 20 25 / 62%); }
 .modal-card { width: min(34rem, 100%); max-height: calc(100vh - 2rem); overflow: auto; box-shadow: var(--io-shadow); }
 .modal-actions { display: flex; justify-content: flex-end; gap: .6rem; }
+.knowledge-section { margin-top: 1.25rem; padding: 1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
+.knowledge-section > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.knowledge-section > header h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.55rem/1.2 Georgia, serif; }
+.knowledge-section > header > span { flex: 0 0 auto; color: var(--io-ink-soft); font-size: .78rem; }
+.knowledge-list { margin: 1rem 0 0; padding: 0; display: grid; gap: .65rem; list-style: none; }
+.knowledge-card { min-width: 0; min-height: 5.5rem; padding: .9rem; display: grid; gap: .35rem; border: 1px solid var(--io-line); border-radius: .75rem; color: inherit; background: var(--io-sky); text-decoration: none; }
+a.knowledge-card:hover { border-color: var(--io-ocean-500); }
+.knowledge-card strong { color: var(--io-ocean-950); overflow-wrap: anywhere; }
+.knowledge-card span, .knowledge-card small { color: var(--io-ink-soft); overflow-wrap: anywhere; line-height: 1.4; }
+.knowledge-card small { font-size: .75rem; }
+.knowledge-value { max-height: 24rem; margin: 0 0 1rem; overflow: auto; padding: 1rem; border-radius: .7rem; color: #d9f6ec; background: var(--io-ocean-950); font: .8rem/1.55 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.knowledge-citations { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e8eeeb; }
+.knowledge-citations h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.2rem/1.2 Georgia, serif; }
+.knowledge-citations ol { margin: .7rem 0 0; padding: 0; display: grid; list-style: none; }
+.knowledge-citations li { padding: .75rem 0; display: grid; gap: .3rem; border-top: 1px solid #e8eeeb; }
+.knowledge-citations span { color: var(--io-ink-soft); overflow-wrap: anywhere; }
 .checkout-layout { margin-top: 1.5rem; display: grid; gap: 1rem; }
 .checkout-card { min-width: 0; padding: 1.1rem; display: grid; gap: .85rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
 .checkout-card h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.55rem/1.2 Georgia, serif; }
@@ -214,6 +230,8 @@ main { min-width: 0; }
   .work-filters { grid-template-columns: 2fr 1fr 1fr auto; align-items: end; }
   .work-list { grid-template-columns: 1fr 1fr; }
   .work-form-grid { grid-template-columns: repeat(3, 1fr); }
+  .knowledge-section { padding: 1.35rem; }
+  .knowledge-list { grid-template-columns: 1fr 1fr; }
   .modal-backdrop { place-items: center; }
 }
 
