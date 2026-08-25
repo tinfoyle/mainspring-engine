@@ -16,6 +16,7 @@ import BillingView from "./views/BillingView.vue";
 import FinanceView from "./views/FinanceView.vue";
 import IntegrationsView from "./views/IntegrationsView.vue";
 import BaselineView from "./views/BaselineView.vue";
+import MarketingView from "./views/MarketingView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -49,6 +50,9 @@ export const router = createRouter({
     { path: "/app/integrations/connections/:connectionID", name: "integration-connection", component: IntegrationsView, meta: { title: "Integration connection" } },
     { path: "/app/integrations/executions/:executionID", name: "integration-execution", component: IntegrationsView, meta: { title: "Integration execution" } },
     { path: "/app/integrations/authorizations/:authorizationID", name: "integration-authorization", component: IntegrationsView, meta: { title: "Integration authorization" } },
+    { path: "/app/marketing", name: "marketing", component: MarketingView, meta: { title: "Marketing" } },
+    { path: "/app/marketing/campaigns/:campaignID", name: "marketing-campaign", component: MarketingView, meta: { title: "Marketing campaign" } },
+    { path: "/app/marketing/releases/:releaseID", name: "marketing-release", component: MarketingView, meta: { title: "Marketing release" } },
     { path: "/app/checkout", name: "checkout", component: CheckoutView, meta: { title: "Checkout" } },
     { path: "/app/affiliate", name: "affiliate", component: AffiliateView, meta: { title: "Affiliate" } },
     { path: "/app/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },
