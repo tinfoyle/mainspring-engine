@@ -199,6 +199,27 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .agents-proposals { border-left: 3px solid var(--io-coral); padding-left: .7rem; }
 .agents-proposals a { min-height: 44px; display: inline-flex; align-items: center; color: var(--io-ocean-800); font-weight: 750; }
 .agents-confidence { display: inline-block; margin-top: .75rem; color: var(--io-ocean-650); font-weight: 750; }
+.schedule-editor { margin-top: 1.25rem; }
+.schedule-editor > h3 { margin: .7rem 0 0; color: var(--io-ocean-950); font: 500 1.25rem/1.2 Georgia, serif; }
+.schedule-editor > label, .schedule-grid label, .schedule-options label { display: grid; gap: .35rem; color: var(--io-ocean-950); font-size: .8rem; font-weight: 780; }
+.schedule-editor input, .schedule-editor select, .schedule-editor textarea { width: 100%; min-height: 48px; padding: .72rem; border: 1px solid var(--io-line); border-radius: .68rem; color: var(--io-ink); background: white; font: inherit; }
+.schedule-editor textarea { resize: vertical; }
+.schedule-editor label small { color: var(--io-ink-soft); font-weight: 500; }
+.schedule-grid { display: grid; gap: .7rem; }
+.weekday-grid { grid-template-columns: 1fr 1fr; }
+.weekday-grid legend { grid-column: 1 / -1; }
+.weekday-grid label { min-height: 48px; }
+.schedule-options { padding: .8rem; border: 1px solid var(--io-line); border-radius: .75rem; background: var(--io-sky); }
+.schedule-options summary, .schedule-detail summary { min-height: 44px; display: flex; align-items: center; color: var(--io-ocean-800); font-weight: 780; cursor: pointer; }
+.schedule-options > label, .schedule-options > .schedule-grid { margin-top: .7rem; }
+.schedule-list { margin: 1.25rem 0 0; padding: 0; display: grid; gap: .75rem; list-style: none; }
+.schedule-card { min-width: 0; min-height: 8rem; padding: 1rem; display: grid; gap: 1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); color: inherit; background: var(--io-paper); text-decoration: none; }
+.schedule-card:hover { border-color: var(--io-ocean-500); }
+.schedule-card h2 { margin: .65rem 0 .35rem; color: var(--io-ocean-950); font-size: 1.08rem; }
+.schedule-card p, .schedule-card small { color: var(--io-ink-soft); line-height: 1.45; }
+.schedule-card p { margin: 0; }
+.schedule-detail details { margin-top: 1.2rem; padding-top: .8rem; border-top: 1px solid #e8eeeb; }
+.schedule-detail details p { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--io-ink-soft); line-height: 1.5; }
 .checkout-layout { margin-top: 1.5rem; display: grid; gap: 1rem; }
 .checkout-card { min-width: 0; padding: 1.1rem; display: grid; gap: .85rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
 .checkout-card h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.55rem/1.2 Georgia, serif; }
@@ -285,6 +306,9 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .agents-roster, .agents-conversations, .agents-transcript { padding: 1.35rem; }
   .agents-personas { grid-template-columns: 1fr 1fr; }
   .agents-manager { grid-template-columns: 1fr auto; align-items: end; }
+  .schedule-grid { grid-template-columns: repeat(2, 1fr); }
+  .weekday-grid { grid-template-columns: repeat(4, 1fr); }
+  .schedule-list { grid-template-columns: 1fr 1fr; }
   .modal-backdrop { place-items: center; }
 }
 

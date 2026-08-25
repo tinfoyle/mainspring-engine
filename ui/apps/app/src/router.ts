@@ -7,6 +7,7 @@ import AffiliateView from "./views/AffiliateView.vue";
 import WorkView from "./views/WorkView.vue";
 import KnowledgeView from "./views/KnowledgeView.vue";
 import AgentsView from "./views/AgentsView.vue";
+import SchedulesView from "./views/SchedulesView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -22,6 +23,8 @@ export const router = createRouter({
 	{ path: "/app/agents", name: "agents", component: AgentsView, meta: { title: "Agents" } },
 	{ path: "/app/agents/boardrooms/:roomID", name: "agent-boardroom", component: AgentsView, meta: { title: "Agent Boardroom" } },
 	{ path: "/app/agents/boardrooms/:roomID/conversations/:conversationID", name: "agent-conversation", component: AgentsView, meta: { title: "Agent conversation" } },
+    { path: "/app/schedules", name: "schedules", component: SchedulesView, meta: { title: "Schedules" } },
+    { path: "/app/schedules/:scheduleID", name: "schedule-detail", component: SchedulesView, meta: { title: "Schedule detail" } },
     { path: "/app/checkout", name: "checkout", component: CheckoutView, meta: { title: "Checkout" } },
     { path: "/app/affiliate", name: "affiliate", component: AffiliateView, meta: { title: "Affiliate" } },
     { path: "/app/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },
