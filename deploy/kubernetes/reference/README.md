@@ -211,6 +211,14 @@ active-plus-retained keyring, exact environment confirmation, and a database
 role limited to encrypted passkey columns and immutable aggregate operator
 events. See [passkey-key-rotation.md](../../../docs/production/passkey-key-rotation.md).
 
+Privacy-rights fulfillment is intentionally absent as a standing Deployment.
+Environments run `spyglass privacy-rights-admin inspect|start-review|resolve` as
+a short-lived, human-authorized Job with an execute-only global database role,
+exact environment confirmation and action-bound evidence identity/digest. It
+must not inherit Account API, export worker, object-store, email, billing or
+provider credentials. See
+[privacy-rights-operations.md](../../../docs/production/privacy-rights-operations.md).
+
 Work release administration is also intentionally absent as a standing
 Deployment. Environments run `spyglass work-release-admin inspect|requeue` as a
 short-lived, human-authorized Job with the target cell's execute-only operator

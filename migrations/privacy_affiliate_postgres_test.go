@@ -12,6 +12,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrights"
+	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrightsadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/analytics"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
@@ -81,6 +82,94 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	var rightsEvents int
 	if queryErr := pool.QueryRow(ctx, `SELECT count(*) FROM privacy_rights_request_events WHERE request_id=$1`, rightsRequest.ID).Scan(&rightsEvents); err != nil || queryErr != nil || canceledRights.State != privacy.RightsCanceled || rightsEvents != 2 {
 		t.Fatalf("canceled rights=%+v events=%d err=%v query_err=%v", canceledRights, rightsEvents, err, queryErr)
+	}
+	fulfillmentRequest, err := rightsService.Submit(ctx, privacyrights.SubmitCommand{UserID: affiliateUser, Session: rightsSession,
+		Kind: privacy.RightsErasure, Scope: privacy.RightsAnalytics})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightsAdmin, err := privacyrightsadmin.New(postgresadapter.NewPrivacyRightsAdminRepository(pool), ids.RandomGenerator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewedRights, err := rightsAdmin.StartReview(ctx, fulfillmentRequest.ID, fulfillmentRequest.Version,
+		"privacy-operator@example.test", "Verify the submitted request", "local")
+	if err != nil || reviewedRights.State != privacy.RightsInReview || reviewedRights.Version != 2 {
+		t.Fatalf("reviewed rights=%+v err=%v", reviewedRights, err)
+	}
+	if _, err := rightsAdmin.Resolve(ctx, fulfillmentRequest.ID, fulfillmentRequest.Version, privacy.RightsCompleted,
+		privacyrightsadmin.ResolutionEvidence{ID: "10000000-0000-4000-8000-000000000012", SHA256: [32]byte{1}},
+		"privacy-operator@example.test", "Record reviewed fulfillment evidence", "local"); !errors.Is(err, privacyrightsadmin.ErrStateConflict) {
+		t.Fatalf("stale privacy rights resolution error=%v", err)
+	}
+	evidence := privacyrightsadmin.ResolutionEvidence{ID: "10000000-0000-4000-8000-000000000012", SHA256: [32]byte{1, 2, 3}}
+	completedRights, err := rightsAdmin.Resolve(ctx, fulfillmentRequest.ID, reviewedRights.Version, privacy.RightsCompleted, evidence,
+		"privacy-operator@example.test", "Record reviewed fulfillment evidence", "local")
+	var storedEvidenceID string
+	var storedEvidenceSHA []byte
+	if queryErr := pool.QueryRow(ctx, `SELECT evidence_id::text,evidence_sha256 FROM privacy_rights_request_events WHERE request_id=$1 AND action='resolved'`, fulfillmentRequest.ID).Scan(&storedEvidenceID, &storedEvidenceSHA); err != nil || queryErr != nil || completedRights.State != privacy.RightsCompleted || completedRights.Version != 3 || storedEvidenceID != evidence.ID || len(storedEvidenceSHA) != 32 {
+		t.Fatalf("completed rights=%+v evidence_id=%q evidence_size=%d err=%v query_err=%v", completedRights, storedEvidenceID, len(storedEvidenceSHA), err, queryErr)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE privacy_rights_request_events SET state='declined' WHERE request_id=$1 AND action='resolved'`, fulfillmentRequest.ID); err == nil {
+		t.Fatal("privacy rights fulfillment evidence was mutable")
+	}
+	const legacyRequest = "10000000-0000-4000-8000-000000000013"
+	const legacySubmittedEvent = "10000000-0000-4000-8000-000000000014"
+	const legacyCanceledEvent = "10000000-0000-4000-8000-000000000015"
+	legacyWrites := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO privacy_rights_requests
+			(request_id,user_id,kind,scope,state,verified_at,requested_at,response_due_at,updated_at)
+		 VALUES ($1,$2,'correction','identity','submitted',$3,$3,$3::timestamptz+interval '1 month',$3)`, []any{legacyRequest, affiliateUser, now}},
+		{`INSERT INTO privacy_rights_request_events (event_id,request_id,state,occurred_at) VALUES ($1,$2,'submitted',$3)`, []any{legacySubmittedEvent, legacyRequest, now}},
+		{`UPDATE privacy_rights_requests SET state='canceled',updated_at=$2::timestamptz+interval '1 second' WHERE request_id=$1`, []any{legacyRequest, now}},
+		{`INSERT INTO privacy_rights_request_events (event_id,request_id,state,occurred_at) VALUES ($1,$2,'canceled',$3::timestamptz+interval '1 second')`, []any{legacyCanceledEvent, legacyRequest, now}},
+	}
+	for _, write := range legacyWrites {
+		if _, err := pool.Exec(ctx, write.query, write.args...); err != nil {
+			t.Fatalf("rolling compatibility write: %v", err)
+		}
+	}
+	var legacyVersion uint64
+	var legacyActions []string
+	if err := pool.QueryRow(ctx, `SELECT version FROM privacy_rights_requests WHERE request_id=$1`, legacyRequest).Scan(&legacyVersion); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := pool.Query(ctx, `SELECT action FROM privacy_rights_request_events WHERE request_id=$1 ORDER BY version`, legacyRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var action string
+		if err := rows.Scan(&action); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		legacyActions = append(legacyActions, action)
+	}
+	rows.Close()
+	if legacyVersion != 2 || len(legacyActions) != 2 || legacyActions[0] != "submitted" || legacyActions[1] != "canceled" {
+		t.Fatalf("legacy version=%d actions=%v", legacyVersion, legacyActions)
+	}
+	const operatorRole = "spyglass_privacy_rights_operator_contract"
+	if _, err := pool.Exec(ctx, `CREATE ROLE `+operatorRole+` NOLOGIN;
+		GRANT USAGE ON SCHEMA public TO `+operatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_inspect_privacy_rights_request(uuid,uuid,text,text,text) TO `+operatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_transition_privacy_rights_request(uuid,uuid,bigint,text,text,uuid,bytea,text,text,text) TO `+operatorRole); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `DROP OWNED BY `+operatorRole+`; DROP ROLE `+operatorRole)
+	}()
+	var directTableAccess, inspectFunctionAccess, transitionFunctionAccess bool
+	if err := pool.QueryRow(ctx, `SELECT
+		has_table_privilege($1,'public.privacy_rights_requests','SELECT'),
+		has_function_privilege($1,'public.spyglass_inspect_privacy_rights_request(uuid,uuid,text,text,text)','EXECUTE'),
+		has_function_privilege($1,'public.spyglass_transition_privacy_rights_request(uuid,uuid,bigint,text,text,uuid,bytea,text,text,text)','EXECUTE')`, operatorRole).Scan(
+		&directTableAccess, &inspectFunctionAccess, &transitionFunctionAccess); err != nil || directTableAccess || !inspectFunctionAccess || !transitionFunctionAccess {
+		t.Fatalf("operator table=%v inspect=%v transition=%v err=%v", directTableAccess, inspectFunctionAccess, transitionFunctionAccess, err)
 	}
 
 	affiliateRepository := postgresadapter.NewAffiliateProgramRepository(pool)

@@ -87,6 +87,7 @@ import (
 	modelgatewaybootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/modelgatewayapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
 	passkeycommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/passkeyadmin"
+	privacyrightscommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/privacyrightsadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/routereceiptworker"
 	runnerbrokerbootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/runnerbrokerapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/runnercontroller"
@@ -95,6 +96,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreconciler"
 	workreleasecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/workreleaseadmin"
 	integrationsdomain "github.com/tinfoyle/spyglass-engine/internal/modules/integrations"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/buildinfo"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/observability"
@@ -211,12 +213,14 @@ func main() {
 		err = runAccountMoveAdmin(ctx, logger)
 	case "passkey-admin":
 		err = runPasskeyAdmin(ctx, logger)
+	case "privacy-rights-admin":
+		err = runPrivacyRightsAdmin(ctx, logger)
 	case "catalog-admin":
 		err = runCatalogAdmin(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -364,6 +368,85 @@ func runPasskeyAdmin(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	return passkeycommand.Run(ctx, config, logger)
+}
+
+func runPrivacyRightsAdmin(ctx context.Context, logger *slog.Logger) error {
+	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "start-review" && os.Args[2] != "resolve") {
+		return errors.New("usage: spyglass privacy-rights-admin inspect|start-review|resolve")
+	}
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	actor, err := requiredEnv("SPYGLASS_OPERATOR_ID")
+	if err != nil {
+		return err
+	}
+	reason, err := requiredEnv("SPYGLASS_OPERATOR_REASON")
+	if err != nil {
+		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	confirmation, err := requiredEnv("SPYGLASS_CONFIRM_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	requestID, err := requiredEnv("SPYGLASS_PRIVACY_RIGHTS_REQUEST_ID")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	config := privacyrightscommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Actor: actor, Reason: reason,
+		Environment: environment, ConfirmEnvironment: confirmation, RequestID: ids.PrivacyRightsRequestID(requestID), MaxDatabaseConns: maxConns}
+	if config.Action != "inspect" {
+		config.ExpectedVersion, err = uint64Env("SPYGLASS_PRIVACY_RIGHTS_VERSION")
+		if err != nil {
+			return err
+		}
+	}
+	if config.Action == "resolve" {
+		state, err := requiredEnv("SPYGLASS_PRIVACY_RIGHTS_RESOLUTION_STATE")
+		if err != nil {
+			return err
+		}
+		config.ResolutionState = privacy.RightsState(state)
+		config.Evidence.ID, err = requiredEnv("SPYGLASS_PRIVACY_RIGHTS_EVIDENCE_ID")
+		if err != nil {
+			return err
+		}
+		rawDigest, err := requiredEnv("SPYGLASS_PRIVACY_RIGHTS_EVIDENCE_SHA256")
+		if err != nil {
+			return err
+		}
+		digest, err := hex.DecodeString(rawDigest)
+		if err != nil || len(digest) != len(config.Evidence.SHA256) {
+			return errors.New("SPYGLASS_PRIVACY_RIGHTS_EVIDENCE_SHA256 must be 64 hexadecimal characters")
+		}
+		copy(config.Evidence.SHA256[:], digest)
+	}
+	scopeValues := map[string]string{"request_id": string(config.RequestID)}
+	if config.Action != "inspect" {
+		scopeValues["expected_version"] = strconv.FormatUint(config.ExpectedVersion, 10)
+	}
+	if config.Action == "resolve" {
+		scopeValues["resolution_state"] = string(config.ResolutionState)
+		scopeValues["evidence_id"] = config.Evidence.ID
+		scopeValues["evidence_sha256"] = hex.EncodeToString(config.Evidence.SHA256[:])
+	}
+	scope := operatorScope(scopeValues)
+	config.Reason, err = requireOperatorAuthorization(logger, "privacy-rights-admin", config.Action, config.Actor, config.Reason, config.Environment, scope)
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return privacyrightscommand.Run(startup, config, logger)
 }
 
 func runCatalogAdmin(ctx context.Context, logger *slog.Logger) error {

@@ -35,8 +35,8 @@ func (r *PrivacyRightsRepository) Create(ctx context.Context, request privacy.Ri
 	defer func() { _ = tx.Rollback(ctx) }()
 	_, err = tx.Exec(ctx, `
 		INSERT INTO privacy_rights_requests
-			(request_id,user_id,kind,scope,state,verified_at,requested_at,response_due_at,updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, request.ID, request.UserID, request.Kind, request.Scope,
+			(request_id,user_id,version,kind,scope,state,verified_at,requested_at,response_due_at,updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, request.ID, request.UserID, request.Version, request.Kind, request.Scope,
 		request.State, request.VerifiedAt, request.RequestedAt, request.ResponseDueAt, request.UpdatedAt)
 	if err != nil {
 		var databaseError *pgconn.PgError
@@ -45,8 +45,8 @@ func (r *PrivacyRightsRepository) Create(ctx context.Context, request privacy.Ri
 		}
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO privacy_rights_request_events (event_id,request_id,state,occurred_at) VALUES ($1,$2,$3,$4)`,
-		eventID, request.ID, request.State, request.RequestedAt); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO privacy_rights_request_events (event_id,request_id,action,state,version,occurred_at) VALUES ($1,$2,'submitted',$3,$4,$5)`,
+		eventID, request.ID, request.State, request.Version, request.RequestedAt); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -57,7 +57,7 @@ func (r *PrivacyRightsRepository) List(ctx context.Context, userID ids.UserID, l
 		return nil, privacy.ErrInvalidRightsRequest
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT request_id,user_id,kind,scope,state,verified_at,requested_at,response_due_at,updated_at
+		SELECT request_id,user_id,version,kind,scope,state,verified_at,requested_at,response_due_at,updated_at
 		FROM privacy_rights_requests WHERE user_id=$1
 		ORDER BY requested_at DESC,request_id DESC LIMIT $2`, userID, limit)
 	if err != nil {
@@ -67,7 +67,7 @@ func (r *PrivacyRightsRepository) List(ctx context.Context, userID ids.UserID, l
 	requests := make([]privacy.RightsRequest, 0)
 	for rows.Next() {
 		var request privacy.RightsRequest
-		if err := rows.Scan(&request.ID, &request.UserID, &request.Kind, &request.Scope, &request.State, &request.VerifiedAt,
+		if err := rows.Scan(&request.ID, &request.UserID, &request.Version, &request.Kind, &request.Scope, &request.State, &request.VerifiedAt,
 			&request.RequestedAt, &request.ResponseDueAt, &request.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -88,9 +88,9 @@ func (r *PrivacyRightsRepository) Cancel(ctx context.Context, requestID ids.Priv
 	defer func() { _ = tx.Rollback(ctx) }()
 	var request privacy.RightsRequest
 	err = tx.QueryRow(ctx, `
-		SELECT request_id,user_id,kind,scope,state,verified_at,requested_at,response_due_at,updated_at
+		SELECT request_id,user_id,version,kind,scope,state,verified_at,requested_at,response_due_at,updated_at
 		FROM privacy_rights_requests WHERE request_id=$1 AND user_id=$2 FOR UPDATE`, requestID, userID).Scan(
-		&request.ID, &request.UserID, &request.Kind, &request.Scope, &request.State, &request.VerifiedAt,
+		&request.ID, &request.UserID, &request.Version, &request.Kind, &request.Scope, &request.State, &request.VerifiedAt,
 		&request.RequestedAt, &request.ResponseDueAt, &request.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return privacy.RightsRequest{}, privacyrights.ErrNotFound
@@ -101,12 +101,12 @@ func (r *PrivacyRightsRepository) Cancel(ctx context.Context, requestID ids.Priv
 	if request.State != privacy.RightsSubmitted {
 		return privacy.RightsRequest{}, privacyrights.ErrNotCancelable
 	}
-	request.State, request.UpdatedAt = privacy.RightsCanceled, now.UTC()
-	if _, err := tx.Exec(ctx, `UPDATE privacy_rights_requests SET state=$1,updated_at=$2 WHERE request_id=$3`, request.State, request.UpdatedAt, request.ID); err != nil {
+	request.State, request.Version, request.UpdatedAt = privacy.RightsCanceled, request.Version+1, now.UTC()
+	if _, err := tx.Exec(ctx, `UPDATE privacy_rights_requests SET state=$1,version=$2,updated_at=$3 WHERE request_id=$4`, request.State, request.Version, request.UpdatedAt, request.ID); err != nil {
 		return privacy.RightsRequest{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO privacy_rights_request_events (event_id,request_id,state,occurred_at) VALUES ($1,$2,$3,$4)`,
-		eventID, request.ID, request.State, request.UpdatedAt); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO privacy_rights_request_events (event_id,request_id,action,state,version,occurred_at) VALUES ($1,$2,'canceled',$3,$4,$5)`,
+		eventID, request.ID, request.State, request.Version, request.UpdatedAt); err != nil {
 		return privacy.RightsRequest{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

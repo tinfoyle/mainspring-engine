@@ -37,6 +37,7 @@ var ErrInvalidRightsRequest = errors.New("privacy rights request is invalid")
 type RightsRequest struct {
 	ID            ids.PrivacyRightsRequestID `json:"request_id"`
 	UserID        ids.UserID                 `json:"-"`
+	Version       uint64                     `json:"-"`
 	Kind          RightsKind                 `json:"kind"`
 	Scope         RightsScope                `json:"scope"`
 	State         RightsState                `json:"state"`
@@ -47,7 +48,7 @@ type RightsRequest struct {
 }
 
 func NewRightsRequest(id ids.PrivacyRightsRequestID, userID ids.UserID, kind RightsKind, scope RightsScope, now time.Time) (RightsRequest, error) {
-	request := RightsRequest{ID: id, UserID: userID, Kind: kind, Scope: scope, State: RightsSubmitted,
+	request := RightsRequest{ID: id, UserID: userID, Version: 1, Kind: kind, Scope: scope, State: RightsSubmitted,
 		VerifiedAt: now.UTC(), RequestedAt: now.UTC(), ResponseDueAt: now.UTC().AddDate(0, 1, 0), UpdatedAt: now.UTC()}
 	if err := request.Validate(); err != nil {
 		return RightsRequest{}, err
@@ -56,7 +57,7 @@ func NewRightsRequest(id ids.PrivacyRightsRequestID, userID ids.UserID, kind Rig
 }
 
 func (r RightsRequest) Validate() error {
-	if ids.Validate(string(r.ID)) != nil || ids.Validate(string(r.UserID)) != nil || !validRightsKind(r.Kind) || !validRightsScope(r.Scope) ||
+	if ids.Validate(string(r.ID)) != nil || ids.Validate(string(r.UserID)) != nil || r.Version == 0 || !validRightsKind(r.Kind) || !validRightsScope(r.Scope) ||
 		!validRightsState(r.State) || r.VerifiedAt.IsZero() || r.RequestedAt.IsZero() || r.ResponseDueAt.IsZero() || r.UpdatedAt.IsZero() ||
 		r.VerifiedAt.After(r.RequestedAt) || !r.ResponseDueAt.After(r.RequestedAt) || r.UpdatedAt.Before(r.RequestedAt) {
 		return ErrInvalidRightsRequest
