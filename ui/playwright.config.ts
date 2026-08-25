@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/browser",
+  testIgnore: "identity-entry-live.spec.ts",
   fullyParallel: false,
   forbidOnly: true,
   retries: 0,

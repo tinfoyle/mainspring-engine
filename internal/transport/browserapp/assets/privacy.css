@@ -1,4 +1,4 @@
-.privacy-consent { position: fixed; z-index: 100; right: 14px; bottom: 14px; width: min(31rem, calc(100% - 28px)); max-height: calc(100vh - 28px); overflow: auto; border: 1px solid var(--line); border-radius: 16px; background: #fff; padding: 18px; box-shadow: 0 24px 70px #102d2050; }
+.privacy-consent { position: fixed; z-index: 100; left: 14px; bottom: 14px; width: min(31rem, calc(100% - 28px)); max-height: calc(100vh - 28px); overflow: auto; border: 1px solid var(--line); border-radius: 16px; background: #fff; padding: 18px; box-shadow: 0 24px 70px #102d2050; }
 .privacy-consent h2 { margin: 0; font: 500 1.65rem/1.1 var(--display); }
 .privacy-consent > p:not(.eyebrow):not(.privacy-error) { color: var(--muted); font-size: .82rem; line-height: 1.5; }
 .privacy-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -13,4 +13,5 @@
 .privacy-options button { margin-top: 10px; }
 .privacy-error { margin: 10px 0 0; color: #884739; font-size: .75rem; }
 .privacy-reopen { position: fixed; z-index: 90; right: 14px; bottom: 14px; min-height: 44px; border: 1px solid var(--line); border-radius: 999px; background: #fff; padding: 8px 13px; color: var(--green-dark); box-shadow: 0 8px 24px #102d2025; font-weight: 750; }
+@media (max-width: 900px) { .privacy-consent { position: relative; inset: auto; width: auto; max-height: none; margin: 14px; } }
 @media (max-width: 520px) { .privacy-actions { grid-template-columns: 1fr; } .privacy-actions button:last-child { grid-column: auto; } }

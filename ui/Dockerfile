@@ -39,6 +39,21 @@ COPY playwright.config.ts playwright.config.ts
 COPY tests/browser tests/browser
 RUN npm run browser:app && touch /tmp/spyglass-private-browser-passed
 
+FROM ${PLAYWRIGHT_IMAGE} AS identity-browser-test
+WORKDIR /workspace
+ENV CI=1 \
+    PLAYWRIGHT_HTML_OPEN=never
+COPY package.json package-lock.json ./
+COPY apps/app/package.json apps/app/package.json
+COPY apps/public/package.json apps/public/package.json
+COPY packages/api/package.json packages/api/package.json
+COPY packages/design-system/package.json packages/design-system/package.json
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
+COPY playwright.identity.config.ts playwright.identity.config.ts
+COPY tests/browser/identity-entry-live.spec.ts tests/browser/identity-entry-live.spec.ts
+COPY tests/browser/local-edge-port-forward.mjs tests/browser/local-edge-port-forward.mjs
+CMD ["npm", "run", "browser:identity"]
+
 FROM source AS test
 COPY --from=browser-test /tmp/spyglass-private-browser-passed /tmp/spyglass-private-browser-passed
 RUN test -f /tmp/spyglass-private-browser-passed && npm run verify && npm audit --audit-level=high
