@@ -124,7 +124,7 @@ test("landing consent gates analytics and preserves the signup handoff", async (
   await expect.poll(() => state.analyticsEvents.length).toBe(2);
   expect(state.analyticsEvents.map((event) => event.name).sort()).toEqual(["primary_cta_selected", "signup_handoff_started"]);
   expect(state.analyticsEvents.find((event) => event.name === "primary_cta_selected")?.fields).toMatchObject(
-    ["chromium-phone", "chromium-reflow"].includes(testInfo.project.name)
+    ["chromium-phone-360", "chromium-phone", "chromium-phone-412", "chromium-reflow"].includes(testInfo.project.name)
       ? { cta_code: "hero_start_free", route_name: "landing" }
       : { cta_code: "navigation_start_free", route_name: "index" }
   );
@@ -145,7 +145,7 @@ test("pricing remains usable after rejection and carries only the opaque offer",
 });
 
 test("public phone menu contains focus and restores the opener", async ({ page }, testInfo) => {
-  test.skip(!["chromium-phone", "chromium-reflow"].includes(testInfo.project.name), "compact-navigation interaction contract");
+  test.skip(!["chromium-phone-360", "chromium-phone", "chromium-phone-412", "chromium-reflow"].includes(testInfo.project.name), "compact-navigation interaction contract");
   await page.goto("http://127.0.0.1:4174/");
   const menu = page.getByRole("button", { name: "Menu" });
   await menu.click();
