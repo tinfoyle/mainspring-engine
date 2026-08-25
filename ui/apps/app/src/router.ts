@@ -14,6 +14,7 @@ import ExportsView from "./views/ExportsView.vue";
 import LifecycleView from "./views/LifecycleView.vue";
 import BillingView from "./views/BillingView.vue";
 import FinanceView from "./views/FinanceView.vue";
+import IntegrationsView from "./views/IntegrationsView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -41,6 +42,10 @@ export const router = createRouter({
     { path: "/app/finance/accounts/:postingAccountID", name: "finance-account", component: FinanceView, meta: { title: "Finance account" } },
     { path: "/app/finance/entries/:entryID", name: "finance-entry", component: FinanceView, meta: { title: "Finance entry" } },
     { path: "/app/finance/reconciliations/:reconciliationID", name: "finance-reconciliation", component: FinanceView, meta: { title: "Finance reconciliation" } },
+    { path: "/app/integrations", name: "integrations", component: IntegrationsView, meta: { title: "Integrations" } },
+    { path: "/app/integrations/connections/:connectionID", name: "integration-connection", component: IntegrationsView, meta: { title: "Integration connection" } },
+    { path: "/app/integrations/executions/:executionID", name: "integration-execution", component: IntegrationsView, meta: { title: "Integration execution" } },
+    { path: "/app/integrations/authorizations/:authorizationID", name: "integration-authorization", component: IntegrationsView, meta: { title: "Integration authorization" } },
     { path: "/app/checkout", name: "checkout", component: CheckoutView, meta: { title: "Checkout" } },
     { path: "/app/affiliate", name: "affiliate", component: AffiliateView, meta: { title: "Affiliate" } },
     { path: "/app/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },

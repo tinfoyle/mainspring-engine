@@ -16,6 +16,7 @@ describe("application shell", () => {
     expect(wrapper.get("nav").attributes("aria-label")).toBe("Main navigation");
     expect(wrapper.get("nav").text()).toContain("Schedules");
     expect(wrapper.get("nav").text()).toContain("Finance");
+    expect(wrapper.get("nav").text()).toContain("Integrations");
     expect(wrapper.get("nav").text()).toContain("Account");
     expect(wrapper.get("nav").text()).toContain("Billing");
     expect(wrapper.get("nav").text()).toContain("Security");

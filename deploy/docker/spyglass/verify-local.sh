@@ -172,6 +172,10 @@ private_routes=(
   /app/finance/accounts/10000000-0000-4000-8000-000000000002
   /app/finance/entries/10000000-0000-4000-8000-000000000003
   /app/finance/reconciliations/10000000-0000-4000-8000-000000000004
+  /app/integrations
+  /app/integrations/connections/10000000-0000-4000-8000-000000000001
+  /app/integrations/executions/10000000-0000-4000-8000-000000000002
+  /app/integrations/authorizations/10000000-0000-4000-8000-000000000003
   /app/account
   /app/billing
   /app/security

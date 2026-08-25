@@ -30,6 +30,7 @@ const navigation = [
   { to: "/app/agents", label: "Agents" },
   { to: "/app/schedules", label: "Schedules" },
   { to: "/app/finance", label: "Finance" },
+  { to: "/app/integrations", label: "Integrations" },
   { to: "/app/account", label: "Account" },
   { to: "/app/billing", label: "Billing" },
   { to: "/app/security", label: "Security" },
