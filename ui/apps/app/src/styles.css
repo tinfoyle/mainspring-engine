@@ -108,6 +108,32 @@ main { min-width: 0; }
 .decision-card input[type="radio"], .decision-card input[type="checkbox"] { flex: 0 0 auto; width: 1.35rem; height: 1.35rem; accent-color: var(--io-ocean-650); }
 .form-note { margin: 0; color: var(--io-ink-soft); font-size: .85rem; line-height: 1.45; }
 .form-error { margin: 0; color: #9b2f24; font-weight: 700; line-height: 1.45; }
+.work-summary { margin-top: 1.4rem; display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; }
+.work-summary article { min-width: 0; padding: 1rem; display: grid; gap: .25rem; border: 1px solid var(--io-line); border-radius: .8rem; background: var(--io-paper); }
+.work-summary small { color: var(--io-ink-soft); font-size: .7rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.work-summary strong { color: var(--io-ocean-950); font: 500 1.8rem/1 Georgia, serif; }
+.work-filters { margin-top: 1rem; padding: .9rem; display: grid; gap: .7rem; border: 1px solid var(--io-line); border-radius: .8rem; background: var(--io-paper); }
+.work-filters label, .work-create > label, .work-form-grid label, .modal-card > label { display: grid; gap: .35rem; color: var(--io-ocean-950); font-size: .78rem; font-weight: 780; }
+.work-filters input, .work-filters select, .work-create input, .work-create select, .modal-card input, .modal-card select { width: 100%; min-height: 48px; padding: .7rem; border: 1px solid var(--io-line); border-radius: .65rem; color: var(--io-ink); background: white; font: inherit; }
+.work-list { margin: 1rem 0 0; padding: 0; display: grid; gap: .75rem; list-style: none; }
+.work-card { min-height: 7.5rem; padding: 1rem; display: block; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); color: inherit; background: var(--io-paper); box-shadow: 0 7px 22px rgb(5 47 57 / 5%); text-decoration: none; }
+.work-card:hover { border-color: var(--io-ocean-500); }
+.work-card h2 { margin: .7rem 0 .4rem; color: var(--io-ocean-950); font-size: 1.08rem; line-height: 1.3; }
+.work-card p, .work-description, .work-children p { color: var(--io-ink-soft); line-height: 1.5; }
+.load-more { margin-top: 1rem; }
+.work-create { margin-top: 1.25rem; }
+.work-create > h2 { margin-bottom: .2rem; }
+.work-form-grid { display: grid; gap: .7rem; }
+.work-detail-card > .work-description { margin: 0 0 1.25rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.work-children { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e8eeeb; }
+.work-children h2 { margin: 0 0 .7rem; color: var(--io-ocean-950); font: 500 1.2rem/1.2 Georgia, serif; }
+.work-child-link { min-height: 52px; padding: .7rem 0; display: flex; align-items: center; justify-content: space-between; gap: .8rem; border-top: 1px solid #e8eeeb; color: var(--io-ocean-950); text-decoration: none; }
+.work-child-link strong { min-width: 0; overflow-wrap: anywhere; }
+.work-child-link span { flex: 0 0 auto; color: var(--io-ink-soft); font-size: .75rem; }
+.work-action-row { display: flex; flex-wrap: wrap; gap: .55rem; }
+.modal-backdrop { position: fixed; z-index: 80; inset: 0; padding: 1rem; display: grid; place-items: end center; background: rgb(3 20 25 / 62%); }
+.modal-card { width: min(34rem, 100%); max-height: calc(100vh - 2rem); overflow: auto; box-shadow: var(--io-shadow); }
+.modal-actions { display: flex; justify-content: flex-end; gap: .6rem; }
 .checkout-layout { margin-top: 1.5rem; display: grid; gap: 1rem; }
 .checkout-card { min-width: 0; padding: 1.1rem; display: grid; gap: .85rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
 .checkout-card h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.55rem/1.2 Georgia, serif; }
@@ -184,6 +210,11 @@ main { min-width: 0; }
   .rights-form select:nth-of-type(2) { grid-column: 2; grid-row: 2; }
   .rights-form .scope-description, .rights-form .queue-inline-status, .rights-form .io-button { grid-column: 1 / -1; }
   .privacy-tool-grid { grid-template-columns: repeat(3, 1fr); }
+  .work-summary { grid-template-columns: repeat(4, 1fr); }
+  .work-filters { grid-template-columns: 2fr 1fr 1fr auto; align-items: end; }
+  .work-list { grid-template-columns: 1fr 1fr; }
+  .work-form-grid { grid-template-columns: repeat(3, 1fr); }
+  .modal-backdrop { place-items: center; }
 }
 
 @media (min-width: 72rem) {
