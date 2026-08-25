@@ -79,4 +79,28 @@ describe("Your Turn queue", () => {
     expect(wrapper.text()).toContain("You are offline");
     wrapper.unmount();
   });
+
+  it("recovers from an initial failure and refreshes when connectivity returns", async () => {
+    listAttentionQueue.mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce([]).mockResolvedValueOnce([approval]);
+    const session = useSessionStore();
+    session.accounts = [account];
+    session.selectedID = account.account_id;
+    session.userID = "20000000-0000-4000-8000-000000000002";
+
+    const wrapper = mount(YourTurnView, { global: { stubs: { RouterLink: RouterLinkStub } } });
+    await flushPromises();
+    expect(wrapper.get('[role="alert"]').text()).toContain("That did not load cleanly");
+    await wrapper.get('[role="alert"] button').trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Nothing needs you in this view");
+
+    window.dispatchEvent(new Event("offline"));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toContain("You are offline");
+    window.dispatchEvent(new Event("online"));
+    await flushPromises();
+    expect(wrapper.text()).toContain("marketing.release.publish");
+    expect(wrapper.text()).toContain("Your Turn refreshed. 1 open item.");
+    wrapper.unmount();
+  });
 });

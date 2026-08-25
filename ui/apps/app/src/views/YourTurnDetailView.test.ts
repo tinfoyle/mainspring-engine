@@ -2,7 +2,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AccountChoice, Approval, AttentionDetail } from "@spyglass/api";
+import { APIProblem, type AccountChoice, type Approval, type AttentionDetail } from "@spyglass/api";
 import YourTurnDetailView from "./YourTurnDetailView.vue";
 import { router } from "../router";
 import { useSessionStore } from "../stores/session";
@@ -120,6 +120,7 @@ const recovery = {
 } as Extract<AttentionDetail, { kind: "action" }>;
 
 beforeEach(async () => {
+  sessionStorage.clear();
   setActivePinia(createPinia());
   getAttentionDetail.mockReset().mockResolvedValue(approval);
   decideApproval.mockReset().mockResolvedValue({ ...approval, state: "approved", version: 5 } as Approval);
@@ -241,6 +242,40 @@ describe("Your Turn approval detail", () => {
     await wrapper.get("form").trigger("submit");
     await flushPromises();
     expect(confirmActionResolution).toHaveBeenCalledWith(account.account_id, expect.objectContaining({ resolution: expect.objectContaining({ state: "pending" }) }));
+    wrapper.unmount();
+  });
+
+  it("reloads a conflicted decision while preserving only its tab-scoped draft", async () => {
+    getAttentionDetail.mockReset()
+      .mockResolvedValueOnce(approval)
+      .mockResolvedValueOnce({ ...approval, version: 5, updated_at: "2026-08-24T20:03:00Z" });
+    decideApproval.mockRejectedValueOnce(new APIProblem(412, {
+      code: "attention_version_conflict",
+      detail: "The approval changed before this decision was recorded.",
+      status: 412,
+      title: "Precondition Failed",
+      type: "https://infiniteocean.net/problems/attention_version_conflict"
+    }));
+    const session = useSessionStore();
+    session.accounts = [account];
+    session.selectedID = account.account_id;
+    session.userID = "20000000-0000-4000-8000-000000000002";
+    const wrapper = mount(YourTurnDetailView, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get('input[value="approve"]').setValue(true);
+    await wrapper.get("textarea").setValue("The governed release is ready.");
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(getAttentionDetail).toHaveBeenCalledTimes(2);
+    expect(wrapper.text()).toContain("This item changed. The latest version is loading; your draft is preserved.");
+    expect((wrapper.get('input[value="approve"]').element as HTMLInputElement).checked).toBe(true);
+    expect((wrapper.get("textarea").element as HTMLTextAreaElement).value).toBe("The governed release is ready.");
+    expect((wrapper.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false);
+    expect(wrapper.get('button[type="submit"]').attributes()).toHaveProperty("disabled");
+    expect(sessionStorage.length).toBe(1);
     wrapper.unmount();
   });
 });

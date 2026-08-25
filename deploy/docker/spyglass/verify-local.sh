@@ -154,6 +154,26 @@ curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.
   "${public_origin}/pricing" >/tmp/spyglass-local-pricing.html
 grep -q "https://app.infiniteocean.localhost:${tls_port}/signup" /tmp/spyglass-local-pricing.html
 
+for route in features privacy affiliate-terms; do
+  curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
+    "${public_origin}/${route}" >"/tmp/spyglass-local-${route}.html"
+  grep -q '<meta name="description" content="' "/tmp/spyglass-local-${route}.html"
+  grep -q '<h1' "/tmp/spyglass-local-${route}.html"
+done
+grep -q 'Complete feature map' /tmp/spyglass-local-features.html
+grep -q 'Privacy, in plain language' /tmp/spyglass-local-privacy.html
+grep -q 'Affiliate program terms' /tmp/spyglass-local-affiliate-terms.html
+
+public_feature_slugs=(your-turn work knowledge baseline agents schedules finance marketing integrations account-administration security export-lifecycle)
+for slug in "${public_feature_slugs[@]}"; do
+  curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
+    "${public_origin}/features/${slug}" >"/tmp/spyglass-local-feature-${slug}.html"
+  grep -q '<meta name="description" content="' "/tmp/spyglass-local-feature-${slug}.html"
+  grep -q '<h1' "/tmp/spyglass-local-feature-${slug}.html"
+  grep -q 'Primary workflows' "/tmp/spyglass-local-feature-${slug}.html"
+  grep -q 'Governance boundaries' "/tmp/spyglass-local-feature-${slug}.html"
+done
+
 curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
   "${public_origin}/catalog.json" >/tmp/spyglass-local-catalog.json
 jq -e '.version > 0 and (.packages | length) > 0' /tmp/spyglass-local-catalog.json >/dev/null

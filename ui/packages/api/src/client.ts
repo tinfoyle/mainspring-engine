@@ -1,5 +1,12 @@
 import type { Problem } from "./generated/api-types";
 
+export type UnauthorizedHandler = (path: string) => void;
+let unauthorizedHandler: UnauthorizedHandler | undefined;
+
+export function setUnauthorizedHandler(handler?: UnauthorizedHandler): void {
+  unauthorizedHandler = handler;
+}
+
 export class APIProblem extends Error {
   readonly status: number;
   readonly problem: Problem | undefined;
@@ -24,6 +31,7 @@ export async function requestJSON<T>(path: string, init: RequestInit = {}): Prom
     if (response.headers.get("content-type")?.includes("application/problem+json")) {
       problem = (await response.json()) as Problem;
     }
+    if (response.status === 401) unauthorizedHandler?.(path);
     throw new APIProblem(response.status, problem);
   }
   if (response.status === 204) {

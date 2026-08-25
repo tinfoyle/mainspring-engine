@@ -170,6 +170,7 @@ async function complete(): Promise<void> {
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "Spyglass could not save this decision.";
     if (cause instanceof APIProblem && (cause.status === 412 || cause.problem?.code === "attention_version_conflict")) {
+      confirmed.value = false;
       announcement.value = "This item changed. The latest version is loading; your draft is preserved.";
       await load();
     }

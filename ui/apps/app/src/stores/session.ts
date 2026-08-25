@@ -36,11 +36,7 @@ export const useSessionStore = defineStore("session", () => {
       contextAccountID.value = result.selected_account_id;
       selectedID.value = contextAccountID.value ?? selectedID.value ?? result.accounts[0]?.account_id;
     } catch (error) {
-	  if (error instanceof APIProblem && error.status === 401) {
-	    const returnTo = `${window.location.pathname}${window.location.search}`;
-	    window.location.assign(`/login?return_to=${encodeURIComponent(returnTo)}`);
-	    return;
-	  }
+      if (error instanceof APIProblem && error.status === 401) return;
       unavailable.value = true;
     } finally {
       loading.value = false;

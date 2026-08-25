@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { APIProblem, requestJSON } from "./client";
+import { APIProblem, requestJSON, setUnauthorizedHandler } from "./client";
 import { emitAnalytics } from "./analytics";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  setUnauthorizedHandler();
+  vi.unstubAllGlobals();
+});
 
 describe("requestJSON", () => {
   it("uses same-origin credentials and typed JSON", async () => {
@@ -19,6 +22,18 @@ describe("requestJSON", () => {
       status: 403, headers: { "content-type": "application/problem+json" }
     })));
     await expect(requestJSON("/api/test")).rejects.toEqual(expect.objectContaining<Partial<APIProblem>>({ status: 403, message: "No access" }));
+  });
+
+  it("notifies the private application when a session expires", async () => {
+    const expired = vi.fn();
+    setUnauthorizedHandler(expired);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "Sign in again" }), {
+      status: 401, headers: { "content-type": "application/problem+json" }
+    })));
+
+    await expect(requestJSON("/api/v1/accounts/account-a/work-items")).rejects.toEqual(expect.objectContaining<Partial<APIProblem>>({ status: 401 }));
+    expect(expired).toHaveBeenCalledOnce();
+    expect(expired).toHaveBeenCalledWith("/api/v1/accounts/account-a/work-items");
   });
 });
 
