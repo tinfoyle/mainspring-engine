@@ -13,6 +13,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
@@ -26,6 +27,7 @@ const saving = ref(false);
 const error = ref("");
 const detailError = ref("");
 const announcement = ref("");
+const navigationNotice = ref("");
 const decision = ref<"accept" | "reject">("accept");
 const reason = ref("");
 let queueSequence = 0;
@@ -35,6 +37,22 @@ const knowledgePackage = computed(() => session.selected?.entitlements.packages.
 const available = computed(() => Boolean(knowledgePackage.value && knowledgePackage.value.mode !== "suspended"));
 const writable = computed(() => Boolean(knowledgePackage.value?.mode === "enabled" && session.selected && !session.selected.owner_enrollment_required && ["owner", "administrator", "member"].includes(session.selected.role)));
 const claimID = computed(() => typeof route.params.claimID === "string" ? route.params.claimID : "");
+const hasDecisionDraft = computed(() => Boolean(
+  detail.value?.state === "proposed"
+  && writable.value
+  && (decision.value !== "accept" || reason.value.trim())
+));
+
+useSafeNavigation({
+  dirty: hasDecisionDraft,
+  pending: saving,
+  message: "Leave this Knowledge decision? Your unsubmitted reason will remain only on this page.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Knowledge decision is still being saved. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your Knowledge decision remains ready for review.";
+  }
+});
 
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
 function scope(value: { readonly kind: string; readonly id?: string }): string { return value.id ? `${label(value.kind)} · ${value.id}` : label(value.kind); }
@@ -68,7 +86,7 @@ async function loadDetail(): Promise<void> {
 async function submitDecision(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || !detail.value || saving.value) return;
-  saving.value = true; detailError.value = "";
+  saving.value = true; detailError.value = ""; navigationNotice.value = "";
   try {
     const result = await decideKnowledgeClaim(accountID, detail.value, { accept: decision.value === "accept", reason: reason.value.trim() });
     detail.value = result.claim;
@@ -88,6 +106,7 @@ watch(() => [session.selectedID, claimID.value, available.value], () => void loa
 <template>
   <section class="page knowledge-page">
     <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
+    <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <template v-if="claimID">
       <RouterLink class="back-link" to="/app/knowledge">← Back to Knowledge</RouterLink>
       <section v-if="detailLoading" class="queue-state" role="status"><h1>Loading claim…</h1></section>

@@ -11,6 +11,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 const questions: ReadonlyArray<{ readonly key: string; readonly prompt: string; readonly explanation: string; readonly optional?: boolean }> = [
@@ -26,7 +27,7 @@ const stages = ["interview", "inventory", "gap_review", "plan_approval", "active
 const session = useSessionStore(); const route = useRoute(); const router = useRouter();
 const baseline = ref<BaselineAssessment>(); const facts = ref<ReadonlyArray<KnowledgeFactSummary>>([]); const work = ref<ReadonlyArray<WorkItem>>([]);
 const connections = ref<ReadonlyArray<IntegrationConnection>>([]); const selectedConnection = ref<IntegrationConnectionDetail>(); const grants = ref<ReadonlyArray<BaselineSourceGrant>>([]);
-const loading = ref(false); const saving = ref(false); const error = ref(""); const announcement = ref(""); let sequence = 0;
+const loading = ref(false); const saving = ref(false); const error = ref(""); const announcement = ref(""); const navigationNotice = ref(""); let sequence = 0;
 const skipped = ref(new Set<string>()); const answerKind = ref<"fact" | "statement" | "unknown">("statement"); const factID = ref(""); const answerValue = ref(""); const reason = ref("");
 const requirementID = ref(""); const evidenceID = ref(""); const disposition = ref<"accepted" | "rejected" | "gap" | "not_applicable">("gap"); const reviewReason = ref("");
 const workItemID = ref(""); const connectionID = ref(""); const folders = ref(""); const sinceAt = ref(""); const untilAt = ref(""); const revokeReason = ref("");
@@ -49,6 +50,39 @@ const linkedWork = computed(() => work.value.filter((item) => item.provenance.so
 const planMaterialized = computed(() => gaps.value.every((gap) => linkedWork.value.some((item) => item.provenance.baseline_requirement_id === gap.id)));
 const readyForReady = computed(() => baseline.value?.requirements.every((item) => ["satisfied", "not_applicable"].includes(item.disposition)) ?? false);
 const sourceConnections = computed(() => connections.value.filter((item) => item.state === "active" && ["email", "google_drive"].includes(item.kind)));
+const hasUnsavedBaselineWork = computed(() => {
+  if (!baseline.value) return false;
+  if (baseline.value.state === "interview") {
+    return Boolean(skipped.value.size || answerKind.value !== "statement" || factID.value || answerValue.value.trim() || reason.value.trim());
+  }
+  if (baseline.value.state === "gap_review") {
+    return Boolean(disposition.value !== "gap" || evidenceID.value || reviewReason.value.trim());
+  }
+  if (["active", "ready"].includes(baseline.value.state)) {
+    return Boolean(
+      workItemID.value
+      || evidenceID.value
+      || reviewReason.value.trim()
+      || connectionID.value
+      || folders.value.trim()
+      || sinceAt.value
+      || untilAt.value
+      || revokeReason.value.trim()
+    );
+  }
+  return false;
+});
+
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: hasUnsavedBaselineWork,
+  pending: saving,
+  message: "Leave Business Baseline? Your unsubmitted answer or review will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Baseline change is still being saved. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your Baseline answer or review remains on this page.";
+  }
+});
 
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
 function date(value?: string): string { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)) : "Not set"; }
@@ -73,9 +107,9 @@ async function load(): Promise<void> {
     resetReview(pendingRequirement.value);
   } catch (caught) { handle("load Baseline", caught); } finally { if (current === sequence) loading.value = false; }
 }
-async function start(): Promise<void> { const accountID = session.selectedID; if (!accountID) return; saving.value = true; error.value = ""; try { baseline.value = await startBaseline(accountID); await router.replace(`/app/baseline/${baseline.value.id}`); announcement.value = "Business Baseline started."; } catch (caught) { handle("start Baseline", caught); } finally { saving.value = false; } }
+async function start(): Promise<void> { const accountID = session.selectedID; if (!accountID) return; saving.value = true; error.value = ""; navigationNotice.value = ""; try { baseline.value = await startBaseline(accountID); allowNextNavigation(); await router.replace(`/app/baseline/${baseline.value.id}`); announcement.value = "Business Baseline started."; } catch (caught) { handle("start Baseline", caught); } finally { saving.value = false; } }
 async function saveAnswer(): Promise<void> {
-  const accountID = session.selectedID; const value = baseline.value; const item = question.value; if (!accountID || !value || !item) return; saving.value = true; error.value = "";
+  const accountID = session.selectedID; const value = baseline.value; const item = question.value; if (!accountID || !value || !item) return; saving.value = true; error.value = ""; navigationNotice.value = "";
   try {
     let selected = facts.value.find((entry) => entry.id === factID.value);
     if (answerKind.value === "statement") selected = await captureOwnerKnowledgeFact(accountID, item.key, answerValue.value, `baseline/${value.id}/${item.key}`);
@@ -85,7 +119,7 @@ async function saveAnswer(): Promise<void> {
   catch (caught) { handle("save answer", caught); } finally { saving.value = false; }
 }
 async function advance(kind: "inventory" | "complete" | "submit" | "approve" | "materialize" | "ready" | "maintenance" | "reassess"): Promise<void> {
-  const accountID = session.selectedID; const value = baseline.value; if (!accountID || !value) return; saving.value = true; error.value = "";
+  const accountID = session.selectedID; const value = baseline.value; if (!accountID || !value) return; saving.value = true; error.value = ""; navigationNotice.value = "";
   try {
     if (kind === "inventory") baseline.value = await beginBaselineInventory(accountID, value);
     else if (kind === "complete") baseline.value = await completeBaselineInventory(accountID, value);
@@ -94,23 +128,23 @@ async function advance(kind: "inventory" | "complete" | "submit" | "approve" | "
     else if (kind === "materialize") { const page = await materializeBaselinePlan(accountID, value, planInput(value)); work.value = [...work.value, ...page.items]; }
     else if (kind === "ready") baseline.value = await markBaselineReady(accountID, value);
     else if (kind === "maintenance") { const page = await materializeBaselineMaintenance(accountID, value); work.value = [...work.value, ...page.items]; }
-    else { const result = await reassessBaseline(accountID, value); baseline.value = result.next; await router.replace(`/app/baseline/${result.next.id}`); }
+    else { const result = await reassessBaseline(accountID, value); baseline.value = result.next; allowNextNavigation(); await router.replace(`/app/baseline/${result.next.id}`); }
     resetReview(pendingRequirement.value); announcement.value = kind === "reassess" ? "Reassessment started." : "Baseline updated.";
   } catch (caught) { handle("update Baseline", caught); } finally { saving.value = false; }
 }
 async function review(): Promise<void> {
-  const accountID = session.selectedID; const value = baseline.value; if (!accountID || !value || !requirementID.value) return; saving.value = true; error.value = "";
+  const accountID = session.selectedID; const value = baseline.value; if (!accountID || !value || !requirementID.value) return; saving.value = true; error.value = ""; navigationNotice.value = "";
   try { baseline.value = ["accepted", "rejected"].includes(disposition.value) ? await decideBaselineEvidence(accountID, value, { requirement_id: requirementID.value, evidence_id: evidenceID.value, decision: disposition.value as "accepted" | "rejected", reason: reviewReason.value }) : await dispositionBaselineRequirement(accountID, value, { requirement_id: requirementID.value, disposition: disposition.value as "gap" | "not_applicable", reason: reviewReason.value }); resetReview(pendingRequirement.value); announcement.value = "Requirement reviewed."; }
   catch (caught) { handle("review requirement", caught); } finally { saving.value = false; }
 }
 async function confirmWork(): Promise<void> {
-  const accountID = session.selectedID; const value = baseline.value; const item = work.value.find((entry) => entry.id === workItemID.value); if (!accountID || !value || !item?.provenance.baseline_requirement_id) return; saving.value = true; error.value = "";
-  try { baseline.value = await confirmBaselineWorkEvidence(accountID, value, { requirement_id: item.provenance.baseline_requirement_id, work_item_id: item.id, evidence_id: evidenceID.value, reason: reviewReason.value }); evidenceID.value = ""; reviewReason.value = ""; announcement.value = "Completed Work evidence confirmed."; }
+  const accountID = session.selectedID; const value = baseline.value; const item = work.value.find((entry) => entry.id === workItemID.value); if (!accountID || !value || !item?.provenance.baseline_requirement_id) return; saving.value = true; error.value = ""; navigationNotice.value = "";
+  try { baseline.value = await confirmBaselineWorkEvidence(accountID, value, { requirement_id: item.provenance.baseline_requirement_id, work_item_id: item.id, evidence_id: evidenceID.value, reason: reviewReason.value }); workItemID.value = ""; evidenceID.value = ""; reviewReason.value = ""; announcement.value = "Completed Work evidence confirmed."; }
   catch (caught) { handle("confirm Work evidence", caught); } finally { saving.value = false; }
 }
 async function selectConnection(): Promise<void> { const accountID = session.selectedID; if (!accountID || !connectionID.value) { selectedConnection.value = undefined; return; } try { selectedConnection.value = await getIntegrationConnection(accountID, connectionID.value); const scoped = selectedConnection.value.revision.scope.drive_folder_ids; folders.value = scoped?.join("\n") ?? (selectedConnection.value.connection.kind === "email" ? "INBOX" : ""); } catch (caught) { handle("load connection scope", caught); } }
-async function grantSource(): Promise<void> { const accountID = session.selectedID; const value = baseline.value; const connection = selectedConnection.value; if (!accountID || !value || !connection) return; saving.value = true; error.value = ""; try { const grant = await createBaselineSourceGrant(accountID, value.id, { connection_id: connection.connection.id, source_kind: connection.connection.kind as "email" | "google_drive", folders: folders.value.split("\n").map((item) => item.trim()).filter(Boolean), ...(sinceAt.value ? { since_at: new Date(sinceAt.value).toISOString() } : {}), ...(untilAt.value ? { until_at: new Date(untilAt.value).toISOString() } : {}) }); grants.value = [...grants.value, grant]; announcement.value = "Read-only source granted."; } catch (caught) { handle("grant source", caught); } finally { saving.value = false; } }
-async function revoke(grant: BaselineSourceGrant): Promise<void> { const accountID = session.selectedID; const value = baseline.value; if (!accountID || !value) return; saving.value = true; error.value = ""; try { const updated = await revokeBaselineSourceGrant(accountID, value.id, grant, { reason: revokeReason.value }); grants.value = grants.value.map((item) => item.id === updated.id ? updated : item); revokeReason.value = ""; announcement.value = "Source access revoked."; } catch (caught) { handle("revoke source", caught); } finally { saving.value = false; } }
+async function grantSource(): Promise<void> { const accountID = session.selectedID; const value = baseline.value; const connection = selectedConnection.value; if (!accountID || !value || !connection) return; saving.value = true; error.value = ""; navigationNotice.value = ""; try { const grant = await createBaselineSourceGrant(accountID, value.id, { connection_id: connection.connection.id, source_kind: connection.connection.kind as "email" | "google_drive", folders: folders.value.split("\n").map((item) => item.trim()).filter(Boolean), ...(sinceAt.value ? { since_at: new Date(sinceAt.value).toISOString() } : {}), ...(untilAt.value ? { until_at: new Date(untilAt.value).toISOString() } : {}) }); grants.value = [...grants.value, grant]; connectionID.value = ""; selectedConnection.value = undefined; folders.value = ""; sinceAt.value = ""; untilAt.value = ""; announcement.value = "Read-only source granted."; } catch (caught) { handle("grant source", caught); } finally { saving.value = false; } }
+async function revoke(grant: BaselineSourceGrant): Promise<void> { const accountID = session.selectedID; const value = baseline.value; if (!accountID || !value) return; saving.value = true; error.value = ""; navigationNotice.value = ""; try { const updated = await revokeBaselineSourceGrant(accountID, value.id, grant, { reason: revokeReason.value }); grants.value = grants.value.map((item) => item.id === updated.id ? updated : item); revokeReason.value = ""; announcement.value = "Source access revoked."; } catch (caught) { handle("revoke source", caught); } finally { saving.value = false; } }
 
 watch([() => session.selectedID, () => route.params.assessmentID], load, { immediate: true });
 </script>
@@ -119,6 +153,7 @@ watch([() => session.selectedID, () => route.params.assessmentID], load, { immed
   <section class="page baseline-page">
     <header class="page-heading"><p class="eyebrow">Guided business setup</p><h1>Business Baseline</h1><p>Turn what you know today into a reviewed operating plan. Every answer, evidence decision and plan approval stays attributable.</p></header>
     <p class="sr-only" aria-live="polite">{{ announcement }}</p>
+    <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <div v-if="loading" class="queue-state"><h2>Loading your Baseline…</h2></div>
     <div v-else-if="!available" class="queue-state queue-state--warning"><h2>Knowledge is not available</h2><p>Your selected Account does not currently include readable Knowledge access.</p></div>
     <div v-else-if="error && !baseline" class="queue-state queue-state--error"><h2>Baseline could not load</h2><p>{{ error }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>

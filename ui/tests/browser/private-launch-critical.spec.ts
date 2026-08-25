@@ -1185,19 +1185,54 @@ test("the application shell keeps Account-load failure recoverable", async ({ pa
 
 test("Work capacity denial preserves the customer's local draft", async ({ page }) => {
   allowedBrowserErrors.push(/Failed to load resource:.*403/);
+  let createRequests = 0;
+  let releaseCreate!: () => void;
+  const createHeld = new Promise<void>((resolve) => { releaseCreate = resolve; });
   await page.route(`**/api/v1/accounts/${accountID}/work-items`, async (route) => {
     if (route.request().method() !== "POST") return route.fallback();
+    createRequests += 1;
+    await createHeld;
     await fulfillProblem(route, 403, "limit_exceeded", "This Account has reached its active Work limit. Complete or cancel existing Work before trying again.");
   });
   await page.goto("/app/work");
   await page.getByRole("button", { name: "New work" }).click();
   await page.getByLabel("Title").fill("Preserve this capacity-blocked draft");
   await page.getByRole("button", { name: "Create work" }).click();
+  await expect.poll(() => createRequests).toBe(1);
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  const compact = await menu.isVisible();
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/work$/);
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "This Work change is still being saved." })).toBeVisible();
+  expect(createRequests).toBe(1);
+
+  releaseCreate();
   await expect(page.getByRole("alert")).toContainText("This Account has reached its active Work limit.");
   await expect(page.getByLabel("Title")).toHaveValue("Preserve this capacity-blocked draft");
   await expect(page.getByRole("button", { name: "Create work" })).toBeEnabled();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+
+  const dismissed = new Promise<string>((resolve) => {
+    page.once("dialog", async (dialog) => {
+      resolve(dialog.message());
+      await dialog.dismiss();
+    });
+  });
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(dismissed).resolves.toBe("Leave Work? Your unsubmitted changes will remain only in this browser tab until you return.");
+  await expect(page).toHaveURL(/\/app\/work$/);
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(page.getByLabel("Title")).toHaveValue("Preserve this capacity-blocked draft");
+  await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Work changes remain" })).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept());
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
 test("Work conflict reloads authoritative state before retry", async ({ page }) => {
@@ -1388,6 +1423,22 @@ test("package workspaces reload authoritative state after stale writes", async (
     expect(detailLoads).toBeGreaterThanOrEqual(2);
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+
+    const dismissed = new Promise<string>((resolve) => {
+      page.once("dialog", async (dialog) => {
+        resolve(dialog.message());
+        await dialog.dismiss();
+      });
+    });
+    await page.getByRole("link", { name: "Back to Knowledge" }).click();
+    await expect(dismissed).resolves.toBe("Leave this Knowledge decision? Your unsubmitted reason will remain only on this page.");
+    await expect(page).toHaveURL(new RegExp(`/app/knowledge/claims/${knowledgeClaim.id}$`));
+    await expect(page.getByLabel("Decision reason")).toHaveValue("The cited launch plan was superseded during review.");
+    await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Knowledge decision remains" })).toBeVisible();
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("link", { name: "Back to Knowledge" }).click();
+    await expect(page).toHaveURL(/\/app\/knowledge$/);
   });
 
   await test.step("Agent Persona publication refreshes the immutable published version", async () => {
@@ -1511,6 +1562,23 @@ test("package workspaces preserve customer intent through capacity and downstrea
     }]);
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+
+    const dismissed = new Promise<string>((resolve) => {
+      page.once("dialog", async (dialog) => {
+        resolve(dialog.message());
+        await dialog.dismiss();
+      });
+    });
+    await page.getByRole("link", { name: "All Boardrooms" }).click();
+    await expect(dismissed).resolves.toBe("Leave Agents? Your unsubmitted Boardroom or Persona changes will be lost.");
+    await expect(page).toHaveURL(new RegExp(`/app/agents/boardrooms/${agentRoom.id}$`));
+    await expect(page.getByLabel("Subject")).toHaveValue("Capacity-safe launch review");
+    await expect(page.getByLabel("Your question")).toHaveValue("Which launch constraint needs attention first?");
+    await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Boardroom or Persona changes remain" })).toBeVisible();
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("link", { name: "All Boardrooms" }).click();
+    await expect(page).toHaveURL(/\/app\/agents$/);
   });
 
   await test.step("Knowledge decision failure retains the reviewed reason", async () => {
@@ -1526,6 +1594,9 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await expect(page.getByRole("button", { name: "Accept claim" })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("link", { name: "Back to Knowledge" }).click();
+    await expect(page).toHaveURL(/\/app\/knowledge$/);
   });
 
   await test.step("Baseline answer failure retains the explicit unknown", async () => {
@@ -1546,6 +1617,27 @@ test("package workspaces preserve customer intent through capacity and downstrea
     expect(answers).toEqual([{ question_key: "organization.legal_name", kind: "unknown", reason: "The registered name is still being confirmed." }]);
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+
+    const menu = page.getByRole("button", { name: "Open navigation" });
+    const compact = await menu.isVisible();
+    const dismissed = new Promise<string>((resolve) => {
+      page.once("dialog", async (dialog) => {
+        resolve(dialog.message());
+        await dialog.dismiss();
+      });
+    });
+    if (compact) await menu.click();
+    await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+    await expect(dismissed).resolves.toBe("Leave Business Baseline? Your unsubmitted answer or review will be lost.");
+    await expect(page).toHaveURL(new RegExp(`/app/baseline/${baselineID}$`));
+    if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+    await expect(page.getByLabel("What still needs confirmation?")).toHaveValue("The registered name is still being confirmed.");
+    await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Baseline answer or review remains" })).toBeVisible();
+
+    page.once("dialog", (dialog) => dialog.accept());
+    if (compact) await menu.click();
+    await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+    await expect(page).toHaveURL(/\/app\/your-turn$/);
   });
 
   await test.step("Finance failure keeps the exact posting confirmation", async () => {

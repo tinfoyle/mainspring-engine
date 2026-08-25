@@ -18,6 +18,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
@@ -33,6 +34,7 @@ const saving = ref(false);
 const error = ref("");
 const detailError = ref("");
 const announcement = ref("");
+const navigationNotice = ref("");
 const nextCursor = ref("");
 const search = ref("");
 const state = ref<"" | WorkState>("");
@@ -53,6 +55,38 @@ const workPackage = computed(() => session.selected?.entitlements.packages.find(
 const available = computed(() => Boolean(workPackage.value && workPackage.value.mode !== "suspended"));
 const writable = computed(() => Boolean(workPackage.value?.mode === "enabled" && session.selected && !session.selected.owner_enrollment_required && ["owner", "administrator", "member"].includes(session.selected.role)));
 const itemID = computed(() => typeof route.params.itemID === "string" ? route.params.itemID : "");
+const hasCreateDraft = computed(() => createOpen.value && Boolean(
+  draft.title.trim()
+  || draft.description.trim()
+  || draft.kind !== "ticket"
+  || draft.priority !== "normal"
+  || draft.responsibility !== "shared"
+  || draft.external.trim()
+));
+const hasTransitionDraft = computed(() => transitionOpen.value && Boolean(transitionReason.value.trim()));
+const hasAssignmentDraft = computed(() => {
+  if (!assignmentOpen.value || !detail.value) return false;
+  const currentResponsibility = detail.value.assignment.responsibility === "external"
+    ? "external"
+    : detail.value.assignment.responsibility === "user" ? "user" : "shared";
+  return Boolean(
+    assignmentReason.value.trim()
+    || assignmentResponsibility.value !== currentResponsibility
+    || assignmentExternal.value.trim() !== (detail.value.assignment.external_ref ?? "")
+  );
+});
+const hasUnsavedWork = computed(() => hasCreateDraft.value || hasTransitionDraft.value || hasAssignmentDraft.value);
+
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: hasUnsavedWork,
+  pending: saving,
+  message: "Leave Work? Your unsubmitted changes will remain only in this browser tab until you return.",
+  onBlocked: (reason) => {
+    navigationNotice.value = reason === "pending"
+      ? "This Work change is still being saved. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your Work changes remain on this page and in this browser tab.";
+  }
+});
 
 const transitions = computed<ReadonlyArray<{ state: WorkState; label: string }>>(() => {
   if (!detail.value) return [];
@@ -143,7 +177,7 @@ async function loadDetail(): Promise<void> {
 async function submitCreate(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || saving.value) return;
-  saving.value = true; error.value = "";
+  saving.value = true; error.value = ""; navigationNotice.value = "";
   const workAssignment: WorkAssignmentInput = draft.responsibility === "external"
     ? { responsibility: "external", external_ref: draft.external.trim() }
     : { responsibility: draft.responsibility };
@@ -154,6 +188,7 @@ async function submitCreate(): Promise<void> {
     createOpen.value = false;
     announcement.value = `Created work item ${created.number}: ${created.title}.`;
     await refresh();
+    allowNextNavigation();
     await router.push(`/app/work/${encodeURIComponent(created.id)}`);
   } catch (cause) { error.value = cause instanceof APIProblem ? cause.message : "Work could not be created."; }
   finally { saving.value = false; }
@@ -214,6 +249,7 @@ watch(() => [session.selectedID, itemID.value, available.value], () => void load
 <template>
   <section class="page work-page">
     <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
+    <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <template v-if="itemID">
       <RouterLink class="back-link" to="/app/work">← Back to Work</RouterLink>
       <section v-if="detailLoading" class="queue-state" role="status"><h1>Loading work…</h1></section>

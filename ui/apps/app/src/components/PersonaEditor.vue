@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AgentPersona, AgentToolGrantInput, PublishAgentPersonaRequest } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 
 type ToolCapability = AgentToolGrantInput["capability"];
 interface ToolDefinition { capability: ToolCapability; name: string; label: string; description: string; input_schema: Readonly<Record<string, unknown>> }
@@ -26,7 +26,7 @@ const actions = [
 ] as const;
 
 const props = defineProps<{ persona?: AgentPersona | undefined; saving: boolean; error?: string | undefined }>();
-const emit = defineEmits<{ close: []; publish: [input: PublishAgentPersonaRequest] }>();
+const emit = defineEmits<{ close: []; publish: [input: PublishAgentPersonaRequest]; "dirty-change": [dirty: boolean] }>();
 const name = ref(props.persona?.name ?? ""); const role = ref(props.persona?.role ?? ""); const description = ref(props.persona?.description ?? ""); const instructions = ref(props.persona?.system_instructions ?? "");
 const provider = ref(props.persona?.policy.provider ?? "openai"); const model = ref(props.persona?.policy.model ?? "gpt-5.4"); const fallbackModels = ref(props.persona?.policy.fallback_models.join(", ") ?? ""); const reasoningEffort = ref(props.persona?.policy.reasoning_effort ?? "medium");
 const maximumInputTokens = ref(props.persona?.policy.maximum_input_tokens ?? 128000); const maximumOutputTokens = ref(props.persona?.policy.maximum_output_tokens ?? 4096); const maximumCostDollars = ref((props.persona?.policy.maximum_cost_micros ?? 500000) / 1_000_000); const maximumToolSteps = ref(props.persona?.policy.maximum_tool_steps ?? 2);
@@ -34,6 +34,29 @@ const citationPolicy = ref<"none" | "required" | "best_effort">(props.persona?.p
 const toolCapabilities = ref<ToolCapability[]>(props.persona?.policy.tools.map((item) => item.capability) ?? []); const actionCapabilities = ref<string[]>([...(props.persona?.policy.action_capabilities ?? [])]);
 const advancedOpen = ref(Boolean(props.persona));
 const title = computed(() => props.persona ? `Publish ${props.persona.name} version ${props.persona.latest_version + 1}` : "Publish a Persona");
+function snapshot(): string {
+  return JSON.stringify({
+    name: name.value,
+    role: role.value,
+    description: description.value,
+    instructions: instructions.value,
+    provider: provider.value,
+    model: model.value,
+    fallbackModels: fallbackModels.value,
+    reasoningEffort: reasoningEffort.value,
+    maximumInputTokens: maximumInputTokens.value,
+    maximumOutputTokens: maximumOutputTokens.value,
+    maximumCostDollars: maximumCostDollars.value,
+    maximumToolSteps: maximumToolSteps.value,
+    citationPolicy: citationPolicy.value,
+    actionPolicy: actionPolicy.value,
+    toolCapabilities: [...toolCapabilities.value].sort(),
+    actionCapabilities: [...actionCapabilities.value].sort()
+  });
+}
+const initialSnapshot = snapshot();
+const dirty = computed(() => snapshot() !== initialSnapshot);
+watch(dirty, (value) => emit("dirty-change", value), { immediate: true });
 
 function toggleTool(capability: ToolCapability): void { toolCapabilities.value = toolCapabilities.value.includes(capability) ? toolCapabilities.value.filter((item) => item !== capability) : [...toolCapabilities.value, capability]; }
 function toggleAction(capability: string): void { actionCapabilities.value = actionCapabilities.value.includes(capability) ? actionCapabilities.value.filter((item) => item !== capability) : [...actionCapabilities.value, capability]; }

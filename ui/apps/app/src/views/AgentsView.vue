@@ -25,6 +25,7 @@ import { IoButton } from "@spyglass/design-system";
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import PersonaEditor from "../components/PersonaEditor.vue";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
@@ -42,8 +43,10 @@ const saving = ref(false);
 const error = ref("");
 const roomError = ref("");
 const announcement = ref("");
+const navigationNotice = ref("");
 const createOpen = ref(false);
 const personaOpen = ref(false);
+const personaDirty = ref(false);
 const editingPersona = ref<AgentPersona>();
 const roomDraft = reactive({ name: "", purpose: "" });
 const managerPersonaID = ref("");
@@ -68,6 +71,27 @@ const activePersonas = computed(() => personas.value.filter((value) => value.sta
 const selectablePersonas = computed(() => activePersonas.value.filter((value) => mode.value !== "manager_led" || value.id !== room.value?.manager_persona_id));
 const terminalRun = computed(() => activeRun.value && ["succeeded", "partially_failed", "failed", "canceled"].includes(activeRun.value.state));
 const recoverableRun = computed(() => activeRun.value && ["partially_failed", "failed"].includes(activeRun.value.state) && activeRun.value.resolutions.length === 0);
+const hasRoomDraft = computed(() => createOpen.value && Boolean(roomDraft.name.trim() || roomDraft.purpose.trim()));
+const hasManagerDraft = computed(() => Boolean(room.value && managerPersonaID.value && managerPersonaID.value !== (room.value.manager_persona_id ?? "")));
+const hasRunDraft = computed(() => {
+  if (!room.value) return false;
+  const expectedPersonas = selectablePersonas.value.map((value) => value.id).sort().join(":");
+  const selectedPersonas = [...selectedPersonaIDs.value].sort().join(":");
+  return Boolean(subject.value.trim() || prompt.value.trim() || mode.value !== "selected" || selectedPersonas !== expectedPersonas);
+});
+const hasRecoveryDraft = computed(() => Boolean(recoverableRun.value && (recoveryAction.value !== "retry_failed" || recoveryNote.value.trim())));
+const hasUnsavedAgentWork = computed(() => hasRoomDraft.value || hasManagerDraft.value || hasRunDraft.value || hasRecoveryDraft.value || personaDirty.value);
+
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: hasUnsavedAgentWork,
+  pending: saving,
+  message: "Leave Agents? Your unsubmitted Boardroom or Persona changes will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Agent change is still being saved. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your Boardroom or Persona changes remain ready for review.";
+  }
+});
 
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
 function initials(value: string): string { return value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
@@ -112,11 +136,11 @@ async function loadConversation(): Promise<void> {
 async function createRoom(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || !configurable.value || saving.value) return;
-  saving.value = true; error.value = "";
+  saving.value = true; error.value = ""; navigationNotice.value = "";
   try {
     const created = await createAgentBoardroom(accountID, { name: roomDraft.name.trim(), purpose: roomDraft.purpose.trim() });
     Object.assign(roomDraft, { name: "", purpose: "" }); createOpen.value = false;
-    announcement.value = `Boardroom ${created.name} created.`; await loadRooms(); await router.push(`/app/agents/boardrooms/${created.id}`);
+    announcement.value = `Boardroom ${created.name} created.`; await loadRooms(); allowNextNavigation(); await router.push(`/app/agents/boardrooms/${created.id}`);
   } catch (cause) { error.value = cause instanceof APIProblem ? cause.message : "The Boardroom could not be created."; }
   finally { saving.value = false; }
 }
@@ -124,7 +148,7 @@ async function createRoom(): Promise<void> {
 async function saveManager(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || !configurable.value || !room.value || !managerPersonaID.value || saving.value) return;
-  saving.value = true; roomError.value = "";
+  saving.value = true; roomError.value = ""; navigationNotice.value = "";
   try {
     const updated = await configureAgentManager(accountID, room.value.id, { manager_persona_id: managerPersonaID.value, expected_version: room.value.version });
     rooms.value = rooms.value.map((value) => value.id === updated.id ? updated : value);
@@ -133,11 +157,12 @@ async function saveManager(): Promise<void> {
   finally { saving.value = false; }
 }
 
-function openPersona(persona?: AgentPersona): void { editingPersona.value = persona; roomError.value = ""; personaOpen.value = true; }
+function openPersona(persona?: AgentPersona): void { editingPersona.value = persona; roomError.value = ""; personaDirty.value = false; personaOpen.value = true; }
+function closePersona(): void { personaOpen.value = false; editingPersona.value = undefined; personaDirty.value = false; }
 async function publishPersona(input: PublishAgentPersonaRequest): Promise<void> {
-  const accountID = session.selectedID; if (!accountID || !configurable.value || !room.value || saving.value) return; saving.value = true; roomError.value = "";
-  try { const value = await publishAgentPersona(accountID, room.value.id, input); personaOpen.value = false; editingPersona.value = undefined; announcement.value = `${value.name} version ${value.latest_version} published.`; await loadRoom(); }
-  catch (cause) { if (cause instanceof APIProblem && cause.status === 409) { personaOpen.value = false; editingPersona.value = undefined; await loadRoom(); roomError.value = "This Persona changed. Review its current immutable version before publishing again."; } else roomError.value = cause instanceof APIProblem ? cause.message : "The Persona version could not be published."; }
+  const accountID = session.selectedID; if (!accountID || !configurable.value || !room.value || saving.value) return; saving.value = true; roomError.value = ""; navigationNotice.value = "";
+  try { const value = await publishAgentPersona(accountID, room.value.id, input); closePersona(); announcement.value = `${value.name} version ${value.latest_version} published.`; await loadRoom(); }
+  catch (cause) { if (cause instanceof APIProblem && cause.status === 409) { closePersona(); await loadRoom(); roomError.value = "This Persona changed. Review its current immutable version before publishing again."; } else roomError.value = cause instanceof APIProblem ? cause.message : "The Persona version could not be published."; }
   finally { saving.value = false; }
 }
 
@@ -145,7 +170,7 @@ async function runBoardroom(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || !runnable.value || !room.value || saving.value || selectedPersonaIDs.value.length === 0) return;
   if (mode.value === "manager_led" && !room.value.manager_persona_id) { roomError.value = "Set a synthesis manager before starting a manager-led run."; return; }
-  saving.value = true; roomError.value = "";
+  saving.value = true; roomError.value = ""; navigationNotice.value = "";
   const input: { prompt: string; mode: AgentRunMode; persona_ids: ReadonlyArray<string>; subject?: string; conversation_id?: string } = {
     prompt: prompt.value.trim(), mode: mode.value, persona_ids: selectedPersonaIDs.value
   };
@@ -155,7 +180,7 @@ async function runBoardroom(): Promise<void> {
     const run = await startAgentRun(accountID, room.value.id, input);
     activeRun.value = run; prompt.value = ""; subject.value = "";
     announcement.value = "The Boardroom run was accepted and is now governed by its frozen Persona versions and policy.";
-    if (conversationID.value !== run.conversation_id) await router.push(`/app/agents/boardrooms/${room.value.id}/conversations/${run.conversation_id}`);
+    if (conversationID.value !== run.conversation_id) { allowNextNavigation(); await router.push(`/app/agents/boardrooms/${room.value.id}/conversations/${run.conversation_id}`); }
     beginPolling(run);
   } catch (cause) { roomError.value = cause instanceof APIProblem ? cause.message : "The Boardroom run could not be started."; }
   finally { saving.value = false; }
@@ -184,11 +209,11 @@ function beginPolling(run: AgentRun): void {
 async function resolveRun(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || !runnable.value || !activeRun.value || saving.value) return;
-  saving.value = true; roomError.value = "";
+  saving.value = true; roomError.value = ""; navigationNotice.value = "";
   try {
     const resolution = await resolveAgentRun(accountID, activeRun.value.id, { action: recoveryAction.value, note: recoveryNote.value.trim() });
     announcement.value = recoveryAction.value === "retry_failed" ? "Failed Persona turns were queued in a new immutable run." : "The failed run outcome was accepted.";
-    recoveryNote.value = "";
+    recoveryNote.value = ""; recoveryAction.value = "retry_failed";
     if (resolution.retry_run_id) { const retry = await getAgentRun(accountID, resolution.retry_run_id); activeRun.value = retry; beginPolling(retry); }
     else activeRun.value = await getAgentRun(accountID, activeRun.value.id);
   } catch (cause) { roomError.value = cause instanceof APIProblem ? cause.message : "The run resolution could not be recorded."; }
@@ -205,6 +230,7 @@ onBeforeUnmount(() => { pollGeneration += 1; if (pollTimer !== undefined) window
 <template>
   <section class="page agents-page">
     <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
+    <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <template v-if="!roomID">
       <header class="page-heading page-heading--action"><div><p class="eyebrow">Governed specialist collaboration</p><h1>Agents</h1><p>Convene versioned Personas in Account-scoped Boardrooms while consequential actions remain routed through Your Turn.</p></div><IoButton v-if="configurable" @click="createOpen = !createOpen">{{ createOpen ? "Close" : "New Boardroom" }}</IoButton></header>
       <section v-if="!session.selectedID" class="queue-state"><h2>Select an Account</h2><p>Every Boardroom belongs to one Account.</p></section>
@@ -238,6 +264,6 @@ onBeforeUnmount(() => { pollGeneration += 1; if (pollTimer !== undefined) window
         <section v-if="conversationID" class="agents-transcript"><header><div><p class="eyebrow">Conversation</p><h2>{{ conversation?.subject ?? "Loading conversation…" }}</h2></div><span>{{ conversation ? label(conversation.state) : "Loading" }}</span></header><p v-if="activeRun" class="agents-run-state" role="status">Latest run: <strong>{{ label(activeRun.state) }}</strong><span v-if="!terminalRun"> · refreshing the durable projection</span></p><form v-if="recoverableRun && runnable" class="agents-recovery decision-card" @submit.prevent="resolveRun"><h3>Resolve this run</h3><p>Retrying creates a new immutable run from the original context and exact Persona versions. Accepting failure records the outcome without pretending it succeeded.</p><fieldset><legend>Resolution</legend><label><input v-model="recoveryAction" type="radio" value="retry_failed"> Retry failed turns</label><label><input v-model="recoveryAction" type="radio" value="accept_failure"> Accept failure</label></fieldset><label>Resolution note<textarea v-model="recoveryNote" minlength="3" maxlength="1000" rows="3" required></textarea></label><IoButton type="submit" :disabled="saving">Record resolution</IoButton></form><div class="agents-message-list" role="log" aria-label="Conversation messages"><article v-for="message in messages" :key="message.id" class="agents-message" :class="`agents-message--${message.role}`"><span class="agents-avatar">{{ message.role === "user" ? "YOU" : initials(personaName(message)) }}</span><div><header><strong>{{ message.role === "user" ? "You" : personaName(message) }}</strong><time :datetime="message.created_at">{{ date(message.created_at) }}</time></header><p>{{ message.body }}</p><template v-if="message.result"><section v-if="message.result.findings.length"><h3>Findings</h3><ul><li v-for="value in message.result.findings" :key="value">{{ value }}</li></ul></section><section v-if="message.result.recommendations.length"><h3>Recommendations</h3><ul><li v-for="value in message.result.recommendations" :key="value">{{ value }}</li></ul></section><section v-if="message.result.questions.length"><h3>Questions</h3><ul><li v-for="value in message.result.questions" :key="value">{{ value }}</li></ul></section><section v-if="message.result.citations.length"><h3>Citations</h3><ul><li v-for="citation in message.result.citations" :key="citation.id">{{ citation.label }}</li></ul></section><section v-if="message.result.proposed_actions.length" class="agents-proposals"><h3>Proposed actions</h3><ul><li v-for="action in message.result.proposed_actions" :key="`${action.kind}:${action.reason}`"><strong>{{ label(action.kind) }}</strong> · {{ action.reason }}</li></ul><RouterLink to="/app/your-turn">Review consequential proposals in Your Turn →</RouterLink></section><small class="agents-confidence">{{ label(message.result.confidence) }} confidence</small></template></div></article><p v-if="messages.length === 0" class="form-note">No projected messages yet.</p></div></section>
       </template>
     </template>
-    <PersonaEditor v-if="personaOpen && configurable" :persona="editingPersona" :saving="saving" :error="roomError" @close="personaOpen = false" @publish="publishPersona" />
+    <PersonaEditor v-if="personaOpen && configurable" :persona="editingPersona" :saving="saving" :error="roomError" @close="closePersona" @dirty-change="personaDirty = $event" @publish="publishPersona" />
   </section>
 </template>
