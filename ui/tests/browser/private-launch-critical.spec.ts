@@ -28,6 +28,15 @@ const account = {
     ]
   }
 };
+const secondAccountID = "10000000-0000-4000-8000-000000000010";
+const secondAccount = {
+  ...account,
+  account_id: secondAccountID,
+  display_name: "Harbor Workshop",
+  role: "member",
+  slug: "harbor-workshop",
+  entitlements: { ...account.entitlements, account_id: secondAccountID }
+};
 const consent = {
   analytics: true,
   decided: true,
@@ -935,6 +944,58 @@ test("Checkout provider failure leaves payment and Account state unchanged", asy
   await expect(page.getByRole("alert")).toContainText("No payment was started and this Account is unchanged.");
   await expect(page).toHaveURL(/\/app\/checkout\?offer=team-monthly-v1$/);
   await expect(page.getByRole("button", { name: "Continue to Stripe" })).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("multi-Account switching adopts only the server-confirmed context", async ({ page }) => {
+  const selections: string[] = [];
+  await page.route("**/api/v1/session/accounts", async (route) => {
+    await fulfillJSON(route, { user_id: userID, selected_account_id: accountID, accounts: [account, secondAccount] });
+  });
+  await page.route("**/api/v1/session/account", async (route) => {
+    const input = route.request().postDataJSON() as { account_id: string };
+    selections.push(input.account_id);
+    await fulfillJSON(route, {
+      account_context: {
+        account_id: secondAccountID,
+        account_name: secondAccount.display_name,
+        cell_id: secondAccount.cell_id,
+        entitlement_version: secondAccount.entitlements.version,
+        placement_generation: secondAccount.placement_generation,
+        role: secondAccount.role
+      }
+    });
+  });
+  await page.goto("/app/privacy");
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  const compact = await menu.isVisible();
+  if (compact) await menu.click();
+  await page.locator("#account").selectOption(secondAccountID);
+  await expect(page.locator("#account")).toHaveValue(secondAccountID);
+  expect(selections).toEqual([secondAccountID]);
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Privacy you can act on." })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("failed multi-Account switching restores the prior Account", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*503/);
+  await page.route("**/api/v1/session/accounts", async (route) => {
+    await fulfillJSON(route, { user_id: userID, selected_account_id: accountID, accounts: [account, secondAccount] });
+  });
+  await page.route("**/api/v1/session/account", async (route) => {
+    await fulfillProblem(route, 503, "account_context_unavailable", "That Account could not be selected right now. Your current Account is unchanged.");
+  });
+  await page.goto("/app/privacy");
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  const compact = await menu.isVisible();
+  if (compact) await menu.click();
+  await page.locator("#account").selectOption(secondAccountID);
+  await expect(page.locator("#account")).toHaveValue(accountID);
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Your current Account is unchanged.");
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });
