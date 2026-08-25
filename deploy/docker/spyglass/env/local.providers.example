@@ -1,0 +1,5 @@
+# Copy these three entries to a mode-600 file on UbuntuRojo's native Linux
+# filesystem. Never place the populated file in the repository or under /mnt/c.
+SPYGLASS_STRIPE_SECRET_KEY=sk_test_REPLACE
+SPYGLASS_STRIPE_WEBHOOK_SECRET=whsec_REPLACE_WITH_LOCAL_LISTENER_SECRET
+SPYGLASS_STRIPE_MODE=test

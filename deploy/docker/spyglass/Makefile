@@ -1,8 +1,10 @@
-COMPOSE = docker compose --project-name spyglass-local --env-file env/local.env --file compose.yml --file compose.local.yml
-TLS_COMPOSE = docker compose --project-name spyglass-local-tls --env-file env/local.env --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml
-RUNNER_COMPOSE = docker compose --project-name spyglass-local-runner --env-file env/local.env --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml --file compose.runner.yml
+LOCAL_PROVIDER_ENV ?=
+LOCAL_PROVIDER_ENV_ARG = $(if $(strip $(LOCAL_PROVIDER_ENV)),--env-file "$(LOCAL_PROVIDER_ENV)")
+COMPOSE = docker compose --project-name spyglass-local --env-file env/local.env $(LOCAL_PROVIDER_ENV_ARG) --file compose.yml --file compose.local.yml
+TLS_COMPOSE = docker compose --project-name spyglass-local-tls --env-file env/local.env $(LOCAL_PROVIDER_ENV_ARG) --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml
+RUNNER_COMPOSE = docker compose --project-name spyglass-local-runner --env-file env/local.env $(LOCAL_PROVIDER_ENV_ARG) --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml --file compose.runner.yml
 
-.PHONY: build test up verify analytics-report verify-analytics-handoff verify-identity-browser verify-public-catalog-recovery verify-stage-contract verify-observability verify-workload-tls verify-docker-runner verify-integration-connector verify-google-oauth verify-imap verify-web-research down down-workload-tls down-docker-runner reset
+.PHONY: build test verify-local-provider-input up verify analytics-report verify-analytics-handoff verify-identity-browser verify-public-catalog-recovery verify-stage-contract verify-observability verify-workload-tls verify-docker-runner verify-integration-connector verify-google-oauth verify-imap verify-web-research down down-workload-tls down-docker-runner reset
 
 build:
 	$(COMPOSE) build global-migrate website
@@ -10,7 +12,18 @@ build:
 test:
 	bash test-local.sh
 
-up:
+verify-local-provider-input:
+	@if [ -z "$(strip $(LOCAL_PROVIDER_ENV))" ]; then exit 0; fi; \
+	test -f "$(LOCAL_PROVIDER_ENV)" && test ! -L "$(LOCAL_PROVIDER_ENV)" || { echo "LOCAL_PROVIDER_ENV must be a regular non-symlink file" >&2; exit 1; }; \
+	case "$$(readlink -f -- "$(LOCAL_PROVIDER_ENV)")" in /mnt/*) echo "LOCAL_PROVIDER_ENV must be on the native UbuntuRojo filesystem, not a Windows mount" >&2; exit 1;; esac; \
+	test "$$(stat -c %a "$(LOCAL_PROVIDER_ENV)")" = 600 || { echo "LOCAL_PROVIDER_ENV must have mode 600" >&2; exit 1; }; \
+	! grep -Eqi 'replace|not_a_real|example' "$(LOCAL_PROVIDER_ENV)" || { echo "LOCAL_PROVIDER_ENV contains placeholder values" >&2; exit 1; }; \
+	grep -Eq '^SPYGLASS_STRIPE_SECRET_KEY=sk_test_[A-Za-z0-9_]+$$' "$(LOCAL_PROVIDER_ENV)" || { echo "LOCAL_PROVIDER_ENV requires a Stripe test secret key" >&2; exit 1; }; \
+	grep -Eq '^SPYGLASS_STRIPE_WEBHOOK_SECRET=whsec_[A-Za-z0-9_]+$$' "$(LOCAL_PROVIDER_ENV)" || { echo "LOCAL_PROVIDER_ENV requires the endpoint-specific local webhook secret" >&2; exit 1; }; \
+	grep -Eq '^SPYGLASS_STRIPE_MODE=test$$' "$(LOCAL_PROVIDER_ENV)" || { echo "LOCAL_PROVIDER_ENV must select Stripe test mode" >&2; exit 1; }; \
+	! grep -Evq '^(#.*|[[:space:]]*|SPYGLASS_STRIPE_SECRET_KEY=sk_test_[A-Za-z0-9_]+|SPYGLASS_STRIPE_WEBHOOK_SECRET=whsec_[A-Za-z0-9_]+|SPYGLASS_STRIPE_MODE=test)$$' "$(LOCAL_PROVIDER_ENV)" || { echo "LOCAL_PROVIDER_ENV contains an unsupported key or malformed line" >&2; exit 1; }
+
+up: verify-local-provider-input
 	$(COMPOSE) up --detach --build --force-recreate --wait
 
 verify: test up
