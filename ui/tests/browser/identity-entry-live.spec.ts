@@ -52,6 +52,32 @@ test("identity entry and recovery pages retain one accessible responsive frame",
   expect(runtimeErrors).toEqual([]);
 });
 
+test("@text-zoom identity entry and recovery pages reflow at 200% text size", async ({ page }) => {
+  const runtimeErrors: string[] = [];
+  page.on("pageerror", (error) => runtimeErrors.push(error.message));
+  const routes = [
+    { path: "/login?return_to=%2Fapp", heading: "Find the signal. Move the business." },
+    { path: "/signup?offer=team-monthly-v1", heading: "Your first clear view is free." },
+    { path: "/forgot-password", heading: "Restore access. Keep every Account." },
+    { path: "/reset-password?token=local-layout-proof", heading: "Set a new key to the view ahead." },
+    { path: "/verify?token=local-layout-proof&offer=team-monthly-v1", heading: "Secure the view ahead." },
+    { path: "/contact-change/verify?token=local-layout-proof", heading: "Move the signal. Keep the identity." }
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      const response = await page.goto(route.path);
+      expect(response?.status()).toBe(200);
+      await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+      await expect.poll(() => page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).fontSize))).toBeGreaterThanOrEqual(32);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    });
+  }
+  expect(runtimeErrors).toEqual([]);
+});
+
 test("identity consent rejection remains equal, reversible, and non-blocking", async ({ page, context }) => {
   await context.clearCookies();
   await page.goto("/login?return_to=%2Fapp");
@@ -82,17 +108,17 @@ test("offer continuity, native validation, and incomplete-link recovery fail saf
 
   let response = await page.goto("/verify");
   expect(response?.status()).toBe(400);
-  await expect(page.getByRole("alert")).toContainText("verification link is incomplete");
+  await expect(page.locator(".alert.error")).toContainText("verification link is incomplete");
   await expectAccessible(page);
 
   response = await page.goto("/reset-password");
   expect(response?.status()).toBe(400);
-  await expect(page.getByRole("alert")).toContainText("recovery link is incomplete");
+  await expect(page.locator(".alert.error")).toContainText("recovery link is incomplete");
   await expectAccessible(page);
 
   response = await page.goto("/contact-change/verify");
   expect(response?.status()).toBe(200);
-  await expect(page.getByRole("alert")).toContainText("email verification link is incomplete");
+  await expect(page.locator(".alert.error")).toContainText("email verification link is incomplete");
   await expect(page.getByRole("button", { name: "Change identity email" })).toBeDisabled();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
