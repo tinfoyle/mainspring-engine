@@ -1655,6 +1655,21 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await expect(dialog.getByRole("button", { name: "Post journal entry" })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+
+    const dismissed = new Promise<string>((resolve) => {
+      page.once("dialog", async (browserDialog) => {
+        resolve(browserDialog.type());
+        await browserDialog.dismiss();
+      });
+    });
+    await page.evaluate(() => history.back());
+    await expect(dismissed).resolves.toBe("beforeunload");
+    await expect(page).toHaveURL(new RegExp(`/app/finance/entries/${financeEntry.id}$`));
+    await expect(dialog.getByLabel("Type POST to confirm")).toHaveValue("POST");
+
+    page.once("dialog", (browserDialog) => browserDialog.accept());
+    await page.evaluate(() => history.back());
+    await expect(page).toHaveURL(/\/app\/your-turn$/);
   });
 
   await test.step("Marketing failure retains revised campaign intent", async () => {
@@ -1674,6 +1689,21 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await expect(dialog.getByRole("button", { name: "Revise campaign" })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+
+    const dismissed = new Promise<string>((resolve) => {
+      page.once("dialog", async (browserDialog) => {
+        resolve(browserDialog.type());
+        await browserDialog.dismiss();
+      });
+    });
+    await page.evaluate(() => history.back());
+    await expect(dismissed).resolves.toBe("beforeunload");
+    await expect(page).toHaveURL(new RegExp(`/app/marketing/campaigns/${marketingCampaign.id}$`));
+    await expect(dialog.getByLabel("Name")).toHaveValue("Launch readiness follow-up");
+
+    page.once("dialog", (browserDialog) => browserDialog.accept());
+    await page.evaluate(() => history.back());
+    await expect(page).toHaveURL(/\/app\/your-turn$/);
   });
 
   await test.step("Integration failure leaves the reviewed command ready to retry", async () => {
@@ -1689,6 +1719,21 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await expect(dialog.getByRole("button", { name: "Disable connection" })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+
+    const dismissed = new Promise<string>((resolve) => {
+      page.once("dialog", async (browserDialog) => {
+        resolve(browserDialog.type());
+        await browserDialog.dismiss();
+      });
+    });
+    await page.evaluate(() => history.back());
+    await expect(dismissed).resolves.toBe("beforeunload");
+    await expect(page).toHaveURL(new RegExp(`/app/integrations/connections/${integrationConnection.id}$`));
+    await expect(dialog.getByRole("button", { name: "Disable connection" })).toBeEnabled();
+
+    page.once("dialog", (browserDialog) => browserDialog.accept());
+    await page.evaluate(() => history.back());
+    await expect(page).toHaveURL(/\/app\/your-turn$/);
   });
 
   await test.step("Schedule failure exposes the error inside the retry dialog", async () => {
@@ -1706,6 +1751,21 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await expect(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+
+    const dismissed = new Promise<string>((resolve) => {
+      page.once("dialog", async (browserDialog) => {
+        resolve(browserDialog.type());
+        await browserDialog.dismiss();
+      });
+    });
+    await page.evaluate(() => history.back());
+    await expect(dismissed).resolves.toBe("beforeunload");
+    await expect(page).toHaveURL(new RegExp(`/app/schedules/${schedule.id}$`));
+    await expect(dialog.getByLabel("Operational reason")).toHaveValue("Pause while provider health is reviewed.");
+
+    page.once("dialog", (browserDialog) => browserDialog.accept());
+    await page.evaluate(() => history.back());
+    await expect(page).toHaveURL(/\/app\/your-turn$/);
   });
 });
 
@@ -1729,6 +1789,27 @@ test("Integration research failure retains the scoped customer query", async ({ 
   expect(searches).toEqual([{ connection_id: integrationConnection.id, query: "current policy retention requirements", limit: 10 }]);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  const compact = await menu.isVisible();
+  const dismissed = new Promise<string>((resolve) => {
+    page.once("dialog", async (dialog) => {
+      resolve(dialog.message());
+      await dialog.dismiss();
+    });
+  });
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(dismissed).resolves.toBe("Leave Integrations? Your open command or unsubmitted research query will be lost.");
+  await expect(page).toHaveURL(/\/app\/integrations$/);
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(query).toHaveValue("current policy retention requirements");
+  await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Integration command or research query remains available." })).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept());
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
 test("GDPR rights requests are tracked, deduplicated, and cancelable", async ({ page }) => {

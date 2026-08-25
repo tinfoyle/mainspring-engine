@@ -19,6 +19,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 import ScheduleFields from "../components/ScheduleFields.vue";
 
@@ -43,6 +44,7 @@ const saving = ref(false);
 const error = ref("");
 const detailError = ref("");
 const announcement = ref("");
+const navigationNotice = ref("");
 const editorOpen = ref(false);
 const actionOpen = ref(false);
 const action = ref<ScheduleAction>("pause");
@@ -65,6 +67,17 @@ const available = computed(() => Boolean(agentsPackage.value && agentsPackage.va
 const writable = computed(() => Boolean(agentsPackage.value?.mode === "enabled" && session.selected && !session.selected.owner_enrollment_required && ["owner", "administrator", "member"].includes(session.selected.role)));
 const scheduleID = computed(() => typeof route.params.scheduleID === "string" ? route.params.scheduleID : "");
 const editing = computed(() => Boolean(scheduleID.value && detail.value));
+const hasUnsavedScheduleWork = computed(() => editorOpen.value || actionOpen.value);
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: hasUnsavedScheduleWork,
+  pending: saving,
+  message: "Leave Schedules? Your open definition or command will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Schedule change is still being saved. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your Schedule definition or command remains open.";
+  }
+});
 const weekdayOptions = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
@@ -146,7 +159,7 @@ function beginEdit(): void { if (detail.value) { fillDraft(detail.value); editor
 async function submitDefinition(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || saving.value) return;
-  saving.value = true;
+  saving.value = true; navigationNotice.value = "";
   if (editing.value) detailError.value = "";
   else error.value = "";
   try {
@@ -157,7 +170,7 @@ async function submitDefinition(): Promise<void> {
       const created = await createSchedule(accountID, request());
       try { sessionStorage.removeItem(draftKey(accountID)); } catch { /* Optional tab storage. */ }
       Object.assign(draft, emptyDraft()); editorOpen.value = false; announcement.value = `${created.name} scheduled.`;
-      await refresh(); await router.push(`/app/schedules/${encodeURIComponent(created.id)}`);
+      await refresh(); allowNextNavigation(); await router.push(`/app/schedules/${encodeURIComponent(created.id)}`);
     }
   } catch (cause) {
     if (cause instanceof APIProblem && cause.status === 409 && editing.value) {
@@ -170,7 +183,7 @@ function beginAction(value: ScheduleAction): void { action.value = value; action
 async function submitAction(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || !detail.value || saving.value) return;
-  saving.value = true; detailError.value = "";
+  saving.value = true; detailError.value = ""; navigationNotice.value = "";
   try {
     const current = detail.value;
     if (action.value === "pause") detail.value = await pauseSchedule(accountID, current, actionReason.value.trim());
@@ -193,6 +206,7 @@ watch(() => [session.selectedID, scheduleID.value, available.value], () => void 
 <template>
   <section class="page schedules-page">
     <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
+    <p v-if="navigationNotice && !actionOpen" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <template v-if="scheduleID">
       <RouterLink class="back-link" to="/app/schedules">← Back to Schedules</RouterLink>
       <section v-if="detailLoading" class="queue-state" role="status"><h1>Loading schedule…</h1></section>
@@ -222,6 +236,6 @@ watch(() => [session.selectedID, scheduleID.value, available.value], () => void 
       </template>
     </template>
 
-    <div v-if="actionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="schedule-action-title" @submit.prevent="submitAction"><h2 id="schedule-action-title">{{ action === 'trigger' ? 'Run this schedule now?' : `${label(action)} this schedule?` }}</h2><p class="form-note">This command applies to version {{ detail?.version }} and is recorded in the durable audit history.</p><label>Operational reason<textarea v-model="actionReason" minlength="3" maxlength="500" rows="4" required></textarea></label><label v-if="action === 'delete'" class="confirmation"><input v-model="deletionConfirmed" type="checkbox" required><span>I understand this removes the schedule from future execution.</span></label><p v-if="detailError" class="form-error" role="alert">{{ detailError }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || (action === 'delete' && !deletionConfirmed)">{{ saving ? "Saving…" : "Confirm" }}</IoButton></div></form></div>
+    <div v-if="actionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="schedule-action-title" @submit.prevent="submitAction"><h2 id="schedule-action-title">{{ action === 'trigger' ? 'Run this schedule now?' : `${label(action)} this schedule?` }}</h2><p class="form-note">This command applies to version {{ detail?.version }} and is recorded in the durable audit history.</p><label>Operational reason<textarea v-model="actionReason" minlength="3" maxlength="500" rows="4" required></textarea></label><label v-if="action === 'delete'" class="confirmation"><input v-model="deletionConfirmed" type="checkbox" required><span>I understand this removes the schedule from future execution.</span></label><p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p><p v-if="detailError" class="form-error" role="alert">{{ detailError }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || (action === 'delete' && !deletionConfirmed)">{{ saving ? "Saving…" : "Confirm" }}</IoButton></div></form></div>
   </section>
 </template>

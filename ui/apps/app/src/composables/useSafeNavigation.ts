@@ -20,6 +20,10 @@ export function useSafeNavigation(options: SafeNavigationOptions): { allowNextNa
   }
 
   function beforeUnload(event: BeforeUnloadEvent): void {
+    if (allowOnce) {
+      allowOnce = false;
+      return;
+    }
     if (!protectedState()) return;
     event.preventDefault();
     event.returnValue = "";

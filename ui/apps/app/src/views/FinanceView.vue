@@ -6,6 +6,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 type Tab = "accounts" | "journal" | "reconciliation";
@@ -14,7 +15,7 @@ interface EditableLine { account_id: string; memo: string; debit: string; credit
 const session = useSessionStore(); const route = useRoute(); const router = useRouter();
 const ledgers = ref<ReadonlyArray<FinanceLedgerSummary>>([]); const activeLedger = ref<FinanceLedger>(); const accounts = ref<ReadonlyArray<FinancePostingAccountSummary>>([]); const entries = ref<ReadonlyArray<FinanceEntrySummary>>([]); const reconciliations = ref<ReadonlyArray<FinanceReconciliationSummary>>([]);
 const selectedAccount = ref<FinancePostingAccount>(); const selectedEntry = ref<FinanceJournalEntry>(); const selectedReconciliation = ref<FinanceReconciliation>();
-const tab = ref<Tab>("accounts"); const entryState = ref<"" | FinanceEntryState>(""); const loading = ref(false); const saving = ref(false); const error = ref(""); const announcement = ref(""); let sequence = 0;
+const tab = ref<Tab>("accounts"); const entryState = ref<"" | FinanceEntryState>(""); const loading = ref(false); const saving = ref(false); const error = ref(""); const announcement = ref(""); const navigationNotice = ref(""); let sequence = 0;
 const ledgerCursor = ref<string>(); const accountCursor = ref<string>(); const entryCursor = ref<string>(); const reconciliationCursor = ref<string>(); const loadingMore = ref(false);
 const modalOpen = ref(false); const action = ref<Action>("ledger-create"); const confirmation = ref("");
 const name = ref(""); const code = ref(""); const description = ref(""); const currency = ref("USD"); const dateValue = ref(""); const reference = ref(""); const evidence = ref("");
@@ -27,6 +28,16 @@ const postingAccounts = computed(() => accounts.value.filter((item) => item.acco
 const summary = computed(() => ledgers.value.find((item) => item.id === activeLedger.value?.id));
 const lineTotals = computed(() => lines.value.reduce((total, line) => ({ debit: total.debit + toMinor(line.debit), credit: total.credit + toMinor(line.credit) }), { debit: 0, credit: 0 }));
 const balanced = computed(() => lines.value.length >= 2 && lines.value.every((line) => line.account_id && ((toMinor(line.debit) > 0) !== (toMinor(line.credit) > 0))) && lineTotals.value.debit > 0 && lineTotals.value.debit === lineTotals.value.credit);
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: modalOpen,
+  pending: saving,
+  message: "Leave Finance? Your open ledger command will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Finance change is still being saved. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your Finance command remains open.";
+  }
+});
 
 function today(): string { return new Date().toISOString().slice(0, 10); }
 function toISO(value: string): string { return new Date(`${value}T00:00:00.000Z`).toISOString(); }
@@ -94,7 +105,7 @@ function journalInput(): { entry_date: string; description: string; reference: s
   return { entry_date: toISO(dateValue.value), description: description.value.trim(), reference: reference.value.trim(), lines: lines.value.map((line) => ({ account_id: line.account_id, memo: line.memo.trim(), debit_minor: toMinor(line.debit), credit_minor: toMinor(line.credit) })), evidence: ids(evidence.value) };
 }
 async function submit(): Promise<void> {
-  const accountID = session.selectedID; const ledgerValue = activeLedger.value; if (!accountID || saving.value || (requiresPhrase() && confirmation.value !== phrase())) return; saving.value = true; error.value = "";
+  const accountID = session.selectedID; const ledgerValue = activeLedger.value; if (!accountID || saving.value || (requiresPhrase() && confirmation.value !== phrase())) return; saving.value = true; error.value = ""; navigationNotice.value = "";
   try {
     let path = route.path;
     if (action.value === "ledger-create") { const value = await createFinanceLedger(accountID, { name: name.value.trim(), code: code.value.trim(), description: description.value.trim(), currency: currency.value.toUpperCase() }); path = `/app/finance/ledgers/${value.id}`; }
@@ -110,7 +121,7 @@ async function submit(): Promise<void> {
     else if (action.value === "entry-reverse" && selectedEntry.value) { const value = await reverseFinanceEntry(accountID, selectedEntry.value, { entry_date: toISO(dateValue.value), description: description.value.trim(), reference: reference.value.trim(), evidence: ids(evidence.value) }); path = `/app/finance/entries/${value.reversal.id}`; }
     else if (action.value === "reconciliation-create" && ledgerValue) { const value = await createFinanceReconciliation(accountID, ledgerValue.id, { posting_account_id: postingAccountID.value, as_of: toISO(dateValue.value), statement_balance: { currency: ledgerValue.currency, minor: toMinor(statementBalance.value) }, evidence: ids(evidence.value) }); path = `/app/finance/reconciliations/${value.id}`; }
     else if (action.value === "reconciliation-confirm" && selectedReconciliation.value) { await confirmFinanceReconciliation(accountID, selectedReconciliation.value); }
-    modalOpen.value = false; announcement.value = `${title()} completed.`; await navigate(path);
+    modalOpen.value = false; announcement.value = `${title()} completed.`; if (path !== route.path) allowNextNavigation(); await navigate(path);
   } catch (cause) { if (cause instanceof APIProblem && cause.status === 409) { modalOpen.value = false; await load(); error.value = "This Finance record changed. Review its current version before trying again."; } else error.value = cause instanceof APIProblem ? cause.message : "The Finance command could not be completed."; }
   finally { saving.value = false; }
 }
@@ -120,6 +131,7 @@ watch(() => [session.selectedID, financePackage.value?.mode, route.path, entrySt
 <template>
   <section class="page finance-page">
     <p class="sr-only" aria-live="polite">{{ announcement }}</p>
+    <p v-if="navigationNotice && !modalOpen" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading page-heading--action"><div><p class="eyebrow">Finance</p><h1>A governed ledger for operating truth</h1><p>Draft balanced journal entries, post them deliberately, and reconcile evidence without bypassing Account authority.</p></div><span v-if="available" class="state-badge">{{ writable ? "Package enabled" : "Read-only access" }}</span></header>
     <section v-if="!session.selectedID" class="queue-state"><h2>Select an Account</h2><p>Finance always belongs to one Account.</p></section>
     <section v-else-if="!available" class="queue-state"><h2>Finance is not included</h2><p>This Account's current package set does not expose Finance.</p><a href="/app/billing">Review Account billing</a></section>
@@ -146,7 +158,7 @@ watch(() => [session.selectedID, financePackage.value?.mode, route.path, entrySt
         <template v-else-if="action === 'entry-reverse'"><p>A reversal is a separately numbered immutable posting; the original remains visible.</p><label>Entry date<input v-model="dateValue" type="date" required></label><label>Reference<input v-model="reference" maxlength="500"></label><label>Description<textarea v-model="description" maxlength="4000" rows="2" required></textarea></label><label>Knowledge evidence IDs<input v-model="evidence" required></label></template>
         <template v-else-if="action === 'reconciliation-create'"><label>Posting account<select v-model="postingAccountID" required><option value="">Choose account</option><option v-for="item in postingAccounts" :key="item.account.id" :value="item.account.id">{{ item.account.code }} · {{ item.account.name }}</option></select></label><label>As of<input v-model="dateValue" type="date" required></label><label>Statement balance<input v-model="statementBalance" type="number" step="0.01" required></label><label>Knowledge evidence IDs<input v-model="evidence" required></label></template>
         <p v-else>{{ action === 'entry-post' ? 'Posted entries are immutable. Corrections require a separately numbered reversal.' : action === 'reconciliation-confirm' ? 'Only a zero-difference proposed reconciliation can be confirmed.' : 'The record remains readable after archival.' }}</p>
-        <label v-if="requiresPhrase()">Type {{ phrase() }} to confirm<input v-model="confirmation" autocomplete="off" :pattern="phrase()" required></label><p v-if="error" class="form-error" role="alert">{{ error }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="modalOpen = false">Back</IoButton><IoButton type="submit" :disabled="saving || (requiresPhrase() && confirmation !== phrase()) || (['entry-create', 'entry-edit'].includes(action) && !balanced)">{{ saving ? "Saving…" : title() }}</IoButton></div>
+        <label v-if="requiresPhrase()">Type {{ phrase() }} to confirm<input v-model="confirmation" autocomplete="off" :pattern="phrase()" required></label><p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p><p v-if="error" class="form-error" role="alert">{{ error }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="modalOpen = false">Back</IoButton><IoButton type="submit" :disabled="saving || (requiresPhrase() && confirmation !== phrase()) || (['entry-create', 'entry-edit'].includes(action) && !balanced)">{{ saving ? "Saving…" : title() }}</IoButton></div>
       </form>
     </div>
   </section>

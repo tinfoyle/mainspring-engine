@@ -10,6 +10,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 type Tab = "overview" | "creative" | "releases";
@@ -17,7 +18,7 @@ type Action = "campaign-create" | "campaign-edit" | "campaign-archive" | "asset-
 const session = useSessionStore(); const route = useRoute(); const router = useRouter();
 const campaigns = ref<ReadonlyArray<MarketingCampaign>>([]); const selectedCampaign = ref<MarketingCampaign>(); const assets = ref<ReadonlyArray<MarketingAssetRevision>>([]); const releases = ref<ReadonlyArray<MarketingRelease>>([]); const selectedRelease = ref<MarketingRelease>();
 const campaignCursor = ref<string>(); const assetCursor = ref<string>(); const releaseCursor = ref<string>(); const campaignState = ref<"" | MarketingCampaignState>(""); const tab = ref<Tab>("overview");
-const loading = ref(false); const loadingMore = ref(false); const saving = ref(false); const error = ref(""); const announcement = ref(""); let sequence = 0;
+const loading = ref(false); const loadingMore = ref(false); const saving = ref(false); const error = ref(""); const announcement = ref(""); const navigationNotice = ref(""); let sequence = 0;
 const modalOpen = ref(false); const action = ref<Action>("campaign-create"); const confirmation = ref("");
 const name = ref(""); const objective = ref(""); const audience = ref(""); const channels = ref<MarketingChannel[]>(["web"]);
 const assetID = ref(""); const assetKind = ref<MarketingAssetKind>("copy"); const assetTitle = ref(""); const mediaType = ref(""); const alternativeText = ref(""); const assetFile = ref<File>(); const selectedAssetIDs = ref<string[]>([]);
@@ -35,6 +36,16 @@ const formValid = computed(() => {
   if (action.value === "asset-upload") return Boolean(assetID.value && assetTitle.value.trim() && mediaType.value.trim() && assetFile.value && (assetKind.value !== "image" || alternativeText.value.trim()));
   if (action.value === "release-create") return Boolean(name.value.trim() && selectedAssetIDs.value.length);
   return !phrase() || confirmation.value === phrase();
+});
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: modalOpen,
+  pending: saving,
+  message: "Leave Marketing? Your open campaign or release command will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Marketing change is still being saved. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your Marketing command remains open.";
+  }
 });
 
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
@@ -90,7 +101,7 @@ function toggleAsset(value: string): void { selectedAssetIDs.value = selectedAss
 function phrase(): string { return ({ "campaign-archive": "ARCHIVE", "release-submit": "SUBMIT", "release-cancel": "CANCEL", "campaign-activate": "ACTIVATE", "campaign-pause": "PAUSE", "campaign-complete": "COMPLETE" } as Partial<Record<Action, string>>)[action.value] ?? ""; }
 function title(): string { return ({ "campaign-create": "Create campaign", "campaign-edit": "Revise campaign", "campaign-archive": "Archive campaign", "asset-upload": "Add creative revision", "release-create": "Build release snapshot", "release-submit": "Submit release", "release-cancel": "Cancel release", "campaign-activate": "Activate approved release", "campaign-pause": "Pause campaign", "campaign-complete": "Complete campaign" } as Record<Action, string>)[action.value]; }
 async function submit(): Promise<void> {
-  const accountID = session.selectedID; const campaign = selectedCampaign.value; const release = selectedRelease.value; if (!accountID || saving.value || !formValid.value) return; saving.value = true; error.value = "";
+  const accountID = session.selectedID; const campaign = selectedCampaign.value; const release = selectedRelease.value; if (!accountID || saving.value || !formValid.value) return; saving.value = true; error.value = ""; navigationNotice.value = "";
   try {
     let path = route.path;
     if (action.value === "campaign-create") { const value = await createMarketingCampaign(accountID, { name: name.value.trim(), objective: objective.value.trim(), audience: audience.value.trim(), channels: channels.value }); path = `/app/marketing/campaigns/${value.id}`; }
@@ -103,7 +114,7 @@ async function submit(): Promise<void> {
     else if (action.value === "campaign-activate" && campaign && release) await activateMarketingCampaign(accountID, campaign, release.id);
     else if (action.value === "campaign-pause" && campaign) await pauseMarketingCampaign(accountID, campaign);
     else if (action.value === "campaign-complete" && campaign) await completeMarketingCampaign(accountID, campaign);
-    modalOpen.value = false; announcement.value = `${title()} completed.`; await navigate(path);
+    modalOpen.value = false; announcement.value = `${title()} completed.`; if (path !== route.path) allowNextNavigation(); await navigate(path);
   } catch (cause) { if (cause instanceof APIProblem && cause.status === 409) { modalOpen.value = false; await load(); error.value = "This Marketing record changed. Review the current version before trying again."; } else error.value = cause instanceof APIProblem ? cause.message : "The Marketing command could not be completed."; }
   finally { saving.value = false; }
 }
@@ -113,6 +124,7 @@ watch(() => [session.selectedID, marketingPackage.value?.mode, route.path, campa
 <template>
   <section class="page marketing-page">
     <p class="sr-only" aria-live="polite">{{ announcement }}</p>
+    <p v-if="navigationNotice && !modalOpen" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading page-heading--action"><div><p class="eyebrow">Marketing</p><h1>Prepare the message. Govern the release.</h1><p>Freeze exact creative revisions and route consequential activation through human judgment before an Integration can deliver anything.</p></div><span v-if="available" class="state-badge">{{ marketingPackage?.mode === "enabled" ? "Package enabled" : "Read-only access" }}</span></header>
     <section v-if="!session.selectedID" class="queue-state"><h2>Select an Account</h2><p>Marketing always belongs to one Account.</p></section>
     <section v-else-if="!available" class="queue-state"><h2>Marketing is not included</h2><p>This Account's current package set does not expose Marketing.</p><RouterLink to="/app/billing">Review Account billing</RouterLink></section>
@@ -141,7 +153,7 @@ watch(() => [session.selectedID, marketingPackage.value?.mode, route.path, campa
         <template v-else-if="action === 'asset-upload'"><label>Creative item<select @change="chooseExistingAsset"><option value="">New creative item</option><option v-for="item in latestAssets" :key="item.asset_id" :value="item.asset_id">New revision of {{ item.title }}</option></select></label><label>Kind<select v-model="assetKind"><option value="copy">Copy</option><option value="image">Image</option><option value="document">Document</option></select></label><label>Title<input v-model="assetTitle" maxlength="240" required></label><label>Creative file<input type="file" required @change="selectFile"></label><label>Media type<input v-model="mediaType" maxlength="100" placeholder="Detected from the selected file" required></label><label>Alternative text<textarea v-model="alternativeText" maxlength="1000" rows="2" :required="assetKind === 'image'"></textarea><small>{{ assetKind === "image" ? "Required for images." : "Optional accessibility description." }}</small></label><p>Files are limited to 16 MiB. Spyglass computes the immutable digest and storage reference.</p></template>
         <template v-else-if="action === 'release-create'"><label>Release name<input v-model="name" maxlength="160" required></label><p>This snapshot freezes campaign version {{ selectedCampaign?.version }} and channels {{ selectedCampaign?.channels.map(label).join(" · ") }}.</p><fieldset class="marketing-asset-picker"><legend>Exact creative revisions</legend><label v-for="item in assets" :key="item.id"><input type="checkbox" :checked="selectedAssetIDs.includes(item.id)" @change="toggleAsset(item.id)"><span><strong>{{ item.title }}</strong><small>{{ label(item.kind) }} · revision {{ item.revision }} · {{ short(item.content_sha256) }}</small></span></label></fieldset></template>
         <template v-else><p>{{ action === "release-submit" ? "Submission freezes this snapshot for a governed activation request. Later campaign edits require a new release." : action === "release-cancel" ? "Cancellation invalidates this submitted or approved snapshot. An active campaign must be paused first." : action === "campaign-activate" ? "Activation records approved intent only. It does not send email or publish to the web." : action === "campaign-pause" ? "Pausing prevents this campaign from remaining active while preserving its history." : action === "campaign-complete" ? "Completion closes the campaign lifecycle without deleting its evidence." : "Archived campaigns remain readable and cannot be active." }}</p></template>
-        <label v-if="phrase()">Type {{ phrase() }} to confirm<input v-model="confirmation" autocomplete="off" :pattern="phrase()" required></label><p v-if="error" class="form-error" role="alert">{{ error }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="modalOpen = false">Back</IoButton><IoButton type="submit" :disabled="saving || !formValid">{{ saving ? "Saving…" : title() }}</IoButton></div>
+        <label v-if="phrase()">Type {{ phrase() }} to confirm<input v-model="confirmation" autocomplete="off" :pattern="phrase()" required></label><p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p><p v-if="error" class="form-error" role="alert">{{ error }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="modalOpen = false">Back</IoButton><IoButton type="submit" :disabled="saving || !formValid">{{ saving ? "Saving…" : title() }}</IoButton></div>
       </form>
     </div>
   </section>
