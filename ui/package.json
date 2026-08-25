@@ -16,15 +16,18 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
+    "public:a11y": "node scripts/verify-public-accessibility.mjs",
     "budget": "node scripts/verify-budgets.mjs",
-    "verify": "npm run typecheck && npm run test && npm run lint && npm run build && npm run budget"
+    "verify": "npm run typecheck && npm run test && npm run lint && npm run build && npm run public:a11y && npm run budget"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",
     "@eslint/js": "9.39.4",
+    "axe-core": "4.13.0",
     "eslint": "9.39.4",
     "eslint-plugin-vue": "10.10.0",
     "globals": "16.4.0",
+    "jsdom": "29.1.1",
     "typescript": "5.9.3",
     "typescript-eslint": "8.68.0"
   }
