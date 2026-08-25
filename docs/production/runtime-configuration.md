@@ -2,7 +2,7 @@
 
 - Status: executable Phase 2.5 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure/movement processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, public `mcp-gateway`, private `tool-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `identity-maintenance-worker`, `work-reconciler`, `baseline-maintenance-worker`, provider-capable `integration-connector-worker`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `schedule-execution-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`schedule-queue-admin`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`privacy-rights-admin`/`affiliate-admin`/`affiliate-support-admin`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, public `mcp-gateway`, private `tool-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `identity-maintenance-worker`, `work-reconciler`, `baseline-maintenance-worker`, provider-capable `integration-connector-worker`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `schedule-execution-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`schedule-queue-admin`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`privacy-rights-admin`/`affiliate-admin`/`affiliate-support-admin`/`analytics-report`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 The revision-controlled machine contract is [`deploy/spyglass-process-inventory.json`](../../deploy/spyglass-process-inventory.json). Its verification script compares the complete mode set to the binary switch and fails local verification when they drift.
 
@@ -36,11 +36,21 @@ The revision-controlled machine contract is [`deploy/spyglass-process-inventory.
 | `privacy-rights-admin` | One audited inspection, exact-version review start, or evidence-bound terminal privacy-rights resolution | Serving traffic, case-artifact content, direct request-table access, automatic fulfillment decisions |
 | `affiliate-admin` | One audited enrollment inspection, exact-version suspension/reactivation, or terminal closure | Serving traffic, direct Affiliate-table access, attribution/ledger mutation, settlement decisions |
 | `affiliate-support-admin` | One audited support inspection, exact-version review start, or approved/denied resolution | Serving traffic, direct support-table access, enrollment/ledger mutation, settlement decisions |
+| `analytics-report` | One bounded aggregate event report over reviewed dimensions with enforced small-cohort suppression | Serving traffic, raw analytics-table access, subject/customer identifiers, arbitrary dimensions or commercial attribution |
 | `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
 | `development` | Memory-backed local identity and browser journey | Persistent data, outbound email, paid Stripe operations |
 | `migrate` | One embedded, immutable migration target against one database | Serving traffic, background work, automatic target selection |
 
 The account API and workers share no in-memory state. Multiple replicas coordinate through PostgreSQL row leases and unique constraints.
+
+## Analytics report values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_ANALYTICS_REPORT_DATABASE_URL` | Required dedicated global reporter credential; the role has execute-only access to `spyglass_analytics_funnel_report(...)` and no raw-table access |
+| `SPYGLASS_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `2` |
+
+`analytics-report` is a one-shot JSON command, not a serving process. Its `--from`/`--to` window is at most 395 days, hourly buckets are limited to 31 days, dimensions come from a compiled and database-enforced allowlist, and `--minimum-cohort` cannot be less than five distinct consent subjects. Provision this credential independently from the migrator, account API and maintenance worker. See [Analytics reporting operations](analytics-reporting-operations.md).
 
 ## Common production values
 

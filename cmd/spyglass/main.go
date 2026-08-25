@@ -43,6 +43,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	agentqueueapp "github.com/tinfoyle/spyglass-engine/internal/application/agentqueueadmin"
+	analyticsreportapp "github.com/tinfoyle/spyglass-engine/internal/application/analyticsreport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsretention"
 	baselinemaintenanceapp "github.com/tinfoyle/spyglass-engine/internal/application/baselinemaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
@@ -74,6 +75,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentdispatchworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentprojectionworker"
 	agentqueuecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentqueueadmin"
+	analyticsreportcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/analyticsreport"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/appapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/approuter"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/baselinemaintenanceworker"
@@ -222,12 +224,14 @@ func main() {
 		err = runAffiliateAdmin(ctx, logger)
 	case "affiliate-support-admin":
 		err = runAffiliateSupportAdmin(ctx, logger)
+	case "analytics-report":
+		err = runAnalyticsReport(ctx)
 	case "catalog-admin":
 		err = runCatalogAdmin(ctx, logger)
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | affiliate-support-admin <action> | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | affiliate-support-admin <action> | analytics-report | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -660,6 +664,47 @@ func runCatalogAdmin(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	return catalogcommand.Run(startup, config, logger)
+}
+
+func runAnalyticsReport(ctx context.Context) error {
+	flags := flag.NewFlagSet("analytics-report", flag.ContinueOnError)
+	now := time.Now().UTC()
+	fromValue := flags.String("from", now.Add(-30*24*time.Hour).Format(time.RFC3339), "inclusive RFC3339 report start")
+	toValue := flags.String("to", now.Format(time.RFC3339), "exclusive RFC3339 report end")
+	bucketValue := flags.String("bucket", string(analyticsreportapp.BucketDay), "hour or day")
+	dimensionValue := flags.String("dimension", "none", "reviewed aggregate dimension")
+	minimumCohort := flags.Int("minimum-cohort", 5, "minimum distinct consent subjects per row")
+	if err := flags.Parse(os.Args[2:]); err != nil || flags.NArg() != 0 {
+		return errors.New("usage: spyglass analytics-report [--from=RFC3339] [--to=RFC3339] [--bucket=hour|day] [--dimension=name] [--minimum-cohort=5]")
+	}
+	from, err := time.Parse(time.RFC3339, *fromValue)
+	if err != nil {
+		return errors.New("analytics report --from must be RFC3339")
+	}
+	to, err := time.Parse(time.RFC3339, *toValue)
+	if err != nil {
+		return errors.New("analytics report --to must be RFC3339")
+	}
+	databaseURL, err := requiredEnv("SPYGLASS_ANALYTICS_REPORT_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
+	if err != nil {
+		return err
+	}
+	config := analyticsreportcommand.Config{
+		DatabaseURL: databaseURL,
+		Query: analyticsreportapp.Query{
+			From: from, To: to, Bucket: analyticsreportapp.Bucket(*bucketValue),
+			Dimension: analyticsreportapp.Dimension(*dimensionValue), MinimumCohort: *minimumCohort,
+		},
+		MaxDatabaseConns: maxConns,
+		Output:           os.Stdout,
+	}
+	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	return analyticsreportcommand.Run(startup, config)
 }
 
 func runWorkReleaseAdmin(ctx context.Context, logger *slog.Logger) error {

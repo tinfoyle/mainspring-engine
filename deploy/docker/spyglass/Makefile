@@ -2,7 +2,7 @@ COMPOSE = docker compose --project-name spyglass-local --env-file env/local.env 
 TLS_COMPOSE = docker compose --project-name spyglass-local-tls --env-file env/local.env --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml
 RUNNER_COMPOSE = docker compose --project-name spyglass-local-runner --env-file env/local.env --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml --file compose.runner.yml
 
-.PHONY: build test up verify verify-public-catalog-recovery verify-stage-contract verify-observability verify-workload-tls verify-docker-runner verify-integration-connector verify-google-oauth verify-imap verify-web-research down down-workload-tls down-docker-runner reset
+.PHONY: build test up verify analytics-report verify-public-catalog-recovery verify-stage-contract verify-observability verify-workload-tls verify-docker-runner verify-integration-connector verify-google-oauth verify-imap verify-web-research down down-workload-tls down-docker-runner reset
 
 build:
 	$(COMPOSE) build global-migrate website
@@ -15,6 +15,9 @@ up:
 
 verify: test up
 	bash verify-local.sh
+
+analytics-report: up
+	$(COMPOSE) run --rm --no-deps global-migrate analytics-report $(ARGS)
 
 verify-public-catalog-recovery:
 	bash verify-public-catalog-recovery.sh

@@ -45,6 +45,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_account_export_expiry_worker') THEN
     CREATE ROLE spyglass_account_export_expiry_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_analytics_reporter') THEN
+    CREATE ROLE spyglass_analytics_reporter LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
 END
 $$;
 
@@ -63,6 +66,7 @@ $$;
 \getenv integration_connector_password SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD
 \getenv account_export_build_password SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD
 \getenv account_export_expiry_password SPYGLASS_ACCOUNT_EXPORT_EXPIRY_WORKER_DATABASE_PASSWORD
+\getenv analytics_reporter_password SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD
 SELECT format('ALTER ROLE spyglass_account_api PASSWORD %L', :'account_api_password') \gexec
 SELECT format('ALTER ROLE spyglass_app_router PASSWORD %L', :'app_router_password') \gexec
 SELECT format('ALTER ROLE spyglass_mcp_gateway PASSWORD %L', :'mcp_gateway_password') \gexec
@@ -78,6 +82,7 @@ SELECT format('ALTER ROLE spyglass_prototype_migration PASSWORD %L', :'prototype
 SELECT format('ALTER ROLE spyglass_integration_connector_worker PASSWORD %L', :'integration_connector_password') \gexec
 SELECT format('ALTER ROLE spyglass_account_export_build_worker PASSWORD %L', :'account_export_build_password') \gexec
 SELECT format('ALTER ROLE spyglass_account_export_expiry_worker PASSWORD %L', :'account_export_expiry_password') \gexec
+SELECT format('ALTER ROLE spyglass_analytics_reporter PASSWORD %L', :'analytics_reporter_password') \gexec
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_mcp_gateway, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
@@ -93,6 +98,14 @@ GRANT USAGE ON SCHEMA public TO spyglass_account_export_build_worker, spyglass_a
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_account_export_build_worker, spyglass_account_export_expiry_worker;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_account_export_build_worker, spyglass_account_export_expiry_worker;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_account_export_build_worker, spyglass_account_export_expiry_worker;
+
+GRANT CONNECT ON DATABASE spyglass TO spyglass_analytics_reporter;
+GRANT USAGE ON SCHEMA public TO spyglass_analytics_reporter;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_analytics_reporter;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_analytics_reporter;
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_analytics_reporter;
+GRANT EXECUTE ON FUNCTION spyglass_analytics_funnel_report(timestamptz,timestamptz,text,text,integer)
+  TO spyglass_analytics_reporter;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,

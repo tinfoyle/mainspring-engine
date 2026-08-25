@@ -480,6 +480,18 @@
       "actions": ["inspect", "reencrypt"]
     },
     {
+      "mode": "analytics-report",
+      "kind": "one_shot_job",
+      "scope": "global",
+      "port": null,
+      "health": null,
+      "database_roles": ["global.analytics-reporter"],
+      "configuration": ["SPYGLASS_ANALYTICS_REPORT_DATABASE_URL", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration_profiles": [],
+      "dependencies": ["global-postgresql"],
+      "arguments": ["--from", "--to", "--bucket", "--dimension", "--minimum-cohort"]
+    },
+    {
       "mode": "catalog-admin",
       "kind": "operator_job",
       "scope": "global",
