@@ -110,6 +110,10 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	if len(cookies) != 1 || cookies[0].Name != "spyglass_development_session" || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
 		t.Fatalf("unexpected session cookie: %#v", cookies)
 	}
+	currentIdentity := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/identity", "", cookies[0])
+	if currentIdentity.StatusCode != http.StatusOK || !bytes.Contains(currentIdentity.Body, []byte(`"user_id":"`+provisioned.User.ID+`"`)) || !bytes.Contains(currentIdentity.Body, []byte(`"primary_email":"avery@example.com"`)) {
+		t.Fatalf("current identity: %d %s", currentIdentity.StatusCode, currentIdentity.Body)
+	}
 	initialPosture := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/security-posture", "", cookies[0])
 	if initialPosture.StatusCode != http.StatusOK || !bytes.Contains(initialPosture.Body, []byte(`"passkey_count":0`)) || !bytes.Contains(initialPosture.Body, []byte(`"recovery_codes_configured":false`)) || !bytes.Contains(initialPosture.Body, []byte(`"owner_ready":false`)) {
 		t.Fatalf("initial security posture: %d %s", initialPosture.StatusCode, initialPosture.Body)

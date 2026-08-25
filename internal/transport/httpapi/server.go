@@ -19,6 +19,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrights"
@@ -63,6 +64,7 @@ type Server struct {
 	recoveryCodes         *recoverycodes.Service
 	securityPosture       *securityposture.Service
 	contactChanges        *contactchange.Service
+	mcpGrants             *mcpauth.Service
 	contactChangeTokens   ContactChangeTokenSource
 	exposeContactToken    bool
 	accountExports        *accountexport.Service
@@ -183,6 +185,10 @@ func WithContactChanges(service *contactchange.Service, tokens ContactChangeToke
 	}
 }
 
+func WithMCPGrants(service *mcpauth.Service) Option {
+	return func(server *Server) { server.mcpGrants = service }
+}
+
 type PrivacyTokenCodec interface {
 	Sign(privacy.PreferenceReference) (string, error)
 	Verify(string, privacy.Surface) (privacy.PreferenceReference, error)
@@ -232,6 +238,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/recovery-challenges/complete", s.completeRecovery)
 	mux.HandleFunc("POST /api/v1/contact-change-requests", s.beginContactChange)
 	mux.HandleFunc("POST /api/v1/contact-change-verifications", s.completeContactChange)
+	mux.HandleFunc("GET /api/v1/identity", s.currentIdentity)
+	mux.HandleFunc("GET /api/v1/mcp-grants", s.listMCPGrants)
+	mux.HandleFunc("DELETE /api/v1/mcp-grants/{grantID}", s.revokeMCPGrant)
 	mux.HandleFunc("POST /api/v1/sessions", s.login)
 	mux.HandleFunc("POST /api/v1/passkey-login/challenges", s.beginPasskeyLogin)
 	mux.HandleFunc("POST /api/v1/passkey-login/challenges/{ceremonyID}/complete", s.completePasskeyLogin)
@@ -279,6 +288,78 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/invitations/accept", s.acceptInvitation)
 	mux.HandleFunc("POST /webhooks/stripe", s.stripeWebhook)
 	return s.securityHeaders(s.recoverPanics(s.requestLog(mux)))
+}
+
+func (s *Server) currentIdentity(w http.ResponseWriter, r *http.Request) {
+	if s.contactChanges == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "identity_unconfigured", "identity details are not configured")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	user, err := s.contactChanges.Current(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "identity_unavailable", "identity details could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user_id": user.ID, "primary_email": user.PrimaryEmail})
+}
+
+func (s *Server) listMCPGrants(w http.ResponseWriter, r *http.Request) {
+	if s.mcpGrants == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "mcp_grants_unconfigured", "connected MCP clients are not configured")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	grants, err := s.mcpGrants.Grants(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "mcp_grants_unavailable", "connected MCP clients could not be loaded")
+		return
+	}
+	items := make([]map[string]any, 0, len(grants))
+	for _, grant := range grants {
+		item := map[string]any{"grant_id": grant.ID, "client_id": grant.ClientID, "client_name": grant.ClientName, "created_at": grant.CreatedAt}
+		if grant.LastUsedAt != nil {
+			item["last_used_at"] = grant.LastUsedAt
+		}
+		items = append(items, item)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"grants": items})
+}
+
+func (s *Server) revokeMCPGrant(w http.ResponseWriter, r *http.Request) {
+	if s.mcpGrants == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "mcp_grants_unconfigured", "connected MCP clients are not configured")
+		return
+	}
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	grantID := r.PathValue("grantID")
+	if ids.Validate(grantID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_grant_id", "MCP grant ID is invalid")
+		return
+	}
+	revoked, err := s.mcpGrants.RevokeGrant(r.Context(), authenticated.Session.UserID, grantID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "mcp_grant_revoke_failed", "the connected MCP client could not be revoked")
+		return
+	}
+	if !revoked {
+		writeProblem(w, http.StatusNotFound, "mcp_grant_not_found", "the connected MCP client was not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) beginContactChange(w http.ResponseWriter, r *http.Request) {

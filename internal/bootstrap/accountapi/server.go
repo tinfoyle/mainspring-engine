@@ -315,6 +315,11 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	mcpAuthorization, err := mcpauth.New(postgres.NewMCPAuthRepository(pool), ids.RandomGenerator{}, mcpauth.RandomSecrets{}, clock, config.AppOrigin, config.MCPResourceOrigin)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	apiHandler := httpapi.NewServer(registrations, catalogCache.Current, nil, false, logger,
 		httpapi.WithBillingWebhook(webhook),
 		httpapi.WithCommercialAccess(commercialService, config.AppOrigin),
@@ -329,6 +334,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithRecoveryCodes(recoveryCodeService),
 		httpapi.WithSecurityPosture(securityPosture),
 		httpapi.WithContactChanges(contactChangeService, nil, false),
+		httpapi.WithMCPGrants(mcpAuthorization),
 		httpapi.WithPrivacy(privacyService, analyticsService, privacySigner, httpapi.PrivacyHTTPConfig{
 			PublicOrigin: config.PublicOrigin, AppOrigin: config.AppOrigin, Secure: true,
 		}),
@@ -338,11 +344,6 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 			SettlementMode: "unconfigured",
 		}),
 	).Handler()
-	mcpAuthorization, err := mcpauth.New(postgres.NewMCPAuthRepository(pool), ids.RandomGenerator{}, mcpauth.RandomSecrets{}, clock, config.AppOrigin, config.MCPResourceOrigin)
-	if err != nil {
-		pool.Close()
-		return nil, err
-	}
 	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService), browserapp.WithContactChanges(contactChangeService, nil), browserapp.WithMCPGrants(mcpAuthorization), browserapp.WithAccountExports(exportService, exportDownloads))
 	if err != nil {
 		pool.Close()

@@ -956,6 +956,11 @@ export interface CreateWorkReviewRequest {
   readonly "work_version": number;
 }
 
+export interface CurrentIdentity {
+  readonly "primary_email": string;
+  readonly "user_id": string;
+}
+
 export interface DecideApprovalRequest {
   readonly "decision": ApprovalDecisionValue;
   readonly "reason": string;
@@ -1773,6 +1778,18 @@ export interface LoginSession {
   readonly "user_id": string;
 }
 
+export interface MCPGrant {
+  readonly "client_id": string;
+  readonly "client_name": string;
+  readonly "created_at": string;
+  readonly "grant_id": string;
+  readonly "last_used_at"?: string;
+}
+
+export interface MCPGrants {
+  readonly "grants": ReadonlyArray<MCPGrant>;
+}
+
 export interface MarketingActor {
   readonly "id": string;
   readonly "kind": "user" | "workload";
@@ -2575,6 +2592,7 @@ export interface ApiSchemas {
   readonly CreateScheduleRequest: CreateScheduleRequest;
   readonly CreateWorkRequest: CreateWorkRequest;
   readonly CreateWorkReviewRequest: CreateWorkReviewRequest;
+  readonly CurrentIdentity: CurrentIdentity;
   readonly DecideApprovalRequest: DecideApprovalRequest;
   readonly DecideBaselineEvidenceRequest: DecideBaselineEvidenceRequest;
   readonly DecideKnowledgeClaimRequest: DecideKnowledgeClaimRequest;
@@ -2692,6 +2710,8 @@ export interface ApiSchemas {
   readonly LinkWorkConversationRequest: LinkWorkConversationRequest;
   readonly LoginRequest: LoginRequest;
   readonly LoginSession: LoginSession;
+  readonly MCPGrant: MCPGrant;
+  readonly MCPGrants: MCPGrants;
   readonly MarketingActor: MarketingActor;
   readonly MarketingAssetKind: MarketingAssetKind;
   readonly MarketingAssetRevision: MarketingAssetRevision;
