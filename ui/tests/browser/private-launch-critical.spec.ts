@@ -1216,6 +1216,131 @@ test("Schedule conflict reloads the authoritative definition before retry", asyn
   await expectAccessible(page);
 });
 
+test("package workspaces reload authoritative state after stale writes", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*409/, /Failed to load resource:.*412/);
+
+  await test.step("Knowledge retains the decision reason while refreshing the exact claim", async () => {
+    let conflicted = false;
+    let detailLoads = 0;
+    const currentClaim = { ...knowledgeClaim, value: "September 2", version: knowledgeClaim.version + 1 };
+    await page.route(`**/api/v1/accounts/${accountID}/knowledge/claims/${knowledgeClaim.id}**`, async (route) => {
+      if (route.request().method() === "GET") {
+        detailLoads += 1;
+        await fulfillJSON(route, conflicted ? currentClaim : knowledgeClaim);
+        return;
+      }
+      conflicted = true;
+      await fulfillProblem(route, 412, "knowledge_claim_conflict", "The submitted Knowledge claim version is stale.");
+    });
+
+    await page.goto(`/app/knowledge/claims/${knowledgeClaim.id}`);
+    await page.getByLabel("Decision reason").fill("The cited launch plan was superseded during review.");
+    await page.getByRole("button", { name: "Accept claim" }).click();
+    await expect(page.getByRole("alert")).toContainText("This claim changed. Review the current version before deciding again.");
+    await expect(page.getByLabel("Decision reason")).toHaveValue("The cited launch plan was superseded during review.");
+    await expect(page.locator(".knowledge-value")).toContainText("September 2");
+    await expect(page.locator(".knowledge-detail-card dl div").filter({ hasText: "Version" })).toContainText(String(currentClaim.version));
+    await expect(page.getByRole("button", { name: "Accept claim" })).toBeEnabled();
+    expect(detailLoads).toBeGreaterThanOrEqual(2);
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+
+  await test.step("Agent Persona publication refreshes the immutable published version", async () => {
+    let conflicted = false;
+    let personaLoads = 0;
+    const currentPersona = {
+      ...agentPersona,
+      latest_version: agentPersona.latest_version + 1,
+      persona_version_id: "14000000-0000-4000-8000-000000000114"
+    };
+    await page.route(`**/api/v1/accounts/${accountID}/agent-boardrooms/${agentRoom.id}/personas`, async (route) => {
+      if (route.request().method() === "GET") {
+        personaLoads += 1;
+        await fulfillJSON(route, { items: [conflicted ? currentPersona : agentPersona] });
+        return;
+      }
+      conflicted = true;
+      await fulfillProblem(route, 409, "agent_persona_conflict", "The Persona changed after this editor was opened.");
+    });
+
+    await page.goto(`/app/agents/boardrooms/${agentRoom.id}`);
+    const persona = page.locator(".agents-persona").filter({ hasText: agentPersona.name });
+    await persona.locator("summary").click();
+    await persona.getByRole("button", { name: "Publish new version" }).click();
+    const dialog = page.getByRole("dialog", { name: `Publish ${agentPersona.name} version ${agentPersona.latest_version + 1}` });
+    await dialog.getByRole("button", { name: "Publish new version" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("alert")).toContainText("This Persona changed. Review its current immutable version before publishing again.");
+    await expect(persona.locator("summary")).toContainText(`version ${currentPersona.latest_version}`);
+    await expect(persona.getByRole("button", { name: "Publish new version" })).toBeEnabled();
+    expect(personaLoads).toBeGreaterThanOrEqual(2);
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+
+  await test.step("Finance posting refreshes the current journal entry", async () => {
+    let conflicted = false;
+    let detailLoads = 0;
+    const currentEntry = { ...financeEntry, description: "Monthly close (updated)", version: financeEntry.version + 1 };
+    await page.route(`**/api/v1/accounts/${accountID}/finance/entries/${financeEntry.id}`, async (route) => {
+      detailLoads += 1;
+      await fulfillJSON(route, conflicted ? currentEntry : financeEntry);
+    });
+    await page.route(`**/api/v1/accounts/${accountID}/finance/entries/${financeEntry.id}/postings`, async (route) => {
+      conflicted = true;
+      await fulfillProblem(route, 409, "finance_entry_conflict", "The journal entry changed before posting.");
+    });
+
+    await page.goto(`/app/finance/entries/${financeEntry.id}`);
+    await page.getByRole("button", { name: "Post entry" }).click();
+    const dialog = page.getByRole("dialog", { name: "Post journal entry" });
+    await dialog.getByLabel("Type POST to confirm").fill("POST");
+    await dialog.getByRole("button", { name: "Post journal entry" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("alert")).toContainText("This Finance record changed. Review its current version before trying again.");
+    await expect(page.getByRole("heading", { level: 2, name: "#8 · Monthly close (updated)" })).toBeVisible();
+    await expect(page.locator(".finance-detail dl div").filter({ hasText: "Version" })).toContainText(String(currentEntry.version));
+    await expect(page.getByRole("button", { name: "Post entry" })).toBeEnabled();
+    expect(detailLoads).toBeGreaterThanOrEqual(2);
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+
+  await test.step("Integration commands refresh the current connection state", async () => {
+    let conflicted = false;
+    let detailLoads = 0;
+    const currentConnection = {
+      ...integrationConnection,
+      name: "Policy research updated",
+      version: integrationConnection.version + 1
+    };
+    await page.route(`**/api/v1/accounts/${accountID}/integrations/connections/${integrationConnection.id}`, async (route) => {
+      detailLoads += 1;
+      await fulfillJSON(route, conflicted ? {
+        ...integrationDetail,
+        connection: currentConnection
+      } : integrationDetail);
+    });
+    await page.route(`**/api/v1/accounts/${accountID}/integrations/connections/${integrationConnection.id}/disables`, async (route) => {
+      conflicted = true;
+      await fulfillProblem(route, 409, "integration_connection_conflict", "The connection changed before it could be disabled.");
+    });
+
+    await page.goto(`/app/integrations/connections/${integrationConnection.id}`);
+    await page.getByRole("button", { name: "Disable", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Disable connection" });
+    await dialog.getByRole("button", { name: "Disable connection" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole("alert")).toContainText("This Integration record changed. Review its current state before trying again.");
+    await expect(page.getByRole("heading", { level: 2, name: currentConnection.name })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Disable", exact: true })).toBeEnabled();
+    expect(detailLoads).toBeGreaterThanOrEqual(2);
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+});
+
 test("Integration research failure retains the scoped customer query", async ({ page }) => {
   allowedBrowserErrors.push(/Failed to load resource:.*503/);
   const searches: unknown[] = [];
