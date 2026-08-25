@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsconversion"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/analytics"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
@@ -14,6 +15,7 @@ import (
 )
 
 const defaultPrivacyCookieName = "__Host-spyglass_privacy"
+const analyticsHandoffCookieName = "__Secure-spyglass_analytics_handoff"
 
 type PrivacyHTTPConfig struct {
 	PublicOrigin string
@@ -94,6 +96,11 @@ func (s *Server) setPrivacyConsent(w http.ResponseWriter, r *http.Request) {
 	decision, _, ok = s.linkPrivatePrivacySubject(w, r, decision)
 	if !ok || !s.setPrivacyReferenceCookie(w, decision) {
 		return
+	}
+	if surface == privacy.SurfacePublic && !decision.Analytics {
+		if _, err := r.Cookie(analyticsHandoffCookieName); err == nil {
+			s.clearAnalyticsHandoffCookie(w)
+		}
 	}
 	effective := decision.EffectiveAt
 	writeJSON(w, http.StatusOK, privacyConsentResponse{PolicyVersion: decision.PolicyVersion, Surface: surface,
@@ -176,6 +183,15 @@ func (s *Server) erasePrivacyData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if surface == privacy.SurfacePrivate {
+		if handoff, valid := s.readAnalyticsHandoff(r); valid {
+			if err := s.privacyConsent.Erase(r.Context(), handoff.SubjectID); err != nil {
+				writeProblem(w, http.StatusServiceUnavailable, "privacy_erasure_failed", "privacy data could not be erased")
+				return
+			}
+		}
+	}
+	s.clearAnalyticsHandoffCookie(w)
 	http.SetCookie(w, &http.Cookie{Name: s.privacyCookieName(), Value: "", Path: "/", HttpOnly: true,
 		Secure: s.privacyHTTP.Secure, SameSite: http.SameSiteLaxMode, MaxAge: -1})
 	w.WriteHeader(http.StatusNoContent)
@@ -212,8 +228,64 @@ func (s *Server) ingestAnalyticsEvent(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeProblem(w, http.StatusServiceUnavailable, "analytics_unavailable", "analytics ingestion is temporarily unavailable")
 	default:
+		envelope := analytics.Envelope{ID: input.EventID, SubjectID: claims.SubjectID,
+			Name: input.Name, Surface: surface, OccurredAt: input.OccurredAt, Fields: input.Fields}
+		if surface == privacy.SurfacePublic && input.Name == analytics.SignupHandoffStarted {
+			s.setAnalyticsHandoffCookie(w, analytics.HandoffReference{ReceiptEventID: input.EventID,
+				SubjectID: claims.SubjectID, ExpiresAt: time.Now().UTC().Add(s.analyticsHandoffLifetime())})
+		}
+		if surface == privacy.SurfacePrivate && analyticsconversion.Eligible(input.Name) {
+			if handoff, valid := s.readAnalyticsHandoff(r); valid && s.analyticsConversion != nil {
+				if mirrorErr := s.analyticsConversion.Mirror(r.Context(), handoff, envelope); mirrorErr != nil {
+					s.logger.Warn("analytics conversion milestone was not mirrored", "event_name", input.Name)
+				}
+			}
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+func (s *Server) setAnalyticsHandoffCookie(w http.ResponseWriter, handoff analytics.HandoffReference) {
+	if s.analyticsTokens == nil || s.analyticsHTTP.CookieDomain == "" {
+		return
+	}
+	now := time.Now().UTC()
+	token, err := s.analyticsTokens.Sign(handoff, now)
+	if err != nil {
+		s.logger.Warn("analytics conversion handoff was not issued")
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: analyticsHandoffCookieName, Value: token, Path: "/api/v1",
+		Domain: s.analyticsHTTP.CookieDomain, HttpOnly: true, Secure: s.analyticsHTTP.Secure,
+		SameSite: http.SameSiteLaxMode, Expires: handoff.ExpiresAt, MaxAge: int(time.Until(handoff.ExpiresAt).Seconds())})
+}
+
+func (s *Server) readAnalyticsHandoff(r *http.Request) (analytics.HandoffReference, bool) {
+	if s.analyticsTokens == nil {
+		return analytics.HandoffReference{}, false
+	}
+	cookie, err := r.Cookie(analyticsHandoffCookieName)
+	if err != nil {
+		return analytics.HandoffReference{}, false
+	}
+	handoff, err := s.analyticsTokens.Verify(cookie.Value, time.Now().UTC())
+	return handoff, err == nil
+}
+
+func (s *Server) clearAnalyticsHandoffCookie(w http.ResponseWriter) {
+	if s.analyticsHTTP.CookieDomain == "" {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: analyticsHandoffCookieName, Value: "", Path: "/api/v1",
+		Domain: s.analyticsHTTP.CookieDomain, HttpOnly: true, Secure: s.analyticsHTTP.Secure,
+		SameSite: http.SameSiteLaxMode, Expires: time.Unix(1, 0), MaxAge: -1})
+}
+
+func (s *Server) analyticsHandoffLifetime() time.Duration {
+	if s.analyticsHTTP.Lifetime > 0 {
+		return s.analyticsHTTP.Lifetime
+	}
+	return 24 * time.Hour
 }
 
 func (s *Server) privacyRequestContext(w http.ResponseWriter, r *http.Request, mutation bool) (privacy.Surface, string, bool) {

@@ -2,10 +2,16 @@ package migrations_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
 
+	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsconversion"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/analytics"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
 )
 
@@ -102,5 +108,83 @@ func TestPostgresAnalyticsReportIsAggregatedSuppressedAndLeastPrivilege(t *testi
 	}
 	if _, err := tx.Exec(ctx, `SELECT event_name FROM analytics_events LIMIT 1`); err == nil {
 		t.Fatal("reporter read raw analytics events")
+	}
+}
+
+func TestPostgresAnalyticsConversionHandoffDoesNotPersistPrivateSubject(t *testing.T) {
+	adminURL := os.Getenv("SPYGLASS_POSTGRES_TEST_URL")
+	if adminURL == "" {
+		t.Skip("SPYGLASS_POSTGRES_TEST_URL is not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	databaseURL, cleanup := createDatabase(t, ctx, adminURL)
+	defer cleanup()
+	pool := openPool(t, ctx, databaseURL, nil)
+	defer pool.Close()
+	if _, err := migrations.Apply(ctx, pool, migrations.Global); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	for index := 1; index <= 5; index++ {
+		subjectID := "30000000-0000-4000-8000-00000000000" + string(rune('0'+index))
+		decisionID := "30000000-0000-4000-8000-00000000001" + string(rune('0'+index))
+		eventID := "30000000-0000-4000-8000-00000000002" + string(rune('0'+index))
+		if _, err := pool.Exec(ctx, `WITH inserted_subject AS (
+			INSERT INTO privacy_consent_subjects(id,created_at) VALUES ($1,$4) RETURNING id
+		), inserted_decision AS (
+			INSERT INTO privacy_consent_decisions(decision_id,subject_id,policy_version,surface,analytics,marketing,effective_at)
+			SELECT $2,id,1,'public',true,false,$4 FROM inserted_subject RETURNING decision_id,subject_id
+		)
+			INSERT INTO analytics_events(event_id,subject_id,consent_decision_id,event_name,surface,occurred_at,fields,ingested_at)
+			SELECT $3,subject_id,decision_id,'signup_handoff_started','public',$4,'{"offer_code":"team-monthly-v1"}',$4
+			FROM inserted_decision`,
+			subjectID, decisionID, eventID, now.Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		repository := postgresadapter.NewAnalyticsConversionRepository(pool)
+		handoff := analytics.HandoffReference{ReceiptEventID: ids.AnalyticsEventID(eventID), SubjectID: ids.ConsentSubjectID(subjectID), ExpiresAt: now.Add(time.Hour)}
+		envelope := analytics.Envelope{ID: ids.AnalyticsEventID("40000000-0000-4000-8000-00000000000" + string(rune('0'+index))),
+			SubjectID: ids.ConsentSubjectID("90000000-0000-4000-8000-00000000000" + string(rune('0'+index))),
+			Name:      analytics.RegistrationStarted, Surface: privacy.SurfacePrivate, OccurredAt: now.Add(-30 * time.Minute),
+			Fields: map[string]string{"offer_code": "team-monthly-v1"}}
+		if err := repository.Append(ctx, handoff, envelope); err != nil {
+			t.Fatal(err)
+		}
+		if index == 1 {
+			if _, err := pool.Exec(ctx, `INSERT INTO privacy_consent_decisions
+				(decision_id,subject_id,policy_version,surface,analytics,marketing,effective_at)
+				VALUES ('50000000-0000-4000-8000-000000000001',$1,1,'public',false,false,$2)`, subjectID, now.Add(-10*time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			envelope.Name = analytics.AccountCreated
+			if err := repository.Append(ctx, handoff, envelope); !errors.Is(err, analyticsconversion.ErrInvalidHandoff) {
+				t.Fatalf("mirror after source withdrawal error=%v", err)
+			}
+		}
+	}
+
+	var eventCount, uniqueSubjects uint64
+	if err := pool.QueryRow(ctx, `SELECT event_count,unique_subjects FROM spyglass_analytics_funnel_report($1,$2,'day','offer_code',5)
+		WHERE surface='conversion' AND event_name='registration_started'`, now.Add(-2*time.Hour), now).Scan(&eventCount, &uniqueSubjects); err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != 5 || uniqueSubjects != 5 {
+		t.Fatalf("conversion event_count=%d unique_subjects=%d", eventCount, uniqueSubjects)
+	}
+	var targetColumns int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_schema='public' AND table_name='analytics_conversion_events'
+		AND column_name IN ('target_subject_id','user_id','account_id','private_event_id')`).Scan(&targetColumns); err != nil || targetColumns != 0 {
+		t.Fatalf("persisted target identity columns=%d err=%v", targetColumns, err)
+	}
+	if err := postgresadapter.NewPrivacyConsentRepository(pool).Erase(ctx, ids.ConsentSubjectID("30000000-0000-4000-8000-000000000001")); err != nil {
+		t.Fatal(err)
+	}
+	var visible int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM spyglass_analytics_funnel_report($1,$2,'day','offer_code',5)
+		WHERE surface='conversion'`, now.Add(-2*time.Hour), now).Scan(&visible); err != nil || visible != 0 {
+		t.Fatalf("conversion rows after erasure=%d err=%v", visible, err)
 	}
 }

@@ -86,6 +86,7 @@ Database connection limits are per replica. Environment overlays must ensure the
 | `SPYGLASS_PASSKEY_RP_ID` | Exact WebAuthn relying-party domain for the application origin; no scheme, port, or path |
 | `SPYGLASS_STRIPE_WEBHOOK_SECRET` | Endpoint-specific `whsec_` secret |
 | `SPYGLASS_PRIVACY_PREFERENCE_KEY` | Standard Base64 encoding of exactly 32 random bytes used to authenticate the host-only privacy-subject reference |
+| `SPYGLASS_ANALYTICS_HANDOFF_COOKIE_DOMAIN` | Exact owned parent domain containing both public and application origins, without a leading dot or port; for example `stage.infiniteocean.net` on Stage and `infiniteocean.net` in production |
 | `SPYGLASS_AFFILIATE_ENROLLMENT_OPEN` | Optional launch gate; defaults closed and process startup rejects `true` while settlement mode is `unconfigured` |
 | `SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED` | Optional checkout-attribution gate; defaults closed and is independent from analytics consent |
 | `SPYGLASS_AFFILIATE_SETTLEMENT_MODE` | Exact `unconfigured`, `account_credit` or `cash`; enrollment request shape is enforced server-side for the selected mode |

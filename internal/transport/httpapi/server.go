@@ -15,6 +15,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliatesupport"
+	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsconversion"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
@@ -32,6 +33,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/analytics"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
@@ -76,6 +78,9 @@ type Server struct {
 	privacyConsent        *privacyconsent.Service
 	privacyRights         *privacyrights.Service
 	analyticsIngest       *analyticsingest.Service
+	analyticsConversion   *analyticsconversion.Service
+	analyticsTokens       AnalyticsConversionTokenCodec
+	analyticsHTTP         AnalyticsConversionHTTPConfig
 	privacyTokens         PrivacyTokenCodec
 	privacyHTTP           PrivacyHTTPConfig
 }
@@ -196,9 +201,26 @@ type PrivacyTokenCodec interface {
 	Verify(string, privacy.Surface) (privacy.PreferenceReference, error)
 }
 
+type AnalyticsConversionTokenCodec interface {
+	Sign(analytics.HandoffReference, time.Time) (string, error)
+	Verify(string, time.Time) (analytics.HandoffReference, error)
+}
+
+type AnalyticsConversionHTTPConfig struct {
+	CookieDomain string
+	Secure       bool
+	Lifetime     time.Duration
+}
+
 func WithPrivacy(consent *privacyconsent.Service, ingestion *analyticsingest.Service, tokens PrivacyTokenCodec, config PrivacyHTTPConfig) Option {
 	return func(server *Server) {
 		server.privacyConsent, server.analyticsIngest, server.privacyTokens, server.privacyHTTP = consent, ingestion, tokens, config
+	}
+}
+
+func WithAnalyticsConversion(service *analyticsconversion.Service, tokens AnalyticsConversionTokenCodec, config AnalyticsConversionHTTPConfig) Option {
+	return func(server *Server) {
+		server.analyticsConversion, server.analyticsTokens, server.analyticsHTTP = service, tokens, config
 	}
 }
 

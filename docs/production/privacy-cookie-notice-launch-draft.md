@@ -20,7 +20,7 @@ Required for authentication, security, checkout continuity, Affiliate referral a
 
 **Analytics — optional, off until accepted**
 
-Allows first-party, pseudonymous events about landing, checkout, onboarding and content-free Your Turn milestones. Events never include your name, email, User or Account ID, payment details, prompts, documents, task content or full URLs. Raw events are deleted after 395 days by default, or sooner when you erase this browser's privacy data.
+Allows first-party, pseudonymous events about landing, checkout, onboarding and content-free Your Turn milestones. When you continue from the public site into Spyglass, a signed analytics handoff lasting no more than 24 hours lets us count anonymous onboarding milestones against that visit. It contains no name, email, User or Account ID, offer details or campaign text, and the database never attaches the private privacy subject or identity to the handoff. Raw events are deleted after 395 days by default, or sooner when you erase this browser's privacy data.
 
 **Marketing — optional, currently unused**
 

@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/conversiontoken"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/privacytoken"
+	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsconversion"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/analytics"
@@ -111,6 +113,16 @@ type privacyClock struct{ now time.Time }
 
 func (c privacyClock) Now() time.Time { return c.now }
 
+type conversionMemory struct {
+	handoff analytics.HandoffReference
+	event   analytics.Envelope
+}
+
+func (m *conversionMemory) Append(_ context.Context, handoff analytics.HandoffReference, event analytics.Envelope) error {
+	m.handoff, m.event = handoff, event
+	return nil
+}
+
 func TestPrivacyConsentGatesAnalyticsAndWithdrawalStopsIngestion(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	memory := &privacyMemory{}
@@ -156,12 +168,96 @@ func TestPrivacyConsentGatesAnalyticsAndWithdrawalStopsIngestion(t *testing.T) {
 	}
 }
 
+func TestAnalyticsHandoffMirrorsPrivateMilestoneWithoutSharingPrivacySubject(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	memory := &privacyMemory{}
+	generator := &sequenceIDs{values: []string{
+		"10000000-0000-4000-8000-000000000021", "10000000-0000-4000-8000-000000000022",
+		"10000000-0000-4000-8000-000000000023", "10000000-0000-4000-8000-000000000024",
+		"10000000-0000-4000-8000-000000000025",
+	}}
+	clock := privacyClock{now}
+	consent, _ := privacyconsent.New(memory, generator, clock, 1)
+	ingestion, _ := analyticsingest.New(memory, privacySink{memory}, analytics.LaunchRegistry(), clock, 1)
+	privacyTokens, _ := privacytoken.New([]byte("0123456789abcdef0123456789abcdef"))
+	conversionTokens, _ := conversiontoken.New([]byte("0123456789abcdef0123456789abcdef"))
+	conversionRepository := &conversionMemory{}
+	conversion, _ := analyticsconversion.New(conversionRepository, clock)
+	handler := httpapi.NewServer(nil, nil, nil, false, slog.Default(),
+		httpapi.WithPrivacy(consent, ingestion, privacyTokens, httpapi.PrivacyHTTPConfig{
+			PublicOrigin: "https://web.example.test", AppOrigin: "https://app.example.test", Secure: true,
+		}),
+		httpapi.WithAnalyticsConversion(conversion, conversionTokens, httpapi.AnalyticsConversionHTTPConfig{
+			CookieDomain: "example.test", Secure: true, Lifetime: time.Hour,
+		})).Handler()
+
+	publicPrivacy := putConsentForOrigin(t, handler, "https://web.example.test", nil, true, false)
+	handoffID := "10000000-0000-4000-8000-000000000031"
+	handoffPayload, _ := json.Marshal(map[string]any{"event_id": handoffID, "name": "signup_handoff_started", "occurred_at": now, "fields": map[string]string{"offer_code": "team-monthly-v1"}})
+	handoffRequest := httptest.NewRequest(http.MethodPost, "https://web.example.test/api/v1/analytics/events", bytes.NewReader(handoffPayload))
+	handoffRequest.Header.Set("Content-Type", "application/json")
+	handoffRequest.Header.Set("Origin", "https://web.example.test")
+	handoffRequest.AddCookie(publicPrivacy)
+	handoffResponse := httptest.NewRecorder()
+	handler.ServeHTTP(handoffResponse, handoffRequest)
+	if handoffResponse.Code != http.StatusNoContent || len(handoffResponse.Result().Cookies()) != 1 {
+		t.Fatalf("handoff status=%d cookies=%+v", handoffResponse.Code, handoffResponse.Result().Cookies())
+	}
+	handoffCookie := handoffResponse.Result().Cookies()[0]
+	if handoffCookie.Name != "__Secure-spyglass_analytics_handoff" || handoffCookie.Domain != "example.test" || handoffCookie.Path != "/api/v1" || !handoffCookie.HttpOnly || !handoffCookie.Secure {
+		t.Fatalf("handoff cookie=%+v", handoffCookie)
+	}
+
+	privatePrivacy := putConsentForOrigin(t, handler, "https://app.example.test", nil, true, false)
+	privateEventID := "10000000-0000-4000-8000-000000000032"
+	privatePayload, _ := json.Marshal(map[string]any{"event_id": privateEventID, "name": "registration_started", "occurred_at": now, "fields": map[string]string{"offer_code": "team-monthly-v1"}})
+	privateRequest := httptest.NewRequest(http.MethodPost, "https://app.example.test/api/v1/analytics/events", bytes.NewReader(privatePayload))
+	privateRequest.Header.Set("Content-Type", "application/json")
+	privateRequest.Header.Set("Origin", "https://app.example.test")
+	privateRequest.AddCookie(privatePrivacy)
+	privateRequest.AddCookie(handoffCookie)
+	privateResponse := httptest.NewRecorder()
+	handler.ServeHTTP(privateResponse, privateRequest)
+	if privateResponse.Code != http.StatusNoContent || conversionRepository.handoff.ReceiptEventID != ids.AnalyticsEventID(handoffID) || conversionRepository.handoff.SubjectID != memory.decisions[0].SubjectID {
+		t.Fatalf("private status=%d handoff=%+v", privateResponse.Code, conversionRepository.handoff)
+	}
+	if conversionRepository.event.ID != ids.AnalyticsEventID(privateEventID) || conversionRepository.event.SubjectID != memory.decisions[1].SubjectID || conversionRepository.event.SubjectID == conversionRepository.handoff.SubjectID {
+		t.Fatalf("private event=%+v decisions=%+v", conversionRepository.event, memory.decisions)
+	}
+	withdrawPayload, _ := json.Marshal(map[string]bool{"analytics": false, "marketing": false})
+	withdraw := httptest.NewRequest(http.MethodPut, "https://web.example.test/api/v1/privacy/consent", bytes.NewReader(withdrawPayload))
+	withdraw.Header.Set("Content-Type", "application/json")
+	withdraw.Header.Set("Origin", "https://web.example.test")
+	withdraw.AddCookie(publicPrivacy)
+	withdraw.AddCookie(handoffCookie)
+	withdrawResponse := httptest.NewRecorder()
+	handler.ServeHTTP(withdrawResponse, withdraw)
+	withdrawCookies := withdrawResponse.Result().Cookies()
+	if withdrawResponse.Code != http.StatusOK || len(withdrawCookies) != 2 || withdrawCookies[1].Name != "__Secure-spyglass_analytics_handoff" || withdrawCookies[1].MaxAge != -1 {
+		t.Fatalf("withdraw status=%d cookies=%+v", withdrawResponse.Code, withdrawCookies)
+	}
+
+	erase := httptest.NewRequest(http.MethodDelete, "https://app.example.test/api/v1/privacy/data", nil)
+	erase.Header.Set("Origin", "https://app.example.test")
+	erase.AddCookie(privatePrivacy)
+	erase.AddCookie(handoffCookie)
+	eraseResponse := httptest.NewRecorder()
+	handler.ServeHTTP(eraseResponse, erase)
+	if eraseResponse.Code != http.StatusNoContent || len(memory.decisions) != 0 || len(eraseResponse.Result().Cookies()) != 2 {
+		t.Fatalf("erase status=%d decisions=%d cookies=%+v", eraseResponse.Code, len(memory.decisions), eraseResponse.Result().Cookies())
+	}
+}
+
 func putConsent(t *testing.T, handler http.Handler, cookie *http.Cookie, analyticsAllowed, marketingAllowed bool) *http.Cookie {
+	return putConsentForOrigin(t, handler, "https://web.example.test", cookie, analyticsAllowed, marketingAllowed)
+}
+
+func putConsentForOrigin(t *testing.T, handler http.Handler, origin string, cookie *http.Cookie, analyticsAllowed, marketingAllowed bool) *http.Cookie {
 	t.Helper()
 	payload, _ := json.Marshal(map[string]bool{"analytics": analyticsAllowed, "marketing": marketingAllowed})
-	request := httptest.NewRequest(http.MethodPut, "https://web.example.test/api/v1/privacy/consent", bytes.NewReader(payload))
+	request := httptest.NewRequest(http.MethodPut, origin+"/api/v1/privacy/consent", bytes.NewReader(payload))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Origin", "https://web.example.test")
+	request.Header.Set("Origin", origin)
 	if cookie != nil {
 		request.AddCookie(cookie)
 	}

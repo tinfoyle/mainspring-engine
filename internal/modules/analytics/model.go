@@ -57,6 +57,23 @@ type Envelope struct {
 	Fields     map[string]string    `json:"fields,omitempty"`
 }
 
+// HandoffReference is a short-lived bearer that lets the application record
+// anonymous conversion milestones against a public acquisition subject. It
+// never contains or persists a private subject, User, or Account identifier.
+type HandoffReference struct {
+	ReceiptEventID ids.AnalyticsEventID
+	SubjectID      ids.ConsentSubjectID
+	ExpiresAt      time.Time
+}
+
+func (r HandoffReference) Validate(now time.Time) error {
+	if ids.Validate(string(r.ReceiptEventID)) != nil || ids.Validate(string(r.SubjectID)) != nil ||
+		r.ExpiresAt.IsZero() || !now.UTC().Before(r.ExpiresAt.UTC()) || r.ExpiresAt.After(now.UTC().Add(24*time.Hour)) {
+		return ErrInvalidEvent
+	}
+	return nil
+}
+
 var alwaysProhibited = map[string]struct{}{
 	"account_id": {}, "user_id": {}, "email": {}, "name": {}, "ip": {}, "url": {}, "query": {}, "referrer": {},
 	"stripe_id": {}, "prompt": {}, "answer": {}, "content": {}, "document": {}, "evidence": {}, "decision": {},

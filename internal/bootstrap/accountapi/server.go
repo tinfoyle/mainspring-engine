@@ -7,10 +7,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/conversiontoken"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/privacytoken"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
@@ -22,6 +25,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliatesupport"
+	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsconversion"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
@@ -51,33 +55,34 @@ import (
 )
 
 type Config struct {
-	DatabaseURL                 string
-	StripeWebhookSecret         string
-	StripeSecretKey             string
-	StripeAPIVersion            string
-	StripeMode                  string
-	StripeHTTPClient            *http.Client
-	MaxDatabaseConns            int32
-	AppOrigin                   string
-	PublicOrigin                string
-	MCPResourceOrigin           string
-	NotificationEncryptionKey   []byte
-	NetworkActorKey             []byte
-	PrivacyPreferenceKey        []byte
-	PasskeyEncryptionKeys       map[int][]byte
-	PasskeyActiveKeyVersion     int
-	PasskeyRPID                 string
-	TrustedProxyCIDRs           []string
-	CatalogRefreshInterval      time.Duration
-	AffiliateEnrollmentOpen     bool
-	AffiliateAttributionEnabled bool
-	AffiliateSettlementMode     string
-	AffiliateTermsVersion       uint64
-	AffiliateRuleVersion        uint64
-	ExportObject                s3objects.Config
-	ExportDownloadKeyID         string
-	ExportDownloadKeys          map[string][]byte
-	ExportDownloadLifetime      time.Duration
+	DatabaseURL                  string
+	StripeWebhookSecret          string
+	StripeSecretKey              string
+	StripeAPIVersion             string
+	StripeMode                   string
+	StripeHTTPClient             *http.Client
+	MaxDatabaseConns             int32
+	AppOrigin                    string
+	PublicOrigin                 string
+	MCPResourceOrigin            string
+	NotificationEncryptionKey    []byte
+	NetworkActorKey              []byte
+	PrivacyPreferenceKey         []byte
+	AnalyticsHandoffCookieDomain string
+	PasskeyEncryptionKeys        map[int][]byte
+	PasskeyActiveKeyVersion      int
+	PasskeyRPID                  string
+	TrustedProxyCIDRs            []string
+	CatalogRefreshInterval       time.Duration
+	AffiliateEnrollmentOpen      bool
+	AffiliateAttributionEnabled  bool
+	AffiliateSettlementMode      string
+	AffiliateTermsVersion        uint64
+	AffiliateRuleVersion         uint64
+	ExportObject                 s3objects.Config
+	ExportDownloadKeyID          string
+	ExportDownloadKeys           map[string][]byte
+	ExportDownloadLifetime       time.Duration
 }
 
 type Server struct {
@@ -92,6 +97,9 @@ type Server struct {
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, error) {
 	if config.DatabaseURL == "" || config.AppOrigin == "" || config.PublicOrigin == "" || config.MCPResourceOrigin == "" || logger == nil {
 		return nil, errors.New("database URL, application/public origins, and logger are required")
+	}
+	if err := validateAnalyticsHandoffCookieDomain(config.AnalyticsHandoffCookieDomain, config.PublicOrigin, config.AppOrigin); err != nil {
+		return nil, err
 	}
 	if config.StripeMode != "test" && config.StripeMode != "live" {
 		return nil, errors.New("Stripe mode must be test or live")
@@ -342,7 +350,17 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	analyticsConversionService, err := analyticsconversion.New(postgres.NewAnalyticsConversionRepository(pool), clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	privacySigner, err := privacytoken.New(config.PrivacyPreferenceKey)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	analyticsSigner, err := conversiontoken.New(config.PrivacyPreferenceKey)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -370,6 +388,9 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithPrivacy(privacyService, analyticsService, privacySigner, httpapi.PrivacyHTTPConfig{
 			PublicOrigin: config.PublicOrigin, AppOrigin: config.AppOrigin, Secure: true,
 		}),
+		httpapi.WithAnalyticsConversion(analyticsConversionService, analyticsSigner, httpapi.AnalyticsConversionHTTPConfig{
+			CookieDomain: config.AnalyticsHandoffCookieDomain, Secure: true, Lifetime: 24 * time.Hour,
+		}),
 		httpapi.WithPrivacyRights(privacyRightsService),
 		httpapi.WithAffiliateProgram(affiliateService, httpapi.AffiliateHTTPConfig{
 			EnrollmentOpen: config.AffiliateEnrollmentOpen, AttributionEnabled: config.AffiliateAttributionEnabled,
@@ -396,6 +417,24 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	done := make(chan struct{})
 	go refreshCatalog(refreshContext, config.CatalogRefreshInterval, catalogRepository, catalogCache, logger, done)
 	return &Server{Handler: withReadiness(pool, actorResolver.Handler(oauth.Handler(browser.Handler(apiHandler)))), pool: pool, stop: stop, done: done}, nil
+}
+
+func validateAnalyticsHandoffCookieDomain(domain string, origins ...string) error {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" || strings.HasPrefix(domain, ".") || strings.ContainsAny(domain, "/:") {
+		return errors.New("analytics handoff cookie domain must be an exact parent domain without punctuation")
+	}
+	for _, origin := range origins {
+		parsed, err := url.Parse(origin)
+		host := ""
+		if err == nil {
+			host = strings.ToLower(parsed.Hostname())
+		}
+		if host == "" || (host != domain && !strings.HasSuffix(host, "."+domain)) {
+			return errors.New("analytics handoff cookie domain must contain both public and application origins")
+		}
+	}
+	return nil
 }
 
 func (s *Server) Close() {

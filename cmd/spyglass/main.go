@@ -1252,7 +1252,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	stripeClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(nil), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval, AffiliateEnrollmentOpen: config.affiliateEnrollmentOpen, AffiliateAttributionEnabled: config.affiliateAttributionEnabled, AffiliateSettlementMode: config.affiliateSettlementMode, AffiliateTermsVersion: config.affiliateTermsVersion, AffiliateRuleVersion: config.affiliateRuleVersion,
+	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, AnalyticsHandoffCookieDomain: config.analyticsHandoffCookieDomain, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval, AffiliateEnrollmentOpen: config.affiliateEnrollmentOpen, AffiliateAttributionEnabled: config.affiliateAttributionEnabled, AffiliateSettlementMode: config.affiliateSettlementMode, AffiliateTermsVersion: config.affiliateTermsVersion, AffiliateRuleVersion: config.affiliateRuleVersion,
 		ExportObject:        s3objects.Config{Endpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: envOr("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "spyglass-account-exports"), AccessKey: exportObjectAccessKey, SecretKey: exportObjectSecretKey, Secure: objectSecure, ServerSideEncryption: objectSSE},
 		ExportDownloadKeyID: exportKeyID, ExportDownloadKeys: exportKeys, ExportDownloadLifetime: exportLifetime}, logger)
 	if err != nil {
@@ -3256,18 +3256,18 @@ func serveWorker(ctx context.Context, name, healthAddress string, worker runnabl
 }
 
 type persistentConfig struct {
-	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, mcpResourceOrigin, passkeyRPID string
-	notificationEncryptionKey                                                                                                                []byte
-	networkActorKey                                                                                                                          []byte
-	privacyPreferenceKey                                                                                                                     []byte
-	passkeyEncryptionKeys                                                                                                                    map[int][]byte
-	passkeyActiveKeyVersion                                                                                                                  int
-	trustedProxyCIDRs                                                                                                                        []string
-	maxDatabaseConns                                                                                                                         int32
-	catalogRefreshInterval                                                                                                                   time.Duration
-	affiliateEnrollmentOpen, affiliateAttributionEnabled                                                                                     bool
-	affiliateSettlementMode                                                                                                                  string
-	affiliateTermsVersion, affiliateRuleVersion                                                                                              uint64
+	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, mcpResourceOrigin, passkeyRPID, analyticsHandoffCookieDomain string
+	notificationEncryptionKey                                                                                                                                              []byte
+	networkActorKey                                                                                                                                                        []byte
+	privacyPreferenceKey                                                                                                                                                   []byte
+	passkeyEncryptionKeys                                                                                                                                                  map[int][]byte
+	passkeyActiveKeyVersion                                                                                                                                                int
+	trustedProxyCIDRs                                                                                                                                                      []string
+	maxDatabaseConns                                                                                                                                                       int32
+	catalogRefreshInterval                                                                                                                                                 time.Duration
+	affiliateEnrollmentOpen, affiliateAttributionEnabled                                                                                                                   bool
+	affiliateSettlementMode                                                                                                                                                string
+	affiliateTermsVersion, affiliateRuleVersion                                                                                                                            uint64
 }
 
 func productionConfig() (persistentConfig, error) {
@@ -3276,7 +3276,7 @@ func productionConfig() (persistentConfig, error) {
 	fields := []struct {
 		name   string
 		target *string
-	}{{"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}, {"SPYGLASS_MCP_RESOURCE_ORIGIN", &result.mcpResourceOrigin}, {"SPYGLASS_PASSKEY_RP_ID", &result.passkeyRPID}}
+	}{{"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}, {"SPYGLASS_MCP_RESOURCE_ORIGIN", &result.mcpResourceOrigin}, {"SPYGLASS_PASSKEY_RP_ID", &result.passkeyRPID}, {"SPYGLASS_ANALYTICS_HANDOFF_COOKIE_DOMAIN", &result.analyticsHandoffCookieDomain}}
 	for _, field := range fields {
 		*field.target, err = requiredEnv(field.name)
 		if err != nil {
