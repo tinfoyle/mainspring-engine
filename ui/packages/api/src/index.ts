@@ -12,5 +12,6 @@ export * from "./schedules";
 export * from "./account-team";
 export * from "./security";
 export * from "./account-lifecycle";
+export * from "./finance";
 export * from "./generated/api-types";
 export { apiRoutes } from "./generated/api-contract";

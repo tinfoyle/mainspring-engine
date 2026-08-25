@@ -167,6 +167,11 @@ private_routes=(
   /app/agents/boardrooms/10000000-0000-4000-8000-000000000001/conversations/20000000-0000-4000-8000-000000000002
   /app/schedules
   /app/schedules/10000000-0000-4000-8000-000000000001
+  /app/finance
+  /app/finance/ledgers/10000000-0000-4000-8000-000000000001
+  /app/finance/accounts/10000000-0000-4000-8000-000000000002
+  /app/finance/entries/10000000-0000-4000-8000-000000000003
+  /app/finance/reconciliations/10000000-0000-4000-8000-000000000004
   /app/account
   /app/billing
   /app/security
