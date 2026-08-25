@@ -151,12 +151,30 @@ grep -qi '^content-security-policy:' /tmp/spyglass-local-website-headers.txt
 grep -q 'Infinite Ocean: Spyglass' /tmp/spyglass-local-website.html
 
 curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
-  "${public_origin}/signup" >/tmp/spyglass-local-signup.html
-grep -q "https://app.infiniteocean.localhost:${tls_port}/signup" /tmp/spyglass-local-signup.html
+  "${public_origin}/pricing" >/tmp/spyglass-local-pricing.html
+grep -q "https://app.infiniteocean.localhost:${tls_port}/signup" /tmp/spyglass-local-pricing.html
 
 curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
-  "${public_origin}/api/catalog" >/tmp/spyglass-local-catalog.json
+  "${public_origin}/catalog.json" >/tmp/spyglass-local-catalog.json
 jq -e '.version > 0 and (.packages | length) > 0' /tmp/spyglass-local-catalog.json >/dev/null
+
+private_routes=(
+  /app/your-turn
+  /app/your-turn/work-item/10000000-0000-4000-8000-000000000001
+  /app/work/10000000-0000-4000-8000-000000000001
+  /app/knowledge/claims/10000000-0000-4000-8000-000000000001
+  /app/agents/boardrooms/10000000-0000-4000-8000-000000000001
+  /app/agents/boardrooms/10000000-0000-4000-8000-000000000001/conversations/20000000-0000-4000-8000-000000000002
+  /app/privacy
+  /app/checkout
+  /app/affiliate
+)
+for route in "${private_routes[@]}"; do
+  curl "${curl_common[@]}" --resolve "app.infiniteocean.localhost:${tls_port}:127.0.0.1" \
+    "${app_origin}${route}" >/tmp/spyglass-local-private-ui.html
+  grep -q '<div id="app"></div>' /tmp/spyglass-local-private-ui.html
+  grep -q '/ui-assets/' /tmp/spyglass-local-private-ui.html
+done
 
 routed_status="$(curl --silent --show-error --cacert "$root_ca" \
   --resolve "app.infiniteocean.localhost:${tls_port}:127.0.0.1" \

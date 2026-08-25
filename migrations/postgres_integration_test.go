@@ -76,6 +76,17 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 			t.Fatalf("apply %s migrations: %v", target, err)
 		}
 	}
+	// Anchor the migration-owned seed just behind the database clock. A VM host
+	// clock correction between the seed statement and this query can otherwise
+	// make the newly published seed temporarily look future-effective.
+	var adminNow time.Time
+	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&adminNow); err != nil {
+		t.Fatal(err)
+	}
+	adminNow = adminNow.UTC()
+	if _, err := pool.Exec(ctx, `UPDATE catalog_publications SET published_at=$1 WHERE version=2 AND state='published' AND created_by='migration'`, adminNow.Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
 
 	published, err := postgresadapter.NewCatalogRepository(pool).Published(ctx)
 	if err != nil {
@@ -85,14 +96,8 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 		t.Fatalf("unexpected published catalog: version=%d plans=%d", published.Version, len(published.Plans))
 	}
 
-	// Anchor publication time to the database clock after seed migrations. A
-	// host clock value in the past can sort behind the seeded publication, while
-	// a future value is not yet visible to Published().
-	var adminNow time.Time
-	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&adminNow); err != nil {
-		t.Fatal(err)
-	}
-	adminNow = adminNow.UTC()
+	// Continue using the database clock so governed publication ordering does
+	// not depend on the host clock.
 	adminService, err := catalogadmin.NewService(postgresadapter.NewCatalogAdminRepository(pool), ids.RandomGenerator{}, fixedClock{now: adminNow})
 	if err != nil {
 		t.Fatal(err)
@@ -943,7 +948,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 121 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 122 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)

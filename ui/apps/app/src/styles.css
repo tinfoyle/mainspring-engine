@@ -11,7 +11,6 @@
 .sidebar nav { display: grid; gap: .35rem; }
 .nav-link { min-height: 48px; padding: .75rem .9rem; display: flex; align-items: center; justify-content: space-between; border-radius: .75rem; color: rgb(255 255 255 / 72%); text-decoration: none; font-weight: 650; }
 .nav-link:hover, .nav-link.router-link-active { color: white; background: rgb(255 255 255 / 10%); }
-.nav-link em { min-width: 1.55rem; height: 1.55rem; display: grid; place-content: center; border-radius: 999px; background: var(--io-coral); font-size: .75rem; font-style: normal; }
 .account-switcher { margin-top: auto; display: grid; gap: .45rem; }
 .account-switcher label { color: var(--io-seafoam); font-size: .75rem; font-weight: 750; text-transform: uppercase; letter-spacing: .12em; }
 .account-switcher select { width: 100%; min-height: 46px; padding: 0 .75rem; border: 1px solid rgb(255 255 255 / 25%); border-radius: .7rem; color: white; background: rgb(255 255 255 / 8%); }

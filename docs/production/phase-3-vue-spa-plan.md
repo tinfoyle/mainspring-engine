@@ -199,7 +199,7 @@ Exit: Your Turn is locally feature-complete and becomes the interaction-quality 
 
 ### UI3 — Public acquisition, feature catalog and checkout
 
-Checkpoint (2026-08-24): the rendered public surface now tells the Your Turn-centered operating story, exposes a twelve-route feature and governance map, explains a cross-package workflow, and renders paid offer names, packages and current prices from the server-fetched public Catalog. Landing, feature, pricing, offer-selection and signup-handoff events remain consent-gated and content-free. The private SPA now provides an owner/billing-administrator checkout review with an actively applied optional Affiliate code, explicit offer/referral confirmation, stable request idempotency and a dedicated Stripe return route that waits for the local signed-webhook subscription projection. A referral proposed by a link is never silently applied, and analytics refusal does not change referral or checkout behavior. Free/paid journey HTTP certification, registration/onboarding instrumentation, Catalog last-known-good policy, Stripe failure fixtures, structured data/social imagery, Affiliate dashboard and approved commercial settlement/reversal policy remain open.
+Checkpoint (2026-08-24): the rendered public surface now tells the Your Turn-centered operating story, exposes a twelve-route feature and governance map, explains a cross-package workflow, and renders paid offer names, packages and current prices from the server-fetched public Catalog. Landing, feature, pricing, offer-selection and signup-handoff events remain consent-gated and content-free. Registration, verification, Account creation, security enrollment and first application entry now emit only reviewed content-free events after authoritative transitions and only when the applicable first-party consent permits them. The private SPA provides an owner/billing-administrator checkout review with an actively applied optional Affiliate code, explicit offer/referral confirmation, stable request idempotency and a dedicated Stripe return route that waits for the local signed-webhook subscription projection. Its ordinary-identity Affiliate dashboard exposes only the generated code and aggregate commission states. A referral proposed by a link is never silently applied, and analytics refusal does not change referral or checkout behavior. Free/paid journey HTTP certification, Catalog last-known-good policy, Stripe failure fixtures, structured data/social imagery and approved commercial settlement/reversal policy remain open.
 
 - Build the public landing page around the governed Spyglass operating loop and Your Turn value proposition.
 - Build the complete feature/package index, durable package pages, cross-package workflows and Catalog-backed plan comparison.
@@ -212,6 +212,8 @@ Exit: a visitor can understand the complete product, select the correct offer, c
 
 ### UI4 — Work and supporting context
 
+Checkpoint (2026-08-24): the private Vue Work route now provides an Account-scoped paged queue, summary, durable item detail, create, assignment and lifecycle transitions with current-version conflict recovery and tab-only drafts. The governed Knowledge route separates proposed claims from accepted facts, exposes durable claim detail with the exact canonical value, digest and citations, and submits human, versioned, retry-safe decisions. Both clients consume generated contracts, and component tests cover their principal list/detail and mutation paths. Baseline context, explicit preservation of the originating Your Turn queue position, locally seeded signed-in HTTP completion and applied browser/device accessibility evidence remain UI4 exit work.
+
 - Build Work queues, Work detail and lifecycle commands using the established mobile list/detail patterns.
 - Add Knowledge and Baseline context required to understand and resolve work without overloading Your Turn.
 - Preserve links back to the originating Your Turn item and queue position.
@@ -219,6 +221,8 @@ Exit: a visitor can understand the complete product, select the correct offer, c
 Exit: the core task loop from Your Turn through Work and governed knowledge is complete locally.
 
 ### UI5 — Agents and conversations
+
+Checkpoint (2026-08-24): the private Vue Agents route now creates and lists Boardrooms, inspects the active Persona policy and manager configuration, presents durable conversation transcripts, and submits, polls and recovers Runs. Boardroom and Conversation detail use durable routes, polling is bounded and canceled on unmount, and consequential proposals link into Your Turn without rendering hidden approval payloads in chat. Component tests cover Boardroom creation, transcript loading and terminal Run recovery. Persona authoring/publishing, applied streaming/failure fixtures and supported-device/browser/assistive-technology acceptance remain UI5 exit work.
 
 - Build mobile conversation, Persona, Boardroom and Run surfaces with bounded streaming and recovery.
 - Keep consequential proposals routed through Your Turn rather than embedding unsafe shortcut approvals in chat.

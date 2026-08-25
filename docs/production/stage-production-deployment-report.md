@@ -10,9 +10,9 @@
 
 ## Current local-only UI construction boundary
 
-The active Phase 3 product-surface work is local only. The repository now builds a Nuxt-rendered public acquisition image and a separate static Vue private-SPA image in addition to the multi-mode Go application, but those UI artifacts have not been published to GHCR or applied to Hostinger/LKE. Existing Stage RC records below remain historical platform/backend evidence and are not a substitute for the final product release.
+The active Phase 3 product-surface work is local only. The repository now builds a Nuxt-rendered public acquisition image and a separate static Vue private-SPA image in addition to the multi-mode Go application. Local Caddy routes the Vue shell and durable detail paths for Your Turn, Work, Knowledge, Agents, Privacy, Checkout and Affiliate, and the composed smoke gate fetches each route from the TLS application origin. These UI artifacts have not been published to GHCR or applied to Hostinger/LKE. Existing Stage RC records below remain historical platform/backend evidence and are not a substitute for the final product release.
 
-Before deployment resumes, UI7 must replace the legacy website/private-shell release inputs with three matched immutable artifacts built from one source revision: the Go application, public Nuxt UI and private Vue UI. Local Docker must certify the exact routed pair first; then the same digests move to Hostinger Docker Stage and finally to vanilla LKE. No Stage or production manifest should claim Vue parity while Work, Knowledge, Agents or another supported package still depends on a placeholder or legacy-only route.
+Before deployment resumes, UI7 must replace the legacy website/private-shell release inputs with three matched immutable artifacts built from one source revision: the Go application, public Nuxt UI and private Vue UI. Local Docker must certify the exact routed set first; then the same digests move to Hostinger Docker Stage and finally to vanilla LKE. Work, Knowledge and Agents no longer depend on placeholder Vue destinations, but remaining launch packages still use legacy-only routes. No Stage or production manifest may claim complete Vue parity until UI6 and UI7 close those routes and their product-journey gates.
 
 ## Fixed deployment decisions
 

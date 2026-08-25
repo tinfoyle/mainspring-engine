@@ -24,7 +24,7 @@ onMounted(async () => {
 });
 
 const navigation = [
-  { to: "/app/your-turn", label: "Your Turn", marker: "3" },
+  { to: "/app/your-turn", label: "Your Turn" },
   { to: "/app/work", label: "Work" },
   { to: "/app/knowledge", label: "Knowledge" },
   { to: "/app/agents", label: "Agents" },
@@ -59,7 +59,7 @@ async function selectAccount(event: Event): Promise<void> {
       <RouterLink class="brand" to="/app/your-turn"><IoLogo /></RouterLink>
       <nav aria-label="Main navigation">
         <RouterLink v-for="item in navigation" :key="item.to" :to="item.to" class="nav-link">
-          <span>{{ item.label }}</span><em v-if="item.marker">{{ item.marker }}</em>
+          <span>{{ item.label }}</span>
         </RouterLink>
       </nav>
       <div class="account-switcher">

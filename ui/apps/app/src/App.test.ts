@@ -14,5 +14,6 @@ describe("application shell", () => {
     const wrapper = mount(App, { global: { plugins: [createPinia(), router] } });
     expect(wrapper.get("h1").text()).toBe("Your Turn");
     expect(wrapper.get("nav").attributes("aria-label")).toBe("Main navigation");
+    expect(wrapper.find(".nav-link em").exists()).toBe(false);
   });
 });

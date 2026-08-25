@@ -21,6 +21,12 @@
 !docs/
 !docs/production/
 !docs/production/api-mcp-interaction-guide.md
+!ui/
+!ui/packages/
+!ui/packages/api/
+!ui/packages/api/src/
+!ui/packages/api/src/generated/
+!ui/packages/api/src/generated/**
 !website/
 !website/lib/
 !website/lib/generated/

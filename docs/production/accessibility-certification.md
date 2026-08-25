@@ -6,7 +6,13 @@ Spyglass targets **WCAG 2.2 Level AA** for the public Infinite Ocean website and
 
 ## Repository gate
 
-The public website test suite builds the production worker and checks every published route (`/`, `/about`, `/packages`, `/pricing`, `/privacy`, `/product`, `/security`, `/signup`, and `/terms`) as rendered HTML. Each route must have:
+The active `ui/` workspace runs TypeScript/Vue type checking, Vitest component and API-client tests, ESLint, both production builds and a high-severity dependency audit in the Docker test target. The private tests cover the application navigation shell plus the principal Your Turn, Work, Knowledge, Agents, Checkout and Affiliate list/detail/mutation states. The local composed smoke gate also fetches every current durable Vue route through the TLS application origin, including nested Work, Knowledge, Boardroom and Conversation routes. These checks protect semantics and routing but do not execute browser layout, computed contrast, focus movement, a focus trap, touch behavior or an assistive-technology accessibility tree. They therefore cannot establish WCAG conformance by themselves.
+
+The Nuxt acquisition surface currently has rendered production-build and local HTTP checks but only a minimal content regression test. Real-browser axe coverage and route-level rendered-HTML contracts must be added before the acquisition surface can satisfy this repository gate. The Vue application likewise needs browser automation at the required responsive widths; current happy-dom component tests are not a substitute.
+
+### Legacy rollback gates
+
+The legacy public website test suite builds the production worker and checks every published rollback route (`/`, `/about`, `/packages`, `/pricing`, `/privacy`, `/product`, `/security`, `/signup`, and `/terms`) as rendered HTML. Each route must have:
 
 - a non-empty title and `lang="en"`;
 - exactly one site header, main landmark, footer, and level-one heading;
@@ -19,7 +25,7 @@ The jsdom gate explicitly excludes axe's `color-contrast` rule because jsdom has
 
 Reusable page structure lives in the public site's `MarketingPage` frame. New marketing routes must use that frame or provide equivalent route-contract coverage. Illustrations must either expose one concise image alternative or remain absent from the accessibility tree; they must not contain inert controls that create false keyboard stops.
 
-The private server-rendered application has a separate Go DOM contract over 20 representative states spanning identity, verified-contact confirmation, owner enrollment, security, the Account overview, Work, Agents, and lifecycle. It requires a first-body skip link, one focusable main landmark, one level-one heading, ordered headings, unique IDs, valid ARIA references, named navigation landmarks and controls, labeled form fields, exactly one current private navigation item, and no `autofocus`. Interaction contracts additionally preserve canceled Work-dialog focus, move successful commands to the updated detail, expose Work selection/loading state, announce command outcomes, replace prompt input with labeled reason dialogs, bind drafts to one Account and tab, and honor reduced-motion preferences in Agents. This gate exercises locked, read-only, empty, and writable package modes, but it is not a substitute for private-route axe or assistive-technology testing.
+The legacy private server-rendered application has a separate Go DOM contract over 20 representative rollback states spanning identity, verified-contact confirmation, owner enrollment, security, the Account overview, Work, Agents, and lifecycle. It requires a first-body skip link, one focusable main landmark, one level-one heading, ordered headings, unique IDs, valid ARIA references, named navigation landmarks and controls, labeled form fields, exactly one current private navigation item, and no `autofocus`. Interaction contracts additionally preserve canceled Work-dialog focus, move successful commands to the updated detail, expose Work selection/loading state, announce command outcomes, replace prompt input with labeled reason dialogs, bind drafts to one Account and tab, and honor reduced-motion preferences in Agents. This gate remains useful rollback evidence, but it does not certify the replacement Vue routes.
 
 ## Required customer journeys
 
@@ -79,7 +85,7 @@ Any code, image, stylesheet, content, browser-support, package publication, or t
 
 ## Remaining work
 
-1. Turn the controlled local-browser checks for signup, verification, login, owner enrollment, locked Work, responsive overflow, and target size into a repeatable exact-artifact release job; extend it through focus order, skip-link movement, zoom/reflow, and browser-computed contrast.
-2. Add real-browser axe coverage to the private application and expand its rendered-state fixtures through validation, denial, conflict, capacity, loading, and recoverable-failure states. The 20-state structural gate already covers the principal identity, verified-contact, Account, Work, Agents, security, and lifecycle layouts.
+1. Add repeatable exact-artifact browser jobs for the Nuxt acquisition routes and Vue signup, verification, login, owner enrollment, Your Turn, Work, Knowledge, Agents, Privacy, Checkout and Affiliate routes at every required width; cover responsive overflow, target size, focus order, drawer/dialog containment and restoration, skip-link movement, zoom/reflow and browser-computed contrast.
+2. Add real-browser axe coverage to both new UI artifacts and expand Vue rendered-state fixtures through validation, denial, conflict, capacity, loading and recoverable-failure states. Retain the legacy structural gates as rollback evidence, not as evidence for Vue parity.
 3. Perform the complete assistive-technology/device matrix against connected staging with real TLS email, passkeys, Stripe test mode, and provider-failure injection.
 4. Archive the exact-artifact evidence, close defects, and rerun affected rows before canary promotion.

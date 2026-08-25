@@ -43,6 +43,7 @@ COPY .github/workflows/verify.yml ./.github/workflows/verify.yml
 COPY api ./api
 COPY deploy/package-surface-inventory.json ./deploy/package-surface-inventory.json
 COPY docs/production/api-mcp-interaction-guide.md ./docs/production/api-mcp-interaction-guide.md
+COPY ui/packages/api/src/generated ./ui/packages/api/src/generated
 COPY website/lib/generated ./website/lib/generated
 
 FROM scratch
