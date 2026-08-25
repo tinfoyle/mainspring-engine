@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountexport"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 func TestS3ExportStorePublishesAndDeletesExactVersion(t *testing.T) {
@@ -32,7 +33,7 @@ func TestS3ExportStorePublishesAndDeletesExactVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := []byte("exact deterministic account export archive")
-	write := accountexport.ArtifactWrite{ExportID: "e9000000-0000-4000-8000-000000000009", Bytes: int64(len(body)), SHA256: sha256.Sum256(body), Body: bytes.NewReader(body)}
+	write := accountexport.ArtifactWrite{ExportID: ids.RandomGenerator{}.New(), Bytes: int64(len(body)), SHA256: sha256.Sum256(body), Body: bytes.NewReader(body)}
 	artifact, err := store.Publish(ctx, write)
 	if err != nil || artifact.Reference == "" {
 		t.Fatalf("publish artifact=%+v err=%v", artifact, err)
