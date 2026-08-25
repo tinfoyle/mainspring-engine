@@ -27,6 +27,7 @@ const navigation = [
   { to: "/app/your-turn", label: "Your Turn" },
   { to: "/app/work", label: "Work" },
   { to: "/app/knowledge", label: "Knowledge" },
+  { to: "/app/baseline", label: "Baseline" },
   { to: "/app/agents", label: "Agents" },
   { to: "/app/schedules", label: "Schedules" },
   { to: "/app/finance", label: "Finance" },

@@ -15,6 +15,7 @@ import LifecycleView from "./views/LifecycleView.vue";
 import BillingView from "./views/BillingView.vue";
 import FinanceView from "./views/FinanceView.vue";
 import IntegrationsView from "./views/IntegrationsView.vue";
+import BaselineView from "./views/BaselineView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -27,6 +28,8 @@ export const router = createRouter({
 	{ path: "/app/work/:itemID", name: "work-detail", component: WorkView, meta: { title: "Work detail" } },
 	{ path: "/app/knowledge", name: "knowledge", component: KnowledgeView, meta: { title: "Knowledge" } },
 	{ path: "/app/knowledge/claims/:claimID", name: "knowledge-claim", component: KnowledgeView, meta: { title: "Knowledge claim" } },
+	{ path: "/app/baseline", name: "baseline", component: BaselineView, meta: { title: "Business Baseline" } },
+	{ path: "/app/baseline/:assessmentID", name: "baseline-detail", component: BaselineView, meta: { title: "Business Baseline" } },
 	{ path: "/app/agents", name: "agents", component: AgentsView, meta: { title: "Agents" } },
 	{ path: "/app/agents/boardrooms/:roomID", name: "agent-boardroom", component: AgentsView, meta: { title: "Agent Boardroom" } },
 	{ path: "/app/agents/boardrooms/:roomID/conversations/:conversationID", name: "agent-conversation", component: AgentsView, meta: { title: "Agent conversation" } },

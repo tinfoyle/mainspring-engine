@@ -143,6 +143,7 @@ func WithKnowledgeDocuments(service KnowledgeDocumentService) Option {
 type BaselineService interface {
 	Start(context.Context, baselineapp.StartCommand) (baselinedomain.Assessment, error)
 	Get(context.Context, access.Actor, ids.AccountID, ids.BaselineAssessmentID) (baselinedomain.Assessment, error)
+	Current(context.Context, access.Actor, ids.AccountID) (baselinedomain.Assessment, error)
 	Answer(context.Context, baselineapp.AnswerCommand) (baselinedomain.Assessment, error)
 	BeginInventory(context.Context, baselineapp.AdvanceCommand) (baselinedomain.Assessment, error)
 	CompleteInventory(context.Context, baselineapp.CompleteInventoryCommand) (baselinedomain.Assessment, error)
@@ -378,6 +379,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/knowledge/claims/{claimID}", s.knowledgeClaimGet)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/knowledge/claims/{claimID}/decisions", s.knowledgeClaimDecide)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments", s.baselineStart)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/baseline-assessments/current", s.baselineCurrent)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}", s.baselineGet)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/answers", s.baselineAnswer)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/inventory-starts", s.baselineBeginInventory)

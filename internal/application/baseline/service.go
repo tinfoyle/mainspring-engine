@@ -142,6 +142,16 @@ func (s *Service) Get(ctx context.Context, actor access.Actor, accountID ids.Acc
 	return s.repository.Get(ctx, accountID, assessmentID)
 }
 
+func (s *Service) Current(ctx context.Context, actor access.Actor, accountID ids.AccountID) (domain.Assessment, error) {
+	if actor.UserID == "" || actor.WorkloadID != "" || ids.Validate(string(actor.UserID)) != nil || ids.Validate(string(accountID)) != nil {
+		return domain.Assessment{}, ErrInvalid
+	}
+	if _, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{Package: catalog.PackageKnowledge}); err != nil {
+		return domain.Assessment{}, err
+	}
+	return s.repository.Current(ctx, accountID)
+}
+
 type AnswerCommand struct {
 	Actor           access.Actor
 	AccountID       ids.AccountID

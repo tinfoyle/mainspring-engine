@@ -67,6 +67,7 @@ func (transition Transition) Valid() bool {
 type Repository interface {
 	Create(context.Context, domain.Assessment, Mutation) (domain.Assessment, error)
 	Get(context.Context, ids.AccountID, ids.BaselineAssessmentID) (domain.Assessment, error)
+	Current(context.Context, ids.AccountID) (domain.Assessment, error)
 	Update(context.Context, domain.Assessment, uint64, Transition, Mutation) (domain.Assessment, error)
 	Reassess(context.Context, domain.Assessment, domain.Assessment, uint64, Mutation) (domain.Assessment, domain.Assessment, error)
 }

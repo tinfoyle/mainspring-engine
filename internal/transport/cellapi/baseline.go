@@ -99,6 +99,19 @@ func (s *Server) baselineGet(w http.ResponseWriter, r *http.Request) {
 	writeBaselineAssessment(w, http.StatusOK, assessment)
 }
 
+func (s *Server) baselineCurrent(w http.ResponseWriter, r *http.Request) {
+	claims, actor, accountID, _, ok := s.baselineRequestContext(w, r, true)
+	if !ok {
+		return
+	}
+	assessment, err := s.baseline.Current(routecontext.WithClaims(r.Context(), claims), actor, accountID)
+	if err != nil {
+		s.writeBaselineError(w, "get current", err)
+		return
+	}
+	writeBaselineAssessment(w, http.StatusOK, assessment)
+}
+
 func (s *Server) baselineAnswer(w http.ResponseWriter, r *http.Request) {
 	claims, actor, accountID, assessmentID, operationID, version, ok := s.baselineVersionedContext(w, r)
 	if !ok {

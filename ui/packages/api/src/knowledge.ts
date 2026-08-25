@@ -4,12 +4,18 @@ import type {
   KnowledgeClaimDecisionResult,
   KnowledgeClaimPage,
   KnowledgeClaimSummary,
+  KnowledgeEvidence,
+  KnowledgeFact,
   KnowledgeFactPage,
-  KnowledgeFactSummary
+  KnowledgeFactSummary,
+  ProposeKnowledgeClaimRequest,
+  RegisterKnowledgeEvidenceRequest
 } from "./generated/api-types";
 import { requestJSON } from "./client";
 
 const pendingDecisions = new Map<string, string>();
+interface OwnerFactWorkflow { readonly evidenceOperationID: string; readonly claimOperationID: string; readonly decisionOperationID: string; readonly capturedAt: string; evidence?: KnowledgeEvidence; claim?: KnowledgeClaim }
+const ownerFactWorkflows = new Map<string, OwnerFactWorkflow>();
 
 function base(accountID: string): string {
   return `/api/v1/accounts/${encodeURIComponent(accountID)}/knowledge`;
@@ -55,6 +61,30 @@ export async function decideKnowledgeClaim(accountID: string, claim: KnowledgeCl
   });
   pendingDecisions.delete(fingerprint);
   return result;
+}
+
+function hex(bytes: ArrayBuffer): string { return [...new Uint8Array(bytes)].map((value) => value.toString(16).padStart(2, "0")).join(""); }
+
+export async function captureOwnerKnowledgeFact(accountID: string, key: string, value: string, sourceReference: string): Promise<KnowledgeFact> {
+  const canonical = JSON.stringify(value.trim());
+  const fingerprint = `${accountID} ${key} ${canonical} ${sourceReference}`;
+  let workflow = ownerFactWorkflows.get(fingerprint);
+  if (!workflow) {
+    workflow = { evidenceOperationID: crypto.randomUUID(), claimOperationID: crypto.randomUUID(), decisionOperationID: crypto.randomUUID(), capturedAt: new Date().toISOString() };
+    ownerFactWorkflows.set(fingerprint, workflow);
+  }
+  if (!workflow.evidence) {
+    const input: RegisterKnowledgeEvidenceRequest = { source_kind: "owner_statement", source_reference: sourceReference, source_revision: `statement-${workflow.evidenceOperationID}`, content_sha256: hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical))), captured_at: workflow.capturedAt };
+    workflow.evidence = await requestJSON<KnowledgeEvidence>(`${base(accountID)}/evidence`, { method: "POST", headers: { "Idempotency-Key": workflow.evidenceOperationID }, body: JSON.stringify(input) });
+  }
+  if (!workflow.claim) {
+    const input: ProposeKnowledgeClaimRequest = { scope: { kind: "account" }, key, value: value.trim(), confidence: 1000, sensitivity: "internal", citations: [{ evidence_id: workflow.evidence.id, evidence_kind: "owner_statement", relation: "supports", locator: "Owner-confirmed Business Baseline answer" }] };
+    workflow.claim = await requestJSON<KnowledgeClaim>(`${base(accountID)}/claims`, { method: "POST", headers: { "Idempotency-Key": workflow.claimOperationID }, body: JSON.stringify(input) });
+  }
+  const result = await requestJSON<KnowledgeClaimDecisionResult>(`${base(accountID)}/claims/${encodeURIComponent(workflow.claim.id)}/decisions`, { method: "POST", headers: { "Idempotency-Key": workflow.decisionOperationID, "If-Match": `W/"${workflow.claim.version}"` }, body: JSON.stringify({ accept: true, reason: "Owner confirmed during Business Baseline onboarding" }) });
+  if (!result.fact) throw new Error("The confirmed owner statement did not produce a Knowledge fact.");
+  ownerFactWorkflows.delete(fingerprint);
+  return result.fact;
 }
 
 export type { KnowledgeClaimPage, KnowledgeFactPage };

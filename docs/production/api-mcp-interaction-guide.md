@@ -1,7 +1,7 @@
 # Spyglass API and MCP interaction guide
 
 - Contract date: 2026-08-24
-- HTTP contract: `api/spyglass.openapi.json` (203 operations)
+- HTTP contract: `api/spyglass.openapi.json` (204 operations)
 - Generated Go inventory: `internal/generated/apicontract/routes.go`
 - Generated TypeScript inventory/types: `website/lib/generated/api-contract.ts` and `website/lib/generated/api-types.ts`
 - MCP inventory: 89 routed cell tools plus five global Account-export tools
@@ -57,7 +57,7 @@ curl --insecure --fail-with-body \
 
 ## Generated HTTP operation inventory
 
-The OpenAPI document is the line-item inventory. The groups below are the stable product-use-case index; counts sum to 203.
+The OpenAPI document is the line-item inventory. The groups below are the stable product-use-case index; counts sum to 204.
 
 | Group | Count | Use cases |
 |---|---:|---|
@@ -71,7 +71,7 @@ The OpenAPI document is the line-item inventory. The groups below are the stable
 | Agents | 11 | boardrooms, manager/personas, conversations/messages and Run start/read/resolve |
 | Schedules | 8 | list/get/create/revise/delete/pause/resume/trigger |
 | Knowledge | 13 | evidence, claims/facts, documents, retrieval, publication and citation |
-| Baseline | 17 | assessment lifecycle, plan/Work maintenance and source grants |
+| Baseline | 18 | current assessment discovery, assessment lifecycle, plan/Work maintenance and source grants |
 | Finance | 21 | Ledgers, posting accounts, entries, period close, reversal and reconciliation |
 | Marketing | 16 | campaigns, immutable asset revisions, release governance and activation lifecycle |
 | Integrations | 21 | connections, credentials, health, OAuth, web research, delivery execution and recovery |

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeClaim } from "./generated/api-types";
-import { decideKnowledgeClaim, listProposedKnowledgeClaims } from "./knowledge";
+import { captureOwnerKnowledgeFact, decideKnowledgeClaim, listProposedKnowledgeClaims } from "./knowledge";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -27,5 +27,20 @@ describe("Knowledge client", () => {
     const second = new Headers(fetcher.mock.calls[1]?.[1]?.headers);
     expect(first.get("Idempotency-Key")).toBe(second.get("Idempotency-Key"));
     expect(first.get("If-Match")).toBe('W/"6"');
+  });
+
+  it("turns one owner-confirmed answer into evidence, an accepted claim and a Fact", async () => {
+    const evidence = { id: "30000000-0000-4000-8000-000000000003" };
+    const claim = { id: "40000000-0000-4000-8000-000000000004", version: 1 };
+    const fact = { id: "50000000-0000-4000-8000-000000000005", key: "organization.legal_name", revision: 1 };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(evidence), { status: 201, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(claim), { status: 201, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ claim: { ...claim, version: 2 }, fact }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(captureOwnerKnowledgeFact("account", "organization.legal_name", "Northstar Studio LLC", "baseline/assessment/legal-name")).resolves.toMatchObject(fact);
+    expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({ source_kind: "owner_statement", content_sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ key: "organization.legal_name", value: "Northstar Studio LLC", confidence: 1000, citations: [{ evidence_id: evidence.id }] });
+    expect(new Headers(fetcher.mock.calls[2]?.[1]?.headers).get("If-Match")).toBe('W/"1"');
   });
 });

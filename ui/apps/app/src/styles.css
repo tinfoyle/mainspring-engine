@@ -425,6 +425,52 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .integration-modal { max-height: min(90vh, 56rem); overflow-y: auto; }
 .integration-modal fieldset { margin: 0; padding: 1rem; display: grid; gap: .55rem; border: 1px solid var(--io-line); border-radius: .75rem; }
 .integration-modal legend { padding: 0 .35rem; color: var(--io-ocean-950); font-weight: 800; }
+.baseline-welcome, .baseline-focus-card, .baseline-dashboard, .baseline-panel { margin-top: 1.25rem; padding: 1.1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
+.baseline-welcome { display: grid; gap: 1rem; border-top: 4px solid var(--io-ocean-650); }
+.baseline-welcome h2, .baseline-focus-card h2, .baseline-dashboard h2, .baseline-panel h3 { margin: 0; color: var(--io-ocean-950); font: 500 1.65rem/1.15 Georgia, serif; }
+.baseline-welcome p, .baseline-welcome li, .baseline-focus-card > p, .baseline-dashboard header p, .baseline-panel > p { color: var(--io-ink-soft); line-height: 1.55; }
+.baseline-welcome ul { padding-left: 1.25rem; }
+.baseline-welcome .io-button { justify-self: start; }
+.baseline-progress { margin-top: 1.4rem; overflow-x: auto; padding-bottom: .5rem; }
+.baseline-progress ol { min-width: 38rem; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, 1fr); list-style: none; }
+.baseline-progress li { position: relative; display: grid; justify-items: center; gap: .35rem; color: var(--io-ink-soft); text-align: center; }
+.baseline-progress li::before { content: ""; position: absolute; z-index: 0; top: 1rem; left: 0; right: 0; height: 2px; background: var(--io-line); }
+.baseline-progress li:first-child::before { left: 50%; }
+.baseline-progress li:last-child::before { right: 50%; }
+.baseline-progress li span { position: relative; z-index: 1; width: 2rem; height: 2rem; display: grid; place-items: center; border: 2px solid var(--io-line); border-radius: 50%; background: var(--io-sand); font-size: .76rem; font-weight: 800; }
+.baseline-progress li.done span, .baseline-progress li.current span { color: white; border-color: var(--io-ocean-650); background: var(--io-ocean-650); }
+.baseline-progress li.current small { color: var(--io-ocean-950); font-weight: 800; }
+.baseline-card-heading, .baseline-dashboard > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.baseline-card-heading { margin-bottom: 1rem; color: var(--io-ink-soft); font-size: .75rem; font-weight: 750; text-transform: uppercase; }
+.baseline-card-heading strong { color: var(--io-ocean-650); }
+.baseline-form { margin-top: 1.1rem; display: grid; gap: .8rem; }
+.baseline-form > label, .baseline-date-grid label { display: grid; gap: .35rem; color: var(--io-ocean-950); font-size: .8rem; font-weight: 780; }
+.baseline-form input:not([type="radio"]), .baseline-form select, .baseline-form textarea, .baseline-revoke input { width: 100%; min-height: 48px; padding: .72rem; border: 1px solid var(--io-line); border-radius: .68rem; color: var(--io-ink); background: white; font: inherit; }
+.baseline-form fieldset { margin: 0; padding: 0; display: grid; gap: .55rem; border: 0; }
+.baseline-form legend { margin-bottom: .45rem; color: var(--io-ocean-950); font-weight: 780; }
+.baseline-form fieldset label { min-height: 48px; padding: .7rem; display: flex; align-items: center; gap: .65rem; border: 1px solid var(--io-line); border-radius: .7rem; }
+.baseline-form input[type="radio"] { width: 1.25rem; height: 1.25rem; accent-color: var(--io-ocean-650); }
+.baseline-guidance { padding: .9rem; border-radius: .75rem; background: var(--io-sky); }
+.baseline-guidance p { margin: .35rem 0; color: var(--io-ink-soft); line-height: 1.45; }
+.baseline-guidance a, .baseline-requirements a { min-height: 44px; display: inline-flex; align-items: center; color: var(--io-ocean-800); font-weight: 750; }
+.baseline-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+.baseline-requirements { margin: 1rem 0 0; padding: 0; display: grid; list-style: none; }
+.baseline-requirements > li { min-width: 0; padding: .8rem 0; display: grid; gap: .3rem; border-top: 1px solid var(--io-line); }
+.baseline-requirements strong, .baseline-requirements span { overflow-wrap: anywhere; }
+.baseline-requirements span { color: var(--io-ink-soft); font-size: .82rem; line-height: 1.4; }
+.baseline-plan-proof { margin: 1rem 0; display: grid; gap: .65rem; }
+.baseline-plan-proof div { min-width: 0; padding: .8rem; border-radius: .7rem; background: var(--io-sky); }
+.baseline-plan-proof dt { color: var(--io-ink-soft); font-size: .7rem; font-weight: 800; text-transform: uppercase; }
+.baseline-plan-proof dd { margin: .25rem 0 0; overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: .75rem; }
+.baseline-dashboard > header h2 { margin-top: 0; }
+.baseline-stat-grid { margin-top: 1rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: .55rem; }
+.baseline-stat-grid article { min-width: 0; padding: .8rem; display: grid; gap: .2rem; border-radius: .75rem; color: white; background: var(--io-ocean-950); }
+.baseline-stat-grid strong { font: 500 1.7rem/1 Georgia, serif; }
+.baseline-stat-grid span { color: #b9d8d1; font-size: .7rem; }
+.baseline-panel { margin-inline: -1px; box-shadow: none; }
+.baseline-date-grid { display: grid; gap: .65rem; }
+.baseline-revoke { display: grid; gap: .5rem; }
+.baseline-final-actions { margin-top: 1rem; }
 
 @keyframes shimmer { to { background-position: -200% 0; } }
 
@@ -489,6 +535,13 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .integration-search-results { grid-template-columns: 1fr 1fr; }
   .integration-search-results > li { align-content: space-between; padding: 1.35rem; }
   .integration-capture-result { padding: 1.35rem; }
+  .baseline-welcome { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 1.5rem; }
+  .baseline-focus-card, .baseline-dashboard { padding: 1.5rem; }
+  .baseline-focus-card { max-width: 48rem; }
+  .baseline-form fieldset { grid-template-columns: 1fr 1fr; }
+  .baseline-date-grid, .baseline-plan-proof { grid-template-columns: 1fr 1fr; }
+  .baseline-requirements > li { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .baseline-revoke { grid-template-columns: minmax(12rem, 1fr) auto; align-items: center; }
   .preference-panel, .privacy-danger, .rights-panel, .privacy-tools { padding: 1.35rem; }
   .rights-form { grid-template-columns: 1fr 1fr; column-gap: 1rem; }
   .rights-form > label:nth-of-type(2) { grid-column: 2; grid-row: 1; }

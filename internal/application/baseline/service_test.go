@@ -428,6 +428,15 @@ func (repository *baselineRepository) Get(_ context.Context, accountID ids.Accou
 	return value, nil
 }
 
+func (repository *baselineRepository) Current(_ context.Context, accountID ids.AccountID) (domain.Assessment, error) {
+	for _, value := range repository.items {
+		if value.AccountID == accountID && value.State != domain.StateArchived {
+			return value, nil
+		}
+	}
+	return domain.Assessment{}, ErrNotFound
+}
+
 func (repository *baselineRepository) Update(_ context.Context, value domain.Assessment, expected uint64, transition Transition, _ Mutation) (domain.Assessment, error) {
 	current, exists := repository.items[value.ID]
 	if !exists {

@@ -176,6 +176,8 @@ private_routes=(
   /app/integrations/connections/10000000-0000-4000-8000-000000000001
   /app/integrations/executions/10000000-0000-4000-8000-000000000002
   /app/integrations/authorizations/10000000-0000-4000-8000-000000000003
+  /app/baseline
+  /app/baseline/10000000-0000-4000-8000-000000000001
   /app/account
   /app/billing
   /app/security

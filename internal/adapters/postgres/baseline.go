@@ -70,6 +70,24 @@ func (r *BaselineRepository) Get(ctx context.Context, accountID ids.AccountID, a
 	return result, classifyBaseline(err)
 }
 
+func (r *BaselineRepository) Current(ctx context.Context, accountID ids.AccountID) (domain.Assessment, error) {
+	var result domain.Assessment
+	err := r.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		var assessmentID ids.BaselineAssessmentID
+		err := tx.QueryRow(ctx, `SELECT id FROM spyglass.baseline_assessments WHERE account_id=$1 AND state<>'archived'`, accountID).Scan(&assessmentID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return baselineapp.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		value, err := loadBaselineAssessment(ctx, tx, accountID, assessmentID, false)
+		result = value
+		return err
+	})
+	return result, classifyBaseline(err)
+}
+
 func (r *BaselineRepository) Resolve(ctx context.Context, accountID ids.AccountID, references []domain.FactReference) ([]baselineapp.ResolvedFact, error) {
 	if ids.Validate(string(accountID)) != nil || len(references) > domain.MaximumAssessmentAnswers {
 		return nil, baselineapp.ErrInvalid

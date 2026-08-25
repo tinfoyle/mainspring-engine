@@ -14,5 +14,6 @@ export * from "./security";
 export * from "./account-lifecycle";
 export * from "./finance";
 export * from "./integrations";
+export * from "./baseline";
 export * from "./generated/api-types";
 export { apiRoutes } from "./generated/api-contract";

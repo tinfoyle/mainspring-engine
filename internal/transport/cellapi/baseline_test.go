@@ -21,6 +21,7 @@ import (
 type baselineServiceStub struct {
 	start        func(context.Context, baselineapp.StartCommand) (baselinedomain.Assessment, error)
 	get          func(context.Context, access.Actor, ids.AccountID, ids.BaselineAssessmentID) (baselinedomain.Assessment, error)
+	current      func(context.Context, access.Actor, ids.AccountID) (baselinedomain.Assessment, error)
 	answer       func(context.Context, baselineapp.AnswerCommand) (baselinedomain.Assessment, error)
 	materialize  func(context.Context, baselineapp.MaterializePlanCommand) ([]workdomain.Item, error)
 	confirmWork  func(context.Context, baselineapp.ConfirmWorkEvidenceCommand) (baselinedomain.Assessment, error)
@@ -35,6 +36,9 @@ func (stub baselineServiceStub) Start(ctx context.Context, command baselineapp.S
 }
 func (stub baselineServiceStub) Get(ctx context.Context, actor access.Actor, accountID ids.AccountID, assessmentID ids.BaselineAssessmentID) (baselinedomain.Assessment, error) {
 	return stub.get(ctx, actor, accountID, assessmentID)
+}
+func (stub baselineServiceStub) Current(ctx context.Context, actor access.Actor, accountID ids.AccountID) (baselinedomain.Assessment, error) {
+	return stub.current(ctx, actor, accountID)
 }
 func (stub baselineServiceStub) Answer(ctx context.Context, command baselineapp.AnswerCommand) (baselinedomain.Assessment, error) {
 	return stub.answer(ctx, command)
@@ -107,6 +111,22 @@ func TestBaselineStartBindsAssessmentToRoutedOperation(t *testing.T) {
 	callerSelected := attentionMutation(t, newBaselineServer(t, service).Handler(), http.MethodPost, "/api/v1/accounts/"+attentionAccount+"/baseline-assessments", `{"catalog_version":"caller-catalog","scope_policy_version":"caller-policy"}`, attentionOperation, "")
 	if callerSelected.Code != http.StatusBadRequest {
 		t.Fatalf("caller-selected versions=%d %s", callerSelected.Code, callerSelected.Body.String())
+	}
+}
+
+func TestBaselineCurrentReturnsResumableAssessment(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	assessmentID := ids.BaselineAssessmentID(attentionFact)
+	service := baselineServiceStub{current: func(ctx context.Context, actor access.Actor, accountID ids.AccountID) (baselinedomain.Assessment, error) {
+		claims, ok := routecontext.FromContext(ctx)
+		if !ok || claims.Authority.AccountID != attentionAccount || actor.UserID != attentionUser || accountID != attentionAccount {
+			t.Fatalf("claims=%+v actor=%+v account=%s", claims, actor, accountID)
+		}
+		return baselinedomain.NewAssessment(baselinedomain.AssessmentDraft{ID: assessmentID, AccountID: accountID, CatalogVersion: baselinedomain.EvidenceCatalogVersion, ScopePolicyVersion: baselinedomain.ScopePolicyVersion, CreatedBy: baselinedomain.Actor{UserID: actor.UserID}}, now)
+	}}
+	response := attentionRead(t, newBaselineServer(t, service).Handler(), "/api/v1/accounts/"+attentionAccount+"/baseline-assessments/current")
+	if response.Code != http.StatusOK || response.Header().Get("ETag") != `W/"1"` || !strings.Contains(response.Body.String(), `"id":"`+string(assessmentID)+`"`) {
+		t.Fatalf("response=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
 	}
 }
 

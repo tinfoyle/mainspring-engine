@@ -86,6 +86,7 @@ export const apiRoutes = [
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/attention/information-requests/{requestID}", operationId: "attentionInformationGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/attention/work-reviews", operationId: "attentionReviewList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/attention/work-reviews/{reviewID}", operationId: "attentionReviewGet", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/baseline-assessments/current", operationId: "baselineCurrent", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}", operationId: "baselineGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", operationId: "baselineSourceGrantList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/context", operationId: "accountContext", authentication: "sessionCookie", contract: "typed" },

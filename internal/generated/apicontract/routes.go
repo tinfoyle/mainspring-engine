@@ -90,6 +90,7 @@ var Routes = [...]Route{
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/attention/information-requests/{requestID}", OperationID: "attentionInformationGet", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/attention/work-reviews", OperationID: "attentionReviewList", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/attention/work-reviews/{reviewID}", OperationID: "attentionReviewGet", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/baseline-assessments/current", OperationID: "baselineCurrent", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}", OperationID: "baselineGet", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/baseline-assessments/{assessmentID}/source-grants", OperationID: "baselineSourceGrantList", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/context", OperationID: "accountContext", Authentication: "sessionCookie", Contract: "typed"},
