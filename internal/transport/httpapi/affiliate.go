@@ -6,6 +6,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
 	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -109,6 +110,43 @@ func (s *Server) enrollAffiliate(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before accepting Affiliate terms")
 	default:
 		writeProblem(w, http.StatusServiceUnavailable, "affiliate_enrollment_failed", "Affiliate enrollment could not be completed")
+	}
+}
+
+func (s *Server) replaceAffiliateCode(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.authenticateAffiliateRequest(w, r, true)
+	if !ok {
+		return
+	}
+	var input struct {
+		ExpectedVersion uint64 `json:"expected_version"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	enrollment, err := s.affiliateProgram.ReplaceCode(r.Context(), affiliateprogram.ReplaceCodeCommand{
+		UserID: authenticated.Session.UserID, Session: authenticated.Session, ExpectedVersion: input.ExpectedVersion,
+	})
+	switch {
+	case err == nil:
+		response := s.affiliateProgramStatus()
+		response.Enrollment = enrollment
+		writeJSON(w, http.StatusOK, response)
+	case errors.Is(err, affiliateprogram.ErrEnrollmentNotFound):
+		writeProblem(w, http.StatusNotFound, "affiliate_enrollment_not_found", "Affiliate enrollment was not found")
+	case errors.Is(err, affiliateprogram.ErrEnrollmentState):
+		writeProblem(w, http.StatusConflict, "affiliate_code_replacement_unavailable", "only an active Affiliate enrollment can replace its public code")
+	case errors.Is(err, affiliateprogram.ErrEnrollmentConflict):
+		writeProblem(w, http.StatusConflict, "affiliate_enrollment_conflict", "the Affiliate enrollment changed; reload before replacing its public code")
+	case errors.Is(err, affiliateprogram.ErrCodeUnavailable):
+		writeProblem(w, http.StatusServiceUnavailable, "affiliate_code_unavailable", "a new Affiliate code could not be reserved; try again")
+	case errors.Is(err, strongauth.ErrRequired):
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before replacing the Affiliate code")
+	case errors.Is(err, affiliates.ErrInvalidEnrollment):
+		writeProblem(w, http.StatusBadRequest, "invalid_affiliate_code_replacement", "the Affiliate code replacement request is invalid")
+	default:
+		writeProblem(w, http.StatusServiceUnavailable, "affiliate_code_replacement_failed", "the Affiliate code could not be replaced")
 	}
 }
 

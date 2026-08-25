@@ -23,6 +23,7 @@ The current product candidate is **$10 USD for each qualifying successfully paid
 Technical invariants already fixed:
 
 - self-referral is denied against every Account owned by the Affiliate User;
+- an active Affiliate can replace the public code for future referrals only with recent passkey confirmation; every retired code remains permanently unavailable, while existing locked attributions and ledger history are unchanged;
 - one Checkout and subscription can lock at most one attribution;
 - Stripe receives only an opaque local attribution ID;
 - successful qualifying invoice processing is replay-safe and appends an immutable earning;

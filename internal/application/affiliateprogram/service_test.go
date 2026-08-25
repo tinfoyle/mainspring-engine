@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -36,6 +37,20 @@ func (r *repository) CanSettleToAccount(_ context.Context, _ ids.UserID, account
 func (r *repository) CreateEnrollment(_ context.Context, enrollment affiliates.Enrollment) error {
 	r.enrollment = enrollment
 	return nil
+}
+func (r *repository) ReplaceEnrollmentCode(_ context.Context, userID ids.UserID, expectedVersion uint64, code string, _ time.Time) (affiliates.Enrollment, error) {
+	if r.enrollment.UserID != userID {
+		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentNotFound
+	}
+	if r.enrollment.Version != expectedVersion {
+		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentConflict
+	}
+	replaced, err := r.enrollment.ReplacePublicCode(code)
+	if err != nil {
+		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentState
+	}
+	r.enrollment = replaced
+	return replaced, nil
 }
 func (r *repository) EnrollmentByUser(context.Context, ids.UserID) (affiliates.Enrollment, error) {
 	return r.enrollment, nil
@@ -148,6 +163,28 @@ func TestEnrollRequiresCurrentTermsAndOwnedSettlementAccount(t *testing.T) {
 	service, _ = affiliateprogram.New(repository, &generator{values: []string{"10000000-0000-4000-8000-000000000011"}}, codes{"IO-PARTNER2"}, clock{now}, 2, 3)
 	if _, err := service.Enroll(context.Background(), affiliateprogram.EnrollCommand{UserID: ids.UserID(userID), Session: strongSession(now), SettlementAccountID: ids.AccountID(affiliateAcct), AcceptedTermsVersion: 2}); !errors.Is(err, affiliateprogram.ErrSettlementAccountDenied) {
 		t.Fatalf("foreign settlement account returned %v", err)
+	}
+}
+
+func TestReplaceCodeRequiresStrongAuthenticationAndExactActiveVersion(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	enrollment, _ := affiliates.NewEnrollment(ids.AffiliateID("10000000-0000-4000-8000-000000000010"), ids.UserID(userID), "", "IO-PARTNER1", 2, 3, now)
+	repository := &repository{enrollment: enrollment}
+	service, _ := affiliateprogram.New(repository, &generator{values: []string{"10000000-0000-4000-8000-000000000011"}}, codes{"IO-PARTNER2"}, clock{now}, 2, 3)
+
+	if _, err := service.ReplaceCode(context.Background(), affiliateprogram.ReplaceCodeCommand{UserID: ids.UserID(userID), Session: sessions.Session{UserID: userID}, ExpectedVersion: 1}); !errors.Is(err, strongauth.ErrRequired) {
+		t.Fatalf("weak replacement returned %v", err)
+	}
+	if _, err := service.ReplaceCode(context.Background(), affiliateprogram.ReplaceCodeCommand{UserID: ids.UserID(userID), Session: strongSession(now), ExpectedVersion: 2}); !errors.Is(err, affiliateprogram.ErrEnrollmentConflict) {
+		t.Fatalf("stale replacement returned %v", err)
+	}
+	replaced, err := service.ReplaceCode(context.Background(), affiliateprogram.ReplaceCodeCommand{UserID: ids.UserID(userID), Session: strongSession(now), ExpectedVersion: 1})
+	if err != nil || replaced.PublicCode != "IO-PARTNER2" || replaced.Version != 2 {
+		t.Fatalf("replacement=%+v err=%v", replaced, err)
+	}
+	repository.enrollment.State = affiliates.EnrollmentSuspended
+	if _, err := service.ReplaceCode(context.Background(), affiliateprogram.ReplaceCodeCommand{UserID: ids.UserID(userID), Session: strongSession(now), ExpectedVersion: 2}); !errors.Is(err, affiliateprogram.ErrEnrollmentState) {
+		t.Fatalf("suspended replacement returned %v", err)
 	}
 }
 

@@ -87,6 +87,17 @@ func (e Enrollment) CanTransition(to EnrollmentState) error {
 	return nil
 }
 
+func (e Enrollment) ReplacePublicCode(publicCode string) (Enrollment, error) {
+	publicCode = NormalizeCode(publicCode)
+	if e.Validate() != nil || e.State != EnrollmentActive || publicCode == e.PublicCode ||
+		!publicCodePattern.MatchString(publicCode) {
+		return Enrollment{}, ErrInvalidEnrollment
+	}
+	e.PublicCode = publicCode
+	e.Version++
+	return e, nil
+}
+
 func NormalizeCode(code string) string { return strings.ToUpper(strings.TrimSpace(code)) }
 
 type Attribution struct {

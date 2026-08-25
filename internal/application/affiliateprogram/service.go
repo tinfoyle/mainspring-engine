@@ -23,6 +23,8 @@ var (
 	ErrAttributionConflict     = errors.New("affiliate checkout attribution conflicts with the existing request")
 	ErrProgramUnavailable      = errors.New("affiliate program rule is unavailable")
 	ErrEnrollmentNotFound      = errors.New("Affiliate enrollment was not found")
+	ErrEnrollmentState         = errors.New("Affiliate enrollment does not permit public code replacement")
+	ErrEnrollmentConflict      = errors.New("Affiliate enrollment changed before public code replacement")
 )
 
 type Clock interface{ Now() time.Time }
@@ -32,6 +34,7 @@ type CodeGenerator interface{ NewCode() (string, error) }
 type Repository interface {
 	CanSettleToAccount(context.Context, ids.UserID, ids.AccountID) (bool, error)
 	CreateEnrollment(context.Context, affiliates.Enrollment) error
+	ReplaceEnrollmentCode(context.Context, ids.UserID, uint64, string, time.Time) (affiliates.Enrollment, error)
 	EnrollmentByUser(context.Context, ids.UserID) (affiliates.Enrollment, error)
 	EnrollmentByCode(context.Context, string) (affiliates.Enrollment, error)
 	CreateAttribution(context.Context, affiliates.Attribution) error
@@ -103,6 +106,39 @@ func (s *Service) Current(ctx context.Context, userID ids.UserID) (affiliates.En
 		return affiliates.Enrollment{}, affiliates.ErrInvalidEnrollment
 	}
 	return s.repository.EnrollmentByUser(ctx, userID)
+}
+
+type ReplaceCodeCommand struct {
+	UserID          ids.UserID
+	Session         sessions.Session
+	ExpectedVersion uint64
+}
+
+func (s *Service) ReplaceCode(ctx context.Context, command ReplaceCodeCommand) (affiliates.Enrollment, error) {
+	if err := strongauth.Require(command.Session, command.UserID, s.clock.Now()); err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	if command.ExpectedVersion == 0 {
+		return affiliates.Enrollment{}, affiliates.ErrInvalidEnrollment
+	}
+	enrollment, err := s.repository.EnrollmentByUser(ctx, command.UserID)
+	if err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	if enrollment.State != affiliates.EnrollmentActive {
+		return affiliates.Enrollment{}, ErrEnrollmentState
+	}
+	if enrollment.Version != command.ExpectedVersion {
+		return affiliates.Enrollment{}, ErrEnrollmentConflict
+	}
+	code, err := s.codes.NewCode()
+	if err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	if _, err := enrollment.ReplacePublicCode(code); err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	return s.repository.ReplaceEnrollmentCode(ctx, command.UserID, command.ExpectedVersion, code, s.clock.Now())
 }
 
 type ReserveCommand struct {

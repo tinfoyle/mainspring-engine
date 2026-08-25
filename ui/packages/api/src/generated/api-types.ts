@@ -2119,6 +2119,10 @@ export interface RenamePasskeyRequest {
   readonly "name": string;
 }
 
+export interface ReplaceAffiliateCodeRequest {
+  readonly "expected_version": number;
+}
+
 export interface RequestActionResolutionRequest {
   readonly "outcome": ActionResolutionOutcome;
   readonly "reason": string;
@@ -2791,6 +2795,7 @@ export interface ApiSchemas {
   readonly RegistrationAccepted: RegistrationAccepted;
   readonly RegistrationCompleted: RegistrationCompleted;
   readonly RenamePasskeyRequest: RenamePasskeyRequest;
+  readonly ReplaceAffiliateCodeRequest: ReplaceAffiliateCodeRequest;
   readonly RequestActionResolutionRequest: RequestActionResolutionRequest;
   readonly ResolveAgentRunRequest: ResolveAgentRunRequest;
   readonly RetrieveKnowledgeDocumentsRequest: RetrieveKnowledgeDocumentsRequest;

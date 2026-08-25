@@ -931,6 +931,9 @@ test("closed Affiliate launch state makes no unapproved payout promise", async (
 
 test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed when suspended", async ({ page }) => {
   let enrollmentState: "active" | "suspended" = "active";
+  let publicCode = "IO-PARTNER1";
+  let enrollmentVersion = 1;
+  const codeReplacements: unknown[] = [];
   let releaseSupport: (() => void) | undefined;
   const supportReleased = new Promise<void>((resolve) => { releaseSupport = resolve; });
   await page.route("**/api/v1/affiliate", async (route) => {
@@ -943,11 +946,33 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
       enrollment: {
         affiliate_id: "10000000-0000-4000-8000-000000000041",
         user_id: userID,
-        public_code: "IO-PARTNER1",
+        public_code: publicCode,
         terms_version: 2,
         rule_version: 3,
         state: enrollmentState,
-        version: enrollmentState === "active" ? 1 : 2,
+        version: enrollmentVersion,
+        created_at: "2026-08-24T20:00:00Z"
+      }
+    });
+  });
+  await page.route("**/api/v1/affiliate/code-replacements", async (route) => {
+    codeReplacements.push(route.request().postDataJSON());
+    publicCode = "IO-PARTNER2";
+    enrollmentVersion += 1;
+    await fulfillJSON(route, {
+      enrollment_open: true,
+      attribution_enabled: true,
+      terms_version: 2,
+      rule_version: 3,
+      settlement_mode: "account_credit",
+      enrollment: {
+        affiliate_id: "10000000-0000-4000-8000-000000000041",
+        user_id: userID,
+        public_code: publicCode,
+        terms_version: 2,
+        rule_version: 3,
+        state: "active",
+        version: enrollmentVersion,
         created_at: "2026-08-24T20:00:00Z"
       }
     });
@@ -1001,7 +1026,18 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
+  await page.getByRole("button", { name: "Replace public code" }).click();
+  await expect(page.getByText("every link using it will stop creating future referrals", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm code replacement" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "IO-PARTNER2" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Referral link" })).toHaveValue(new URL("/app/checkout?ref=IO-PARTNER2", page.url()).href);
+  await expect(page.getByRole("status").filter({ hasText: "Existing subscription credit is unchanged" })).toBeVisible();
+  expect(codeReplacements).toEqual([{ expected_version: 1 }]);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+
   enrollmentState = "suspended";
+  enrollmentVersion += 1;
   await page.reload();
   await expect(page.getByText("Referral attribution is paused for this enrollment.")).toBeVisible();
   await expect(page.getByText("historical commission records remain available below.", { exact: false })).toBeVisible();

@@ -6,6 +6,7 @@ import {
   getAffiliateProgram,
   getAffiliateStatement,
   getAffiliateSupportRequests,
+  replaceAffiliateCode,
   submitAffiliateSupportRequest,
   type AffiliateProgram,
   type AffiliateStatement,
@@ -30,6 +31,9 @@ const errorMessage = ref("");
 const navigationNotice = ref("");
 const copied = ref<"code" | "link" | "">("");
 const supportPending = ref("");
+const confirmingCodeReplacement = ref(false);
+const replacingCode = ref(false);
+const codeMessage = ref("");
 const ownerAccounts = computed(() => session.accounts.filter((account) => account.role === "owner"));
 const enrollmentAvailable = computed(() => program.value?.enrollment_open && program.value.settlement_mode !== "unconfigured");
 const codeShareable = computed(() => program.value?.enrollment?.state === "active" && program.value.attribution_enabled);
@@ -42,8 +46,8 @@ const referralLink = computed(() => {
 });
 const openSupportRequests = computed(() => supportRequests.value.filter((request) => request.state === "submitted" || request.state === "in_review"));
 const enrollmentAppealOpen = computed(() => openSupportRequests.value.some((request) => request.kind === "enrollment_appeal"));
-const affiliateDirty = computed(() => !program.value?.enrollment && (termsAccepted.value || Boolean(settlementAccountID.value)));
-const affiliatePending = computed(() => enrolling.value || Boolean(supportPending.value));
+const affiliateDirty = computed(() => confirmingCodeReplacement.value || (!program.value?.enrollment && (termsAccepted.value || Boolean(settlementAccountID.value))));
+const affiliatePending = computed(() => enrolling.value || replacingCode.value || Boolean(supportPending.value));
 const { allowNextNavigation } = useSafeNavigation({
   dirty: affiliateDirty,
   pending: affiliatePending,
@@ -156,6 +160,32 @@ async function copyReferral(value: string, kind: "code" | "link"): Promise<void>
   } catch { errorMessage.value = "Copy is unavailable. Select the code and copy it manually."; }
 }
 
+async function replaceCode(): Promise<void> {
+  const enrollment = program.value?.enrollment;
+  if (!enrollment || enrollment.state !== "active" || replacingCode.value) return;
+  if (!confirmingCodeReplacement.value) {
+    confirmingCodeReplacement.value = true;
+    codeMessage.value = "";
+    return;
+  }
+  replacingCode.value = true;
+  errorMessage.value = "";
+  navigationNotice.value = "";
+  codeMessage.value = "";
+  try {
+    program.value = await replaceAffiliateCode({ expected_version: enrollment.version });
+    confirmingCodeReplacement.value = false;
+    copied.value = "";
+    codeMessage.value = "A new public code is active. The previous code and links using it no longer create future referrals. Existing subscription credit is unchanged.";
+  } catch (error) {
+    if (error instanceof APIProblem && error.problem?.code === "strong_reauthentication_required") {
+      allowNextNavigation(); window.location.assign(`/app/security?return_to=${encodeURIComponent(route.fullPath)}&status=strong_reauthentication_required`);
+      return;
+    }
+    errorMessage.value = error instanceof APIProblem ? error.message : "The Affiliate code could not be replaced.";
+  } finally { replacingCode.value = false; }
+}
+
 onMounted(() => void load());
 </script>
 
@@ -167,7 +197,30 @@ onMounted(() => void load());
     <div v-else-if="errorMessage && !program" class="queue-state queue-state--error" role="alert"><h2>Affiliate details are unavailable</h2><p>{{ errorMessage }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>
 
     <template v-else-if="program?.enrollment">
-      <section class="affiliate-code" aria-labelledby="affiliate-code-heading"><div><p class="eyebrow">Your generated code · {{ program.enrollment.state }}</p><h2 id="affiliate-code-heading">{{ program.enrollment.public_code }}</h2><p v-if="codeShareable">Share this code or referral link with a clear disclosure that you may earn recurring value from qualifying purchases. A link only proposes the code; customers still choose whether to apply it in checkout.</p><p v-else-if="program.enrollment.state === 'suspended'">Referral attribution is paused for this enrollment. Do not promote the code while support reviews its status; historical commission records remain available below.</p><p v-else-if="program.enrollment.state === 'closed'">This enrollment is closed and the code cannot create new attribution. Historical commission records remain available below.</p><p v-else>New referral attribution is paused for the program. Do not promote the code until the program reopens; historical commission records remain available below.</p><div v-if="codeShareable" class="affiliate-referral-link"><label for="affiliate-referral-link">Referral link</label><div class="referral-entry"><input id="affiliate-referral-link" :value="referralLink" type="url" readonly /><IoButton kind="secondary" @click="copyReferral(referralLink, 'link')">{{ copied === "link" ? "Link copied" : "Copy referral link" }}</IoButton></div><small>The link contains only your public Affiliate code. It does not apply attribution until the customer confirms it.</small></div></div><div class="affiliate-code__actions"><IoButton kind="secondary" :disabled="!codeShareable" @click="copyReferral(program.enrollment.public_code, 'code')">{{ copied === "code" ? "Code copied" : "Copy code" }}</IoButton><IoButton v-if="!codeShareable" kind="secondary" disabled>Copy referral link</IoButton><IoButton v-if="program.enrollment.state === 'suspended' || program.enrollment.state === 'closed'" kind="secondary" :disabled="enrollmentAppealOpen || !!supportPending" @click="submitSupport('enrollment_appeal')">{{ enrollmentAppealOpen ? "Review requested" : "Request status review" }}</IoButton></div></section>
+      <section class="affiliate-code" aria-labelledby="affiliate-code-heading">
+        <div>
+          <p class="eyebrow">Your generated code · {{ program.enrollment.state }}</p>
+          <h2 id="affiliate-code-heading">{{ program.enrollment.public_code }}</h2>
+          <p v-if="codeShareable">Share this code or referral link with a clear disclosure that you may earn recurring value from qualifying purchases. A link only proposes the code; customers still choose whether to apply it in checkout.</p>
+          <p v-else-if="program.enrollment.state === 'suspended'">Referral attribution is paused for this enrollment. Do not promote the code while support reviews its status; historical commission records remain available below.</p>
+          <p v-else-if="program.enrollment.state === 'closed'">This enrollment is closed and the code cannot create new attribution. Historical commission records remain available below.</p>
+          <p v-else>New referral attribution is paused for the program. Do not promote the code until the program reopens; historical commission records remain available below.</p>
+          <div v-if="codeShareable" class="affiliate-referral-link">
+            <label for="affiliate-referral-link">Referral link</label>
+            <div class="referral-entry"><input id="affiliate-referral-link" :value="referralLink" type="url" readonly /><IoButton kind="secondary" @click="copyReferral(referralLink, 'link')">{{ copied === "link" ? "Link copied" : "Copy referral link" }}</IoButton></div>
+            <small>The link contains only your public Affiliate code. It does not apply attribution until the customer confirms it.</small>
+          </div>
+          <div v-if="confirmingCodeReplacement" class="queue-inline-status queue-inline-status--error"><strong>Replace this public code?</strong> The old code and every link using it will stop creating future referrals. Existing attributed subscriptions and ledger entries stay unchanged.</div>
+          <p v-if="codeMessage" class="queue-inline-status" role="status">{{ codeMessage }}</p>
+        </div>
+        <div class="affiliate-code__actions">
+          <IoButton kind="secondary" :disabled="!codeShareable" @click="copyReferral(program.enrollment.public_code, 'code')">{{ copied === "code" ? "Code copied" : "Copy code" }}</IoButton>
+          <IoButton v-if="!codeShareable" kind="secondary" disabled>Copy referral link</IoButton>
+          <IoButton v-if="program.enrollment.state === 'active'" kind="secondary" :disabled="replacingCode" @click="replaceCode">{{ replacingCode ? "Replacing code…" : confirmingCodeReplacement ? "Confirm code replacement" : "Replace public code" }}</IoButton>
+          <IoButton v-if="confirmingCodeReplacement" kind="quiet" :disabled="replacingCode" @click="confirmingCodeReplacement = false">Keep current code</IoButton>
+          <IoButton v-if="program.enrollment.state === 'suspended' || program.enrollment.state === 'closed'" kind="secondary" :disabled="enrollmentAppealOpen || !!supportPending" @click="submitSupport('enrollment_appeal')">{{ enrollmentAppealOpen ? "Review requested" : "Request status review" }}</IoButton>
+        </div>
+      </section>
       <div class="affiliate-totals" role="group" aria-label="Commission totals"><article><small>Pending</small><strong>{{ money(statement?.pending_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Settled</small><strong>{{ money(statement?.settled_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Reversed</small><strong>{{ money(statement?.reversed_minor ?? 0, statement?.currency ?? '') }}</strong></article></div>
       <section class="affiliate-statement"><header><div><p class="eyebrow">Commission history</p><h2>Renewal ledger</h2></div><span>{{ settlementLabel(program.settlement_mode) }}</span></header><p v-if="!statement?.entries.length" class="form-note">No qualifying commission entries have been recorded. Referred customer identities and business details are never shown here.</p><ol v-else><li v-for="entry in statement.entries" :key="entry.entry_id"><div><strong>{{ entry.kind === 'reversal' ? 'Reversal' : `Qualifying cycle ${entry.cycle}` }}</strong><small>{{ new Date(entry.created_at).toLocaleDateString() }} · rule {{ entry.rule_version }}</small><button class="affiliate-review-link" type="button" :disabled="commissionReviewOpen(entry.entry_id) || !!supportPending" @click="submitSupport('commission_review', entry.entry_id)">{{ commissionReviewOpen(entry.entry_id) ? "Review requested" : "Request review" }}</button></div><span>{{ entry.kind === 'reversal' ? '−' : '' }}{{ money(entry.amount_minor, entry.currency) }}<small>{{ entry.state }}</small></span></li></ol></section>
       <section class="affiliate-support" aria-labelledby="affiliate-support-heading"><header><div><p class="eyebrow">Support</p><h2 id="affiliate-support-heading">Appeals and ledger reviews</h2></div></header><p class="form-note">Requests use only the enrollment or ledger entry already on this page. Do not send customer names, payment details, or referred-business information.</p><p v-if="!supportRequests.length" class="form-note">No review requests have been submitted.</p><ol v-else><li v-for="request in supportRequests" :key="request.request_id"><div><strong>{{ request.kind === 'enrollment_appeal' ? 'Enrollment status review' : 'Commission entry review' }}</strong><small>{{ new Date(request.created_at).toLocaleDateString() }}</small></div><div><span>{{ supportLabel(request) }}</span><button v-if="request.state === 'submitted'" class="affiliate-review-link" type="button" :disabled="!!supportPending" @click="cancelSupport(request.request_id)">Cancel</button></div></li></ol></section>

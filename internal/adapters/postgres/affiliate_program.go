@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
@@ -38,6 +39,58 @@ func (r *AffiliateProgramRepository) CreateEnrollment(ctx context.Context, enrol
 		enrollment.SettlementAccountID, enrollment.PublicCode, enrollment.TermsVersion, enrollment.RuleVersion,
 		enrollment.State, enrollment.Version, enrollment.CreatedAt)
 	return err
+}
+
+func (r *AffiliateProgramRepository) ReplaceEnrollmentCode(ctx context.Context, userID ids.UserID, expectedVersion uint64, code string, now time.Time) (affiliates.Enrollment, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	current, err := scanAffiliateEnrollment(tx.QueryRow(ctx, `
+		SELECT affiliate_id,user_id,settlement_account_id::text,public_code,terms_version,rule_version,state,version,created_at
+		FROM affiliate_enrollments WHERE user_id=$1 FOR UPDATE`, userID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentNotFound
+	}
+	if err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	if current.State != affiliates.EnrollmentActive {
+		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentState
+	}
+	if current.Version != expectedVersion {
+		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentConflict
+	}
+	replaced, err := current.ReplacePublicCode(code)
+	if err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	history, err := tx.Exec(ctx, `UPDATE affiliate_public_code_history SET replaced_at=$2 WHERE public_code=$1 AND replaced_at IS NULL`, current.PublicCode, now.UTC())
+	if err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	if history.RowsAffected() != 1 {
+		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentConflict
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO affiliate_public_code_history (public_code,affiliate_id,enrollment_version,activated_at) VALUES ($1,$2,$3,$4)`, replaced.PublicCode, replaced.ID, replaced.Version, now.UTC()); err != nil {
+		var databaseError *pgconn.PgError
+		if errors.As(err, &databaseError) && databaseError.Code == "23505" {
+			return affiliates.Enrollment{}, affiliateprogram.ErrCodeUnavailable
+		}
+		return affiliates.Enrollment{}, err
+	}
+	command, err := tx.Exec(ctx, `UPDATE affiliate_enrollments SET public_code=$3,version=$4,updated_at=$5 WHERE user_id=$1 AND version=$2`, userID, expectedVersion, replaced.PublicCode, replaced.Version, now.UTC())
+	if err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	if command.RowsAffected() != 1 {
+		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentConflict
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return affiliates.Enrollment{}, err
+	}
+	return replaced, nil
 }
 
 func (r *AffiliateProgramRepository) EnrollmentByUser(ctx context.Context, userID ids.UserID) (affiliates.Enrollment, error) {

@@ -178,9 +178,18 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 
 	affiliateRepository := postgresadapter.NewAffiliateProgramRepository(pool)
 	affiliateService, _ := affiliateprogram.New(affiliateRepository, ids.RandomGenerator{}, fixedAffiliateCode{"IO-PARTNER1"}, fixedLifecycleClock{now}, 1, 1)
-	enrollment, err := affiliateService.Enroll(ctx, affiliateprogram.EnrollCommand{UserID: affiliateUser, Session: sessions.Session{UserID: affiliateUser, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey}, SettlementAccountID: affiliateAccount, AcceptedTermsVersion: 1})
+	affiliateSession := sessions.Session{UserID: affiliateUser, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey}
+	enrollment, err := affiliateService.Enroll(ctx, affiliateprogram.EnrollCommand{UserID: affiliateUser, Session: affiliateSession, SettlementAccountID: affiliateAccount, AcceptedTermsVersion: 1})
 	if err != nil {
 		t.Fatal(err)
+	}
+	affiliateService, _ = affiliateprogram.New(affiliateRepository, ids.RandomGenerator{}, fixedAffiliateCode{"IO-PARTNER2"}, fixedLifecycleClock{now}, 1, 1)
+	enrollment, err = affiliateService.ReplaceCode(ctx, affiliateprogram.ReplaceCodeCommand{UserID: affiliateUser, Session: affiliateSession, ExpectedVersion: enrollment.Version})
+	if err != nil || enrollment.PublicCode != "IO-PARTNER2" || enrollment.Version != 2 {
+		t.Fatalf("first code replacement=%+v err=%v", enrollment, err)
+	}
+	if _, err := affiliateRepository.EnrollmentByCode(ctx, "IO-PARTNER1"); !errors.Is(err, affiliateprogram.ErrCodeUnavailable) {
+		t.Fatalf("retired public code lookup error=%v", err)
 	}
 	attribution, err := affiliateService.Reserve(ctx, affiliateprogram.ReserveCommand{PublicCode: enrollment.PublicCode,
 		ReferredAccountID: customerAccount, CheckoutRequestID: checkoutRequest, OfferCode: "team-monthly-v1", OfferVersion: 1})
@@ -189,6 +198,25 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	}
 	if _, err := affiliateService.Lock(ctx, attribution.ID, "sub_affiliate_test"); err != nil {
 		t.Fatal(err)
+	}
+	affiliateService, _ = affiliateprogram.New(affiliateRepository, ids.RandomGenerator{}, fixedAffiliateCode{"IO-PARTNER3"}, fixedLifecycleClock{now}, 1, 1)
+	enrollment, err = affiliateService.ReplaceCode(ctx, affiliateprogram.ReplaceCodeCommand{UserID: affiliateUser, Session: affiliateSession, ExpectedVersion: enrollment.Version})
+	if err != nil || enrollment.PublicCode != "IO-PARTNER3" || enrollment.Version != 3 {
+		t.Fatalf("locked-attribution code replacement=%+v err=%v", enrollment, err)
+	}
+	reuseService, _ := affiliateprogram.New(affiliateRepository, ids.RandomGenerator{}, fixedAffiliateCode{"IO-PARTNER1"}, fixedLifecycleClock{now}, 1, 1)
+	if _, err := reuseService.ReplaceCode(ctx, affiliateprogram.ReplaceCodeCommand{UserID: affiliateUser, Session: affiliateSession, ExpectedVersion: enrollment.Version}); !errors.Is(err, affiliateprogram.ErrCodeUnavailable) {
+		t.Fatalf("retired code reuse error=%v", err)
+	}
+	var codeHistory, retiredCodes int
+	if err := pool.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE replaced_at IS NOT NULL) FROM affiliate_public_code_history WHERE affiliate_id=$1`, enrollment.ID).Scan(&codeHistory, &retiredCodes); err != nil || codeHistory != 3 || retiredCodes != 2 {
+		t.Fatalf("Affiliate code history=%d retired=%d err=%v", codeHistory, retiredCodes, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE affiliate_public_code_history SET replaced_at=statement_timestamp() WHERE public_code='IO-PARTNER1'`); err == nil {
+		t.Fatal("retired Affiliate public code history was mutable")
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM affiliate_public_code_history WHERE public_code='IO-PARTNER1'`); err == nil {
+		t.Fatal("retired Affiliate public code history was deletable")
 	}
 	paid := affiliateprogram.PaidInvoice{SubscriptionID: "sub_affiliate_test", InvoiceID: "in_affiliate_renewal", PaymentIntentID: "pi_affiliate_renewal", AmountPaidMinor: 5000, Currency: "USD"}
 	first, err := affiliateService.RecordPaidInvoice(ctx, paid)
@@ -242,7 +270,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	}
 	suspended, err := affiliateAdmin.Transition(ctx, enrollment.ID, inspected.Version, affiliates.EnrollmentSuspended,
 		"affiliate-operator@example.test", "Suspend during a documented referral review", "local")
-	if err != nil || suspended.Version != 2 || suspended.State != affiliates.EnrollmentSuspended {
+	if err != nil || suspended.Version != 4 || suspended.State != affiliates.EnrollmentSuspended {
 		t.Fatalf("suspended enrollment=%+v err=%v", suspended, err)
 	}
 	if _, err := affiliateRepository.EnrollmentByCode(ctx, enrollment.PublicCode); !errors.Is(err, affiliateprogram.ErrCodeUnavailable) {
@@ -254,12 +282,12 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	}
 	activated, err := affiliateAdmin.Transition(ctx, enrollment.ID, suspended.Version, affiliates.EnrollmentActive,
 		"affiliate-operator@example.test", "Reactivate after the referral review completed", "local")
-	if err != nil || activated.Version != 3 || activated.State != affiliates.EnrollmentActive {
+	if err != nil || activated.Version != 5 || activated.State != affiliates.EnrollmentActive {
 		t.Fatalf("activated enrollment=%+v err=%v", activated, err)
 	}
 	closed, err := affiliateAdmin.Transition(ctx, enrollment.ID, activated.Version, affiliates.EnrollmentClosed,
 		"affiliate-operator@example.test", "Close the Affiliate enrollment after final review", "local")
-	if err != nil || closed.Version != 4 || closed.State != affiliates.EnrollmentClosed {
+	if err != nil || closed.Version != 6 || closed.State != affiliates.EnrollmentClosed {
 		t.Fatalf("closed enrollment=%+v err=%v", closed, err)
 	}
 	if _, err := affiliateAdmin.Transition(ctx, enrollment.ID, closed.Version, affiliates.EnrollmentActive,

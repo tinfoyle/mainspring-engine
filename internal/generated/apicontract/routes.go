@@ -50,6 +50,7 @@ var Routes = [...]Route{
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions", OperationID: "suspendMembership", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/accounts/{accountID}/ownership-transfers", OperationID: "transferOwnership", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/affiliate", OperationID: "enrollAffiliate", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "POST", Path: "/api/v1/affiliate/code-replacements", OperationID: "replaceAffiliateCode", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/affiliate/support-requests", OperationID: "submitAffiliateSupportRequest", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/analytics/events", OperationID: "ingestAnalyticsEvent", Authentication: "privacyPreferenceCookie", Contract: "typed"},
 	{Service: "account-api", Method: "POST", Path: "/api/v1/contact-change-requests", OperationID: "beginContactChange", Authentication: "sessionCookie", Contract: "typed"},

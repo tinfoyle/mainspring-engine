@@ -259,6 +259,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/analytics/events", s.ingestAnalyticsEvent)
 	mux.HandleFunc("GET /api/v1/affiliate", s.getAffiliateProgram)
 	mux.HandleFunc("POST /api/v1/affiliate", s.enrollAffiliate)
+	mux.HandleFunc("POST /api/v1/affiliate/code-replacements", s.replaceAffiliateCode)
 	mux.HandleFunc("GET /api/v1/affiliate/statement", s.getAffiliateStatement)
 	mux.HandleFunc("GET /api/v1/affiliate/support-requests", s.listAffiliateSupportRequests)
 	mux.HandleFunc("POST /api/v1/affiliate/support-requests", s.submitAffiliateSupportRequest)

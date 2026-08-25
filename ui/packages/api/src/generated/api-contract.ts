@@ -46,6 +46,7 @@ export const apiRoutes = [
   { service: "account-api", method: "POST", path: "/api/v1/accounts/{accountID}/memberships/{membershipID}/suspensions", operationId: "suspendMembership", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/accounts/{accountID}/ownership-transfers", operationId: "transferOwnership", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/affiliate", operationId: "enrollAffiliate", authentication: "sessionCookie", contract: "typed" },
+  { service: "account-api", method: "POST", path: "/api/v1/affiliate/code-replacements", operationId: "replaceAffiliateCode", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/affiliate/support-requests", operationId: "submitAffiliateSupportRequest", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/analytics/events", operationId: "ingestAnalyticsEvent", authentication: "privacyPreferenceCookie", contract: "typed" },
   { service: "account-api", method: "POST", path: "/api/v1/contact-change-requests", operationId: "beginContactChange", authentication: "sessionCookie", contract: "typed" },

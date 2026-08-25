@@ -4,6 +4,8 @@ Status: implemented and verified locally on 2026-08-25. The enrollment and attri
 
 The customer dashboard derives a proposal-only link from the application origin and generated public code. It carries no Affiliate identity, customer identity, offer, analytics subject or commercial attribution. Checkout displays the proposed code but requires the customer to select **Apply** before server validation. Suspension or closure removes the URL and disables both code/link copying while preserving the immutable statement and structured support path.
 
+An active Affiliate may deliberately replace the public code after recent passkey confirmation. The request carries the observed enrollment version; stale requests fail without changing authority. Replacement retires the previous code before publishing a server-generated successor. Retired codes are permanently reserved in `affiliate_public_code_history`, cannot be looked up or reissued for future referrals, and cannot be changed or deleted. Already locked subscription attributions and their commission ledger are unaffected. The Vue dashboard uses a two-step warning because existing shared links stop working for new customers.
+
 ## Provider event projection
 
 The billing worker projects Affiliate commercial evidence only from events already accepted by the signed Stripe webhook inbox. The launch webhook selection must include:

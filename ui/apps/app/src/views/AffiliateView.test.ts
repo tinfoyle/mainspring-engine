@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   getAffiliateProgram: vi.fn(),
   getAffiliateStatement: vi.fn(),
   getAffiliateSupportRequests: vi.fn(),
+  replaceAffiliateCode: vi.fn(),
   submitAffiliateSupportRequest: vi.fn()
 }));
 vi.mock("@spyglass/api", async (importOriginal) => ({ ...await importOriginal<typeof import("@spyglass/api")>(), ...api }));
@@ -33,6 +34,7 @@ beforeEach(() => {
   api.getAffiliateSupportRequests.mockReset();
   api.getAffiliateSupportRequests.mockResolvedValue({ requests: [] });
   api.enrollAffiliate.mockReset();
+  api.replaceAffiliateCode.mockReset();
   api.submitAffiliateSupportRequest.mockReset();
   api.cancelAffiliateSupportRequest.mockReset();
 });
@@ -63,6 +65,26 @@ describe("Affiliate identity dashboard", () => {
     expect(wrapper.text()).toContain("$10.00");
     expect(wrapper.text()).not.toContain("referred customer@example.com");
     expect(wrapper.get('[aria-label="Commission totals"]').attributes("role")).toBe("group");
+  });
+
+  it("requires explicit confirmation and replaces only the current code version", async () => {
+    api.getAffiliateProgram.mockResolvedValue({ enrollment_open: true, attribution_enabled: true, terms_version: 2, rule_version: 3, settlement_mode: "account_credit", enrollment: {
+      affiliate_id: "10000000-0000-4000-8000-000000000001", user_id: "20000000-0000-4000-8000-000000000002", public_code: "IO-PARTNER1", terms_version: 2, rule_version: 3, state: "active", version: 4, created_at: "2026-08-24T20:00:00Z"
+    } });
+    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", currency: "", pending_minor: 0, settled_minor: 0, reversed_minor: 0, entries: [] });
+    api.replaceAffiliateCode.mockResolvedValue({ enrollment_open: true, attribution_enabled: true, terms_version: 2, rule_version: 3, settlement_mode: "account_credit", enrollment: {
+      affiliate_id: "10000000-0000-4000-8000-000000000001", user_id: "20000000-0000-4000-8000-000000000002", public_code: "IO-PARTNER2", terms_version: 2, rule_version: 3, state: "active", version: 5, created_at: "2026-08-24T20:00:00Z"
+    } });
+
+    const wrapper = await mountView();
+    await wrapper.findAll("button").find((button) => button.text() === "Replace public code")?.trigger("click");
+    expect(wrapper.text()).toContain("every link using it will stop creating future referrals");
+    expect(api.replaceAffiliateCode).not.toHaveBeenCalled();
+    await wrapper.findAll("button").find((button) => button.text() === "Confirm code replacement")?.trigger("click");
+    await flushPromises();
+    expect(api.replaceAffiliateCode).toHaveBeenCalledWith({ expected_version: 4 });
+    expect(wrapper.text()).toContain("IO-PARTNER2");
+    expect(wrapper.text()).toContain("Existing subscription credit is unchanged");
   });
 
   it("keeps historical ledger access while disabling a suspended referral code", async () => {
