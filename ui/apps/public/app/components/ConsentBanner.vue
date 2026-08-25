@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getPrivacyConsent, setPrivacyConsent, type PrivacyConsent } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
-import { onMounted, ref } from "vue";
+import { nextTick, onMounted, ref } from "vue";
 import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
 
 const preference = ref<PrivacyConsent>();
@@ -11,6 +11,8 @@ const analytics = ref(false);
 const marketing = ref(false);
 const saving = ref(false);
 const error = ref("");
+const consentPanel = ref<HTMLElement>();
+const reopenButton = ref<HTMLButtonElement>();
 const consentState = useAnalyticsConsent();
 
 onMounted(async () => {
@@ -35,6 +37,8 @@ async function choose(nextAnalytics: boolean, nextMarketing = false): Promise<vo
     analytics.value = preference.value.analytics;
     marketing.value = preference.value.marketing;
     managing.value = false;
+    await nextTick();
+    reopenButton.value?.focus();
   } catch {
     analytics.value = previous?.analytics ?? false;
     marketing.value = previous?.marketing ?? false;
@@ -47,10 +51,16 @@ async function choose(nextAnalytics: boolean, nextMarketing = false): Promise<vo
     saving.value = false;
   }
 }
+
+async function openPreferences(): Promise<void> {
+  managing.value = true;
+  await nextTick();
+  consentPanel.value?.querySelector<HTMLElement>("input")?.focus();
+}
 </script>
 
 <template>
-  <section v-if="ready && (!preference?.decided || preference.renewal_required || managing)" class="consent" aria-labelledby="consent-title">
+  <section v-if="ready && (!preference?.decided || preference.renewal_required || managing)" ref="consentPanel" class="consent" aria-labelledby="consent-title">
     <div class="consent__copy">
       <p class="eyebrow">Your choice</p>
       <h2 id="consent-title">Privacy without the fog</h2>
@@ -62,11 +72,11 @@ async function choose(nextAnalytics: boolean, nextMarketing = false): Promise<vo
     </div>
     <div class="consent__actions">
       <IoButton v-if="managing" :disabled="saving" @click="choose(analytics, marketing)">Save preferences</IoButton>
-      <IoButton v-else :disabled="saving" @click="choose(true)">Accept analytics</IoButton>
+      <IoButton v-else kind="secondary" :disabled="saving" @click="choose(true)">Accept analytics</IoButton>
       <IoButton kind="secondary" :disabled="saving" @click="choose(false)">Reject non-essential</IoButton>
-      <IoButton v-if="!managing" kind="quiet" :disabled="saving" @click="managing = true">Manage preferences</IoButton>
+      <IoButton v-if="!managing" kind="quiet" :disabled="saving" @click="openPreferences">Manage preferences</IoButton>
     </div>
     <p v-if="error" class="consent__error" role="alert">{{ error }}</p>
   </section>
-  <button v-else-if="ready" class="consent-reopen" type="button" @click="managing = true">Privacy choices</button>
+  <button v-else-if="ready" ref="reopenButton" class="consent-reopen" type="button" @click="openPreferences">Privacy choices</button>
 </template>
