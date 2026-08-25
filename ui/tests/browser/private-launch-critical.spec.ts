@@ -1038,6 +1038,56 @@ test("Marketing conflict reloads the authoritative campaign before retry", async
   await expectAccessible(page);
 });
 
+test("Membership conflict reloads the authoritative team before retry", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*409/);
+  const mutations: unknown[] = [];
+  let rosterLoads = 0;
+  await page.route(`**/api/v1/accounts/${accountID}/memberships`, async (route) => {
+    rosterLoads += 1;
+    await fulfillJSON(route, { memberships: [ownerMembership, memberMembership] });
+  });
+  await page.route(`**/api/v1/accounts/${accountID}/memberships/${memberMembership.membership_id}`, async (route) => {
+    mutations.push(route.request().postDataJSON());
+    await fulfillProblem(route, 409, "membership_version_conflict", "The Membership changed.");
+  });
+  await page.goto("/app/account");
+  const member = page.getByRole("listitem").filter({ hasText: memberMembership.display_name });
+  await member.getByRole("button", { name: "Change role" }).click();
+  await page.getByRole("dialog").getByLabel("New role").selectOption("administrator");
+  await page.getByRole("dialog").getByLabel("Operational reason").fill("Responsibilities changed during review.");
+  await page.getByRole("dialog").getByRole("button", { name: "Confirm" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toContainText("This Membership changed. Review the current team before trying again.");
+  expect(mutations).toEqual([{ expected_version: memberMembership.version, role: "administrator", reason: "Responsibilities changed during review." }]);
+  expect(rosterLoads).toBe(2);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("Schedule conflict reloads the authoritative definition before retry", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*409/);
+  const commands: unknown[] = [];
+  let detailLoads = 0;
+  await page.route(`**/api/v1/accounts/${accountID}/schedules/${schedule.id}`, async (route) => {
+    detailLoads += 1;
+    await fulfillJSON(route, schedule);
+  });
+  await page.route(`**/api/v1/accounts/${accountID}/schedules/${schedule.id}/pauses`, async (route) => {
+    commands.push(route.request().postDataJSON());
+    await fulfillProblem(route, 409, "schedule_version_conflict", "The schedule changed.");
+  });
+  await page.goto(`/app/schedules/${schedule.id}`);
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await page.getByRole("dialog").getByLabel("Operational reason").fill("Pause during launch review.");
+  await page.getByRole("dialog").getByRole("button", { name: "Confirm" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toContainText("This schedule changed. Review the current version before trying again.");
+  expect(commands).toEqual([{ expected_version: schedule.version, reason: "Pause during launch review." }]);
+  expect(detailLoads).toBe(2);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
 test("Integration research failure retains the scoped customer query", async ({ page }) => {
   allowedBrowserErrors.push(/Failed to load resource:.*503/);
   const searches: unknown[] = [];
