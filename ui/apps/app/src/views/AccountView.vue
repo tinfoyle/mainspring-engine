@@ -15,7 +15,7 @@ import {
 } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
 import { computed, reactive, ref, watch } from "vue";
-import { RouterLink, useRouter } from "vue-router";
+import { useRouter } from "vue-router";
 import { useSessionStore } from "../stores/session";
 
 type TeamAction = "role" | "suspend" | "reactivate" | "remove" | "transfer" | "leave";
@@ -140,8 +140,8 @@ watch(() => session.selectedID, () => void load(), { immediate: true });
     </section>
     <section v-else-if="!loading" class="queue-state"><h2>Select an Account</h2><p>Team access always belongs to one Account.</p></section>
 
-    <section v-if="selected?.owner_enrollment_required" class="queue-state queue-state--warning"><h2>Secure this owner Account first</h2><p>Add a passkey and save recovery codes before using owner authority.</p><RouterLink to="/app/security?return_to=%2Fapp%2Faccount">Continue security setup</RouterLink></section>
-    <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }} <RouterLink v-if="securityRequired" to="/app/security?return_to=%2Fapp%2Faccount">Continue to Security</RouterLink></p>
+    <section v-if="selected?.owner_enrollment_required" class="queue-state queue-state--warning"><h2>Secure this owner Account first</h2><p>Add a passkey and save recovery codes before using owner authority.</p><a href="/app/security?return_to=%2Fapp%2Faccount">Continue security setup</a></section>
+    <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }} <a v-if="securityRequired" href="/app/security?return_to=%2Fapp%2Faccount">Continue to Security</a></p>
     <section v-if="loading" class="queue-state" role="status"><h2>Loading Account access…</h2></section>
 
     <template v-else-if="selected && actor">
@@ -181,7 +181,7 @@ watch(() => session.selectedID, () => void load(), { immediate: true });
         <label v-if="action === 'role'">New role<select v-model="actionRole"><option v-for="role in roles" :key="role.value" :value="role.value">{{ role.label }}</option></select></label>
         <label>Operational reason<textarea v-model="actionReason" minlength="3" maxlength="300" rows="4" required></textarea></label>
         <label v-if="requiredConfirmation(action)" class="confirmation-phrase">Type {{ requiredConfirmation(action) }} to confirm<input v-model="confirmation" autocomplete="off" :pattern="requiredConfirmation(action)" required></label>
-        <p v-if="securityRequired" class="queue-inline-status queue-inline-status--error">{{ error }} <RouterLink to="/app/security?return_to=%2Fapp%2Faccount">Continue to Security</RouterLink></p>
+        <p v-if="securityRequired" class="queue-inline-status queue-inline-status--error">{{ error }} <a href="/app/security?return_to=%2Fapp%2Faccount">Continue to Security</a></p>
         <div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || Boolean(requiredConfirmation(action) && confirmation !== requiredConfirmation(action))">{{ saving ? "Saving…" : "Confirm" }}</IoButton></div>
       </form>
     </div>

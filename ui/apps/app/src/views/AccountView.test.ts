@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { flushPromises, mount, RouterLinkStub } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,7 +26,7 @@ const member = { membership_id: "30000000-0000-4000-8000-000000000003", user_id:
 async function render() {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/account", component: AccountView }, { path: "/app/your-turn", component: { template: "<h1>Your Turn</h1>" } }] });
   await router.push("/app/account"); await router.isReady();
-  const wrapper = mount(AccountView, { global: { plugins: [router], stubs: { RouterLink: RouterLinkStub } } });
+  const wrapper = mount(AccountView, { global: { plugins: [router] } });
   await flushPromises();
   return wrapper;
 }
@@ -66,6 +66,6 @@ describe("Account team surface", () => {
     await wrapper.get(".invite-form input[type=email]").setValue("new@example.com");
     await wrapper.get(".invite-form").trigger("submit"); await flushPromises();
     expect(wrapper.text()).toContain("Confirm with a passkey before changing team access.");
-    expect(wrapper.findAllComponents(RouterLinkStub).some((link) => link.props("to") === "/app/security?return_to=%2Fapp%2Faccount")).toBe(true);
+    expect(wrapper.get('a[href="/app/security?return_to=%2Fapp%2Faccount"]').text()).toBe("Continue to Security");
   });
 });
