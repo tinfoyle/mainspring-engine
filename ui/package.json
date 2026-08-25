@@ -13,6 +13,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "build:social-card": "node scripts/render-social-card.mjs",
+    "browser:app": "playwright test --config playwright.config.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
@@ -21,8 +22,10 @@
     "verify": "npm run typecheck && npm run test && npm run lint && npm run build && npm run public:a11y && npm run budget"
   },
   "devDependencies": {
-    "@resvg/resvg-js": "2.6.2",
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.62.1",
     "@eslint/js": "9.39.4",
+    "@resvg/resvg-js": "2.6.2",
     "axe-core": "4.13.0",
     "eslint": "9.39.4",
     "eslint-plugin-vue": "10.10.0",

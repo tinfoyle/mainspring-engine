@@ -256,7 +256,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .offer-summary > p { margin: .45rem 0 1rem; color: var(--io-ink-soft); line-height: 1.45; }
 .offer-summary ul { margin: 0; padding: 0; display: grid; gap: .45rem; list-style: none; }
 .offer-summary li { display: flex; justify-content: space-between; gap: 1rem; text-transform: capitalize; }
-.offer-summary li small { color: var(--io-ocean-650); }
+.offer-summary li small { color: var(--io-ocean-800); }
 .referral-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; }
 .referral-entry input { min-width: 0; text-transform: uppercase; }
 .referral-confirmed { margin: 0; padding: .8rem; border-radius: .7rem; color: var(--io-ocean-800); background: #e6f5ed; line-height: 1.45; }

@@ -2,6 +2,7 @@
 
 ARG NODE_IMAGE=node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
 ARG CADDY_IMAGE=caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
 
 FROM ${NODE_IMAGE} AS dependencies
 WORKDIR /workspace
@@ -16,11 +17,27 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 FROM dependencies AS source
 COPY . .
 
-FROM source AS test
-RUN npm run verify && npm audit --audit-level=high
-
 FROM source AS app-build
 RUN npm run build --workspace=@spyglass/app
+
+FROM ${PLAYWRIGHT_IMAGE} AS browser-test
+WORKDIR /workspace
+ENV CI=1 \
+    PLAYWRIGHT_HTML_OPEN=never
+COPY package.json package-lock.json ./
+COPY apps/app/package.json apps/app/package.json
+COPY apps/public/package.json apps/public/package.json
+COPY packages/api/package.json packages/api/package.json
+COPY packages/design-system/package.json packages/design-system/package.json
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
+COPY --from=app-build /workspace/apps/app/dist apps/app/dist
+COPY playwright.config.ts playwright.config.ts
+COPY tests/browser tests/browser
+RUN npm run browser:app && touch /tmp/spyglass-private-browser-passed
+
+FROM source AS test
+COPY --from=browser-test /tmp/spyglass-private-browser-passed /tmp/spyglass-private-browser-passed
+RUN test -f /tmp/spyglass-private-browser-passed && npm run verify && npm audit --audit-level=high
 
 FROM source AS public-build
 RUN npm run build --workspace=@spyglass/public
