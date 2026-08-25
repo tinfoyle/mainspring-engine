@@ -8,6 +8,12 @@
 - Environment sequence: `ubunturojo` Docker -> Hostinger Docker stage -> vanilla Linode Kubernetes Engine production
 - Production rule: **all application construction in Phase 3 must be complete before release**
 
+## Current local-only UI construction boundary
+
+The active Phase 3 product-surface work is local only. The repository now builds a Nuxt-rendered public acquisition image and a separate static Vue private-SPA image in addition to the multi-mode Go application, but those UI artifacts have not been published to GHCR or applied to Hostinger/LKE. Existing Stage RC records below remain historical platform/backend evidence and are not a substitute for the final product release.
+
+Before deployment resumes, UI7 must replace the legacy website/private-shell release inputs with three matched immutable artifacts built from one source revision: the Go application, public Nuxt UI and private Vue UI. Local Docker must certify the exact routed pair first; then the same digests move to Hostinger Docker Stage and finally to vanilla LKE. No Stage or production manifest should claim Vue parity while Work, Knowledge, Agents or another supported package still depends on a placeholder or legacy-only route.
+
 ## Fixed deployment decisions
 
 | Concern | Decision |
@@ -17,7 +23,8 @@
 | Production | Shared, managed-control-plane vanilla Linode Kubernetes Engine cluster |
 | Registry | GHCR, with immutable digest deployment |
 | Application artifact | One multi-mode Go image: `ghcr.io/tinfoyle/spyglass-engine` |
-| Website artifact | One standalone Node image: `ghcr.io/tinfoyle/infinite-ocean-website` |
+| Public UI artifact | Final target: one standalone Nuxt/Node image, `ghcr.io/tinfoyle/infinite-ocean-public-ui`; existing `infinite-ocean-website` releases remain historical until UI7 cutover |
+| Private UI artifact | Final target: one static Vue/Nginx image, `ghcr.io/tinfoyle/infinite-ocean-private-ui`; do not publish or deploy before local parity/certification |
 | Databases | Containerized PostgreSQL 17 in every environment |
 | Production database operator | CloudNativePG on LKE with LKE block storage and configurable replicas |
 | Document objects | Private versioned S3 contract: encrypted MinIO volumes in local/Hostinger stage and managed Linode Object Storage in production |

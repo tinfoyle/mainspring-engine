@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -93,6 +94,26 @@ func (r *PrivacyConsentRepository) Erase(ctx context.Context, subjectID ids.Cons
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (r *PrivacyConsentRepository) Link(ctx context.Context, subjectID ids.ConsentSubjectID, userID ids.UserID, now time.Time) error {
+	result, err := r.pool.Exec(ctx, `
+		UPDATE privacy_consent_subjects SET user_id=$2,linked_at=COALESCE(linked_at,$3)
+		WHERE id=$1 AND (user_id IS NULL OR user_id=$2)`, subjectID, userID, now.UTC())
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 1 {
+		return nil
+	}
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM privacy_consent_subjects WHERE id=$1)`, subjectID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return privacyconsent.ErrSubjectOwned
+	}
+	return privacyconsent.ErrNotFound
 }
 
 var _ privacyconsent.Repository = (*PrivacyConsentRepository)(nil)

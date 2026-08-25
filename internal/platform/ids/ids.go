@@ -68,6 +68,8 @@ type AffiliateID string
 type ReferralAttributionID string
 type CommissionRuleID string
 type CommissionEntryID string
+type PrivacyRightsRequestID string
+type PrivacyRightsEventID string
 
 type Generator interface {
 	New() string

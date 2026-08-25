@@ -108,6 +108,26 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	if security.StatusCode != http.StatusOK || !bytes.Contains(securityBody, []byte("Where you are signed in")) || !bytes.Contains(securityBody, []byte("Current session")) || !bytes.Contains(securityBody, []byte("Signed in with password")) || !bytes.Contains(securityBody, []byte("Last confirmed with password")) || !bytes.Contains(securityBody, []byte("Recent identity activity")) || !bytes.Contains(securityBody, []byte("Signed in")) || !bytes.Contains(securityBody, []byte("Phishing-resistant sign-in")) || !bytes.Contains(securityBody, []byte("Add passkey")) || !bytes.Contains(securityBody, []byte("Know the last-resort path")) || !bytes.Contains(securityBody, []byte("support cannot view or recreate recovery codes")) || !bytes.Contains(securityBody, []byte("Your current login is <strong>avery@example.com</strong>")) || !bytes.Contains(securityBody, []byte("Changing it requires a recent passkey confirmation")) {
 		t.Fatalf("security center: %d %s", security.StatusCode, securityBody)
 	}
+	securityReturn, err := client.Get(server.URL + "/app/security?return_to=%2Fapp%2Fprivacy&status=strong_reauthentication_required")
+	if err != nil {
+		t.Fatal(err)
+	}
+	securityReturnBody, _ := io.ReadAll(securityReturn.Body)
+	securityReturn.Body.Close()
+	if securityReturn.StatusCode != http.StatusOK || !bytes.Contains(securityReturnBody, []byte(`name="return_to" value="/app/privacy"`)) || !bytes.Contains(securityReturnBody, []byte(`id="passkey-register" type="button" data-return-to="/app/privacy"`)) || !bytes.Contains(securityReturnBody, []byte("Confirm with a passkey to continue")) {
+		t.Fatalf("security return target: %d %s", securityReturn.StatusCode, securityReturnBody)
+	}
+	returnRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/app/security/reauthenticate", strings.NewReader(url.Values{"password": {"correct horse battery staple"}, "return_to": {"/app/privacy"}}.Encode()))
+	returnRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	returnRequest.Header.Set("Origin", "http://localhost:8080")
+	returnResponse, err := noRedirect.Do(returnRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	returnResponse.Body.Close()
+	if returnResponse.StatusCode != http.StatusSeeOther || returnResponse.Header.Get("Location") != "/app/security?status=confirmed&return_to=%2Fapp%2Fprivacy" {
+		t.Fatalf("security password return preservation: %d %q", returnResponse.StatusCode, returnResponse.Header.Get("Location"))
+	}
 	confirmed := postForm(t, client, server.URL+"/app/security/reauthenticate", url.Values{"password": {"correct horse battery staple"}})
 	if confirmed.status != http.StatusOK || !bytes.Contains(confirmed.body, []byte("Password confirmed for factor recovery")) || !bytes.Contains(confirmed.body, []byte("Use a passkey to unlock verified-email, Membership, invitation, and billing changes")) {
 		t.Fatalf("password confirmation: %d %s", confirmed.status, confirmed.body)

@@ -29,6 +29,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
+	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrights"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -299,6 +300,11 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	privacyRightsService, err := privacyrights.New(postgres.NewPrivacyRightsRepository(pool), ids.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	analyticsService, err := analyticsingest.New(privacyRepository, postgres.NewAnalyticsEventSink(pool), analytics.LaunchRegistry(), clock, privacyPolicyVersion)
 	if err != nil {
 		pool.Close()
@@ -326,6 +332,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithPrivacy(privacyService, analyticsService, privacySigner, httpapi.PrivacyHTTPConfig{
 			PublicOrigin: config.PublicOrigin, AppOrigin: config.AppOrigin, Secure: true,
 		}),
+		httpapi.WithPrivacyRights(privacyRightsService),
 		httpapi.WithAffiliateProgram(affiliateService, httpapi.AffiliateHTTPConfig{
 			EnrollmentOpen: config.AffiliateEnrollmentOpen, AttributionEnabled: config.AffiliateAttributionEnabled,
 			SettlementMode: "unconfigured",

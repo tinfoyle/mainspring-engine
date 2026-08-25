@@ -9,7 +9,10 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
-var ErrNotFound = errors.New("privacy consent decision was not found")
+var (
+	ErrNotFound     = errors.New("privacy consent decision was not found")
+	ErrSubjectOwned = errors.New("privacy consent subject belongs to another user")
+)
 
 type Clock interface{ Now() time.Time }
 
@@ -18,6 +21,7 @@ type Repository interface {
 	Current(context.Context, ids.ConsentSubjectID, privacy.Surface) (privacy.Decision, error)
 	History(context.Context, ids.ConsentSubjectID, int) ([]privacy.Decision, error)
 	Erase(context.Context, ids.ConsentSubjectID) error
+	Link(context.Context, ids.ConsentSubjectID, ids.UserID, time.Time) error
 }
 
 type Service struct {
@@ -77,4 +81,11 @@ func (s *Service) Erase(ctx context.Context, subjectID ids.ConsentSubjectID) err
 		return privacy.ErrInvalidDecision
 	}
 	return s.repository.Erase(ctx, subjectID)
+}
+
+func (s *Service) Link(ctx context.Context, subjectID ids.ConsentSubjectID, userID ids.UserID) error {
+	if ids.Validate(string(subjectID)) != nil || ids.Validate(string(userID)) != nil {
+		return privacy.ErrInvalidDecision
+	}
+	return s.repository.Link(ctx, subjectID, userID, s.clock.Now().UTC())
 }

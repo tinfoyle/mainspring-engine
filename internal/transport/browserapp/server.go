@@ -1130,6 +1130,8 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 		data.Notice = "Confirm your password before continuing with a sensitive action."
 	case "strong_reauth_required":
 		data.Notice = "Confirm with a passkey before changing the identity email, managing Memberships, inviting people, or changing billing. If this is your first passkey, confirm your password and add one below."
+	case "strong_reauthentication_required":
+		data.Notice = "Confirm with a passkey to continue. If this is your first passkey, confirm your password and add one below."
 	}
 	s.render(w, http.StatusOK, "security", data)
 }
@@ -1143,7 +1145,7 @@ func (s *Server) securityPageData(r *http.Request, authenticated sessions.Authen
 	if err != nil {
 		return pageData{}, err
 	}
-	data := pageData{Title: "Identity security", ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil, ContactChangesConfigured: s.contactChanges != nil, MCPGrantsConfigured: s.mcpGrants != nil, PrivacyControls: true}
+	data := pageData{Title: "Identity security", ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil, ContactChangesConfigured: s.contactChanges != nil, MCPGrantsConfigured: s.mcpGrants != nil, PrivacyControls: true}
 	if s.contactChanges != nil {
 		user, loadErr := s.contactChanges.Current(r.Context(), authenticated.Session.UserID)
 		if loadErr != nil {
@@ -1384,16 +1386,21 @@ func (s *Server) reauthenticate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
-		s.render(w, http.StatusForbidden, "security", pageData{Title: "Identity security", Error: "This password confirmation request could not be verified."})
+		s.render(w, http.StatusForbidden, "security", pageData{Title: "Identity security", Error: "This password confirmation request could not be verified.", ReturnTo: safeReturnTo(r.FormValue("return_to"))})
 		return
 	}
+	returnTo := safeReturnTo(r.FormValue("return_to"))
 	err := s.authentication.Reauthenticate(r.Context(), authentication.ReauthenticateCommand{UserID: authenticated.Session.UserID, SessionID: authenticated.Session.ID, Password: r.FormValue("password")})
 	if err != nil {
 		active, _ := s.sessions.Active(r.Context(), authenticated.Session.UserID, authenticated.Session.ID)
-		s.render(w, http.StatusUnauthorized, "security", pageData{Title: "Identity security", Error: "The password is incorrect.", ActiveSessions: active})
+		s.render(w, http.StatusUnauthorized, "security", pageData{Title: "Identity security", Error: "The password is incorrect.", ReturnTo: returnTo, ActiveSessions: active})
 		return
 	}
-	http.Redirect(w, r, "/app/security?status=confirmed", http.StatusSeeOther)
+	target := "/app/security?status=confirmed"
+	if returnTo != "" {
+		target += "&return_to=" + url.QueryEscape(returnTo)
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (s *Server) revokeSession(w http.ResponseWriter, r *http.Request) {

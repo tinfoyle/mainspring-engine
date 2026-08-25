@@ -77,6 +77,10 @@ func (m *privacyMemory) Erase(_ context.Context, subjectID ids.ConsentSubjectID)
 	return nil
 }
 
+func (m *privacyMemory) Link(_ context.Context, _ ids.ConsentSubjectID, _ ids.UserID, _ time.Time) error {
+	return nil
+}
+
 func (m *privacyMemory) AppendEvent(_ context.Context, event analyticsingest.AcceptedEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

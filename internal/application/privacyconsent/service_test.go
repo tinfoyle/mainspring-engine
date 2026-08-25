@@ -44,6 +44,9 @@ func (r *repository) Erase(_ context.Context, subject ids.ConsentSubjectID) erro
 	r.decisions = kept
 	return nil
 }
+func (r *repository) Link(_ context.Context, _ ids.ConsentSubjectID, _ ids.UserID, _ time.Time) error {
+	return nil
+}
 
 type generator struct{ next int }
 

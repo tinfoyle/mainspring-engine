@@ -21,6 +21,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
+	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrights"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -69,6 +70,7 @@ type Server struct {
 	affiliateProgram      *affiliateprogram.Service
 	affiliateHTTP         AffiliateHTTPConfig
 	privacyConsent        *privacyconsent.Service
+	privacyRights         *privacyrights.Service
 	analyticsIngest       *analyticsingest.Service
 	privacyTokens         PrivacyTokenCodec
 	privacyHTTP           PrivacyHTTPConfig
@@ -192,6 +194,10 @@ func WithPrivacy(consent *privacyconsent.Service, ingestion *analyticsingest.Ser
 	}
 }
 
+func WithPrivacyRights(service *privacyrights.Service) Option {
+	return func(server *Server) { server.privacyRights = service }
+}
+
 func WithAffiliateProgram(service *affiliateprogram.Service, config AffiliateHTTPConfig) Option {
 	return func(server *Server) { server.affiliateProgram, server.affiliateHTTP = service, config }
 }
@@ -213,6 +219,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/privacy/consent", s.setPrivacyConsent)
 	mux.HandleFunc("GET /api/v1/privacy/consent/history", s.getPrivacyConsentHistory)
 	mux.HandleFunc("DELETE /api/v1/privacy/data", s.erasePrivacyData)
+	mux.HandleFunc("GET /api/v1/privacy/rights-requests", s.listPrivacyRightsRequests)
+	mux.HandleFunc("POST /api/v1/privacy/rights-requests", s.submitPrivacyRightsRequest)
+	mux.HandleFunc("DELETE /api/v1/privacy/rights-requests/{requestID}", s.cancelPrivacyRightsRequest)
 	mux.HandleFunc("POST /api/v1/analytics/events", s.ingestAnalyticsEvent)
 	mux.HandleFunc("GET /api/v1/affiliate", s.getAffiliateProgram)
 	mux.HandleFunc("POST /api/v1/affiliate", s.enrollAffiliate)

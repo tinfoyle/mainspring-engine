@@ -12,6 +12,8 @@ The [Phase 3 local backend completion plan](phase-3-local-backend-completion-pla
 
 Git pushes, GHCR releases, Hostinger Stage mutation, LKE work and production promotion are explicitly outside this window. Local commits remain permitted. This changes execution order, not the Phase 3 completion or production-release rules below.
 
+Local UI checkpoint (2026-08-24): the separate Nuxt-rendered acquisition site and Vue private SPA foundations are active in local Docker. The live Your Turn boundary, rendered landing/feature/pricing routes, authenticated Catalog checkout review, consented landing/checkout/onboarding event path, ordinary-identity Affiliate dashboard and passkey-verified privacy-rights intake are implemented and revision controlled. Authenticated private consent subjects bind to one User, browser privacy erasure remains immediate, and identity/Account/Affiliate/analytics access, correction, erasure, restriction, objection and portability requests have deadline and immutable-event evidence. Work, Knowledge and Agents remain placeholder Vue destinations; the wider product/package migration, responsive/browser certification, Affiliate commercial policy and staff rights-fulfillment operations remain construction work. Nothing in this checkpoint has been released to GHCR or applied to Stage/LKE.
+
 ## Phase 3 scope
 
 Phase 3 consolidates the historical Phase 3-8 backlog into one final body of work. It is not limited to Work and Attention. It includes:

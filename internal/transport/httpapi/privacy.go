@@ -52,6 +52,13 @@ func (s *Server) getPrivacyConsent(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy preferences are temporarily unavailable")
 		return
 	}
+	decision, replaced, ok := s.linkPrivatePrivacySubject(w, r, decision)
+	if !ok {
+		return
+	}
+	if replaced && !s.setPrivacyReferenceCookie(w, decision) {
+		return
+	}
 	response.Decided = true
 	response.Analytics = decision.Analytics
 	response.Marketing = decision.Marketing
@@ -84,16 +91,60 @@ func (s *Server) setPrivacyConsent(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy preferences could not be saved")
 		return
 	}
-	token, err := s.privacyTokens.Sign(privacy.PreferenceReference{SubjectID: decision.SubjectID, PolicyVersion: decision.PolicyVersion, Surface: decision.Surface})
-	if err != nil {
-		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy preferences could not be saved")
+	decision, _, ok = s.linkPrivatePrivacySubject(w, r, decision)
+	if !ok || !s.setPrivacyReferenceCookie(w, decision) {
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: s.privacyCookieName(), Value: token, Path: "/", HttpOnly: true,
-		Secure: s.privacyHTTP.Secure, SameSite: http.SameSiteLaxMode, MaxAge: 365 * 24 * 60 * 60})
 	effective := decision.EffectiveAt
 	writeJSON(w, http.StatusOK, privacyConsentResponse{PolicyVersion: decision.PolicyVersion, Surface: surface,
 		Analytics: decision.Analytics, Marketing: decision.Marketing, Decided: true, EffectiveAt: &effective})
+}
+
+func (s *Server) linkPrivatePrivacySubject(w http.ResponseWriter, r *http.Request, decision privacy.Decision) (privacy.Decision, bool, bool) {
+	if decision.Surface != privacy.SurfacePrivate || s.sessions == nil {
+		return decision, false, true
+	}
+	sessionCookie, err := r.Cookie(s.cookie.Name)
+	if err != nil {
+		return decision, false, true
+	}
+	authenticated, err := s.sessions.Authenticate(r.Context(), sessionCookie.Value)
+	if err != nil {
+		return decision, false, true
+	}
+	if authenticated.RotatedToken != "" {
+		s.setSessionCookie(w, authenticated.RotatedToken, authenticated.Session.ExpiresAt)
+	}
+	err = s.privacyConsent.Link(r.Context(), decision.SubjectID, authenticated.Session.UserID)
+	if err == nil {
+		return decision, false, true
+	}
+	if !errors.Is(err, privacyconsent.ErrSubjectOwned) {
+		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy preferences could not be associated with this identity")
+		return privacy.Decision{}, false, false
+	}
+	replacement, err := s.privacyConsent.Set(r.Context(), privacyconsent.SetCommand{Surface: decision.Surface,
+		Analytics: decision.Analytics, Marketing: decision.Marketing})
+	if err == nil {
+		err = s.privacyConsent.Link(r.Context(), replacement.SubjectID, authenticated.Session.UserID)
+	}
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy preferences could not be associated with this identity")
+		return privacy.Decision{}, false, false
+	}
+	return replacement, true, true
+}
+
+func (s *Server) setPrivacyReferenceCookie(w http.ResponseWriter, decision privacy.Decision) bool {
+	token, err := s.privacyTokens.Sign(privacy.PreferenceReference{SubjectID: decision.SubjectID,
+		PolicyVersion: decision.PolicyVersion, Surface: decision.Surface})
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy preferences could not be saved")
+		return false
+	}
+	http.SetCookie(w, &http.Cookie{Name: s.privacyCookieName(), Value: token, Path: "/", HttpOnly: true,
+		Secure: s.privacyHTTP.Secure, SameSite: http.SameSiteLaxMode, MaxAge: 365 * 24 * 60 * 60})
+	return true
 }
 
 func (s *Server) getPrivacyConsentHistory(w http.ResponseWriter, r *http.Request) {

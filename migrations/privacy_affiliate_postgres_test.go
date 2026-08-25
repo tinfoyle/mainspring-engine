@@ -2,6 +2,7 @@ package migrations_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
+	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrights"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/analytics"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
@@ -57,6 +59,28 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		if _, err := pool.Exec(ctx, statement, now); err != nil {
 			t.Fatal(err)
 		}
+	}
+
+	rightsService, err := privacyrights.New(postgresadapter.NewPrivacyRightsRepository(pool), ids.RandomGenerator{}, fixedLifecycleClock{now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightsSession := sessions.Session{UserID: affiliateUser, ReauthenticatedAt: now,
+		ReauthenticationMethod: sessions.AuthenticationMethodPasskey}
+	rightsRequest, err := rightsService.Submit(ctx, privacyrights.SubmitCommand{UserID: affiliateUser, Session: rightsSession,
+		Kind: privacy.RightsAccess, Scope: privacy.RightsAffiliate})
+	if err != nil || rightsRequest.ResponseDueAt != now.AddDate(0, 1, 0) {
+		t.Fatalf("privacy rights request=%+v err=%v", rightsRequest, err)
+	}
+	if _, err := rightsService.Submit(ctx, privacyrights.SubmitCommand{UserID: affiliateUser, Session: rightsSession,
+		Kind: privacy.RightsAccess, Scope: privacy.RightsAffiliate}); !errors.Is(err, privacyrights.ErrAlreadyOpen) {
+		t.Fatalf("duplicate privacy rights request error=%v", err)
+	}
+	canceledRights, err := rightsService.Cancel(ctx, privacyrights.CancelCommand{RequestID: rightsRequest.ID,
+		UserID: affiliateUser, Session: rightsSession})
+	var rightsEvents int
+	if queryErr := pool.QueryRow(ctx, `SELECT count(*) FROM privacy_rights_request_events WHERE request_id=$1`, rightsRequest.ID).Scan(&rightsEvents); err != nil || queryErr != nil || canceledRights.State != privacy.RightsCanceled || rightsEvents != 2 {
+		t.Fatalf("canceled rights=%+v events=%d err=%v query_err=%v", canceledRights, rightsEvents, err, queryErr)
 	}
 
 	affiliateRepository := postgresadapter.NewAffiliateProgramRepository(pool)
@@ -108,6 +132,17 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	var privacyRows int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM analytics_events WHERE subject_id=$1`, decision.SubjectID).Scan(&privacyRows); err != nil || privacyRows != 0 {
 		t.Fatalf("privacy rows=%d err=%v", privacyRows, err)
+	}
+	privateDecision, err := consent.Set(ctx, privacyconsent.SetCommand{Surface: privacy.SurfacePrivate, Analytics: true})
+	if err != nil || consent.Link(ctx, privateDecision.SubjectID, affiliateUser) != nil {
+		t.Fatalf("private consent link decision=%+v err=%v", privateDecision, err)
+	}
+	var linkedUser string
+	if err := pool.QueryRow(ctx, `SELECT user_id::text FROM privacy_consent_subjects WHERE id=$1`, privateDecision.SubjectID).Scan(&linkedUser); err != nil || linkedUser != affiliateUser {
+		t.Fatalf("linked privacy user=%q err=%v", linkedUser, err)
+	}
+	if err := consent.Link(ctx, privateDecision.SubjectID, customerUser); !errors.Is(err, privacyconsent.ErrSubjectOwned) {
+		t.Fatalf("cross-user privacy subject link error=%v", err)
 	}
 
 	const retainedSubject = "10000000-0000-4000-8000-000000000009"

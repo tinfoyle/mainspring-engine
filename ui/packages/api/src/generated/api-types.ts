@@ -1942,6 +1942,32 @@ export interface PrivacyDecision {
   readonly "surface": PrivacySurface;
 }
 
+export type PrivacyRightsKind = "access" | "correction" | "erasure" | "restriction" | "objection" | "portability";
+
+export interface PrivacyRightsRequest {
+  readonly "kind": PrivacyRightsKind;
+  readonly "request_id": string;
+  readonly "requested_at": string;
+  readonly "response_due_at": string;
+  readonly "scope": PrivacyRightsScope;
+  readonly "state": PrivacyRightsState;
+  readonly "updated_at": string;
+  readonly "verified_at": string;
+}
+
+export interface PrivacyRightsRequestInput {
+  readonly "kind": PrivacyRightsKind;
+  readonly "scope": PrivacyRightsScope;
+}
+
+export interface PrivacyRightsRequestList {
+  readonly "requests": ReadonlyArray<PrivacyRightsRequest>;
+}
+
+export type PrivacyRightsScope = "identity" | "account" | "affiliate" | "analytics";
+
+export type PrivacyRightsState = "submitted" | "in_review" | "completed" | "partially_completed" | "declined" | "canceled";
+
 export type PrivacySurface = "public" | "private";
 
 export interface Problem {
@@ -2690,6 +2716,12 @@ export interface ApiSchemas {
   readonly PrivacyConsentHistory: PrivacyConsentHistory;
   readonly PrivacyConsentSelection: PrivacyConsentSelection;
   readonly PrivacyDecision: PrivacyDecision;
+  readonly PrivacyRightsKind: PrivacyRightsKind;
+  readonly PrivacyRightsRequest: PrivacyRightsRequest;
+  readonly PrivacyRightsRequestInput: PrivacyRightsRequestInput;
+  readonly PrivacyRightsRequestList: PrivacyRightsRequestList;
+  readonly PrivacyRightsScope: PrivacyRightsScope;
+  readonly PrivacyRightsState: PrivacyRightsState;
   readonly PrivacySurface: PrivacySurface;
   readonly Problem: Problem;
   readonly ProposeKnowledgeClaimRequest: ProposeKnowledgeClaimRequest;

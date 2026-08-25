@@ -1,5 +1,6 @@
 export * from "./client";
 export * from "./privacy";
+export * from "./privacy-rights";
 export * from "./analytics";
 export * from "./attention";
 export * from "./catalog";
