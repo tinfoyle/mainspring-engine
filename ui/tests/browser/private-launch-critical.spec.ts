@@ -654,6 +654,45 @@ test("Your Turn renders the owner queue without responsive overflow", async ({ p
   await expectAccessible(page);
 });
 
+test("Your Turn preserves the queue offline and refreshes after reconnect", async ({ page, context }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*ERR_INTERNET_DISCONNECTED/);
+  allowedBrowserErrors.push(/Failed to load resource: WebKit encountered an internal error/);
+  await page.goto("/app/your-turn");
+  await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+  const attentionPattern = `**/api/v1/accounts/${accountID}/attention/**`;
+  const abortAttention = (route: Route) => route.abort("internetdisconnected");
+  await page.route(attentionPattern, abortAttention);
+  await context.setOffline(true);
+  await expect(page.getByRole("status").filter({ hasText: "You are offline" })).toBeVisible();
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByRole("alert")).toContainText("Your Turn is unavailable right now. Showing the last loaded queue.");
+  await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+
+  await page.unroute(attentionPattern, abortAttention);
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByRole("status").filter({ hasText: "You are offline" })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".your-turn > .sr-only")).toHaveText("Your Turn refreshed. 1 open item.");
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("Your Turn session expiry preserves the exact sign-in return route", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*401/);
+  await page.goto("/app/your-turn");
+  await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+  await page.route(`**/api/v1/accounts/${accountID}/attention/**`, async (route) => {
+    await fulfillProblem(route, 401, "authentication_required", "Sign in again.");
+  });
+  await page.route("**/login?**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html lang=\"en\"><title>Sign in</title><body><main><h1>Sign in again</h1></main></body></html>" });
+  });
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page).toHaveURL("http://127.0.0.1:4173/login?return_to=%2Fapp%2Fyour-turn");
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in again" })).toBeVisible();
+});
+
 test("mobile navigation traps and restores focus", async ({ page }, testInfo) => {
   test.skip(!["chromium-phone-360", "chromium-phone", "chromium-phone-412", "chromium-reflow", "chromium-tablet"].includes(testInfo.project.name), "compact-navigation interaction contract");
   await page.goto("/app/your-turn");
