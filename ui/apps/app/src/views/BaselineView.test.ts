@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { APIProblem, type AccountChoice, type BaselineAssessment, type KnowledgeFactSummary } from "@spyglass/api";
 import { useSessionStore } from "../stores/session";
+import { expectNoAxeViolations } from "../test/accessibility";
 import BaselineView from "./BaselineView.vue";
 
 const api = vi.hoisted(() => ({
@@ -29,7 +30,7 @@ const fact = { id: "40000000-0000-4000-8000-000000000004", current_claim_id: "50
 async function mountAt(path: string) {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/baseline", component: BaselineView }, { path: "/app/baseline/:assessmentID", component: BaselineView }, { path: "/app/knowledge", component: { template: "<div />" } }, { path: "/app/work/:itemID", component: { template: "<div />" } }] });
   await router.push(path); await router.isReady();
-  const wrapper = mount(BaselineView, { global: { plugins: [router], stubs: { RouterLink: RouterLinkStub } } }); await flushPromises(); return wrapper;
+  const wrapper = mount(BaselineView, { global: { plugins: [router], stubs: { RouterLink: RouterLinkStub } } }); await flushPromises(); await expectNoAxeViolations(wrapper.element); return wrapper;
 }
 
 beforeEach(() => {

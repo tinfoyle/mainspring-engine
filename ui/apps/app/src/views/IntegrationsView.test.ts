@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountChoice, IntegrationConnection, IntegrationConnectionDetail, IntegrationExecutionDetail } from "@spyglass/api";
 import { useSessionStore } from "../stores/session";
+import { expectNoAxeViolations } from "../test/accessibility";
 import IntegrationsView from "./IntegrationsView.vue";
 
 const api = vi.hoisted(() => ({
@@ -30,7 +31,7 @@ beforeEach(() => {
 });
 async function mountAt(path: string) {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/integrations", component: IntegrationsView }, { path: "/app/integrations/connections/:connectionID", component: IntegrationsView }, { path: "/app/integrations/executions/:executionID", component: IntegrationsView }, { path: "/app/integrations/authorizations/:authorizationID", component: IntegrationsView }] });
-  await router.push(path); await router.isReady(); const wrapper = mount(IntegrationsView, { global: { plugins: [router] } }); await flushPromises(); return wrapper;
+  await router.push(path); await router.isReady(); const wrapper = mount(IntegrationsView, { global: { plugins: [router] } }); await flushPromises(); await expectNoAxeViolations(wrapper.element); return wrapper;
 }
 
 describe("Integrations workspace", () => {

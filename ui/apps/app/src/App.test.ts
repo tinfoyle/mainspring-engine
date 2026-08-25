@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.vue";
 import { router } from "./router";
 import { useSessionStore } from "./stores/session";
+import { expectNoAxeViolations } from "./test/accessibility";
 
 const analytics = vi.hoisted(() => ({ emitAnalytics: vi.fn(), getPrivacyConsent: vi.fn() }));
 vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import("@spyglass/api")>(), ...analytics }));
@@ -38,6 +39,7 @@ describe("application shell", () => {
     expect(wrapper.get("nav").text()).toContain("Exports");
     expect(wrapper.get("nav").text()).toContain("Lifecycle");
     expect(wrapper.find(".nav-link em").exists()).toBe(false);
+    await expectNoAxeViolations(wrapper.element);
     wrapper.unmount();
   });
 

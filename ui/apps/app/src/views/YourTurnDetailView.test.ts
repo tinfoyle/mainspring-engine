@@ -6,6 +6,7 @@ import { APIProblem, type AccountChoice, type Approval, type AttentionDetail } f
 import YourTurnDetailView from "./YourTurnDetailView.vue";
 import { router } from "../router";
 import { useSessionStore } from "../stores/session";
+import { expectNoAxeViolations } from "../test/accessibility";
 
 const {
   answerInformation,
@@ -141,6 +142,7 @@ describe("Your Turn approval detail", () => {
     session.userID = "20000000-0000-4000-8000-000000000002";
     const wrapper = mount(YourTurnDetailView, { global: { plugins: [router] } });
     await flushPromises();
+    await expectNoAxeViolations(wrapper.element);
 
     expect(wrapper.text()).toContain("Exact proposed payload");
     await wrapper.get('input[value="approve"]').setValue(true);

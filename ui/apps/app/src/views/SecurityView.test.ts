@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { expectNoAxeViolations } from "../test/accessibility";
 import SecurityView from "./SecurityView.vue";
 
 const api = vi.hoisted(() => ({
@@ -31,6 +32,7 @@ describe("Security surface", () => {
     const wrapper = mount(SecurityView); await flushPromises();
     expect(wrapper.text()).toContain("owner@example.com"); expect(wrapper.text()).toContain("Laptop");
     expect(wrapper.text()).toContain("Firefox on laptop"); expect(wrapper.text()).toContain("Codex"); expect(wrapper.text()).toContain("Passkey added");
+    await expectNoAxeViolations(wrapper.element);
   });
   it("keeps recovery codes visible exactly after rotation", async () => {
     api.rotateRecoveryCodes.mockResolvedValue({ status: { configured: true, version: 2, remaining: 10 }, codes: ["a", "b"] });

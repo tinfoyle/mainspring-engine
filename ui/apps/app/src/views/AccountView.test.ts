@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { APIProblem, type AccountChoice, type Membership } from "@spyglass/api";
 import { useSessionStore } from "../stores/session";
+import { expectNoAxeViolations } from "../test/accessibility";
 import AccountView from "./AccountView.vue";
 
 const api = vi.hoisted(() => ({
@@ -28,6 +29,7 @@ async function render() {
   await router.push("/app/account"); await router.isReady();
   const wrapper = mount(AccountView, { global: { plugins: [router] } });
   await flushPromises();
+  await expectNoAxeViolations(wrapper.element);
   return wrapper;
 }
 

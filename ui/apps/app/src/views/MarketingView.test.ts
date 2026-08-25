@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountChoice, MarketingAssetRevision, MarketingCampaign, MarketingRelease } from "@spyglass/api";
 import { useSessionStore } from "../stores/session";
+import { expectNoAxeViolations } from "../test/accessibility";
 import MarketingView from "./MarketingView.vue";
 
 const api = vi.hoisted(() => ({
@@ -27,7 +28,7 @@ beforeEach(() => {
 });
 async function mountAt(path: string) {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/marketing", component: MarketingView }, { path: "/app/marketing/campaigns/:campaignID", component: MarketingView }, { path: "/app/marketing/releases/:releaseID", component: MarketingView }, { path: "/app/your-turn", component: { template: "<div />" } }, { path: "/app/integrations", component: { template: "<div />" } }] });
-  await router.push(path); await router.isReady(); const wrapper = mount(MarketingView, { global: { plugins: [router], stubs: { RouterLink: RouterLinkStub } } }); await flushPromises(); return wrapper;
+  await router.push(path); await router.isReady(); const wrapper = mount(MarketingView, { global: { plugins: [router], stubs: { RouterLink: RouterLinkStub } } }); await flushPromises(); await expectNoAxeViolations(wrapper.element); return wrapper;
 }
 
 describe("Marketing workspace", () => {

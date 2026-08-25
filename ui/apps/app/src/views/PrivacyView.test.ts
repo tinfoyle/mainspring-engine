@@ -2,6 +2,7 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { expectNoAxeViolations } from "../test/accessibility";
 import PrivacyView from "./PrivacyView.vue";
 
 const api = vi.hoisted(() => ({
@@ -32,6 +33,7 @@ async function mountView() {
   await router.isReady();
   const wrapper = mount(PrivacyView, { global: { plugins: [router] } });
   await flushPromises();
+  await expectNoAxeViolations(wrapper.element);
   return wrapper;
 }
 

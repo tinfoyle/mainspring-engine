@@ -3,6 +3,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { expectNoAxeViolations } from "../test/accessibility";
 import AffiliateView from "./AffiliateView.vue";
 
 const api = vi.hoisted(() => ({
@@ -21,6 +22,7 @@ async function mountView() {
   await router.isReady();
   const wrapper = mount(AffiliateView, { global: { plugins: [router] } });
   await flushPromises();
+  await expectNoAxeViolations(wrapper.element);
   return wrapper;
 }
 

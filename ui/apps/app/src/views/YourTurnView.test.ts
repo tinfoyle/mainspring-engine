@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountChoice, AttentionQueueItem } from "@spyglass/api";
 import YourTurnView from "./YourTurnView.vue";
 import { useSessionStore } from "../stores/session";
+import { expectNoAxeViolations } from "../test/accessibility";
 
 const { listAttentionQueue } = vi.hoisted(() => ({ listAttentionQueue: vi.fn() }));
 vi.mock("@spyglass/api", async (importOriginal) => {
@@ -62,6 +63,7 @@ describe("Your Turn queue", () => {
 
     const wrapper = mount(YourTurnView, { global: { stubs: { RouterLink: RouterLinkStub } } });
     await flushPromises();
+    await expectNoAxeViolations(wrapper.element);
 
     expect(listAttentionQueue).toHaveBeenCalledWith(account.account_id, session.userID, expect.objectContaining({ approvals: true, approvalsWritable: true }));
     expect(wrapper.text()).toContain("marketing.release.publish");

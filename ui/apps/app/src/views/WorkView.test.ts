@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountChoice, WorkItem } from "@spyglass/api";
 import { useSessionStore } from "../stores/session";
+import { expectNoAxeViolations } from "../test/accessibility";
 import WorkView from "./WorkView.vue";
 
 const api = vi.hoisted(() => ({
@@ -35,6 +36,7 @@ async function mountAt(path: string) {
   await router.push(path); await router.isReady();
   const wrapper = mount(WorkView, { global: { plugins: [router], stubs: { RouterLink: RouterLinkStub } } });
   await flushPromises();
+  await expectNoAxeViolations(wrapper.element);
   return wrapper;
 }
 

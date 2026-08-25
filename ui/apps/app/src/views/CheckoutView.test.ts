@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountChoice, PublicCatalog } from "@spyglass/api";
 import CheckoutView from "./CheckoutView.vue";
 import { useSessionStore } from "../stores/session";
+import { expectNoAxeViolations } from "../test/accessibility";
 
 const api = vi.hoisted(() => ({
   createCheckoutSession: vi.fn(),
@@ -69,6 +70,7 @@ async function mountCheckout(path = "/app/checkout?offer=team-monthly-v1") {
 describe("checkout review", () => {
   it("requires active referral application and explicit checkout confirmation", async () => {
     const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1");
+    await expectNoAxeViolations(wrapper.element);
 
     expect(wrapper.text()).toContain("A referral was proposed by your link");
     expect(wrapper.text()).toContain("$49.00 per month");
