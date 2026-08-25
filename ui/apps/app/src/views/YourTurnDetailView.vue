@@ -21,6 +21,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 const route = useRoute();
@@ -36,6 +37,7 @@ const decision = ref("");
 const reason = ref("");
 const factID = ref("");
 const confirmed = ref(false);
+const navigationNotice = ref("");
 let requestSequence = 0;
 let openedAt = Date.now();
 
@@ -58,6 +60,7 @@ const actionLabel = computed(() => {
 });
 const mayConfirmRecovery = computed(() => detail.value?.kind === "action" && detail.value.resolution
   && detail.value.resolution.state === "pending" && detail.value.resolution.requested_by_user_id !== session.userID);
+const hasDecisionDraft = computed(() => Boolean(decision.value || reason.value.trim() || factID.value || confirmed.value));
 const canSubmit = computed(() => {
   const item = detail.value;
   if (!item || !writable.value || saving.value) return false;
@@ -104,6 +107,17 @@ function saveDraft(): void {
   }
 }
 
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: hasDecisionDraft,
+  pending: saving,
+  message: "Leave this decision? Your draft will remain only in this browser tab until you return.",
+  onBlocked: (reason) => {
+    navigationNotice.value = reason === "pending"
+      ? "This decision is still being saved. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your decision draft remains on this page and in this browser tab.";
+  }
+});
+
 async function load(): Promise<void> {
   const accountID = session.selectedID;
   if (!validKind(kind.value) || !itemID.value) {
@@ -136,6 +150,7 @@ async function complete(): Promise<void> {
   if (!accountID || !item || !canSubmit.value) return;
   saving.value = true;
   error.value = "";
+  navigationNotice.value = "";
   saveDraft();
   try {
     if (item.kind === "information") {
@@ -166,6 +181,7 @@ async function complete(): Promise<void> {
     } catch {
       // Optional analytics never changes a decision result.
     }
+    allowNextNavigation();
     await router.replace({ path: "/app/your-turn", query: { completed: item.kind } });
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "Spyglass could not save this decision.";
@@ -246,6 +262,7 @@ watch([decision, reason, factID], saveDraft);
 
           <p class="form-note">Your draft stays in this browser tab until Spyglass accepts it.</p>
           <p v-if="!writable" class="form-note">This Account or package is read-only for this decision.</p>
+          <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
           <p v-if="error" class="form-error" role="alert">{{ error }}</p>
           <IoButton type="submit" :disabled="!canSubmit">{{ saving ? "Saving…" : actionLabel }}</IoButton>
         </form>

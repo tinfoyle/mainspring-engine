@@ -742,9 +742,59 @@ test("Your Turn sends only one decision while approval is pending", async ({ pag
 
   await expect.poll(() => decisionRequests).toBe(1);
   await expect(page.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  await page.getByRole("link", { name: "Back to Your Turn" }).click();
+  await expect(page).toHaveURL(new RegExp(`/app/your-turn/approval/${approvalID}$`));
+  await expect(page.getByRole("status").filter({ hasText: "This decision is still being saved." })).toBeVisible();
   releaseDecision();
   await expect(page).toHaveURL(/\/app\/your-turn\?completed=approval$/);
   expect(decisionRequests).toBe(1);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("Your Turn warns before leaving an unsaved consequential decision", async ({ page }) => {
+  const approvalID = "30000000-0000-4000-8000-000000000003";
+  await page.route(`**/api/v1/accounts/${accountID}/attention/approvals/${approvalID}**`, async (route) => {
+    await fulfillJSON(route, {
+      kind: "approval",
+      id: approvalID,
+      capability: "marketing.release.publish",
+      payload: { release_id: "redacted-release-reference" },
+      evidence_sha256: "a".repeat(64),
+      input_sha256: "b".repeat(64),
+      hash_version: 1,
+      invocation_id: "40000000-0000-4000-8000-000000000004",
+      operation_id: "50000000-0000-4000-8000-000000000005",
+      policy_version: 2,
+      proposer: { kind: "workload", id: "campaign-agent" },
+      require_independent_review: false,
+      state: "open",
+      version: 4,
+      created_at: "2026-08-24T20:00:00Z",
+      updated_at: "2026-08-24T20:01:00Z",
+      expires_at: "2026-08-25T20:00:00Z"
+    });
+  });
+  await page.goto(`/app/your-turn/approval/${approvalID}`);
+  await page.getByRole("radio", { name: "Approve exact action" }).check();
+  await page.getByLabel("Decision reason").fill("The governed release is ready after final review.");
+  await page.getByRole("checkbox", { name: /I reviewed the exact payload/ }).check();
+
+  const dismissed = new Promise<string>((resolve) => {
+    page.once("dialog", async (dialog) => {
+      resolve(dialog.message());
+      await dialog.dismiss();
+    });
+  });
+  await page.getByRole("link", { name: "Back to Your Turn" }).click();
+  await expect(dismissed).resolves.toBe("Leave this decision? Your draft will remain only in this browser tab until you return.");
+  await expect(page).toHaveURL(new RegExp(`/app/your-turn/approval/${approvalID}$`));
+  await expect(page.getByLabel("Decision reason")).toHaveValue("The governed release is ready after final review.");
+  await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your decision draft remains" })).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("link", { name: "Back to Your Turn" }).click();
+  await expect(page).toHaveURL(/\/app\/your-turn$/);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });
