@@ -32,6 +32,29 @@ a { color: inherit; }
 :focus-visible { outline: 3px solid var(--io-focus); outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
+@media (forced-colors: active) {
+  :root {
+    --io-ink: CanvasText;
+    --io-ink-soft: CanvasText;
+    --io-ocean-950: CanvasText;
+    --io-ocean-800: LinkText;
+    --io-ocean-650: LinkText;
+    --io-ocean-500: Highlight;
+    --io-seafoam: CanvasText;
+    --io-sky: Canvas;
+    --io-sand: Canvas;
+    --io-paper: Canvas;
+    --io-coral: CanvasText;
+    --io-line: CanvasText;
+    --io-focus: Highlight;
+    --io-shadow: none;
+  }
+  :focus-visible { outline-color: Highlight; }
+  .io-button { border-color: ButtonText; }
+  .io-button:disabled { opacity: 1; color: GrayText; border-color: GrayText; }
+  .io-logo__mark { border: 1px solid CanvasText; }
+}
+
 .io-button {
   min-height: 44px;
   border: 1px solid transparent;
