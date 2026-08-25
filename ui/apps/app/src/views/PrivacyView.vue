@@ -15,6 +15,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 
 const route = useRoute();
 const preference = ref<PrivacyConsent>();
@@ -30,9 +31,24 @@ const cancelingID = ref("");
 const confirmingBrowserErase = ref(false);
 const message = ref("");
 const errorMessage = ref("");
+const navigationNotice = ref("");
 
 const openEquivalent = computed(() => requests.value.some((request) =>
   request.kind === kind.value && request.scope === scope.value && ["submitted", "in_review"].includes(request.state)));
+const privacyDirty = computed(() => confirmingBrowserErase.value
+  || analytics.value !== (preference.value?.analytics ?? false)
+  || marketing.value !== (preference.value?.marketing ?? false));
+const privacyPending = computed(() => saving.value || submitting.value || Boolean(cancelingID.value));
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: privacyDirty,
+  pending: privacyPending,
+  message: "Leave Privacy? Your unsaved consent choice or browser-erasure confirmation will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Privacy request is still in progress. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your Privacy choices remain available.";
+  }
+});
 
 const scopeDescriptions: Record<PrivacyRightsScope, string> = {
   identity: "Your login identity, verified contact, authentication records and identity-wide account relationships.",
@@ -61,6 +77,7 @@ async function save(): Promise<void> {
   saving.value = true;
   message.value = "";
   errorMessage.value = "";
+  navigationNotice.value = "";
   const previous = preference.value;
   try {
     preference.value = await setPrivacyConsent({ analytics: analytics.value, marketing: marketing.value });
@@ -100,7 +117,7 @@ async function eraseBrowserSubject(): Promise<void> {
 }
 
 function requireStrongAuthentication(): void {
-  window.location.assign(`/app/security?return_to=${encodeURIComponent(route.fullPath)}&status=strong_reauthentication_required`);
+  allowNextNavigation(); window.location.assign(`/app/security?return_to=${encodeURIComponent(route.fullPath)}&status=strong_reauthentication_required`);
 }
 
 async function submitRightsRequest(): Promise<void> {
@@ -150,6 +167,7 @@ function date(value: string): string {
 
 <template>
   <section class="page privacy-page">
+    <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading">
       <p class="eyebrow">Your data</p>
       <h1>Privacy you can act on.</h1>

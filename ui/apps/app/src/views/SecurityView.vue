@@ -8,19 +8,37 @@ import {
 } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
 import { computed, ref } from "vue";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { registerPasskey, reauthenticateWithPasskey } from "../webauthn";
 
 type DestructiveAction = "delete_passkey" | "compromise_passkey" | "revoke_session" | "revoke_all" | "revoke_grant";
 const identity = ref<CurrentIdentity>(); const posture = ref<SecurityPosture>(); const recovery = ref<RecoveryCodeStatus>();
 const passkeys = ref<ReadonlyArray<PasskeyCredential>>([]); const sessions = ref<ReadonlyArray<ActiveSession>>([]);
 const events = ref<ReadonlyArray<SecurityEvent>>([]); const grants = ref<ReadonlyArray<MCPGrant>>([]);
-const loading = ref(true); const saving = ref(false); const error = ref(""); const announcement = ref("");
+const loading = ref(true); const saving = ref(false); const error = ref(""); const announcement = ref(""); const navigationNotice = ref("");
 const password = ref(""); const passkeyName = ref(""); const newEmail = ref(""); const recoveryCode = ref("");
 const newCodes = ref<ReadonlyArray<string>>([]); const contactNotice = ref("");
 const actionOpen = ref(false); const action = ref<DestructiveAction>("revoke_session"); const targetID = ref(""); const targetName = ref(""); const confirmation = ref("");
 const targetCurrent = ref(false);
+const renameDirty = ref(false);
 const ownerReady = computed(() => posture.value?.owner_ready ?? false);
 const returnTo = (() => { const value = new URLSearchParams(window.location.search).get("return_to") ?? ""; return value.startsWith("/") && !value.startsWith("//") ? value : ""; })();
+const hasUnsavedSecurityWork = computed(() => actionOpen.value
+  || Boolean(password.value || passkeyName.value || newEmail.value || recoveryCode.value)
+  || renameDirty.value
+  || newCodes.value.length > 0);
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: hasUnsavedSecurityWork,
+  pending: saving,
+  message: "Leave Security? Your entered values or one-time recovery codes may be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Security operation is still in progress. Stay on this page until Spyglass confirms the result."
+      : newCodes.value.length
+        ? "Navigation canceled. Save every one-time recovery code before leaving this page."
+        : "Navigation canceled. Your Security input remains available.";
+  }
+});
 
 function date(value?: string): string { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Never"; }
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
@@ -43,7 +61,7 @@ async function load(): Promise<void> {
   finally { loading.value = false; }
 }
 async function run(task: () => Promise<unknown>, success: string, reload = true): Promise<boolean> {
-  if (saving.value) return false; saving.value = true; error.value = "";
+  if (saving.value) return false; saving.value = true; error.value = ""; navigationNotice.value = "";
   try { await task(); announcement.value = success; if (reload) await load(); return true; }
   catch (cause) { error.value = problem(cause, "The security change could not be completed.") + securityHint(cause); return false; }
   finally { saving.value = false; }
@@ -66,17 +84,17 @@ async function addPasskey(): Promise<void> {
   if (await run(() => registerPasskey(passkeyName.value.trim()), "Passkey added and privileged actions unlocked.")) {
     passkeyName.value = "";
     void recordCompletedSecurityEnrollment(previouslyReady);
-    if (returnTo && ownerReady.value) window.location.assign(returnTo);
+    if (returnTo && ownerReady.value) { allowNextNavigation(); window.location.assign(returnTo); }
   }
 }
-async function confirmPasskey(): Promise<void> { if (await run(reauthenticateWithPasskey, "Passkey confirmed. Privileged actions are unlocked for ten minutes.", false)) { if (returnTo && ownerReady.value) window.location.assign(returnTo); } }
+async function confirmPasskey(): Promise<void> { if (await run(reauthenticateWithPasskey, "Passkey confirmed. Privileged actions are unlocked for ten minutes.", false)) { if (returnTo && ownerReady.value) { allowNextNavigation(); window.location.assign(returnTo); } } }
 async function changeContact(): Promise<void> {
   const email = newEmail.value.trim();
   if (await run(async () => { const result = await beginContactChange(email); contactNotice.value = `Verification sent to ${result.new_email}. Your current email remains active until verification.`; }, "Verified-email change requested.", false)) newEmail.value = "";
 }
 async function rename(credential: PasskeyCredential, event: Event): Promise<void> {
   const form = event.currentTarget as HTMLFormElement; const data = new FormData(form); const name = String(data.get("name") ?? "").trim();
-  await run(() => renamePasskey(credential.id, name), `${credential.name} renamed.`);
+  if (await run(() => renamePasskey(credential.id, name), `${credential.name} renamed.`)) renameDirty.value = false;
 }
 async function rotateCodes(): Promise<void> {
   const previouslyReady = ownerReady.value;
@@ -95,7 +113,7 @@ async function submitAction(): Promise<void> {
   };
   const completed = await run(tasks[action.value], `${targetName.value || "Security access"} revoked.`);
   if (!completed) return; actionOpen.value = false;
-  if (action.value === "revoke_all" || action.value === "compromise_passkey" || (action.value === "revoke_session" && targetCurrent.value)) window.location.assign("/login?status=signed_out");
+  if (action.value === "revoke_all" || action.value === "compromise_passkey" || (action.value === "revoke_session" && targetCurrent.value)) { allowNextNavigation(); window.location.assign("/login?status=signed_out"); }
 }
 void load();
 </script>
@@ -103,6 +121,7 @@ void load();
 <template>
   <section class="page security-page">
     <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
+    <p v-if="navigationNotice && !actionOpen" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading"><p class="eyebrow">Identity security</p><h1>Security follows you</h1><p>Passkeys, recovery, sessions and connected applications belong to your Infinite Ocean identity—not to one Account.</p></header>
     <section v-if="loading" class="queue-state" role="status"><h2>Loading identity security…</h2></section>
     <section v-else-if="error && !identity" class="queue-state queue-state--error" role="alert"><h2>Security did not load</h2><p>{{ error }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></section>
@@ -115,7 +134,7 @@ void load();
         <section class="security-card"><h2>Verified contact</h2><p>Current login: <strong>{{ identity?.primary_email }}</strong>. A new mailbox must verify the request; completion signs out every session.</p><form @submit.prevent="changeContact"><label>New email<input v-model="newEmail" type="email" autocomplete="email" maxlength="254" required></label><IoButton type="submit" :disabled="saving">Send verification</IoButton></form><p v-if="contactNotice" class="referral-confirmed" role="status">{{ contactNotice }}</p></section>
       </div>
 
-      <section class="security-section"><header><div><p class="eyebrow">Phishing-resistant factors</p><h2>Passkeys</h2></div><span>{{ passkeys.length }} of 10</span></header><form class="security-add" @submit.prevent="addPasskey"><label>Passkey name<input v-model="passkeyName" minlength="2" maxlength="80" placeholder="Phone, laptop, or security key" required></label><IoButton type="submit" :disabled="saving">Add passkey</IoButton></form><ol class="security-list"><li v-for="credential in passkeys" :key="credential.id"><div><strong>{{ credential.name }}</strong><small>Added {{ date(credential.created_at) }} · Last used {{ date(credential.last_used_at) }}</small><small>{{ credential.backed_up ? "Backed up" : credential.backup_eligible ? "Backup eligible" : "Device-bound" }}</small></div><details><summary>Manage</summary><form @submit.prevent="rename(credential, $event)"><label>New name<input name="name" :value="credential.name" minlength="2" maxlength="80" required></label><IoButton type="submit" kind="secondary">Rename</IoButton></form><IoButton kind="secondary" @click="beginAction('delete_passkey', credential.id, credential.name)">Remove</IoButton><IoButton kind="secondary" @click="beginAction('compromise_passkey', credential.id, credential.name)">Report compromised</IoButton></details></li></ol></section>
+      <section class="security-section"><header><div><p class="eyebrow">Phishing-resistant factors</p><h2>Passkeys</h2></div><span>{{ passkeys.length }} of 10</span></header><form class="security-add" @submit.prevent="addPasskey"><label>Passkey name<input v-model="passkeyName" minlength="2" maxlength="80" placeholder="Phone, laptop, or security key" required></label><IoButton type="submit" :disabled="saving">Add passkey</IoButton></form><ol class="security-list"><li v-for="credential in passkeys" :key="credential.id"><div><strong>{{ credential.name }}</strong><small>Added {{ date(credential.created_at) }} · Last used {{ date(credential.last_used_at) }}</small><small>{{ credential.backed_up ? "Backed up" : credential.backup_eligible ? "Backup eligible" : "Device-bound" }}</small></div><details><summary>Manage</summary><form @submit.prevent="rename(credential, $event)"><label>New name<input name="name" :value="credential.name" minlength="2" maxlength="80" required @input="renameDirty = true"></label><IoButton type="submit" kind="secondary">Rename</IoButton></form><IoButton kind="secondary" @click="beginAction('delete_passkey', credential.id, credential.name)">Remove</IoButton><IoButton kind="secondary" @click="beginAction('compromise_passkey', credential.id, credential.name)">Report compromised</IoButton></details></li></ol></section>
 
       <section class="security-section"><header><div><p class="eyebrow">Factor recovery</p><h2>One-time recovery codes</h2></div><span>{{ recovery?.remaining ?? 0 }} remaining</span></header><p>Creating a new set immediately revokes every previous code. Codes are displayed once and are never stored in readable form.</p><IoButton :disabled="saving || passkeys.length === 0" @click="rotateCodes">{{ recovery?.configured ? "Replace recovery codes" : "Create recovery codes" }}</IoButton><div v-if="newCodes.length" class="recovery-code-panel" role="region" aria-label="New recovery codes"><code v-for="code in newCodes" :key="code">{{ code }}</code><strong>Save these now. They cannot be shown again.</strong></div><details v-if="recovery?.configured"><summary>Lost every passkey?</summary><p>Confirm your password above, then spend one saved code to unlock replacement-passkey enrollment for ten minutes.</p><form class="security-add" @submit.prevent="useCode"><label>Saved recovery code<input v-model="recoveryCode" autocomplete="one-time-code" required></label><IoButton type="submit" kind="secondary">Use recovery code</IoButton></form></details></section>
 
@@ -126,6 +145,6 @@ void load();
       <section class="security-section"><header><div><p class="eyebrow">Security history</p><h2>Recent identity activity</h2></div><span>{{ events.length }}</span></header><ol class="security-events"><li v-for="event in events" :key="`${event.type}:${event.occurred_at}:${event.session_id ?? ''}`"><div><strong>{{ label(event.type) }}</strong><small>Infinite Ocean identity</small></div><time :datetime="event.occurred_at">{{ date(event.occurred_at) }}</time></li></ol></section>
     </template>
 
-    <div v-if="actionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="security-action-title" @submit.prevent="submitAction"><h2 id="security-action-title">Confirm security revocation</h2><p>This takes effect immediately. Type <strong>{{ phrase() }}</strong> to confirm.</p><label>Confirmation<input v-model="confirmation" autocomplete="off" :pattern="phrase()" required></label><div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || confirmation !== phrase()">{{ saving ? "Revoking…" : "Confirm" }}</IoButton></div></form></div>
+    <div v-if="actionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="security-action-title" @submit.prevent="submitAction"><h2 id="security-action-title">Confirm security revocation</h2><p>This takes effect immediately. Type <strong>{{ phrase() }}</strong> to confirm.</p><label>Confirmation<input v-model="confirmation" autocomplete="off" :pattern="phrase()" required></label><p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || confirmation !== phrase()">{{ saving ? "Revoking…" : "Confirm" }}</IoButton></div></form></div>
   </section>
 </template>

@@ -882,6 +882,8 @@ test("closed Affiliate launch state makes no unapproved payout promise", async (
 
 test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed when suspended", async ({ page }) => {
   let enrollmentState: "active" | "suspended" = "active";
+  let releaseSupport: (() => void) | undefined;
+  const supportReleased = new Promise<void>((resolve) => { releaseSupport = resolve; });
   await page.route("**/api/v1/affiliate", async (route) => {
     await fulfillJSON(route, {
       enrollment_open: enrollmentState === "active",
@@ -924,7 +926,18 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
     });
   });
   await page.route("**/api/v1/affiliate/support-requests", async (route) => {
-    await fulfillJSON(route, { requests: [] });
+    if (route.request().method() === "POST") {
+      await supportReleased;
+      await fulfillJSON(route, {
+        affiliate_id: "10000000-0000-4000-8000-000000000041",
+        created_at: "2026-08-25T12:00:00Z",
+        kind: "enrollment_appeal",
+        request_id: "10000000-0000-4000-8000-000000000044",
+        state: "submitted",
+        updated_at: "2026-08-25T12:00:00Z",
+        version: 1
+      }, 201);
+    } else await fulfillJSON(route, { requests: [] });
   });
 
   await page.goto("/app/affiliate");
@@ -946,6 +959,20 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
   await expect(page.getByRole("button", { name: "Request status review" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+
+  await page.getByRole("button", { name: "Request status review" }).click();
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  const compact = await menu.isVisible();
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/affiliate$/);
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "This Affiliate request is still in progress" })).toBeVisible();
+  releaseSupport?.();
+  await expect(page.getByRole("button", { name: "Review requested" })).toBeDisabled();
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
 test("checkout keeps the chosen referral visible when self-referral is denied without analytics consent", async ({ page }) => {
@@ -992,6 +1019,27 @@ test("owner-security onboarding records completion only after authoritative read
   });
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  const compact = await menu.isVisible();
+  const dismissed = new Promise<string>((resolve) => {
+    page.once("dialog", async (dialog) => {
+      resolve(dialog.message());
+      await dialog.dismiss();
+    });
+  });
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(dismissed).resolves.toBe("Leave Security? Your entered values or one-time recovery codes may be lost.");
+  await expect(page).toHaveURL(/\/app\/security$/);
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(page.getByRole("region", { name: "New recovery codes" })).toContainText("Save these now");
+  await expect(page.getByRole("status").filter({ hasText: "Save every one-time recovery code" })).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.accept());
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
 test("Account administration keeps authority, billing, portability, and closure understandable", async ({ page }) => {
@@ -1025,6 +1073,46 @@ test("Account administration keeps authority, billing, portability, and closure 
       for (const evidence of route.evidence) await expect(page.getByText(evidence, { exact: false }).first()).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
+
+      if (route.path === "/app/account") {
+        const email = page.getByLabel("Email address");
+        await email.fill("new.member@example.test");
+        const menu = page.getByRole("button", { name: "Open navigation" });
+        const compact = await menu.isVisible();
+        const dismissed = new Promise<string>((resolve) => {
+          page.once("dialog", async (dialog) => { resolve(dialog.message()); await dialog.dismiss(); });
+        });
+        if (compact) await menu.click();
+        await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+        await expect(dismissed).resolves.toBe("Leave Account administration? Your invitation or team command will be lost.");
+        await expect(page).toHaveURL(/\/app\/account$/);
+        if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+        await expect(email).toHaveValue("new.member@example.test");
+        await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your invitation or team command remains available." })).toBeVisible();
+        page.once("dialog", (dialog) => dialog.accept());
+        if (compact) await menu.click();
+        await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+        await expect(page).toHaveURL(/\/app\/your-turn$/);
+      }
+
+      if (route.path === "/app/account-exports" || route.path === "/app/account-closures") {
+        const isExport = route.path === "/app/account-exports";
+        await page.getByRole("button", { name: isExport ? "Cancel request" : "Request closure" }).click();
+        const dialog = page.getByRole("dialog");
+        if (isExport) await dialog.getByLabel("Type CANCEL to confirm").fill("CANCEL");
+        else await dialog.getByLabel("Operational reason").fill("The owner is reviewing this lifecycle change.");
+        const dismissed = new Promise<string>((resolve) => {
+          page.once("dialog", async (browserDialog) => { resolve(browserDialog.type()); await browserDialog.dismiss(); });
+        });
+        await page.evaluate(() => history.back());
+        await expect(dismissed).resolves.toBe("beforeunload");
+        await expect(page).toHaveURL(new RegExp(`${route.path}$`));
+        if (isExport) await expect(dialog.getByLabel("Type CANCEL to confirm")).toHaveValue("CANCEL");
+        else await expect(dialog.getByLabel("Operational reason")).toHaveValue("The owner is reviewing this lifecycle change.");
+        page.once("dialog", (browserDialog) => browserDialog.accept());
+        await page.evaluate(() => history.back());
+        await expect(page).toHaveURL(/\/app\/billing$/);
+      }
     });
   }
 });
@@ -1266,6 +1354,23 @@ test("Checkout provider failure leaves payment and Account state unchanged", asy
   await expect(page.getByRole("button", { name: "Continue to Stripe" })).toBeEnabled();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  const compact = await menu.isVisible();
+  const dismissed = new Promise<string>((resolve) => {
+    page.once("dialog", async (dialog) => { resolve(dialog.message()); await dialog.dismiss(); });
+  });
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(dismissed).resolves.toBe("Leave checkout? Your reviewed offer, Affiliate code, or confirmation will be lost.");
+  await expect(page).toHaveURL(/\/app\/checkout\?offer=team-monthly-v1$/);
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(page.getByRole("checkbox", { name: /I confirm this offer/ })).toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your checkout review remains available." })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
 test("multi-Account switching adopts only the server-confirmed context", async ({ page }) => {
@@ -1840,6 +1945,25 @@ test("GDPR rights requests are tracked, deduplicated, and cancelable", async ({ 
   expect(cancellations).toEqual(["DELETE"]);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+
+  const marketing = page.getByLabel("Marketing");
+  await marketing.check();
+  const menu = page.getByRole("button", { name: "Open navigation" });
+  const compact = await menu.isVisible();
+  const dismissed = new Promise<string>((resolve) => {
+    page.once("dialog", async (dialog) => { resolve(dialog.message()); await dialog.dismiss(); });
+  });
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(dismissed).resolves.toBe("Leave Privacy? Your unsaved consent choice or browser-erasure confirmation will be lost.");
+  await expect(page).toHaveURL(/\/app\/privacy$/);
+  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
+  await expect(marketing).toBeChecked();
+  await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Privacy choices remain available." })).toBeVisible();
+  page.once("dialog", (dialog) => dialog.accept());
+  if (compact) await menu.click();
+  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
 test("GDPR rights requests hand off exact context for passkey confirmation", async ({ page }) => {

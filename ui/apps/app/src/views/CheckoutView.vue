@@ -14,6 +14,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 const referralPattern = /^[A-Za-z0-9][A-Za-z0-9-]{4,22}[A-Za-z0-9]$/;
@@ -24,6 +25,7 @@ const billing = ref<BillingStatus>();
 const loading = ref(true);
 const submitting = ref(false);
 const errorMessage = ref("");
+const navigationNotice = ref("");
 const referralInput = ref("");
 const appliedReferral = ref("");
 const referralError = ref("");
@@ -42,6 +44,8 @@ type CheckoutAnalyticsName = Parameters<typeof emitAnalytics>[1]["name"];
 type DeferredPageAnalytics = { name: CheckoutAnalyticsName; fields: Readonly<Record<string, string>> };
 const deferredPageAnalytics = new Map<string, DeferredPageAnalytics>();
 const deliveredPageAnalytics = new Set<string>();
+const initialOfferCode = ref("");
+const initialReferralInput = ref("");
 
 const paidOffers = computed(() => (catalog.value?.offers ?? []).filter((offer) =>
   offer.amount_minor > 0 && offer.billing_interval !== "none" && new Date(offer.effective_from).getTime() <= Date.now()
@@ -55,6 +59,20 @@ const selectedPlan = computed<CatalogPlan | undefined>(() => {
 const canManage = computed(() => session.selected?.role === "owner" || session.selected?.role === "billing_admin");
 const canCheckout = computed(() => canManage.value && billing.value?.can_start_checkout === true);
 const referralApplied = computed(() => appliedReferral.value !== "");
+const hasUnsavedCheckoutWork = computed(() => confirmed.value
+  || referralApplied.value
+  || referralInput.value.trim() !== initialReferralInput.value
+  || selectedOfferCode.value !== initialOfferCode.value);
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: hasUnsavedCheckoutWork,
+  pending: submitting,
+  message: "Leave checkout? Your reviewed offer, Affiliate code, or confirmation will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "Checkout is still being prepared. Stay on this page until Spyglass confirms the Stripe handoff."
+      : "Navigation canceled. Your checkout review remains available.";
+  }
+});
 
 function formatPrice(offer: CatalogOffer): string {
   return new Intl.NumberFormat(undefined, { style: "currency", currency: offer.currency }).format(offer.amount_minor / 100);
@@ -222,6 +240,8 @@ async function load(): Promise<void> {
       referralInput.value = proposed;
       referralEntryMethod.value = "link";
     }
+    initialOfferCode.value = selectedOfferCode.value;
+    initialReferralInput.value = referralInput.value.trim();
     await loadBilling();
     evaluateReturn();
     checkoutReviewVisible = true;
@@ -239,6 +259,7 @@ async function startCheckout(): Promise<void> {
   if (!accountID || !offer || !canCheckout.value || !confirmed.value || submitting.value) return;
   submitting.value = true;
   errorMessage.value = "";
+  navigationNotice.value = "";
   requestID.value ||= crypto.randomUUID();
   try {
     const hosted = await createCheckoutSession(accountID, {
@@ -251,11 +272,11 @@ async function startCheckout(): Promise<void> {
       await emit("referral_code_accepted", { offer_code: offer.code, entry_method: referralEntryMethod.value });
     }
     await emit("checkout_redirected", { offer_code: offer.code, referral_present: String(referralApplied.value) });
-    window.location.assign(target.href);
+    allowNextNavigation(); window.location.assign(target.href);
   } catch (error) {
     if (error instanceof APIProblem && (error.problem?.code === "strong_reauthentication_required" || error.problem?.code === "owner_security_enrollment_required")) {
       const returnTo = encodeURIComponent(`${route.fullPath}`);
-      window.location.assign(`/app/security?return_to=${returnTo}&status=${error.problem.code}`);
+      allowNextNavigation(); window.location.assign(`/app/security?return_to=${returnTo}&status=${error.problem.code}`);
       return;
     }
     errorMessage.value = error instanceof APIProblem ? error.message : error instanceof Error ? error.message : "Checkout could not be started.";
@@ -282,6 +303,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="page checkout-page">
+    <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading">
       <p class="eyebrow">Secure checkout</p>
       <h1>Review before Stripe.</h1>

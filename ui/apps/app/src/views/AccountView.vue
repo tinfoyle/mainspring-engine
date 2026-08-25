@@ -16,6 +16,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 type TeamAction = "role" | "suspend" | "reactivate" | "remove" | "transfer" | "leave";
@@ -28,6 +29,7 @@ const loading = ref(false);
 const saving = ref(false);
 const error = ref("");
 const announcement = ref("");
+const navigationNotice = ref("");
 const securityRequired = ref(false);
 const invitationMessage = ref("");
 const invitation = reactive<{ email: string; role: AssignableMembershipRole }>({ email: "", role: "member" });
@@ -47,6 +49,17 @@ const roles: ReadonlyArray<{ value: AssignableMembershipRole; label: string }> =
   { value: "administrator", label: "Administrator" }, { value: "billing_admin", label: "Billing admin" },
   { value: "member", label: "Member" }, { value: "viewer", label: "Viewer" }
 ];
+const hasUnsavedAccountWork = computed(() => actionOpen.value || Boolean(invitation.email.trim()));
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: hasUnsavedAccountWork,
+  pending: saving,
+  message: "Leave Account administration? Your invitation or team command will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Account change is still being saved. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your invitation or team command remains available.";
+  }
+});
 
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
 function date(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
@@ -85,7 +98,7 @@ function handleMutationError(cause: unknown): void {
 async function invite(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || saving.value) return;
-  saving.value = true; error.value = ""; securityRequired.value = false; invitationMessage.value = "";
+  saving.value = true; error.value = ""; securityRequired.value = false; invitationMessage.value = ""; navigationNotice.value = "";
   try {
     const created = await createInvitation(accountID, invitation.email.trim(), invitation.role);
     invitationMessage.value = `Invitation created for ${invitation.email.trim()}. It expires ${date(created.expires_at)}.`;
@@ -105,7 +118,7 @@ async function submitAction(): Promise<void> {
   if (!accountID || !current || saving.value) return;
   const required = requiredConfirmation(action.value);
   if (required && confirmation.value !== required) return;
-  saving.value = true; error.value = ""; securityRequired.value = false;
+  saving.value = true; error.value = ""; securityRequired.value = false; navigationNotice.value = "";
   try {
     const member = target.value;
     if (action.value === "role" && member) await changeMembershipRole(accountID, member, actionRole.value, actionReason.value.trim());
@@ -117,7 +130,7 @@ async function submitAction(): Promise<void> {
     const completed = action.value;
     actionOpen.value = false; announcement.value = completed === "leave" ? "You left the Account." : `Account team change completed: ${label(completed)}.`;
     if (completed === "transfer" || completed === "leave") await session.load();
-    if (completed === "leave") { await router.push("/app/your-turn"); return; }
+    if (completed === "leave") { allowNextNavigation(); await router.push("/app/your-turn"); return; }
     await load();
   } catch (cause) {
     if (cause instanceof APIProblem && cause.status === 409) {
@@ -132,6 +145,7 @@ watch(() => session.selectedID, () => void load(), { immediate: true });
 <template>
   <section class="page account-page">
     <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
+    <p v-if="navigationNotice && !actionOpen" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading"><p class="eyebrow">Account</p><h1>People and authority</h1><p>Invite teammates, keep access current, and make ownership changes with an explicit durable reason.</p></header>
 
     <section v-if="selected" class="account-summary" aria-labelledby="account-summary-title">
@@ -181,6 +195,7 @@ watch(() => session.selectedID, () => void load(), { immediate: true });
         <label v-if="action === 'role'">New role<select v-model="actionRole"><option v-for="role in roles" :key="role.value" :value="role.value">{{ role.label }}</option></select></label>
         <label>Operational reason<textarea v-model="actionReason" minlength="3" maxlength="300" rows="4" required></textarea></label>
         <label v-if="requiredConfirmation(action)" class="confirmation-phrase">Type {{ requiredConfirmation(action) }} to confirm<input v-model="confirmation" autocomplete="off" :pattern="requiredConfirmation(action)" required></label>
+        <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
         <p v-if="securityRequired" class="queue-inline-status queue-inline-status--error">{{ error }} <a href="/app/security?return_to=%2Fapp%2Faccount">Continue to Security</a></p>
         <div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || Boolean(requiredConfirmation(action) && confirmation !== requiredConfirmation(action))">{{ saving ? "Saving…" : "Confirm" }}</IoButton></div>
       </form>

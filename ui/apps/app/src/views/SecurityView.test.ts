@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryHistory, createRouter } from "vue-router";
 import { expectNoAxeViolations } from "../test/accessibility";
 import SecurityView from "./SecurityView.vue";
 
@@ -16,6 +17,7 @@ vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import(
 vi.mock("../webauthn", () => webauthn);
 
 const currentSession = { id: "10000000-0000-4000-8000-000000000001", client_label: "Firefox on laptop", authenticated_at: "2026-08-24T20:00:00Z", reauthenticated_at: "2026-08-24T20:00:00Z", last_seen_at: "2026-08-24T20:00:00Z", expires_at: "2026-09-24T20:00:00Z", current: true, authentication_method: "password", authentication_assurance: "single_factor", reauthentication_method: "password", reauthentication_assurance: "single_factor" } as const;
+async function mountView() { const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/security", component: SecurityView }] }); await router.push("/app/security"); await router.isReady(); return mount(SecurityView, { global: { plugins: [router] } }); }
 beforeEach(() => {
   for (const mock of [...Object.values(api), ...Object.values(webauthn)]) mock.mockReset();
   api.getCurrentIdentity.mockResolvedValue({ user_id: "20000000-0000-4000-8000-000000000002", primary_email: "owner@example.com" });
@@ -29,14 +31,14 @@ beforeEach(() => {
 });
 describe("Security surface", () => {
   it("renders the complete identity boundary without Account coupling", async () => {
-    const wrapper = mount(SecurityView); await flushPromises();
+    const wrapper = await mountView(); await flushPromises();
     expect(wrapper.text()).toContain("owner@example.com"); expect(wrapper.text()).toContain("Laptop");
     expect(wrapper.text()).toContain("Firefox on laptop"); expect(wrapper.text()).toContain("Codex"); expect(wrapper.text()).toContain("Passkey added");
     await expectNoAxeViolations(wrapper.element);
   });
   it("keeps recovery codes visible exactly after rotation", async () => {
     api.rotateRecoveryCodes.mockResolvedValue({ status: { configured: true, version: 2, remaining: 10 }, codes: ["a", "b"] });
-    const wrapper = mount(SecurityView); await flushPromises();
+    const wrapper = await mountView(); await flushPromises();
     await wrapper.findAll("button").find((button) => button.text() === "Replace recovery codes")?.trigger("click"); await flushPromises();
     expect(wrapper.text()).toContain("Save these now"); expect(wrapper.text()).toContain("a"); expect(wrapper.text()).toContain("b");
     expect(api.emitAnalytics).not.toHaveBeenCalled();
@@ -50,7 +52,7 @@ describe("Security surface", () => {
       .mockResolvedValueOnce({ configured: true, version: 1, remaining: 10 });
     api.rotateRecoveryCodes.mockResolvedValue({ status: { configured: true, version: 1, remaining: 10 }, codes: ["first-code"] });
 
-    const wrapper = mount(SecurityView); await flushPromises();
+    const wrapper = await mountView(); await flushPromises();
     await wrapper.findAll("button").find((button) => button.text() === "Create recovery codes")?.trigger("click"); await flushPromises();
 
     expect(api.getSecurityPosture).toHaveBeenCalledTimes(2);
@@ -63,7 +65,7 @@ describe("Security surface", () => {
   });
   it("requires a typed phrase before signing out everywhere", async () => {
     api.revokeAllSessions.mockResolvedValue(undefined); const assign = vi.spyOn(window.location, "assign").mockImplementation(() => undefined);
-    const wrapper = mount(SecurityView); await flushPromises();
+    const wrapper = await mountView(); await flushPromises();
     await wrapper.findAll("button").find((button) => button.text() === "Sign out everywhere")?.trigger("click");
     expect(wrapper.get("form[role=dialog] button[type=submit]").attributes("disabled")).toBeDefined();
     await wrapper.get("form[role=dialog] input").setValue("SIGN OUT"); await wrapper.get("form[role=dialog]").trigger("submit"); await flushPromises();

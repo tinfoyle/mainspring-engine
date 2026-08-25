@@ -14,6 +14,7 @@ import {
 import { IoButton } from "@spyglass/design-system";
 import { computed, onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 const route = useRoute();
@@ -26,6 +27,7 @@ const enrolling = ref(false);
 const termsAccepted = ref(false);
 const settlementAccountID = ref("");
 const errorMessage = ref("");
+const navigationNotice = ref("");
 const copied = ref(false);
 const supportPending = ref("");
 const ownerAccounts = computed(() => session.accounts.filter((account) => account.role === "owner"));
@@ -33,6 +35,18 @@ const enrollmentAvailable = computed(() => program.value?.enrollment_open && pro
 const codeShareable = computed(() => program.value?.enrollment?.state === "active" && program.value.attribution_enabled);
 const openSupportRequests = computed(() => supportRequests.value.filter((request) => request.state === "submitted" || request.state === "in_review"));
 const enrollmentAppealOpen = computed(() => openSupportRequests.value.some((request) => request.kind === "enrollment_appeal"));
+const affiliateDirty = computed(() => !program.value?.enrollment && (termsAccepted.value || Boolean(settlementAccountID.value)));
+const affiliatePending = computed(() => enrolling.value || Boolean(supportPending.value));
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: affiliateDirty,
+  pending: affiliatePending,
+  message: "Leave Affiliate? Your enrollment choices will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This Affiliate request is still in progress. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your Affiliate enrollment choices remain available.";
+  }
+});
 
 function money(minor: number, currency: string): string {
   if (!currency) return "Not classified";
@@ -109,6 +123,7 @@ async function enroll(): Promise<void> {
   }
   enrolling.value = true;
   errorMessage.value = "";
+  navigationNotice.value = "";
   try {
     program.value = await enrollAffiliate({
       accepted_terms_version: program.value.terms_version,
@@ -118,7 +133,7 @@ async function enroll(): Promise<void> {
     supportRequests.value = [...(await getAffiliateSupportRequests()).requests];
   } catch (error) {
     if (error instanceof APIProblem && error.problem?.code === "strong_reauthentication_required") {
-      window.location.assign(`/app/security?return_to=${encodeURIComponent(route.fullPath)}&status=strong_reauthentication_required`);
+      allowNextNavigation(); window.location.assign(`/app/security?return_to=${encodeURIComponent(route.fullPath)}&status=strong_reauthentication_required`);
       return;
     }
     errorMessage.value = error instanceof APIProblem ? error.message : "Affiliate enrollment could not be completed.";
@@ -140,6 +155,7 @@ onMounted(() => void load());
 
 <template>
   <section class="page affiliate-page">
+    <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading"><p class="eyebrow">Affiliate</p><h1>One identity. One clear ledger.</h1><p>Your ordinary Infinite Ocean login holds the Affiliate enrollment. Customers actively enter your generated code at checkout; optional analytics never controls attribution or earnings.</p></header>
     <div v-if="loading" class="queue-state" role="status">Loading Affiliate program status…</div>
     <div v-else-if="errorMessage && !program" class="queue-state queue-state--error" role="alert"><h2>Affiliate details are unavailable</h2><p>{{ errorMessage }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>

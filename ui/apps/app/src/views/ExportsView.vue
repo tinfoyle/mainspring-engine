@@ -2,13 +2,24 @@
 import { APIProblem, cancelAccountExport, createAccountExport, createExportDownloadCapability, downloadAccountExport, listAccountExports, type AccountExport } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
 import { computed, ref, watch } from "vue";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 type Action = "create" | "cancel";
 const session = useSessionStore(); const exports = ref<ReadonlyArray<AccountExport>>([]); const loading = ref(false); const saving = ref(false);
-const error = ref(""); const announcement = ref(""); const securityRequired = ref(false); const actionOpen = ref(false); const action = ref<Action>("create");
+const error = ref(""); const announcement = ref(""); const navigationNotice = ref(""); const securityRequired = ref(false); const actionOpen = ref(false); const action = ref<Action>("create");
 const target = ref<AccountExport>(); const confirmation = ref(""); let sequence = 0;
 const owner = computed(() => session.selected?.role === "owner");
+useSafeNavigation({
+  dirty: actionOpen,
+  pending: saving,
+  message: "Leave Account exports? Your open export command will be lost.",
+  onBlocked: (blockedReason) => {
+    navigationNotice.value = blockedReason === "pending"
+      ? "This export operation is still in progress. Stay on this page until Spyglass confirms the result."
+      : "Navigation canceled. Your export command remains open.";
+  }
+});
 function date(value?: string): string { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not available"; }
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
 function message(cause: unknown, fallback: string): string { return cause instanceof APIProblem ? cause.message : fallback; }
@@ -26,7 +37,7 @@ async function load(): Promise<void> {
 function begin(value: Action, item?: AccountExport): void { action.value = value; target.value = item; confirmation.value = ""; actionOpen.value = true; error.value = ""; securityRequired.value = false; }
 function phrase(): string { return action.value === "create" ? "EXPORT" : "CANCEL"; }
 async function submit(): Promise<void> {
-  const accountID = session.selectedID; if (!accountID || saving.value || confirmation.value !== phrase()) return; saving.value = true;
+  const accountID = session.selectedID; if (!accountID || saving.value || confirmation.value !== phrase()) return; saving.value = true; navigationNotice.value = "";
   try {
     if (action.value === "create") await createAccountExport(accountID);
     else if (target.value) await cancelAccountExport(accountID, target.value);
@@ -51,6 +62,7 @@ watch(() => [session.selectedID, session.selected?.role], () => void load(), { i
 <template>
   <section class="page exports-page">
     <p class="sr-only" aria-live="polite">{{ announcement }}</p>
+    <p v-if="navigationNotice && !actionOpen" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading"><p class="eyebrow">Account portability</p><h1>Take your Account with you</h1><p>Exports combine the governed global Account record with current cell data into one immutable ZIP retained for seven days.</p></header>
     <section v-if="!session.selectedID" class="queue-state"><h2>Select an Account</h2><p>Exports always belong to one Account.</p></section>
     <section v-else-if="!owner" class="queue-state"><h2>Owner access required</h2><p>Only an Account owner can request or download a complete Account export.</p></section>
@@ -64,6 +76,6 @@ watch(() => [session.selectedID, session.selected?.role], () => void load(), { i
         <ol v-else class="export-list"><li v-for="item in exports" :key="item.id"><div><span class="state-badge">{{ label(item.state) }}</span><h3>Requested {{ date(item.requested_at) }}</h3><small class="digest">{{ item.id }}</small><dl><div><dt>Expires</dt><dd>{{ date(item.expires_at) }}</dd></div><div v-if="item.artifact_bytes"><dt>Artifact</dt><dd>{{ item.artifact_bytes.toLocaleString() }} bytes</dd></div><div v-if="item.error_code"><dt>Result</dt><dd>{{ label(item.error_code) }}</dd></div><div><dt>Version</dt><dd>{{ item.version }}</dd></div></dl></div><aside><IoButton v-if="item.state === 'available'" :disabled="saving" @click="download(item)">Download ZIP</IoButton><IoButton v-if="item.state === 'queued'" kind="secondary" :disabled="saving" @click="begin('cancel', item)">Cancel request</IoButton></aside></li></ol>
       </section>
     </template>
-    <div v-if="actionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="export-action-title" @submit.prevent="submit"><h2 id="export-action-title">{{ action === "create" ? "Request an Account export?" : "Cancel this export request?" }}</h2><p>{{ action === "create" ? "The snapshot may contain sensitive Account data and is retained for seven days." : "A canceled queued request cannot continue building." }}</p><label>Type {{ phrase() }} to confirm<input v-model="confirmation" autocomplete="off" :pattern="phrase()" required></label><div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Back</IoButton><IoButton type="submit" :disabled="saving || confirmation !== phrase()">{{ saving ? "Saving…" : "Confirm" }}</IoButton></div></form></div>
+    <div v-if="actionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="export-action-title" @submit.prevent="submit"><h2 id="export-action-title">{{ action === "create" ? "Request an Account export?" : "Cancel this export request?" }}</h2><p>{{ action === "create" ? "The snapshot may contain sensitive Account data and is retained for seven days." : "A canceled queued request cannot continue building." }}</p><label>Type {{ phrase() }} to confirm<input v-model="confirmation" autocomplete="off" :pattern="phrase()" required></label><p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Back</IoButton><IoButton type="submit" :disabled="saving || confirmation !== phrase()">{{ saving ? "Saving…" : "Confirm" }}</IoButton></div></form></div>
   </section>
 </template>

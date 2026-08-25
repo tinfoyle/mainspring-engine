@@ -3,6 +3,7 @@ import { APIProblem, createBillingPortalSession, getBillingStatus, getPublicCata
 import { IoButton } from "@spyglass/design-system";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
@@ -13,12 +14,18 @@ const loading = ref(false);
 const opening = ref(false);
 const error = ref("");
 const announcement = ref("");
+const navigationNotice = ref("");
 const requestID = ref("");
 let sequence = 0;
 
 const managed = computed(() => billing.value?.subscriptions.filter((item) => item.state !== "canceled" && item.state !== "incomplete_expired") ?? []);
 const canOpenPortal = computed(() => billing.value?.can_manage === true && billing.value.has_customer);
 const returned = computed(() => route.query.status === "portal_returned");
+const { allowNextNavigation } = useSafeNavigation({
+  dirty: false,
+  pending: opening,
+  onBlocked: () => { navigationNotice.value = "Stripe billing management is still being prepared. Stay on this page until Spyglass confirms the handoff."; }
+});
 
 function date(value?: string): string {
   return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not scheduled";
@@ -44,14 +51,14 @@ async function load(): Promise<void> {
   } finally { if (current === sequence) loading.value = false; }
 }
 async function openPortal(): Promise<void> {
-  const accountID = session.selectedID; if (!accountID || !canOpenPortal.value || opening.value) return; opening.value = true; error.value = ""; requestID.value ||= crypto.randomUUID();
+  const accountID = session.selectedID; if (!accountID || !canOpenPortal.value || opening.value) return; opening.value = true; error.value = ""; navigationNotice.value = ""; requestID.value ||= crypto.randomUUID();
   try {
     const hosted = await createBillingPortalSession(accountID, requestID.value); const target = new URL(hosted.url);
     if (target.protocol !== "https:") throw new Error("Billing management returned an unsafe destination.");
-    announcement.value = "Opening Stripe billing management."; window.location.assign(target.href);
+    announcement.value = "Opening Stripe billing management."; allowNextNavigation(); window.location.assign(target.href);
   } catch (cause) {
     if (cause instanceof APIProblem && (cause.problem?.code === "strong_reauthentication_required" || cause.problem?.code === "owner_security_enrollment_required")) {
-      window.location.assign(`/app/security?return_to=%2Fapp%2Fbilling&status=${encodeURIComponent(cause.problem.code)}`); return;
+      allowNextNavigation(); window.location.assign(`/app/security?return_to=%2Fapp%2Fbilling&status=${encodeURIComponent(cause.problem.code)}`); return;
     }
     error.value = cause instanceof APIProblem ? cause.message : cause instanceof Error ? cause.message : "Billing management could not be opened.";
   } finally { opening.value = false; }
@@ -63,6 +70,7 @@ onMounted(() => void load());
 <template>
   <section class="page billing-page">
     <p class="sr-only" aria-live="polite">{{ announcement }}</p>
+    <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading"><p class="eyebrow">Billing &amp; access</p><h1>Know what the Account pays for</h1><p>Spyglass shows its local subscription projection here. Stripe collects payment details and hosts subscription management; package access changes only after a signed provider event is projected.</p></header>
     <section v-if="returned" class="queue-state" role="status"><h2>Welcome back from Stripe</h2><p>Billing changes may take a moment to appear while Spyglass verifies and projects the signed event.</p><IoButton kind="secondary" @click="load">Refresh billing state</IoButton></section>
     <section v-if="!session.selectedID" class="queue-state"><h2>Select an Account</h2><p>Billing state always belongs to one Account.</p></section>
