@@ -59,12 +59,18 @@ const catalog = {
   }]
 };
 
+interface SyntheticAPIState {
+  readonly analyticsEvents: Array<{ name: string; fields?: Record<string, string> }>;
+  readonly unhandled: string[];
+  securityReady: boolean;
+}
+
 function fulfillJSON(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
-async function installSyntheticAPI(page: Page): Promise<string[]> {
-  const unhandled: string[] = [];
+async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
+  const state: SyntheticAPIState = { analyticsEvents: [], unhandled: [], securityReady: false };
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -89,7 +95,68 @@ async function installSyntheticAPI(page: Page): Promise<string[]> {
       return;
     }
     if (path === "/api/v1/analytics/events") {
+      const event = request.postDataJSON() as { name: string; fields?: Record<string, string> };
+      state.analyticsEvents.push({ name: event.name, fields: event.fields });
       await fulfillJSON(route, {}, 202);
+      return;
+    }
+    if (path === "/api/v1/identity") {
+      await fulfillJSON(route, { user_id: userID, primary_email: "owner@example.com" });
+      return;
+    }
+    if (path === "/api/v1/security-posture") {
+      await fulfillJSON(route, {
+        passkey_count: 1,
+        recovery_codes_configured: state.securityReady,
+        recovery_codes_remaining: state.securityReady ? 10 : 0,
+        owner_ready: state.securityReady
+      });
+      return;
+    }
+    if (path === "/api/v1/passkeys") {
+      await fulfillJSON(route, { passkeys: [{
+        id: "60000000-0000-4000-8000-000000000006",
+        name: "Laptop",
+        created_at: "2026-08-24T20:00:00Z",
+        backup_eligible: true,
+        backed_up: true
+      }] });
+      return;
+    }
+    if (path === "/api/v1/recovery-codes") {
+      if (request.method() === "POST") {
+        state.securityReady = true;
+        await fulfillJSON(route, {
+          status: { configured: true, version: 1, remaining: 10, created_at: "2026-08-25T12:00:00Z" },
+          codes: ["ALPHA-BRAVO", "CHARLIE-DELTA"]
+        });
+      } else await fulfillJSON(route, {
+        configured: state.securityReady,
+        version: state.securityReady ? 1 : 0,
+        remaining: state.securityReady ? 10 : 0,
+        created_at: state.securityReady ? "2026-08-25T12:00:00Z" : undefined
+      });
+      return;
+    }
+    if (path === "/api/v1/sessions") {
+      await fulfillJSON(route, { sessions: [{
+        id: "70000000-0000-4000-8000-000000000007",
+        client_label: "Current browser",
+        authenticated_at: "2026-08-25T11:00:00Z",
+        last_seen_at: "2026-08-25T12:00:00Z",
+        expires_at: "2026-09-25T12:00:00Z",
+        current: true,
+        authentication_method: "passkey",
+        authentication_assurance: "phishing_resistant"
+      }] });
+      return;
+    }
+    if (path === "/api/v1/security-events") {
+      await fulfillJSON(route, { events: [] });
+      return;
+    }
+    if (path === "/api/v1/mcp-grants") {
+      await fulfillJSON(route, { grants: [] });
       return;
     }
     if (path.startsWith(`/api/v1/accounts/${accountID}/attention/`)) {
@@ -127,10 +194,10 @@ async function installSyntheticAPI(page: Page): Promise<string[]> {
       });
       return;
     }
-    unhandled.push(`${request.method()} ${path}`);
+    state.unhandled.push(`${request.method()} ${path}`);
     await fulfillJSON(route, { title: "Synthetic browser route missing", status: 501 }, 501);
   });
-  return unhandled;
+  return state;
 }
 
 async function expectAccessible(page: Page): Promise<void> {
@@ -150,11 +217,11 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   expect(dimensions.document, `document width ${dimensions.document}px exceeds ${dimensions.viewport}px viewport`).toBeLessThanOrEqual(dimensions.viewport);
 }
 
-let unhandled: string[] = [];
+let state: SyntheticAPIState;
 let browserErrors: string[] = [];
 
 test.beforeEach(async ({ page }) => {
-  unhandled = await installSyntheticAPI(page);
+  state = await installSyntheticAPI(page);
   browserErrors = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
   page.on("console", (message) => {
@@ -164,7 +231,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async () => {
-  expect(unhandled, "every private API call must have an intentional synthetic response").toEqual([]);
+  expect(state.unhandled, "every private API call must have an intentional synthetic response").toEqual([]);
   expect(browserErrors, "the browser emitted runtime errors").toEqual([]);
 });
 
@@ -221,6 +288,26 @@ test("closed Affiliate launch state makes no unapproved payout promise", async (
   await expect(page.getByRole("heading", { level: 1, name: "One identity. One clear ledger." })).toBeVisible();
   await expect(page.getByText("Enrollment cannot open until the release owner approves")).toBeVisible();
   await expect(page.getByText("$10", { exact: false })).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("owner-security onboarding records completion only after authoritative readiness", async ({ page }) => {
+  await page.goto("/app/security");
+  await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Setup incomplete" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+  expect(state.analyticsEvents.filter((event) => event.name === "security_enrollment_completed")).toEqual([]);
+
+  await page.getByRole("button", { name: "Create recovery codes" }).click();
+  await expect(page.getByRole("heading", { name: "Identity secured" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "New recovery codes" })).toContainText("Save these now");
+  await expect.poll(() => state.analyticsEvents.filter((event) => event.name === "security_enrollment_completed").length).toBe(1);
+  expect(state.analyticsEvents.find((event) => event.name === "security_enrollment_completed")).toEqual({
+    name: "security_enrollment_completed",
+    fields: { method: "passkey_recovery_codes" }
+  });
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });
