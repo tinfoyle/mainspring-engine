@@ -1341,6 +1341,138 @@ test("package workspaces reload authoritative state after stale writes", async (
   });
 });
 
+test("package workspaces preserve customer intent through capacity and downstream failures", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*429/, /Failed to load resource:.*503/);
+
+  await test.step("Agent capacity denial retains the exact Boardroom request", async () => {
+    const runs: unknown[] = [];
+    await page.route(`**/api/v1/accounts/${accountID}/agent-boardrooms/${agentRoom.id}/runs`, async (route) => {
+      runs.push(route.request().postDataJSON());
+      await fulfillProblem(route, 429, "agent_run_capacity", "Agent Run capacity is temporarily unavailable. Wait for an active run to finish, then try this request again.");
+    });
+
+    await page.goto(`/app/agents/boardrooms/${agentRoom.id}`);
+    await page.getByLabel("Subject").fill("Capacity-safe launch review");
+    await page.getByLabel("Your question").fill("Which launch constraint needs attention first?");
+    await page.getByRole("button", { name: "Convene Boardroom" }).click();
+    await expect(page.getByRole("alert")).toContainText("Wait for an active run to finish");
+    await expect(page.getByLabel("Subject")).toHaveValue("Capacity-safe launch review");
+    await expect(page.getByLabel("Your question")).toHaveValue("Which launch constraint needs attention first?");
+    await expect(page.getByRole("button", { name: "Convene Boardroom" })).toBeEnabled();
+    expect(runs).toEqual([{
+      mode: "selected",
+      persona_ids: [agentPersona.id],
+      prompt: "Which launch constraint needs attention first?",
+      subject: "Capacity-safe launch review"
+    }]);
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+
+  await test.step("Knowledge decision failure retains the reviewed reason", async () => {
+    await page.route(`**/api/v1/accounts/${accountID}/knowledge/claims/${knowledgeClaim.id}/decisions`, async (route) => {
+      await fulfillProblem(route, 503, "knowledge_temporarily_unavailable", "Knowledge could not save this decision. Review the same claim and try again.");
+    });
+
+    await page.goto(`/app/knowledge/claims/${knowledgeClaim.id}`);
+    await page.getByLabel("Decision reason").fill("The cited launch plan remains the reviewed source.");
+    await page.getByRole("button", { name: "Accept claim" }).click();
+    await expect(page.getByRole("alert")).toContainText("Knowledge could not save this decision");
+    await expect(page.getByLabel("Decision reason")).toHaveValue("The cited launch plan remains the reviewed source.");
+    await expect(page.getByRole("button", { name: "Accept claim" })).toBeEnabled();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+
+  await test.step("Baseline answer failure retains the explicit unknown", async () => {
+    const answers: unknown[] = [];
+    await page.route(`**/api/v1/accounts/${accountID}/baseline-assessments/${baselineID}/answers`, async (route) => {
+      answers.push(route.request().postDataJSON());
+      await fulfillProblem(route, 503, "baseline_temporarily_unavailable", "Baseline could not save this answer. Your answer remains in this page for retry.");
+    });
+
+    await page.goto(`/app/baseline/${baselineID}`);
+    await page.getByRole("radio", { name: "I don’t know yet" }).check();
+    await page.getByLabel("What still needs confirmation?").fill("The registered name is still being confirmed.");
+    await page.getByRole("button", { name: "Confirm and continue" }).click();
+    await expect(page.getByRole("alert")).toContainText("Your answer remains in this page for retry");
+    await expect(page.getByRole("radio", { name: "I don’t know yet" })).toBeChecked();
+    await expect(page.getByLabel("What still needs confirmation?")).toHaveValue("The registered name is still being confirmed.");
+    await expect(page.getByRole("button", { name: "Confirm and continue" })).toBeEnabled();
+    expect(answers).toEqual([{ question_key: "organization.legal_name", kind: "unknown", reason: "The registered name is still being confirmed." }]);
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+
+  await test.step("Finance failure keeps the exact posting confirmation", async () => {
+    await page.route(`**/api/v1/accounts/${accountID}/finance/entries/${financeEntry.id}/postings`, async (route) => {
+      await fulfillProblem(route, 503, "finance_temporarily_unavailable", "Finance could not post this entry. Nothing was posted; confirm and try again.");
+    });
+
+    await page.goto(`/app/finance/entries/${financeEntry.id}`);
+    await page.getByRole("button", { name: "Post entry" }).click();
+    const dialog = page.getByRole("dialog", { name: "Post journal entry" });
+    await dialog.getByLabel("Type POST to confirm").fill("POST");
+    await dialog.getByRole("button", { name: "Post journal entry" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("Nothing was posted");
+    await expect(dialog.getByLabel("Type POST to confirm")).toHaveValue("POST");
+    await expect(dialog.getByRole("button", { name: "Post journal entry" })).toBeEnabled();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+
+  await test.step("Marketing failure retains revised campaign intent", async () => {
+    await page.route(`**/api/v1/accounts/${accountID}/marketing/campaigns/${marketingCampaign.id}`, async (route) => {
+      if (route.request().method() === "PUT") {
+        await fulfillProblem(route, 503, "marketing_temporarily_unavailable", "Marketing could not revise this campaign. The draft remains available for retry.");
+      } else await fulfillJSON(route, marketingCampaign);
+    });
+
+    await page.goto(`/app/marketing/campaigns/${marketingCampaign.id}`);
+    await page.getByRole("button", { name: "Revise intent" }).click();
+    const dialog = page.getByRole("dialog", { name: "Revise campaign" });
+    await dialog.getByLabel("Name").fill("Launch readiness follow-up");
+    await dialog.getByRole("button", { name: "Revise campaign" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("The draft remains available for retry");
+    await expect(dialog.getByLabel("Name")).toHaveValue("Launch readiness follow-up");
+    await expect(dialog.getByRole("button", { name: "Revise campaign" })).toBeEnabled();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+
+  await test.step("Integration failure leaves the reviewed command ready to retry", async () => {
+    await page.route(`**/api/v1/accounts/${accountID}/integrations/connections/${integrationConnection.id}/disables`, async (route) => {
+      await fulfillProblem(route, 503, "integration_temporarily_unavailable", "Integrations could not disable this connection. Its state is unchanged; try again.");
+    });
+
+    await page.goto(`/app/integrations/connections/${integrationConnection.id}`);
+    await page.getByRole("button", { name: "Disable", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Disable connection" });
+    await dialog.getByRole("button", { name: "Disable connection" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("Its state is unchanged");
+    await expect(dialog.getByRole("button", { name: "Disable connection" })).toBeEnabled();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+
+  await test.step("Schedule failure exposes the error inside the retry dialog", async () => {
+    await page.route(`**/api/v1/accounts/${accountID}/schedules/${schedule.id}/pauses`, async (route) => {
+      await fulfillProblem(route, 503, "schedule_temporarily_unavailable", "Schedules could not pause this definition. It remains active; try again.");
+    });
+
+    await page.goto(`/app/schedules/${schedule.id}`);
+    await page.getByRole("button", { name: "Pause", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Pause this schedule?" });
+    await dialog.getByLabel("Operational reason").fill("Pause while provider health is reviewed.");
+    await dialog.getByRole("button", { name: "Confirm" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("It remains active");
+    await expect(dialog.getByLabel("Operational reason")).toHaveValue("Pause while provider health is reviewed.");
+    await expect(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
+});
+
 test("Integration research failure retains the scoped customer query", async ({ page }) => {
   allowedBrowserErrors.push(/Failed to load resource:.*503/);
   const searches: unknown[] = [];
