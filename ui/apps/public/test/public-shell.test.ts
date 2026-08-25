@@ -48,6 +48,7 @@ describe("public site shell", () => {
     expect(toggle.attributes("aria-expanded")).toBe("true");
     expect(drawer.attributes("role")).toBe("dialog");
     expect(drawer.attributes("aria-modal")).toBe("true");
+    expect(drawer.attributes("aria-label")).toBe("Site menu");
     expect(wrapper.get(".site-page").attributes()).toHaveProperty("inert");
     expect(wrapper.get(".site-menu-scrim").attributes("tabindex")).toBe("-1");
     expect(wrapper.get(".site-menu-scrim").attributes("aria-hidden")).toBe("true");
@@ -65,6 +66,7 @@ describe("public site shell", () => {
     await wrapper.vm.$nextTick();
     expect(toggle.attributes("aria-expanded")).toBe("false");
     expect(drawer.attributes("role")).toBeUndefined();
+    expect(drawer.attributes("aria-label")).toBeUndefined();
     expect(wrapper.get(".site-page").attributes("inert")).toBeUndefined();
     expect(document.body.classList.contains("site-menu-open")).toBe(false);
     expect(document.activeElement).toBe(toggle.element);

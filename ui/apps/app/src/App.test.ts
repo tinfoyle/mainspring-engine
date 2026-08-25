@@ -120,6 +120,7 @@ describe("application shell", () => {
     expect(document.activeElement).toBe(close.element);
     expect(wrapper.get("#app-navigation").attributes("role")).toBe("dialog");
     expect(wrapper.get("#app-navigation").attributes("aria-modal")).toBe("true");
+    expect(wrapper.get("#app-navigation").attributes("aria-label")).toBe("Application navigation");
     expect(wrapper.get("main").attributes()).toHaveProperty("inert");
     expect(wrapper.get(".mobile-header").attributes()).toHaveProperty("inert");
     expect(wrapper.get(".scrim").attributes("tabindex")).toBe("-1");
@@ -139,6 +140,7 @@ describe("application shell", () => {
     await wrapper.vm.$nextTick();
     expect(toggle.attributes("aria-expanded")).toBe("false");
     expect(wrapper.get("#app-navigation").attributes("role")).toBeUndefined();
+    expect(wrapper.get("#app-navigation").attributes("aria-label")).toBeUndefined();
     expect(wrapper.get("main").attributes("inert")).toBeUndefined();
     expect(document.activeElement).toBe(toggle.element);
     wrapper.unmount();

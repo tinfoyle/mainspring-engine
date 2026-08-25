@@ -57,6 +57,7 @@ describe("Affiliate identity dashboard", () => {
     expect(wrapper.text()).toContain("Qualifying cycle 2");
     expect(wrapper.text()).toContain("$10.00");
     expect(wrapper.text()).not.toContain("referred customer@example.com");
+    expect(wrapper.get('[aria-label="Commission totals"]').attributes("role")).toBe("group");
   });
 
   it("keeps historical ledger access while disabling a suspended referral code", async () => {

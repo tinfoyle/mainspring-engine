@@ -153,14 +153,15 @@ watch(() => [session.selectedID, session.userID, session.attentionAccess.work, s
 
     <template v-else>
       <p v-if="!online" class="queue-inline-status" role="status">You are offline. Spyglass will refresh this queue when the connection returns.</p>
-      <div class="queue-toolbar" aria-label="Filter Your Turn queue">
+      <div class="queue-toolbar" role="group" aria-label="Filter Your Turn queue">
         <button v-for="choice in ([['all', 'All'], ['information', 'Information'], ['review', 'Reviews'], ['approval', 'Approvals'], ['action', 'Recovery']] as const)" :key="choice[0]" type="button" class="filter-chip" :class="{ 'filter-chip--active': filter === choice[0] }" :aria-pressed="filter === choice[0]" @click="filter = choice[0]">
           {{ choice[1] }} <strong>{{ counts[choice[0]] }}</strong>
         </button>
       </div>
 
-      <div v-if="loading && items.length === 0" class="attention-list attention-list--loading" aria-label="Loading Your Turn">
-        <div v-for="index in 3" :key="index" class="attention-card attention-card--skeleton" />
+      <div v-if="loading && items.length === 0" class="attention-list attention-list--loading" role="status">
+        <span class="sr-only">Loading Your Turn…</span>
+        <div v-for="index in 3" :key="index" class="attention-card attention-card--skeleton" aria-hidden="true" />
       </div>
       <section v-else-if="error && items.length === 0" class="queue-state queue-state--error" role="alert">
         <h2>That did not load cleanly</h2><p>{{ error }}</p><IoButton kind="secondary" @click="refresh()">Try again</IoButton>

@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import pluginVue from "eslint-plugin-vue";
+import pluginVueAccessibility from "eslint-plugin-vuejs-accessibility";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
@@ -8,6 +9,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...pluginVue.configs["flat/recommended"],
+  ...pluginVueAccessibility.configs["flat/recommended"],
   {
     files: ["scripts/**/*.mjs"],
     languageOptions: { globals: globals.node }
@@ -23,7 +25,11 @@ export default tseslint.config(
       "vue/require-default-prop": "off",
       "vue/max-attributes-per-line": "off",
       "vue/singleline-html-element-content-newline": "off",
-      "vue/html-self-closing": "off"
+      "vue/html-self-closing": "off",
+      "vuejs-accessibility/label-has-for": ["error", {
+        required: { some: ["nesting", "id"] },
+        allowChildren: true
+      }]
     }
   }
 );

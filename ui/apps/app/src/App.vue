@@ -135,6 +135,8 @@ function containMenuFocus(event: KeyboardEvent): void {
       </button>
     </header>
 
+    <!-- The key handler is active only when this landmark becomes the mobile dialog. -->
+    <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
     <aside
       id="app-navigation"
       ref="sidebar"
@@ -142,7 +144,7 @@ function containMenuFocus(event: KeyboardEvent): void {
       :class="{ 'sidebar--open': menuOpen }"
       :role="menuOpen ? 'dialog' : undefined"
       :aria-modal="menuOpen ? 'true' : undefined"
-      aria-label="Application navigation"
+      :aria-label="menuOpen ? 'Application navigation' : undefined"
       @keydown="containMenuFocus"
     >
       <div class="sidebar-header">

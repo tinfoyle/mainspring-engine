@@ -86,6 +86,8 @@ function containMenuFocus(event: KeyboardEvent): void {
       <button ref="menuButton" class="site-menu" type="button" :aria-expanded="menuOpen" aria-controls="site-navigation" @click="toggleMenu">
         <span>{{ menuOpen ? "Close" : "Menu" }}</span><b aria-hidden="true">{{ menuOpen ? "×" : "☰" }}</b>
       </button>
+      <!-- The key handler is active only when this container becomes the mobile dialog. -->
+      <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
       <div
         id="site-navigation"
         ref="navigation"
@@ -93,7 +95,7 @@ function containMenuFocus(event: KeyboardEvent): void {
         :class="{ 'site-navigation--open': menuOpen }"
         :role="menuOpen ? 'dialog' : undefined"
         :aria-modal="menuOpen ? 'true' : undefined"
-        aria-label="Site menu"
+        :aria-label="menuOpen ? 'Site menu' : undefined"
         @keydown="containMenuFocus"
       >
         <button class="site-nav-close" type="button" aria-label="Close site menu" @click="closeMenu(true)">×</button>

@@ -55,6 +55,7 @@ describe("Work surface", () => {
     expect(api.listWork).toHaveBeenCalledWith(account.account_id, {});
     expect(wrapper.text()).toContain("Confirm the launch checklist");
     expect(wrapper.text()).toContain("Shared responsibility");
+    expect(wrapper.get('[aria-label="Work summary"]').attributes("role")).toBe("group");
     expect(wrapper.findAllComponents(RouterLinkStub).some((link) => link.props("to") === `/app/work/${item.id}`)).toBe(true);
   });
 

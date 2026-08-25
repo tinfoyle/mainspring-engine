@@ -66,6 +66,7 @@ describe("Your Turn queue", () => {
     expect(listAttentionQueue).toHaveBeenCalledWith(account.account_id, session.userID, expect.objectContaining({ approvals: true, approvalsWritable: true }));
     expect(wrapper.text()).toContain("marketing.release.publish");
     expect(wrapper.text()).toContain("Northstar Studio");
+    expect(wrapper.get('[aria-label="Filter Your Turn queue"]').attributes("role")).toBe("group");
     expect(wrapper.getComponent(RouterLinkStub).props("to")).toBe(`/app/your-turn/approval/${approval.id}`);
     expect(wrapper.text()).not.toContain("Approve the August campaign launch");
 
