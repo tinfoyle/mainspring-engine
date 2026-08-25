@@ -10,6 +10,8 @@ import AgentsView from "./views/AgentsView.vue";
 import SchedulesView from "./views/SchedulesView.vue";
 import AccountView from "./views/AccountView.vue";
 import SecurityView from "./views/SecurityView.vue";
+import ExportsView from "./views/ExportsView.vue";
+import LifecycleView from "./views/LifecycleView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -29,6 +31,8 @@ export const router = createRouter({
     { path: "/app/schedules/:scheduleID", name: "schedule-detail", component: SchedulesView, meta: { title: "Schedule detail" } },
     { path: "/app/account", name: "account", component: AccountView, meta: { title: "Account" } },
     { path: "/app/security", name: "security", component: SecurityView, meta: { title: "Security" } },
+    { path: "/app/account-exports", name: "account-exports", component: ExportsView, meta: { title: "Account exports" } },
+    { path: "/app/account-closures", name: "account-closures", component: LifecycleView, meta: { title: "Account lifecycle" } },
     { path: "/app/checkout", name: "checkout", component: CheckoutView, meta: { title: "Checkout" } },
     { path: "/app/affiliate", name: "affiliate", component: AffiliateView, meta: { title: "Affiliate" } },
     { path: "/app/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },

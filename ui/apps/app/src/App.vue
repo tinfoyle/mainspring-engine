@@ -31,6 +31,8 @@ const navigation = [
   { to: "/app/schedules", label: "Schedules" },
   { to: "/app/account", label: "Account" },
   { to: "/app/security", label: "Security" },
+  { to: "/app/account-exports", label: "Exports" },
+  { to: "/app/account-closures", label: "Lifecycle" },
   { to: "/app/affiliate", label: "Affiliate" },
   { to: "/app/privacy", label: "Privacy" }
 ];

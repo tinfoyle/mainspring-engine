@@ -17,6 +17,8 @@ describe("application shell", () => {
     expect(wrapper.get("nav").text()).toContain("Schedules");
     expect(wrapper.get("nav").text()).toContain("Account");
     expect(wrapper.get("nav").text()).toContain("Security");
+    expect(wrapper.get("nav").text()).toContain("Exports");
+    expect(wrapper.get("nav").text()).toContain("Lifecycle");
     expect(wrapper.find(".nav-link em").exists()).toBe(false);
   });
 });
