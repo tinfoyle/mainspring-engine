@@ -92,7 +92,7 @@ main { min-width: 0; }
 .attention-card--skeleton { min-height: 11rem; background: linear-gradient(100deg, #f1eee7 20%, #fbf9f4 40%, #f1eee7 60%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
 .back-link { min-height: 44px; display: inline-flex; align-items: center; color: var(--io-ocean-800); font-weight: 750; text-decoration: none; }
 .detail-heading { margin-top: 1rem; display: grid; gap: 1rem; }
-.detail-heading h1 { max-width: 18ch; }
+.detail-heading h1 { max-width: 18ch; overflow-wrap: anywhere; }
 .state-badge { justify-self: start; padding: .45rem .7rem; border-radius: 999px; color: var(--io-ocean-800); background: var(--io-sky); font-size: .75rem; font-weight: 800; text-transform: uppercase; }
 .detail-layout { margin-top: 1.5rem; display: grid; gap: 1rem; }
 .detail-card, .decision-card { min-width: 0; padding: 1.1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }

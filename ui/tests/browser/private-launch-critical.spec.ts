@@ -91,6 +91,68 @@ const queuedExport = {
   requested_at: "2026-08-25T12:00:00Z",
   expires_at: "2026-09-01T12:00:00Z"
 };
+const workItem = {
+  id: "c0000000-0000-4000-8000-00000000000c",
+  number: 17,
+  depth: 0,
+  kind: "ticket",
+  title: "Confirm the launch checklist",
+  description: "Verify the governed release boundary.",
+  state: "in_progress",
+  priority: "high",
+  assignment: { responsibility: "shared" },
+  provenance: { source: "manual", created_by: { kind: "user", id: userID } },
+  version: 4,
+  created_at: "2026-08-24T20:00:00Z",
+  updated_at: "2026-08-24T20:05:00Z"
+};
+const knowledgeClaim = {
+  id: "d0000000-0000-4000-8000-00000000000d",
+  account_id: accountID,
+  scope: { kind: "account" },
+  key: "launch.release_window",
+  value: "August 31",
+  value_sha256: "a".repeat(64),
+  hash_version: 1,
+  confidence: 920,
+  sensitivity: "internal",
+  citations: [{
+    evidence_id: "e0000000-0000-4000-8000-00000000000e",
+    evidence_kind: "document_revision",
+    relation: "supports",
+    locator: "Launch plan, page 4"
+  }],
+  state: "proposed",
+  proposed_by: { kind: "workload", id: "planning-agent" },
+  version: 3,
+  created_at: "2026-08-24T20:00:00Z",
+  updated_at: "2026-08-24T20:05:00Z"
+};
+const knowledgeFact = {
+  id: "f0000000-0000-4000-8000-00000000000f",
+  current_claim_id: knowledgeClaim.id,
+  scope: { kind: "account" },
+  key: "organization.legal_name",
+  sensitivity: "internal",
+  state: "active",
+  revision: 2,
+  accepted_at: "2026-08-23T20:00:00Z",
+  updated_at: "2026-08-23T20:00:00Z"
+};
+const baselineID = "11000000-0000-4000-8000-000000000011";
+const baseline = {
+  id: baselineID,
+  account_id: accountID,
+  catalog_version: "baseline-evidence-2026-08-22",
+  scope_policy_version: "baseline-scope-v1",
+  state: "interview",
+  answers: [],
+  requirements: [],
+  created_by_user_id: userID,
+  version: 1,
+  created_at: "2026-08-24T20:00:00Z",
+  updated_at: "2026-08-24T20:00:00Z"
+};
 
 interface SyntheticAPIState {
   readonly analyticsEvents: Array<{ name: string; fields?: Record<string, string> }>;
@@ -231,6 +293,44 @@ async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
     }
     if (path === "/api/v1/account-closures") {
       await fulfillJSON(route, { account_closures: [] });
+      return;
+    }
+    const workBase = `/api/v1/accounts/${accountID}/work-items`;
+    if (path === `${workBase}/summary`) {
+      await fulfillJSON(route, { active: 1, in_progress: 1, waiting: 0, urgent: 0, done: 0 });
+      return;
+    }
+    if (path === `${workBase}/${workItem.id}/children`) {
+      await fulfillJSON(route, { items: [] });
+      return;
+    }
+    if (path === `${workBase}/${workItem.id}`) {
+      await fulfillJSON(route, workItem);
+      return;
+    }
+    if (path === workBase && request.method() === "GET") {
+      await fulfillJSON(route, { items: [workItem] });
+      return;
+    }
+    const knowledgeBase = `/api/v1/accounts/${accountID}/knowledge`;
+    if (path === `${knowledgeBase}/claims/${knowledgeClaim.id}`) {
+      await fulfillJSON(route, knowledgeClaim);
+      return;
+    }
+    if (path === `${knowledgeBase}/claims` && request.method() === "GET") {
+      await fulfillJSON(route, { items: [knowledgeClaim] });
+      return;
+    }
+    if (path === `${knowledgeBase}/facts` && request.method() === "GET") {
+      await fulfillJSON(route, { items: [knowledgeFact] });
+      return;
+    }
+    if (path === `/api/v1/accounts/${accountID}/baseline-assessments/${baselineID}`) {
+      await fulfillJSON(route, baseline);
+      return;
+    }
+    if (path === `/api/v1/accounts/${accountID}/integrations/connections` && request.method() === "GET") {
+      await fulfillJSON(route, { items: [] });
       return;
     }
     if (path === "/api/v1/affiliate") {
@@ -382,6 +482,46 @@ test("Account administration keeps authority, billing, portability, and closure 
       path: "/app/account-closures",
       heading: "Deliberate and recoverable",
       evidence: ["Request closure", "No closure history", "Closure is not immediate erasure"]
+    }
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(route.path);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      for (const evidence of route.evidence) await expect(page.getByText(evidence, { exact: false }).first()).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    });
+  }
+});
+
+test("Work, Knowledge, and Baseline preserve governed operating context", async ({ page }) => {
+  const routes = [
+    {
+      path: "/app/work",
+      heading: "Work",
+      evidence: ["Confirm the launch checklist", "Shared responsibility", "New work"]
+    },
+    {
+      path: `/app/work/${workItem.id}`,
+      heading: workItem.title,
+      evidence: [workItem.description, "Complete", "Edit responsibility"]
+    },
+    {
+      path: "/app/knowledge",
+      heading: "Knowledge",
+      evidence: [knowledgeClaim.key, "92% confidence", knowledgeFact.key]
+    },
+    {
+      path: `/app/knowledge/claims/${knowledgeClaim.id}`,
+      heading: knowledgeClaim.key,
+      evidence: [knowledgeClaim.value, "Launch plan, page 4", "Agent output is never authoritative"]
+    },
+    {
+      path: `/app/baseline/${baselineID}`,
+      heading: "Business Baseline",
+      evidence: ["What is the legal or registered name", "Confirm my answer now", "Use an existing Knowledge fact"]
     }
   ] as const;
 
