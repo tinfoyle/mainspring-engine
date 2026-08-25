@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { useSeoMeta } from "#imports";
+import { usePublicSeo } from "~/composables/usePublicSeo";
 
-useSeoMeta({ title: "Privacy choices · Infinite Ocean", description: "Understand and manage how Infinite Ocean uses necessary storage and optional first-party analytics." });
+usePublicSeo({ title: "Privacy choices · Infinite Ocean", path: "/privacy", description: "Understand and manage how Infinite Ocean uses necessary storage and optional first-party analytics." });
 </script>
 
 <template>

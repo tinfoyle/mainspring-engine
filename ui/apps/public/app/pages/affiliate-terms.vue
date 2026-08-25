@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { useSeoMeta } from "#imports";
-useSeoMeta({ title: "Affiliate program terms · Infinite Ocean", description: "Current launch status and governing boundaries for the Infinite Ocean Affiliate program." });
+import { usePublicSeo } from "~/composables/usePublicSeo";
+usePublicSeo({ title: "Affiliate program terms · Infinite Ocean", path: "/affiliate-terms", description: "Current launch status and governing boundaries for the Infinite Ocean Affiliate program." });
 </script>
 
 <template>

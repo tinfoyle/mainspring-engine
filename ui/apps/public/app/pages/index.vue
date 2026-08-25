@@ -1,15 +1,27 @@
 <script setup lang="ts">
 import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
-import { useRuntimeConfig, useSeoMeta } from "#imports";
+import { useRuntimeConfig } from "#imports";
 import { onMounted } from "vue";
 import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
+import { usePublicSeo } from "~/composables/usePublicSeo";
+import { publicFeatures } from "~/content/features";
 
-useSeoMeta({
+usePublicSeo({
   title: "Spyglass — Know what needs you next",
+  path: "/",
   description: "Spyglass turns business context into guided work, then brings the consequential decisions back to you.",
-  ogTitle: "Infinite Ocean: Spyglass",
-  ogDescription: "A calmer operating rhythm for your business.",
-  ogType: "website"
+  schema: {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Infinite Ocean: Spyglass",
+    url: "https://www.infiniteocean.net/",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    description: "Spyglass turns business context into guided work, then brings consequential decisions back to the people who hold authority.",
+    featureList: publicFeatures.map((feature) => feature.name),
+    provider: { "@type": "Organization", name: "Infinite Ocean", url: "https://www.infiniteocean.net/" },
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free Account creation" }
+  }
 });
 const appOrigin = useRuntimeConfig().public.appOrigin;
 const analyticsConsent = useAnalyticsConsent();

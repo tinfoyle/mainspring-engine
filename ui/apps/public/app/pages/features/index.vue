@@ -1,10 +1,25 @@
 <script setup lang="ts">
 import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
-import { useSeoMeta } from "#imports";
 import { onMounted } from "vue";
 import { publicFeatures } from "~/content/features";
 import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
-useSeoMeta({ title: "Spyglass features · Infinite Ocean", description: "Explore Your Turn, Work, Knowledge, Agents, Finance, Marketing and governed integrations in Spyglass." });
+import { usePublicSeo } from "~/composables/usePublicSeo";
+usePublicSeo({
+  title: "Spyglass features · Infinite Ocean",
+  path: "/features",
+  description: "Explore Your Turn, Work, Knowledge, Agents, Finance, Marketing and governed integrations in Spyglass.",
+  schema: {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    name: "Spyglass feature map",
+    itemListElement: publicFeatures.map((feature, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: feature.name,
+      url: `https://www.infiniteocean.net/features/${feature.slug}`
+    }))
+  }
+});
 const analyticsConsent = useAnalyticsConsent();
 onMounted(async () => {
   try {

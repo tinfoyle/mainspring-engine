@@ -1,14 +1,28 @@
 <script setup lang="ts">
 import { emitAnalytics, getPrivacyConsent, type PublicCatalog } from "@spyglass/api";
-import { createError, useFetch, useRoute, useSeoMeta } from "#imports";
+import { createError, useFetch, useRoute } from "#imports";
 import { computed, onMounted } from "vue";
 import { featureBySlug } from "~/content/features";
 import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
+import { usePublicSeo } from "~/composables/usePublicSeo";
 
 const route = useRoute();
 const feature = featureBySlug(String(route.params.slug));
 if (!feature) throw createError({ statusCode: 404, statusMessage: "Feature not found" });
-useSeoMeta({ title: `${feature.name} · Spyglass features`, description: feature.summary });
+usePublicSeo({
+  title: `${feature.name} · Spyglass features`,
+  path: `/features/${feature.slug}`,
+  description: feature.summary,
+  schema: {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: feature.title,
+    description: feature.summary,
+    url: `https://www.infiniteocean.net/features/${feature.slug}`,
+    isPartOf: { "@type": "SoftwareApplication", name: "Infinite Ocean: Spyglass", url: "https://www.infiniteocean.net/" },
+    about: { "@type": "Thing", name: feature.name, description: feature.purpose }
+  }
+});
 const { data: catalog } = await useFetch<PublicCatalog>("/catalog.json", { key: "public-catalog" });
 const analyticsConsent = useAnalyticsConsent();
 const availablePlans = computed(() => {

@@ -1,14 +1,37 @@
 <script setup lang="ts">
 import { emitAnalytics, getPrivacyConsent, type CatalogOffer, type CatalogPlan, type PublicCatalog } from "@spyglass/api";
-import { useFetch, useRuntimeConfig, useSeoMeta } from "#imports";
+import { useFetch, useRuntimeConfig } from "#imports";
 import { computed, onMounted } from "vue";
 import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
+import { usePublicSeo } from "~/composables/usePublicSeo";
 
-useSeoMeta({ title: "Spyglass pricing · Infinite Ocean", description: "Start Spyglass free and compare current published plans before continuing to secure Stripe Checkout." });
 const appOrigin = useRuntimeConfig().public.appOrigin;
 const analyticsConsent = useAnalyticsConsent();
 const { data: catalog, error: catalogError, refresh } = await useFetch<PublicCatalog>("/catalog.json", { key: "public-catalog" });
 const paidOffers = computed(() => (catalog.value?.offers ?? []).filter((offer) => offer.amount_minor > 0 && offer.billing_interval !== "none"));
+usePublicSeo({
+  title: "Spyglass pricing · Infinite Ocean",
+  path: "/pricing",
+  description: "Start Spyglass free and compare current published plans before continuing to secure Stripe Checkout.",
+  schema: {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "Infinite Ocean: Spyglass",
+    url: "https://www.infiniteocean.net/pricing",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    offers: [
+      { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free Account creation", url: "https://www.infiniteocean.net/pricing" },
+      ...paidOffers.value.map((offer) => ({
+        "@type": "Offer",
+        price: (offer.amount_minor / 100).toFixed(2),
+        priceCurrency: offer.currency,
+        category: `${offer.billing_interval} subscription`,
+        url: "https://www.infiniteocean.net/pricing"
+      }))
+    ]
+  }
+});
 
 function planFor(offer: CatalogOffer): CatalogPlan | undefined {
   return catalog.value?.plans.find((plan) => plan.code === offer.plan_code && plan.version === offer.plan_version);

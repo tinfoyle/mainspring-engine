@@ -14,6 +14,25 @@ bash "$script_dir/../../verify-process-inventory.sh"
 "${compose[@]}" cp edge:/data/caddy/pki/authorities/local/root.crt "$root_ca" >/dev/null
 curl_common=(--fail --silent --show-error --cacert "$root_ca")
 
+assert_public_discovery() {
+  local html_file="$1" canonical_path="$2" canonical_url
+  if [[ "$canonical_path" = "/" ]]; then
+    canonical_url="https://www.infiniteocean.net/"
+  else
+    canonical_url="https://www.infiniteocean.net${canonical_path}"
+  fi
+  grep -Fq '<meta name="robots" content="index, follow, max-image-preview:large">' "$html_file"
+  grep -Fq '<meta property="og:site_name" content="Infinite Ocean">' "$html_file"
+  grep -Fq "<meta property=\"og:url\" content=\"${canonical_url}\">" "$html_file"
+  grep -Fq '<meta property="og:image" content="https://www.infiniteocean.net/og/spyglass-social.png">' "$html_file"
+  grep -Fq '<meta property="og:image:width" content="1200">' "$html_file"
+  grep -Fq '<meta property="og:image:height" content="630">' "$html_file"
+  grep -Fq '<meta name="twitter:card" content="summary_large_image">' "$html_file"
+  grep -Fq "<link rel=\"canonical\" href=\"${canonical_url}\">" "$html_file"
+  grep -Fq '<script id="spyglass-structured-data" type="application/ld+json">' "$html_file"
+  grep -Fq '"@context":"https://schema.org"' "$html_file"
+}
+
 curl "${curl_common[@]}" --resolve "app.infiniteocean.localhost:${tls_port}:127.0.0.1" \
   "${app_origin}/health/ready" >/tmp/spyglass-local-app-ready.json
 grep -q '"status":"ready"' /tmp/spyglass-local-app-ready.json
@@ -149,16 +168,19 @@ curl "${curl_common[@]}" --dump-header /tmp/spyglass-local-website-headers.txt \
   "${public_origin}/" >/tmp/spyglass-local-website.html
 grep -qi '^content-security-policy:' /tmp/spyglass-local-website-headers.txt
 grep -q 'Infinite Ocean: Spyglass' /tmp/spyglass-local-website.html
+assert_public_discovery /tmp/spyglass-local-website.html /
 
 curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
   "${public_origin}/pricing" >/tmp/spyglass-local-pricing.html
 grep -q "https://app.infiniteocean.localhost:${tls_port}/signup" /tmp/spyglass-local-pricing.html
+assert_public_discovery /tmp/spyglass-local-pricing.html /pricing
 
 for route in features privacy affiliate-terms; do
   curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
     "${public_origin}/${route}" >"/tmp/spyglass-local-${route}.html"
   grep -q '<meta name="description" content="' "/tmp/spyglass-local-${route}.html"
   grep -q '<h1' "/tmp/spyglass-local-${route}.html"
+  assert_public_discovery "/tmp/spyglass-local-${route}.html" "/${route}"
 done
 grep -q 'Complete feature map' /tmp/spyglass-local-features.html
 grep -q 'Privacy, in plain language' /tmp/spyglass-local-privacy.html
@@ -172,7 +194,57 @@ for slug in "${public_feature_slugs[@]}"; do
   grep -q '<h1' "/tmp/spyglass-local-feature-${slug}.html"
   grep -q 'Primary workflows' "/tmp/spyglass-local-feature-${slug}.html"
   grep -q 'Governance boundaries' "/tmp/spyglass-local-feature-${slug}.html"
+  assert_public_discovery "/tmp/spyglass-local-feature-${slug}.html" "/features/${slug}"
 done
+
+curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
+  "${public_origin}/robots.txt" >/tmp/spyglass-local-robots.txt
+grep -Fq 'User-agent: *' /tmp/spyglass-local-robots.txt
+grep -Fq 'Allow: /' /tmp/spyglass-local-robots.txt
+grep -Fq 'Disallow: /api/' /tmp/spyglass-local-robots.txt
+grep -Fq 'Sitemap: https://www.infiniteocean.net/sitemap.xml' /tmp/spyglass-local-robots.txt
+
+curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
+  "${public_origin}/sitemap.xml" >/tmp/spyglass-local-sitemap.xml
+grep -Fq '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' /tmp/spyglass-local-sitemap.xml
+public_routes=(/ /features)
+for slug in "${public_feature_slugs[@]}"; do public_routes+=("/features/${slug}"); done
+public_routes+=(/pricing /privacy /affiliate-terms)
+test "$(grep -o '<url>' /tmp/spyglass-local-sitemap.xml | wc -l)" -eq "${#public_routes[@]}"
+for route in "${public_routes[@]}"; do
+  if [[ "$route" = "/" ]]; then
+    expected_location='https://www.infiniteocean.net/'
+  else
+    expected_location="https://www.infiniteocean.net${route}"
+  fi
+  grep -Fq "<loc>${expected_location}</loc>" /tmp/spyglass-local-sitemap.xml
+done
+
+curl "${curl_common[@]}" --dump-header /tmp/spyglass-local-social-card-headers.txt \
+  --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
+  "${public_origin}/og/spyglass-social.png" >/tmp/spyglass-local-social-card.png
+grep -qi '^content-type: image/png' /tmp/spyglass-local-social-card-headers.txt
+test "$(stat -c '%s' /tmp/spyglass-local-social-card.png)" -gt 100000
+test "$(od -An -tx1 -N8 /tmp/spyglass-local-social-card.png | tr -d ' \n')" = '89504e470d0a1a0a'
+file /tmp/spyglass-local-social-card.png | grep -Fq 'PNG image data, 1200 x 630'
+
+grep -hoE 'href="/[^"#?]*([#?][^"]*)?"' \
+  /tmp/spyglass-local-website.html \
+  /tmp/spyglass-local-pricing.html \
+  /tmp/spyglass-local-features.html \
+  /tmp/spyglass-local-privacy.html \
+  /tmp/spyglass-local-affiliate-terms.html \
+  /tmp/spyglass-local-feature-*.html | \
+  sed -E 's/^href="//; s/"$//; s/[?#].*$//' | \
+  grep -Ev '^/_nuxt/' | sort -u >/tmp/spyglass-local-public-links.txt
+while IFS= read -r route; do
+  status="$(curl --silent --show-error --cacert "$root_ca" --output /dev/null --write-out '%{http_code}' \
+    --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" "${public_origin}${route}")"
+  if [[ "$status" -lt 200 || "$status" -ge 400 ]]; then
+    printf 'public link %s returned HTTP %s\n' "$route" "$status" >&2
+    exit 1
+  fi
+done </tmp/spyglass-local-public-links.txt
 
 curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
   "${public_origin}/catalog.json" >/tmp/spyglass-local-catalog.json
