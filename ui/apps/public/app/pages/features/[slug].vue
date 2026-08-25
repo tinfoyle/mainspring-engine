@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
 import { createError, useRoute } from "#imports";
 import { computed, onMounted } from "vue";
 import { featureBySlug } from "~/content/features";
@@ -31,11 +30,9 @@ const availablePlans = computed(() => {
   return (catalog.value?.plans ?? []).filter((plan) => plan.packages[feature.packageCode!] && plan.packages[feature.packageCode!] !== "suspended");
 });
 onMounted(async () => {
-  try {
-    const consent = await getPrivacyConsent();
-    analyticsConsent.apply(consent);
-    await emitAnalytics(analyticsConsent.allowed.value, { name: "feature_viewed", fields: { feature_code: feature.slug, ...(feature.packageCode ? { package_code: feature.packageCode } : {}) } });
-  } catch { analyticsConsent.failClosed(); }
+  if (await analyticsConsent.resolve()) {
+    await analyticsConsent.track({ name: "feature_viewed", fields: { feature_code: feature.slug, ...(feature.packageCode ? { package_code: feature.packageCode } : {}) } });
+  }
 });
 </script>
 

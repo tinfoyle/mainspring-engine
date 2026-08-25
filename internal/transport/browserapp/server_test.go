@@ -27,7 +27,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	loginBody, _ := io.ReadAll(login.Body)
 	login.Body.Close()
-	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Find the signal")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) || !bytes.Contains(loginBody, []byte("Sign in with a passkey")) || !bytes.Contains(loginBody, []byte("/assets/passkeys.js")) || !bytes.Contains(loginBody, []byte("/assets/privacy-analytics.js?v=2")) || !bytes.Contains(loginBody, []byte("Accept analytics")) || !bytes.Contains(loginBody, []byte("Reject non-essential")) || !bytes.Contains(loginBody, []byte("Manage preferences")) {
+	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Find the signal")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) || !bytes.Contains(loginBody, []byte("Sign in with a passkey")) || !bytes.Contains(loginBody, []byte("/assets/passkeys.js")) || !bytes.Contains(loginBody, []byte("/assets/privacy-analytics.js?v=3")) || !bytes.Contains(loginBody, []byte("Accept analytics")) || !bytes.Contains(loginBody, []byte("Reject non-essential")) || !bytes.Contains(loginBody, []byte("Manage preferences")) {
 		t.Fatalf("login page: %d %s", login.StatusCode, loginBody)
 	}
 	protected, err := client.Get(server.URL + "/app")
@@ -45,6 +45,9 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	if !bytes.Contains(signup.body, []byte(`data-event="registration_started"`)) {
 		t.Fatalf("successful registration analytics marker missing: %s", signup.body)
 	}
+	if !regexp.MustCompile(`data-event-id="[0-9a-f-]{36}" data-occurred-at="[^"]+"`).Match(signup.body) {
+		t.Fatalf("successful registration stable analytics envelope missing: %s", signup.body)
+	}
 	match := regexp.MustCompile(`/verify\?token=([^"&]+)`).FindSubmatch(signup.body)
 	if len(match) != 2 {
 		t.Fatalf("development verification link missing: %s", signup.body)
@@ -53,6 +56,21 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	verified := postForm(t, client, server.URL+"/verify", url.Values{"token": {token}, "password": {"correct horse battery staple"}})
 	if verified.status != http.StatusOK || !bytes.Contains(verified.body, []byte("Identity verified")) || !bytes.Contains(verified.body, []byte(`data-event="verification_completed"`)) || !bytes.Contains(verified.body, []byte(`data-event-second="account_created"`)) {
 		t.Fatalf("verify: %d %s", verified.status, verified.body)
+	}
+	markerPattern := regexp.MustCompile(`data-event-id="([0-9a-f-]{36})" data-occurred-at="([^"]+)" data-event-second="account_created" data-event-second-id="([0-9a-f-]{36})"`)
+	firstMarkers := markerPattern.FindSubmatch(verified.body)
+	if len(firstMarkers) != 4 || !strings.Contains(verified.url, "analytics_delivery=") || !strings.Contains(verified.url, "analytics_at=") {
+		t.Fatalf("verified transition analytics identity missing: url=%s body=%s", verified.url, verified.body)
+	}
+	refreshed, err := client.Get(verified.url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshedBody, _ := io.ReadAll(refreshed.Body)
+	refreshed.Body.Close()
+	secondMarkers := markerPattern.FindSubmatch(refreshedBody)
+	if len(secondMarkers) != 4 || !bytes.Equal(firstMarkers[1], secondMarkers[1]) || !bytes.Equal(firstMarkers[2], secondMarkers[2]) || !bytes.Equal(firstMarkers[3], secondMarkers[3]) {
+		t.Fatalf("verified analytics envelope changed on refresh: first=%q second=%q", firstMarkers, secondMarkers)
 	}
 	signedIn := postForm(t, client, server.URL+"/login", url.Values{"email": {"avery@example.com"}, "password": {"correct horse battery staple"}})
 	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Northstar Studio")) || !bytes.Contains(signedIn.body, []byte("YOUR OPERATING PARTNER")) || !bytes.Contains(signedIn.body, []byte("FEATURE PACKAGES")) || !bytes.Contains(signedIn.body, []byte("BILLING & ACCESS")) || !bytes.Contains(signedIn.body, []byte("Team")) || !bytes.Contains(signedIn.body, []byte("OWNER IDENTITY SETUP")) || !bytes.Contains(signedIn.body, []byte("Secure the helm")) || !bytes.Contains(signedIn.body, []byte("Save recovery codes")) || bytes.Contains(signedIn.body, []byte("People with access")) {
@@ -268,6 +286,7 @@ func TestPublicOriginCannotSubmitSignupMutation(t *testing.T) {
 type formResponse struct {
 	status int
 	body   []byte
+	url    string
 }
 
 func postForm(t *testing.T, client *http.Client, target string, values url.Values) formResponse {
@@ -281,5 +300,5 @@ func postForm(t *testing.T, client *http.Client, target string, values url.Value
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(response.Body)
-	return formResponse{status: response.StatusCode, body: body}
+	return formResponse{status: response.StatusCode, body: body, url: response.Request.URL.String()}
 }

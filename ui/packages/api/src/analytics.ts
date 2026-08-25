@@ -1,4 +1,3 @@
-import { requestJSON } from "./client";
 import type { AnalyticsEventName } from "./generated/api-types";
 
 export interface AnalyticsEmission {
@@ -8,8 +7,11 @@ export interface AnalyticsEmission {
 
 export async function emitAnalytics(consented: boolean, input: AnalyticsEmission): Promise<boolean> {
   if (!consented) return false;
-  await requestJSON<void>("/api/v1/analytics/events", {
+  const response = await fetch("/api/v1/analytics/events", {
     method: "POST",
+    credentials: "same-origin",
+    keepalive: true,
+    headers: { "Accept": "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({
       event_id: crypto.randomUUID(),
       name: input.name,
@@ -17,5 +19,5 @@ export async function emitAnalytics(consented: boolean, input: AnalyticsEmission
       fields: input.fields ?? {}
     })
   });
-  return true;
+  return response.ok;
 }

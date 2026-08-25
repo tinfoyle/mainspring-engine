@@ -44,4 +44,24 @@ describe("emitAnalytics", () => {
     await expect(emitAnalytics(false, { name: "landing_viewed" })).resolves.toBe(false);
     expect(fetcher).not.toHaveBeenCalled();
   });
+
+  it("uses a navigation-safe request without triggering the application request boundary", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(emitAnalytics(true, { name: "signup_handoff_started", fields: { offer_code: "team-monthly-v1" } })).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/analytics/events", expect.objectContaining({
+      method: "POST",
+      credentials: "same-origin",
+      keepalive: true
+    }));
+  });
+
+  it("reports a rejected optional event without invoking session-expiry navigation", async () => {
+    const unauthorized = vi.fn();
+    setUnauthorizedHandler(unauthorized);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
+    await expect(emitAnalytics(true, { name: "landing_viewed" })).resolves.toBe(false);
+    expect(unauthorized).not.toHaveBeenCalled();
+  });
 });

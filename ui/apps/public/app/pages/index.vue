@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
 import { useRuntimeConfig } from "#imports";
 import { onMounted } from "vue";
 import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
@@ -32,8 +31,8 @@ async function startFree(event: MouseEvent, ctaCode: string): Promise<void> {
   try {
     await Promise.race([
       Promise.all([
-        emitAnalytics(analyticsConsent.allowed.value, { name: "primary_cta_selected", fields: { cta_code: ctaCode, route_name: "landing" } }),
-        emitAnalytics(analyticsConsent.allowed.value, { name: "signup_handoff_started", fields: {} })
+        analyticsConsent.track({ name: "primary_cta_selected", fields: { cta_code: ctaCode, route_name: "landing" } }),
+        analyticsConsent.track({ name: "signup_handoff_started", fields: {} })
       ]),
       new Promise((resolve) => window.setTimeout(resolve, 180))
     ]);
@@ -42,13 +41,8 @@ async function startFree(event: MouseEvent, ctaCode: string): Promise<void> {
 }
 
 onMounted(async () => {
-  try {
-    const consent = await getPrivacyConsent();
-    analyticsConsent.apply(consent);
-    await emitAnalytics(analyticsConsent.allowed.value, { name: "landing_viewed", fields: { route_name: "landing" } });
-  } catch {
-    analyticsConsent.failClosed();
-    // Analytics and its consent lookup must never interrupt the public experience.
+  if (await analyticsConsent.resolve()) {
+    await analyticsConsent.track({ name: "landing_viewed", fields: { route_name: "landing" } });
   }
 });
 </script>

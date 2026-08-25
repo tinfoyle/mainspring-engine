@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
 import { onMounted } from "vue";
 import { publicFeatures } from "~/content/features";
 import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
@@ -22,11 +21,9 @@ usePublicSeo({
 });
 const analyticsConsent = useAnalyticsConsent();
 onMounted(async () => {
-  try {
-    const consent = await getPrivacyConsent();
-    analyticsConsent.apply(consent);
-    await emitAnalytics(analyticsConsent.allowed.value, { name: "feature_viewed", fields: { feature_code: "feature_index", route_name: "features" } });
-  } catch { analyticsConsent.failClosed(); }
+  if (await analyticsConsent.resolve()) {
+    await analyticsConsent.track({ name: "feature_viewed", fields: { feature_code: "feature_index", route_name: "features" } });
+  }
 });
 </script>
 

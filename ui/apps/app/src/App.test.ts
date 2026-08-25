@@ -1,11 +1,21 @@
 // @vitest-environment happy-dom
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia } from "pinia";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.vue";
 import { router } from "./router";
 
-vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ accounts: [] }), { status: 200 })));
+const analytics = vi.hoisted(() => ({ emitAnalytics: vi.fn(), getPrivacyConsent: vi.fn() }));
+vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import("@spyglass/api")>(), ...analytics }));
+const fetcher = vi.fn();
+vi.stubGlobal("fetch", fetcher);
+
+beforeEach(() => {
+  sessionStorage.clear();
+  fetcher.mockReset().mockResolvedValue(new Response(JSON.stringify({ accounts: [] }), { status: 200 }));
+  analytics.getPrivacyConsent.mockReset().mockResolvedValue({ decided: false, analytics: false, marketing: false, renewal_required: false });
+  analytics.emitAnalytics.mockReset().mockResolvedValue(false);
+});
 
 describe("application shell", () => {
   it("makes Your Turn the default mobile destination", async () => {
@@ -23,6 +33,30 @@ describe("application shell", () => {
     expect(wrapper.get("nav").text()).toContain("Exports");
     expect(wrapper.get("nav").text()).toContain("Lifecycle");
     expect(wrapper.find(".nav-link em").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("records first application entry once per tab after authenticated session load", async () => {
+    fetcher.mockResolvedValue(new Response(JSON.stringify({ user_id: "20000000-0000-4000-8000-000000000002", accounts: [] }), { status: 200 }));
+    analytics.getPrivacyConsent.mockResolvedValue({ decided: true, analytics: true, marketing: false, renewal_required: false });
+    analytics.emitAnalytics.mockResolvedValue(true);
+    await router.push("/app/your-turn");
+    await router.isReady();
+
+    const first = mount(App, { global: { plugins: [createPinia(), router] } });
+    await flushPromises();
+    expect(analytics.emitAnalytics).toHaveBeenCalledOnce();
+    expect(analytics.emitAnalytics).toHaveBeenCalledWith(true, {
+      name: "application_entered",
+      fields: { entry_point: "your_turn" }
+    });
+    expect(sessionStorage.getItem("spyglass_application_entered")).toBe("1");
+    first.unmount();
+
+    const repeated = mount(App, { global: { plugins: [createPinia(), router] } });
+    await flushPromises();
+    expect(analytics.emitAnalytics).toHaveBeenCalledOnce();
+    repeated.unmount();
   });
 
   it("contains mobile drawer focus and restores it on Escape", async () => {

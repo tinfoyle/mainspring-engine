@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { emitAnalytics, getPrivacyConsent, type CatalogOffer, type CatalogPlan } from "@spyglass/api";
+import { type CatalogOffer, type CatalogPlan } from "@spyglass/api";
 import { useRuntimeConfig } from "#imports";
 import { computed, onMounted } from "vue";
 import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
@@ -50,8 +50,8 @@ async function chooseOffer(event: MouseEvent, offer: CatalogOffer): Promise<void
   try {
     await Promise.race([
       Promise.all([
-        emitAnalytics(analyticsConsent.allowed.value, { name: "offer_selected", fields: { offer_code: offer.code, route_name: "pricing" } }),
-        emitAnalytics(analyticsConsent.allowed.value, { name: "signup_handoff_started", fields: { offer_code: offer.code } })
+        analyticsConsent.track({ name: "offer_selected", fields: { offer_code: offer.code, route_name: "pricing" } }),
+        analyticsConsent.track({ name: "signup_handoff_started", fields: { offer_code: offer.code } })
       ]),
       new Promise((resolve) => window.setTimeout(resolve, 180))
     ]);
@@ -61,13 +61,20 @@ async function chooseOffer(event: MouseEvent, offer: CatalogOffer): Promise<void
   window.location.assign(destination);
 }
 
-onMounted(async () => {
+async function startFree(event: MouseEvent): Promise<void> {
+  event.preventDefault();
   try {
-    const consent = await getPrivacyConsent();
-    analyticsConsent.apply(consent);
-    await emitAnalytics(analyticsConsent.allowed.value, { name: "pricing_viewed", fields: { route_name: "pricing" } });
-  } catch {
-    analyticsConsent.failClosed();
+    await Promise.race([
+      analyticsConsent.track({ name: "signup_handoff_started", fields: {} }),
+      new Promise((resolve) => window.setTimeout(resolve, 180))
+    ]);
+  } catch { /* Optional analytics never interrupts free Account creation. */ }
+  window.location.assign(`${appOrigin}/signup`);
+}
+
+onMounted(async () => {
+  if (await analyticsConsent.resolve()) {
+    await analyticsConsent.track({ name: "pricing_viewed", fields: { route_name: "pricing" } });
   }
 });
 </script>
@@ -75,7 +82,7 @@ onMounted(async () => {
 <template>
   <section class="content-hero section-frame"><p class="eyebrow">Published pricing</p><h1>Start free.<br />Upgrade with context.</h1><p>Creating an Account never requires payment. Spyglass revalidates every selected offer before secure Stripe Checkout, so this browser never chooses a provider price.</p></section>
   <section class="pricing-grid section-frame" aria-label="Plan comparison">
-    <article><p class="eyebrow">Free</p><h2>$0</h2><p>Build the baseline, organize Work and experience Your Turn before making a purchase decision.</p><ul class="plan-packages"><li>Free Account creation</li><li>Published baseline access</li><li>No payment details required</li></ul><a class="button button--secondary" :href="`${appOrigin}/signup`">Start free</a></article>
+    <article><p class="eyebrow">Free</p><h2>$0</h2><p>Build the baseline, organize Work and experience Your Turn before making a purchase decision.</p><ul class="plan-packages"><li>Free Account creation</li><li>Published baseline access</li><li>No payment details required</li></ul><a class="button button--secondary" :href="`${appOrigin}/signup`" @click="startFree">Start free</a></article>
     <article v-if="catalogState === 'stale'" class="pricing-unavailable" role="status"><p class="eyebrow">Last verified Catalog</p><h2>Current publication is temporarily delayed</h2><p>These offers were verified from Catalog version {{ catalog?.version }}, published {{ publishedLabel }}. Spyglass revalidates any selection before secure Checkout.</p><button class="button button--secondary" type="button" @click="() => refresh()">Check for current Catalog</button></article>
     <article v-for="offer in paidOffers" :key="offer.code" class="pricing-card--featured">
       <p class="eyebrow">{{ planFor(offer)?.name ?? offer.plan_code }}</p>

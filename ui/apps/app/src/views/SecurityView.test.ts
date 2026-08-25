@@ -7,7 +7,8 @@ const api = vi.hoisted(() => ({
   getCurrentIdentity: vi.fn(), getSecurityPosture: vi.fn(), getPasskeys: vi.fn(), getRecoveryCodeStatus: vi.fn(),
   getActiveSessions: vi.fn(), getSecurityEvents: vi.fn(), getMCPGrants: vi.fn(), confirmPassword: vi.fn(),
   beginContactChange: vi.fn(), renamePasskey: vi.fn(), deletePasskey: vi.fn(), compromisePasskey: vi.fn(),
-  rotateRecoveryCodes: vi.fn(), consumeRecoveryCode: vi.fn(), revokeSession: vi.fn(), revokeAllSessions: vi.fn(), revokeMCPGrant: vi.fn()
+  rotateRecoveryCodes: vi.fn(), consumeRecoveryCode: vi.fn(), revokeSession: vi.fn(), revokeAllSessions: vi.fn(), revokeMCPGrant: vi.fn(),
+  getPrivacyConsent: vi.fn(), emitAnalytics: vi.fn()
 }));
 const webauthn = vi.hoisted(() => ({ registerPasskey: vi.fn(), reauthenticateWithPasskey: vi.fn() }));
 vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import("@spyglass/api")>(), ...api }));
@@ -22,6 +23,8 @@ beforeEach(() => {
   api.getRecoveryCodeStatus.mockResolvedValue({ configured: true, version: 1, remaining: 8, created_at: "2026-08-24T20:00:00Z" });
   api.getActiveSessions.mockResolvedValue({ sessions: [currentSession] }); api.getSecurityEvents.mockResolvedValue({ events: [{ type: "passkey_added", occurred_at: "2026-08-24T20:00:00Z" }] });
   api.getMCPGrants.mockResolvedValue({ grants: [{ grant_id: "30000000-0000-4000-8000-000000000003", client_id: "client", client_name: "Codex", created_at: "2026-08-24T20:00:00Z" }] });
+  api.getPrivacyConsent.mockResolvedValue({ decided: true, analytics: true, marketing: false, renewal_required: false });
+  api.emitAnalytics.mockResolvedValue(true);
 });
 describe("Security surface", () => {
   it("renders the complete identity boundary without Account coupling", async () => {
@@ -34,6 +37,27 @@ describe("Security surface", () => {
     const wrapper = mount(SecurityView); await flushPromises();
     await wrapper.findAll("button").find((button) => button.text() === "Replace recovery codes")?.trigger("click"); await flushPromises();
     expect(wrapper.text()).toContain("Save these now"); expect(wrapper.text()).toContain("a"); expect(wrapper.text()).toContain("b");
+    expect(api.emitAnalytics).not.toHaveBeenCalled();
+  });
+  it("records first owner-security completion only after authoritative readiness", async () => {
+    api.getSecurityPosture
+      .mockResolvedValueOnce({ passkey_count: 1, recovery_codes_configured: false, recovery_codes_remaining: 0, owner_ready: false })
+      .mockResolvedValueOnce({ passkey_count: 1, recovery_codes_configured: true, recovery_codes_remaining: 10, owner_ready: true });
+    api.getRecoveryCodeStatus
+      .mockResolvedValueOnce({ configured: false, version: 0, remaining: 0 })
+      .mockResolvedValueOnce({ configured: true, version: 1, remaining: 10 });
+    api.rotateRecoveryCodes.mockResolvedValue({ status: { configured: true, version: 1, remaining: 10 }, codes: ["first-code"] });
+
+    const wrapper = mount(SecurityView); await flushPromises();
+    await wrapper.findAll("button").find((button) => button.text() === "Create recovery codes")?.trigger("click"); await flushPromises();
+
+    expect(api.getSecurityPosture).toHaveBeenCalledTimes(2);
+    expect(api.emitAnalytics).toHaveBeenCalledOnce();
+    expect(api.emitAnalytics).toHaveBeenCalledWith(true, {
+      name: "security_enrollment_completed",
+      fields: { method: "passkey_recovery_codes" }
+    });
+    expect(api.getSecurityPosture.mock.invocationCallOrder.at(-1)).toBeLessThan(api.emitAnalytics.mock.invocationCallOrder[0]!);
   });
   it("requires a typed phrase before signing out everywhere", async () => {
     api.revokeAllSessions.mockResolvedValue(undefined); const assign = vi.spyOn(window.location, "assign").mockImplementation(() => undefined);

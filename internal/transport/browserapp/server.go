@@ -462,7 +462,8 @@ type pageData struct {
 	AttentionAvailable, ApprovalsAvailable                                                             bool
 	Script                                                                                             string
 	PrivacyControls                                                                                    bool
-	AnalyticsEvent, AnalyticsEventSecond, AnalyticsMethod                                              string
+	AnalyticsEvent, AnalyticsEventSecond, AnalyticsEventID, AnalyticsEventSecondID                     string
+	AnalyticsOccurredAt, AnalyticsMethod                                                               string
 }
 
 type billingPlan struct {
@@ -491,6 +492,32 @@ func (s *Server) render(w http.ResponseWriter, status int, name string, data pag
 	}
 }
 
+func setAnalyticsMarkers(data *pageData, deliveryID string, occurredAt time.Time, names ...string) {
+	if data == nil || ids.Validate(deliveryID) != nil || len(names) == 0 || names[0] == "" {
+		return
+	}
+	firstID, err := ids.Derive(deliveryID, "analytics/"+names[0])
+	if err != nil {
+		return
+	}
+	data.AnalyticsEvent = names[0]
+	data.AnalyticsEventID = firstID
+	data.AnalyticsOccurredAt = occurredAt.UTC().Format(time.RFC3339Nano)
+	if len(names) < 2 || names[1] == "" {
+		return
+	}
+	secondID, err := ids.Derive(deliveryID, "analytics/"+names[1])
+	if err != nil {
+		return
+	}
+	data.AnalyticsEventSecond = names[1]
+	data.AnalyticsEventSecondID = secondID
+}
+
+func newAnalyticsMarkers(data *pageData, occurredAt time.Time, names ...string) {
+	setAnalyticsMarkers(data, ids.RandomGenerator{}.New(), occurredAt, names...)
+}
+
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.currentSession(w, r); ok {
 		target := safeReturnTo(r.URL.Query().Get("return_to"))
@@ -502,7 +529,11 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 	}
 	data := pageData{Title: "Sign in", Notice: loginNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), PasskeysConfigured: s.passkeys != nil, PrivacyControls: true}
 	if r.URL.Query().Get("status") == "verified" {
-		data.AnalyticsEvent, data.AnalyticsEventSecond = "verification_completed", "account_created"
+		seconds, parseErr := strconv.ParseInt(r.URL.Query().Get("analytics_at"), 10, 64)
+		occurredAt := time.Unix(seconds, 0).UTC()
+		if parseErr == nil && occurredAt.After(time.Now().UTC().Add(-24*time.Hour)) && occurredAt.Before(time.Now().UTC().Add(5*time.Minute)) {
+			setAnalyticsMarkers(&data, r.URL.Query().Get("analytics_delivery"), occurredAt, "verification_completed", "account_created")
+		}
 	}
 	if data.PasskeysConfigured {
 		data.Script = "/assets/passkeys.js"
@@ -555,7 +586,8 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusBadRequest, "signup", pageData{Title: "Create your Account", Error: "We could not start this registration. Check the details or sign in if the email is already registered.", Email: r.FormValue("email"), Name: name, AccountName: r.FormValue("account_name"), OfferCode: offerCode, PrivacyControls: true})
 		return
 	}
-	data := pageData{Title: "Check your email", Notice: "Your verification link is on its way.", Email: r.FormValue("email"), OfferCode: offerCode, PrivacyControls: true, AnalyticsEvent: "registration_started"}
+	data := pageData{Title: "Check your email", Notice: "Your verification link is on its way.", Email: r.FormValue("email"), OfferCode: offerCode, PrivacyControls: true}
+	newAnalyticsMarkers(&data, time.Now().UTC(), "registration_started")
 	if s.config.ExposeDevelopmentTokens && s.verificationTokens != nil {
 		if message, ok := s.verificationTokens.Latest(); ok && message.RegistrationID == result.RegistrationID {
 			data.DevelopmentToken = message.Token
@@ -589,6 +621,8 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	loginQuery := url.Values{"status": {"verified"}}
+	loginQuery.Set("analytics_delivery", ids.RandomGenerator{}.New())
+	loginQuery.Set("analytics_at", strconv.FormatInt(time.Now().UTC().Unix(), 10))
 	if offerCode != "" {
 		loginQuery.Set("return_to", "/app?offer="+url.QueryEscape(offerCode)+"&status=welcome#billing")
 	}
@@ -1343,7 +1377,8 @@ func (s *Server) rotateRecoveryCodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data.Notice = "New recovery codes created. Save them now; Spyglass will not show them again."
-	data.AnalyticsEvent, data.AnalyticsMethod = "security_enrollment_completed", "passkey_recovery_codes"
+	newAnalyticsMarkers(&data, time.Now().UTC(), "security_enrollment_completed")
+	data.AnalyticsMethod = "passkey_recovery_codes"
 	data.RecoveryCodes = rotation.Codes
 	data.RecoveryCodeStatus = rotation.Status
 	s.render(w, http.StatusCreated, "security", data)

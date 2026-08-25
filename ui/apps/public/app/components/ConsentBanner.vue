@@ -32,8 +32,8 @@ async function choose(nextAnalytics: boolean, nextMarketing = false): Promise<vo
   try {
     preference.value = await setPrivacyConsent({ analytics: nextAnalytics, marketing: nextMarketing });
     consentState.apply(preference.value);
-    analytics.value = nextAnalytics;
-    marketing.value = nextMarketing;
+    analytics.value = preference.value.analytics;
+    marketing.value = preference.value.marketing;
     managing.value = false;
   } catch {
     analytics.value = previous?.analytics ?? false;

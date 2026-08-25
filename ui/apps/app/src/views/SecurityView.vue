@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   APIProblem, beginContactChange, compromisePasskey, confirmPassword, consumeRecoveryCode, deletePasskey,
-  getActiveSessions, getCurrentIdentity, getMCPGrants, getPasskeys, getRecoveryCodeStatus, getSecurityEvents,
+  emitAnalytics, getActiveSessions, getCurrentIdentity, getMCPGrants, getPasskeys, getPrivacyConsent, getRecoveryCodeStatus, getSecurityEvents,
   getSecurityPosture, renamePasskey, revokeAllSessions, revokeMCPGrant, revokeSession, rotateRecoveryCodes,
   type ActiveSession, type CurrentIdentity, type MCPGrant, type PasskeyCredential, type RecoveryCodeStatus,
   type SecurityEvent, type SecurityPosture
@@ -48,8 +48,27 @@ async function run(task: () => Promise<unknown>, success: string, reload = true)
   catch (cause) { error.value = problem(cause, "The security change could not be completed.") + securityHint(cause); return false; }
   finally { saving.value = false; }
 }
+async function recordCompletedSecurityEnrollment(previouslyReady: boolean): Promise<void> {
+  if (previouslyReady || !ownerReady.value) return;
+  try {
+    const consent = await getPrivacyConsent();
+    await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, {
+      name: "security_enrollment_completed",
+      fields: { method: "passkey_recovery_codes" }
+    });
+  } catch {
+    // Optional measurement never delays or changes identity-security setup.
+  }
+}
 async function submitPassword(): Promise<void> { if (await run(() => confirmPassword(password.value), "Password confirmed for recovery operations.", false)) password.value = ""; }
-async function addPasskey(): Promise<void> { if (await run(() => registerPasskey(passkeyName.value.trim()), "Passkey added and privileged actions unlocked.")) { passkeyName.value = ""; if (returnTo && ownerReady.value) window.location.assign(returnTo); } }
+async function addPasskey(): Promise<void> {
+  const previouslyReady = ownerReady.value;
+  if (await run(() => registerPasskey(passkeyName.value.trim()), "Passkey added and privileged actions unlocked.")) {
+    passkeyName.value = "";
+    void recordCompletedSecurityEnrollment(previouslyReady);
+    if (returnTo && ownerReady.value) window.location.assign(returnTo);
+  }
+}
 async function confirmPasskey(): Promise<void> { if (await run(reauthenticateWithPasskey, "Passkey confirmed. Privileged actions are unlocked for ten minutes.", false)) { if (returnTo && ownerReady.value) window.location.assign(returnTo); } }
 async function changeContact(): Promise<void> {
   const email = newEmail.value.trim();
@@ -60,7 +79,10 @@ async function rename(credential: PasskeyCredential, event: Event): Promise<void
   await run(() => renamePasskey(credential.id, name), `${credential.name} renamed.`);
 }
 async function rotateCodes(): Promise<void> {
-  await run(async () => { const result = await rotateRecoveryCodes(); newCodes.value = result.codes; recovery.value = result.status; }, "New recovery codes created. Save them now.", false);
+  const previouslyReady = ownerReady.value;
+  if (await run(async () => { const result = await rotateRecoveryCodes(); newCodes.value = result.codes; recovery.value = result.status; }, "New recovery codes created. Save them now.")) {
+    void recordCompletedSecurityEnrollment(previouslyReady);
+  }
 }
 async function useCode(): Promise<void> { if (await run(() => consumeRecoveryCode(recoveryCode.value.trim()), "Recovery code accepted. Add a replacement passkey within ten minutes.")) recoveryCode.value = ""; }
 function beginAction(value: DestructiveAction, id = "", name = "", current = false): void { action.value = value; targetID.value = id; targetName.value = name; targetCurrent.value = current; confirmation.value = ""; actionOpen.value = true; }

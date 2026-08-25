@@ -10,6 +10,31 @@
   if (!panel || !reopen || !options || !analytics || !marketing || !error) return;
   let decision;
   let emitted = false;
+  let emitting = false;
+  let retryCount = 0;
+  let retryTimer;
+
+  const occurredAt = marker?.dataset.occurredAt || new Date().toISOString();
+  const events = [
+    { name: marker?.dataset.event, id: marker?.dataset.eventId },
+    { name: marker?.dataset.eventSecond, id: marker?.dataset.eventSecondId }
+  ].filter((event) => event.name).map((event) => ({
+    id: event.id || crypto.randomUUID(),
+    name: event.name,
+    occurredAt
+  }));
+  const deliveryKey = marker && events.length
+    ? `spyglass:onboarding-analytics:v1:${events.map((event) => event.id).join("+")}`
+    : "";
+
+  const wasHandled = () => {
+    if (!deliveryKey) return false;
+    try { return sessionStorage.getItem(deliveryKey) === "1"; } catch { return false; }
+  };
+  const rememberHandled = () => {
+    if (!deliveryKey) return;
+    try { sessionStorage.setItem(deliveryKey, "1"); } catch { /* Optional deduplication can remain memory-only. */ }
+  };
 
   const fieldsFor = (name) => {
     const fields = {};
@@ -18,14 +43,37 @@
     return fields;
   };
   const emit = async () => {
-    if (emitted || !decision?.decided || !decision.analytics || decision.renewal_required || !marker) return;
-    emitted = true;
-    const names = [marker.dataset.event, marker.dataset.eventSecond].filter(Boolean);
-    await Promise.allSettled(names.map((name) => fetch("/api/v1/analytics/events", {
+    if (emitted || emitting || !decision?.decided || !decision.analytics || decision.renewal_required || events.length === 0) return;
+    if (wasHandled()) {
+      emitted = true;
+      return;
+    }
+    emitting = true;
+    const results = await Promise.allSettled(events.map((event) => fetch("/api/v1/analytics/events", {
       method: "POST", credentials: "same-origin", keepalive: true,
       headers: { "Content-Type": "application/json", "Accept": "application/json" },
-      body: JSON.stringify({ event_id: crypto.randomUUID(), name, occurred_at: new Date().toISOString(), fields: fieldsFor(name) })
+      body: JSON.stringify({ event_id: event.id, name: event.name, occurred_at: event.occurredAt, fields: fieldsFor(event.name) })
     })));
+    emitting = false;
+    if (results.every((result) => result.status === "fulfilled" && result.value.ok)) {
+      emitted = true;
+      rememberHandled();
+      return;
+    }
+    const responses = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    if (responses.some((response) => response.status === 401 || response.status === 403)) {
+      emitted = true;
+      rememberHandled();
+      return;
+    }
+    const retryable = results.some((result) => result.status === "rejected") || responses.some((response) => response.status === 429 || response.status >= 500);
+    if (retryable && retryCount < 2) {
+      retryCount += 1;
+      retryTimer = window.setTimeout(() => void emit(), retryCount * 1000);
+    } else {
+      emitted = true;
+      rememberHandled();
+    }
   };
   const render = () => {
     const needsChoice = !decision?.decided || decision.renewal_required;
@@ -64,6 +112,9 @@
   panel.querySelector("[data-privacy-manage]")?.addEventListener("click", () => { options.hidden = false; });
   panel.querySelector("[data-privacy-save]")?.addEventListener("click", () => void save(analytics.checked, marketing.checked));
   reopen.addEventListener("click", () => { panel.hidden = false; reopen.hidden = true; options.hidden = false; });
+  window.addEventListener("online", () => void emit());
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void emit(); });
+  window.addEventListener("pagehide", () => { if (retryTimer) window.clearTimeout(retryTimer); }, { once: true });
 
   fetch("/api/v1/privacy/consent", { credentials: "same-origin", headers: { "Accept": "application/json" } })
     .then((response) => { if (!response.ok) throw new Error("preference unavailable"); return response.json(); })

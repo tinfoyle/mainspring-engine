@@ -1,4 +1,4 @@
-import type { PrivacyConsent } from "@spyglass/api";
+import { emitAnalytics, getPrivacyConsent, type AnalyticsEmission, type PrivacyConsent } from "@spyglass/api";
 import { useState } from "#imports";
 
 export function useAnalyticsConsent() {
@@ -18,5 +18,23 @@ export function useAnalyticsConsent() {
     allowed.value = false;
   }
 
-  return { allowed, apply, failClosed };
+  async function resolve(): Promise<boolean> {
+    try {
+      apply(await getPrivacyConsent());
+      return true;
+    } catch {
+      failClosed();
+      return false;
+    }
+  }
+
+  async function track(input: AnalyticsEmission): Promise<boolean> {
+    try {
+      return await emitAnalytics(allowed.value, input);
+    } catch {
+      return false;
+    }
+  }
+
+  return { allowed, apply, failClosed, resolve, track };
 }
