@@ -7,5 +7,6 @@ export * from "./catalog";
 export * from "./affiliate";
 export * from "./work";
 export * from "./knowledge";
+export * from "./agents";
 export * from "./generated/api-types";
 export { apiRoutes } from "./generated/api-contract";

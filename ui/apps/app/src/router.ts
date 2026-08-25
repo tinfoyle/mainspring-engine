@@ -1,12 +1,12 @@
 import { createRouter, createWebHistory } from "vue-router";
 import PrivacyView from "./views/PrivacyView.vue";
-import FeaturePlaceholderView from "./views/FeaturePlaceholderView.vue";
 import YourTurnView from "./views/YourTurnView.vue";
 import YourTurnDetailView from "./views/YourTurnDetailView.vue";
 import CheckoutView from "./views/CheckoutView.vue";
 import AffiliateView from "./views/AffiliateView.vue";
 import WorkView from "./views/WorkView.vue";
 import KnowledgeView from "./views/KnowledgeView.vue";
+import AgentsView from "./views/AgentsView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -19,7 +19,9 @@ export const router = createRouter({
 	{ path: "/app/work/:itemID", name: "work-detail", component: WorkView, meta: { title: "Work detail" } },
 	{ path: "/app/knowledge", name: "knowledge", component: KnowledgeView, meta: { title: "Knowledge" } },
 	{ path: "/app/knowledge/claims/:claimID", name: "knowledge-claim", component: KnowledgeView, meta: { title: "Knowledge claim" } },
-	{ path: "/app/agents", name: "agents", component: FeaturePlaceholderView, meta: { title: "Agents" } },
+	{ path: "/app/agents", name: "agents", component: AgentsView, meta: { title: "Agents" } },
+	{ path: "/app/agents/boardrooms/:roomID", name: "agent-boardroom", component: AgentsView, meta: { title: "Agent Boardroom" } },
+	{ path: "/app/agents/boardrooms/:roomID/conversations/:conversationID", name: "agent-conversation", component: AgentsView, meta: { title: "Agent conversation" } },
     { path: "/app/checkout", name: "checkout", component: CheckoutView, meta: { title: "Checkout" } },
     { path: "/app/affiliate", name: "affiliate", component: AffiliateView, meta: { title: "Affiliate" } },
     { path: "/app/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },

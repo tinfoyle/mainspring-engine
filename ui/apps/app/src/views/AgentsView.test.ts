@@ -1,0 +1,69 @@
+// @vitest-environment happy-dom
+import { flushPromises, mount, RouterLinkStub } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
+import { createMemoryHistory, createRouter } from "vue-router";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccountChoice, AgentBoardroom, AgentConversation, AgentMessage, AgentPersona, AgentRun } from "@spyglass/api";
+import { useSessionStore } from "../stores/session";
+import AgentsView from "./AgentsView.vue";
+
+const api = vi.hoisted(() => ({
+  listAgentBoardrooms: vi.fn(), createAgentBoardroom: vi.fn(), listAgentPersonas: vi.fn(), configureAgentManager: vi.fn(),
+  listAgentConversations: vi.fn(), getAgentConversation: vi.fn(), listAgentMessages: vi.fn(), startAgentRun: vi.fn(),
+  getAgentRun: vi.fn(), resolveAgentRun: vi.fn()
+}));
+vi.mock("@spyglass/api", async (importOriginal) => ({ ...await importOriginal<typeof import("@spyglass/api")>(), ...api }));
+
+const account = {
+  account_id: "10000000-0000-4000-8000-000000000001", account_type: "paid", account_version: 1, cell_id: "cell-us-east-01",
+  display_name: "Northstar Studio", placement_generation: 1, role: "owner", slug: "northstar-studio", owner_enrollment_required: false,
+  entitlements: { account_id: "10000000-0000-4000-8000-000000000001", catalog_version: 2, evaluated_at: "2026-08-24T20:00:00Z", version: 3,
+    packages: [{ code: "agents", version: 1, mode: "enabled", sources: ["subscription"] }] }
+} satisfies AccountChoice;
+const room = { id: "20000000-0000-4000-8000-000000000002", manager_persona_id: "30000000-0000-4000-8000-000000000003", name: "Operating review", purpose: "Resolve launch constraints.", state: "active", version: 4, created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z" } satisfies AgentBoardroom;
+const persona = {
+  id: room.manager_persona_id, boardroom_id: room.id, state: "active", latest_version: 2, persona_version_id: "40000000-0000-4000-8000-000000000004",
+  name: "Operations Lead", role: "Synthesis manager", description: "Synthesizes evidence and open risks.", system_instructions: "Review the evidence and state bounded recommendations.", content_digest: "a".repeat(64),
+  policy: { provider: "openai", model: "gpt-5.4", fallback_models: [], maximum_input_tokens: 10000, maximum_output_tokens: 2000, maximum_cost_micros: 100000, maximum_tool_steps: 2, citation_policy: "required", action_policy: "propose", tools: [], output_schema: {} },
+  created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z"
+} satisfies AgentPersona;
+const conversation = { id: "50000000-0000-4000-8000-000000000005", boardroom_id: room.id, subject: "Launch readiness", state: "open", message_count: 2, created_by: "60000000-0000-4000-8000-000000000006", created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:05:00Z" } satisfies AgentConversation;
+const message = {
+  id: "70000000-0000-4000-8000-000000000007", conversation_id: conversation.id, sequence: 2, role: "persona", body: "Two readiness gaps remain.", run_id: "80000000-0000-4000-8000-000000000008", invocation_id: "90000000-0000-4000-8000-000000000009", persona_version_id: persona.persona_version_id, created_at: "2026-08-24T20:05:00Z",
+  result: { contribution: "Two readiness gaps remain.", findings: ["Security review is open."], recommendations: ["Close the review."], questions: [], citations: [], delegations: [], confidence: "high", proposed_actions: [{ kind: "marketing.release.publish", reason: "Publish only after approval.", payload: { secret_internal_field: "must not render" }, evidence: ["release-checklist"] }] }
+} satisfies AgentMessage;
+const run = { id: message.run_id, boardroom_id: room.id, conversation_id: conversation.id, subject: conversation.subject, prompt: "Review launch readiness.", mode: "selected", state: "succeeded", context: [], context_digest: "b".repeat(64), entitlement_version: 3, plan_digest: "c".repeat(64), policy_version: 2, invocation_ids: [], invocations: [], turns: [], resolutions: [], user_message_id: "a0000000-0000-4000-8000-00000000000a", created_at: "2026-08-24T20:00:00Z" } as AgentRun;
+
+async function mountAt(path: string) {
+  const router = createRouter({ history: createMemoryHistory(), routes: [
+    { path: "/app/agents", component: AgentsView }, { path: "/app/agents/boardrooms/:roomID", component: AgentsView },
+    { path: "/app/agents/boardrooms/:roomID/conversations/:conversationID", component: AgentsView }
+  ] });
+  await router.push(path); await router.isReady();
+  const wrapper = mount(AgentsView, { global: { plugins: [router], stubs: { RouterLink: RouterLinkStub } } });
+  await flushPromises(); return wrapper;
+}
+
+beforeEach(() => {
+  setActivePinia(createPinia());
+  for (const mock of Object.values(api)) mock.mockReset();
+  api.listAgentBoardrooms.mockResolvedValue([room]); api.listAgentPersonas.mockResolvedValue([persona]); api.listAgentConversations.mockResolvedValue([conversation]);
+  api.getAgentConversation.mockResolvedValue(conversation); api.listAgentMessages.mockResolvedValue([message]); api.getAgentRun.mockResolvedValue(run);
+  const session = useSessionStore(); session.accounts = [account]; session.selectedID = account.account_id; session.userID = "60000000-0000-4000-8000-000000000006";
+});
+
+describe("Agents surface", () => {
+  it("renders durable Boardroom and Persona policy boundaries", async () => {
+    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
+    expect(wrapper.text()).toContain("Operating review"); expect(wrapper.text()).toContain("Operations Lead");
+    expect(wrapper.text()).toContain("Propose only—human approval remains external"); expect(wrapper.text()).toContain("Convene Boardroom");
+    expect(wrapper.findAllComponents(RouterLinkStub).some((link) => link.props("to") === `/app/agents/boardrooms/${room.id}/conversations/${conversation.id}`)).toBe(true);
+  });
+
+  it("renders conversation evidence while routing consequential proposals to Your Turn", async () => {
+    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}/conversations/${conversation.id}`);
+    expect(api.listAgentMessages).toHaveBeenCalledWith(account.account_id, conversation.id);
+    expect(wrapper.text()).toContain("Two readiness gaps remain"); expect(wrapper.text()).toContain("Security review is open");
+    expect(wrapper.text()).toContain("Review consequential proposals in Your Turn"); expect(wrapper.text()).not.toContain("secret_internal_field");
+  });
+});

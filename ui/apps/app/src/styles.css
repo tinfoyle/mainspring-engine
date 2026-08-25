@@ -150,6 +150,56 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .knowledge-citations ol { margin: .7rem 0 0; padding: 0; display: grid; list-style: none; }
 .knowledge-citations li { padding: .75rem 0; display: grid; gap: .3rem; border-top: 1px solid #e8eeeb; }
 .knowledge-citations span { color: var(--io-ink-soft); overflow-wrap: anywhere; }
+.agents-create { margin-top: 1.25rem; }
+.agents-room-list { margin: 1.25rem 0 0; padding: 0; display: grid; gap: .75rem; list-style: none; }
+.agents-room-card { min-width: 0; min-height: 7rem; padding: 1rem; display: grid; grid-template-columns: 3rem minmax(0, 1fr); gap: .85rem; align-items: start; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); color: inherit; background: var(--io-paper); text-decoration: none; }
+.agents-room-card:hover { border-color: var(--io-ocean-500); }
+.agents-avatar { flex: 0 0 auto; width: 2.75rem; height: 2.75rem; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--io-ocean-800); font-size: .7rem; font-weight: 850; letter-spacing: .04em; }
+.agents-room-card strong { color: var(--io-ocean-950); }
+.agents-room-card p { margin: .35rem 0; color: var(--io-ink-soft); line-height: 1.4; }
+.agents-room-card small { color: var(--io-ocean-650); }
+.agents-heading > div > p:last-child { max-width: 44rem; color: var(--io-ink-soft); line-height: 1.5; }
+.agents-roster, .agents-conversations, .agents-transcript { margin-top: 1.25rem; padding: 1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
+.agents-roster > header, .agents-conversations > header, .agents-transcript > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.agents-roster > header h2, .agents-conversations > header h2, .agents-transcript > header h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.55rem/1.2 Georgia, serif; }
+.agents-roster > header > span, .agents-conversations > header > span, .agents-transcript > header > span { color: var(--io-ink-soft); font-size: .78rem; }
+.agents-personas { margin-top: 1rem; display: grid; gap: .65rem; }
+.agents-persona { border: 1px solid var(--io-line); border-radius: .75rem; background: var(--io-sky); }
+.agents-persona summary { min-height: 4.8rem; padding: .75rem; display: grid; grid-template-columns: 2.75rem 1fr; align-items: center; gap: .75rem; cursor: pointer; list-style: none; }
+.agents-persona summary::-webkit-details-marker { display: none; }
+.agents-persona summary > span:last-child { min-width: 0; display: grid; gap: .2rem; }
+.agents-persona summary small { color: var(--io-ink-soft); }
+.agents-persona > p, .agents-persona > dl { margin: 0; padding: 0 .9rem 1rem; color: var(--io-ink-soft); line-height: 1.5; }
+.agents-persona > dl { display: grid; gap: .55rem; }
+.agents-persona dl div { display: grid; grid-template-columns: 7rem 1fr; gap: .5rem; }
+.agents-persona dt { font-size: .72rem; font-weight: 800; text-transform: uppercase; }
+.agents-persona dd { margin: 0; overflow-wrap: anywhere; }
+.agents-manager { margin-top: 1rem; padding-top: 1rem; display: grid; gap: .65rem; border-top: 1px solid #e8eeeb; }
+.agents-manager label { display: grid; gap: .35rem; color: var(--io-ocean-950); font-size: .78rem; font-weight: 780; }
+.agents-manager select, .agents-composer input, .agents-composer select { width: 100%; min-height: 48px; padding: .7rem; border: 1px solid var(--io-line); border-radius: .65rem; background: white; font: inherit; }
+.agents-composer { margin-top: 1.25rem; }
+.agents-composer fieldset label { align-items: flex-start; }
+.agents-composer fieldset label span { display: grid; gap: .2rem; }
+.agents-composer fieldset small { color: var(--io-ink-soft); }
+.agents-conversations > ol { margin: 1rem 0 0; padding: 0; display: grid; gap: .65rem; list-style: none; }
+.agents-conversation-card { min-height: 5rem; padding: .85rem; display: grid; gap: .3rem; border: 1px solid var(--io-line); border-radius: .75rem; color: inherit; background: var(--io-sky); text-decoration: none; }
+.agents-conversation-card strong { color: var(--io-ocean-950); }
+.agents-conversation-card span, .agents-conversation-card small { color: var(--io-ink-soft); }
+.agents-run-state { padding: .75rem; border-radius: .7rem; color: var(--io-ocean-800); background: var(--io-sky); }
+.agents-recovery { margin: 1rem 0; background: #fff8e9; }
+.agents-message-list { margin-top: 1rem; display: grid; gap: 1rem; }
+.agents-message { min-width: 0; display: grid; grid-template-columns: 2.75rem minmax(0, 1fr); gap: .75rem; align-items: start; }
+.agents-message > div { min-width: 0; padding: .9rem; border-radius: .8rem; background: var(--io-sky); }
+.agents-message--user > div { background: #f1eee7; }
+.agents-message header { display: flex; justify-content: space-between; gap: .7rem; }
+.agents-message header time { color: var(--io-ink-soft); font-size: .72rem; }
+.agents-message p, .agents-message li { overflow-wrap: anywhere; line-height: 1.5; }
+.agents-message section { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid rgb(5 47 57 / 12%); }
+.agents-message section h3 { margin: 0; font-size: .85rem; }
+.agents-message section ul { margin: .45rem 0 0; padding-left: 1.1rem; }
+.agents-proposals { border-left: 3px solid var(--io-coral); padding-left: .7rem; }
+.agents-proposals a { min-height: 44px; display: inline-flex; align-items: center; color: var(--io-ocean-800); font-weight: 750; }
+.agents-confidence { display: inline-block; margin-top: .75rem; color: var(--io-ocean-650); font-weight: 750; }
 .checkout-layout { margin-top: 1.5rem; display: grid; gap: 1rem; }
 .checkout-card { min-width: 0; padding: 1.1rem; display: grid; gap: .85rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
 .checkout-card h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.55rem/1.2 Georgia, serif; }
@@ -232,6 +282,10 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .work-form-grid { grid-template-columns: repeat(3, 1fr); }
   .knowledge-section { padding: 1.35rem; }
   .knowledge-list { grid-template-columns: 1fr 1fr; }
+  .agents-room-list { grid-template-columns: 1fr 1fr; }
+  .agents-roster, .agents-conversations, .agents-transcript { padding: 1.35rem; }
+  .agents-personas { grid-template-columns: 1fr 1fr; }
+  .agents-manager { grid-template-columns: 1fr auto; align-items: end; }
   .modal-backdrop { place-items: center; }
 }
 
