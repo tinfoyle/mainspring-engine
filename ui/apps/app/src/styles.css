@@ -342,6 +342,21 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .export-list dd, .lifecycle-list dd { margin: .2rem 0 0; overflow-wrap: anywhere; font-size: .84rem; }
 .export-list aside { display: flex; flex-wrap: wrap; gap: .5rem; }
 .lifecycle-list p { color: var(--io-ink-soft); line-height: 1.45; }
+.billing-summary-card, .billing-history { margin-top: 1.25rem; padding: 1.1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
+.billing-summary-card { display: grid; gap: 1rem; }
+.billing-summary-card h2, .billing-history h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.65rem/1.2 Georgia, serif; }
+.billing-summary-card p:last-child { margin-bottom: 0; color: var(--io-ink-soft); line-height: 1.5; }
+.billing-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
+.io-link-button { min-height: 44px; padding: .7rem 1rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--io-line); border-radius: .7rem; color: var(--io-ocean-800); background: white; font-weight: 780; text-decoration: none; }
+.billing-history > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.billing-history > header > span { flex: 0 0 auto; color: var(--io-ink-soft); font-size: .75rem; }
+.billing-list { margin: 1rem 0 0; padding: 0; display: grid; gap: .75rem; list-style: none; }
+.billing-list > li { min-width: 0; padding: 1rem; border: 1px solid var(--io-line); border-radius: .8rem; background: var(--io-sky); }
+.billing-list h3 { margin: .65rem 0 .25rem; color: var(--io-ocean-950); font-size: 1.08rem; }
+.billing-list small { color: var(--io-ink-soft); overflow-wrap: anywhere; }
+.billing-list dl { margin: .9rem 0 0; display: grid; gap: .65rem; }
+.billing-list dt { color: var(--io-ink-soft); font-size: .68rem; font-weight: 800; text-transform: uppercase; }
+.billing-list dd { margin: .2rem 0 0; font-size: .84rem; }
 
 @keyframes shimmer { to { background-position: -200% 0; } }
 
@@ -390,6 +405,10 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .export-request .io-button, .lifecycle-request .io-button { justify-self: end; }
   .export-history, .lifecycle-history { padding: 1.35rem; }
   .export-list > li, .lifecycle-list > li { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .billing-summary-card { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 1.35rem; }
+  .billing-actions { justify-content: end; }
+  .billing-history { padding: 1.35rem; }
+  .billing-list { grid-template-columns: 1fr 1fr; }
   .preference-panel, .privacy-danger, .rights-panel, .privacy-tools { padding: 1.35rem; }
   .rights-form { grid-template-columns: 1fr 1fr; column-gap: 1rem; }
   .rights-form > label:nth-of-type(2) { grid-column: 2; grid-row: 1; }

@@ -15,3 +15,9 @@ export const createCheckoutSession = (
   headers: { "Idempotency-Key": requestID },
   body: JSON.stringify(input)
 });
+
+export const createBillingPortalSession = (accountID: string, requestID: string): Promise<HostedBillingSession> =>
+  requestJSON(`/api/v1/accounts/${encodeURIComponent(accountID)}/billing-portal-sessions`, {
+    method: "POST",
+    headers: { "Idempotency-Key": requestID }
+  });

@@ -12,6 +12,7 @@ import AccountView from "./views/AccountView.vue";
 import SecurityView from "./views/SecurityView.vue";
 import ExportsView from "./views/ExportsView.vue";
 import LifecycleView from "./views/LifecycleView.vue";
+import BillingView from "./views/BillingView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -33,6 +34,7 @@ export const router = createRouter({
     { path: "/app/security", name: "security", component: SecurityView, meta: { title: "Security" } },
     { path: "/app/account-exports", name: "account-exports", component: ExportsView, meta: { title: "Account exports" } },
     { path: "/app/account-closures", name: "account-closures", component: LifecycleView, meta: { title: "Account lifecycle" } },
+    { path: "/app/billing", name: "billing", component: BillingView, meta: { title: "Billing" } },
     { path: "/app/checkout", name: "checkout", component: CheckoutView, meta: { title: "Checkout" } },
     { path: "/app/affiliate", name: "affiliate", component: AffiliateView, meta: { title: "Affiliate" } },
     { path: "/app/privacy", name: "privacy", component: PrivacyView, meta: { title: "Privacy" } },

@@ -75,6 +75,7 @@ func (r *serviceRepository) ProviderPrice(context.Context, uint64, string, strin
 type serviceProvider struct {
 	customerCalls, checkoutCalls, portalCalls int
 	checkout                                  billing.CreateCheckoutCommand
+	portal                                    billing.CreatePortalCommand
 }
 
 type referralAttributor struct {
@@ -102,8 +103,9 @@ func (p *serviceProvider) CreateCheckoutSession(_ context.Context, command billi
 	p.checkout = command
 	return billing.HostedSession{ID: "cs_test", URL: "https://checkout.stripe.com/test"}, nil
 }
-func (p *serviceProvider) CreatePortalSession(context.Context, billing.CreatePortalCommand) (billing.HostedSession, error) {
+func (p *serviceProvider) CreatePortalSession(_ context.Context, command billing.CreatePortalCommand) (billing.HostedSession, error) {
 	p.portalCalls++
+	p.portal = command
 	return billing.HostedSession{ID: "bps_test", URL: "https://billing.stripe.com/test"}, nil
 }
 func (p *serviceProvider) RetrieveSubscription(context.Context, string) (billing.ProviderSubscription, error) {
@@ -191,6 +193,23 @@ func TestStatusIsLocalAndSeparatesVisibilityFromManagement(t *testing.T) {
 	}
 	if provider.customerCalls+provider.checkoutCalls+provider.portalCalls != 0 {
 		t.Fatal("status must not call Stripe")
+	}
+}
+
+func TestPortalReturnsToVueBillingAndKeepsOpaqueRetryIdentity(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}}
+	provider := &serviceProvider{}
+	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
+	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test")
+	command := PortalCommand{ActorUserID: testUserID, Session: checkoutCommand(now).Session, AccountID: testAccountID, RequestID: testRequestID}
+
+	result, err := service.Portal(context.Background(), command)
+	if err != nil || result.ID != "bps_test" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if provider.portal.ReturnURL != "https://app.infiniteocean.net/app/billing?status=portal_returned" || provider.portal.IdempotencyKey != "spyglass/portal/"+string(testAccountID)+"/"+testRequestID {
+		t.Fatalf("portal command=%+v", provider.portal)
 	}
 }
 

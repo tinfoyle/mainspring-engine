@@ -1,0 +1,18 @@
+// @vitest-environment happy-dom
+import { flushPromises, mount } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
+import { createMemoryHistory, createRouter } from "vue-router";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccountChoice } from "@spyglass/api";
+import { useSessionStore } from "../stores/session";
+import BillingView from "./BillingView.vue";
+
+const api = vi.hoisted(() => ({ createBillingPortalSession: vi.fn(), getBillingStatus: vi.fn(), getPublicCatalog: vi.fn() }));
+vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import("@spyglass/api")>(), ...api }));
+const account = { account_id: "10000000-0000-4000-8000-000000000001", account_type: "paid", account_version: 2, cell_id: "cell-a", display_name: "Northstar", placement_generation: 1, role: "owner", slug: "northstar", owner_enrollment_required: false, entitlements: { account_id: "10000000-0000-4000-8000-000000000001", catalog_version: 4, evaluated_at: "2026-08-24T00:00:00Z", version: 1, packages: [] } } satisfies AccountChoice;
+const status = { has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [{ state: "active", offer_code: "team-monthly-v1", catalog_version: 4, current_period_start: "2026-08-01T00:00:00Z", current_period_end: "2026-09-01T00:00:00Z", last_synced_at: "2026-08-24T00:00:00Z" }] } as const;
+beforeEach(() => { setActivePinia(createPinia()); Object.values(api).forEach((mock) => mock.mockReset()); api.getBillingStatus.mockResolvedValue(status); api.getPublicCatalog.mockResolvedValue({ version: 4, published_at: "2026-08-24T00:00:00Z", limits: [], packages: [], offers: [{ code: "team-monthly-v1", plan_code: "team", plan_version: 1, currency: "USD", amount_minor: 5000, billing_interval: "month", effective_from: "2026-08-01T00:00:00Z" }], plans: [{ code: "team", version: 1, name: "Team", description: "Team plan", packages: {} }] }); api.createBillingPortalSession.mockRejectedValue(new Error("provider unavailable")); const session = useSessionStore(); session.accounts = [account]; session.selectedID = account.account_id; });
+describe("Account billing surface", () => {
+  it("renders local subscription truth and reuses portal retry identity", async () => { const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/billing", component: BillingView }] }); await router.push("/app/billing"); await router.isReady(); const wrapper = mount(BillingView, { global: { plugins: [router] } }); await flushPromises(); expect(wrapper.text()).toContain("Team"); const button = wrapper.findAll("button").find((item) => item.text() === "Manage in Stripe"); await button?.trigger("click"); await flushPromises(); await button?.trigger("click"); await flushPromises(); expect(api.createBillingPortalSession).toHaveBeenCalledTimes(2); expect(api.createBillingPortalSession.mock.calls[0]?.[1]).toBe(api.createBillingPortalSession.mock.calls[1]?.[1]); expect(wrapper.text()).toContain("provider unavailable"); });
+  it("keeps billing management hidden from an ordinary member", async () => { const session = useSessionStore(); session.accounts = [{ ...account, role: "member" }]; api.getBillingStatus.mockResolvedValue({ ...status, can_manage: false }); const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/billing", component: BillingView }] }); await router.push("/app/billing"); await router.isReady(); const wrapper = mount(BillingView, { global: { plugins: [router] } }); await flushPromises(); expect(wrapper.text()).toContain("Billing administrator access required"); expect(wrapper.text()).not.toContain("Manage in Stripe"); });
+});

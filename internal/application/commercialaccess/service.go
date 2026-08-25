@@ -251,7 +251,7 @@ func (s *Service) Portal(ctx context.Context, command PortalCommand) (billing.Ho
 	if !strings.HasPrefix(profile.CustomerID, "cus_") {
 		return billing.HostedSession{}, ErrCustomerRequired
 	}
-	return s.provider.CreatePortalSession(ctx, billing.CreatePortalCommand{AccountID: command.AccountID, CustomerID: profile.CustomerID, ReturnURL: s.appOrigin + "/app#billing", IdempotencyKey: "spyglass/portal/" + string(command.AccountID) + "/" + command.RequestID})
+	return s.provider.CreatePortalSession(ctx, billing.CreatePortalCommand{AccountID: command.AccountID, CustomerID: profile.CustomerID, ReturnURL: s.appOrigin + "/app/billing?status=portal_returned", IdempotencyKey: "spyglass/portal/" + string(command.AccountID) + "/" + command.RequestID})
 }
 
 func (s *Service) authorize(ctx context.Context, userID ids.UserID, accountID ids.AccountID) error {

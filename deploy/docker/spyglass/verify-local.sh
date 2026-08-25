@@ -168,6 +168,7 @@ private_routes=(
   /app/schedules
   /app/schedules/10000000-0000-4000-8000-000000000001
   /app/account
+  /app/billing
   /app/security
   /app/account-exports
   /app/account-closures

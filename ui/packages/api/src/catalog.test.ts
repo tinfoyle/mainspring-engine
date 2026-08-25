@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createCheckoutSession, getBillingStatus, getPublicCatalog } from "./catalog";
+import { createBillingPortalSession, createCheckoutSession, getBillingStatus, getPublicCatalog } from "./catalog";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -30,5 +30,18 @@ describe("catalog and checkout client", () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(new Headers(init.headers).get("Idempotency-Key")).toBe("22222222-2222-4222-8222-222222222222");
     expect(init.body).toBe(JSON.stringify({ offer_code: "team-monthly-v1", affiliate_code: "IO-PARTNER1" }));
+  });
+
+  it("opens hosted billing management with a stable request ID", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      session_id: "bps_test", url: "https://billing.stripe.test/session", expires_at: "2026-08-24T12:00:00Z"
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createBillingPortalSession("account/id", "22222222-2222-4222-8222-222222222222");
+
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/v1/accounts/account%2Fid/billing-portal-sessions");
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe("22222222-2222-4222-8222-222222222222");
   });
 });
