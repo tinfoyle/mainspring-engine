@@ -632,8 +632,11 @@ test.afterEach(async () => {
   expect(browserErrors.filter((message) => !allowedBrowserErrors.some((pattern) => pattern.test(message))), "the browser emitted unexpected runtime errors").toEqual([]);
 });
 
-test("Your Turn renders the owner queue without responsive overflow", async ({ page }) => {
+test("Your Turn renders the owner queue without responsive overflow", async ({ page }, testInfo) => {
   await page.goto("/app/your-turn");
+  if (testInfo.project.name === "chromium-reduced-motion") {
+    expect(await page.evaluate(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
+  }
   await expect(page.getByRole("heading", { level: 1, name: "Your Turn" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Filter Your Turn queue" })).toBeVisible();

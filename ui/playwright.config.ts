@@ -66,6 +66,10 @@ export default defineConfig({
     {
       name: "chromium-forced-colors",
       use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 }, forcedColors: "active" }
+    },
+    {
+      name: "chromium-reduced-motion",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 }, contextOptions: { reducedMotion: "reduce" } }
     }
   ]
 });
