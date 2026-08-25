@@ -12,6 +12,8 @@
 
 The active Phase 3 product-surface work is local only. The repository now builds a Nuxt-rendered public acquisition image and a separate static Vue private-SPA image in addition to the multi-mode Go application. Local Caddy routes the Vue shell and durable detail paths for Your Turn, Work, Knowledge, Baseline, Agents, Schedules, Finance, Integrations, Marketing, Account team administration, Billing, identity Security, Account exports, Account lifecycle, Privacy, Checkout and Affiliate, and the composed smoke gate fetches each route from the TLS application origin. These UI artifacts have not been published to GHCR or applied to Hostinger/LKE. Existing Stage RC records below remain historical platform/backend evidence and are not a substitute for the final product release.
 
+The current local exact-artifact checkpoint records 331 applicable browser passes and eleven intentional compact-menu profile skips. It includes active and suspended Affiliate dashboard states, referred-customer concealment and consent-independent self-referral denial recovery, while the Go suite explicitly covers lost-dispute reversal. This is local synthetic/adversarial evidence only: Affiliate program flags and settlement remain closed, no hosted Stripe journey has been certified, and no UI artifact or configuration from this checkpoint may move to GHCR, Hostinger Stage or LKE yet.
+
 Before deployment resumes, UI7 must consolidate the website/private-shell release inputs into three matched immutable artifacts built from one source revision: the Go application, public Nuxt UI and private Vue UI. Local Docker must certify the exact routed set first; then the same digests move to Hostinger Docker Stage and finally to vanilla LKE. Every launch package—including Marketing, Baseline, Work, Knowledge, Agents, Schedules, Finance, Integrations, Account administration, Billing, Security, exports and Account lifecycle—now has a generated-boundary Vue route. UI6 construction is complete, but no Stage or production manifest may claim release readiness until UI7 closes cross-feature product journeys, responsive/browser/accessibility evidence and the local immutable-artifact gate.
 
 ## Fixed deployment decisions
@@ -24,7 +26,7 @@ Before deployment resumes, UI7 must consolidate the website/private-shell releas
 | Registry | GHCR, with immutable digest deployment |
 | Application artifact | One multi-mode Go image: `ghcr.io/tinfoyle/spyglass-engine` |
 | Public UI artifact | Final target: one standalone Nuxt/Node image, `ghcr.io/tinfoyle/infinite-ocean-public-ui`; existing `infinite-ocean-website` releases remain historical until UI7 cutover |
-| Private UI artifact | Final target: one static Vue/Nginx image, `ghcr.io/tinfoyle/infinite-ocean-private-ui`; do not publish or deploy before local parity/certification |
+| Private UI artifact | Final target: one static Vue/Caddy image, `ghcr.io/tinfoyle/infinite-ocean-private-ui`; do not publish or deploy before local parity/certification |
 | Databases | Containerized PostgreSQL 17 in every environment |
 | Production database operator | CloudNativePG on LKE with LKE block storage and configurable replicas |
 | Document objects | Private versioned S3 contract: encrypted MinIO volumes in local/Hostinger stage and managed Linode Object Storage in production |

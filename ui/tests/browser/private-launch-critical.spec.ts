@@ -830,6 +830,100 @@ test("closed Affiliate launch state makes no unapproved payout promise", async (
   await expectAccessible(page);
 });
 
+test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed when suspended", async ({ page }) => {
+  let enrollmentState: "active" | "suspended" = "active";
+  await page.route("**/api/v1/affiliate", async (route) => {
+    await fulfillJSON(route, {
+      enrollment_open: enrollmentState === "active",
+      attribution_enabled: enrollmentState === "active",
+      terms_version: 2,
+      rule_version: 3,
+      settlement_mode: "account_credit",
+      enrollment: {
+        affiliate_id: "10000000-0000-4000-8000-000000000041",
+        user_id: userID,
+        public_code: "IO-PARTNER1",
+        terms_version: 2,
+        rule_version: 3,
+        state: enrollmentState,
+        version: enrollmentState === "active" ? 1 : 2,
+        created_at: "2026-08-24T20:00:00Z"
+      }
+    });
+  });
+  await page.route("**/api/v1/affiliate/statement", async (route) => {
+    await fulfillJSON(route, {
+      affiliate_id: "10000000-0000-4000-8000-000000000041",
+      currency: "USD",
+      pending_minor: 1000,
+      settled_minor: 2000,
+      reversed_minor: 1000,
+      entries: [{
+        entry_id: "10000000-0000-4000-8000-000000000042",
+        affiliate_id: "10000000-0000-4000-8000-000000000041",
+        attribution_id: "10000000-0000-4000-8000-000000000043",
+        rule_version: 3,
+        cycle: 2,
+        kind: "earned",
+        state: "pending",
+        amount_minor: 1000,
+        currency: "USD",
+        available_at: "2026-09-24T20:00:00Z",
+        created_at: "2026-08-24T20:00:00Z"
+      }]
+    });
+  });
+  await page.route("**/api/v1/affiliate/support-requests", async (route) => {
+    await fulfillJSON(route, { requests: [] });
+  });
+
+  await page.goto("/app/affiliate");
+  await expect(page.getByRole("heading", { level: 2, name: "IO-PARTNER1" })).toBeVisible();
+  await expect(page.getByText("Qualifying cycle 2")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Commission totals" })).toContainText("$20.00");
+  await expect(page.getByText("customer@example.test", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("Customer Company", { exact: false })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copy code" })).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+
+  enrollmentState = "suspended";
+  await page.reload();
+  await expect(page.getByText("Referral attribution is paused for this enrollment.")).toBeVisible();
+  await expect(page.getByText("historical commission records remain available below.", { exact: false })).toBeVisible();
+  await expect(page.getByText("Qualifying cycle 2")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy code" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Request status review" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("checkout keeps the chosen referral visible when self-referral is denied without analytics consent", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*400/);
+  const checkoutRequests: unknown[] = [];
+  await page.route("**/api/v1/privacy/consent", async (route) => {
+    await fulfillJSON(route, { ...consent, analytics: false, decided: true });
+  });
+  await page.route(`**/api/v1/accounts/${accountID}/checkout-sessions`, async (route) => {
+    checkoutRequests.push(route.request().postDataJSON());
+    await fulfillProblem(route, 400, "affiliate_self_referral", "An Affiliate cannot refer an Account they own.");
+  });
+
+  await page.goto("/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await page.getByRole("checkbox", { name: /I confirm this offer and Affiliate referral/ }).check();
+  await page.getByRole("button", { name: "Continue to Stripe" }).click();
+
+  await expect(page.getByRole("alert")).toContainText("An Affiliate cannot refer an Account they own.");
+  await expect(page.getByRole("textbox", { name: "Affiliate code" })).toHaveValue("IO-PARTNER1");
+  await expect(page.getByRole("button", { name: "Remove" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue to Stripe" })).toBeEnabled();
+  expect(checkoutRequests).toEqual([{ offer_code: "team-monthly-v1", affiliate_code: "IO-PARTNER1" }]);
+  expect(state.analyticsEvents).toEqual([]);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
 test("owner-security onboarding records completion only after authoritative readiness", async ({ page }) => {
   await page.goto("/app/security");
   await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();

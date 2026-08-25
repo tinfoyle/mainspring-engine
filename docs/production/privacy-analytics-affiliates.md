@@ -224,6 +224,8 @@ Release requires automated proof that:
 - Affiliate disclosures and terms are presented before enrollment; and
 - analytics and Affiliate data participate in the documented GDPR lifecycle.
 
+Local acceptance checkpoint (2026-08-25): the service, PostgreSQL lifecycle and exact-build browser suites now automate the consent-independent referral, self-referral denial, suspended-code, invoice replay, recurring-cycle ledger, Refund/final-lost-dispute reversal and referred-customer-concealment cases. The browser matrix exercises both active and suspended Affiliate states across all ten standard profiles, retains the deliberate code after a self-referral denial with analytics rejected, and emits no optional event. The combined exact-artifact result is 331 applicable browser passes with eleven intentional compact-menu skips; all Go packages pass. This closes the local synthetic/adversarial implementation evidence for those cases, but it does not approve the candidate economics, settlement mode, Affiliate launch flags, legal/vendor/transfer review, hosted Stripe journey, real-device use or assistive-technology certification.
+
 ## 9. Authoritative external guidance
 
 - [GDPR Article 3 and territorial scope](https://eur-lex.europa.eu/eli/reg/2016/679/art_3/oj)

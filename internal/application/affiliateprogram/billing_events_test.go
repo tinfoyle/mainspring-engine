@@ -72,6 +72,31 @@ func TestSuccessfulRefundProjectsImmutableCommissionReversalEvidence(t *testing.
 	}
 }
 
+func TestLostDisputeProjectsImmutableCommissionReversalEvidence(t *testing.T) {
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	repository := &repository{rule: affiliates.CommissionRule{ID: "10000000-0000-4000-8000-000000000020", Version: 3,
+		OfferCode: "team-monthly-v1", Currency: "USD", EligibleInvoiceMinor: 5000, CommissionMinor: 1000,
+		InitialInvoiceQualifies: false, HoldDays: 30, EffectiveFrom: now}}
+	repository.attribution = affiliates.Attribution{ID: "10000000-0000-4000-8000-000000000011", AffiliateID: "10000000-0000-4000-8000-000000000010",
+		OfferCode: "team-monthly-v1", RuleVersion: 3, State: affiliates.AttributionLocked, SubscriptionID: "sub_paid"}
+	service, _ := affiliateprogram.New(repository, &generator{values: []string{
+		"10000000-0000-4000-8000-000000000012", "10000000-0000-4000-8000-000000000013", "10000000-0000-4000-8000-000000000014",
+	}}, codes{"IO-PARTNER1"}, clock{now}, 2, 3)
+	projector, _ := affiliateprogram.NewBillingEventProjector(service)
+	invoice := []byte(`{"data":{"object":{"id":"in_renewal","payment_intent":"pi_renewal","amount_paid":5000,"currency":"usd","billing_reason":"subscription_cycle","paid":true,"status":"paid","parent":{"subscription_details":{"subscription":"sub_paid"}}}}}`)
+	if err := projector.Project(context.Background(), billing.WorkItem{Entry: billing.InboxEntry{EventType: "invoice.paid"}, Payload: invoice}); err != nil {
+		t.Fatal(err)
+	}
+	dispute := []byte(`{"data":{"object":{"id":"du_lost","amount":5000,"currency":"usd","payment_intent":"pi_renewal","status":"lost"}}}`)
+	item := billing.WorkItem{Entry: billing.InboxEntry{ProviderEventID: "evt_dispute", EventType: "charge.dispute.closed", ProviderCreatedAt: now}, Payload: dispute}
+	if err := projector.Project(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	if len(repository.entries) != 2 || repository.entries[1].Kind != affiliates.CommissionReversal || repository.entries[1].ReversesID == nil {
+		t.Fatalf("entries=%+v", repository.entries)
+	}
+}
+
 func TestNonFinalRefundAndWonDisputeDoNotReverse(t *testing.T) {
 	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
 	repository := &repository{}
