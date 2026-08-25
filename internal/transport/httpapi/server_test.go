@@ -434,6 +434,10 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 		t.Fatalf("cross-Account Membership mutation: %d %s", crossAccountChange.StatusCode, crossAccountChange.Body)
 	}
 	roleChangeURL := membershipURL + "/" + memberMembershipID
+	currentMembership := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/membership", "", memberCookies[0])
+	if currentMembership.StatusCode != http.StatusOK || !bytes.Contains(currentMembership.Body, []byte(`"membership_id":"`+memberMembershipID+`"`)) || !bytes.Contains(currentMembership.Body, []byte(`"version":1`)) {
+		t.Fatalf("current Membership: %d %s", currentMembership.StatusCode, currentMembership.Body)
+	}
 	roleChange := requestJSONCookie(t, http.MethodPatch, roleChangeURL, `{"role":"viewer","expected_version":1,"reason":"Limit access during transition"}`, cookies[0])
 	if roleChange.StatusCode != http.StatusOK || !bytes.Contains(roleChange.Body, []byte(`"role":"viewer"`)) || !bytes.Contains(roleChange.Body, []byte(`"version":2`)) {
 		t.Fatalf("Membership role change: %d %s", roleChange.StatusCode, roleChange.Body)

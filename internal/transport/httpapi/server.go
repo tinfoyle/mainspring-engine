@@ -259,6 +259,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/closure", s.requestAccountClosure)
 	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/closure", s.cancelAccountClosure)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/invitations", s.createInvitation)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/membership", s.currentMembership)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/memberships", s.listMemberships)
 	mux.HandleFunc("PATCH /api/v1/accounts/{accountID}/memberships/{membershipID}", s.changeMembershipRole)
 	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/memberships/{membershipID}", s.removeMembership)
@@ -681,6 +682,19 @@ func (s *Server) listMemberships(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"memberships": members})
+}
+
+func (s *Server) currentMembership(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.membershipRequest(w, r, false)
+	if !ok {
+		return
+	}
+	member, err := s.members.Current(r.Context(), authenticated.Session.UserID, accountID)
+	if err != nil {
+		s.writeMembershipError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"membership": member})
 }
 
 func (s *Server) changeMembershipRole(w http.ResponseWriter, r *http.Request) {

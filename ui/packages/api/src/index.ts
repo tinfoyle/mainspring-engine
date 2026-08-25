@@ -9,5 +9,6 @@ export * from "./work";
 export * from "./knowledge";
 export * from "./agents";
 export * from "./schedules";
+export * from "./account-team";
 export * from "./generated/api-types";
 export { apiRoutes } from "./generated/api-contract";

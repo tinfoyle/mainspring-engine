@@ -1,7 +1,7 @@
 # Spyglass API and MCP interaction guide
 
 - Contract date: 2026-08-24
-- HTTP contract: `api/spyglass.openapi.json` (199 operations)
+- HTTP contract: `api/spyglass.openapi.json` (200 operations)
 - Generated Go inventory: `internal/generated/apicontract/routes.go`
 - Generated TypeScript inventory/types: `website/lib/generated/api-contract.ts` and `website/lib/generated/api-types.ts`
 - MCP inventory: 89 routed cell tools plus five global Account-export tools
@@ -57,12 +57,12 @@ curl --insecure --fail-with-body \
 
 ## Generated HTTP operation inventory
 
-The OpenAPI document is the line-item inventory. The groups below are the stable product-use-case index; counts sum to 199.
+The OpenAPI document is the line-item inventory. The groups below are the stable product-use-case index; counts sum to 200.
 
 | Group | Count | Use cases |
 |---|---:|---|
 | Identity and sessions | 26 | registration, passkey login/registration/reauthentication, recovery, session and security posture/events |
-| Account and Membership | 16 | selected context, invitations, Membership roles/status, ownership, contact change and closure |
+| Account and Membership | 17 | selected context, current Membership, invitations, Membership roles/status, ownership, contact change and closure |
 | Billing and Catalog | 5 | public Catalog, billing status, checkout, portal and Stripe webhook |
 | Account portability | 6 | request/list/get/cancel, short-lived download capability and artifact stream |
 | Privacy, analytics and Affiliate | 11 | host-only consent/history/erasure, consent-bound events, passkey-verified rights requests, Affiliate enrollment and aggregate statements |

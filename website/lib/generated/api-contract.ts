@@ -16,6 +16,7 @@ export const apiRoutes = [
   { service: "account-api", method: "GET", path: "/api/v1/accounts/{accountID}/billing", operationId: "billingStatus", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/accounts/{accountID}/exports", operationId: "listAccountExports", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/accounts/{accountID}/exports/{exportID}", operationId: "getAccountExport", authentication: "sessionCookie", contract: "typed" },
+  { service: "account-api", method: "GET", path: "/api/v1/accounts/{accountID}/membership", operationId: "currentMembership", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/accounts/{accountID}/memberships", operationId: "listMemberships", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/affiliate", operationId: "getAffiliateProgram", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/affiliate/statement", operationId: "getAffiliateStatement", authentication: "sessionCookie", contract: "typed" },

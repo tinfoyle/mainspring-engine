@@ -167,6 +167,7 @@ private_routes=(
   /app/agents/boardrooms/10000000-0000-4000-8000-000000000001/conversations/20000000-0000-4000-8000-000000000002
   /app/schedules
   /app/schedules/10000000-0000-4000-8000-000000000001
+  /app/account
   /app/privacy
   /app/checkout
   /app/affiliate

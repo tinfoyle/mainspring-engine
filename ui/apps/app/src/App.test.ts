@@ -15,6 +15,7 @@ describe("application shell", () => {
     expect(wrapper.get("h1").text()).toBe("Your Turn");
     expect(wrapper.get("nav").attributes("aria-label")).toBe("Main navigation");
     expect(wrapper.get("nav").text()).toContain("Schedules");
+    expect(wrapper.get("nav").text()).toContain("Account");
     expect(wrapper.find(".nav-link em").exists()).toBe(false);
   });
 });

@@ -29,6 +29,7 @@ const navigation = [
   { to: "/app/knowledge", label: "Knowledge" },
   { to: "/app/agents", label: "Agents" },
   { to: "/app/schedules", label: "Schedules" },
+  { to: "/app/account", label: "Account" },
   { to: "/app/affiliate", label: "Affiliate" },
   { to: "/app/privacy", label: "Privacy" }
 ];
