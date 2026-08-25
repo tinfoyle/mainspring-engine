@@ -316,7 +316,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .team-identity strong, .team-identity a { overflow-wrap: anywhere; }
 .team-identity strong { color: var(--io-ocean-950); }
 .team-identity strong small { color: var(--io-ink-soft); font-weight: 600; }
-.team-identity a { color: var(--io-ocean-650); font-size: .82rem; }
+.team-identity a { color: var(--io-ocean-800); font-size: .82rem; }
 .team-meta, .team-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .team-meta .state-badge { justify-self: auto; }
 .state-badge--warning { color: #7a4911; background: #fff0d3; }

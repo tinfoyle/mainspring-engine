@@ -58,6 +58,39 @@ const catalog = {
     effective_from: "2026-08-20T20:00:00Z"
   }]
 };
+const ownerMembership = {
+  membership_id: "80000000-0000-4000-8000-000000000008",
+  user_id: userID,
+  display_name: "Casey Owner",
+  email: "casey@example.com",
+  role: "owner",
+  state: "active",
+  version: 5,
+  created_at: "2026-08-20T20:00:00Z"
+};
+const memberMembership = {
+  membership_id: "90000000-0000-4000-8000-000000000009",
+  user_id: "a0000000-0000-4000-8000-00000000000a",
+  display_name: "Morgan Member",
+  email: "morgan@example.com",
+  role: "member",
+  state: "active",
+  version: 2,
+  created_at: "2026-08-21T20:00:00Z"
+};
+const queuedExport = {
+  id: "b0000000-0000-4000-8000-00000000000b",
+  account_id: accountID,
+  requested_by: userID,
+  cell_id: "cell-us-east-01",
+  placement_generation: 1,
+  account_version: 1,
+  state: "queued",
+  version: 3,
+  attempt_count: 0,
+  requested_at: "2026-08-25T12:00:00Z",
+  expires_at: "2026-09-01T12:00:00Z"
+};
 
 interface SyntheticAPIState {
   readonly analyticsEvents: Array<{ name: string; fields?: Record<string, string> }>;
@@ -182,6 +215,22 @@ async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
     }
     if (path === `/api/v1/accounts/${accountID}/billing`) {
       await fulfillJSON(route, { has_customer: false, can_manage: true, can_start_checkout: true, subscriptions: [] });
+      return;
+    }
+    if (path === `/api/v1/accounts/${accountID}/membership`) {
+      await fulfillJSON(route, { membership: ownerMembership });
+      return;
+    }
+    if (path === `/api/v1/accounts/${accountID}/memberships`) {
+      await fulfillJSON(route, { memberships: [ownerMembership, memberMembership] });
+      return;
+    }
+    if (path === `/api/v1/accounts/${accountID}/exports` && request.method() === "GET") {
+      await fulfillJSON(route, { exports: [queuedExport] });
+      return;
+    }
+    if (path === "/api/v1/account-closures") {
+      await fulfillJSON(route, { account_closures: [] });
       return;
     }
     if (path === "/api/v1/affiliate") {
@@ -310,4 +359,39 @@ test("owner-security onboarding records completion only after authoritative read
   });
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+});
+
+test("Account administration keeps authority, billing, portability, and closure understandable", async ({ page }) => {
+  const routes = [
+    {
+      path: "/app/account",
+      heading: "People and authority",
+      evidence: ["Invite a teammate", "Morgan Member", "Transfer ownership"]
+    },
+    {
+      path: "/app/billing",
+      heading: "Know what the Account pays for",
+      evidence: ["Free or unbilled access", "No subscription history", "Review paid plans"]
+    },
+    {
+      path: "/app/account-exports",
+      heading: "Take your Account with you",
+      evidence: ["Request Account export", "Cancel request", queuedExport.id]
+    },
+    {
+      path: "/app/account-closures",
+      heading: "Deliberate and recoverable",
+      evidence: ["Request closure", "No closure history", "Closure is not immediate erasure"]
+    }
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(route.path);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      for (const evidence of route.evidence) await expect(page.getByText(evidence, { exact: false }).first()).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    });
+  }
 });
