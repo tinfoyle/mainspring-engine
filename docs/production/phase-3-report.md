@@ -16,6 +16,8 @@ Local UI checkpoint (2026-08-24): the separate Nuxt-rendered acquisition site an
 
 Security migration prerequisite (2026-08-24): the Account API now includes typed reads for the current verified identity contact and token-free connected MCP grants plus same-origin grant revocation. These close the two parity gaps that would otherwise make a Vue Security route lose legacy functionality. The legacy route remains authoritative until the WebAuthn, recovery-code, session, contact-change, MCP-grant and security-history interactions are migrated and certified together.
 
+Security Vue checkpoint (2026-08-24): the complete identity-security route now lives in the Vue shell with WebAuthn enrollment/confirmation, passkey lifecycle, password confirmation, recovery-code rotation/consumption, verified-contact initiation, active-session revocation, connected-MCP-client revocation and security history. One-time recovery material is never persisted by the client, destructive identity-wide actions require explicit phrases, and the exact Account API/private-UI Docker images plus local TLS route gate pass. Applied physical-passkey and responsive browser/accessibility evidence remains open; no Stage or production artifact was changed.
+
 ## Phase 3 scope
 
 Phase 3 consolidates the historical Phase 3-8 backlog into one final body of work. It is not limited to Work and Attention. It includes:

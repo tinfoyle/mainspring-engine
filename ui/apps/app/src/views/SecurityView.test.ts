@@ -1,0 +1,46 @@
+// @vitest-environment happy-dom
+import { flushPromises, mount } from "@vue/test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import SecurityView from "./SecurityView.vue";
+
+const api = vi.hoisted(() => ({
+  getCurrentIdentity: vi.fn(), getSecurityPosture: vi.fn(), getPasskeys: vi.fn(), getRecoveryCodeStatus: vi.fn(),
+  getActiveSessions: vi.fn(), getSecurityEvents: vi.fn(), getMCPGrants: vi.fn(), confirmPassword: vi.fn(),
+  beginContactChange: vi.fn(), renamePasskey: vi.fn(), deletePasskey: vi.fn(), compromisePasskey: vi.fn(),
+  rotateRecoveryCodes: vi.fn(), consumeRecoveryCode: vi.fn(), revokeSession: vi.fn(), revokeAllSessions: vi.fn(), revokeMCPGrant: vi.fn()
+}));
+const webauthn = vi.hoisted(() => ({ registerPasskey: vi.fn(), reauthenticateWithPasskey: vi.fn() }));
+vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import("@spyglass/api")>(), ...api }));
+vi.mock("../webauthn", () => webauthn);
+
+const currentSession = { id: "10000000-0000-4000-8000-000000000001", client_label: "Firefox on laptop", authenticated_at: "2026-08-24T20:00:00Z", reauthenticated_at: "2026-08-24T20:00:00Z", last_seen_at: "2026-08-24T20:00:00Z", expires_at: "2026-09-24T20:00:00Z", current: true, authentication_method: "password", authentication_assurance: "single_factor", reauthentication_method: "password", reauthentication_assurance: "single_factor" } as const;
+beforeEach(() => {
+  for (const mock of [...Object.values(api), ...Object.values(webauthn)]) mock.mockReset();
+  api.getCurrentIdentity.mockResolvedValue({ user_id: "20000000-0000-4000-8000-000000000002", primary_email: "owner@example.com" });
+  api.getSecurityPosture.mockResolvedValue({ passkey_count: 1, recovery_codes_configured: true, recovery_codes_remaining: 8, owner_ready: true });
+  api.getPasskeys.mockResolvedValue({ passkeys: [{ id: "key", name: "Laptop", created_at: "2026-08-24T20:00:00Z", backup_eligible: true, backed_up: true }] });
+  api.getRecoveryCodeStatus.mockResolvedValue({ configured: true, version: 1, remaining: 8, created_at: "2026-08-24T20:00:00Z" });
+  api.getActiveSessions.mockResolvedValue({ sessions: [currentSession] }); api.getSecurityEvents.mockResolvedValue({ events: [{ type: "passkey_added", occurred_at: "2026-08-24T20:00:00Z" }] });
+  api.getMCPGrants.mockResolvedValue({ grants: [{ grant_id: "30000000-0000-4000-8000-000000000003", client_id: "client", client_name: "Codex", created_at: "2026-08-24T20:00:00Z" }] });
+});
+describe("Security surface", () => {
+  it("renders the complete identity boundary without Account coupling", async () => {
+    const wrapper = mount(SecurityView); await flushPromises();
+    expect(wrapper.text()).toContain("owner@example.com"); expect(wrapper.text()).toContain("Laptop");
+    expect(wrapper.text()).toContain("Firefox on laptop"); expect(wrapper.text()).toContain("Codex"); expect(wrapper.text()).toContain("Passkey added");
+  });
+  it("keeps recovery codes visible exactly after rotation", async () => {
+    api.rotateRecoveryCodes.mockResolvedValue({ status: { configured: true, version: 2, remaining: 10 }, codes: ["a", "b"] });
+    const wrapper = mount(SecurityView); await flushPromises();
+    await wrapper.findAll("button").find((button) => button.text() === "Replace recovery codes")?.trigger("click"); await flushPromises();
+    expect(wrapper.text()).toContain("Save these now"); expect(wrapper.text()).toContain("a"); expect(wrapper.text()).toContain("b");
+  });
+  it("requires a typed phrase before signing out everywhere", async () => {
+    api.revokeAllSessions.mockResolvedValue(undefined); const assign = vi.spyOn(window.location, "assign").mockImplementation(() => undefined);
+    const wrapper = mount(SecurityView); await flushPromises();
+    await wrapper.findAll("button").find((button) => button.text() === "Sign out everywhere")?.trigger("click");
+    expect(wrapper.get("form[role=dialog] button[type=submit]").attributes("disabled")).toBeDefined();
+    await wrapper.get("form[role=dialog] input").setValue("SIGN OUT"); await wrapper.get("form[role=dialog]").trigger("submit"); await flushPromises();
+    expect(api.revokeAllSessions).toHaveBeenCalled(); expect(assign).toHaveBeenCalled(); assign.mockRestore();
+  });
+});
