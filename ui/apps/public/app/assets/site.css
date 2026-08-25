@@ -5,11 +5,15 @@
 .site-brand { text-decoration: none; }
 .site-menu { min-width: 44px; min-height: 44px; display: flex; align-items: center; gap: .5rem; border: 0; background: transparent; color: var(--io-ocean-950); font-weight: 750; }
 .site-menu b { font-size: 1.35rem; }
-.site-header nav { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; padding: 1rem; display: none; gap: .25rem; border-bottom: 1px solid var(--io-line); background: var(--io-paper); box-shadow: var(--io-shadow); }
-.site-header nav.site-nav--open { display: grid; }
-.site-header nav a { min-height: 44px; padding: .7rem .8rem; display: flex; align-items: center; border-radius: .6rem; text-decoration: none; font-weight: 650; }
-.site-header nav a:hover { background: var(--io-sky); }
+.site-navigation { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; padding: .75rem 1rem 1rem; display: none; border-bottom: 1px solid var(--io-line); background: var(--io-paper); box-shadow: var(--io-shadow); }
+.site-navigation--open { display: grid; }
+.site-navigation nav { display: grid; gap: .25rem; }
+.site-navigation nav a { min-height: 44px; padding: .7rem .8rem; display: flex; align-items: center; border-radius: .6rem; text-decoration: none; font-weight: 650; }
+.site-navigation nav a:hover { background: var(--io-sky); }
+.site-nav-close { width: 44px; height: 44px; margin-left: auto; border: 0; border-radius: 50%; color: var(--io-ocean-950); background: transparent; font-size: 1.6rem; line-height: 1; }
 .site-header .nav-cta { color: white; background: var(--io-ocean-800); }
+.site-menu-scrim { position: fixed; z-index: 20; inset: 0; width: 100%; height: 100%; border: 0; background: rgb(5 47 57 / 45%); }
+body.site-menu-open { overflow: hidden; }
 .section-frame { width: var(--io-page); margin-inline: auto; }
 .hero { position: relative; overflow: hidden; padding: 4.5rem 1rem 3rem; background: var(--io-sand); }
 .hero__wash { position: absolute; width: 34rem; height: 34rem; left: 44%; top: -15rem; border-radius: 50%; background: radial-gradient(circle, rgb(189 235 220 / 75%), rgb(233 246 243 / 10%) 68%, transparent 70%); }
@@ -110,8 +114,10 @@
 
 @media (min-width: 48rem) {
   .site-menu { display: none; }
-  .site-header nav { position: static; padding: 0; display: flex; align-items: center; box-shadow: none; border: 0; background: transparent; }
-  .site-header nav a { padding-inline: .75rem; }
+  .site-navigation { position: static; padding: 0; display: block; box-shadow: none; border: 0; background: transparent; }
+  .site-navigation nav { display: flex; align-items: center; }
+  .site-navigation nav a { padding-inline: .75rem; }
+  .site-nav-close, .site-menu-scrim { display: none; }
   .site-header .nav-cta { margin-left: .4rem; padding-inline: 1rem; }
   .hero { padding-top: 7rem; }
   .hero__actions { flex-direction: row; justify-content: center; }
