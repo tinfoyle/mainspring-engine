@@ -159,6 +159,33 @@ describe("Your Turn approval detail", () => {
     wrapper.unmount();
   });
 
+  it("allows only one approval mutation while a decision is pending", async () => {
+    let resolveDecision!: (value: Approval) => void;
+    decideApproval.mockImplementationOnce(() => new Promise<Approval>((resolve) => { resolveDecision = resolve; }));
+    const session = useSessionStore();
+    session.accounts = [account];
+    session.selectedID = account.account_id;
+    session.userID = "20000000-0000-4000-8000-000000000002";
+    const wrapper = mount(YourTurnDetailView, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get('input[value="approve"]').setValue(true);
+    await wrapper.get("textarea").setValue("The governed release is ready.");
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    const firstSubmit = wrapper.get("form").trigger("submit");
+    const duplicateSubmit = wrapper.get("form").trigger("submit");
+    await Promise.all([firstSubmit, duplicateSubmit]);
+
+    expect(decideApproval).toHaveBeenCalledTimes(1);
+    expect(wrapper.get('button[type="submit"]').attributes()).toHaveProperty("disabled");
+    expect(wrapper.get('button[type="submit"]').text()).toBe("Saving…");
+
+    resolveDecision({ ...approval, state: "approved", version: 5 } as Approval);
+    await flushPromises();
+    expect(decideApproval).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
   it("answers with an exact current Knowledge fact", async () => {
     getAttentionDetail.mockResolvedValue(information);
     await router.push(`/app/your-turn/information/${information.id}`);

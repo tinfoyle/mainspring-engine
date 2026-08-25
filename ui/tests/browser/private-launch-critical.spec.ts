@@ -693,6 +693,58 @@ test("Your Turn session expiry preserves the exact sign-in return route", async 
   await expect(page.getByRole("heading", { level: 1, name: "Sign in again" })).toBeVisible();
 });
 
+test("Your Turn sends only one decision while approval is pending", async ({ page }) => {
+  const approvalID = "30000000-0000-4000-8000-000000000003";
+  const approvalDetail = {
+    kind: "approval",
+    id: approvalID,
+    capability: "marketing.release.publish",
+    payload: { release_id: "redacted-release-reference" },
+    evidence_sha256: "a".repeat(64),
+    input_sha256: "b".repeat(64),
+    hash_version: 1,
+    invocation_id: "40000000-0000-4000-8000-000000000004",
+    operation_id: "50000000-0000-4000-8000-000000000005",
+    policy_version: 2,
+    proposer: { kind: "workload", id: "campaign-agent" },
+    require_independent_review: false,
+    state: "open",
+    version: 4,
+    created_at: "2026-08-24T20:00:00Z",
+    updated_at: "2026-08-24T20:01:00Z",
+    expires_at: "2026-08-25T20:00:00Z"
+  };
+  let decisionRequests = 0;
+  let releaseDecision!: () => void;
+  const decisionReleased = new Promise<void>((resolve) => { releaseDecision = resolve; });
+  await page.route(`**/api/v1/accounts/${accountID}/attention/approvals/${approvalID}**`, async (route) => {
+    if (route.request().method() === "GET") {
+      await fulfillJSON(route, approvalDetail);
+      return;
+    }
+    decisionRequests += 1;
+    await decisionReleased;
+    await fulfillJSON(route, { ...approvalDetail, state: "approved", version: 5 });
+  });
+
+  await page.goto(`/app/your-turn/approval/${approvalID}`);
+  await page.getByRole("radio", { name: "Approve exact action" }).check();
+  await page.getByLabel("Decision reason").fill("The governed release is ready.");
+  await page.getByRole("checkbox", { name: /I reviewed the exact payload/ }).check();
+  await page.locator("form.decision-card").evaluate((form) => {
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
+
+  await expect.poll(() => decisionRequests).toBe(1);
+  await expect(page.getByRole("button", { name: "Saving…" })).toBeDisabled();
+  releaseDecision();
+  await expect(page).toHaveURL(/\/app\/your-turn\?completed=approval$/);
+  expect(decisionRequests).toBe(1);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
 test("mobile navigation traps and restores focus", async ({ page }, testInfo) => {
   test.skip(!["chromium-phone-360", "chromium-phone", "chromium-phone-412", "chromium-reflow", "chromium-tablet"].includes(testInfo.project.name), "compact-navigation interaction contract");
   await page.goto("/app/your-turn");
