@@ -246,9 +246,15 @@ while IFS= read -r route; do
   fi
 done </tmp/spyglass-local-public-links.txt
 
-curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
+curl "${curl_common[@]}" --dump-header /tmp/spyglass-local-catalog-headers.txt \
+  --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
   "${public_origin}/catalog.json" >/tmp/spyglass-local-catalog.json
 jq -e '.version > 0 and (.packages | length) > 0' /tmp/spyglass-local-catalog.json >/dev/null
+grep -qi '^x-spyglass-catalog-state: fresh' /tmp/spyglass-local-catalog-headers.txt
+if grep -Eqi '"(stripe|provider|price_id|product_id|customer_id|subscription_id)[^"]*"[[:space:]]*:' /tmp/spyglass-local-catalog.json; then
+  printf '%s\n' "public Catalog leaked a provider-specific field" >&2
+  exit 1
+fi
 
 private_routes=(
   /app/your-turn

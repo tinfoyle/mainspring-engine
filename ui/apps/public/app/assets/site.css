@@ -82,6 +82,7 @@
 .plan-packages li span { margin-right: auto; }
 .plan-packages li small { color: var(--io-seafoam); }
 .pricing-unavailable { grid-column: 1 / -1; }
+.catalog-freshness { padding: .8rem 1rem; border-left: 3px solid var(--io-ocean-500); background: var(--io-sky); }
 .pricing-trust { padding-bottom: 5rem; }
 .pricing-trust h2 { color: var(--io-ocean-950); font: 500 2rem/1.1 Georgia, serif; }
 .pricing-trust ol { margin: 1.5rem 0 0; padding: 0; display: grid; gap: .8rem; list-style: none; counter-reset: checkout; }
