@@ -53,8 +53,10 @@ describe("Affiliate identity dashboard", () => {
     api.getAffiliateProgram.mockResolvedValue({ enrollment_open: true, attribution_enabled: true, terms_version: 2, rule_version: 3, settlement_mode: "account_credit", enrollment: {
       affiliate_id: "10000000-0000-4000-8000-000000000001", user_id: "20000000-0000-4000-8000-000000000002", public_code: "IO-PARTNER1", terms_version: 2, rule_version: 3, state: "active", version: 1, created_at: "2026-08-24T20:00:00Z"
     } });
-    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", currency: "USD", pending_minor: 1000, settled_minor: 2000, reversed_minor: 0, entries: [{
+    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", referred_subscriptions: 4, currency: "USD", pending_minor: 1000, settled_minor: 2000, reversed_minor: 0, entries: [{
       entry_id: "30000000-0000-4000-8000-000000000003", affiliate_id: "10000000-0000-4000-8000-000000000001", attribution_id: "40000000-0000-4000-8000-000000000004", rule_version: 3, cycle: 2, kind: "earned", state: "pending", amount_minor: 1000, currency: "USD", available_at: "2026-09-24T20:00:00Z", created_at: "2026-08-24T20:00:00Z"
+    }, {
+      entry_id: "30000000-0000-4000-8000-000000000005", affiliate_id: "10000000-0000-4000-8000-000000000001", attribution_id: "40000000-0000-4000-8000-000000000004", rule_version: 3, cycle: 3, kind: "earned", state: "settled", amount_minor: 2000, currency: "USD", available_at: "2026-10-24T20:00:00Z", created_at: "2026-09-24T20:00:00Z"
     }] });
     const wrapper = await mountView();
     expect(wrapper.text()).toContain("IO-PARTNER1");
@@ -62,6 +64,10 @@ describe("Affiliate identity dashboard", () => {
     expect(wrapper.text()).toContain("A link only proposes the code");
     expect(wrapper.findAll("button").some((button) => button.text() === "Copy referral link" && !button.attributes("disabled"))).toBe(true);
     expect(wrapper.text()).toContain("Qualifying cycle 2");
+    expect(wrapper.text()).toContain("Referred subscriptions");
+    expect(wrapper.text()).toContain("4");
+    expect(wrapper.text()).toContain("August 2026");
+    expect(wrapper.text()).toContain("September 2026");
     expect(wrapper.text()).toContain("$10.00");
     expect(wrapper.text()).not.toContain("referred customer@example.com");
     expect(wrapper.get('[aria-label="Commission totals"]').attributes("role")).toBe("group");
@@ -71,7 +77,7 @@ describe("Affiliate identity dashboard", () => {
     api.getAffiliateProgram.mockResolvedValue({ enrollment_open: true, attribution_enabled: true, terms_version: 2, rule_version: 3, settlement_mode: "account_credit", enrollment: {
       affiliate_id: "10000000-0000-4000-8000-000000000001", user_id: "20000000-0000-4000-8000-000000000002", public_code: "IO-PARTNER1", terms_version: 2, rule_version: 3, state: "active", version: 4, created_at: "2026-08-24T20:00:00Z"
     } });
-    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", currency: "", pending_minor: 0, settled_minor: 0, reversed_minor: 0, entries: [] });
+    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", referred_subscriptions: 0, currency: "", pending_minor: 0, settled_minor: 0, reversed_minor: 0, entries: [] });
     api.replaceAffiliateCode.mockResolvedValue({ enrollment_open: true, attribution_enabled: true, terms_version: 2, rule_version: 3, settlement_mode: "account_credit", enrollment: {
       affiliate_id: "10000000-0000-4000-8000-000000000001", user_id: "20000000-0000-4000-8000-000000000002", public_code: "IO-PARTNER2", terms_version: 2, rule_version: 3, state: "active", version: 5, created_at: "2026-08-24T20:00:00Z"
     } });
@@ -91,7 +97,7 @@ describe("Affiliate identity dashboard", () => {
     api.getAffiliateProgram.mockResolvedValue({ enrollment_open: false, attribution_enabled: false, terms_version: 2, rule_version: 3, settlement_mode: "account_credit", enrollment: {
       affiliate_id: "10000000-0000-4000-8000-000000000001", user_id: "20000000-0000-4000-8000-000000000002", public_code: "IO-PAUSED1", terms_version: 2, rule_version: 3, state: "suspended", version: 2, created_at: "2026-08-24T20:00:00Z"
     } });
-    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", currency: "USD", pending_minor: 0, settled_minor: 2000, reversed_minor: 1000, entries: [] });
+    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", referred_subscriptions: 2, currency: "USD", pending_minor: 0, settled_minor: 2000, reversed_minor: 1000, entries: [] });
 
     const wrapper = await mountView();
     expect(wrapper.text()).toContain("Referral attribution is paused");
@@ -108,7 +114,7 @@ describe("Affiliate identity dashboard", () => {
     api.getAffiliateProgram.mockResolvedValue({ enrollment_open: false, attribution_enabled: false, terms_version: 2, rule_version: 3, settlement_mode: "account_credit", enrollment: {
       affiliate_id: "10000000-0000-4000-8000-000000000001", user_id: "20000000-0000-4000-8000-000000000002", public_code: "IO-PAUSED1", terms_version: 2, rule_version: 3, state: "suspended", version: 2, created_at: "2026-08-24T20:00:00Z"
     } });
-    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", currency: "", pending_minor: 0, settled_minor: 0, reversed_minor: 0, entries: [] });
+    api.getAffiliateStatement.mockResolvedValue({ affiliate_id: "10000000-0000-4000-8000-000000000001", referred_subscriptions: 0, currency: "", pending_minor: 0, settled_minor: 0, reversed_minor: 0, entries: [] });
     api.submitAffiliateSupportRequest.mockResolvedValue({ request_id: "50000000-0000-4000-8000-000000000005", affiliate_id: "10000000-0000-4000-8000-000000000001", kind: "enrollment_appeal", state: "submitted", version: 1, created_at: "2026-08-25T12:00:00Z", updated_at: "2026-08-25T12:00:00Z" });
 
     const wrapper = await mountView();

@@ -219,6 +219,7 @@ export interface AffiliateStatement {
   readonly "currency": string;
   readonly "entries": ReadonlyArray<AffiliateCommissionEntry>;
   readonly "pending_minor": number;
+  readonly "referred_subscriptions": number;
   readonly "reversed_minor": number;
   readonly "settled_minor": number;
 }

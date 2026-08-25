@@ -45,7 +45,7 @@ type Repository interface {
 	AppendCommission(context.Context, affiliates.CommissionEntry) (affiliates.CommissionEntry, error)
 	RecordPaidCommission(context.Context, ids.CommissionEntryID, ids.CommissionEntryID, affiliates.Attribution, affiliates.CommissionRule, string, string, bool, time.Time) (affiliates.CommissionEntry, error)
 	RecordAdverseCommission(context.Context, ids.CommissionEntryID, affiliates.AdverseBillingEvidence, time.Time) (affiliates.CommissionEntry, bool, error)
-	CommissionEntries(context.Context, ids.AffiliateID) ([]affiliates.CommissionEntry, error)
+	StatementSnapshot(context.Context, ids.AffiliateID) (uint64, []affiliates.CommissionEntry, error)
 }
 
 type Service struct {
@@ -251,12 +251,13 @@ func (s *Service) RecordAdverseBilling(ctx context.Context, evidence affiliates.
 }
 
 type Statement struct {
-	AffiliateID   ids.AffiliateID              `json:"affiliate_id"`
-	Currency      string                       `json:"currency"`
-	PendingMinor  int64                        `json:"pending_minor"`
-	SettledMinor  int64                        `json:"settled_minor"`
-	ReversedMinor int64                        `json:"reversed_minor"`
-	Entries       []affiliates.CommissionEntry `json:"entries"`
+	AffiliateID           ids.AffiliateID              `json:"affiliate_id"`
+	ReferredSubscriptions uint64                       `json:"referred_subscriptions"`
+	Currency              string                       `json:"currency"`
+	PendingMinor          int64                        `json:"pending_minor"`
+	SettledMinor          int64                        `json:"settled_minor"`
+	ReversedMinor         int64                        `json:"reversed_minor"`
+	Entries               []affiliates.CommissionEntry `json:"entries"`
 }
 
 func (s *Service) Statement(ctx context.Context, userID ids.UserID) (Statement, error) {
@@ -264,11 +265,11 @@ func (s *Service) Statement(ctx context.Context, userID ids.UserID) (Statement, 
 	if err != nil {
 		return Statement{}, err
 	}
-	entries, err := s.repository.CommissionEntries(ctx, enrollment.ID)
+	referredSubscriptions, entries, err := s.repository.StatementSnapshot(ctx, enrollment.ID)
 	if err != nil {
 		return Statement{}, err
 	}
-	statement := Statement{AffiliateID: enrollment.ID, Entries: entries}
+	statement := Statement{AffiliateID: enrollment.ID, ReferredSubscriptions: referredSubscriptions, Entries: entries}
 	for _, entry := range entries {
 		if statement.Currency == "" {
 			statement.Currency = entry.Currency

@@ -256,7 +256,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		t.Fatalf("next earning=%+v err=%v", next, err)
 	}
 	statement, err := affiliateService.Statement(ctx, affiliateUser)
-	if err != nil || statement.PendingMinor != 2000 || statement.ReversedMinor != 2000 || len(statement.Entries) != 4 {
+	if err != nil || statement.ReferredSubscriptions != 1 || statement.PendingMinor != 2000 || statement.ReversedMinor != 2000 || len(statement.Entries) != 4 {
 		t.Fatalf("Affiliate statement=%+v err=%v", statement, err)
 	}
 	affiliateAdmin, err := affiliateadmin.New(postgresadapter.NewAffiliateAdminRepository(pool), ids.RandomGenerator{})

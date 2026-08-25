@@ -123,8 +123,12 @@ func (r *repository) AttributionByCheckoutRequest(_ context.Context, requestID s
 	}
 	return affiliates.Attribution{}, affiliateprogram.ErrAttributionNotFound
 }
-func (r *repository) CommissionEntries(context.Context, ids.AffiliateID) ([]affiliates.CommissionEntry, error) {
-	return append([]affiliates.CommissionEntry{}, r.entries...), nil
+func (r *repository) StatementSnapshot(_ context.Context, affiliateID ids.AffiliateID) (uint64, []affiliates.CommissionEntry, error) {
+	count := uint64(0)
+	if r.attribution.AffiliateID == affiliateID && r.attribution.State == affiliates.AttributionLocked {
+		count = 1
+	}
+	return count, append([]affiliates.CommissionEntry{}, r.entries...), nil
 }
 
 type generator struct{ values []string }
@@ -211,7 +215,7 @@ func TestReferralAndPaidRenewalProduceOneLedgerEntry(t *testing.T) {
 		t.Fatalf("entry=%+v err=%v entries=%d", entry, err, len(repository.entries))
 	}
 	statement, err := service.Statement(context.Background(), ids.UserID(userID))
-	if err != nil || statement.PendingMinor != 1000 || statement.Currency != "USD" {
+	if err != nil || statement.ReferredSubscriptions != 1 || statement.PendingMinor != 1000 || statement.Currency != "USD" {
 		t.Fatalf("statement=%+v err=%v", statement, err)
 	}
 }

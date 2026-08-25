@@ -441,21 +441,37 @@ func maybeAppendCommissionReversal(ctx context.Context, tx pgx.Tx, reversalID id
 	return reversal, true, nil
 }
 
-func (r *AffiliateProgramRepository) CommissionEntries(ctx context.Context, affiliateID ids.AffiliateID) ([]affiliates.CommissionEntry, error) {
-	rows, err := r.pool.Query(ctx, affiliateCommissionSelect+` WHERE affiliate_id=$1 ORDER BY created_at DESC,entry_id DESC`, affiliateID)
+func (r *AffiliateProgramRepository) StatementSnapshot(ctx context.Context, affiliateID ids.AffiliateID) (uint64, []affiliates.CommissionEntry, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return nil, err
+		return 0, nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var count uint64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM affiliate_attributions WHERE affiliate_id=$1 AND state='locked'`, affiliateID).Scan(&count); err != nil {
+		return 0, nil, err
+	}
+	rows, err := tx.Query(ctx, affiliateCommissionSelect+` WHERE affiliate_id=$1 ORDER BY created_at DESC,entry_id DESC`, affiliateID)
+	if err != nil {
+		return 0, nil, err
 	}
 	defer rows.Close()
 	values := make([]affiliates.CommissionEntry, 0)
 	for rows.Next() {
 		value, err := scanAffiliateCommission(rows)
 		if err != nil {
-			return nil, err
+			return 0, nil, err
 		}
 		values = append(values, value)
 	}
-	return values, rows.Err()
+	if err := rows.Err(); err != nil {
+		return 0, nil, err
+	}
+	rows.Close()
+	if err := tx.Commit(ctx); err != nil {
+		return 0, nil, err
+	}
+	return count, values, nil
 }
 
 const affiliateCommissionSelect = `

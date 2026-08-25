@@ -980,6 +980,7 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
   await page.route("**/api/v1/affiliate/statement", async (route) => {
     await fulfillJSON(route, {
       affiliate_id: "10000000-0000-4000-8000-000000000041",
+      referred_subscriptions: 3,
       currency: "USD",
       pending_minor: 1000,
       settled_minor: 2000,
@@ -1017,6 +1018,8 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
   await page.goto("/app/affiliate");
   await expect(page.getByRole("heading", { level: 2, name: "IO-PARTNER1" })).toBeVisible();
   await expect(page.getByText("Qualifying cycle 2")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Commission totals" })).toContainText("Referred subscriptions3");
+  await expect(page.getByRole("heading", { level: 3, name: "August 2026" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Commission totals" })).toContainText("$20.00");
   await expect(page.getByText("customer@example.test", { exact: false })).toHaveCount(0);
   await expect(page.getByText("Customer Company", { exact: false })).toHaveCount(0);

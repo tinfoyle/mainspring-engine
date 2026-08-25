@@ -10,6 +10,8 @@ Implementation checkpoint (2026-08-25): global migrations 37–48, signed host-o
 
 Affiliate-code replacement amendment (2026-08-25): global migration 49 and the generated HTTP contract add passkey-confirmed, exact-version public-code replacement. A retired code is held in immutable no-reuse history, immediately stops future lookup and can never be issued again. Replacement before attribution invalidates the old proposal; replacement after subscription lock leaves the opaque attribution and commission ledger untouched. The earlier checkpoint's migration range is therefore extended through 49.
 
+Affiliate-statement amendment (2026-08-25): the identity-safe statement now returns the authoritative count of locked referred subscriptions and the Vue dashboard groups immutable commission entries into UTC calendar-month statements with earned and reversed subtotals. Neither representation includes a referred User, Account, email, business name or customer content.
+
 ## 1. Outcomes
 
 The launch UI must measure acquisition and onboarding well enough to improve them without collecting customer business content or excluding EU customers. It must also support an affiliate program whose referral attribution and recurring earnings survive browser loss, webhook replay, subscription renewal and analytics-consent withdrawal.

@@ -280,6 +280,10 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .affiliate-statement header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
 .affiliate-statement h2, .affiliate-enrollment h2, .affiliate-support h2 { margin: 0; color: var(--io-ocean-950); font: 500 1.65rem/1.2 Georgia, serif; }
 .affiliate-statement header > span { padding: .45rem .65rem; border-radius: 999px; background: var(--io-sky); }
+.affiliate-statement__months { margin-top: 1rem; display: grid; gap: 1rem; }
+.affiliate-statement__month { min-width: 0; padding-top: 1rem; border-top: 1px solid #e8eeeb; }
+.affiliate-statement__month > header h3 { margin: 0; color: var(--io-ocean-950); font: 500 1.25rem/1.2 Georgia, serif; }
+.affiliate-statement__month > header p { margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem .8rem; color: var(--io-ink-soft); font-size: .76rem; }
 .affiliate-statement ol { margin: 1rem 0 0; padding: 0; display: grid; list-style: none; }
 .affiliate-statement li { padding: .9rem 0; display: flex; align-items: start; justify-content: space-between; gap: 1rem; border-top: 1px solid #e8eeeb; }
 .affiliate-statement li div, .affiliate-statement li > span { display: grid; gap: .25rem; }
@@ -576,7 +580,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .checkout-card { padding: 1.35rem; }
   .checkout-confirm { grid-column: 1 / -1; }
   .affiliate-code { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 1.35rem; }
-  .affiliate-totals { grid-template-columns: repeat(3, 1fr); }
+  .affiliate-totals { grid-template-columns: repeat(4, 1fr); }
   .affiliate-enrollment, .affiliate-statement, .affiliate-support { padding: 1.35rem; }
   .account-summary { grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); align-items: center; padding: 1.35rem; }
   .account-summary dl { min-width: 0; }
