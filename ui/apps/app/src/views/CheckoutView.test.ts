@@ -94,7 +94,55 @@ describe("checkout review", () => {
     expect(wrapper.text()).toContain("$49.00 per month");
     expect(wrapper.text()).not.toContain("Checkout is unavailable");
     expect(api.getBillingStatus).toHaveBeenCalledWith(account.account_id);
-    expect(api.emitAnalytics).toHaveBeenCalledWith(false, expect.objectContaining({ name: "checkout_reviewed" }));
+    expect(api.emitAnalytics).not.toHaveBeenCalled();
+  });
+
+  it("records the rendered checkout review after slower consent resolves without delaying checkout", async () => {
+    let resolveConsent: ((value: { decided: boolean; analytics: boolean; marketing: boolean; renewal_required: boolean }) => void) | undefined;
+    api.getPrivacyConsent.mockReturnValue(new Promise((resolve) => { resolveConsent = resolve; }));
+    api.emitAnalytics.mockResolvedValue(true);
+    const wrapper = await mountCheckout();
+
+    expect(wrapper.text()).toContain("$49.00 per month");
+    expect(api.emitAnalytics).not.toHaveBeenCalled();
+
+    resolveConsent?.({ decided: true, analytics: true, marketing: false, renewal_required: false });
+    await flushPromises();
+    expect(api.emitAnalytics).toHaveBeenCalledOnce();
+    expect(api.emitAnalytics).toHaveBeenCalledWith(true, {
+      name: "checkout_reviewed",
+      fields: { offer_code: "team-monthly-v1", referral_present: "false" }
+    });
+  });
+
+  it("preserves checkout-return outcomes until slower analytics consent resolves", async () => {
+    let resolveConsent: ((value: { decided: boolean; analytics: boolean; marketing: boolean; renewal_required: boolean }) => void) | undefined;
+    api.getPrivacyConsent.mockReturnValue(new Promise((resolve) => { resolveConsent = resolve; }));
+    api.emitAnalytics.mockResolvedValue(true);
+    api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [{
+      offer_code: "team-monthly-v1", catalog_version: 2, state: "active", current_period_start: "2026-08-25T12:00:00Z", current_period_end: "2026-09-25T12:00:00Z", last_synced_at: "2026-08-25T12:01:00Z"
+    }] });
+    const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v1&status=billing");
+
+    expect(wrapper.text()).toContain("Your subscription is active");
+    expect(api.emitAnalytics).not.toHaveBeenCalled();
+
+    resolveConsent?.({ decided: true, analytics: true, marketing: false, renewal_required: false });
+    await flushPromises();
+    expect(api.emitAnalytics).toHaveBeenCalledTimes(3);
+    expect(api.emitAnalytics).toHaveBeenCalledWith(true, {
+      name: "checkout_returned",
+      fields: { offer_code: "team-monthly-v1", result: "returned" }
+    });
+    expect(api.emitAnalytics).toHaveBeenCalledWith(true, {
+      name: "subscription_projected",
+      fields: { offer_code: "team-monthly-v1", result: "active" }
+    });
+    expect(api.emitAnalytics).toHaveBeenCalledWith(true, {
+      name: "checkout_reviewed",
+      fields: { offer_code: "team-monthly-v1", referral_present: "false" }
+    });
+    wrapper.unmount();
   });
 
   it("does not silently substitute a different offer when signup intent is no longer published", async () => {

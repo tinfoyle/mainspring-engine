@@ -35,6 +35,13 @@ const requestedOfferUnavailable = ref(false);
 const returnState = ref<"none" | "cancelled" | "pending" | "projected" | "attention" | "failed">("none");
 let pollTimer: number | undefined;
 let pollCount = 0;
+let checkoutPageActive = true;
+let checkoutReviewVisible = false;
+let consentResolved = false;
+type CheckoutAnalyticsName = Parameters<typeof emitAnalytics>[1]["name"];
+type DeferredPageAnalytics = { name: CheckoutAnalyticsName; fields: Readonly<Record<string, string>> };
+const deferredPageAnalytics = new Map<string, DeferredPageAnalytics>();
+const deliveredPageAnalytics = new Set<string>();
 
 const paidOffers = computed(() => (catalog.value?.offers ?? []).filter((offer) =>
   offer.amount_minor > 0 && offer.billing_interval !== "none" && new Date(offer.effective_from).getTime() <= Date.now()
@@ -91,6 +98,33 @@ async function emit(name: Parameters<typeof emitAnalytics>[1]["name"], fields: R
   }
 }
 
+async function emitPageAnalyticsWhenReady(key: string, name: CheckoutAnalyticsName, fields: Readonly<Record<string, string>>): Promise<void> {
+  if (!checkoutPageActive || deliveredPageAnalytics.has(key)) return;
+  if (!consentResolved) {
+    deferredPageAnalytics.set(key, { name, fields });
+    return;
+  }
+  deferredPageAnalytics.delete(key);
+  if (!analyticsAllowed.value) return;
+  deliveredPageAnalytics.add(key);
+  await emit(name, fields);
+}
+
+function flushDeferredPageAnalytics(): void {
+  for (const [key, event] of deferredPageAnalytics) {
+    void emitPageAnalyticsWhenReady(key, event.name, event.fields);
+  }
+}
+
+async function emitCheckoutReviewIfReady(): Promise<void> {
+  const offerCode = selectedOfferCode.value;
+  if (!checkoutPageActive || !checkoutReviewVisible || !offerCode) return;
+  await emitPageAnalyticsWhenReady(`checkout-review:${offerCode}`, "checkout_reviewed", {
+    offer_code: offerCode,
+    referral_present: String(referralApplied.value)
+  });
+}
+
 async function loadBilling(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID) return;
@@ -114,25 +148,43 @@ function evaluateReturn(): void {
   const status = typeof route.query.status === "string" ? route.query.status : "";
   if (status === "billing_cancelled") {
     returnState.value = "cancelled";
-    void emit("checkout_returned", { offer_code: selectedOfferCode.value, result: "cancelled" });
+    void emitPageAnalyticsWhenReady(`checkout-return:${selectedOfferCode.value}:cancelled`, "checkout_returned", {
+      offer_code: selectedOfferCode.value,
+      result: "cancelled"
+    });
     return;
   }
   if (status !== "billing") return;
   const projectionOfferCode = typeof route.query.offer === "string" ? route.query.offer : selectedOfferCode.value;
+  void emitPageAnalyticsWhenReady(`checkout-return:${projectionOfferCode}:returned`, "checkout_returned", {
+    offer_code: projectionOfferCode,
+    result: "returned"
+  });
   const latest = [...(billing.value?.subscriptions ?? [])]
     .filter((item) => projectionOfferCode && item.offer_code === projectionOfferCode)
     .sort((left, right) => Date.parse(right.last_synced_at) - Date.parse(left.last_synced_at))[0];
   if (latest?.state === "active" || latest?.state === "trialing") {
     returnState.value = "projected";
-    void emit("subscription_projected", { offer_code: projectionOfferCode, result: "active" });
+    void emitPageAnalyticsWhenReady(`subscription-projection:${projectionOfferCode}:active`, "subscription_projected", {
+      offer_code: projectionOfferCode,
+      result: "active"
+    });
     return;
   }
   if (latest?.state === "incomplete_expired" || latest?.state === "unpaid" || latest?.state === "canceled") {
     returnState.value = "failed";
+    void emitPageAnalyticsWhenReady(`subscription-projection:${projectionOfferCode}:failed`, "subscription_projected", {
+      offer_code: projectionOfferCode,
+      result: "failed"
+    });
     return;
   }
   if (latest?.state === "past_due" || latest?.state === "paused") {
     returnState.value = "attention";
+    void emitPageAnalyticsWhenReady(`subscription-projection:${projectionOfferCode}:attention`, "subscription_projected", {
+      offer_code: projectionOfferCode,
+      result: "attention"
+    });
     return;
   }
   returnState.value = "pending";
@@ -148,10 +200,20 @@ async function load(): Promise<void> {
   loading.value = true;
   errorMessage.value = "";
   analyticsAllowed.value = false;
+  consentResolved = false;
+  checkoutReviewVisible = false;
   try {
     void getPrivacyConsent()
-      .then((consent) => { analyticsAllowed.value = consent.decided && consent.analytics && !consent.renewal_required; })
-      .catch(() => { analyticsAllowed.value = false; });
+      .then((consent) => {
+        analyticsAllowed.value = consent.decided && consent.analytics && !consent.renewal_required;
+        consentResolved = true;
+        flushDeferredPageAnalytics();
+      })
+      .catch(() => {
+        analyticsAllowed.value = false;
+        consentResolved = true;
+        deferredPageAnalytics.clear();
+      });
     const published = await getPublicCatalog();
     catalog.value = published;
     chooseOffer();
@@ -162,9 +224,8 @@ async function load(): Promise<void> {
     }
     await loadBilling();
     evaluateReturn();
-    if (selectedOfferCode.value) {
-      void emit("checkout_reviewed", { offer_code: selectedOfferCode.value, referral_present: "false" });
-    }
+    checkoutReviewVisible = true;
+    void emitCheckoutReviewIfReady();
   } catch (error) {
     errorMessage.value = error instanceof APIProblem ? error.message : "Checkout is temporarily unavailable.";
   } finally {
@@ -210,9 +271,13 @@ watch(selectedOfferCode, () => {
   if (selectedOfferCode.value) requestedOfferUnavailable.value = false;
   confirmed.value = false;
   requestID.value = "";
+  void emitCheckoutReviewIfReady();
 });
 onMounted(() => void load());
-onBeforeUnmount(() => { if (pollTimer !== undefined) window.clearTimeout(pollTimer); });
+onBeforeUnmount(() => {
+  checkoutPageActive = false;
+  if (pollTimer !== undefined) window.clearTimeout(pollTimer);
+});
 </script>
 
 <template>
