@@ -172,9 +172,9 @@ async function submitTransition(): Promise<void> {
     await refresh();
   } catch (cause) {
     if (cause instanceof APIProblem && cause.status === 412) {
-      detailError.value = "This work item changed. Spyglass loaded the current version; review it before trying again.";
       transitionOpen.value = false;
       await loadDetail();
+      detailError.value = "This work item changed. Spyglass loaded the current version; review it before trying again.";
     } else detailError.value = cause instanceof APIProblem ? cause.message : "The work state could not be changed.";
   } finally { saving.value = false; }
 }

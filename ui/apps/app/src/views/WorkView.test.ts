@@ -3,7 +3,7 @@ import { flushPromises, mount, RouterLinkStub } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AccountChoice, WorkItem } from "@spyglass/api";
+import { APIProblem, type AccountChoice, type WorkItem } from "@spyglass/api";
 import { useSessionStore } from "../stores/session";
 import { expectNoAxeViolations } from "../test/accessibility";
 import WorkView from "./WorkView.vue";
@@ -67,5 +67,17 @@ describe("Work surface", () => {
     expect(wrapper.text()).toContain("Verify the governed release boundary");
     expect(wrapper.text()).toContain("Complete");
     expect(wrapper.text()).toContain("Edit responsibility");
+  });
+
+  it("retains the safe-retry notice after reloading a conflicted transition", async () => {
+    api.transitionWork.mockRejectedValue(new APIProblem(412));
+    const wrapper = await mountAt(`/app/work/${item.id}`);
+    await wrapper.findAll("button").find((button) => button.text() === "Complete")?.trigger("click");
+    await wrapper.get('[role="dialog"] textarea').setValue("The governed launch checklist is complete.");
+    await wrapper.get('form[role="dialog"]').trigger("submit");
+    await flushPromises();
+    expect(api.getWorkItem).toHaveBeenCalledTimes(2);
+    expect(wrapper.text()).toContain("Spyglass loaded the current version; review it before trying again.");
+    await expectNoAxeViolations(wrapper.element);
   });
 });

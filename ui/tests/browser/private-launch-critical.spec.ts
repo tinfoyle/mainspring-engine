@@ -279,6 +279,14 @@ function fulfillJSON(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
+function fulfillProblem(route: Route, status: number, code: string, detail: string) {
+  return route.fulfill({
+    status,
+    contentType: "application/problem+json",
+    body: JSON.stringify({ type: `https://infiniteocean.net/problems/${code}`, title: "Request denied", status, code, detail })
+  });
+}
+
 function accountWithPackageModes(mode: "enabled" | "read_only", excluded: ReadonlyArray<string> = []) {
   return {
     ...account,
@@ -877,6 +885,56 @@ test("the application shell keeps Account-load failure recoverable", async ({ pa
   await expect(page.getByRole("status")).toContainText("We could not load your Account.");
   await expect(page.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/login?return_to=%2Fapp");
   await expect(page.locator("#account")).toHaveValue("");
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("Work capacity denial preserves the customer's local draft", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*403/);
+  await page.route(`**/api/v1/accounts/${accountID}/work-items`, async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await fulfillProblem(route, 403, "limit_exceeded", "This Account has reached its active Work limit. Complete or cancel existing Work before trying again.");
+  });
+  await page.goto("/app/work");
+  await page.getByRole("button", { name: "New work" }).click();
+  await page.getByLabel("Title").fill("Preserve this capacity-blocked draft");
+  await page.getByRole("button", { name: "Create work" }).click();
+  await expect(page.getByRole("alert")).toContainText("This Account has reached its active Work limit.");
+  await expect(page.getByLabel("Title")).toHaveValue("Preserve this capacity-blocked draft");
+  await expect(page.getByRole("button", { name: "Create work" })).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("Work conflict reloads authoritative state before retry", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*412/);
+  await page.route(`**/api/v1/accounts/${accountID}/work-items/${workItem.id}/transitions`, async (route) => {
+    await fulfillProblem(route, 412, "work_version_conflict", "The submitted Work version is stale.");
+  });
+  await page.goto(`/app/work/${workItem.id}`);
+  await page.getByRole("button", { name: "Complete" }).click();
+  const dialog = page.getByRole("dialog", { name: "Done this work?" });
+  await dialog.getByLabel("Operational reason").fill("The governed launch checklist is complete.");
+  await dialog.getByRole("button", { name: "Confirm change" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("alert")).toContainText("Spyglass loaded the current version; review it before trying again.");
+  await expect(page.getByRole("heading", { level: 1, name: workItem.title })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Complete" })).toBeEnabled();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("Checkout provider failure leaves payment and Account state unchanged", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*502/);
+  await page.route(`**/api/v1/accounts/${accountID}/checkout-sessions`, async (route) => {
+    await fulfillProblem(route, 502, "billing_provider_unavailable", "Stripe is temporarily unavailable. No payment was started and this Account is unchanged.");
+  });
+  await page.goto("/app/checkout?offer=team-monthly-v1");
+  await page.getByRole("checkbox", { name: /I confirm this offer/ }).check();
+  await page.getByRole("button", { name: "Continue to Stripe" }).click();
+  await expect(page.getByRole("alert")).toContainText("No payment was started and this Account is unchanged.");
+  await expect(page).toHaveURL(/\/app\/checkout\?offer=team-monthly-v1$/);
+  await expect(page.getByRole("button", { name: "Continue to Stripe" })).toBeEnabled();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });
