@@ -65,9 +65,11 @@ type ConsentSubjectID string
 type ConsentDecisionID string
 type AnalyticsEventID string
 type AffiliateID string
+type AffiliateEnrollmentEventID string
 type ReferralAttributionID string
 type CommissionRuleID string
 type CommissionEntryID string
+type AffiliateProviderEventID string
 type PrivacyRightsRequestID string
 type PrivacyRightsEventID string
 

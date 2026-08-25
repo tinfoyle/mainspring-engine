@@ -171,10 +171,10 @@ func (r *AffiliateProgramRepository) AppendCommission(ctx context.Context, entry
 	command, err := r.pool.Exec(ctx, `
 		INSERT INTO affiliate_commission_entries
 			(entry_id,affiliate_id,attribution_id,rule_version,provider_subscription_id,provider_invoice_id,
-			 cycle,kind,state,amount_minor,currency,reverses_entry_id,available_at,created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+			 provider_payment_intent_id,cycle,kind,state,amount_minor,currency,reverses_entry_id,available_at,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (provider_subscription_id,provider_invoice_id,rule_version,kind) DO NOTHING`, entry.ID,
-		entry.AffiliateID, entry.AttributionID, entry.RuleVersion, entry.SubscriptionID, entry.InvoiceID,
+		entry.AffiliateID, entry.AttributionID, entry.RuleVersion, entry.SubscriptionID, entry.InvoiceID, entry.PaymentIntentID,
 		entry.Cycle, entry.Kind, entry.State, entry.AmountMinor, entry.Currency, reverses, entry.AvailableAt, entry.CreatedAt)
 	if err != nil {
 		return affiliates.CommissionEntry{}, err
@@ -194,7 +194,7 @@ func (r *AffiliateProgramRepository) AppendCommission(ctx context.Context, entry
 	return stored, nil
 }
 
-func (r *AffiliateProgramRepository) RecordPaidCommission(ctx context.Context, id ids.CommissionEntryID, attribution affiliates.Attribution, rule affiliates.CommissionRule, invoiceID string, initial bool, now time.Time) (affiliates.CommissionEntry, error) {
+func (r *AffiliateProgramRepository) RecordPaidCommission(ctx context.Context, id, reversalID ids.CommissionEntryID, attribution affiliates.Attribution, rule affiliates.CommissionRule, invoiceID, paymentIntentID string, initial bool, now time.Time) (affiliates.CommissionEntry, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return affiliates.CommissionEntry{}, err
@@ -203,13 +203,22 @@ func (r *AffiliateProgramRepository) RecordPaidCommission(ctx context.Context, i
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "spyglass:affiliate-commission:"+attribution.SubscriptionID); err != nil {
 		return affiliates.CommissionEntry{}, err
 	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "spyglass:affiliate-payment:"+paymentIntentID); err != nil {
+		return affiliates.CommissionEntry{}, err
+	}
 	existing, err := scanAffiliateCommission(tx.QueryRow(ctx, affiliateCommissionSelect+`
 		WHERE provider_subscription_id=$1 AND provider_invoice_id=$2 AND rule_version=$3 AND kind='earned'`,
 		attribution.SubscriptionID, invoiceID, rule.Version))
 	if err == nil {
 		if existing.AffiliateID != attribution.AffiliateID || existing.AttributionID != attribution.ID ||
-			existing.AmountMinor != rule.CommissionMinor || existing.Currency != rule.Currency {
+			existing.AmountMinor != rule.CommissionMinor || existing.Currency != rule.Currency ||
+			(existing.PaymentIntentID != "" && existing.PaymentIntentID != paymentIntentID) {
 			return affiliates.CommissionEntry{}, fmt.Errorf("affiliate commission idempotency conflict")
+		}
+		if existing.PaymentIntentID != "" {
+			if _, _, err := maybeAppendCommissionReversal(ctx, tx, reversalID, existing, rule.EligibleInvoiceMinor, now); err != nil {
+				return affiliates.CommissionEntry{}, err
+			}
 		}
 		if err := tx.Commit(ctx); err != nil {
 			return affiliates.CommissionEntry{}, err
@@ -240,24 +249,143 @@ func (r *AffiliateProgramRepository) RecordPaidCommission(ctx context.Context, i
 			cycle = 2
 		}
 	}
-	entry, err := affiliates.NewEarnedEntry(id, attribution, rule, invoiceID, cycle, now)
+	entry, err := affiliates.NewEarnedEntry(id, attribution, rule, invoiceID, paymentIntentID, cycle, now)
 	if err != nil {
 		return affiliates.CommissionEntry{}, err
 	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO affiliate_commission_entries
 			(entry_id,affiliate_id,attribution_id,rule_version,provider_subscription_id,provider_invoice_id,
-			 cycle,kind,state,amount_minor,currency,reverses_entry_id,available_at,created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULL,$12,$13)`, entry.ID, entry.AffiliateID,
-		entry.AttributionID, entry.RuleVersion, entry.SubscriptionID, entry.InvoiceID, entry.Cycle,
+			 provider_payment_intent_id,cycle,kind,state,amount_minor,currency,reverses_entry_id,available_at,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,$13,$14)`, entry.ID, entry.AffiliateID,
+		entry.AttributionID, entry.RuleVersion, entry.SubscriptionID, entry.InvoiceID, entry.PaymentIntentID, entry.Cycle,
 		entry.Kind, entry.State, entry.AmountMinor, entry.Currency, entry.AvailableAt, entry.CreatedAt)
 	if err != nil {
+		return affiliates.CommissionEntry{}, err
+	}
+	if _, _, err := maybeAppendCommissionReversal(ctx, tx, reversalID, entry, rule.EligibleInvoiceMinor, now); err != nil {
 		return affiliates.CommissionEntry{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return affiliates.CommissionEntry{}, err
 	}
 	return entry, nil
+}
+
+func (r *AffiliateProgramRepository) RecordAdverseCommission(ctx context.Context, reversalID ids.CommissionEntryID, evidence affiliates.AdverseBillingEvidence, now time.Time) (affiliates.CommissionEntry, bool, error) {
+	if evidence.Validate() != nil || ids.Validate(string(reversalID)) != nil || now.IsZero() || now.Before(evidence.OccurredAt) {
+		return affiliates.CommissionEntry{}, false, affiliates.ErrInvalidAdverse
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "spyglass:affiliate-payment:"+evidence.PaymentIntentID); err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	command, err := tx.Exec(ctx, `
+		INSERT INTO affiliate_provider_adverse_events
+			(provider_event_id,kind,provider_object_id,provider_payment_intent_id,amount_minor,currency,occurred_at,recorded_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT DO NOTHING`, evidence.EventID, evidence.Kind, evidence.ProviderObjectID, evidence.PaymentIntentID,
+		evidence.AmountMinor, evidence.Currency, evidence.OccurredAt.UTC(), now.UTC())
+	if err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	if command.RowsAffected() == 0 {
+		stored, err := scanAffiliateAdverseEvidence(tx.QueryRow(ctx, affiliateAdverseSelect+`
+			WHERE kind=$1 AND provider_object_id=$2`, evidence.Kind, evidence.ProviderObjectID))
+		if errors.Is(err, pgx.ErrNoRows) {
+			stored, err = scanAffiliateAdverseEvidence(tx.QueryRow(ctx, affiliateAdverseSelect+`
+				WHERE provider_event_id=$1`, evidence.EventID))
+		}
+		if err != nil {
+			return affiliates.CommissionEntry{}, false, err
+		}
+		if !sameAdverseEvidence(stored, evidence) {
+			return affiliates.CommissionEntry{}, false, fmt.Errorf("affiliate adverse-event idempotency conflict")
+		}
+	}
+	original, err := scanAffiliateCommission(tx.QueryRow(ctx, affiliateCommissionSelect+`
+		WHERE provider_payment_intent_id=$1 AND kind='earned'`, evidence.PaymentIntentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		if err := tx.Commit(ctx); err != nil {
+			return affiliates.CommissionEntry{}, false, err
+		}
+		return affiliates.CommissionEntry{}, false, nil
+	}
+	if err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	var eligibleMinor int64
+	if err := tx.QueryRow(ctx, `SELECT eligible_invoice_minor FROM affiliate_commission_rules WHERE version=$1`, original.RuleVersion).Scan(&eligibleMinor); err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	reversal, reversed, err := maybeAppendCommissionReversal(ctx, tx, reversalID, original, eligibleMinor, now)
+	if err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	return reversal, reversed, nil
+}
+
+const affiliateAdverseSelect = `
+	SELECT provider_event_id,kind,provider_object_id,provider_payment_intent_id,amount_minor,currency,occurred_at
+	FROM affiliate_provider_adverse_events`
+
+func scanAffiliateAdverseEvidence(row pgx.Row) (affiliates.AdverseBillingEvidence, error) {
+	var value affiliates.AdverseBillingEvidence
+	err := row.Scan(&value.EventID, &value.Kind, &value.ProviderObjectID, &value.PaymentIntentID,
+		&value.AmountMinor, &value.Currency, &value.OccurredAt)
+	return value, err
+}
+
+func sameAdverseEvidence(left, right affiliates.AdverseBillingEvidence) bool {
+	// Stripe can emit refund.created and refund.updated for the same successful
+	// Refund object. Provider object identity plus financial evidence is the
+	// semantic idempotency boundary; delivery event IDs and times may differ.
+	return left.Kind == right.Kind && left.ProviderObjectID == right.ProviderObjectID &&
+		left.PaymentIntentID == right.PaymentIntentID && left.AmountMinor == right.AmountMinor && left.Currency == right.Currency
+}
+
+func maybeAppendCommissionReversal(ctx context.Context, tx pgx.Tx, reversalID ids.CommissionEntryID, original affiliates.CommissionEntry, eligibleMinor int64, now time.Time) (affiliates.CommissionEntry, bool, error) {
+	existing, err := scanAffiliateCommission(tx.QueryRow(ctx, affiliateCommissionSelect+`
+		WHERE reverses_entry_id=$1 AND kind='reversal'`, original.ID))
+	if err == nil {
+		return existing, true, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	var refundedMinor, disputedMinor int64
+	if err := tx.QueryRow(ctx, `
+		SELECT COALESCE(sum(amount_minor) FILTER (WHERE kind='refund'),0)::bigint,
+		       COALESCE(max(amount_minor) FILTER (WHERE kind='dispute'),0)::bigint
+		FROM affiliate_provider_adverse_events WHERE provider_payment_intent_id=$1`, original.PaymentIntentID).Scan(&refundedMinor, &disputedMinor); err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	if refundedMinor < eligibleMinor && disputedMinor < eligibleMinor {
+		return affiliates.CommissionEntry{}, false, nil
+	}
+	reversal, err := affiliates.NewReversalEntry(reversalID, original, original.InvoiceID, now)
+	if err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO affiliate_commission_entries
+			(entry_id,affiliate_id,attribution_id,rule_version,provider_subscription_id,provider_invoice_id,
+			 provider_payment_intent_id,cycle,kind,state,amount_minor,currency,reverses_entry_id,available_at,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, reversal.ID, reversal.AffiliateID,
+		reversal.AttributionID, reversal.RuleVersion, reversal.SubscriptionID, reversal.InvoiceID, reversal.PaymentIntentID,
+		reversal.Cycle, reversal.Kind, reversal.State, reversal.AmountMinor, reversal.Currency, *reversal.ReversesID,
+		reversal.AvailableAt, reversal.CreatedAt)
+	if err != nil {
+		return affiliates.CommissionEntry{}, false, err
+	}
+	return reversal, true, nil
 }
 
 func (r *AffiliateProgramRepository) CommissionEntries(ctx context.Context, affiliateID ids.AffiliateID) ([]affiliates.CommissionEntry, error) {
@@ -279,14 +407,14 @@ func (r *AffiliateProgramRepository) CommissionEntries(ctx context.Context, affi
 
 const affiliateCommissionSelect = `
 	SELECT entry_id,affiliate_id,attribution_id,rule_version,provider_subscription_id,provider_invoice_id,
-	       cycle,kind,state,amount_minor,currency,reverses_entry_id::text,available_at,created_at
+	       COALESCE(provider_payment_intent_id,''),cycle,kind,state,amount_minor,currency,reverses_entry_id::text,available_at,created_at
 	FROM affiliate_commission_entries`
 
 func scanAffiliateCommission(row pgx.Row) (affiliates.CommissionEntry, error) {
 	var value affiliates.CommissionEntry
 	var reverses *string
 	err := row.Scan(&value.ID, &value.AffiliateID, &value.AttributionID, &value.RuleVersion,
-		&value.SubscriptionID, &value.InvoiceID, &value.Cycle, &value.Kind, &value.State,
+		&value.SubscriptionID, &value.InvoiceID, &value.PaymentIntentID, &value.Cycle, &value.Kind, &value.State,
 		&value.AmountMinor, &value.Currency, &reverses, &value.AvailableAt, &value.CreatedAt)
 	if reverses != nil {
 		identifier := ids.CommissionEntryID(*reverses)
@@ -298,7 +426,7 @@ func scanAffiliateCommission(row pgx.Row) (affiliates.CommissionEntry, error) {
 func sameCommissionEvidence(left, right affiliates.CommissionEntry) bool {
 	return left.AffiliateID == right.AffiliateID && left.AttributionID == right.AttributionID &&
 		left.RuleVersion == right.RuleVersion && left.SubscriptionID == right.SubscriptionID &&
-		left.InvoiceID == right.InvoiceID && left.Cycle == right.Cycle && left.Kind == right.Kind &&
+		left.InvoiceID == right.InvoiceID && left.PaymentIntentID == right.PaymentIntentID && left.Cycle == right.Cycle && left.Kind == right.Kind &&
 		left.State == right.State && left.AmountMinor == right.AmountMinor && left.Currency == right.Currency
 }
 

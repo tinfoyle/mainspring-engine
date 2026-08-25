@@ -219,6 +219,14 @@ must not inherit Account API, export worker, object-store, email, billing or
 provider credentials. See
 [privacy-rights-operations.md](../../../docs/production/privacy-rights-operations.md).
 
+Affiliate enrollment administration is intentionally absent as a standing
+Deployment. Environments run `spyglass affiliate-admin inspect|activate|suspend|close`
+as a short-lived, human-authorized Job with an execute-only global database
+role, exact environment confirmation and an exact observed enrollment version
+for every state change. It must not inherit Account API, billing worker, Stripe,
+settlement or serving credentials. See
+[affiliate-operations.md](../../../docs/production/affiliate-operations.md).
+
 Work release administration is also intentionally absent as a standing
 Deployment. Environments run `spyglass work-release-admin inspect|requeue` as a
 short-lived, human-authorized Job with the target cell's execute-only operator

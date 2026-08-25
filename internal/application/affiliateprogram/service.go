@@ -40,7 +40,8 @@ type Repository interface {
 	AttributionBySubscription(context.Context, string) (affiliates.Attribution, error)
 	CommissionRule(context.Context, uint64) (affiliates.CommissionRule, error)
 	AppendCommission(context.Context, affiliates.CommissionEntry) (affiliates.CommissionEntry, error)
-	RecordPaidCommission(context.Context, ids.CommissionEntryID, affiliates.Attribution, affiliates.CommissionRule, string, bool, time.Time) (affiliates.CommissionEntry, error)
+	RecordPaidCommission(context.Context, ids.CommissionEntryID, ids.CommissionEntryID, affiliates.Attribution, affiliates.CommissionRule, string, string, bool, time.Time) (affiliates.CommissionEntry, error)
+	RecordAdverseCommission(context.Context, ids.CommissionEntryID, affiliates.AdverseBillingEvidence, time.Time) (affiliates.CommissionEntry, bool, error)
 	CommissionEntries(context.Context, ids.AffiliateID) ([]affiliates.CommissionEntry, error)
 }
 
@@ -176,6 +177,7 @@ func (s *Service) Lock(ctx context.Context, attributionID ids.ReferralAttributio
 type PaidInvoice struct {
 	SubscriptionID  string
 	InvoiceID       string
+	PaymentIntentID string
 	AmountPaidMinor int64
 	Currency        string
 	Initial         bool
@@ -193,11 +195,23 @@ func (s *Service) RecordPaidInvoice(ctx context.Context, paid PaidInvoice) (affi
 	if paid.AmountPaidMinor != rule.EligibleInvoiceMinor || strings.ToUpper(paid.Currency) != rule.Currency {
 		return affiliates.CommissionEntry{}, ErrInvoiceIneligible
 	}
-	stored, err := s.repository.RecordPaidCommission(ctx, ids.CommissionEntryID(s.ids.New()), attribution, rule, paid.InvoiceID, paid.Initial, s.clock.Now())
+	stored, err := s.repository.RecordPaidCommission(ctx, ids.CommissionEntryID(s.ids.New()), ids.CommissionEntryID(s.ids.New()),
+		attribution, rule, paid.InvoiceID, paid.PaymentIntentID, paid.Initial, s.clock.Now())
 	if err != nil {
 		return affiliates.CommissionEntry{}, err
 	}
 	return stored, nil
+}
+
+// RecordAdverseBilling projects only verified Stripe refund/dispute evidence.
+// A reversal is appended once cumulative refunds or a lost dispute reaches the
+// original eligible invoice amount; partial adverse events remain evidence but
+// do not partially debit the fixed commission.
+func (s *Service) RecordAdverseBilling(ctx context.Context, evidence affiliates.AdverseBillingEvidence) (affiliates.CommissionEntry, bool, error) {
+	if evidence.Validate() != nil {
+		return affiliates.CommissionEntry{}, false, affiliates.ErrInvalidAdverse
+	}
+	return s.repository.RecordAdverseCommission(ctx, ids.CommissionEntryID(s.ids.New()), evidence, s.clock.Now())
 }
 
 type Statement struct {

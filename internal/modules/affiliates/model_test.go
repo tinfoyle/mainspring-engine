@@ -52,6 +52,22 @@ func TestSelfReferralFailsClosed(t *testing.T) {
 	}
 }
 
+func TestEnrollmentLifecycleMakesClosureTerminal(t *testing.T) {
+	now := time.Now().UTC()
+	enrollment, _ := affiliates.NewEnrollment(ids.AffiliateID(affiliateID), ids.UserID(userID), ids.AccountID(affiliateAcct), "OCEAN-AB12", 1, 2, now)
+	if err := enrollment.CanTransition(affiliates.EnrollmentSuspended); err != nil {
+		t.Fatal(err)
+	}
+	enrollment.State = affiliates.EnrollmentSuspended
+	if err := enrollment.CanTransition(affiliates.EnrollmentActive); err != nil {
+		t.Fatal(err)
+	}
+	enrollment.State = affiliates.EnrollmentClosed
+	if !errors.Is(enrollment.CanTransition(affiliates.EnrollmentActive), affiliates.ErrInvalidEnrollment) {
+		t.Fatal("closed enrollment was reopened")
+	}
+}
+
 func TestCommissionRuleProducesPendingEarningAndImmutableReversal(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	enrollment, _ := affiliates.NewEnrollment(ids.AffiliateID(affiliateID), ids.UserID(userID), ids.AccountID(affiliateAcct), "OCEAN-AB12", 1, 2, now)
@@ -61,10 +77,10 @@ func TestCommissionRuleProducesPendingEarningAndImmutableReversal(t *testing.T) 
 	if err := rule.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := affiliates.NewEarnedEntry(ids.CommissionEntryID(entryID), attribution, rule, "in_first", 1, now); !errors.Is(err, affiliates.ErrInvalidCommission) {
+	if _, err := affiliates.NewEarnedEntry(ids.CommissionEntryID(entryID), attribution, rule, "in_first", "pi_first", 1, now); !errors.Is(err, affiliates.ErrInvalidCommission) {
 		t.Fatalf("first invoice returned %v", err)
 	}
-	earning, err := affiliates.NewEarnedEntry(ids.CommissionEntryID(entryID), attribution, rule, "in_renewal", 2, now)
+	earning, err := affiliates.NewEarnedEntry(ids.CommissionEntryID(entryID), attribution, rule, "in_renewal", "pi_renewal", 2, now)
 	if err != nil || earning.AmountMinor != 1000 || earning.State != affiliates.CommissionPending || !earning.AvailableAt.Equal(now.Add(30*24*time.Hour)) {
 		t.Fatalf("earning=%+v err=%v", earning, err)
 	}
