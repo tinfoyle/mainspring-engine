@@ -85,9 +85,13 @@ async function expectAccessible(page: Page): Promise<void> {
 async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
-    document: document.documentElement.scrollWidth
+    document: document.documentElement.scrollWidth,
+    offenders: Array.from(document.querySelectorAll<HTMLElement>("body *")).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { selector: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${Array.from(element.classList).map((name) => `.${name}`).join("")}`, left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width), scrollWidth: element.scrollWidth };
+    }).filter((element) => element.left < 0 || element.right > document.documentElement.clientWidth || element.scrollWidth > element.width + 1).slice(0, 12)
   }));
-  expect(dimensions.document, `document width ${dimensions.document}px exceeds ${dimensions.viewport}px viewport`).toBeLessThanOrEqual(dimensions.viewport);
+  expect(dimensions.document, `document width ${dimensions.document}px exceeds ${dimensions.viewport}px viewport; offenders: ${JSON.stringify(dimensions.offenders)}`).toBeLessThanOrEqual(dimensions.viewport);
 }
 
 let state: PublicAPIState;
@@ -166,6 +170,26 @@ test("complete feature and policy inventory remains rendered, private, and acces
       await page.goto(`http://127.0.0.1:4174${route.path}`);
       await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Privacy without the fog" })).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+      expect(state.analyticsEvents, `${route.path} emitted before an analytics decision`).toEqual([]);
+    });
+  }
+});
+
+test("@text-zoom public acquisition remains usable at 200% text size", async ({ page }) => {
+  const routes = [
+    { path: "/", heading: "Know what needs you next." },
+    { path: "/pricing", heading: /Start free/ },
+    ...publicFeatureAndPolicyRoutes
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(`http://127.0.0.1:4174${route.path}`);
+      await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+      await expect.poll(() => page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).fontSize))).toBeGreaterThanOrEqual(32);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
       expect(state.analyticsEvents, `${route.path} emitted before an analytics decision`).toEqual([]);

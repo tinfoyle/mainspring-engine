@@ -562,11 +562,11 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   main { min-height: 100vh; }
   .page { width: min(62rem, calc(100% - 4rem)); padding-top: 4rem; }
   .attention-card { padding: 1.3rem 1.45rem; }
-  .page-heading--action { grid-template-columns: 1fr auto; align-items: end; }
+  .page-heading--action { grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); align-items: end; }
   .page-heading--action .io-button { justify-self: end; }
-  .detail-heading { grid-template-columns: 1fr auto; align-items: end; }
+  .detail-heading { grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); align-items: end; }
   .state-badge { justify-self: end; }
-  .detail-layout { grid-template-columns: minmax(0, 1.08fr) minmax(19rem, .92fr); align-items: start; }
+  .detail-layout { grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); align-items: start; }
   .detail-card, .decision-card { padding: 1.35rem; }
   .checkout-layout { grid-template-columns: 1fr 1fr; align-items: start; }
   .checkout-card { padding: 1.35rem; }
@@ -574,17 +574,17 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .affiliate-code { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 1.35rem; }
   .affiliate-totals { grid-template-columns: repeat(3, 1fr); }
   .affiliate-enrollment, .affiliate-statement, .affiliate-support { padding: 1.35rem; }
-  .account-summary { grid-template-columns: 1fr auto; align-items: center; padding: 1.35rem; }
-  .account-summary dl { min-width: 22rem; }
+  .account-summary { grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); align-items: center; padding: 1.35rem; }
+  .account-summary dl { min-width: 0; }
   .team-section, .account-leave { padding: 1.35rem; }
   .invite-form { grid-template-columns: 2fr 1fr auto; align-items: end; }
   .invite-form > div, .invite-form .referral-confirmed { grid-column: 1 / -1; }
   .team-list { grid-template-columns: 1fr 1fr; }
   .account-leave { grid-template-columns: 1fr auto; align-items: center; }
   .account-leave .io-button { justify-self: end; }
-  .security-posture { grid-template-columns: 1fr auto; align-items: center; padding: 1.35rem; }
-  .security-posture dl { min-width: 20rem; }
-  .security-grid { grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .security-posture { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); align-items: center; padding: 1.35rem; }
+  .security-posture dl { min-width: 0; }
+  .security-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; }
   .security-card, .security-section { padding: 1.35rem; }
   .security-add { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
   .security-list > li { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
@@ -603,7 +603,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .finance-toolbar { grid-template-columns: minmax(0, 1fr) auto; align-items: end; padding: 1.35rem; }
   .finance-toolbar > div { justify-content: end; }
   .finance-summary { grid-template-columns: repeat(4, 1fr); }
-  .finance-workspace { grid-template-columns: minmax(0, 1.15fr) minmax(20rem, .85fr); align-items: start; }
+  .finance-workspace { grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); align-items: start; }
   .finance-list-panel, .finance-detail { padding: 1.35rem; }
   .finance-detail { position: sticky; top: 1rem; }
   .finance-line-editor > div { grid-template-columns: 2fr 2fr 1fr 1fr auto; align-items: end; }
@@ -614,12 +614,12 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .integration-capture-result { padding: 1.35rem; }
   .marketing-toolbar { grid-template-columns: minmax(0, 1fr) auto; align-items: end; padding: 1.35rem; }
   .marketing-toolbar > div { justify-content: end; }
-  .marketing-workspace { grid-template-columns: minmax(16rem, .7fr) minmax(0, 1.3fr); align-items: start; }
+  .marketing-workspace { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); align-items: start; }
   .marketing-list-panel, .marketing-detail, .marketing-collection, .marketing-releases { padding: 1.35rem; }
   .marketing-list-panel { position: sticky; top: 1rem; }
   .marketing-overview { grid-template-columns: 1fr 1fr; }
   .marketing-overview > aside { grid-column: 1 / -1; }
-  .marketing-release-layout { grid-template-columns: minmax(0, 1fr) minmax(18rem, .9fr); align-items: start; }
+  .marketing-release-layout { grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); align-items: start; }
   .marketing-release-detail { position: sticky; top: 1rem; }
   .baseline-welcome { grid-template-columns: minmax(0, 1fr) auto; align-items: center; padding: 1.5rem; }
   .baseline-focus-card, .baseline-dashboard { padding: 1.5rem; }
@@ -633,7 +633,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
   .rights-form > label:nth-of-type(2) { grid-column: 2; grid-row: 1; }
   .rights-form select:nth-of-type(2) { grid-column: 2; grid-row: 2; }
   .rights-form .scope-description, .rights-form .queue-inline-status, .rights-form .io-button { grid-column: 1 / -1; }
-  .privacy-tool-grid { grid-template-columns: repeat(3, 1fr); }
+  .privacy-tool-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
   .work-summary { grid-template-columns: repeat(4, 1fr); }
   .work-filters { grid-template-columns: 2fr 1fr 1fr auto; align-items: end; }
   .work-list { grid-template-columns: 1fr 1fr; }

@@ -132,7 +132,7 @@ body.site-menu-open { overflow: hidden; }
 }
 
 @media (min-width: 70rem) {
-  .feature-grid { grid-template-columns: repeat(4, 1fr); }
+  .feature-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); }
   .promise ol { grid-template-columns: repeat(4, 1fr); }
   .promise li { grid-template-columns: 1fr; padding: 1.4rem; border-left: 1px solid var(--io-line); }
 }

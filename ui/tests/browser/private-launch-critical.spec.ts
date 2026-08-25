@@ -617,9 +617,13 @@ async function expectAccessible(page: Page): Promise<void> {
 async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
-    document: document.documentElement.scrollWidth
+    document: document.documentElement.scrollWidth,
+    offenders: Array.from(document.querySelectorAll<HTMLElement>("body *")).map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { selector: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${Array.from(element.classList).map((name) => `.${name}`).join("")}`, left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width), scrollWidth: element.scrollWidth };
+    }).filter((element) => element.left < 0 || element.right > document.documentElement.clientWidth || element.scrollWidth > element.width + 1).slice(0, 12)
   }));
-  expect(dimensions.document, `document width ${dimensions.document}px exceeds ${dimensions.viewport}px viewport`).toBeLessThanOrEqual(dimensions.viewport);
+  expect(dimensions.document, `document width ${dimensions.document}px exceeds ${dimensions.viewport}px viewport; offenders: ${JSON.stringify(dimensions.offenders)}`).toBeLessThanOrEqual(dimensions.viewport);
 }
 
 let state: SyntheticAPIState;
@@ -743,6 +747,39 @@ test("Your Turn sends only one decision while approval is pending", async ({ pag
   expect(decisionRequests).toBe(1);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+});
+
+test("@text-zoom authenticated routes retain content and reflow at 200% text size", async ({ page }) => {
+  const routes = [
+    { path: "/app/your-turn", heading: "Your Turn" },
+    { path: "/app/checkout?offer=team-monthly-v1", heading: "Review before Stripe." },
+    { path: "/app/privacy", heading: "Privacy you can act on." },
+    { path: "/app/affiliate", heading: "One identity. One clear ledger." },
+    { path: "/app/account", heading: "People and authority" },
+    { path: `/app/work/${workItem.id}`, heading: workItem.title },
+    { path: `/app/knowledge/claims/${knowledgeClaim.id}`, heading: knowledgeClaim.key },
+    { path: `/app/baseline/${baselineID}`, heading: "Business Baseline" },
+    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name },
+    { path: `/app/schedules/${schedule.id}`, heading: schedule.name },
+    { path: `/app/finance/entries/${financeEntry.id}`, heading: "A governed ledger for operating truth" },
+    { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Connect deliberately. Observe every effect." },
+    { path: `/app/marketing/releases/${marketingRelease.id}`, heading: "Prepare the message. Govern the release." },
+    { path: "/app/billing", heading: "Know what the Account pays for" },
+    { path: "/app/security", heading: "Security follows you" },
+    { path: "/app/account-exports", heading: "Take your Account with you" },
+    { path: "/app/account-closures", heading: "Deliberate and recoverable" }
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(route.path);
+      await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
+      await expect.poll(() => page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).fontSize))).toBeGreaterThanOrEqual(32);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    });
+  }
 });
 
 test("mobile navigation traps and restores focus", async ({ page }, testInfo) => {
