@@ -35,9 +35,21 @@
   }
 }
 
+http://web.infiniteocean.localhost {
+  request_header Host web.infiniteocean.localhost:8444
+  request_header Origin https://web.infiniteocean.localhost:8444
+  import web_routes
+}
+
 web.infiniteocean.localhost {
   tls internal
   import web_routes
+}
+
+http://app.infiniteocean.localhost {
+  request_header Host app.infiniteocean.localhost:8444
+  request_header Origin https://app.infiniteocean.localhost:8444
+  import app_routes
 }
 
 app.infiniteocean.localhost {

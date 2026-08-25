@@ -24,4 +24,26 @@ describe("application shell", () => {
     expect(wrapper.get("nav").text()).toContain("Lifecycle");
     expect(wrapper.find(".nav-link em").exists()).toBe(false);
   });
+
+  it("contains mobile drawer focus and restores it on Escape", async () => {
+    await router.push("/app/your-turn");
+    await router.isReady();
+    const wrapper = mount(App, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
+    const toggle = wrapper.get(".menu-button");
+    await toggle.trigger("click");
+    await wrapper.vm.$nextTick();
+
+    const close = wrapper.get<HTMLButtonElement>(".sidebar-close");
+    expect(document.activeElement).toBe(close.element);
+    const account = wrapper.get<HTMLSelectElement>("#account");
+    account.element.focus();
+    await account.trigger("keydown", { key: "Tab" });
+    expect(document.activeElement).toBe(close.element);
+
+    await close.trigger("keydown", { key: "Escape" });
+    await wrapper.vm.$nextTick();
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(toggle.element);
+    wrapper.unmount();
+  });
 });

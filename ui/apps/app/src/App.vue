@@ -1,14 +1,22 @@
 <script setup lang="ts">
 import { IoLogo } from "@spyglass/design-system";
 import { emitAnalytics, getPrivacyConsent } from "@spyglass/api";
-import { onMounted, ref, watch } from "vue";
+import { nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import { useSessionStore } from "./stores/session";
 
 const route = useRoute();
 const session = useSessionStore();
 const menuOpen = ref(false);
-watch(() => route.fullPath, () => { menuOpen.value = false; });
+const menuButton = ref<HTMLButtonElement>();
+const sidebar = ref<HTMLElement>();
+const main = ref<HTMLElement>();
+
+watch(() => route.fullPath, async () => {
+  menuOpen.value = false;
+  await nextTick();
+  main.value?.focus();
+});
 onMounted(async () => {
   await session.load();
   if (!session.userID || sessionStorage.getItem("spyglass_application_entered") === "1") return;
@@ -51,6 +59,47 @@ async function selectAccount(event: Event): Promise<void> {
     target.value = previous;
   }
 }
+
+async function toggleMenu(): Promise<void> {
+  if (menuOpen.value) {
+    closeMenu(true);
+    return;
+  }
+  menuOpen.value = true;
+  await nextTick();
+  sidebar.value?.querySelector<HTMLElement>(".sidebar-close")?.focus();
+}
+
+async function closeMenu(restoreFocus = false): Promise<void> {
+  menuOpen.value = false;
+  if (restoreFocus) {
+    await nextTick();
+    menuButton.value?.focus();
+  }
+}
+
+function containMenuFocus(event: KeyboardEvent): void {
+  if (!menuOpen.value) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    void closeMenu(true);
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusable = Array.from(sidebar.value?.querySelectorAll<HTMLElement>(
+    'a[href], button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  ) ?? []).filter((item) => !item.hidden);
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (!first || !last) return;
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
 </script>
 
 <template>
@@ -59,14 +108,17 @@ async function selectAccount(event: Event): Promise<void> {
     <header class="mobile-header">
       <RouterLink to="/app/your-turn"><IoLogo compact /></RouterLink>
       <strong>{{ String(route.meta.title ?? "Spyglass") }}</strong>
-      <button class="menu-button" type="button" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="menuOpen = !menuOpen">
+      <button ref="menuButton" class="menu-button" type="button" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="toggleMenu">
         <span class="sr-only">{{ menuOpen ? "Close" : "Open" }} navigation</span>
         <span aria-hidden="true">{{ menuOpen ? "×" : "☰" }}</span>
       </button>
     </header>
 
-    <aside id="app-navigation" class="sidebar" :class="{ 'sidebar--open': menuOpen }">
-      <RouterLink class="brand" to="/app/your-turn"><IoLogo /></RouterLink>
+    <aside id="app-navigation" ref="sidebar" class="sidebar" :class="{ 'sidebar--open': menuOpen }" @keydown="containMenuFocus">
+      <div class="sidebar-header">
+        <RouterLink class="brand" to="/app/your-turn"><IoLogo /></RouterLink>
+        <button class="sidebar-close" type="button" aria-label="Close navigation" @click="closeMenu(true)">×</button>
+      </div>
       <nav aria-label="Main navigation">
         <RouterLink v-for="item in navigation" :key="item.to" :to="item.to" class="nav-link">
           <span>{{ item.label }}</span>
@@ -80,9 +132,9 @@ async function selectAccount(event: Event): Promise<void> {
         </select>
       </div>
     </aside>
-    <button v-if="menuOpen" class="scrim" aria-label="Close navigation" @click="menuOpen = false" />
+    <button v-if="menuOpen" class="scrim" aria-label="Close navigation" @click="closeMenu(true)" />
 
-    <main id="main" tabindex="-1">
+    <main id="main" ref="main" tabindex="-1">
       <div v-if="session.unavailable" class="session-notice" role="status">
         We could not load your Account. <a href="/login?return_to=%2Fapp">Sign in again</a>
       </div>

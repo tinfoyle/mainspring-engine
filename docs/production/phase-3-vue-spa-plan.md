@@ -264,6 +264,12 @@ Exit checkpoint: every UI6 package surface now has a Vue route using the generat
 - Remove or disable private legacy routes only after Vue parity, automated coverage and a documented rollback point exist.
 - Produce the final local product-surface completion report and update deployment inputs without publishing or deploying them.
 
+UI7 checkpoint (2026-08-25): the first rendered consolidation pass is complete for the public acquisition boundary. The landing, feature index, pricing, privacy and Affiliate-terms routes passed 30 local browser checks at 320, 360, 390, 412, 768 and 1280 usable CSS-pixel widths: every route retained one main heading, no horizontal page overflow and no rendered button below 44 CSS pixels. The 320px landing pass separately confirmed its product statement, full-width primary actions, Your Turn preview, optional-consent fail-closed behavior and compact menu. The private shell now removes the closed drawer from keyboard focus, places focus inside the open drawer, contains forward/reverse Tab traversal, restores the menu control on Escape/close and focuses the main region after SPA route changes; component coverage locks that behavior. The local Caddy overlay exposes a loopback-only HTTP browser-QA listener because the in-app harness cannot trust Caddy's development CA, while the normal `8444` certificate-verified smoke gate remains authoritative and passes.
+
+An enforced post-build performance gate now caps the complete private SPA at 140 KiB gzip JavaScript and 20 KiB CSS, and the complete public client asset set at 120 KiB JavaScript and 15 KiB CSS. Current results are respectively 106.7/9.8 KiB and 87.0/4.2 KiB. This gate runs after both production builds in `npm run verify`.
+
+UI7 has not exited. Authenticated rendered coverage for Your Turn and all private package routes, dialog focus/reflow, zoom/forced-colors, applied offline/session-expiry/conflict recovery, real iOS Safari and Android Chrome, and provider-backed checkout/security journeys remain open. These are certification tasks, not authorization to publish or deploy.
+
 Exit: the application is feature-complete locally and ready for the separate Stage/production release plan.
 
 ## 7. Required test matrix
