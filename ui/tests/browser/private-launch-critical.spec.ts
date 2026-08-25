@@ -1002,3 +1002,50 @@ test("failed multi-Account switching restores the prior Account", async ({ page 
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });
+
+test("Marketing conflict reloads the authoritative campaign before retry", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*409/);
+  const revisions: Array<{ body: unknown; version: string | undefined }> = [];
+  await page.route(`**/api/v1/accounts/${accountID}/marketing/campaigns/${marketingCampaign.id}`, async (route) => {
+    if (route.request().method() === "PUT") {
+      revisions.push({ body: route.request().postDataJSON(), version: route.request().headers()["if-match"] });
+      await fulfillProblem(route, 409, "marketing_campaign_conflict", "The campaign changed after this form was opened.");
+    } else await fulfillJSON(route, marketingCampaign);
+  });
+  await page.goto(`/app/marketing/campaigns/${marketingCampaign.id}`);
+  await page.getByRole("button", { name: "Revise intent" }).click();
+  const dialog = page.getByRole("dialog", { name: "Revise campaign" });
+  await dialog.getByLabel("Name").fill("Stale launch draft");
+  await dialog.getByRole("button", { name: "Revise campaign" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("alert")).toContainText("This Marketing record changed. Review the current version before trying again.");
+  await expect(page.getByRole("heading", { level: 2, name: marketingCampaign.name })).toBeVisible();
+  expect(revisions).toEqual([{
+    body: { name: "Stale launch draft", objective: marketingCampaign.objective, audience: marketingCampaign.audience, channels: marketingCampaign.channels },
+    version: `W/"${marketingCampaign.version}"`
+  }]);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("Integration research failure retains the scoped customer query", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*503/);
+  const searches: unknown[] = [];
+  await page.route(`**/api/v1/accounts/${accountID}/integrations/web-research/search`, async (route) => {
+    searches.push(route.request().postDataJSON());
+    await fulfillProblem(route, 503, "integration_provider_unavailable", "Scoped research is temporarily unavailable. Try this exact query again later.");
+  });
+  await page.goto("/app/integrations");
+  await page.getByRole("tab", { name: "Research" }).click();
+  const connection = page.getByLabel("Research connection");
+  const query = page.getByLabel("Question or search terms");
+  await expect(connection).toHaveValue(integrationConnection.id);
+  await query.fill("current policy retention requirements");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Scoped research is temporarily unavailable. Try this exact query again later.");
+  await expect(query).toHaveValue("current policy retention requirements");
+  await expect(connection).toHaveValue(integrationConnection.id);
+  expect(searches).toEqual([{ connection_id: integrationConnection.id, query: "current policy retention requirements", limit: 10 }]);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
