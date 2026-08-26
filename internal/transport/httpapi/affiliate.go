@@ -167,6 +167,26 @@ func (s *Server) getAffiliateStatement(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, statement)
 }
 
+func (s *Server) getAffiliateDataExport(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.authenticateAffiliateRequest(w, r, false)
+	if !ok {
+		return
+	}
+	value, err := s.affiliateProgram.Export(r.Context(), affiliateprogram.ExportCommand{
+		UserID: authenticated.Session.UserID, Session: authenticated.Session,
+	})
+	switch {
+	case err == nil:
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Disposition", `attachment; filename="spyglass-affiliate-data.json"`)
+		writeJSON(w, http.StatusOK, value)
+	case errors.Is(err, strongauth.ErrRequired):
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before exporting Affiliate data")
+	default:
+		writeProblem(w, http.StatusServiceUnavailable, "affiliate_export_unavailable", "the Affiliate data export is temporarily unavailable")
+	}
+}
+
 func (s *Server) authenticateAffiliateRequest(w http.ResponseWriter, r *http.Request, mutation bool) (sessions.Authenticated, bool) {
 	if s.affiliateProgram == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "affiliate_unconfigured", "the Affiliate program is not configured")

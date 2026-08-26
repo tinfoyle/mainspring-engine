@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { enrollAffiliate, getAffiliateProgram, getAffiliateStatement, replaceAffiliateCode } from "./affiliate";
+import { downloadAffiliateDataExport, enrollAffiliate, getAffiliateProgram, getAffiliateStatement, replaceAffiliateCode } from "./affiliate";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -11,7 +11,9 @@ describe("Affiliate client", () => {
     vi.stubGlobal("fetch", fetchMock);
     await getAffiliateProgram();
     await getAffiliateStatement();
-    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(["/api/v1/affiliate", "/api/v1/affiliate/statement"]);
+    await downloadAffiliateDataExport();
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual(["/api/v1/affiliate", "/api/v1/affiliate/statement", "/api/v1/affiliate/data-export"]);
+    expect((fetchMock.mock.calls[2]?.[1] as RequestInit).credentials).toBe("same-origin");
   });
 
   it("accepts only the current terms and optional owned settlement Account", async () => {

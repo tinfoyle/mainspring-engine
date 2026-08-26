@@ -1,9 +1,12 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -472,6 +475,23 @@ func (r *AffiliateProgramRepository) StatementSnapshot(ctx context.Context, affi
 		return 0, nil, err
 	}
 	return count, values, nil
+}
+
+func (r *AffiliateProgramRepository) DataExport(ctx context.Context, userID ids.UserID) (affiliateprogram.DataExport, error) {
+	var raw []byte
+	if err := r.pool.QueryRow(ctx, `SELECT spyglass_export_affiliate_data($1)`, userID).Scan(&raw); err != nil {
+		return affiliateprogram.DataExport{}, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var value affiliateprogram.DataExport
+	if err := decoder.Decode(&value); err != nil {
+		return affiliateprogram.DataExport{}, fmt.Errorf("decode Affiliate data export: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return affiliateprogram.DataExport{}, errors.New("Affiliate data export must contain one JSON document")
+	}
+	return value, nil
 }
 
 const affiliateCommissionSelect = `

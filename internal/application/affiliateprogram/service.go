@@ -46,6 +46,7 @@ type Repository interface {
 	RecordPaidCommission(context.Context, ids.CommissionEntryID, ids.CommissionEntryID, affiliates.Attribution, affiliates.CommissionRule, string, string, bool, time.Time) (affiliates.CommissionEntry, error)
 	RecordAdverseCommission(context.Context, ids.CommissionEntryID, affiliates.AdverseBillingEvidence, time.Time) (affiliates.CommissionEntry, bool, error)
 	StatementSnapshot(context.Context, ids.AffiliateID) (uint64, []affiliates.CommissionEntry, error)
+	DataExport(context.Context, ids.UserID) (DataExport, error)
 }
 
 type Service struct {

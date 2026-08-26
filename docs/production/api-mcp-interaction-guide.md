@@ -1,7 +1,7 @@
 # Spyglass API and MCP interaction guide
 
 - Contract date: 2026-08-24
-- HTTP contract: `api/spyglass.openapi.json` (208 operations)
+- HTTP contract: `api/spyglass.openapi.json` (209 operations)
 - Generated Go inventory: `internal/generated/apicontract/routes.go`
 - Generated TypeScript inventory/types: `website/lib/generated/api-contract.ts` and `website/lib/generated/api-types.ts`
 - MCP inventory: 89 routed cell tools plus five global Account-export tools
@@ -57,7 +57,7 @@ curl --insecure --fail-with-body \
 
 ## Generated HTTP operation inventory
 
-The OpenAPI document is the line-item inventory. The groups below are the stable product-use-case index; counts sum to 208.
+The OpenAPI document is the line-item inventory. The groups below are the stable product-use-case index; counts sum to 209.
 
 | Group | Count | Use cases |
 |---|---:|---|
@@ -65,7 +65,7 @@ The OpenAPI document is the line-item inventory. The groups below are the stable
 | Account and Membership | 17 | selected context, current Membership, invitations, Membership roles/status, ownership, contact change and closure |
 | Billing and Catalog | 5 | public Catalog, billing status, checkout, portal and Stripe webhook |
 | Account portability | 6 | request/list/get/cancel, short-lived download capability and artifact stream |
-| Privacy, analytics and Affiliate | 15 | host-only consent/history/erasure, consent-bound events, passkey-verified rights requests, Affiliate enrollment/code replacement, aggregate statements and structured support reviews |
+| Privacy, analytics and Affiliate | 16 | host-only consent/history/erasure, consent-bound events, passkey-verified rights requests, Affiliate enrollment/code replacement, identity-owned data export, aggregate statements and structured support reviews |
 | Work | 9 | list/summary/detail/children, create, transition, assignment and provenance/conversation links |
 | Attention | 19 | information, reviews, approvals and dual-controlled action recovery |
 | Agents | 11 | boardrooms, manager/personas, conversations/messages and Run start/read/resolve |

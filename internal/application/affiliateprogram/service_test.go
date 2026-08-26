@@ -24,6 +24,7 @@ type repository struct {
 	attribution affiliates.Attribution
 	rule        affiliates.CommissionRule
 	entries     []affiliates.CommissionEntry
+	dataExport  affiliateprogram.DataExport
 	canSettle   bool
 	owned       map[ids.AccountID]bool
 }
@@ -130,6 +131,9 @@ func (r *repository) StatementSnapshot(_ context.Context, affiliateID ids.Affili
 	}
 	return count, append([]affiliates.CommissionEntry{}, r.entries...), nil
 }
+func (r *repository) DataExport(context.Context, ids.UserID) (affiliateprogram.DataExport, error) {
+	return r.dataExport, nil
+}
 
 type generator struct{ values []string }
 
@@ -149,6 +153,33 @@ func (c clock) Now() time.Time { return c.now }
 
 func strongSession(now time.Time) sessions.Session {
 	return sessions.Session{UserID: userID, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey}
+}
+
+func TestAffiliateDataExportRequiresStrongAuthenticationAndOwnedIdentity(t *testing.T) {
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	repository := &repository{dataExport: affiliateprogram.DataExport{
+		SchemaVersion:     affiliateprogram.AffiliateDataExportSchemaVersion,
+		GeneratedAt:       now,
+		Enrollment:        &affiliateprogram.DataExportEnrollment{UserID: userID},
+		PublicCodes:       []affiliateprogram.DataExportPublicCode{},
+		EnrollmentEvents:  []affiliateprogram.DataExportLifecycleEvent{},
+		CommissionEntries: []affiliateprogram.DataExportCommission{},
+		SupportRequests:   []affiliateprogram.DataExportSupportRequest{},
+		SupportEvents:     []affiliateprogram.DataExportSupportEvent{},
+	}}
+	service, _ := affiliateprogram.New(repository, &generator{values: []string{"10000000-0000-4000-8000-000000000010"}}, codes{"IO-PARTNER1"}, clock{now}, 2, 3)
+
+	if _, err := service.Export(context.Background(), affiliateprogram.ExportCommand{UserID: userID, Session: sessions.Session{UserID: userID}}); !errors.Is(err, strongauth.ErrRequired) {
+		t.Fatalf("weak export returned %v", err)
+	}
+	value, err := service.Export(context.Background(), affiliateprogram.ExportCommand{UserID: userID, Session: strongSession(now)})
+	if err != nil || value.Enrollment == nil || value.Enrollment.UserID != userID {
+		t.Fatalf("export=%+v err=%v", value, err)
+	}
+	repository.dataExport.Enrollment.UserID = "10000000-0000-4000-8000-000000000099"
+	if _, err := service.Export(context.Background(), affiliateprogram.ExportCommand{UserID: userID, Session: strongSession(now)}); err == nil {
+		t.Fatal("cross-identity Affiliate export was accepted")
+	}
 }
 
 func TestEnrollRequiresCurrentTermsAndOwnedSettlementAccount(t *testing.T) {

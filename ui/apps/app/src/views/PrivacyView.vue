@@ -2,6 +2,7 @@
 import {
   APIProblem,
   cancelPrivacyRightsRequest,
+  downloadAffiliateDataExport,
   erasePrivacyData,
   getPrivacyConsent,
   getPrivacyConsentHistory,
@@ -33,6 +34,7 @@ const submitting = ref(false);
 const cancelingID = ref("");
 const confirmingBrowserErase = ref(false);
 const erasingBrowserData = ref(false);
+const exportingAffiliate = ref(false);
 const message = ref("");
 const errorMessage = ref("");
 const historyError = ref("");
@@ -43,7 +45,7 @@ const openEquivalent = computed(() => requests.value.some((request) =>
 const privacyDirty = computed(() => confirmingBrowserErase.value
   || analytics.value !== (preference.value?.analytics ?? false)
   || marketing.value !== (preference.value?.marketing ?? false));
-const privacyPending = computed(() => saving.value || submitting.value || erasingBrowserData.value || Boolean(cancelingID.value));
+const privacyPending = computed(() => saving.value || submitting.value || erasingBrowserData.value || exportingAffiliate.value || Boolean(cancelingID.value));
 const { allowNextNavigation } = useSafeNavigation({
   dirty: privacyDirty,
   pending: privacyPending,
@@ -136,6 +138,33 @@ async function eraseBrowserSubject(): Promise<void> {
     errorMessage.value = error instanceof APIProblem ? error.message : "This browser's privacy data could not be erased.";
   } finally {
     erasingBrowserData.value = false;
+  }
+}
+
+async function downloadAffiliateExport(): Promise<void> {
+  if (exportingAffiliate.value) return;
+  exportingAffiliate.value = true;
+  message.value = "";
+  errorMessage.value = "";
+  try {
+    const blob = await downloadAffiliateDataExport();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `spyglass-affiliate-data-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    message.value = "Your Affiliate data export download started.";
+  } catch (error) {
+    if (error instanceof APIProblem && error.problem?.code === "strong_reauthentication_required") {
+      requireStrongAuthentication();
+      return;
+    }
+    errorMessage.value = error instanceof APIProblem ? error.message : "Your Affiliate data export could not be downloaded.";
+  } finally {
+    exportingAffiliate.value = false;
   }
 }
 
@@ -252,6 +281,7 @@ function date(value: string): string {
         <div class="privacy-section-heading"><div><p class="eyebrow">Direct tools</p><h2 id="privacy-tools-heading">Use the narrowest control</h2></div></div>
         <div class="privacy-tool-grid">
           <article><h3>Account portability</h3><p>Owners can build and download a governed ZIP snapshot of the selected Account.</p><a href="/app/account-exports">Open Account exports</a></article>
+          <article><h3>Affiliate portability</h3><p>Download your enrollment, code history, attribution totals, commission ledger, and support history without referred-customer or payment-provider identifiers.</p><IoButton kind="secondary" :disabled="exportingAffiliate" @click="downloadAffiliateExport">{{ exportingAffiliate ? "Preparing Affiliate export…" : "Download Affiliate data" }}</IoButton></article>
           <article><h3>Account lifecycle</h3><p>Owners can freeze and close an Account through its audited cooling-off workflow.</p><a href="/app/account-closures">Open Account lifecycle</a></article>
           <article><h3>Identity correction</h3><p>Change the verified login email or review authentication and active sessions.</p><a href="/app/security">Open identity security</a></article>
         </div>

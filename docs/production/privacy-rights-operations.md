@@ -13,7 +13,7 @@ Customers submit strongly authenticated access, correction, erasure, restriction
 2. `start-review` moves only `submitted` to `in_review` against the exact current version; and
 3. `resolve` moves only `in_review` to `completed`, `partially_completed` or `declined` against the exact current version.
 
-`resolve` requires an opaque evidence UUID and the SHA-256 digest of the reviewed fulfillment artifact. The command never accepts the artifact, customer content, an email address, a case narrative or a free-form response. Actual export, correction, restriction, objection or erasure work remains in its governed application workflow; this command cannot claim that work happened merely by invoking it.
+`resolve` requires an opaque evidence UUID and the SHA-256 digest of the reviewed fulfillment artifact. The command never accepts the artifact, customer content, an email address, a case narrative or a free-form response. Actual export, correction, restriction, objection or erasure work remains in its governed application workflow; this command cannot claim that work happened merely by invoking it. Affiliate access and portability can now be fulfilled immediately through the strong-authenticated self-service JSON export; a tracked request is still available when the customer needs reviewed assistance or another right.
 
 Every action requires the standard short-lived phishing-resistant operator authorization envelope, an exact environment confirmation and a content-minimized operational reason. Authorization is bound to action, environment, request ID, expected version, outcome and evidence binding. A stale version or invalid state fails without writing a transition.
 

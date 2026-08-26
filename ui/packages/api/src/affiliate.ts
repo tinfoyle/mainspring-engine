@@ -1,10 +1,11 @@
-import { requestJSON } from "./client";
+import { APIProblem, requestJSON } from "./client";
 import type {
   AffiliateProgram,
   AffiliateStatement,
   AffiliateSupportRequest,
   AffiliateSupportRequestCollection,
   EnrollAffiliateRequest,
+  Problem,
   ReplaceAffiliateCodeRequest,
   SubmitAffiliateSupportRequest
 } from "./generated/api-types";
@@ -18,6 +19,16 @@ export const replaceAffiliateCode = (input: ReplaceAffiliateCodeRequest): Promis
   requestJSON("/api/v1/affiliate/code-replacements", { method: "POST", body: JSON.stringify(input) });
 
 export const getAffiliateStatement = (): Promise<AffiliateStatement> => requestJSON("/api/v1/affiliate/statement");
+
+export async function downloadAffiliateDataExport(): Promise<Blob> {
+  const response = await fetch("/api/v1/affiliate/data-export", { credentials: "same-origin" });
+  if (!response.ok) {
+    let problem: Problem | undefined;
+    if (response.headers.get("content-type")?.includes("application/problem+json")) problem = (await response.json()) as Problem;
+    throw new APIProblem(response.status, problem);
+  }
+  return response.blob();
+}
 
 export const getAffiliateSupportRequests = (): Promise<AffiliateSupportRequestCollection> =>
   requestJSON("/api/v1/affiliate/support-requests");

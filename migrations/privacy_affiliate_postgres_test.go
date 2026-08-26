@@ -2,8 +2,10 @@ package migrations_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -398,6 +400,46 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `UPDATE affiliate_support_request_events SET state='declined' WHERE request_id=$1 AND action='resolved'`, appeal.ID); err == nil {
 		t.Fatal("Affiliate support decision evidence was mutable")
+	}
+	exported, err := affiliateService.Export(ctx, affiliateprogram.ExportCommand{UserID: affiliateUser, Session: affiliateSession})
+	if err != nil || exported.SchemaVersion != affiliateprogram.AffiliateDataExportSchemaVersion || exported.Enrollment == nil ||
+		exported.Enrollment.UserID != affiliateUser || exported.Enrollment.PublicCode != "IO-PARTNER3" ||
+		len(exported.PublicCodes) != 3 || len(exported.EnrollmentEvents) != 6 ||
+		exported.AttributionSummary.Total != 1 || exported.AttributionSummary.Locked != 1 ||
+		len(exported.CommissionEntries) != 4 || len(exported.SupportRequests) != 2 || len(exported.SupportEvents) != 6 {
+		t.Fatalf("Affiliate data export=%+v err=%v", exported, err)
+	}
+	rawExport, err := json.Marshal(exported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{customerAccount, "sub_affiliate_test", "in_affiliate_renewal", "pi_affiliate_renewal",
+		"affiliate-operator@example.test", "affiliate-support@example.test", "documented enrollment review"} {
+		if strings.Contains(string(rawExport), forbidden) {
+			t.Fatalf("Affiliate data export leaked prohibited value %q: %s", forbidden, rawExport)
+		}
+	}
+	emptyExport, err := affiliateService.Export(ctx, affiliateprogram.ExportCommand{UserID: customerUser, Session: sessions.Session{
+		UserID: customerUser, ReauthenticatedAt: now, ReauthenticationMethod: sessions.AuthenticationMethodPasskey,
+	}})
+	if err != nil || emptyExport.Enrollment != nil || len(emptyExport.PublicCodes) != 0 || emptyExport.AttributionSummary.Total != 0 {
+		t.Fatalf("empty Affiliate data export=%+v err=%v", emptyExport, err)
+	}
+	const affiliateExportRole = "spyglass_affiliate_export_contract"
+	if _, err := pool.Exec(ctx, `CREATE ROLE `+affiliateExportRole+` NOLOGIN;
+		GRANT USAGE ON SCHEMA public TO `+affiliateExportRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_export_affiliate_data(uuid) TO `+affiliateExportRole); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `DROP OWNED BY `+affiliateExportRole+`; DROP ROLE `+affiliateExportRole)
+	}()
+	var exportDirectAccess, exportFunctionAccess bool
+	if err := pool.QueryRow(ctx, `SELECT
+		has_table_privilege($1,'public.affiliate_enrollments','SELECT'),
+		has_function_privilege($1,'public.spyglass_export_affiliate_data(uuid)','EXECUTE')`, affiliateExportRole).Scan(
+		&exportDirectAccess, &exportFunctionAccess); err != nil || exportDirectAccess || !exportFunctionAccess {
+		t.Fatalf("Affiliate export role table=%v function=%v err=%v", exportDirectAccess, exportFunctionAccess, err)
 	}
 	const affiliateSupportOperatorRole = "spyglass_affiliate_support_operator_contract"
 	if _, err := pool.Exec(ctx, `CREATE ROLE `+affiliateSupportOperatorRole+` NOLOGIN;

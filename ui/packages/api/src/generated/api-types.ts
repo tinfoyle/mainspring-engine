@@ -191,6 +191,89 @@ export interface AffiliateCommissionEntry {
   readonly "state": "pending" | "settled";
 }
 
+export interface AffiliateDataExport {
+  readonly "attribution_summary": AffiliateDataExportAttribution;
+  readonly "commission_entries": ReadonlyArray<AffiliateDataExportCommission>;
+  readonly "enrollment"?: AffiliateDataExportEnrollment;
+  readonly "enrollment_events": ReadonlyArray<AffiliateDataExportLifecycleEvent>;
+  readonly "generated_at": string;
+  readonly "public_codes": ReadonlyArray<AffiliateDataExportPublicCode>;
+  readonly "schema_version": number;
+  readonly "support_events": ReadonlyArray<AffiliateDataExportSupportEvent>;
+  readonly "support_requests": ReadonlyArray<AffiliateDataExportSupportRequest>;
+}
+
+export interface AffiliateDataExportAttribution {
+  readonly "canceled": number;
+  readonly "earliest_at"?: string;
+  readonly "latest_at"?: string;
+  readonly "locked": number;
+  readonly "reserved": number;
+  readonly "total": number;
+}
+
+export interface AffiliateDataExportCommission {
+  readonly "amount_minor": number;
+  readonly "available_at": string;
+  readonly "created_at": string;
+  readonly "currency": string;
+  readonly "cycle": number;
+  readonly "entry_id": string;
+  readonly "kind": "earned" | "reversal";
+  readonly "reverses_entry_id"?: string;
+  readonly "rule_version": number;
+  readonly "state": "pending" | "settled";
+}
+
+export interface AffiliateDataExportEnrollment {
+  readonly "affiliate_id": string;
+  readonly "created_at": string;
+  readonly "public_code": string;
+  readonly "rule_version": number;
+  readonly "settlement_account_id"?: string;
+  readonly "state": AffiliateEnrollmentState;
+  readonly "terms_version": number;
+  readonly "updated_at": string;
+  readonly "user_id": string;
+  readonly "version": number;
+}
+
+export interface AffiliateDataExportLifecycleEvent {
+  readonly "action": "enrolled" | "inspected" | "risk_inspected" | "activated" | "suspended" | "closed";
+  readonly "event_id": string;
+  readonly "occurred_at": string;
+  readonly "state": AffiliateEnrollmentState;
+  readonly "version": number;
+}
+
+export interface AffiliateDataExportPublicCode {
+  readonly "activated_at": string;
+  readonly "enrollment_version": number;
+  readonly "public_code": string;
+  readonly "replaced_at"?: string;
+}
+
+export interface AffiliateDataExportSupportEvent {
+  readonly "action": "submitted" | "canceled" | "inspected" | "review_started" | "resolved";
+  readonly "event_id": string;
+  readonly "occurred_at": string;
+  readonly "outcome"?: AffiliateSupportOutcome;
+  readonly "request_id": string;
+  readonly "state": AffiliateSupportState;
+  readonly "version": number;
+}
+
+export interface AffiliateDataExportSupportRequest {
+  readonly "commission_entry_id"?: string;
+  readonly "created_at": string;
+  readonly "kind": AffiliateSupportKind;
+  readonly "outcome"?: AffiliateSupportOutcome;
+  readonly "request_id": string;
+  readonly "state": AffiliateSupportState;
+  readonly "updated_at": string;
+  readonly "version": number;
+}
+
 export interface AffiliateEnrollment {
   readonly "affiliate_id": string;
   readonly "created_at": string;
@@ -2513,6 +2596,14 @@ export interface ApiSchemas {
   readonly ActiveSession: ActiveSession;
   readonly ActiveSessions: ActiveSessions;
   readonly AffiliateCommissionEntry: AffiliateCommissionEntry;
+  readonly AffiliateDataExport: AffiliateDataExport;
+  readonly AffiliateDataExportAttribution: AffiliateDataExportAttribution;
+  readonly AffiliateDataExportCommission: AffiliateDataExportCommission;
+  readonly AffiliateDataExportEnrollment: AffiliateDataExportEnrollment;
+  readonly AffiliateDataExportLifecycleEvent: AffiliateDataExportLifecycleEvent;
+  readonly AffiliateDataExportPublicCode: AffiliateDataExportPublicCode;
+  readonly AffiliateDataExportSupportEvent: AffiliateDataExportSupportEvent;
+  readonly AffiliateDataExportSupportRequest: AffiliateDataExportSupportRequest;
   readonly AffiliateEnrollment: AffiliateEnrollment;
   readonly AffiliateEnrollmentState: AffiliateEnrollmentState;
   readonly AffiliateProgram: AffiliateProgram;

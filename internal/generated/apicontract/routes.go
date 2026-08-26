@@ -25,6 +25,7 @@ var Routes = [...]Route{
 	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/membership", OperationID: "currentMembership", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/memberships", OperationID: "listMemberships", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/affiliate", OperationID: "getAffiliateProgram", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "account-api", Method: "GET", Path: "/api/v1/affiliate/data-export", OperationID: "downloadAffiliateDataExport", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/affiliate/statement", OperationID: "getAffiliateStatement", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/affiliate/support-requests", OperationID: "listAffiliateSupportRequests", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/catalog/public", OperationID: "publicCatalog", Authentication: "public", Contract: "typed"},

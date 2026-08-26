@@ -57,7 +57,7 @@ The executable source of truth is `internal/modules/analytics`; unknown events, 
 - `DELETE /api/v1/privacy/data` deletes that subject, all consent receipts and raw analytics, then clears the signed host-only preference cookie.
 - On the private host, that deletion also erases the anonymous public acquisition subject when a still-valid handoff cookie proves the association, then clears the handoff cookie.
 - Account export and Account erasure govern Account-owned data separately.
-- The Affiliate dashboard returns the responsible User's enrollment and identity-free statement. Requests to correct Affiliate identity, restrict processing, object, close enrollment or obtain a machine-readable full identity export require the authenticated support process until self-service endpoints are added.
+- The Affiliate dashboard returns the responsible User's enrollment and identity-free statement. `GET /api/v1/affiliate/data-export` requires a recent passkey confirmation and downloads that User's machine-readable enrollment, public-code history, sanitized lifecycle, attribution aggregates, provider-free commission ledger and sanitized support history. The database projection cannot return referred-Account IDs, checkout or subscription identifiers, payment-provider objects, staff actors or free-form reasons. Correction, restriction, objection, closure and legally reviewed erasure remain tracked authenticated rights workflows.
 
 Optional analytics must stop before the next event after withdrawal. Public withdrawal also clears any live conversion handoff, and the database refuses a new mirror when the source subject's latest public decision does not allow analytics. Referral attribution, authentication, security, checkout continuity, billing records and Affiliate ledger processing are not optional analytics and do not depend on analytics consent.
 
@@ -70,7 +70,7 @@ Optional analytics must stop before the next event after withdrawal. Public with
 - The event registry rejects arbitrary fields, known identity/content fields, events submitted on an unreviewed surface and unreviewed categorical values.
 - PostgreSQL prevents consent-receipt mutation outside subject erasure and prevents analytics updates.
 - The maintenance worker prunes raw events in batches under an execute-only database identity and exposes only aggregate backlog status.
-- Disposable PostgreSQL tests prove consent history/erasure, exact replay, cross-host milestone aggregation without target identity, small-cohort suppression, retention, Affiliate anti-self-referral, pre- and post-lock code replacement, permanent retired-code non-reuse/immutability, attribution lock, recurring commission replay and Account-erasure detachment.
+- Disposable PostgreSQL tests prove consent history/erasure, exact replay, cross-host milestone aggregation without target identity, small-cohort suppression, retention, Affiliate anti-self-referral, pre- and post-lock code replacement, permanent retired-code non-reuse/immutability, attribution lock, recurring commission replay, identity-owned portability without referred-customer/provider/staff leakage and Account-erasure detachment.
 
 ## Production release-owner register
 

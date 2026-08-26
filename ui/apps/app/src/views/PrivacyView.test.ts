@@ -7,6 +7,7 @@ import PrivacyView from "./PrivacyView.vue";
 
 const api = vi.hoisted(() => ({
   cancelPrivacyRightsRequest: vi.fn(),
+  downloadAffiliateDataExport: vi.fn(),
   erasePrivacyData: vi.fn(),
   getPrivacyConsent: vi.fn(),
   getPrivacyConsentHistory: vi.fn(),
@@ -65,6 +66,7 @@ beforeEach(() => {
   api.submitPrivacyRightsRequest.mockReset();
   api.cancelPrivacyRightsRequest.mockReset().mockResolvedValue({ ...rightsRequest, state: "canceled" });
   api.erasePrivacyData.mockReset().mockResolvedValue(undefined);
+  api.downloadAffiliateDataExport.mockReset().mockResolvedValue(new Blob(["{}"], { type: "application/json" }));
 });
 
 describe("privacy controls", () => {
@@ -158,5 +160,23 @@ describe("privacy controls", () => {
     expect(api.cancelPrivacyRightsRequest).toHaveBeenCalledWith(rightsRequest.request_id);
     expect(wrapper.text()).toContain("The submitted request was canceled.");
     expect(wrapper.get<HTMLButtonElement>('.rights-form button[type="submit"]').element.disabled).toBe(false);
+  });
+
+  it("downloads a customer-owned Affiliate portability artifact without browser persistence", async () => {
+    const createObjectURL = vi.fn().mockReturnValue("blob:affiliate-export");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const wrapper = await mountView();
+
+    await wrapper.findAll("button").find((button) => button.text() === "Download Affiliate data")?.trigger("click");
+    await flushPromises();
+
+    expect(api.downloadAffiliateDataExport).toHaveBeenCalledOnce();
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain("Affiliate data export download started");
+    click.mockRestore();
   });
 });

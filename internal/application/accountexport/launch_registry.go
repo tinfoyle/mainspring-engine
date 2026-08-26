@@ -42,7 +42,7 @@ func LaunchRegistry() (*Registry, error) {
 	exclude("public", Operational, "Movement coordination state is transient infrastructure metadata, not portable customer content.", "account_moves")
 	include("public", "billing", "billing_checkout_attempts", "billing_profiles", "subscriptions")
 	include("public", "affiliate", "affiliate_attributions")
-	exclude("public", IdentityScoped, "Affiliate enrollment and earnings belong to the Affiliate identity and require the separate identity-rights export workflow.", "affiliate_enrollments", "affiliate_commission_entries")
+	exclude("public", IdentityScoped, "Affiliate enrollment and earnings belong to the Affiliate identity and are exported through the strong-authenticated Affiliate portability endpoint, not an Account artifact.", "affiliate_enrollments", "affiliate_commission_entries")
 	exclude("public", Operational, "Versioned Affiliate commission rules are controller commercial policy, not Account-owned customer content.", "affiliate_commission_rules")
 	exclude("public", IdentityScoped, "Consent subjects, consent receipts and pseudonymous analytics require the separate privacy-subject rights workflow.", "privacy_consent_subjects", "privacy_consent_decisions", "analytics_events")
 	exclude("public", Secret, "Verified provider event envelopes and encrypted payload references are internal security material.", "billing_event_inbox")
