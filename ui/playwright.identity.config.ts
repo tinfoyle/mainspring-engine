@@ -3,6 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 const baseURL = process.env.SPYGLASS_IDENTITY_BASE_URL;
 if (!baseURL) throw new Error("SPYGLASS_IDENTITY_BASE_URL is required");
 const textZoomChecks = /@text-zoom/;
+const virtualPasskeyChecks = /@virtual-passkey/;
+const specializedChecks = /@text-zoom|@virtual-passkey/;
 
 export default defineConfig({
   testDir: "./tests/browser",
@@ -29,28 +31,33 @@ export default defineConfig({
   projects: [
     {
       name: "chromium-desktop",
-      grepInvert: textZoomChecks,
+      grepInvert: specializedChecks,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } }
     },
     {
       name: "firefox-desktop",
-      grepInvert: textZoomChecks,
+      grepInvert: specializedChecks,
       use: { ...devices["Desktop Firefox"], viewport: { width: 1280, height: 900 } }
     },
     {
       name: "webkit-desktop",
-      grepInvert: textZoomChecks,
+      grepInvert: specializedChecks,
       use: { ...devices["Desktop Safari"], viewport: { width: 1280, height: 900 } }
     },
     {
       name: "chromium-phone",
-      grepInvert: textZoomChecks,
+      grepInvert: specializedChecks,
       use: { ...devices["Pixel 7"], viewport: { width: 390, height: 844 } }
     },
     {
       name: "chromium-text-zoom",
       grep: textZoomChecks,
       use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 }, bypassCSP: true }
+    },
+    {
+      name: "chromium-virtual-passkey",
+      grep: virtualPasskeyChecks,
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } }
     }
   ]
 });

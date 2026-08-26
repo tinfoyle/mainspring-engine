@@ -456,10 +456,9 @@ func decodeCredentialID(encodedID string) ([]byte, error) {
 func (s *Service) authorizeRegistration(ctx context.Context, session sessions.Session, user User) error {
 	now := s.clock.Now().UTC()
 	if len(user.Credentials) > 0 {
-		if err := strongauth.Require(session, session.UserID, now); err != nil {
-			return ErrReauthenticationNeeded
+		if err := strongauth.Require(session, session.UserID, now); err == nil {
+			return nil
 		}
-		return nil
 	}
 	if s.recovery != nil {
 		status, err := s.recovery.Status(ctx, session)
@@ -472,10 +471,16 @@ func (s *Service) authorizeRegistration(ctx context.Context, session sessions.Se
 				return err
 			}
 			if !granted {
+				if len(user.Credentials) > 0 {
+					return ErrReauthenticationNeeded
+				}
 				return ErrRecoveryCodeRequired
 			}
 			return nil
 		}
+	}
+	if len(user.Credentials) > 0 {
+		return ErrReauthenticationNeeded
 	}
 	if !s.sessions.RecentlyReauthenticated(session, Reauthentication) {
 		return ErrReauthenticationNeeded

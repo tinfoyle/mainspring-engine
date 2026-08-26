@@ -77,30 +77,36 @@
     }
   };
 
-  document.querySelector("#passkey-login")?.addEventListener("click", event => run(async () => {
-    const begun = await request("/api/v1/passkey-login/challenges", { method: "POST" });
-    const credential = await navigator.credentials.get({ publicKey: requestOptions(begun) });
-    await request(`/api/v1/passkey-login/challenges/${encodeURIComponent(begun.ceremony_id)}/complete`, body({ credential: credentialJSON(credential), client_label: navigator.userAgent }));
+  document.querySelector("#passkey-login")?.addEventListener("click", event => {
     const target = event.currentTarget.dataset.returnTo;
-    window.location.assign(target && target.startsWith("/") && !target.startsWith("//") ? target : "/app");
-  }));
+    run(async () => {
+      const begun = await request("/api/v1/passkey-login/challenges", { method: "POST" });
+      const credential = await navigator.credentials.get({ publicKey: requestOptions(begun) });
+      await request(`/api/v1/passkey-login/challenges/${encodeURIComponent(begun.ceremony_id)}/complete`, body({ credential: credentialJSON(credential), client_label: navigator.userAgent }));
+      window.location.assign(target && target.startsWith("/") && !target.startsWith("//") ? target : "/app");
+    });
+  });
 
-  document.querySelector("#passkey-register")?.addEventListener("click", event => run(async () => {
-    const name = document.querySelector("#passkey-name")?.value.trim() || "My passkey";
-    const begun = await request("/api/v1/passkey-registrations", { method: "POST" });
-    const credential = await navigator.credentials.create({ publicKey: creationOptions(begun) });
-    await request(`/api/v1/passkey-registrations/${encodeURIComponent(begun.ceremony_id)}/complete`, body({ name, credential: credentialJSON(credential) }));
+  document.querySelector("#passkey-register")?.addEventListener("click", event => {
     const target = event.currentTarget.dataset.returnTo;
-    window.location.assign(target && target.startsWith("/") && !target.startsWith("//") ? target : "/app/security?status=passkey_added");
-  }));
+    run(async () => {
+      const name = document.querySelector("#passkey-name")?.value.trim() || "My passkey";
+      const begun = await request("/api/v1/passkey-registrations", { method: "POST" });
+      const credential = await navigator.credentials.create({ publicKey: creationOptions(begun) });
+      await request(`/api/v1/passkey-registrations/${encodeURIComponent(begun.ceremony_id)}/complete`, body({ name, credential: credentialJSON(credential) }));
+      window.location.assign(target && target.startsWith("/") && !target.startsWith("//") ? target : "/app/security?status=passkey_added");
+    });
+  });
 
-  document.querySelector("#passkey-reauthenticate")?.addEventListener("click", event => run(async () => {
-    const begun = await request("/api/v1/passkey-reauthentications", { method: "POST" });
-    const credential = await navigator.credentials.get({ publicKey: requestOptions(begun) });
-    await request(`/api/v1/passkey-reauthentications/${encodeURIComponent(begun.ceremony_id)}/complete`, body({ credential: credentialJSON(credential) }));
+  document.querySelector("#passkey-reauthenticate")?.addEventListener("click", event => {
     const target = event.currentTarget.dataset.returnTo;
-    window.location.assign(target && target.startsWith("/") && !target.startsWith("//") ? target : "/app/security?status=passkey_confirmed");
-  }));
+    run(async () => {
+      const begun = await request("/api/v1/passkey-reauthentications", { method: "POST" });
+      const credential = await navigator.credentials.get({ publicKey: requestOptions(begun) });
+      await request(`/api/v1/passkey-reauthentications/${encodeURIComponent(begun.ceremony_id)}/complete`, body({ credential: credentialJSON(credential) }));
+      window.location.assign(target && target.startsWith("/") && !target.startsWith("//") ? target : "/app/security?status=passkey_confirmed");
+    });
+  });
 
   document.querySelectorAll(".passkey-remove").forEach(button => button.addEventListener("click", () => run(async () => {
     if (!window.confirm("Remove this passkey from your Infinite Ocean identity?")) {

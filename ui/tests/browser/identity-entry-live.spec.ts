@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { randomUUID } from "node:crypto";
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type BrowserContext, type CDPSession, type Page } from "@playwright/test";
 
 const mailpitURL = process.env.SPYGLASS_IDENTITY_MAILPIT_URL;
 if (!mailpitURL) throw new Error("SPYGLASS_IDENTITY_MAILPIT_URL is required");
@@ -46,6 +46,77 @@ async function waitForMailLink(request: APIRequestContext, email: string, path: 
 async function deleteMail(request: APIRequestContext, id: string): Promise<void> {
   const response = await request.delete(`${mailpitURL}/api/v1/messages`, { data: { IDs: [id] } });
   expect(response.ok()).toBe(true);
+}
+
+interface ConnectedIdentity {
+  readonly email: string;
+  readonly password: string;
+  readonly suffix: string;
+}
+
+async function registerVerifiedIdentity(
+  page: Page,
+  context: BrowserContext,
+  request: APIRequestContext,
+  projectName: string,
+  purpose: string
+): Promise<ConnectedIdentity> {
+  const suffix = `${projectName.replace(/[^a-z0-9]/gi, "-")}-${randomUUID()}`;
+  const email = `${purpose}-${suffix}@example.com`;
+  const password = `Initial identity ${suffix}!`;
+
+  await context.clearCookies();
+  await page.goto("/signup");
+  const pageOrigin = await page.evaluate(() => window.location.origin);
+  let submittedOrigin = "not observed";
+  page.on("request", (browserRequest) => {
+    if (browserRequest.method() === "POST" && new URL(browserRequest.url()).pathname === "/signup") {
+      submittedOrigin = browserRequest.headers().origin ?? "missing";
+    }
+  });
+  await page.getByLabel("Your name").fill("Connected Identity");
+  await page.getByLabel("Work email").fill(email);
+  await page.getByLabel("Business name").fill(`Connected ${suffix.slice(0, 44)}`);
+  await page.getByRole("button", { name: "Continue securely" }).click();
+  expect(submittedOrigin).toBe(pageOrigin);
+  await expect(page.locator(".alert"), `page origin ${pageOrigin}; submitted origin ${submittedOrigin}`).toContainText("Your verification link is on its way.");
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+
+  const verification = await waitForMailLink(request, email, "/verify");
+  await deleteMail(request, verification.id);
+  await page.goto(verification.link);
+  await expect(page.getByRole("heading", { level: 2, name: "Choose your password" })).toBeVisible();
+  await page.locator('input[name="password"]').fill(password);
+  await page.getByRole("button", { name: "Create identity and Account" }).click();
+  const verificationDenial = page.locator(".alert.error");
+  if (await verificationDenial.count()) throw new Error(`verification denial: ${await verificationDenial.innerText()}`);
+  await expect(page).toHaveURL(/\/login\?.*status=verified/);
+  await expect(page.locator(".alert")).toContainText("Identity verified. Sign in to open Spyglass.");
+  await expectAccessible(page);
+
+  await page.getByLabel("Email address").fill(email);
+  await page.locator('input[name="password"]').fill(password);
+  await page.locator('form[action="/login"] button[type="submit"]').click();
+  await expect(page).toHaveURL(/\/app\/your-turn$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Your Turn" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+  return { email, password, suffix };
+}
+
+async function addVirtualAuthenticator(client: CDPSession): Promise<string> {
+  const result = await client.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true
+    }
+  });
+  return result.authenticatorId;
 }
 
 async function expectAccessible(page: Page): Promise<void> {
@@ -174,48 +245,8 @@ test("offer continuity, native validation, and incomplete-link recovery fail saf
 test.describe("connected identity success", () => {
   test("registration, email verification, password login, and recovery complete against local services", async ({ page, context, request }, testInfo) => {
     test.setTimeout(120_000);
-    const suffix = `${testInfo.project.name.replace(/[^a-z0-9]/gi, "-")}-${randomUUID()}`;
-    const email = `identity-${suffix}@example.com`;
-    const initialPassword = `Initial identity ${suffix}!`;
+    const { email, password: initialPassword, suffix } = await registerVerifiedIdentity(page, context, request, testInfo.project.name, "identity");
     const replacementPassword = `Recovered identity ${suffix}!`;
-
-    await context.clearCookies();
-    await page.goto("/signup");
-    const pageOrigin = await page.evaluate(() => window.location.origin);
-    let submittedOrigin = "not observed";
-    page.on("request", (browserRequest) => {
-      if (browserRequest.method() === "POST" && new URL(browserRequest.url()).pathname === "/signup") {
-        submittedOrigin = browserRequest.headers().origin ?? "missing";
-      }
-    });
-    await page.getByLabel("Your name").fill("Connected Identity");
-    await page.getByLabel("Work email").fill(email);
-    await page.getByLabel("Business name").fill(`Connected ${suffix.slice(0, 44)}`);
-    await page.getByRole("button", { name: "Continue securely" }).click();
-    expect(submittedOrigin).toBe(pageOrigin);
-    await expect(page.locator(".alert"), `page origin ${pageOrigin}; submitted origin ${submittedOrigin}`).toContainText("Your verification link is on its way.");
-    await expectNoHorizontalOverflow(page);
-    await expectAccessible(page);
-
-    const verification = await waitForMailLink(request, email, "/verify");
-    await deleteMail(request, verification.id);
-    await page.goto(verification.link);
-    await expect(page.getByRole("heading", { level: 2, name: "Choose your password" })).toBeVisible();
-    await page.locator('input[name="password"]').fill(initialPassword);
-    await page.getByRole("button", { name: "Create identity and Account" }).click();
-    const verificationDenial = page.locator(".alert.error");
-    if (await verificationDenial.count()) throw new Error(`verification denial: ${await verificationDenial.innerText()}`);
-    await expect(page).toHaveURL(/\/login\?.*status=verified/);
-    await expect(page.locator(".alert")).toContainText("Identity verified. Sign in to open Spyglass.");
-    await expectAccessible(page);
-
-    await page.getByLabel("Email address").fill(email);
-    await page.locator('input[name="password"]').fill(initialPassword);
-    await page.locator('form[action="/login"] button[type="submit"]').click();
-    await expect(page).toHaveURL(/\/app\/your-turn$/);
-    await expect(page.getByRole("heading", { level: 1, name: "Your Turn" })).toBeVisible();
-    await expectNoHorizontalOverflow(page);
-    await expectAccessible(page);
 
     await context.clearCookies();
     await page.goto("/forgot-password?return_to=%2Fapp%2Fyour-turn");
@@ -242,5 +273,88 @@ test.describe("connected identity success", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Your Turn" })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
+  });
+
+  test("@virtual-passkey owner enrollment, discoverable login, and lost-authenticator replacement complete locally", async ({ page, context, request }, testInfo) => {
+    test.setTimeout(180_000);
+    const client = await context.newCDPSession(page);
+    await client.send("WebAuthn.enable");
+    let authenticatorID = await addVirtualAuthenticator(client);
+    try {
+      const { email, password } = await registerVerifiedIdentity(page, context, request, testInfo.project.name, "passkey");
+      const firstPasskey = "Local virtual passkey";
+      const replacementPasskey = "Recovered virtual passkey";
+
+      await page.goto("/app/security");
+      await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 2, name: "Setup incomplete" })).toBeVisible();
+      await page.getByLabel("Passkey name").fill(firstPasskey);
+      await page.getByRole("button", { name: "Add passkey" }).click();
+      await expect(page.getByText(firstPasskey, { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 2, name: "Setup incomplete" })).toBeVisible();
+
+      await page.getByRole("button", { name: "Create recovery codes" }).click();
+      const codes = page.locator(".recovery-code-panel code");
+      await expect(codes).toHaveCount(10);
+      const recoveryCode = (await codes.first().innerText()).trim();
+      expect(recoveryCode).toMatch(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){7}$/);
+      await expect(page.getByRole("heading", { level: 2, name: "Identity secured" })).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+
+      await page.getByRole("button", { name: "Confirm with a passkey" }).click();
+      await expect(page.locator('[aria-live="polite"]')).toContainText("Passkey confirmed.");
+      await page.waitForLoadState("networkidle");
+
+      await context.clearCookies();
+      await page.goto("/login");
+      await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+      await expect.poll(async () => {
+        if (new URL(page.url()).pathname !== "/login") return "navigated";
+        const status = await page.locator("#passkey-status").innerText();
+        return status && status !== "Waiting for your passkey…" ? status : "pending";
+      }, { timeout: 10_000 }).not.toBe("pending");
+      if (new URL(page.url()).pathname === "/login") {
+        throw new Error(`initial passkey login failed: ${await page.locator("#passkey-status").innerText()}`);
+      }
+      await expect(page).toHaveURL(/\/app\/your-turn$/);
+      await expect(page.getByRole("heading", { level: 1, name: "Your Turn" })).toBeVisible();
+      await page.waitForLoadState("networkidle");
+
+      await client.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId: authenticatorID });
+      authenticatorID = await addVirtualAuthenticator(client);
+      await context.clearCookies();
+      await page.goto("/login");
+      await page.getByLabel("Email address").fill(email);
+      await page.locator('input[name="password"]').fill(password);
+      await page.locator('form[action="/login"] button[type="submit"]').click();
+      await expect(page).toHaveURL(/\/app\/your-turn$/);
+
+      await page.goto("/app/security");
+      await page.getByLabel("Current password").fill(password);
+      await page.getByRole("button", { name: "Confirm password" }).click();
+      await expect(page.locator('[aria-live="polite"]')).toContainText("Password confirmed");
+      await page.locator("summary").filter({ hasText: "Lost every passkey?" }).click();
+      await page.getByLabel("Saved recovery code").fill(recoveryCode);
+      await page.getByRole("button", { name: "Use recovery code" }).click();
+      await expect(page.locator('[aria-live="polite"]')).toContainText("Recovery code accepted");
+      await page.getByLabel("Passkey name").fill(replacementPasskey);
+      await page.getByRole("button", { name: "Add passkey" }).click();
+      await expect(page.getByText(replacementPasskey, { exact: true })).toBeVisible();
+      await expect(page.getByText("9 remaining", { exact: true })).toBeVisible();
+      await page.waitForLoadState("networkidle");
+      const replacementAuthenticator = await client.send("WebAuthn.getCredentials", { authenticatorId: authenticatorID });
+      expect(replacementAuthenticator.credentials).toHaveLength(1);
+      await page.reload();
+      await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
+      await page.waitForLoadState("networkidle");
+      await page.getByRole("button", { name: "Confirm with a passkey" }).click();
+      await expect(page.locator('[aria-live="polite"]')).toContainText("Passkey confirmed.");
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    } finally {
+      await client.send("WebAuthn.removeVirtualAuthenticator", { authenticatorId: authenticatorID }).catch(() => undefined);
+      await client.send("WebAuthn.disable").catch(() => undefined);
+    }
   });
 });

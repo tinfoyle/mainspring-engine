@@ -176,9 +176,17 @@ func TestRegistrationAndLastDeletionEnforceRecoveryPolicy(t *testing.T) {
 	if _, err := service.BeginRegistration(context.Background(), passkey); err != nil {
 		t.Fatalf("additional passkey with passkey assurance=%v", err)
 	}
+	if _, err := service.BeginRegistration(context.Background(), password); !errors.Is(err, passkeys.ErrReauthenticationNeeded) {
+		t.Fatalf("lost authenticator with retained credential and no recovery grant=%v", err)
+	}
+	policy.granted = true
+	if _, err := service.BeginRegistration(context.Background(), password); err != nil {
+		t.Fatalf("lost authenticator with retained credential and recovery grant=%v", err)
+	}
 
 	credential := fixture.repository.user.Credentials[0]
 	fixture.repository.user.Credentials = nil
+	policy.granted = false
 	if _, err := service.BeginRegistration(context.Background(), password); !errors.Is(err, passkeys.ErrRecoveryCodeRequired) {
 		t.Fatalf("lost-passkey replacement without recovery grant=%v", err)
 	}
