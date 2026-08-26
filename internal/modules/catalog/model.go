@@ -87,25 +87,21 @@ type PublishedCatalog struct {
 
 func Default(now time.Time) PublishedCatalog {
 	packages := []FeaturePackage{
-		{Code: PackageKnowledge, Version: 1, Name: "Knowledge", Description: "Source-attributed business facts, documents, evidence, and citations.", Features: []string{"knowledge.read", "knowledge.baseline"}, DefaultLimits: map[LimitCode]int64{"documents": 25}},
+		{Code: PackageKnowledge, Version: 1, Name: "Knowledge", Description: "Source-attributed business facts, documents, evidence, and citations.", Features: []string{"knowledge.read", "knowledge.baseline"}, DefaultLimits: map[LimitCode]int64{"documents": 1000}},
 		{Code: PackageWork, Version: 1, Name: "Work", Description: "Accountable work across people and agents.", Features: []string{"work.read", "work.manage"}, DefaultLimits: map[LimitCode]int64{"active_items": 100}},
 		{Code: PackageAgents, Version: 1, Name: "Agents", Description: "Governed specialist agents and coordinated boardrooms.", Dependencies: []PackageCode{PackageWork, PackageKnowledge}, Features: []string{"agents.configure", "agents.run"}, DefaultLimits: map[LimitCode]int64{"concurrent_runs": 2}},
 		{Code: PackageFinance, Version: 1, Name: "Finance", Description: "Operational ledgers, accounts, entries, and reports.", Features: []string{"finance.read", "finance.post"}},
 		{Code: PackageMarketing, Version: 1, Name: "Marketing", Description: "Brand knowledge, research, campaign planning, and content work.", Dependencies: []PackageCode{PackageKnowledge}, Features: []string{"marketing.read", "marketing.manage"}},
 		{Code: PackageIntegrations, Version: 1, Name: "Integrations", Description: "Scoped, observable external connectors.", Dependencies: []PackageCode{PackageKnowledge}, Features: []string{"integrations.read", "integrations.connect"}},
 	}
-	free := Plan{Code: "free", Version: 1, Name: "Free", Description: "A real Spyglass Account for exploring the operating model.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled}}
-	team := Plan{Code: "team", Version: 1, Name: "Team", Description: "A focused operating surface for a growing team.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled, PackageWork: ModeEnabled, PackageIntegrations: ModeEnabled}}
-	operating := Plan{Code: "operating", Version: 1, Name: "Operating", Description: "The coordinated Spyglass operating system.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled, PackageWork: ModeEnabled, PackageAgents: ModeEnabled, PackageFinance: ModeEnabled, PackageMarketing: ModeEnabled, PackageIntegrations: ModeEnabled}}
+	team := Plan{Code: "team", Version: 2, Name: "Infinite Ocean Team", Description: "The complete Infinite Ocean operating system for one team.", Packages: map[PackageCode]PackageMode{PackageKnowledge: ModeEnabled, PackageWork: ModeEnabled, PackageAgents: ModeEnabled, PackageFinance: ModeEnabled, PackageMarketing: ModeEnabled, PackageIntegrations: ModeEnabled}}
 	limits := []LimitDefinition{
 		{Code: "documents", PackageCode: PackageKnowledge, Name: "Documents", Unit: "document", Kind: LimitKindCapacity, Combine: LimitMaximum},
 		{Code: "active_items", PackageCode: PackageWork, Name: "Active work items", Unit: "work_item", Kind: LimitKindCapacity, Combine: LimitMaximum},
 		{Code: "concurrent_runs", PackageCode: PackageAgents, Name: "Concurrent agent runs", Unit: "run", Kind: LimitKindCapacity, Combine: LimitMaximum, ReservationTTLSeconds: 3600},
 	}
-	return PublishedCatalog{Version: 2, PublishedAt: now.UTC(), Packages: packages, Limits: limits, Plans: []Plan{free, team, operating}, Offers: []Offer{
-		{Code: "free-v1", PlanCode: "free", PlanVersion: 1, Currency: "USD", AmountMinor: 0, BillingInterval: "none", Published: true, EffectiveFrom: now.UTC()},
-		{Code: "team-monthly-v1", PlanCode: "team", PlanVersion: 1, Currency: "USD", AmountMinor: 4900, BillingInterval: "month", Published: true, EffectiveFrom: now.UTC()},
-		{Code: "operating-monthly-v1", PlanCode: "operating", PlanVersion: 1, Currency: "USD", AmountMinor: 14900, BillingInterval: "month", Published: true, EffectiveFrom: now.UTC()},
+	return PublishedCatalog{Version: 3, PublishedAt: now.UTC(), Packages: packages, Limits: limits, Plans: []Plan{team}, Offers: []Offer{
+		{Code: "team-monthly-v2", PlanCode: "team", PlanVersion: 2, Currency: "USD", AmountMinor: 5000, BillingInterval: "month", Published: true, EffectiveFrom: now.UTC()},
 	}}
 }
 
@@ -249,10 +245,6 @@ func (c PublishedCatalog) Validate() error {
 			}
 		}
 		plans[plan.Code] = plan
-	}
-	free, exists := plans["free"]
-	if !exists || len(free.Packages) == 0 {
-		return errors.New("catalog requires a non-empty free plan")
 	}
 	offers := make(map[string]struct{}, len(c.Offers))
 	for _, offer := range c.Offers {

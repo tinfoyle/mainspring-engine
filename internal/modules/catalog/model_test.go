@@ -6,8 +6,15 @@ import (
 )
 
 func TestDefaultCatalogIsValid(t *testing.T) {
-	if err := Default(time.Now()).ValidateGoverned(); err != nil {
+	value := Default(time.Now())
+	if err := value.ValidateGoverned(); err != nil {
 		t.Fatal(err)
+	}
+	if value.Version != 3 || len(value.Plans) != 1 || value.Plans[0].Code != "team" || value.Plans[0].Version != 2 || len(value.Offers) != 1 || value.Offers[0].Code != "team-monthly-v2" || value.Offers[0].AmountMinor != 5000 {
+		t.Fatalf("default launch Catalog = %+v", value)
+	}
+	if len(value.Plans[0].Packages) != len(value.Packages) {
+		t.Fatalf("complete-product plan packages=%d definitions=%d", len(value.Plans[0].Packages), len(value.Packages))
 	}
 }
 
@@ -63,7 +70,7 @@ func TestCatalogRejectsOfferPlanVersionMismatch(t *testing.T) {
 func TestCatalogRejectsPlanWithMissingPackageDependency(t *testing.T) {
 	catalog := Default(time.Now())
 	for index := range catalog.Plans {
-		if catalog.Plans[index].Code == "operating" {
+		if catalog.Plans[index].Code == "team" {
 			delete(catalog.Plans[index].Packages, PackageKnowledge)
 		}
 	}
@@ -78,10 +85,12 @@ func TestCatalogRejectsEmptyCommercialSurface(t *testing.T) {
 	}
 }
 
-func TestCatalogRequiresFreePlan(t *testing.T) {
+func TestCatalogDoesNotRequireFreePlan(t *testing.T) {
 	value := Default(time.Now())
-	value.Plans = value.Plans[1:]
-	if err := value.Validate(); err == nil {
-		t.Fatal("expected missing free plan rejection")
+	if _, exists := value.Plan("free"); exists {
+		t.Fatal("launch Catalog unexpectedly contains a Free plan")
+	}
+	if err := value.Validate(); err != nil {
+		t.Fatalf("paid-only Catalog rejected: %v", err)
 	}
 }

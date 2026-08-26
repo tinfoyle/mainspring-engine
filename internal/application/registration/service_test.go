@@ -53,7 +53,7 @@ func TestBeginReplacesExpiredChallenge(t *testing.T) {
 	}
 }
 
-func TestFreeRegistrationRequiresVerificationThenProvisionsAtomically(t *testing.T) {
+func TestRegistrationRequiresVerificationThenProvisionsInactiveShellAtomically(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	clock := fixedClock{value: now}
 	published := catalog.Default(now)
@@ -80,14 +80,14 @@ func TestFreeRegistrationRequiresVerificationThenProvisionsAtomically(t *testing
 	if result.User.PrimaryEmail != "avery@example.com" {
 		t.Fatalf("email not normalized: %s", result.User.PrimaryEmail)
 	}
-	if result.Account.Type != "free" || result.Membership.Role != "owner" {
+	if result.Account.Type != "inactive" || result.Membership.Role != "owner" {
 		t.Fatalf("unexpected provisioning: %#v", result)
 	}
 	if result.Assignment.CellID != "cell-us-east-01" {
 		t.Fatalf("unexpected placement: %s", result.Assignment.CellID)
 	}
-	if len(result.Snapshot.Packages) == 0 {
-		t.Fatal("free entitlement snapshot is empty")
+	if len(result.Snapshot.Packages) != 0 || len(result.Grants) != 0 {
+		t.Fatalf("inactive shell received product access: grants=%+v snapshot=%+v", result.Grants, result.Snapshot)
 	}
 	if _, err := service.Complete(context.Background(), registration.CompleteCommand{Token: message.Token, Password: "strong-password"}); err != registration.ErrRegistrationConsumed {
 		t.Fatalf("expected consumed error, got %v", err)
@@ -114,7 +114,7 @@ func TestRegistrationCarriesOnlyPublishedPaidOfferToVerification(t *testing.T) {
 	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 10}})
 	messages := &memory.VerificationSink{}
 	service := registration.NewService(store, messages, store, func() catalog.PublishedCatalog { return published }, &sequenceIDs{}, fixedClock{value: now}, passwordHasher{})
-	command := registration.BeginCommand{Email: "buyer@example.com", DisplayName: "Buyer", AccountName: "Buyer Co", OfferCode: "team-monthly-v1", ReturnTo: "/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1"}
+	command := registration.BeginCommand{Email: "buyer@example.com", DisplayName: "Buyer", AccountName: "Buyer Co", OfferCode: "team-monthly-v2", ReturnTo: "/app/checkout?offer=team-monthly-v2&ref=IO-PARTNER1"}
 	if _, err := service.Begin(context.Background(), command); err != nil {
 		t.Fatal(err)
 	}
@@ -132,11 +132,11 @@ func TestRegistrationCarriesOnlyPublishedPaidOfferToVerification(t *testing.T) {
 		t.Fatalf("free offer error = %v", err)
 	}
 	for index := range published.Offers {
-		if published.Offers[index].Code == "team-monthly-v1" {
+		if published.Offers[index].Code == "team-monthly-v2" {
 			published.Offers[index].EffectiveFrom = now.Add(time.Hour)
 		}
 	}
-	command.OfferCode = "team-monthly-v1"
+	command.OfferCode = "team-monthly-v2"
 	if _, err := service.Begin(context.Background(), command); !errors.Is(err, registration.ErrOfferUnavailable) {
 		t.Fatalf("future offer error = %v", err)
 	}

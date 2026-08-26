@@ -16,7 +16,7 @@ export interface AcceptedMembership {
 
 export interface AccountChoice {
   readonly "account_id": string;
-  readonly "account_type": "free" | "paid";
+  readonly "account_type": "inactive" | "free" | "paid";
   readonly "account_version": number;
   readonly "cell_id": string;
   readonly "display_name": string;
@@ -2117,7 +2117,7 @@ export interface ProvisionedAccount {
   readonly "placement_generation": number;
   readonly "slug": string;
   readonly "state": "active";
-  readonly "type": "free";
+  readonly "type": "inactive";
 }
 
 export interface ProvisionedMembership {

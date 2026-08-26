@@ -12,7 +12,7 @@ import (
 func TestBillingViewUsesCurrentManagedSubscription(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	publication := catalog.Default(now)
-	status := commercialaccess.Status{Subscriptions: []commercialaccess.Subscription{{State: "canceled", OfferCode: "team-monthly-v1", LastSyncedAt: now.Add(-time.Hour)}, {State: "active", OfferCode: "operating-monthly-v1", LastSyncedAt: now}}}
+	status := commercialaccess.Status{Subscriptions: []commercialaccess.Subscription{{State: "canceled", OfferCode: "team-monthly-v1", LastSyncedAt: now.Add(-time.Hour)}, {State: "active", OfferCode: "team-monthly-v2", LastSyncedAt: now}}}
 	plans, state, _, synced := billingView(publication, accounts.AccountPaid, status, "", now)
 	if state != "active" || synced == "Local entitlement snapshot" {
 		t.Fatalf("state=%s synced=%s", state, synced)
@@ -23,14 +23,14 @@ func TestBillingViewUsesCurrentManagedSubscription(t *testing.T) {
 			current = plan.OfferCode
 		}
 	}
-	if current != "operating-monthly-v1" {
+	if current != "team-monthly-v2" {
 		t.Fatalf("current plan=%s", current)
 	}
 }
 
 func TestCanceledSubscriptionAllowsNoPaidPlanToAppearCurrent(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	plans, state, _, _ := billingView(catalog.Default(now), accounts.AccountFree, commercialaccess.Status{Subscriptions: []commercialaccess.Subscription{{State: "canceled", OfferCode: "team-monthly-v1"}}}, "", now)
+	plans, state, _, _ := billingView(catalog.Default(now), accounts.AccountInactive, commercialaccess.Status{Subscriptions: []commercialaccess.Subscription{{State: "canceled", OfferCode: "team-monthly-v2"}}}, "", now)
 	if state != "canceled" {
 		t.Fatalf("state=%s", state)
 	}
@@ -44,10 +44,10 @@ func TestCanceledSubscriptionAllowsNoPaidPlanToAppearCurrent(t *testing.T) {
 func TestBillingViewHighlightsOnlyAnAvailableSelectedOffer(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	publication := catalog.Default(now)
-	selected := availableOfferCode(publication, "team-monthly-v1", now)
-	plans, _, _, _ := billingView(publication, accounts.AccountFree, commercialaccess.Status{}, selected, now)
+	selected := availableOfferCode(publication, "team-monthly-v2", now)
+	plans, _, _, _ := billingView(publication, accounts.AccountInactive, commercialaccess.Status{}, selected, now)
 	for _, plan := range plans {
-		if plan.Selected != (plan.OfferCode == "team-monthly-v1") {
+		if plan.Selected != (plan.OfferCode == "team-monthly-v2") {
 			t.Fatalf("selected flag for %s = %v", plan.OfferCode, plan.Selected)
 		}
 	}

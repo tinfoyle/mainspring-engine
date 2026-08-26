@@ -16,11 +16,12 @@ type MembershipState string
 type InvitationState string
 
 const (
-	AccountFree    AccountType  = "free"
-	AccountPaid    AccountType  = "paid"
-	AccountActive  AccountState = "active"
-	AccountClosing AccountState = "closing"
-	AccountClosed  AccountState = "closed"
+	AccountInactive AccountType  = "inactive"
+	AccountFree     AccountType  = "free"
+	AccountPaid     AccountType  = "paid"
+	AccountActive   AccountState = "active"
+	AccountClosing  AccountState = "closing"
+	AccountClosed   AccountState = "closed"
 
 	RoleOwner         MembershipRole = "owner"
 	RoleAdministrator MembershipRole = "administrator"
@@ -85,7 +86,7 @@ func NewAccount(id ids.AccountID, userID ids.UserID, cellID ids.CellID, displayN
 	if len(slug) < 2 {
 		return Account{}, errors.New("account name cannot produce a valid slug")
 	}
-	return Account{ID: id, Slug: slug, DisplayName: displayName, Type: AccountFree, State: AccountActive, CellID: cellID, PlacementGeneration: 1, EntitlementVersion: 1, Version: 1, CreatedByUserID: userID, CreatedAt: now.UTC()}, nil
+	return Account{ID: id, Slug: slug, DisplayName: displayName, Type: AccountInactive, State: AccountActive, CellID: cellID, PlacementGeneration: 1, EntitlementVersion: 1, Version: 1, CreatedByUserID: userID, CreatedAt: now.UTC()}, nil
 }
 
 func NewOwnerMembership(id ids.MembershipID, accountID ids.AccountID, userID ids.UserID, now time.Time) Membership {

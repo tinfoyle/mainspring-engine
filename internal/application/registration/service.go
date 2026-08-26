@@ -186,14 +186,7 @@ func (s *Service) Complete(ctx context.Context, command CompleteCommand) (Provis
 		}
 		membership := accounts.NewOwnerMembership(ids.MembershipID(s.ids.New()), account.ID, user.ID, now)
 		publication := s.catalog()
-		plan, ok := publication.Plan("free")
-		if !ok {
-			return Provisioned{}, errors.New("published catalog has no free plan")
-		}
-		grants, err := entitlements.FreePlanGrants(account.ID, plan, publication.Packages, s.ids, now)
-		if err != nil {
-			return Provisioned{}, err
-		}
+		grants := []entitlements.Grant{}
 		snapshot, err := entitlements.Evaluate(account.ID, account.EntitlementVersion, publication, grants, now)
 		if err != nil {
 			return Provisioned{}, err

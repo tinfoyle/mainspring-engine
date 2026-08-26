@@ -85,7 +85,7 @@ func (s *Server) redirectHosted(w http.ResponseWriter, r *http.Request, raw stri
 }
 
 func billingView(publication catalog.PublishedCatalog, accountType accounts.AccountType, status commercialaccess.Status, selectedOffer string, now time.Time) ([]billingPlan, string, string, string) {
-	currentOffer, state, period, synced := "free-v1", "Free access", "No billing required", "Local entitlement snapshot"
+	currentOffer, state, period, synced := "", "Checkout required", "No paid subscription", "Local billing snapshot"
 	if len(status.Subscriptions) > 0 {
 		current, managed := status.Subscriptions[0], false
 		for _, candidate := range status.Subscriptions {

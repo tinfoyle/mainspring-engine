@@ -1,0 +1,83 @@
+{
+  "version": 3,
+  "packages": [
+    {
+      "code": "knowledge",
+      "version": 1,
+      "name": "Knowledge",
+      "description": "Source-attributed business facts, documents, evidence, and citations.",
+      "features": ["knowledge.read", "knowledge.baseline"],
+      "default_limits": {"documents": 1000}
+    },
+    {
+      "code": "work",
+      "version": 1,
+      "name": "Work",
+      "description": "Accountable work across people and agents.",
+      "features": ["work.read", "work.manage"],
+      "default_limits": {"active_items": 100}
+    },
+    {
+      "code": "agents",
+      "version": 1,
+      "name": "Agents",
+      "description": "Governed specialist agents and coordinated boardrooms.",
+      "dependencies": ["work", "knowledge"],
+      "features": ["agents.configure", "agents.run"],
+      "default_limits": {"concurrent_runs": 2}
+    },
+    {
+      "code": "finance",
+      "version": 1,
+      "name": "Finance",
+      "description": "Operational ledgers, accounts, entries, and reports.",
+      "features": ["finance.read", "finance.post"]
+    },
+    {
+      "code": "marketing",
+      "version": 1,
+      "name": "Marketing",
+      "description": "Brand knowledge, research, campaign planning, and content work.",
+      "dependencies": ["knowledge"],
+      "features": ["marketing.read", "marketing.manage"]
+    },
+    {
+      "code": "integrations",
+      "version": 1,
+      "name": "Integrations",
+      "description": "Scoped, observable external connectors.",
+      "features": ["integrations.read", "integrations.connect"]
+    }
+  ],
+  "limits": [
+    {"code": "documents", "package_code": "knowledge", "name": "Documents", "unit": "document", "kind": "capacity", "combine": "maximum"},
+    {"code": "active_items", "package_code": "work", "name": "Active work items", "unit": "work_item", "kind": "capacity", "combine": "maximum"},
+    {"code": "concurrent_runs", "package_code": "agents", "name": "Concurrent agent runs", "unit": "run", "kind": "capacity", "combine": "maximum", "reservation_ttl_seconds": 3600}
+  ],
+  "plans": [
+    {
+      "code": "team",
+      "version": 2,
+      "name": "Infinite Ocean Team",
+      "description": "The complete Infinite Ocean operating system for one team.",
+      "packages": {
+        "knowledge": "enabled",
+        "work": "enabled",
+        "agents": "enabled",
+        "finance": "enabled",
+        "marketing": "enabled",
+        "integrations": "enabled"
+      }
+    }
+  ],
+  "offers": [
+    {
+      "code": "team-monthly-v2",
+      "plan_code": "team",
+      "plan_version": 2,
+      "currency": "USD",
+      "amount_minor": 5000,
+      "billing_interval": "month"
+    }
+  ]
+}

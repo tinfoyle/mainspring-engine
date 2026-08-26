@@ -103,6 +103,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	nextCatalog := catalog.Default(adminNow)
+	nextCatalog.Plans = append(nextCatalog.Plans, catalog.Plan{Code: "free", Version: 1, Name: "Legacy Free", Description: "Rollback-only legacy access.", Packages: map[catalog.PackageCode]catalog.PackageMode{catalog.PackageKnowledge: catalog.ModeEnabled}})
 	for index := range nextCatalog.Packages {
 		if nextCatalog.Packages[index].Code == catalog.PackageKnowledge {
 			nextCatalog.Packages[index].Version = 2
@@ -118,7 +119,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil || draft.Version != 3 || draft.State != catalogadmin.StateDraft {
 		t.Fatalf("create catalog draft = %+v, %v", draft, err)
 	}
-	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v1", "price_catalog_team_test"}, {"operating-monthly-v1", "price_catalog_operating_test"}} {
+	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v2", "price_catalog_team_test"}} {
 		if err := adminService.MapStripePrice(ctx, draft.Version, mapping.offer, "test", mapping.price, "catalog-author@example.com", "attach reviewed Stripe test price mapping"); err != nil {
 			t.Fatalf("map catalog offer %s: %v", mapping.offer, err)
 		}
@@ -287,8 +288,8 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete registration: %v", err)
 	}
-	if provisioned.Account.Type != "free" || len(provisioned.Snapshot.Packages) != 1 || string(provisioned.Snapshot.Packages[0].Code) != "knowledge" {
-		t.Fatalf("unexpected free account projection: type=%s packages=%v", provisioned.Account.Type, provisioned.Snapshot.Packages)
+	if provisioned.Account.Type != "inactive" || len(provisioned.Snapshot.Packages) != 0 || len(provisioned.Grants) != 0 {
+		t.Fatalf("unexpected inactive Account projection: type=%s grants=%v packages=%v", provisioned.Account.Type, provisioned.Grants, provisioned.Snapshot.Packages)
 	}
 	attributedInvitation := invitations.Message{AccountID: provisioned.Account.ID, Email: "member@example.com", AccountName: provisioned.Account.DisplayName, Token: "account-attributed-invitation", Role: accounts.RoleMember, ExpiresAt: now.Add(time.Hour)}
 	if err := queuedSender.SendInvitation(ctx, attributedInvitation); err != nil {
@@ -388,7 +389,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v1", "price_catalog_later_team"}, {"operating-monthly-v1", "price_catalog_later_operating"}} {
+	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v2", "price_catalog_later_team"}} {
 		if err := adminService.MapStripePrice(ctx, laterDraft.Version, mapping.offer, "test", mapping.price, "catalog-author@example.com", "attach second-version Stripe test mapping"); err != nil {
 			t.Fatal(err)
 		}
@@ -871,11 +872,11 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 
 	commercial := postgresadapter.NewCommercialAccessRepository(pool)
-	price, err := commercial.ProviderPrice(ctx, draft.Version, "team-monthly-v1", "stripe", "test")
+	price, err := commercial.ProviderPrice(ctx, draft.Version, "team-monthly-v2", "stripe", "test")
 	if err != nil || price != "price_catalog_team_test" {
 		t.Fatalf("provider price = %q, %v", price, err)
 	}
-	if _, err := pool.Exec(ctx, `UPDATE offer_provider_prices SET provider_price_id='price_tampered' WHERE catalog_version=$1 AND offer_code='team-monthly-v1'`, draft.Version); err == nil || !strings.Contains(err.Error(), "only while the catalog is draft") {
+	if _, err := pool.Exec(ctx, `UPDATE offer_provider_prices SET provider_price_id='price_tampered' WHERE catalog_version=$1 AND offer_code='team-monthly-v2'`, draft.Version); err == nil || !strings.Contains(err.Error(), "only while the catalog is draft") {
 		t.Fatalf("published price mapping mutation result = %v", err)
 	}
 
@@ -891,7 +892,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 		group.Add(1)
 		go func(requestID string) {
 			defer group.Done()
-			reservation, err := commercial.BeginCheckout(ctx, provisioned.Account.ID, "team-monthly-v1", "test", requestID, now)
+			reservation, err := commercial.BeginCheckout(ctx, provisioned.Account.ID, "team-monthly-v2", "test", requestID, now)
 			results <- reservationResult{request: requestID, value: reservation.Proceed, err: err}
 		}(requestID)
 	}
@@ -916,7 +917,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err := commercial.CompleteCheckout(ctx, provisioned.Account.ID, proceedingRequest, hosted, now); err != nil {
 		t.Fatalf("complete checkout reservation: %v", err)
 	}
-	resumed, err := commercial.BeginCheckout(ctx, provisioned.Account.ID, "team-monthly-v1", "test", ids.RandomGenerator{}.New(), now)
+	resumed, err := commercial.BeginCheckout(ctx, provisioned.Account.ID, "team-monthly-v2", "test", ids.RandomGenerator{}.New(), now)
 	if err != nil || resumed.Resume == nil || resumed.Resume.ID != hosted.ID {
 		t.Fatalf("resume checkout = %+v, %v", resumed, err)
 	}

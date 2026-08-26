@@ -73,13 +73,16 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 		return ensured || seeded, err
 	}
 	err = p.store.Apply(ctx, work, now, func(input Input) (Output, error) {
-		plan, ok := input.Publication.Plan("free")
-		if !ok {
-			return Output{}, ErrInvalidCatalog
-		}
-		free, err := entitlements.FreePlanGrants(input.AccountID, plan, input.Publication.Packages, p.ids, now)
-		if err != nil {
+		if err := input.Publication.Validate(); err != nil {
 			return Output{}, errors.Join(ErrInvalidCatalog, err)
+		}
+		free := []entitlements.Grant{}
+		if plan, ok := input.Publication.Plan("free"); ok {
+			var err error
+			free, err = entitlements.FreePlanGrants(input.AccountID, plan, input.Publication.Packages, p.ids, now)
+			if err != nil {
+				return Output{}, errors.Join(ErrInvalidCatalog, err)
+			}
 		}
 		grants := append(append([]entitlements.Grant(nil), input.OtherGrants...), free...)
 		snapshot, err := entitlements.Evaluate(input.AccountID, input.CurrentVersion+1, input.Publication, grants, now)

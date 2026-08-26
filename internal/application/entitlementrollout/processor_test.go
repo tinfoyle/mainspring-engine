@@ -59,6 +59,7 @@ func TestProcessorReplacesFreePlanAndPreservesIndependentGrants(t *testing.T) {
 	accountID := ids.AccountID("10000000-0000-4000-8000-000000000001")
 	publication := catalog.Default(now)
 	publication.Version = 7
+	publication.Plans = append(publication.Plans, catalog.Plan{Code: "free", Version: 1, Name: "Legacy Free", Packages: map[catalog.PackageCode]catalog.PackageMode{catalog.PackageKnowledge: catalog.ModeEnabled}})
 	for index := range publication.Packages {
 		if publication.Packages[index].Code == catalog.PackageKnowledge {
 			publication.Packages[index].Version = 4

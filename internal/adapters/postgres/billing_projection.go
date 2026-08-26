@@ -202,12 +202,12 @@ func (r *BillingProjectionRepository) ApplyProjection(ctx context.Context, proje
 			break
 		}
 	}
-	accountType := "free"
+	accountType := "inactive"
 	if paid {
 		accountType = "paid"
 	}
 	if bytes.Equal(previous, hash[:]) {
-		_, err = tx.Exec(ctx, `UPDATE accounts SET account_type=$2 WHERE id=$1 AND account_type IN ('free','paid')`, projection.Mapping.AccountID, accountType)
+		_, err = tx.Exec(ctx, `UPDATE accounts SET account_type=$2 WHERE id=$1 AND account_type IN ('inactive','free','paid')`, projection.Mapping.AccountID, accountType)
 		if err != nil {
 			return err
 		}
