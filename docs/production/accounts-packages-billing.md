@@ -355,6 +355,8 @@ Approved registration/payment boundary (2026-08-26): registration first creates 
 
 Approved commissioning purchase boundary (2026-08-26): the authorized team owner may add the optional $250 onboarding/commissioning package to the initial subscription Checkout or purchase it later from Billing. The standard package is self-service-purchasable only once per team. A verified local purchase projection suppresses every later self-service offer and blocks duplicate purchase attempts independently of browser state or repeated Stripe events. An additional engagement is arranged through Support rather than another product purchase. Initial combined Checkout uses the recurring subscription Price plus the eligible one-time commissioning Price; a later purchase uses a separate one-time Checkout and cannot alter subscription or Affiliate state.
 
+Approved trial boundary (2026-08-26): launch has no free trial. The ordinary customer path requires the first $50 subscription invoice to reach fully paid state before signed-webhook projection activates product entitlements. Defensive trial and zero-value states may remain representable for replay safety, historical compatibility and future versioning, but no launch Catalog offer, Stripe configuration or customer copy may create or promise free trial access.
+
 ## 9. Public website content architecture
 
 The website content model supports:

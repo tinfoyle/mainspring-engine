@@ -13,6 +13,8 @@ Owner economics decisions (2026-08-26): the launch subscription is **$50.00 USD 
 
 There is no Free plan at launch. The `free-v1` offer and every customer-facing permanent-free claim in the current repository are obsolete launch candidates and must be removed from the effective Catalog and acquisition/registration surfaces before enrollment or attribution opens.
 
+There is no free trial at launch. The $50 monthly subscription begins with the first successfully paid invoice after Checkout. Zero-value trial handling remains a defensive ledger invariant only and must not be advertised or configured as a launch offer.
+
 Technical invariants already fixed:
 
 - self-referral is denied against every Account owned by the Affiliate User;

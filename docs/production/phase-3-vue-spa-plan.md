@@ -89,7 +89,7 @@ The public experience must be a first-class product surface, not a decorative sp
 #### Pricing and checkout
 
 - Pricing uses the public Catalog contract, displays the $50 monthly team subscription and optional $250 commissioning package consistently, and fails closed to the last-known published Catalog rather than leaking provider identifiers. No Free plan or obsolete `$49`/`$149` offer may appear.
-- Plan comparison explains included packages, meaningful limits, trial/grace behavior and what changes on downgrade in plain language.
+- Pricing explains included capabilities, meaningful limits and renewal/grace behavior in plain language. It must not advertise a Free plan or free trial.
 - Selecting an offer preserves only an opaque, validated offer intent through registration and verification.
 - Registration creates and verifies the User identity plus an inactive team shell, not a Free plan. Before payment projection, the owner can reach only security, privacy, billing/checkout and sign-out and receives no product/package entitlement. Only that authenticated authorized team owner may perform the separately confirmed checkout mutation.
 - The server revalidates the selected offer and creates or reuses the Stripe Customer and hosted Checkout Session; the browser never submits a Stripe Price ID.
