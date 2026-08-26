@@ -23,7 +23,8 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     locale: "en-US",
     timezoneId: "America/New_York",
-    trace: "retain-on-failure"
+    // Verification and recovery URLs contain short-lived credentials. Never retain them in browser traces.
+    trace: "off"
   },
   projects: [
     {

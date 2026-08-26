@@ -1,5 +1,52 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+
+const mailpitURL = process.env.SPYGLASS_IDENTITY_MAILPIT_URL;
+if (!mailpitURL) throw new Error("SPYGLASS_IDENTITY_MAILPIT_URL is required");
+
+interface MailpitSearch {
+  readonly total: number;
+  readonly messages: ReadonlyArray<{ readonly ID: string }>;
+}
+
+interface MailpitMessage {
+  readonly ID: string;
+  readonly Text: string;
+}
+
+async function waitForMailLink(request: APIRequestContext, email: string, path: string): Promise<{ id: string; link: string }> {
+  let result = { id: "", link: "" };
+  await expect.poll(async () => {
+    const searchResponse = await request.get(`${mailpitURL}/api/v1/search`, { params: { query: `to:${email}` } });
+    if (!searchResponse.ok()) return "";
+    const search = await searchResponse.json() as MailpitSearch;
+    for (const item of search.messages) {
+      const messageResponse = await request.get(`${mailpitURL}/api/v1/message/${encodeURIComponent(item.ID)}`);
+      if (!messageResponse.ok()) continue;
+      const message = await messageResponse.json() as MailpitMessage;
+      const link = message.Text.split(/\s+/).find((value) => {
+        try {
+          const parsed = new URL(value);
+          return parsed.origin === "https://app.infiniteocean.localhost:8444" && parsed.pathname === path;
+        } catch {
+          return false;
+        }
+      });
+      if (link) {
+        result = { id: message.ID, link };
+        return link;
+      }
+    }
+    return "";
+  }, { message: `wait for ${path} mail to the synthetic identity`, timeout: 20_000 }).toContain(path);
+  return result;
+}
+
+async function deleteMail(request: APIRequestContext, id: string): Promise<void> {
+  const response = await request.delete(`${mailpitURL}/api/v1/messages`, { data: { IDs: [id] } });
+  expect(response.ok()).toBe(true);
+}
 
 async function expectAccessible(page: Page): Promise<void> {
   const results = await new AxeBuilder({ page })
@@ -122,4 +169,78 @@ test("offer continuity, native validation, and incomplete-link recovery fail saf
   await expect(page.getByRole("button", { name: "Change identity email" })).toBeDisabled();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
+});
+
+test.describe("connected identity success", () => {
+  test("registration, email verification, password login, and recovery complete against local services", async ({ page, context, request }, testInfo) => {
+    test.setTimeout(120_000);
+    const suffix = `${testInfo.project.name.replace(/[^a-z0-9]/gi, "-")}-${randomUUID()}`;
+    const email = `identity-${suffix}@example.com`;
+    const initialPassword = `Initial identity ${suffix}!`;
+    const replacementPassword = `Recovered identity ${suffix}!`;
+
+    await context.clearCookies();
+    await page.goto("/signup");
+    const pageOrigin = await page.evaluate(() => window.location.origin);
+    let submittedOrigin = "not observed";
+    page.on("request", (browserRequest) => {
+      if (browserRequest.method() === "POST" && new URL(browserRequest.url()).pathname === "/signup") {
+        submittedOrigin = browserRequest.headers().origin ?? "missing";
+      }
+    });
+    await page.getByLabel("Your name").fill("Connected Identity");
+    await page.getByLabel("Work email").fill(email);
+    await page.getByLabel("Business name").fill(`Connected ${suffix.slice(0, 44)}`);
+    await page.getByRole("button", { name: "Continue securely" }).click();
+    expect(submittedOrigin).toBe(pageOrigin);
+    await expect(page.locator(".alert"), `page origin ${pageOrigin}; submitted origin ${submittedOrigin}`).toContainText("Your verification link is on its way.");
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+
+    const verification = await waitForMailLink(request, email, "/verify");
+    await deleteMail(request, verification.id);
+    await page.goto(verification.link);
+    await expect(page.getByRole("heading", { level: 2, name: "Choose your password" })).toBeVisible();
+    await page.locator('input[name="password"]').fill(initialPassword);
+    await page.getByRole("button", { name: "Create identity and Account" }).click();
+    const verificationDenial = page.locator(".alert.error");
+    if (await verificationDenial.count()) throw new Error(`verification denial: ${await verificationDenial.innerText()}`);
+    await expect(page).toHaveURL(/\/login\?.*status=verified/);
+    await expect(page.locator(".alert")).toContainText("Identity verified. Sign in to open Spyglass.");
+    await expectAccessible(page);
+
+    await page.getByLabel("Email address").fill(email);
+    await page.locator('input[name="password"]').fill(initialPassword);
+    await page.locator('form[action="/login"] button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/app\/your-turn$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Your Turn" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+
+    await context.clearCookies();
+    await page.goto("/forgot-password?return_to=%2Fapp%2Fyour-turn");
+    await page.getByLabel("Email address").fill(email);
+    await page.getByRole("button", { name: "Send recovery link" }).click();
+    await expect(page.locator(".alert")).toContainText("If that email belongs to an Infinite Ocean identity, a recovery link is on its way.");
+
+    const recovery = await waitForMailLink(request, email, "/reset-password");
+    await deleteMail(request, recovery.id);
+    await page.goto(recovery.link);
+    await expect(page.getByRole("heading", { level: 2, name: "Reset your password" })).toBeVisible();
+    await page.getByLabel("New password").fill(replacementPassword);
+    await page.getByRole("button", { name: "Update password" }).click();
+    await expect(page).toHaveURL(/\/login\?.*status=password_reset/);
+    await expect(page.locator(".alert")).toContainText("Password updated. Sign in again on every device.");
+
+    await page.getByLabel("Email address").fill(email);
+    await page.locator('input[name="password"]').fill(initialPassword);
+    await page.locator('form[action="/login"] button[type="submit"]').click();
+    await expect(page.locator(".alert.error")).toContainText("The email or password is incorrect.");
+    await page.locator('input[name="password"]').fill(replacementPassword);
+    await page.locator('form[action="/login"] button[type="submit"]').click();
+    await expect(page).toHaveURL(/\/app\/your-turn$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Your Turn" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await expectAccessible(page);
+  });
 });

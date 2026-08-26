@@ -191,10 +191,12 @@ Automated evidence covers:
 
 ## 8. Remaining identity work
 
+Connected local identity checkpoint (2026-08-25): Chromium, Firefox, WebKit and a Chromium phone profile now complete registration, encrypted queued verification delivery, password setup, login into the Vue application, anti-enumerating recovery, encrypted reset delivery, old-password rejection and replacement-password login through the exact local TLS/database/notification composition. A fifth profile retains 200% text coverage, for seventeen connected checks. The exercise corrected native forms being rejected with `Origin: null` under `Referrer-Policy: no-referrer`; identity and private Vue responses now use `same-origin`, preserving exact-origin mutation checks without sending path/query referrers off-origin. Consumed local messages are deleted and traces are disabled. This is local email/password delivery evidence, not physical WebAuthn or release-environment SMTP certification.
+
 Passkeys are now a production authentication and strong-reauthentication option, but the broader Phase 2 identity program is not complete:
 
 1. Complete product/security/legal review of the executable customer-visible factor-loss copy and decide whether a delayed, multi-party support-assisted exception will ever exist. The current policy is fail-closed with no support bypass. Platform-administrator signed authorization and dual-approved break glass are executable; the external workforce identity plane remains the enrollment and approval authority. Self-service recovery codes deliberately cannot authorize Account or operator actions.
 2. Certify the scheduled ceremony-retention alert thresholds under stage load. Bounded pruning, aggregate backlog metrics, restore gating, least-privilege execution and the `/health/status` operator inspection path are executable.
 3. Decide whether attestation metadata evaluation is required for managed-enterprise policy; current public customer registration requests no attestation.
-4. Complete live SMTP delivery certification for registration, recovery, invitations, ownership, and verified-contact notices.
+4. Complete release-environment SMTP delivery certification for invitations, ownership and verified-contact notices; local registration and recovery delivery are certified through the TLS Mailpit fixture.
 5. Run real-browser WebAuthn journeys across supported desktop/mobile platforms and accessibility tooling before release promotion.

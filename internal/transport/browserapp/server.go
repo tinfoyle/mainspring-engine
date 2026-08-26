@@ -625,6 +625,7 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 	returnTo := safeReturnTo(r.FormValue("return_to"))
 	_, err := s.registrations.Complete(r.Context(), registration.CompleteCommand{Token: r.FormValue("token"), Password: r.FormValue("password")})
 	if err != nil {
+		s.logger.Error("complete browser registration", "error", err)
 		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Token: r.FormValue("token"), ReturnTo: returnTo, OfferCode: offerCode, Error: "The link is invalid or expired, or the password does not meet the 12-character minimum.", PrivacyControls: true})
 		return
 	}
@@ -1700,7 +1701,11 @@ func closureNotice(status string) string {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "no-referrer")
+		// Native same-origin form submissions need a serialized Origin so the
+		// request boundary can reject cross-site mutations. same-origin keeps
+		// full referrers off every other origin without turning valid POSTs into
+		// the opaque Origin value "null".
+		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		if !strings.HasPrefix(r.URL.Path, "/assets/") {

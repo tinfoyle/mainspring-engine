@@ -233,7 +233,7 @@ func TestContactVerificationPageIsDisplayOnlyAndMutationRequiresExactOrigin(t *t
 	}
 	body, _ := io.ReadAll(page.Body)
 	page.Body.Close()
-	if page.StatusCode != http.StatusOK || page.Header.Get("Referrer-Policy") != "no-referrer" || !bytes.Contains(body, []byte(`method="post" action="/contact-change/verify"`)) || !bytes.Contains(body, []byte(`name="token" value="`+token+`"`)) || len(page.Cookies()) != 0 {
+	if page.StatusCode != http.StatusOK || page.Header.Get("Referrer-Policy") != "same-origin" || !bytes.Contains(body, []byte(`method="post" action="/contact-change/verify"`)) || !bytes.Contains(body, []byte(`name="token" value="`+token+`"`)) || len(page.Cookies()) != 0 {
 		t.Fatalf("contact verification display: %d cookies=%#v body=%s", page.StatusCode, page.Cookies(), body)
 	}
 	request, _ := http.NewRequest(http.MethodPost, server.URL+"/contact-change/verify", strings.NewReader(url.Values{"token": {token}}.Encode()))

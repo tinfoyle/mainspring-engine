@@ -527,6 +527,7 @@ services:
       edge: {condition: service_started}
     environment:
       SPYGLASS_IDENTITY_BASE_URL: https://app.infiniteocean.localhost:8444
+      SPYGLASS_IDENTITY_MAILPIT_URL: http://mailpit:8025
 
   test-db:
     profiles: [test]
