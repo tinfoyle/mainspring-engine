@@ -206,19 +206,19 @@ The customer dashboard offers only a structured enrollment appeal or a review bo
 
 Local abuse-review checkpoint (2026-08-26): the execute-only Affiliate operator boundary now exposes an audited `inspect-risk` action with only 24-hour reservation aggregates, 30-day code-replacement aggregates and documented deterministic review flags. It returns no referred-customer, public-code, Checkout or provider identifiers and has no authority to suspend automatically. Checkout also enforces a distributed 20-per-15-minute code-validation budget keyed by a content-free digest of network actor plus Account, before lookup or Stripe access. Neither raw network identity nor submitted code enters the limiter, and the existing restore-gated maintenance worker removes stale digests after 24 hours with content-free retention metrics.
 
-## 7. Settlement decision required
+## 7. Settlement policy
 
-Before affiliate implementation reaches payout/credit acceptance, the release owner must choose one launch settlement:
+The release owner selected an account-credit-first hybrid on 2026-08-26. Available earnings accrue as billing credit for one Affiliate-owned Infinite Ocean Account. Once the available balance reaches a separately approved threshold, it becomes eligible for payment by check. The threshold, check initiation, identity/address/tax evidence, atomic balance debit, delivery, stop/reissue, expiry and failed/uncashed-check behavior remain open; no payment promise may be exposed until they are implemented.
 
 ### Account billing credit
 
-Earned commission is applied as a bounded credit toward invoices for one Affiliate-owned Spyglass Account. This avoids a cash-withdrawal promise but requires exact Stripe/customer-balance reconciliation, expiry/non-transferability rules and treatment when the Affiliate has no paid subscription.
+Earned commission is applied as a bounded credit toward invoices for one Affiliate-owned Spyglass Account. This requires exact Stripe/customer-balance reconciliation, application order, expiry/non-transferability rules and treatment when the Affiliate has no paid subscription.
 
-### Cash settlement
+### Threshold check payment
 
-Earned commission becomes withdrawable. This requires payee onboarding, supported countries, identity/tax collection, payout-provider integration, minimums, reserves, failed payout/recovery, statements and applicable tax reporting. Stripe Connect is a candidate adapter, not an assumed implementation.
+Only an available balance at or above the approved threshold becomes eligible for payment by check. This requires payee identity/address and tax handling, supported jurisdictions, immutable request/approval/payment evidence, atomic reservation and debit, delivery/stop/reissue operations, uncashed-check treatment, statements and applicable reporting. It is not an unrestricted withdrawable cash balance.
 
-The immutable earning ledger is independent of this choice. The UI cannot label pending earnings as payable cash or account credit until the settlement mode and terms are approved.
+The immutable earning ledger remains independent of settlement. The UI cannot promise a check or label pending earnings as available account credit until the remaining settlement rules and implementation are approved.
 
 ## 8. Construction and acceptance order
 

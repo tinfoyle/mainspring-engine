@@ -43,7 +43,8 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** any successful non-zero Refund voids the entire associated invoice earning. Pending earnings cannot mature; available earnings receive an immutable full reversal. Cancellation without a Refund remains non-adverse;
 - **Decided 2026-08-26:** any finalized non-zero credit note follows the same full-void rule as a Refund. Draft or voided credit notes have no effect;
 - **Decided 2026-08-26:** a final lost dispute or chargeback follows the same full-void rule. Open, warning, pending and won disputes have no effect;
-- `account_credit` or `cash` settlement, including minimums, expiry, transferability and failed-settlement handling;
+- **Decided 2026-08-26:** settlement is account-credit-first. Available earnings accrue as billing credit for one Affiliate-owned Infinite Ocean Account; a balance at or above a separately approved threshold becomes eligible for payment by check. It is not an unrestricted cash wallet;
+- exact check threshold, automatic-versus-requested handling, billing-credit application order, expiry, transferability, address/tax evidence and failed/uncashed-check handling;
 - supported countries, tax documentation, withholding and reporting;
 - suspension, closure, code-replacement, appeal and support policy; and
 - commercial/accounting retention and data-right limitations.
@@ -108,7 +109,7 @@ Maximum cycles: none; qualifying earnings continue while the attributed subscrip
 Refunds: any successful non-zero Refund voids the complete associated invoice earning (owner decision 2026-08-26)
 Credit notes: any finalized non-zero credit note voids the complete associated invoice earning (owner decision 2026-08-26)
 Disputes/chargebacks: final loss voids the complete associated invoice earning; non-final/won states do nothing (owner decision 2026-08-26)
-Affiliate settlement decision:
+Affiliate settlement decision: account-credit-first with threshold check eligibility (owner decision 2026-08-26)
 Affiliate terms version:
 Affiliate rule version:
 Privacy processing-registry revision:
