@@ -43,7 +43,7 @@ Every event requires an effective analytics consent receipt for the same privacy
 | `checkout_redirected` | Private Stripe handoff | `offer_code`, `referral_present` |
 | `checkout_returned` | Private checkout return | `offer_code`, `result` |
 | `subscription_projected` | Private local billing projection | `offer_code`, `result` |
-| `application_entered` | Private onboarding completion | `entry_point` |
+| `application_entered` | Private onboarding completion | `entry_point` (`checkout`, `your_turn` or `deep_link`) |
 | `your_turn_opened` | Private content-free queue usability | `queue_state` |
 | `your_turn_item_completed` | Private first-value usability | `task_category`, `result`, `duration_bucket` |
 

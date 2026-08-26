@@ -565,7 +565,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) signupPage(w http.ResponseWriter, r *http.Request) {
 	offerCode := availableOfferCode(s.catalog(), r.URL.Query().Get("offer"), time.Now().UTC())
-	s.render(w, http.StatusOK, "signup", pageData{Title: "Create your Account", Notice: signupNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), OfferCode: offerCode, PrivacyControls: true})
+	s.render(w, http.StatusOK, "signup", pageData{Title: "Create your Account", Notice: signupNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), OfferCode: offerCode, PrivacyControls: true})
 }
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	if !s.validOrigin(r, false) {
@@ -581,12 +581,13 @@ func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 		name = r.FormValue("display_name")
 	}
 	offerCode := availableOfferCode(s.catalog(), r.FormValue("offer_code"), time.Now().UTC())
-	result, err := s.registrations.Begin(r.Context(), registration.BeginCommand{Email: r.FormValue("email"), DisplayName: name, AccountName: r.FormValue("account_name"), Region: r.FormValue("region"), OfferCode: offerCode})
+	returnTo := safeReturnTo(r.FormValue("return_to"))
+	result, err := s.registrations.Begin(r.Context(), registration.BeginCommand{Email: r.FormValue("email"), DisplayName: name, AccountName: r.FormValue("account_name"), Region: r.FormValue("region"), OfferCode: offerCode, ReturnTo: returnTo})
 	if err != nil {
-		s.render(w, http.StatusBadRequest, "signup", pageData{Title: "Create your Account", Error: "We could not start this registration. Check the details or sign in if the email is already registered.", Email: r.FormValue("email"), Name: name, AccountName: r.FormValue("account_name"), OfferCode: offerCode, PrivacyControls: true})
+		s.render(w, http.StatusBadRequest, "signup", pageData{Title: "Create your Account", Error: "We could not start this registration. Check the details or sign in if the email is already registered.", Email: r.FormValue("email"), Name: name, AccountName: r.FormValue("account_name"), ReturnTo: returnTo, OfferCode: offerCode, PrivacyControls: true})
 		return
 	}
-	data := pageData{Title: "Check your email", Notice: "Your verification link is on its way.", Email: r.FormValue("email"), OfferCode: offerCode, PrivacyControls: true}
+	data := pageData{Title: "Check your email", Notice: "Your verification link is on its way.", Email: r.FormValue("email"), ReturnTo: returnTo, OfferCode: offerCode, PrivacyControls: true}
 	newAnalyticsMarkers(&data, time.Now().UTC(), "registration_started")
 	if s.config.ExposeDevelopmentTokens && s.verificationTokens != nil {
 		if message, ok := s.verificationTokens.Latest(); ok && message.RegistrationID == result.RegistrationID {
@@ -603,7 +604,7 @@ func (s *Server) verifyPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	offerCode := availableOfferCode(s.catalog(), r.URL.Query().Get("offer"), time.Now().UTC())
-	s.render(w, http.StatusOK, "verify", pageData{Title: "Secure your identity", Token: token, OfferCode: offerCode, PrivacyControls: true})
+	s.render(w, http.StatusOK, "verify", pageData{Title: "Secure your identity", Token: token, ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), OfferCode: offerCode, PrivacyControls: true})
 }
 func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 	if !s.validOrigin(r, false) {
@@ -615,15 +616,18 @@ func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	offerCode := availableOfferCode(s.catalog(), r.FormValue("offer_code"), time.Now().UTC())
+	returnTo := safeReturnTo(r.FormValue("return_to"))
 	_, err := s.registrations.Complete(r.Context(), registration.CompleteCommand{Token: r.FormValue("token"), Password: r.FormValue("password")})
 	if err != nil {
-		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Token: r.FormValue("token"), OfferCode: offerCode, Error: "The link is invalid or expired, or the password does not meet the 12-character minimum.", PrivacyControls: true})
+		s.render(w, http.StatusBadRequest, "verify", pageData{Title: "Secure your identity", Token: r.FormValue("token"), ReturnTo: returnTo, OfferCode: offerCode, Error: "The link is invalid or expired, or the password does not meet the 12-character minimum.", PrivacyControls: true})
 		return
 	}
 	loginQuery := url.Values{"status": {"verified"}}
 	loginQuery.Set("analytics_delivery", ids.RandomGenerator{}.New())
 	loginQuery.Set("analytics_at", strconv.FormatInt(time.Now().UTC().Unix(), 10))
-	if offerCode != "" {
+	if returnTo != "" {
+		loginQuery.Set("return_to", returnTo)
+	} else if offerCode != "" {
 		loginQuery.Set("return_to", "/app?offer="+url.QueryEscape(offerCode)+"&status=welcome#billing")
 	}
 	http.Redirect(w, r, "/login?"+loginQuery.Encode(), http.StatusSeeOther)

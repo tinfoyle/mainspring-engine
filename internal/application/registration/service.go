@@ -64,6 +64,7 @@ type VerificationMessage struct {
 	Token          string
 	ExpiresAt      time.Time
 	OfferCode      string
+	ReturnTo       string
 }
 
 type VerificationSender interface {
@@ -93,7 +94,7 @@ func NewService(repository Repository, sender VerificationSender, cells CellSour
 	return &Service{repository: repository, sender: sender, cells: cells, catalog: catalogSource, ids: idGenerator, clock: clock, passwords: passwords, tokenTTL: 30 * time.Minute}
 }
 
-type BeginCommand struct{ Email, DisplayName, AccountName, Region, OfferCode string }
+type BeginCommand struct{ Email, DisplayName, AccountName, Region, OfferCode, ReturnTo string }
 type BeginResult struct {
 	RegistrationID ids.RegistrationID
 	ExpiresAt      time.Time
@@ -127,7 +128,7 @@ func (s *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult,
 	if err := s.repository.CreatePending(ctx, pending); err != nil {
 		return BeginResult{}, err
 	}
-	message := VerificationMessage{RegistrationID: pending.ID, Email: user.PrimaryEmail, DisplayName: user.DisplayName, Token: rawToken, ExpiresAt: pending.ExpiresAt, OfferCode: offerCode}
+	message := VerificationMessage{RegistrationID: pending.ID, Email: user.PrimaryEmail, DisplayName: user.DisplayName, Token: rawToken, ExpiresAt: pending.ExpiresAt, OfferCode: offerCode, ReturnTo: command.ReturnTo}
 	if err := s.sender.SendVerification(ctx, message); err != nil {
 		_ = s.repository.DeletePending(ctx, pending.ID)
 		return BeginResult{}, err

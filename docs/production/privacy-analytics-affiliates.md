@@ -12,6 +12,8 @@ Affiliate-code replacement amendment (2026-08-25): global migration 49 and the g
 
 Affiliate-statement amendment (2026-08-25): the identity-safe statement now returns the authoritative count of locked referred subscriptions and the Vue dashboard groups immutable commission entries into UTC calendar-month statements with earned and reversed subtotals. Neither representation includes a referred User, Account, email, business name or customer content.
 
+Affiliate acquisition-continuity amendment (2026-08-25): a same-origin Affiliate Checkout destination, including its public proposal code, now survives sign-in, free-Account registration, encrypted queued verification delivery, password setup and final sign-in. The destination is validated as a relative local URL whenever it enters a rendered browser boundary and the code is still not applied or attributed until the customer deliberately selects **Apply**, confirms the reviewed Checkout and the server validates it. No optional event is required for continuity. Private `application_entered` measurement uses only `checkout`, `your_turn` and `deep_link`; direct Checkout acquisition is no longer mislabeled as Your Turn and the ingestion registry rejects any other entry value.
+
 ## 1. Outcomes
 
 The launch UI must measure acquisition and onboarding well enough to improve them without collecting customer business content or excluding EU customers. It must also support an affiliate program whose referral attribution and recurring earnings survive browser loss, webhook replay, subscription renewal and analytics-consent withdrawal.
@@ -142,7 +144,7 @@ Before release, analytics must join:
 ### 6.2 Referral capture
 
 - A customer may enter an Affiliate code during the authenticated pre-checkout review.
-- A future affiliate link may display a proposed code, but it does not silently persist attribution. The visitor must actively apply the referral before the server establishes a short-lived transactional intent; checkout then displays the attributed Affiliate and allows the customer to remove or replace it before purchase.
+- The Affiliate dashboard's link displays a proposed code and preserves that proposal through same-origin sign-in, signup and email verification, but it does not silently persist attribution. The visitor must actively apply the referral before the server establishes a short-lived transactional intent; checkout then displays the attributed Affiliate and allows the customer to remove or replace it before purchase.
 - The server validates the code, Affiliate state, offer eligibility, terms version and anti-self-referral policy before creating Checkout.
 - One subscription can have at most one locked Affiliate attribution.
 - Attribution becomes immutable when the Checkout subscription is durably projected. Later code changes apply only to a new subscription under an explicitly reviewed policy.

@@ -70,3 +70,27 @@ func TestLaunchRegistryRejectsContentIdentityAndConsentBypass(t *testing.T) {
 		t.Fatalf("unsafe dimension returned %v", err)
 	}
 }
+
+func TestLaunchRegistryRestrictsApplicationEntryTaxonomy(t *testing.T) {
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	decision, _ := privacy.NewDecision(
+		ids.ConsentDecisionID("20000000-0000-4000-8000-000000000001"),
+		ids.ConsentSubjectID("20000000-0000-4000-8000-000000000002"),
+		1,
+		privacy.SurfacePrivate,
+		true,
+		false,
+		now.Add(-time.Minute),
+	)
+	envelope := analytics.Envelope{ID: ids.AnalyticsEventID("20000000-0000-4000-8000-000000000003"), SubjectID: decision.SubjectID, Name: analytics.ApplicationEntered, Surface: privacy.SurfacePrivate, OccurredAt: now}
+	for _, entryPoint := range []string{"checkout", "your_turn", "deep_link"} {
+		envelope.Fields = map[string]string{"entry_point": entryPoint}
+		if err := analytics.LaunchRegistry().Validate(envelope, decision, now); err != nil {
+			t.Fatalf("entry point %q rejected: %v", entryPoint, err)
+		}
+	}
+	envelope.Fields = map[string]string{"entry_point": "affiliate-code-from-url"}
+	if err := analytics.LaunchRegistry().Validate(envelope, decision, now); !errors.Is(err, analytics.ErrInvalidEvent) {
+		t.Fatalf("unreviewed entry point returned %v", err)
+	}
+}

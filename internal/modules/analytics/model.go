@@ -142,6 +142,9 @@ func (r Registry) Validate(envelope Envelope, decision privacy.Decision, now tim
 		if !validDimension(value) {
 			return ErrInvalidEvent
 		}
+		if envelope.Name == ApplicationEntered && field == "entry_point" && value != "checkout" && value != "your_turn" && value != "deep_link" {
+			return ErrInvalidEvent
+		}
 	}
 	return nil
 }

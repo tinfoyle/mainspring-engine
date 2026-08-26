@@ -3,6 +3,7 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App.vue";
+import { applicationEntryPoint } from "./applicationEntry";
 import { router } from "./router";
 import { useSessionStore } from "./stores/session";
 import { expectNoAxeViolations } from "./test/accessibility";
@@ -108,6 +109,14 @@ describe("application shell", () => {
     await flushPromises();
     expect(analytics.emitAnalytics).toHaveBeenCalledOnce();
     repeated.unmount();
+  });
+
+  it("uses a bounded taxonomy for direct application entry", () => {
+    expect(applicationEntryPoint("checkout")).toBe("checkout");
+    expect(applicationEntryPoint("your-turn")).toBe("your_turn");
+    expect(applicationEntryPoint("your-turn-detail")).toBe("your_turn");
+    expect(applicationEntryPoint("affiliate")).toBe("deep_link");
+    expect(applicationEntryPoint(undefined)).toBe("deep_link");
   });
 
   it("contains mobile drawer focus and restores it on Escape", async () => {

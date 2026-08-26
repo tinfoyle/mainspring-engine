@@ -3,6 +3,7 @@ import { IoLogo } from "@spyglass/design-system";
 import { emitAnalytics, getPrivacyConsent, type CatalogPackageCode } from "@spyglass/api";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
+import { applicationEntryPoint } from "./applicationEntry";
 import { useSessionStore } from "./stores/session";
 
 const route = useRoute();
@@ -23,7 +24,7 @@ onMounted(async () => {
   try {
     const consent = await getPrivacyConsent();
     const emitted = await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, {
-      name: "application_entered", fields: { entry_point: "your_turn" }
+      name: "application_entered", fields: { entry_point: applicationEntryPoint(route.name) }
     });
     if (emitted) sessionStorage.setItem("spyglass_application_entered", "1");
   } catch {

@@ -84,14 +84,22 @@ func New(config Config) (*Sender, error) {
 }
 
 func (s *Sender) SendVerification(ctx context.Context, message registration.VerificationMessage) error {
-	link := s.origin + "/verify?token=" + url.QueryEscape(message.Token)
-	if message.OfferCode != "" {
-		link += "&offer=" + url.QueryEscape(message.OfferCode)
-	}
+	link := verificationLink(s.origin, message)
 	subject := "Verify your Infinite Ocean identity"
 	plain := fmt.Sprintf("Hello %s,\r\n\r\nVerify your identity and secure your Spyglass Account:\r\n%s\r\n\r\nThis link expires at %s.\r\n", message.DisplayName, link, message.ExpiresAt.UTC().Format(time.RFC1123))
 	htmlBody := fmt.Sprintf("<p>Hello %s,</p><p>Verify your identity and secure your Spyglass Account.</p><p><a href=\"%s\">Verify identity</a></p><p>This link expires at %s.</p>", html.EscapeString(message.DisplayName), html.EscapeString(link), html.EscapeString(message.ExpiresAt.UTC().Format(time.RFC1123)))
 	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func verificationLink(origin string, message registration.VerificationMessage) string {
+	link := origin + "/verify?token=" + url.QueryEscape(message.Token)
+	if message.OfferCode != "" {
+		link += "&offer=" + url.QueryEscape(message.OfferCode)
+	}
+	if message.ReturnTo != "" {
+		link += "&return_to=" + url.QueryEscape(message.ReturnTo)
+	}
+	return link
 }
 
 func (s *Sender) SendInvitation(ctx context.Context, message invitations.Message) error {

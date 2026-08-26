@@ -114,13 +114,13 @@ func TestRegistrationCarriesOnlyPublishedPaidOfferToVerification(t *testing.T) {
 	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 10}})
 	messages := &memory.VerificationSink{}
 	service := registration.NewService(store, messages, store, func() catalog.PublishedCatalog { return published }, &sequenceIDs{}, fixedClock{value: now}, passwordHasher{})
-	command := registration.BeginCommand{Email: "buyer@example.com", DisplayName: "Buyer", AccountName: "Buyer Co", OfferCode: "team-monthly-v1"}
+	command := registration.BeginCommand{Email: "buyer@example.com", DisplayName: "Buyer", AccountName: "Buyer Co", OfferCode: "team-monthly-v1", ReturnTo: "/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1"}
 	if _, err := service.Begin(context.Background(), command); err != nil {
 		t.Fatal(err)
 	}
 	message, ok := messages.Latest()
-	if !ok || message.OfferCode != command.OfferCode {
-		t.Fatalf("verification offer = %q", message.OfferCode)
+	if !ok || message.OfferCode != command.OfferCode || message.ReturnTo != command.ReturnTo {
+		t.Fatalf("verification intent = offer %q, return %q", message.OfferCode, message.ReturnTo)
 	}
 	command.Email = "other@example.com"
 	command.OfferCode = "invented-offer"

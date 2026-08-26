@@ -3,12 +3,14 @@ package smtp
 import (
 	"context"
 	"net/mail"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
+	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 )
 
 func TestNewRequiresExactHTTPSOriginAndCompleteCredentials(t *testing.T) {
@@ -43,6 +45,15 @@ func TestOwnershipTransferContentIsRoleSpecificAndEscaped(t *testing.T) {
 	}
 	if _, _, _, err := ownershipTransferContent("https://app.infiniteocean.net", accountmembers.OwnershipTransferNotice{}); err == nil {
 		t.Fatal("invalid ownership recipient role accepted")
+	}
+}
+
+func TestVerificationLinkCarriesOfferAndSameOriginReturnTarget(t *testing.T) {
+	returnTo := "/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1"
+	link := verificationLink("https://app.infiniteocean.net", registration.VerificationMessage{Token: "verification+token", OfferCode: "team-monthly-v1", ReturnTo: returnTo})
+	parsed, err := url.Parse(link)
+	if err != nil || parsed.Scheme != "https" || parsed.Host != "app.infiniteocean.net" || parsed.Path != "/verify" || parsed.Query().Get("token") != "verification+token" || parsed.Query().Get("offer") != "team-monthly-v1" || parsed.Query().Get("return_to") != returnTo {
+		t.Fatalf("verification link = %q, parsed=%+v err=%v", link, parsed, err)
 	}
 }
 

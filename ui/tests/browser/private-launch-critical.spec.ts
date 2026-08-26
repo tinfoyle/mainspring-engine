@@ -697,6 +697,25 @@ test("Your Turn session expiry preserves the exact sign-in return route", async 
   await expect(page.getByRole("heading", { level: 1, name: "Sign in again" })).toBeVisible();
 });
 
+test("affiliate checkout sign-in preserves the proposal without analytics consent", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*401/);
+  await page.route("**/api/v1/privacy/consent", async (route) => {
+    await fulfillJSON(route, { ...consent, analytics: false, decided: true });
+  });
+  await page.route("**/api/v1/session/accounts", async (route) => {
+    await fulfillProblem(route, 401, "authentication_required", "Sign in again.");
+  });
+  await page.route("**/login?**", async (route) => {
+    await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html lang=\"en\"><title>Sign in</title><body><main><h1>Sign in again</h1></main></body></html>" });
+  });
+
+  await page.goto("/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1");
+
+  await expect(page).toHaveURL("http://127.0.0.1:4173/login?return_to=%2Fapp%2Fcheckout%3Foffer%3Dteam-monthly-v1%26ref%3DIO-PARTNER1");
+  await expect(page.getByRole("heading", { level: 1, name: "Sign in again" })).toBeVisible();
+  expect(state.analyticsEvents).toEqual([]);
+});
+
 test("Your Turn sends only one decision while approval is pending", async ({ page }) => {
   const approvalID = "30000000-0000-4000-8000-000000000003";
   const approvalDetail = {
@@ -901,6 +920,7 @@ test("mobile navigation traps and restores focus", async ({ page }, testInfo) =>
 test("checkout requires deliberate referral application and remains usable at phone width", async ({ page }) => {
   await page.goto("/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1");
   await expect(page.getByRole("heading", { level: 1, name: "Review before Stripe." })).toBeVisible();
+  await expect.poll(() => state.analyticsEvents.find((event) => event.name === "application_entered")?.fields).toEqual({ entry_point: "checkout" });
   await expect(page.getByText("A referral was proposed by your link.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue to Stripe" })).toBeDisabled();
   await page.getByRole("button", { name: "Apply" }).click();

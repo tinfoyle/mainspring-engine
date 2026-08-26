@@ -267,6 +267,77 @@ func TestPublishedOfferIntentSurvivesSecureSignupJourney(t *testing.T) {
 	}
 }
 
+func TestAffiliateCheckoutProposalSurvivesSecureSignupJourney(t *testing.T) {
+	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	defer server.Close()
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar, Timeout: 4 * time.Second}
+	noRedirect := &http.Client{Jar: jar, Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	returnTo := "/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1"
+
+	expectedLogin := "/login?return_to=" + url.QueryEscape(returnTo)
+	login, err := client.Get(server.URL + expectedLogin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginBody, _ := io.ReadAll(login.Body)
+	login.Body.Close()
+	expectedSignupLink := `/signup?return_to=` + url.QueryEscape(returnTo)
+	if !bytes.Contains(loginBody, []byte(`name="return_to" value="/app/checkout?offer=team-monthly-v1&amp;ref=IO-PARTNER1"`)) || !bytes.Contains(loginBody, []byte(`href="`+expectedSignupLink+`"`)) {
+		t.Fatalf("affiliate proposal was not preserved by sign-in: %s", loginBody)
+	}
+
+	signupPage, err := client.Get(server.URL + expectedSignupLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signupPageBody, _ := io.ReadAll(signupPage.Body)
+	signupPage.Body.Close()
+	if !bytes.Contains(signupPageBody, []byte(`name="return_to" value="/app/checkout?offer=team-monthly-v1&amp;ref=IO-PARTNER1"`)) || !bytes.Contains(signupPageBody, []byte(`href="/login?return_to=`+url.QueryEscape(returnTo)+`"`)) {
+		t.Fatalf("affiliate proposal was not preserved by signup: %s", signupPageBody)
+	}
+
+	signup := postForm(t, client, server.URL+"/signup", url.Values{"name": {"Affiliate Buyer"}, "email": {"affiliate-buyer@example.com"}, "account_name": {"Referral Studio"}, "region": {"us-east"}, "return_to": {returnTo}})
+	match := regexp.MustCompile(`/verify\?token=([^"&]+)(?:&amp;|&)return_to=([^"&]+)`).FindSubmatch(signup.body)
+	if signup.status != http.StatusAccepted || len(match) != 3 {
+		t.Fatalf("affiliate-aware signup: %d %s", signup.status, signup.body)
+	}
+	if decoded, _ := url.QueryUnescape(string(match[2])); decoded != returnTo {
+		t.Fatalf("verification return target = %q, want %q", decoded, returnTo)
+	}
+	token, _ := url.QueryUnescape(string(match[1]))
+	verifyPage, err := client.Get(server.URL + "/verify?token=" + url.QueryEscape(token) + "&return_to=" + url.QueryEscape(returnTo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifyBody, _ := io.ReadAll(verifyPage.Body)
+	verifyPage.Body.Close()
+	if !bytes.Contains(verifyBody, []byte(`name="return_to" value="/app/checkout?offer=team-monthly-v1&amp;ref=IO-PARTNER1"`)) {
+		t.Fatalf("affiliate proposal was not preserved by verification: %s", verifyBody)
+	}
+
+	verified := postForm(t, client, server.URL+"/verify", url.Values{"token": {token}, "password": {"correct horse battery staple"}, "return_to": {returnTo}})
+	verifiedURL, err := url.Parse(verified.url)
+	if err != nil || verified.status != http.StatusOK || verifiedURL.Path != "/login" || verifiedURL.Query().Get("return_to") != returnTo {
+		t.Fatalf("affiliate-aware verification: %d %s %s", verified.status, verified.url, verified.body)
+	}
+	if !bytes.Contains(verified.body, []byte(`name="return_to" value="/app/checkout?offer=team-monthly-v1&amp;ref=IO-PARTNER1"`)) {
+		t.Fatalf("affiliate proposal was not preserved for sign-in: %s", verified.body)
+	}
+
+	signInRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/login", strings.NewReader(url.Values{"email": {"affiliate-buyer@example.com"}, "password": {"correct horse battery staple"}, "return_to": {returnTo}}.Encode()))
+	signInRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	signInRequest.Header.Set("Origin", "http://localhost:8080")
+	signedIn, err := noRedirect.Do(signInRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedIn.Body.Close()
+	if signedIn.StatusCode != http.StatusSeeOther || signedIn.Header.Get("Location") != returnTo {
+		t.Fatalf("affiliate checkout destination: %d %q", signedIn.StatusCode, signedIn.Header.Get("Location"))
+	}
+}
+
 func TestPublicOriginCannotSubmitSignupMutation(t *testing.T) {
 	server := httptest.NewServer(development.Handler(slog.New(slog.NewTextHandler(io.Discard, nil))))
 	defer server.Close()
