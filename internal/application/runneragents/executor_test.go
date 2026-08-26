@@ -21,8 +21,8 @@ const (
 )
 
 func TestTurnExecutorRunsOneDeterministicToolLoopAndValidatesResult(t *testing.T) {
-	first := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test", ResponseID: "resp_1", StopReason: "tool_call", ToolCalls: []modelgateway.ToolCall{{CallID: "call_1", Name: "read_work", Arguments: json.RawMessage(`{}`)}}, Continuation: json.RawMessage(`[{"type":"function_call","call_id":"call_1","name":"read_work","arguments":"{}"}]`), Usage: modelgateway.Usage{InputTokens: 10, OutputTokens: 2, TotalTokens: 12, CostMicros: 5}}
-	second := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test-2026", ResponseID: "resp_2", StopReason: "completed", Output: validStructuredResult(), Usage: modelgateway.Usage{InputTokens: 14, OutputTokens: 6, TotalTokens: 20, CostMicros: 7}}
+	first := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test", ResponseID: "resp_1", StopReason: "tool_call", ToolCalls: []modelgateway.ToolCall{{CallID: "call_1", Name: "read_work", Arguments: json.RawMessage(`{}`)}}, Continuation: json.RawMessage(`[{"type":"function_call","call_id":"call_1","name":"read_work","arguments":"{}"}]`), Usage: modelgateway.Usage{InputTokens: 10, CachedInputTokens: 3, OutputTokens: 2, TotalTokens: 12, CostMicros: 5}}
+	second := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test-2026", ResponseID: "resp_2", StopReason: "completed", Output: validStructuredResult(), Usage: modelgateway.Usage{InputTokens: 14, CachedInputTokens: 4, OutputTokens: 6, TotalTokens: 20, CostMicros: 7}}
 	gateway := &gatewayStub{results: []runnercapability.Result{capabilityResult(first), {SchemaVersion: 1, Output: json.RawMessage(`{"active":3}`)}, capabilityResult(second)}}
 	input := validTurnInput()
 	raw, _ := json.Marshal(input)
@@ -34,7 +34,7 @@ func TestTurnExecutorRunsOneDeterministicToolLoopAndValidatesResult(t *testing.T
 	if err := json.Unmarshal(output, &turn); err != nil {
 		t.Fatal(err)
 	}
-	if turn.Result.Contribution != "Reconcile the backlog." || turn.Usage.TotalTokens != 32 || turn.Usage.CostMicros != 12 || turn.ResponseID != "resp_2" || turn.ResponseModel != "gpt-test-2026" {
+	if turn.Result.Contribution != "Reconcile the backlog." || turn.Usage.TotalTokens != 32 || turn.Usage.CachedInputTokens != 7 || turn.Usage.ToolInvocations != 1 || turn.Usage.CostMicros != 12 || turn.ResponseID != "resp_2" || turn.ResponseModel != "gpt-test-2026" {
 		t.Fatalf("unexpected output %#v", turn)
 	}
 	if len(gateway.calls) != 3 || gateway.calls[0].Capability != modelgateway.ModelTurnCapability || gateway.calls[0].OperationID != modelOperation1 || gateway.calls[1].Capability != "work.summary.read" || gateway.calls[1].OperationID != toolOperation1 || gateway.calls[2].OperationID != modelOperation2 {

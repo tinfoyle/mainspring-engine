@@ -1486,10 +1486,6 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	agentExecutionPolicies, err := requiredEnv("SPYGLASS_AGENT_EXECUTION_POLICIES_JSON")
-	if err != nil {
-		return err
-	}
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
 	if err != nil {
 		return err
@@ -1542,8 +1538,7 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 		Environment: os.Getenv("SPYGLASS_ENVIRONMENT"),
 		DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody,
 		AdmissionOrigin: admissionOrigin, AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode,
-		AgentExecutionPoliciesJSON: agentExecutionPolicies,
-		ObjectEndpoint:             envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), ObjectRegion: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), ObjectBucket: envOr("SPYGLASS_OBJECT_STORE_BUCKET", "spyglass-documents"),
+		ObjectEndpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), ObjectRegion: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), ObjectBucket: envOr("SPYGLASS_OBJECT_STORE_BUCKET", "spyglass-documents"),
 		ObjectAccessKey: objectAccessKey, ObjectSecretKey: objectSecretKey, ObjectSecure: objectSecure, ObjectSSE: objectSSE,
 		MCPVersion: buildinfo.Current().Version, MCPResourceMetadataURL: mcpResourceMetadataURL,
 		ProviderSecretRoot: os.Getenv("SPYGLASS_PROVIDER_SECRET_ROOT"), ProviderSecretKeyFile: os.Getenv("SPYGLASS_PROVIDER_SECRET_KEY_FILE"),
@@ -1645,6 +1640,10 @@ func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	agentExecutionPolicies, err := requiredEnv("SPYGLASS_AGENT_EXECUTION_POLICIES_JSON")
+	if err != nil {
+		return err
+	}
 	rawCells := csvEnv("SPYGLASS_ADMISSION_CELL_IDS")
 	if len(rawCells) == 0 {
 		return errors.New("SPYGLASS_ADMISSION_CELL_IDS is required")
@@ -1661,6 +1660,10 @@ func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil || maxBody > 1<<20 {
 		return errors.New("SPYGLASS_ADMISSION_MAX_REQUEST_BODY_BYTES must be between 1 and 1048576")
 	}
+	catalogRefresh, err := durationEnv("SPYGLASS_CATALOG_REFRESH_INTERVAL", 5*time.Second)
+	if err != nil || catalogRefresh < time.Second || catalogRefresh > time.Hour {
+		return errors.New("SPYGLASS_CATALOG_REFRESH_INTERVAL must be between 1s and 1h")
+	}
 	var serverTLS *tls.Config
 	if !developmentMode {
 		serverTLS, err = workloadidentity.NewServerConfig(workloadTLSFilesEnv())
@@ -1670,7 +1673,7 @@ func runAdmissionAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	server, err := admissionapi.New(startup, admissionapi.Config{DatabaseURL: databaseURL, RouteIssuer: issuer, RouteVerifyKeys: keys, CellIDs: cells, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody}, logger, registration.SystemClock{})
+	server, err := admissionapi.New(startup, admissionapi.Config{DatabaseURL: databaseURL, RouteIssuer: issuer, RouteVerifyKeys: keys, CellIDs: cells, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody, AgentExecutionPoliciesJSON: agentExecutionPolicies, CatalogRefreshInterval: catalogRefresh}, logger, registration.SystemClock{})
 	if err != nil {
 		return err
 	}
@@ -2524,6 +2527,7 @@ func runModelGateway(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runAgentProjectionWorker(ctx context.Context, logger *slog.Logger) error {
+	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
 	databaseURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
 	if err != nil {
 		return err
@@ -2533,6 +2537,22 @@ func runAgentProjectionWorker(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	defer restoreGate.Close()
+	cellID, err := requiredEnv("SPYGLASS_CELL_ID")
+	if err != nil {
+		return err
+	}
+	admissionOrigin, err := requiredEnv("SPYGLASS_WORK_ADMISSION_ORIGIN")
+	if err != nil {
+		return err
+	}
+	var admissionTransport http.RoundTripper
+	if !developmentMode {
+		admissionTransport, err = workloadidentity.NewClientTransport(workloadTLSFilesEnv())
+		if err != nil {
+			return err
+		}
+	}
+	admissionTransport = observability.TracingFromContext(ctx).Transport(admissionTransport)
 	keys, activeVersion, err := versionedEncryptionKeysEnv("SPYGLASS_RUNNER_ENCRYPTION_KEYS", "SPYGLASS_RUNNER_ENCRYPTION_ACTIVE_VERSION")
 	if err != nil {
 		return err
@@ -2556,7 +2576,9 @@ func runAgentProjectionWorker(ctx context.Context, logger *slog.Logger) error {
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	worker, err := agentprojectionworker.New(startup, agentprojectionworker.Config{
-		CellDatabaseURL: databaseURL, MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease,
+		CellDatabaseURL: databaseURL, CellID: ids.CellID(cellID), AdmissionOrigin: admissionOrigin,
+		AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode,
+		MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease,
 		MaxAttempts: int(maxAttempts), EncryptionKeys: keys, ActiveKeyVersion: activeVersion,
 	}, logger)
 	if err != nil {

@@ -96,7 +96,7 @@ services:
       SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
       SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
       SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
-      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-projection-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-projection-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker
     expose: ["8443"]
     volumes:
       - ./workload-tls/generated/admission-api:/var/run/secrets/spyglass/workload:ro
@@ -182,6 +182,30 @@ services:
       SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
     volumes:
       - ./workload-tls/generated/agent-dispatch-worker-b:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+      admission-api: {condition: service_healthy}
+
+  agent-projection-worker-a:
+    environment:
+      <<: *secure-restore-gate
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+    volumes:
+      - ./workload-tls/generated/agent-projection-worker-a:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+      admission-api: {condition: service_healthy}
+
+  agent-projection-worker-b:
+    environment:
+      <<: *secure-restore-gate
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+    volumes:
+      - ./workload-tls/generated/agent-projection-worker-b:/var/run/secrets/spyglass/workload:ro
     depends_on:
       workload-tls-init: {condition: service_completed_successfully}
       admission-api: {condition: service_healthy}

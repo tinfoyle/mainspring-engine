@@ -99,10 +99,12 @@ type ToolCall struct {
 }
 
 type Usage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
-	TotalTokens  int64 `json:"total_tokens"`
-	CostMicros   int64 `json:"cost_micros"`
+	InputTokens       int64 `json:"input_tokens"`
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+	OutputTokens      int64 `json:"output_tokens"`
+	TotalTokens       int64 `json:"total_tokens"`
+	ToolInvocations   int64 `json:"tool_invocations"`
+	CostMicros        int64 `json:"cost_micros"`
 }
 
 type Result struct {
@@ -265,7 +267,7 @@ func ValidateRequest(request Request) (Request, error) {
 
 func ValidateResult(request Request, result Result) (Result, error) {
 	if result.SchemaVersion != SchemaVersion || result.Provider != request.Provider || !validModel.MatchString(result.Model) || !validOpaqueID(result.ResponseID) ||
-		result.Usage.InputTokens < 0 || result.Usage.InputTokens > MaximumUsageTokens || result.Usage.OutputTokens < 0 || result.Usage.OutputTokens > MaximumUsageTokens || result.Usage.TotalTokens < 0 || result.Usage.TotalTokens > MaximumUsageTokens || result.Usage.CostMicros < 0 ||
+		result.Usage.InputTokens < 0 || result.Usage.InputTokens > MaximumUsageTokens || result.Usage.CachedInputTokens < 0 || result.Usage.CachedInputTokens > result.Usage.InputTokens || result.Usage.OutputTokens < 0 || result.Usage.OutputTokens > MaximumUsageTokens || result.Usage.TotalTokens < 0 || result.Usage.TotalTokens > MaximumUsageTokens || result.Usage.ToolInvocations != 0 || result.Usage.CostMicros < 0 ||
 		result.Usage.TotalTokens != result.Usage.InputTokens+result.Usage.OutputTokens {
 		return Result{}, ErrInvalidProviderReply
 	}

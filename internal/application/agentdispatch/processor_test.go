@@ -10,9 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentusage"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	agentdomain "github.com/tinfoyle/spyglass-engine/internal/modules/agents"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/aitokens"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 type dispatchClock struct{ now time.Time }
@@ -32,6 +36,7 @@ type dispatchQueue struct {
 	failed    bool
 	retry     bool
 	code      string
+	admission *agentusage.Admission
 }
 
 func (q *dispatchQueue) Claim(_ context.Context, lease string, _ time.Time, _ time.Duration) (Claim, bool, error) {
@@ -39,6 +44,12 @@ func (q *dispatchQueue) Claim(_ context.Context, lease string, _ time.Time, _ ti
 	return q.claim, q.found, nil
 }
 func (q *dispatchQueue) Load(context.Context, Claim) (Snapshot, error) { return q.snapshot, nil }
+func (q *dispatchQueue) AdmitTokens(_ context.Context, _ Claim, admission agentusage.Admission, modelOperationIDs []string, _ time.Time) error {
+	q.admission = &admission
+	q.snapshot.TokenAdmission = &admission
+	q.snapshot.ModelOperationIDs = append([]string(nil), modelOperationIDs...)
+	return nil
+}
 func (q *dispatchQueue) Complete(_ context.Context, _ Claim, digest [32]byte, _ time.Time) error {
 	q.completed, q.digest = true, digest
 	return nil
@@ -54,6 +65,27 @@ type dispatchProvisioner struct {
 	err     error
 }
 
+type dispatchTokens struct {
+	admission agentusage.Admission
+	reserved  []agentusage.ReserveCommand
+	closed    []agentusage.CloseCommand
+}
+
+func (s *dispatchTokens) ReserveAgentTokens(_ context.Context, command agentusage.ReserveCommand) (agentusage.Admission, error) {
+	s.reserved = append(s.reserved, command)
+	return s.admission, nil
+}
+func (s *dispatchTokens) CloseAgentTokens(_ context.Context, command agentusage.CloseCommand) error {
+	s.closed = append(s.closed, command)
+	return nil
+}
+
+func validAdmission(invocationID string) agentusage.Admission {
+	return agentusage.Admission{ReservationID: "91000000-0000-4000-8000-000000000009", RequestID: invocationID, State: aitokens.ReservationActive,
+		Rate: catalog.AIComplexityRate{Code: "balanced_v1", Version: 1, Complexity: catalog.AIComplexityBalanced, InputPerThousand: 1, CachedInputPerThousand: 1, OutputPerThousand: 1, MinimumCharge: 1, MaximumReservation: 1000, EstimatedMinimum: 1, EstimatedMaximum: 500,
+			InternalProvider: "openai", InternalModel: "gpt-test", InternalFallbackModels: []string{"gpt-fallback"}, InternalAdapterVersion: 1, InternalModelPolicyVersion: 1}}
+}
+
 func (p *dispatchProvisioner) Provision(_ context.Context, command runnerbroker.ProvisionCommand) (bool, error) {
 	p.command = command
 	return true, p.err
@@ -65,7 +97,7 @@ func validSnapshot(t *testing.T, now time.Time) Snapshot {
 		ID: "51000000-0000-4000-8000-000000000001", PersonaID: "41000000-0000-4000-8000-000000000001",
 		AccountID: "11000000-0000-4000-8000-000000000001", Version: 1, Name: "Operations Lead", Role: "Operations",
 		Description: "Coordinates work.", SystemInstructions: "Coordinate operational work and report evidence clearly.",
-		Policy: agentdomain.PersonaPolicy{Provider: "openai", Model: "gpt-test", FallbackModels: []string{"gpt-fallback"}, MaximumInputTokens: 100000, MaximumOutputTokens: 4000,
+		Policy: agentdomain.PersonaPolicy{Complexity: agentdomain.PersonaComplexityBalanced, Provider: "openai", Model: "gpt-test", FallbackModels: []string{"gpt-fallback"}, MaximumInputTokens: 100000, MaximumOutputTokens: 4000,
 			MaximumToolSteps: 1, CitationPolicy: "best_effort", ActionPolicy: "propose", ActionCapabilities: []string{"work.create"}, OutputSchema: agentdomain.ResultSchema(),
 			Tools: []agentdomain.ToolGrant{{Name: "read_work", Capability: "work.summary.read", Description: "Read the Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)}}},
 		CreatedBy: "21000000-0000-4000-8000-000000000001", CreatedAt: now.Add(-time.Hour),
@@ -74,7 +106,9 @@ func validSnapshot(t *testing.T, now time.Time) Snapshot {
 		t.Fatal(err)
 	}
 	contextPayload := []byte(`{"schema_version":1,"items":[]}`)
+	admission := validAdmission("61000000-0000-4000-8000-000000000001")
 	return Snapshot{AccountID: version.AccountID, InvocationID: "61000000-0000-4000-8000-000000000001", Profile: "agent-medium", QueuedAt: now.Add(-time.Minute), RequestExpiresAt: now.Add(time.Hour), Persona: version,
+		CreatedBy: "21000000-0000-4000-8000-000000000001", Complexity: catalog.AIComplexityBalanced, TokenAdmission: &admission,
 		Messages:          []modelgateway.Message{{Role: "user", Content: "What should we prioritize?"}},
 		ModelOperationIDs: []string{"71000000-0000-4000-8000-000000000001", "71000000-0000-4000-8000-000000000002", "71000000-0000-4000-8000-000000000003", "71000000-0000-4000-8000-000000000004"}, ToolOperationIDs: []string{"81000000-0000-4000-8000-000000000001"},
 		ContextPayload: contextPayload, ContextDigest: sha256.Sum256(contextPayload)}
@@ -103,14 +137,16 @@ func TestBuildFreezesCompiledTurnAndCapabilities(t *testing.T) {
 func TestProcessorProvisionsAndDigestBindsCompletion(t *testing.T) {
 	now := time.Date(2026, 8, 19, 2, 0, 0, 0, time.UTC)
 	snapshot := validSnapshot(t, now)
+	snapshot.TokenAdmission = nil
 	queue := &dispatchQueue{found: true, snapshot: snapshot, claim: Claim{AccountID: snapshot.AccountID, InvocationID: snapshot.InvocationID, Attempt: 1}}
 	provisioner := &dispatchProvisioner{}
-	processor, err := New(queue, provisioner, dispatchClock{now}, dispatchIDs{"91000000-0000-4000-8000-000000000001"}, DefaultLease, DefaultMaxAttempts)
+	tokens := &dispatchTokens{admission: validAdmission(snapshot.InvocationID)}
+	processor, err := New(queue, provisioner, tokens, ids.CellID("cell-us-east-01"), dispatchClock{now}, dispatchIDs{"91000000-0000-4000-8000-000000000001"}, DefaultLease, DefaultMaxAttempts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	result, err := processor.ProcessOne(context.Background())
-	if err != nil || !result.Provisioned || !queue.completed || queue.digest == ([32]byte{}) || provisioner.command.Invocation.ID != snapshot.InvocationID {
+	if err != nil || !result.Provisioned || !queue.completed || queue.admission == nil || len(tokens.reserved) != 1 || queue.digest == ([32]byte{}) || provisioner.command.Invocation.ID != snapshot.InvocationID {
 		t.Fatalf("result=%+v completed=%v digest=%x command=%+v err=%v", result, queue.completed, queue.digest, provisioner.command, err)
 	}
 }
@@ -118,10 +154,12 @@ func TestProcessorProvisionsAndDigestBindsCompletion(t *testing.T) {
 func TestProcessorDeadLettersDeterministicProvisionConflict(t *testing.T) {
 	now := time.Date(2026, 8, 19, 2, 0, 0, 0, time.UTC)
 	snapshot := validSnapshot(t, now)
+	snapshot.TokenAdmission = nil
 	queue := &dispatchQueue{found: true, snapshot: snapshot, claim: Claim{AccountID: snapshot.AccountID, InvocationID: snapshot.InvocationID, Attempt: 1}}
-	processor, _ := New(queue, &dispatchProvisioner{err: runnerbroker.ErrExchangeConflict}, dispatchClock{now}, dispatchIDs{"91000000-0000-4000-8000-000000000001"}, DefaultLease, DefaultMaxAttempts)
+	tokens := &dispatchTokens{admission: validAdmission(snapshot.InvocationID)}
+	processor, _ := New(queue, &dispatchProvisioner{err: runnerbroker.ErrExchangeConflict}, tokens, ids.CellID("cell-us-east-01"), dispatchClock{now}, dispatchIDs{"91000000-0000-4000-8000-000000000001"}, DefaultLease, DefaultMaxAttempts)
 	result, err := processor.ProcessOne(context.Background())
-	if !errors.Is(err, runnerbroker.ErrExchangeConflict) || !result.DeadLetter || !queue.failed || queue.retry || queue.code != "provision_rejected" {
+	if !errors.Is(err, runnerbroker.ErrExchangeConflict) || !result.DeadLetter || !queue.failed || queue.retry || queue.code != "provision_rejected" || len(tokens.closed) != 1 {
 		t.Fatalf("result=%+v failed=%v retry=%v code=%s err=%v", result, queue.failed, queue.retry, queue.code, err)
 	}
 }

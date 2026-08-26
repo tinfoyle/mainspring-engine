@@ -69,6 +69,8 @@ func generate(output string, now time.Time) error {
 		{name: "admission-api", dnsNames: []string{"admission-api"}, uri: "spiffe://infiniteocean.net/spyglass/workloads/admission-api", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},
 		{name: "agent-dispatch-worker-a", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "agent-dispatch-worker-b", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
+		{name: "agent-projection-worker-a", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-projection-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
+		{name: "agent-projection-worker-b", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-projection-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "schedule-execution-worker-a", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "schedule-execution-worker-b", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "docker-runner-launcher", dnsNames: []string{"docker-runner-launcher"}, uri: "spiffe://infiniteocean.net/spyglass/workloads/docker-runner-launcher", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},

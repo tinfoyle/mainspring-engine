@@ -15,9 +15,12 @@ import (
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	agentapp "github.com/tinfoyle/spyglass-engine/internal/application/agents"
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentusage"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	agentdomain "github.com/tinfoyle/spyglass-engine/internal/modules/agents"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/aitokens"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/migrations"
@@ -26,6 +29,15 @@ import (
 type staticIDGenerator string
 
 func (generator staticIDGenerator) New() string { return string(generator) }
+
+type staticAgentTokenBroker struct{ admission agentusage.Admission }
+
+func (broker staticAgentTokenBroker) ReserveAgentTokens(context.Context, agentusage.ReserveCommand) (agentusage.Admission, error) {
+	return broker.admission, nil
+}
+func (staticAgentTokenBroker) CloseAgentTokens(context.Context, agentusage.CloseCommand) error {
+	return nil
+}
 
 func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	adminURL := os.Getenv("SPYGLASS_POSTGRES_TEST_URL")
@@ -224,6 +236,7 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 		GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_dispatch(uuid,timestamptz,integer) TO `+dispatcherRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_complete_agent_dispatch(uuid,uuid,uuid,bytea,timestamptz) TO `+dispatcherRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_dispatch(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer) TO `+dispatcherRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_admit_agent_invocation_tokens(uuid,uuid,uuid,uuid,jsonb,text,text[],text,bigint,bigint,uuid[],timestamptz) TO `+dispatcherRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_agent_dispatch_stats(timestamptz) TO `+dispatcherRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_provision_runner_invocation(uuid,uuid,text,timestamptz,bytea,bytea,integer,bytea,timestamptz) TO `+dispatcherRole); err != nil {
 		t.Fatal(err)
@@ -267,7 +280,10 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	processor, err := agentdispatch.New(dispatchRepository, producer, fixedClock{now: now}, staticIDGenerator(leaseID), 30*time.Second, 5)
+	admission := agentusage.Admission{ReservationID: "95000000-0000-4000-8000-000000000001", RequestID: string(run.InvocationIDs[0]), State: aitokens.ReservationActive,
+		Rate: catalog.AIComplexityRate{Code: "balanced_v1", Version: 1, Complexity: catalog.AIComplexityBalanced, InputPerThousand: 1, CachedInputPerThousand: 1,
+			OutputPerThousand: 1, MinimumCharge: 1, MaximumReservation: 1000, EstimatedMinimum: 1, EstimatedMaximum: 500, InternalProvider: "openai", InternalModel: "gpt-5", InternalAdapterVersion: 1, InternalModelPolicyVersion: 1}}
+	processor, err := agentdispatch.New(dispatchRepository, producer, staticAgentTokenBroker{admission: admission}, ids.CellID("cell-us-east-01"), fixedClock{now: now}, staticIDGenerator(leaseID), 30*time.Second, 5)
 	if err != nil {
 		t.Fatal(err)
 	}

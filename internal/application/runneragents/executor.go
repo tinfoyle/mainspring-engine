@@ -81,7 +81,7 @@ func ValidateTurnOutput(output TurnOutput, expectedProvider string, permittedMod
 	if !validProvider.MatchString(output.Provider) || output.Provider != expectedProvider ||
 		!validModel.MatchString(output.RequestedModel) || !slices.Contains(permittedModels, output.RequestedModel) ||
 		!validModel.MatchString(output.ResponseModel) || output.ResponseID == "" || len(output.ResponseID) > 200 ||
-		strings.ContainsAny(output.ResponseID, " \t\r\n") || output.Usage.InputTokens < 0 || output.Usage.OutputTokens < 0 || output.Usage.CostMicros < 0 ||
+		strings.ContainsAny(output.ResponseID, " \t\r\n") || output.Usage.InputTokens < 0 || output.Usage.CachedInputTokens < 0 || output.Usage.CachedInputTokens > output.Usage.InputTokens || output.Usage.OutputTokens < 0 || output.Usage.ToolInvocations < 0 || output.Usage.CostMicros < 0 ||
 		output.Usage.TotalTokens < 0 || output.Usage.TotalTokens != output.Usage.InputTokens+output.Usage.OutputTokens {
 		return TurnOutput{}, ErrInvalidModelOutput
 	}
@@ -161,10 +161,11 @@ func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execu
 			return nil, coded("model_output_invalid", ErrInvalidModelOutput)
 		}
 		result, err = modelgateway.ValidateResult(request, result)
-		if err != nil || usage.InputTokens > math.MaxInt64-result.Usage.InputTokens || usage.OutputTokens > math.MaxInt64-result.Usage.OutputTokens || usage.TotalTokens > math.MaxInt64-result.Usage.TotalTokens || usage.CostMicros > math.MaxInt64-result.Usage.CostMicros {
+		if err != nil || usage.InputTokens > math.MaxInt64-result.Usage.InputTokens || usage.CachedInputTokens > math.MaxInt64-result.Usage.CachedInputTokens || usage.OutputTokens > math.MaxInt64-result.Usage.OutputTokens || usage.TotalTokens > math.MaxInt64-result.Usage.TotalTokens || usage.CostMicros > math.MaxInt64-result.Usage.CostMicros {
 			return nil, coded("model_output_invalid", ErrInvalidModelOutput)
 		}
 		usage.InputTokens += result.Usage.InputTokens
+		usage.CachedInputTokens += result.Usage.CachedInputTokens
 		usage.OutputTokens += result.Usage.OutputTokens
 		usage.TotalTokens += result.Usage.TotalTokens
 		usage.CostMicros += result.Usage.CostMicros
@@ -204,6 +205,7 @@ func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execu
 				return nil, coded("model_output_invalid", ErrInvalidModelOutput)
 			}
 			call := result.ToolCalls[0]
+			usage.ToolInvocations++
 			capability, granted := capabilities[call.Name]
 			if !granted {
 				return nil, coded("tool_not_granted", ErrCapabilityDenied)

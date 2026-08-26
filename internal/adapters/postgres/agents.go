@@ -669,10 +669,10 @@ func insertAgentInvocation(ctx context.Context, tx pgx.Tx, accountID ids.Account
 	if _, err := tx.Exec(ctx, `INSERT INTO spyglass.agent_invocations
 		(account_id,id,run_id,turn,persona_version_id,status,expected_provider,requested_model,permitted_models,queued_at)
 		VALUES ($1,$2,$3,$4,$5,'queued',$6,$7,$8::text[],$9)`, accountID, invocationID, runID, turnNumber,
-		turn.PersonaVersionID, version.Policy.Provider, version.Policy.Model, version.Policy.ModelTargets(), createdAt); err != nil {
+		turn.PersonaVersionID, "pending", "pending-a", []string{"pending-a", "pending-b", "pending-c"}, createdAt); err != nil {
 		return "", err
 	}
-	modelIDs, toolIDs := make([]string, (version.Policy.MaximumToolSteps+1)*len(version.Policy.ModelTargets())), make([]string, version.Policy.MaximumToolSteps)
+	modelIDs, toolIDs := make([]string, (version.Policy.MaximumToolSteps+1)*(agentdomain.MaximumFallbackModels+1)), make([]string, version.Policy.MaximumToolSteps)
 	for operation := range modelIDs {
 		modelIDs[operation], err = ids.Derive(invocationRaw, fmt.Sprintf("model/%d", operation+1))
 		if err != nil {

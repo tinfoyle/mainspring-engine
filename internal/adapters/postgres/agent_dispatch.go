@@ -14,8 +14,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentusage"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	agentdomain "github.com/tinfoyle/spyglass-engine/internal/modules/agents"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/aitokens"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -57,14 +60,18 @@ func (r *AgentDispatchRepository) Load(ctx context.Context, claim agentdispatch.
 		var conversationID ids.ConversationID
 		var contextSequence int64
 		var contextDigest []byte
+		var tokenReservationID *string
+		var tokenRate []byte
 		err := tx.QueryRow(ctx, `SELECT e.conversation_id,e.context_sequence,e.profile,e.model_operation_ids,e.tool_operation_ids,
-			e.request_expires_at,i.queued_at,i.persona_version_id,r.context_payload,r.context_digest,r.context_item_count
+			e.request_expires_at,i.queued_at,i.persona_version_id,r.created_by,r.context_payload,r.context_digest,r.context_item_count,
+			i.ai_token_reservation_id::text,i.ai_token_rate_snapshot
 			FROM spyglass.agent_invocation_execution_plans e JOIN spyglass.agent_invocations i
 			ON i.account_id=e.account_id AND i.id=e.invocation_id
 			JOIN spyglass.agent_runs r ON r.account_id=i.account_id AND r.id=i.run_id
 			WHERE e.account_id=$1 AND e.invocation_id=$2 AND i.status='queued'`, claim.AccountID, claim.InvocationID).Scan(
 			&conversationID, &contextSequence, &result.Profile, &result.ModelOperationIDs, &result.ToolOperationIDs,
-			&result.RequestExpiresAt, &result.QueuedAt, &personaVersionID, &result.ContextPayload, &contextDigest, &result.ContextItemCount)
+			&result.RequestExpiresAt, &result.QueuedAt, &personaVersionID, &result.CreatedBy, &result.ContextPayload, &contextDigest, &result.ContextItemCount,
+			&tokenReservationID, &tokenRate)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return agentdispatch.ErrInvalidSnapshot
 		}
@@ -84,6 +91,14 @@ func (r *AgentDispatchRepository) Load(ctx context.Context, claim agentdispatch.
 			return agentdispatch.ErrInvalidSnapshot
 		}
 		result.Persona = persona
+		result.Complexity = catalog.AIComplexity(persona.Policy.CustomerComplexity())
+		if tokenReservationID != nil {
+			var rate catalog.AIComplexityRate
+			if ids.Validate(*tokenReservationID) != nil || json.Unmarshal(tokenRate, &rate) != nil || rate.Complexity != result.Complexity || catalog.ValidateAIComplexityRate(rate) != nil {
+				return agentdispatch.ErrInvalidSnapshot
+			}
+			result.TokenAdmission = &agentusage.Admission{ReservationID: ids.AITokenReservationID(*tokenReservationID), RequestID: claim.InvocationID, Rate: rate, State: aitokens.ReservationActive}
+		}
 		rows, err := tx.Query(ctx, `SELECT role,body,structured_result FROM (
 			SELECT role,body,structured_result,sequence FROM (
 				SELECT 'user'::text AS role,u.body,NULL::jsonb AS structured_result,u.sequence FROM spyglass.agent_user_messages u
@@ -147,6 +162,37 @@ func appendAgentHistory(messages []modelgateway.Message, message modelgateway.Me
 		}
 	}
 	return messages, nil
+}
+
+func (r *AgentDispatchRepository) AdmitTokens(ctx context.Context, claim agentdispatch.Claim, admission agentusage.Admission, modelOperationIDs []string, now time.Time) error {
+	models := admission.ModelTargets()
+	if !claim.Valid() || ids.Validate(string(admission.ReservationID)) != nil || admission.RequestID != claim.InvocationID || admission.State != aitokens.ReservationActive ||
+		len(models) == 0 || len(models) > agentdomain.MaximumFallbackModels+1 || len(modelOperationIDs) == 0 || now.IsZero() {
+		return agentdispatch.ErrInvalidSnapshot
+	}
+	for index, operationID := range modelOperationIDs {
+		if ids.Validate(operationID) != nil || slices.Contains(modelOperationIDs[:index], operationID) {
+			return agentdispatch.ErrInvalidSnapshot
+		}
+	}
+	rate, err := json.Marshal(admission.Rate)
+	if err != nil {
+		return agentdispatch.ErrInvalidSnapshot
+	}
+	var reasoning any
+	if admission.Rate.InternalReasoningEffort != "" {
+		reasoning = admission.Rate.InternalReasoningEffort
+	}
+	var created bool
+	err = r.pool.QueryRow(ctx, `SELECT public.spyglass_admit_agent_invocation_tokens($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		claim.AccountID, claim.InvocationID, claim.LeaseID, admission.ReservationID, rate,
+		admission.Rate.InternalProvider, models, reasoning, admission.Rate.InternalAdapterVersion,
+		admission.Rate.InternalModelPolicyVersion, modelOperationIDs, now.UTC()).Scan(&created)
+	if err != nil {
+		return mapAgentDispatchError("admit Agent AI Tokens", err)
+	}
+	_ = created
+	return nil
 }
 
 func (r *AgentDispatchRepository) Complete(ctx context.Context, claim agentdispatch.Claim, digest [32]byte, now time.Time) error {

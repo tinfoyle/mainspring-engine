@@ -49,7 +49,6 @@ type Config struct {
 	MaxDatabaseConns                 int32
 	MaxRequestBody                   int64
 	AdmissionOrigin                  string
-	AgentExecutionPoliciesJSON       string
 	AdmissionTransport               http.RoundTripper
 	AllowHTTPAdmission               bool
 	ObjectEndpoint                   string
@@ -84,7 +83,7 @@ type Server struct {
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger, clock routecontext.Clock) (*Server, error) {
-	if config.DatabaseURL == "" || !routecontext.ValidCellID(config.CellID) || config.RouteIssuer == "" || len(config.RouteVerifyKeys) == 0 || config.AdmissionOrigin == "" || config.AgentExecutionPoliciesJSON == "" || logger == nil || clock == nil {
+	if config.DatabaseURL == "" || !routecontext.ValidCellID(config.CellID) || config.RouteIssuer == "" || len(config.RouteVerifyKeys) == 0 || config.AdmissionOrigin == "" || logger == nil || clock == nil {
 		return nil, errors.New("cell app API configuration is required")
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
@@ -151,12 +150,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	executionPolicies, err := agentapp.ParseExecutionPolicyResolver(config.AgentExecutionPoliciesJSON)
-	if err != nil {
-		pool.Close()
-		return nil, err
-	}
-	agentService, err := agentapp.New(routeaccess.NewAuthorizer(), agentRepository, executionPolicies, clock)
+	agentService, err := agentapp.New(routeaccess.NewAuthorizer(), agentRepository, clock)
 	if err != nil {
 		pool.Close()
 		return nil, err

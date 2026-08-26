@@ -216,15 +216,14 @@ type Repository interface {
 type Service struct {
 	authorizer Authorizer
 	repository Repository
-	execution  ExecutionPolicyResolver
 	clock      Clock
 }
 
-func New(authorizer Authorizer, repository Repository, execution ExecutionPolicyResolver, clock Clock) (*Service, error) {
-	if authorizer == nil || repository == nil || execution == nil || clock == nil {
+func New(authorizer Authorizer, repository Repository, clock Clock) (*Service, error) {
+	if authorizer == nil || repository == nil || clock == nil {
 		return nil, errors.New("agent service dependencies are required")
 	}
-	return &Service{authorizer: authorizer, repository: repository, execution: execution, clock: clock}, nil
+	return &Service{authorizer: authorizer, repository: repository, clock: clock}, nil
 }
 
 type CreateBoardroomCommand struct {
@@ -321,13 +320,8 @@ func (s *Service) PublishPersona(ctx context.Context, command PublishPersonaComm
 			return PersonaSummary{}, false, ErrInvalidCommand
 		}
 	}
-	target, err := s.execution.Resolve(command.Policy.Complexity)
-	if err != nil {
-		return PersonaSummary{}, false, ErrInvalidCommand
-	}
 	policy := agentdomain.PersonaPolicy{
-		Complexity: command.Policy.Complexity, Provider: target.Provider, Model: target.Model,
-		FallbackModels: target.FallbackModels, ReasoningEffort: target.ReasoningEffort,
+		Complexity:         command.Policy.Complexity,
 		MaximumInputTokens: command.Policy.MaximumInputTokens, MaximumOutputTokens: command.Policy.MaximumOutputTokens,
 		MaximumCostMicros: command.Policy.MaximumCostMicros, MaximumToolSteps: command.Policy.MaximumToolSteps,
 		CitationPolicy: command.Policy.CitationPolicy, ActionPolicy: command.Policy.ActionPolicy,

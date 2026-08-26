@@ -160,7 +160,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 		t.Fatalf("republished catalog = %d, %v", rolledForward.Version, err)
 	}
 	var catalogAuditEvents int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM catalog_operator_events WHERE catalog_version=$1`, draft.Version).Scan(&catalogAuditEvents); err != nil || catalogAuditEvents != 8 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM catalog_operator_events WHERE catalog_version=$1`, draft.Version).Scan(&catalogAuditEvents); err != nil || catalogAuditEvents != 7 {
 		t.Fatalf("catalog audit events = %d, %v", catalogAuditEvents, err)
 	}
 	incomplete, err := adminService.CreateDraft(ctx, catalog.Default(adminNow), "catalog-author@example.com", "verify paid offers require provider mappings")
@@ -1011,7 +1011,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 135 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 138 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)

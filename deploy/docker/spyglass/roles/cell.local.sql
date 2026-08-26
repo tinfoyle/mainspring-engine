@@ -143,6 +143,8 @@ GRANT EXECUTE ON FUNCTION public.spyglass_work_agent_execution_stats(timestamptz
   TO spyglass_agent_dispatch_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_agent_dispatch(uuid,timestamptz,integer)
   TO spyglass_agent_dispatch_worker;
+GRANT EXECUTE ON FUNCTION public.spyglass_admit_agent_invocation_tokens(uuid,uuid,uuid,uuid,jsonb,text,text[],text,bigint,bigint,uuid[],timestamptz)
+  TO spyglass_agent_dispatch_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_complete_agent_dispatch(uuid,uuid,uuid,bytea,timestamptz)
   TO spyglass_agent_dispatch_worker;
 GRANT EXECUTE ON FUNCTION public.spyglass_fail_agent_dispatch(uuid,uuid,uuid,boolean,timestamptz,text,timestamptz,integer)

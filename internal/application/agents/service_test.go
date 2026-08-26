@@ -120,11 +120,7 @@ func newAgentService(t *testing.T) (*Service, *serviceAuthorizer, *serviceReposi
 	now := time.Date(2026, 8, 19, 1, 0, 0, 0, time.UTC)
 	authorizer := &serviceAuthorizer{role: accounts.RoleOwner, mode: catalog.ModeEnabled, limit: 2}
 	repository := &serviceRepository{}
-	execution, err := ParseExecutionPolicyResolver(testExecutionPolicies)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service, err := New(authorizer, repository, execution, serviceClock{now})
+	service, err := New(authorizer, repository, serviceClock{now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +161,7 @@ func TestPublishPersonaPinsOwnedResultSchemaAndCapabilityAllowlist(t *testing.T)
 		{Name: "draft_marketing_release", Capability: "marketing.release.draft", Description: "Create a governed Marketing release draft.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)},
 	}}
 	_, created, err := service.PublishPersona(context.Background(), PublishPersonaCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, BoardroomID: testBoardroom, PersonaID: testPersona, VersionID: testVersion, Name: "Operations Lead", Role: "Operations", Description: "Coordinates work.", SystemInstructions: "Coordinate operational work and report evidence clearly.", Policy: policy})
-	if err != nil || !created || string(repository.version.Policy.OutputSchema) == "" || repository.version.Version != 1 || repository.version.Policy.Complexity != agentdomain.PersonaComplexityBalanced || repository.version.Policy.Provider != "openai" || repository.version.Policy.Model != "gpt-balanced" || repository.version.Policy.ReasoningEffort != "medium" || len(repository.version.Policy.FallbackModels) != 1 || repository.version.Policy.FallbackModels[0] != "gpt-fallback" {
+	if err != nil || !created || string(repository.version.Policy.OutputSchema) == "" || repository.version.Version != 1 || repository.version.Policy.Complexity != agentdomain.PersonaComplexityBalanced || repository.version.Policy.Provider != "" || repository.version.Policy.Model != "" || len(repository.version.Policy.ModelTargets()) != 0 {
 		t.Fatalf("version=%+v created=%v err=%v", repository.version, created, err)
 	}
 	policy.Tools[1].Capability = "email.send"

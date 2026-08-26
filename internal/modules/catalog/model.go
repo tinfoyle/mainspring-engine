@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -126,6 +127,8 @@ type AIComplexityRate struct {
 	EstimatedMaximum           int64        `json:"estimated_maximum"`
 	InternalProvider           string       `json:"internal_provider"`
 	InternalModel              string       `json:"internal_model"`
+	InternalFallbackModels     []string     `json:"internal_fallback_models,omitempty"`
+	InternalReasoningEffort    string       `json:"internal_reasoning_effort,omitempty"`
 	InternalAdapterVersion     uint64       `json:"internal_adapter_version"`
 	InternalModelPolicyVersion uint64       `json:"internal_model_policy_version"`
 }
@@ -367,8 +370,8 @@ func (c PublishedCatalog) validateAITokenCommerce(required bool) error {
 	}
 	rateCodes, complexities := map[string]struct{}{}, map[AIComplexity]struct{}{}
 	for _, rate := range c.AIComplexityRates {
-		if !validMachineCode(rate.Code) || rate.Version == 0 || !validComplexity(rate.Complexity) || rate.InputPerThousand <= 0 || rate.CachedInputPerThousand <= 0 || rate.OutputPerThousand <= 0 || rate.ToolInvocation < 0 || rate.MinimumCharge <= 0 || rate.MaximumReservation < rate.MinimumCharge || rate.EstimatedMinimum < rate.MinimumCharge || rate.EstimatedMaximum < rate.EstimatedMinimum || rate.EstimatedMaximum > rate.MaximumReservation || !validMachineCode(rate.InternalProvider) || !validMachineCode(rate.InternalModel) || rate.InternalAdapterVersion == 0 || rate.InternalModelPolicyVersion == 0 {
-			return fmt.Errorf("AI complexity rate %q is invalid", rate.Code)
+		if err := ValidateAIComplexityRate(rate); err != nil {
+			return fmt.Errorf("AI complexity rate %q is invalid: %w", rate.Code, err)
 		}
 		if _, exists := rateCodes[rate.Code]; exists {
 			return fmt.Errorf("duplicate AI complexity rate %q", rate.Code)
@@ -381,6 +384,22 @@ func (c PublishedCatalog) validateAITokenCommerce(required bool) error {
 	for _, complexity := range AIComplexities {
 		if _, exists := complexities[complexity]; !exists {
 			return fmt.Errorf("AI complexity %q is missing", complexity)
+		}
+	}
+	return nil
+}
+
+// ValidateAIComplexityRate checks the complete private immutable rate snapshot
+// exchanged between admission and cell workers. Customer-facing projections
+// omit the internal fields and do not call this validator.
+func ValidateAIComplexityRate(rate AIComplexityRate) error {
+	if !validMachineCode(rate.Code) || rate.Version == 0 || !validComplexity(rate.Complexity) || rate.InputPerThousand <= 0 || rate.CachedInputPerThousand <= 0 || rate.OutputPerThousand <= 0 || rate.ToolInvocation < 0 || rate.MinimumCharge <= 0 || rate.MaximumReservation < rate.MinimumCharge || rate.EstimatedMinimum < rate.MinimumCharge || rate.EstimatedMaximum < rate.EstimatedMinimum || rate.EstimatedMaximum > rate.MaximumReservation || !validExecutionCode.MatchString(rate.InternalProvider) || !validExecutionCode.MatchString(rate.InternalModel) || len(rate.InternalFallbackModels) > 2 || (rate.InternalReasoningEffort != "" && !validExecutionCode.MatchString(rate.InternalReasoningEffort)) || rate.InternalAdapterVersion == 0 || rate.InternalModelPolicyVersion == 0 {
+		return errors.New("AI complexity rate fields are invalid")
+	}
+	models := append([]string{rate.InternalModel}, rate.InternalFallbackModels...)
+	for index, model := range models {
+		if !validExecutionCode.MatchString(model) || slices.Contains(models[:index], model) {
+			return errors.New("AI complexity rate model targets are invalid")
 		}
 	}
 	return nil

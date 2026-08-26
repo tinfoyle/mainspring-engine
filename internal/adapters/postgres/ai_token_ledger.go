@@ -41,7 +41,9 @@ func (r *AITokenLedgerRepository) Reserve(ctx context.Context, requested aitoken
 	if existing, found, err := loadAITokenReservation(ctx, tx, requested.AccountID, requested.RequestID, true); err != nil {
 		return aitokens.Reservation{}, aitokens.Balance{}, err
 	} else if found {
-		if existing.Rate.Code != requested.Rate.Code || existing.Rate.Version != requested.Rate.Version || existing.Maximum != requested.Maximum {
+		// Request identity freezes the original rate snapshot. A later Catalog
+		// publication must not make an exact retry conflict or reprice it.
+		if existing.Rate.Complexity != requested.Rate.Complexity {
 			return aitokens.Reservation{}, aitokens.Balance{}, aitokens.ErrInvalidReservation
 		}
 		balance, err := transactionAITokenBalance(ctx, tx, requested.AccountID, now)

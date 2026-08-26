@@ -29,6 +29,12 @@ func AccountExportGlobalProjectionTables(tx pgx.Tx) map[string][]AccountExportPr
 				[]string{"id", "account_id", "user_id", "role", "state", "version", "created_at"}, nil),
 		},
 		"billing": {
+			projectionTable(tx, "public", "ai_token_grants", "account_id", []string{"id"},
+				[]string{"id", "account_id", "origin", "definition_code", "catalog_version", "quantity", "available", "reserved", "consumed", "state", "expires_at", "created_at"},
+				[]string{"source_reference"}),
+			projectionTable(tx, "public", "ai_token_ledger_entries", "account_id", []string{"id"},
+				[]string{"id", "account_id", "grant_id", "kind", "amount", "created_at"},
+				[]string{"reservation_id", "event_key"}),
 			projectionTable(tx, "public", "billing_checkout_attempts", "account_id", []string{"request_id"},
 				[]string{"request_id", "account_id", "provider", "mode", "offer_code", "state", "expires_at", "created_at", "updated_at"},
 				[]string{"provider_session_id", "hosted_url"}),

@@ -134,7 +134,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	application, err := agentdispatch.New(queue, producer, registration.SystemClock{}, ids.RandomGenerator{}, config.Lease, config.MaxAttempts)
+	tokens, err := admissionhttp.New(config.AdmissionOrigin, config.AllowHTTPAdmission, config.AdmissionTransport)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	application, err := agentdispatch.New(queue, producer, tokens, config.CellID, registration.SystemClock{}, ids.RandomGenerator{}, config.Lease, config.MaxAttempts)
 	if err != nil {
 		pool.Close()
 		return nil, err

@@ -22,7 +22,7 @@ func TestInvokeBuildsStrictStatelessRequestAndDecodesToolCall(t *testing.T) {
 			t.Error(err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"resp_1","model":"gpt-test","status":"completed","output":[{"type":"reasoning","id":"rs_1","summary":[]},{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read_work","arguments":"{}"}],"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15}}`))
+		_, _ = w.Write([]byte(`{"id":"resp_1","model":"gpt-test","status":"completed","output":[{"type":"reasoning","id":"rs_1","summary":[]},{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read_work","arguments":"{}"}],"usage":{"input_tokens":10,"input_tokens_details":{"cached_tokens":4},"output_tokens":5,"total_tokens":15}}`))
 	}))
 	defer server.Close()
 	client, err := New(Config{APIKey: "secret", Origin: server.URL, HTTPClient: &http.Client{Timeout: time.Second}})
@@ -33,7 +33,7 @@ func TestInvokeBuildsStrictStatelessRequestAndDecodesToolCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.StopReason != "tool_call" || len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "read_work" || len(result.Continuation) == 0 {
+	if result.StopReason != "tool_call" || len(result.ToolCalls) != 1 || result.ToolCalls[0].Name != "read_work" || len(result.Continuation) == 0 || result.Usage.CachedInputTokens != 4 {
 		t.Fatalf("unexpected result %#v", result)
 	}
 	if received["store"] != false || received["parallel_tool_calls"] != false || received["tool_choice"] != "auto" {

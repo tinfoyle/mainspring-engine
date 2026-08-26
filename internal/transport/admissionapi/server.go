@@ -12,9 +12,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentusage"
+	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
 	"github.com/tinfoyle/spyglass-engine/internal/application/usageadmission"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/aitokens"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -40,6 +43,11 @@ type AgentExecutionAuthorizer interface {
 	Authorize(context.Context, access.Actor, ids.AccountID, access.Requirement) (access.AccountContext, error)
 }
 
+type AITokens interface {
+	Reserve(context.Context, aitokenledger.ReserveCommand) (aitokens.Reservation, aitokens.Balance, error)
+	Close(context.Context, ids.AccountID, string, aitokenledger.Usage) (aitokens.Reservation, aitokens.Balance, error)
+}
+
 type Server struct {
 	usage     Usage
 	verifiers map[ids.CellID]Verifier
@@ -47,6 +55,7 @@ type Server struct {
 	maxBody   int64
 	reviewers ReviewerDirectory
 	agents    AgentExecutionAuthorizer
+	tokens    AITokens
 }
 
 type Option func(*Server)
@@ -57,6 +66,10 @@ func WithReviewerDirectory(directory ReviewerDirectory) Option {
 
 func WithAgentExecutionAuthorizer(authorizer AgentExecutionAuthorizer) Option {
 	return func(server *Server) { server.agents = authorizer }
+}
+
+func WithAITokens(tokens AITokens) Option {
+	return func(server *Server) { server.tokens = tokens }
 }
 
 func New(usage Usage, verifiers map[ids.CellID]Verifier, logger *slog.Logger, maxBody int64, options ...Option) (*Server, error) {
@@ -85,7 +98,121 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /internal/v1/attention/reviewers:resolve", s.resolveReviewer)
 	mux.HandleFunc("POST /internal/v1/agents/work-executions:authorize", s.authorizeWorkAgentExecution)
 	mux.HandleFunc("POST /internal/v1/agents/schedule-executions:authorize", s.authorizeScheduleExecution)
+	mux.HandleFunc("POST /internal/v1/agents/ai-tokens:reserve", s.reserveAgentTokens)
+	mux.HandleFunc("POST /internal/v1/agents/ai-tokens:close", s.closeAgentTokens)
 	return s.recover(s.securityHeaders(mux))
+}
+
+type agentTokenReserveRequest struct {
+	CellID       ids.CellID           `json:"cell_id"`
+	AccountID    ids.AccountID        `json:"account_id"`
+	UserID       ids.UserID           `json:"user_id"`
+	InvocationID string               `json:"invocation_id"`
+	Complexity   catalog.AIComplexity `json:"complexity"`
+}
+
+type agentTokenReserveResponse struct {
+	ReservationID ids.AITokenReservationID  `json:"reservation_id"`
+	RequestID     string                    `json:"request_id"`
+	State         aitokens.ReservationState `json:"state"`
+	Rate          catalog.AIComplexityRate  `json:"rate"`
+}
+
+func (s *Server) reserveAgentTokens(w http.ResponseWriter, r *http.Request) {
+	if s.tokens == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "ai_tokens_unavailable", "AI Token admission is temporarily unavailable")
+		return
+	}
+	var request agentTokenReserveRequest
+	if !s.decodeAgentTokenRequest(w, r, &request, "invalid_ai_token_admission") {
+		return
+	}
+	if !s.validAgentTokenTarget(request.CellID, request.AccountID, request.InvocationID) || ids.Validate(string(request.UserID)) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_ai_token_admission", "the AI Token admission request is invalid")
+		return
+	}
+	if !s.validAgentTokenIdentity(r, request.CellID, "agent-dispatch-worker") {
+		writeProblem(w, http.StatusForbidden, "agent_workload_scope_denied", "the workload identity cannot admit Agent AI Tokens for this cell")
+		return
+	}
+	reservation, _, err := s.tokens.Reserve(r.Context(), aitokenledger.ReserveCommand{Actor: access.Actor{UserID: request.UserID}, AccountID: request.AccountID, RequestID: request.InvocationID, Complexity: request.Complexity})
+	if err != nil {
+		s.writeAgentTokenError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agentTokenReserveResponse{ReservationID: reservation.ID, RequestID: reservation.RequestID, State: reservation.State, Rate: reservation.Rate})
+}
+
+type agentTokenCloseRequest struct {
+	CellID       ids.CellID       `json:"cell_id"`
+	AccountID    ids.AccountID    `json:"account_id"`
+	InvocationID string           `json:"invocation_id"`
+	Usage        agentusage.Usage `json:"usage"`
+}
+
+func (s *Server) closeAgentTokens(w http.ResponseWriter, r *http.Request) {
+	if s.tokens == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "ai_tokens_unavailable", "AI Token settlement is temporarily unavailable")
+		return
+	}
+	var request agentTokenCloseRequest
+	if !s.decodeAgentTokenRequest(w, r, &request, "invalid_ai_token_settlement") {
+		return
+	}
+	if !s.validAgentTokenTarget(request.CellID, request.AccountID, request.InvocationID) {
+		writeProblem(w, http.StatusBadRequest, "invalid_ai_token_settlement", "the AI Token settlement request is invalid")
+		return
+	}
+	if !s.validAgentTokenIdentity(r, request.CellID, "agent-dispatch-worker") && !s.validAgentTokenIdentity(r, request.CellID, "agent-projection-worker") {
+		writeProblem(w, http.StatusForbidden, "agent_workload_scope_denied", "the workload identity cannot settle Agent AI Tokens for this cell")
+		return
+	}
+	_, _, err := s.tokens.Close(r.Context(), request.AccountID, request.InvocationID, aitokenledger.Usage{ProviderStarted: request.Usage.ProviderStarted,
+		InputTokens: request.Usage.InputTokens, CachedInputTokens: request.Usage.CachedInputTokens, OutputTokens: request.Usage.OutputTokens, ToolInvocations: request.Usage.ToolInvocations})
+	if err != nil {
+		s.writeAgentTokenError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"request_id": request.InvocationID, "state": "closed"})
+}
+
+func (s *Server) decodeAgentTokenRequest(w http.ResponseWriter, r *http.Request, target any, invalidCode string) bool {
+	if mediaType := strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]); mediaType != "application/json" {
+		writeProblem(w, http.StatusUnsupportedMediaType, "json_required", "AI Token admission requires application/json")
+		return false
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, s.maxBody))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(target) != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) {
+		writeProblem(w, http.StatusBadRequest, invalidCode, "the AI Token request is invalid")
+		return false
+	}
+	return true
+}
+
+func (s *Server) validAgentTokenTarget(cellID ids.CellID, accountID ids.AccountID, invocationID string) bool {
+	_, knownCell := s.verifiers[cellID]
+	return knownCell && ids.Validate(string(accountID)) == nil && ids.Validate(invocationID) == nil
+}
+
+func (s *Server) validAgentTokenIdentity(r *http.Request, cellID ids.CellID, workload string) bool {
+	identity, verified := workloadidentity.ClientIdentityFromContext(r.Context())
+	return !verified || identity == "spiffe://infiniteocean.net/spyglass/cells/"+string(cellID)+"/"+workload
+}
+
+func (s *Server) writeAgentTokenError(w http.ResponseWriter, err error) {
+	var denied *access.DeniedError
+	switch {
+	case errors.Is(err, aitokens.ErrInsufficient):
+		writeProblem(w, http.StatusConflict, "ai_tokens_insufficient", "the Account does not have enough AI Tokens for this invocation")
+	case errors.As(err, &denied):
+		writeProblem(w, http.StatusForbidden, string(denied.Code), "AI Token admission was denied")
+	case errors.Is(err, aitokenledger.ErrInvalidRequest), errors.Is(err, aitokenledger.ErrRateUnavailable), errors.Is(err, aitokens.ErrInvalidReservation):
+		writeProblem(w, http.StatusBadRequest, "invalid_ai_token_admission", "the AI Token request is invalid")
+	default:
+		s.logger.Error("AI Token admission failed", "error", err)
+		writeProblem(w, http.StatusServiceUnavailable, "ai_tokens_unavailable", "AI Token admission is temporarily unavailable")
+	}
 }
 
 type scheduleExecutionAuthorizationRequest struct {

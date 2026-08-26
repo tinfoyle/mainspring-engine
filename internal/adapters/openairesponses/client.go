@@ -161,9 +161,12 @@ type responseEnvelope struct {
 	Status string            `json:"status"`
 	Output []json.RawMessage `json:"output"`
 	Usage  struct {
-		InputTokens  int64 `json:"input_tokens"`
-		OutputTokens int64 `json:"output_tokens"`
-		TotalTokens  int64 `json:"total_tokens"`
+		InputTokens       int64 `json:"input_tokens"`
+		OutputTokens      int64 `json:"output_tokens"`
+		TotalTokens       int64 `json:"total_tokens"`
+		InputTokenDetails struct {
+			CachedTokens int64 `json:"cached_tokens"`
+		} `json:"input_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -173,7 +176,7 @@ func decodeResponse(provider string, raw []byte) (modelgateway.Result, error) {
 	if err := decoder.Decode(&response); err != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) || response.Status != "completed" || len(response.Output) == 0 {
 		return modelgateway.Result{}, modelgateway.ErrInvalidProviderReply
 	}
-	result := modelgateway.Result{SchemaVersion: modelgateway.SchemaVersion, Provider: provider, Model: response.Model, ResponseID: response.ID, Usage: modelgateway.Usage{InputTokens: response.Usage.InputTokens, OutputTokens: response.Usage.OutputTokens, TotalTokens: response.Usage.TotalTokens}}
+	result := modelgateway.Result{SchemaVersion: modelgateway.SchemaVersion, Provider: provider, Model: response.Model, ResponseID: response.ID, Usage: modelgateway.Usage{InputTokens: response.Usage.InputTokens, CachedInputTokens: response.Usage.InputTokenDetails.CachedTokens, OutputTokens: response.Usage.OutputTokens, TotalTokens: response.Usage.TotalTokens}}
 	for _, rawItem := range response.Output {
 		var item struct {
 			Type      string `json:"type"`

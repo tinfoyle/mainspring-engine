@@ -4,6 +4,8 @@ Status: executable operator contract and Hostinger connected-cell rehearsal comp
 
 Agent dispatch and result projection are independent durable queues. A terminal row never retries forever and never disappears automatically. Operators can inspect one queue in one cell and, after correcting the underlying condition, requeue exactly one Account/invocation pair.
 
+Dispatch reserves the invocation's maximum AI Token charge immediately before runner provisioning. Projection settles trusted actual usage on success and releases the reservation on execution failure. Terminal dispatch or projection failure also closes the reservation with zero usage before dead-lettering; this close is idempotent, so a later exact operator retry cannot double-debit or reprice the invocation.
+
 Ordered Run plans intentionally expose only their current Persona turn to dispatch. A successful projection enqueues the next turn atomically after its Conversation watermark includes the new Persona Message. An earlier terminal failure cancels undispatched later turns. Their absence from the dispatch queue is therefore expected and is not queue loss.
 
 ## Safety contract

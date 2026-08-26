@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentresultpolicy"
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentusage"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneragents"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercontrol"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/agents"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/aitokens"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -42,6 +44,19 @@ type projectionQueue struct {
 	failureState   string
 	failureNext    time.Time
 	claimedLeaseID string
+}
+
+type projectionTokens struct {
+	closed []agentusage.CloseCommand
+	err    error
+}
+
+func (*projectionTokens) ReserveAgentTokens(context.Context, agentusage.ReserveCommand) (agentusage.Admission, error) {
+	return agentusage.Admission{}, aitokens.ErrInvalidReservation
+}
+func (s *projectionTokens) CloseAgentTokens(_ context.Context, command agentusage.CloseCommand) error {
+	s.closed = append(s.closed, command)
+	return s.err
 }
 
 func (q *projectionQueue) Claim(_ context.Context, leaseID string, _ time.Time, _ time.Duration) (Claim, bool, error) {
@@ -113,13 +128,17 @@ func validTurnOutput(t *testing.T) json.RawMessage {
 	return raw
 }
 
-func testProcessor(t *testing.T, queue *projectionQueue, cipher *runnerbroker.Cipher, now time.Time) *Processor {
+func testProcessorWithTokens(t *testing.T, queue *projectionQueue, cipher *runnerbroker.Cipher, tokens *projectionTokens, now time.Time) *Processor {
 	t.Helper()
-	processor, err := New(queue, cipher, projectionClock{now}, &projectionIDs{values: []string{"41000000-0000-4000-8000-000000000001", "51000000-0000-4000-8000-000000000001"}}, DefaultLease, DefaultMaxAttempts)
+	processor, err := New(queue, cipher, tokens, ids.CellID("cell-us-east-01"), projectionClock{now}, &projectionIDs{values: []string{"41000000-0000-4000-8000-000000000001", "51000000-0000-4000-8000-000000000001"}}, DefaultLease, DefaultMaxAttempts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return processor
+}
+
+func testProcessor(t *testing.T, queue *projectionQueue, cipher *runnerbroker.Cipher, now time.Time) *Processor {
+	return testProcessorWithTokens(t, queue, cipher, &projectionTokens{}, now)
 }
 
 func validProjectionClaim(stored runnerbroker.StoredResult, attempt int) Claim {
@@ -132,9 +151,13 @@ func TestProcessorProjectsValidatedCompletedTurn(t *testing.T) {
 	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
 	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", validTurnOutput(t), "")
 	queue := &projectionQueue{found: true, claim: validProjectionClaim(stored, 1)}
-	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
+	tokens := &projectionTokens{}
+	result, err := testProcessorWithTokens(t, queue, cipher, tokens, now).ProcessOne(context.Background())
 	if err != nil || !result.Projected || queue.success == nil || queue.failure != nil || queue.failed {
 		t.Fatalf("result=%+v success=%+v failure=%+v failed=%v err=%v", result, queue.success, queue.failure, queue.failed, err)
+	}
+	if len(tokens.closed) != 1 || !tokens.closed[0].Usage.ProviderStarted || tokens.closed[0].Usage.InputTokens != 10 || tokens.closed[0].Usage.OutputTokens != 4 {
+		t.Fatalf("settlement=%+v", tokens.closed)
 	}
 	if queue.success.MessageID != "51000000-0000-4000-8000-000000000001" || queue.success.Body != "Prioritize the oldest blocked work." || queue.success.TotalTokens != 14 || queue.success.ResultDigest == ([32]byte{}) {
 		t.Fatalf("unexpected success projection: %+v", queue.success)

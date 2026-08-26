@@ -18,10 +18,13 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentresultpolicy"
+	"github.com/tinfoyle/spyglass-engine/internal/application/agentusage"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneragents"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	agentdomain "github.com/tinfoyle/spyglass-engine/internal/modules/agents"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/aitokens"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
 
 const (
@@ -176,13 +179,15 @@ type Processor struct {
 	ids         ids.Generator
 	lease       time.Duration
 	maxAttempts int
+	cellID      ids.CellID
+	tokens      agentusage.Broker
 }
 
-func New(queue Queue, cipher *runnerbroker.Cipher, clock Clock, generator ids.Generator, lease time.Duration, maxAttempts int) (*Processor, error) {
-	if queue == nil || cipher == nil || clock == nil || generator == nil || lease < time.Second || lease > 30*time.Minute || maxAttempts < 1 || maxAttempts > MaximumMaxAttempts {
+func New(queue Queue, cipher *runnerbroker.Cipher, tokens agentusage.Broker, cellID ids.CellID, clock Clock, generator ids.Generator, lease time.Duration, maxAttempts int) (*Processor, error) {
+	if queue == nil || cipher == nil || tokens == nil || !routecontext.ValidCellID(cellID) || clock == nil || generator == nil || lease < time.Second || lease > 30*time.Minute || maxAttempts < 1 || maxAttempts > MaximumMaxAttempts {
 		return nil, errors.New("agent projection dependencies or bounds are invalid")
 	}
-	return &Processor{queue: queue, cipher: cipher, clock: clock, ids: generator, lease: lease, maxAttempts: maxAttempts}, nil
+	return &Processor{queue: queue, cipher: cipher, tokens: tokens, cellID: cellID, clock: clock, ids: generator, lease: lease, maxAttempts: maxAttempts}, nil
 }
 
 func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
@@ -199,6 +204,12 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 		return p.reject(ctx, claim, now, "result_envelope_invalid", fmt.Errorf("%w: authenticated envelope", ErrInvalidPayload))
 	}
 	if envelope.Outcome == "execution_failed" {
+		if err := p.closeTokens(ctx, claim, agentusage.Usage{}); err != nil {
+			if errors.Is(err, aitokens.ErrInvalidReservation) {
+				return p.reject(ctx, claim, now, "token_settlement_invalid", err)
+			}
+			return p.retry(ctx, claim, now, "token_release_failed", err)
+		}
 		err = p.queue.ProjectFailure(ctx, Failure{Claim: claim, RunnerDigest: claim.Result.Digest, FailureCode: envelope.ErrorCode, CompletedAt: claim.Result.SubmittedAt.UTC(), ProjectedAt: now})
 		if err != nil {
 			return p.handleProjectionError(ctx, claim, now, "failure_projection_failed", err)
@@ -212,6 +223,13 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 	output, err = runneragents.ValidateTurnOutput(output, claim.ExpectedProvider, claim.PermittedModels)
 	if err != nil {
 		return p.reject(ctx, claim, now, "turn_output_invalid", ErrInvalidPayload)
+	}
+	if err := p.closeTokens(ctx, claim, agentusage.Usage{ProviderStarted: true, InputTokens: output.Usage.InputTokens,
+		CachedInputTokens: output.Usage.CachedInputTokens, OutputTokens: output.Usage.OutputTokens, ToolInvocations: output.Usage.ToolInvocations}); err != nil {
+		if errors.Is(err, aitokens.ErrInvalidReservation) {
+			return p.reject(ctx, claim, now, "token_settlement_invalid", err)
+		}
+		return p.retry(ctx, claim, now, "token_settlement_failed", err)
 	}
 	if err := agentresultpolicy.Validate(agentresultpolicy.Policy{Version: claim.ResultPolicyVersion, CitationPolicy: claim.CitationPolicy,
 		ActionPolicy: claim.ActionPolicy, CurrentPersonaID: claim.CurrentPersonaID, DelegatePersonaIDs: claim.DelegatePersonaIDs,
@@ -316,13 +334,31 @@ func (p *Processor) Stats(ctx context.Context) (Stats, error) {
 
 func (p *Processor) reject(ctx context.Context, claim Claim, now time.Time, code string, cause error) (Result, error) {
 	state, failErr := p.queue.Fail(ctx, claim, false, now, code, now, p.maxAttempts)
-	return Result{Worked: true, DeadLetter: state == "dead_letter"}, errors.Join(cause, failErr)
+	var closeErr error
+	if state == "dead_letter" {
+		closeErr = p.closeTokens(ctx, claim, agentusage.Usage{})
+		if errors.Is(closeErr, aitokens.ErrInvalidReservation) {
+			closeErr = nil
+		}
+	}
+	return Result{Worked: true, DeadLetter: state == "dead_letter"}, errors.Join(cause, failErr, closeErr)
 }
 
 func (p *Processor) retry(ctx context.Context, claim Claim, now time.Time, code string, cause error) (Result, error) {
 	next := now.Add(retryDelay(claim.Attempt))
 	state, failErr := p.queue.Fail(ctx, claim, true, next, code, now, p.maxAttempts)
-	return Result{Worked: true, DeadLetter: state == "dead_letter"}, errors.Join(cause, failErr)
+	var closeErr error
+	if state == "dead_letter" {
+		closeErr = p.closeTokens(ctx, claim, agentusage.Usage{})
+		if errors.Is(closeErr, aitokens.ErrInvalidReservation) {
+			closeErr = nil
+		}
+	}
+	return Result{Worked: true, DeadLetter: state == "dead_letter"}, errors.Join(cause, failErr, closeErr)
+}
+
+func (p *Processor) closeTokens(ctx context.Context, claim Claim, usage agentusage.Usage) error {
+	return p.tokens.CloseAgentTokens(ctx, agentusage.CloseCommand{CellID: p.cellID, AccountID: claim.AccountID, InvocationID: claim.InvocationID, Usage: usage})
 }
 
 func (p *Processor) handleProjectionError(ctx context.Context, claim Claim, now time.Time, code string, cause error) (Result, error) {

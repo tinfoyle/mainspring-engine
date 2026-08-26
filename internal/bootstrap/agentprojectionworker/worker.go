@@ -7,26 +7,33 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/admissionhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 )
 
 type Config struct {
-	CellDatabaseURL  string
-	MaxDatabaseConns int32
-	PollInterval     time.Duration
-	Lease            time.Duration
-	MaxAttempts      int
-	EncryptionKeys   map[int][]byte
-	ActiveKeyVersion int
+	CellDatabaseURL    string
+	CellID             ids.CellID
+	AdmissionOrigin    string
+	AdmissionTransport http.RoundTripper
+	AllowHTTPAdmission bool
+	MaxDatabaseConns   int32
+	PollInterval       time.Duration
+	Lease              time.Duration
+	MaxAttempts        int
+	EncryptionKeys     map[int][]byte
+	ActiveKeyVersion   int
 }
 
 type Status struct {
@@ -57,7 +64,7 @@ type Worker struct {
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
-	if config.CellDatabaseURL == "" || logger == nil {
+	if config.CellDatabaseURL == "" || config.AdmissionOrigin == "" || !routecontext.ValidCellID(config.CellID) || logger == nil {
 		return nil, errors.New("agent projection worker database URL and logger are required")
 	}
 	if config.PollInterval == 0 {
@@ -96,7 +103,12 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	application, err := agentprojection.New(repository, cipher, registration.SystemClock{}, ids.RandomGenerator{}, config.Lease, config.MaxAttempts)
+	tokens, err := admissionhttp.New(config.AdmissionOrigin, config.AllowHTTPAdmission, config.AdmissionTransport)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	application, err := agentprojection.New(repository, cipher, tokens, config.CellID, registration.SystemClock{}, ids.RandomGenerator{}, config.Lease, config.MaxAttempts)
 	if err != nil {
 		pool.Close()
 		return nil, err

@@ -370,6 +370,8 @@ issue app-api-b app-api-b 'spiffe://infiniteocean.net/spyglass/cells/cell-us-wes
 issue admission-api admission-api 'spiffe://infiniteocean.net/spyglass/workloads/admission-api' serverAuth
 issue agent-dispatch-worker-a '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-dispatch-worker' clientAuth
 issue agent-dispatch-worker-b '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-dispatch-worker' clientAuth
+issue agent-projection-worker-a '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/agent-projection-worker' clientAuth
+issue agent-projection-worker-b '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-projection-worker' clientAuth
 issue schedule-execution-worker-a '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker' clientAuth
 issue schedule-execution-worker-b '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker' clientAuth
 issue runner-controller-a '' 'spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-controller' clientAuth

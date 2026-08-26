@@ -30,7 +30,7 @@ func (s *AITokenLedger) Reserve(_ context.Context, requested aitokens.Reservatio
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if existing, exists := s.reservations[requested.AccountID][requested.RequestID]; exists {
-		if existing.Rate.Code != requested.Rate.Code || existing.Rate.Version != requested.Rate.Version || existing.Maximum != requested.Maximum {
+		if existing.Rate.Complexity != requested.Rate.Complexity {
 			return aitokens.Reservation{}, aitokens.Balance{}, aitokens.ErrInvalidReservation
 		}
 		balance, err := aitokens.Summarize(s.grants[requested.AccountID], now.UTC())
