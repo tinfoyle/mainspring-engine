@@ -15,6 +15,8 @@ There is no Free plan at launch. The `free-v1` offer and every customer-facing p
 
 There is no free trial at launch. The $50 monthly subscription begins with the first successfully paid invoice after Checkout. Zero-value trial handling remains a defensive ledger invariant only and must not be advertised or configured as a launch offer.
 
+The $50 subscription is the single complete-product team offer. It includes every completed launch package; there is no higher software tier. Operational capacity limits do not create separate Affiliate-eligible products. Commissioning remains an ineligible service purchase and changes no entitlement.
+
 Technical invariants already fixed:
 
 - self-referral is denied against every Account owned by the Affiliate User;
