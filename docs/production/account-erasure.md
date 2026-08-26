@@ -10,6 +10,8 @@ No HTTP request, account-api replica, or lifecycle-worker attempt may directly e
 
 Owner policy (2026-08-26): the first unresolved subscription renewal failure starts a 30-calendar-day Account-retention clock. The system automatically prepares export and closure/erasure state during that window. A successfully paid invoice projected before the deadline cancels the pending deletion and restores paid access. If unresolved at day 30, the Account and live customer data must complete this guarded erasure workflow. This deadline does not authorize a browser request or standing application role to bypass preparation, distinct approval, cross-store execution, tombstones, restore replay or backup-expiry tracking. Required financial, Affiliate and scoped legal-hold evidence is detached into its separately approved restricted retention and is not preserved as live Account data. After Account erasure, a coordinated User-scoped workflow deletes the live identity only when no Membership in any other Account and no active Affiliate relationship remains.
 
+The responsible owner receives durable email and in-application notices at clock start, day 7, day 23 and day 29. Each contains the affected team, exact UTC deletion time, authenticated payment-recovery and export links, and the conditional orphaned-identity consequence. Notice creation is idempotent; payment recovery cancels pending notices but never deletes already delivered evidence. Stripe-generated dunning email is supplemental and cannot satisfy this product notice requirement.
+
 ## Safety invariants
 
 1. The Account is already `closed`; `closing`, suspended, restricted, and active Accounts are ineligible.
