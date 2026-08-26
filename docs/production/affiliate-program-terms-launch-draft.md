@@ -7,13 +7,12 @@
 
 An Affiliate uses their ordinary Infinite Ocean login and receives a generated public code after accepting the current terms with recent passkey confirmation. A referred customer must actively enter or apply that code during checkout review. The Affiliate must make a clear and conspicuous disclosure near any endorsement that they may receive recurring value from qualifying purchases.
 
-Owner economics decisions (2026-08-26): the launch subscription has a **$50.00 USD base price before tax** (`5,000` minor units), and each qualifying successfully paid subscription invoice—including the initial invoice—creates a fixed **$10.00 USD** (`1,000` minor units) Affiliate earning. Stripe calculates and adds applicable tax to the customer's total; tax neither increases nor decreases the Affiliate earning. An earning begins pending. The next qualifying successfully paid renewal makes only the immediately preceding pending earning available for settlement and creates the next pending earning. Cancellation does not claw back an earning already made available. The disposition of the final unmatched pending earning still requires the explicit cancellation decision below. Before enrollment opens, the release owner must approve and encode:
+Owner economics decisions (2026-08-26): the launch subscription has a **$50.00 USD base price before tax** (`5,000` minor units), and each qualifying successfully paid subscription invoice—including the initial invoice—creates a fixed **$10.00 USD** (`1,000` minor units) Affiliate earning. Stripe calculates and adds applicable tax to the customer's total; tax neither increases nor decreases the Affiliate earning. An earning begins pending. The next qualifying successfully paid renewal makes only the immediately preceding pending earning available for settlement and creates the next pending earning. Cancellation does not claw back an earning already made available. If the subscription actually terminates before a successor qualifying renewal, the final pending earning expires through immutable void evidence; merely scheduling cancellation does not void it, and withdrawing that cancellation before a successful renewal preserves normal maturity. Before enrollment opens, the release owner must approve and encode:
 
 - the exact eligible Catalog offer identity and Stripe Price mapping, reconciled to the approved $50/5,000-minor-unit base price rather than the observed $49/4,900-minor-unit draft;
 - coupon, proration, trial, upgrade, downgrade and partial-payment behavior;
 - maximum paid cycles, if any;
 - refund, credit-note, dispute and chargeback reversal rules;
-- the final unmatched pending-earning disposition when a subscription ends before another qualifying renewal;
 - account-credit or cash settlement, minimums, expiry, transferability and failed-settlement handling;
 - supported Affiliate countries, tax documentation and legally required withholding/reporting;
 - suspension, closure, code replacement, appeal and support rules; and
@@ -26,6 +25,7 @@ Technical invariants already fixed:
 - one Checkout and subscription can lock at most one attribution;
 - Stripe receives only an opaque local attribution ID;
 - successful qualifying invoice processing is replay-safe and appends an immutable earning;
+- successor-invoice maturity and terminal-subscription voiding append immutable evidence rather than updating or deleting the original pending earning;
 - reversals append evidence rather than rewriting an earning;
 - customer identity and business content never appear in the Affiliate statement; and
 - analytics consent has no effect on referral or commission state.
