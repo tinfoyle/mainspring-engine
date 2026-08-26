@@ -33,6 +33,7 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** there is no Free plan at launch. The checked-in `free-v1` offer, free entitlement and permanent-free acquisition/signup copy are migration work and may not appear in the effective launch Catalog or customer surface;
 - **Decided 2026-08-26:** there is no free trial. Normal product access begins only after the first `$50` subscription invoice is fully paid and signed-webhook projection activates the team; zero-value/trial implementation states are defensive only;
 - **Decided 2026-08-26:** the first unresolved renewal failure starts a 30-day clock. Days 0–7 are read-only remediation; afterward only billing, security, privacy, export and sign-out remain. Projected payment before day 30 cancels deletion; otherwise guarded Account/live-data erasure completes at day 30 while required evidence follows separate restricted retention;
+- **Decided 2026-08-26:** after Account erasure, delete the live User identity only when it has no Membership in another Account and no active Affiliate relationship. Otherwise preserve the identity and unrelated authority while removing every erased-Account link;
 - **Decided 2026-08-26:** registration creates a verified identity and inactive team shell. Before signed-webhook payment projection, the owner can use only security, privacy, billing/checkout and sign-out and has no product entitlement. Redirect, cancellation, abandonment, pending or failure never activates the team;
 - **Decided 2026-08-26:** each qualifying paid renewal earns a fixed `$10.00 USD` (`1,000` minor units), independent of any tax Stripe adds to the customer invoice;
 - **Decided 2026-08-26:** the initial qualifying paid invoice creates the first pending earning. Each later qualifying successfully paid renewal makes only the immediately preceding pending earning available for settlement and creates a new pending earning. Cancellation does not claw back earnings already available;
@@ -145,6 +146,7 @@ Commissioning Affiliate treatment: never commission-eligible; exclude its line f
 Free plan: none at launch; remove free-v1 and permanent-free claims from effective Catalog and customer surfaces (owner decision 2026-08-26)
 Free trial: none at launch; first fully paid $50 subscription invoice and signed-webhook projection begin access (owner decision 2026-08-26)
 Failed renewal: seven-day read-only remediation, restricted access through day 30, then guarded Account/live-data erasure unless payment is projected first (owner decision 2026-08-26)
+Orphaned identity: after Account erasure delete only when no other Account Membership and no active Affiliate relationship remain (owner decision 2026-08-26)
 Registration/payment: verified identity plus inactive team shell first; restricted pre-payment routes; only signed Stripe webhook projection grants product access (owner decision 2026-08-26)
 Commissioning purchase: optional in initial Checkout or later from Billing, self-service once per team; additional engagements via Support (owner decision 2026-08-26)
 Affiliate terms version:
