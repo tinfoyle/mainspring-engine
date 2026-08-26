@@ -58,7 +58,7 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** Affiliate financial/audit records are retained seven years after the later of closure or final settlement, reversal or tax-relevant transaction, then deleted or irreversibly minimized unless legal hold applies; and
 - **Decided 2026-08-26:** after the seven-year retention window, erase readable retired Affiliate codes and their Affiliate/User linkage; retain only a protected irreversible identity-free fingerprint permanently to prevent code reuse;
 - **Decided 2026-08-26:** a verified Affiliate erasure request closes enrollment, disables the code/link, stops future attribution/earnings and erases unneeded data while preserving customers and available credit. Required records remain access-restricted and outside marketing/ordinary product use until deadline; fulfillment discloses retained categories, purpose and deadline, and legal holds are scoped; and
-- Affiliate eligibility and commission treatment for the optional `$250` onboarding/commissioning package;
+- **Decided 2026-08-26:** the optional `$250` onboarding/commissioning package never earns Affiliate commission. It is excluded from the eligible basis even on a shared invoice, and package-only adverse evidence does not reverse the subscription earning;
 - remaining privacy-controller and operational release fields.
 
 Until approval, retain:
@@ -136,6 +136,7 @@ Affiliate financial retention: seven years after later of closure or final tax-r
 Retired Affiliate codes: after retention expiry erase readable code and Affiliate/User link; retain only an irreversible identity-free fingerprint for permanent non-reuse (owner decision 2026-08-26)
 Affiliate erasure during retention: close enrollment and erase unneeded data; preserve customers/available credit; restrict required records until deadline and disclose the limitation (owner decision 2026-08-26)
 Launch pricing: $50/month per team plus optional one-time $250 onboarding/commissioning package; legacy $49/$149 offers are obsolete (owner correction 2026-08-26)
+Commissioning Affiliate treatment: never commission-eligible; exclude its line from earning and reversal qualification (owner decision 2026-08-26)
 Affiliate terms version:
 Affiliate rule version:
 Privacy processing-registry revision:
