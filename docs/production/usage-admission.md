@@ -32,6 +32,8 @@ Launch Work decision (2026-08-26): the `active_items` capacity remains 100 per t
 
 Launch Agent decision (2026-08-26): the `concurrent_runs` capacity remains two per team. Queued Runs do not consume a slot until admitted. Admitted nonterminal Runs hold one reservation; terminal result, cancellation or bounded TTL reclamation releases it exactly once. A third concurrent admission cannot begin provider execution. A reviewed versioned Support override may raise the Account limit without creating a price or feature tier.
 
+Launch AI-token decision (2026-08-26): customer usage is denominated in Infinite Ocean AI Tokens rather than vendor token counts or provider cost. Admission freezes an immutable rate-card version and atomically reserves the operation's maximum AI Tokens before any external model call. Settlement uses trusted normalized input/cached/output/tool usage, debits the exact customer amount, releases unused reservation once and records provider cost separately for margin analysis. A failed or unstarted provider operation cannot consume an estimated maximum; replay cannot double-debit. Published rate revisions apply prospectively only and model/provider substitution cannot mutate prior ledger entries.
+
 The public Catalog endpoint exposes these product definitions but never provider mappings. New governed drafts fail if a package default has no definition, the package owner is unknown, the rule or kind is unsupported, or a reservation TTL exceeds 30 days. Immutable Catalog versions created before limit definitions remain rollback-compatible with conservative `capacity`/`replace` semantics.
 
 ## Decision sequence
