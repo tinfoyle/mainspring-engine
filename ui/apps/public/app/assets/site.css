@@ -110,7 +110,19 @@ body.site-menu-open { overflow: hidden; }
 .consent__options span { display: grid; gap: .2rem; }
 .consent__options small { color: var(--io-ink-soft); }
 .consent__options input { width: 2rem; height: 2rem; accent-color: var(--io-ocean-650); }
+.consent__history-link { min-height: 44px; display: inline-flex; align-items: center; color: var(--io-ocean-800); font-weight: 760; }
 .consent-reopen { position: fixed; z-index: 40; right: .75rem; bottom: .75rem; min-height: 44px; padding: .65rem .9rem; border: 1px solid var(--io-line); border-radius: 999px; color: var(--io-ocean-950); background: var(--io-paper); box-shadow: 0 6px 22px rgb(5 47 57 / 16%); font-weight: 700; }
+.public-consent-history { margin-top: 2.5rem; padding: 1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }
+.public-consent-history h2 { margin-top: 0; }
+.public-consent-history ol { margin: 1rem 0 0; padding: 0; display: grid; list-style: none; }
+.public-consent-history li { padding: .9rem 0; display: flex; justify-content: space-between; gap: 1rem; border-top: 1px solid var(--io-line); }
+.public-consent-history li > div { min-width: 0; display: grid; gap: .25rem; }
+.public-consent-history li > div:last-child { text-align: right; font-size: .88rem; }
+.public-consent-history small, .public-consent-history__status { color: var(--io-ink-soft); }
+.public-consent-history__warning { margin-top: 1rem; padding: .9rem; display: grid; gap: .35rem; border: 1px solid #c87969; border-radius: var(--io-radius-sm); background: #fff6f2; color: #71372d; }
+.public-consent-history__actions { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: .6rem; }
+.public-consent-history__error { color: #9b2f24; }
+.public-consent-history__message { min-height: 1.5rem; color: var(--io-ocean-800); font-weight: 700; }
 .site-footer { padding: 2.5rem max(1rem, calc((100% - 72rem) / 2)); display: grid; gap: 1rem; color: rgb(255 255 255 / 70%); background: #031f27; }
 .site-footer .io-logo__type small { color: var(--io-seafoam); }
 .site-footer p { max-width: 34rem; line-height: 1.5; }

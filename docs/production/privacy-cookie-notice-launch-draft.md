@@ -28,6 +28,8 @@ No advertising or third-party marketing tracker is enabled at launch. If that ch
 
 Actions: **Save preferences**, **Reject non-essential**, **Erase this browser's privacy data**, and a link to consent history.
 
+Implementation checkpoint (2026-08-26): those actions are now present on the applicable public browser surface, and private Privacy exposes the private host's corresponding history and erasure control. History is browser-subject scoped, newest first and does not render internal receipt or subject identifiers. Erasure is confirmed, announced and restores an undecided optional-purposes-off state without claiming to erase identity, Account, billing or Affiliate records.
+
 ## Full notice outline
 
 Infinite Ocean `[controller legal name and address]` is the controller for the public site, customer application and Affiliate program. Contact `[privacy contact]`; representative/DPO: `[if applicable]`.

@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/conversiontoken"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/memory"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/privacytoken"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsconversion"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/analytics"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/httpapi"
 )
@@ -26,6 +28,7 @@ type privacyMemory struct {
 	mu        sync.Mutex
 	decisions []privacy.Decision
 	events    []analyticsingest.AcceptedEvent
+	owners    map[ids.ConsentSubjectID]ids.UserID
 }
 
 func (m *privacyMemory) Append(_ context.Context, decision privacy.Decision) error {
@@ -79,7 +82,16 @@ func (m *privacyMemory) Erase(_ context.Context, subjectID ids.ConsentSubjectID)
 	return nil
 }
 
-func (m *privacyMemory) Link(_ context.Context, _ ids.ConsentSubjectID, _ ids.UserID, _ time.Time) error {
+func (m *privacyMemory) Link(_ context.Context, subjectID ids.ConsentSubjectID, userID ids.UserID, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.owners == nil {
+		m.owners = make(map[ids.ConsentSubjectID]ids.UserID)
+	}
+	if owner := m.owners[subjectID]; owner != "" && owner != userID {
+		return privacyconsent.ErrSubjectOwned
+	}
+	m.owners[subjectID] = userID
 	return nil
 }
 
@@ -165,6 +177,67 @@ func TestPrivacyConsentGatesAnalyticsAndWithdrawalStopsIngestion(t *testing.T) {
 	handler.ServeHTTP(eraseResponse, erase)
 	if eraseResponse.Code != http.StatusNoContent || len(memory.decisions) != 0 || len(memory.events) != 0 || len(eraseResponse.Result().Cookies()) != 1 || eraseResponse.Result().Cookies()[0].MaxAge != -1 {
 		t.Fatalf("erase status=%d decisions=%d events=%d cookies=%+v", eraseResponse.Code, len(memory.decisions), len(memory.events), eraseResponse.Result().Cookies())
+	}
+}
+
+func TestPrivateConsentHistoryReplacesSubjectOwnedByDifferentUser(t *testing.T) {
+	now := time.Date(2026, 8, 25, 18, 0, 0, 0, time.UTC)
+	memoryRepository := &privacyMemory{}
+	privacyIDs := &sequenceIDs{values: []string{
+		"10000000-0000-4000-8000-000000000061", "10000000-0000-4000-8000-000000000062",
+		"10000000-0000-4000-8000-000000000063", "10000000-0000-4000-8000-000000000064",
+	}}
+	consent, _ := privacyconsent.New(memoryRepository, privacyIDs, privacyClock{now}, 1)
+	ingestion, _ := analyticsingest.New(memoryRepository, privacySink{memoryRepository}, analytics.LaunchRegistry(), privacyClock{now}, 1)
+	first, err := consent.Set(context.Background(), privacyconsent.SetCommand{Surface: privacy.SurfacePrivate, Analytics: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstUser := ids.UserID("20000000-0000-4000-8000-000000000061")
+	secondUser := ids.UserID("20000000-0000-4000-8000-000000000062")
+	if err := consent.Link(context.Background(), first.SubjectID, firstUser); err != nil {
+		t.Fatal(err)
+	}
+	tokens, _ := privacytoken.New([]byte("0123456789abcdef0123456789abcdef"))
+	privacyReference, err := tokens.Sign(privacy.PreferenceReference{SubjectID: first.SubjectID, PolicyVersion: first.PolicyVersion, Surface: first.Surface})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionStore := memory.NewSessionStore()
+	sessionIDs := &sequenceIDs{values: []string{"30000000-0000-4000-8000-000000000061"}}
+	sessionService, _ := sessions.NewService(sessionStore, sessionIDs, privacyClock{now}, 24*time.Hour, 2*time.Hour, time.Hour)
+	issued, err := sessionService.Issue(context.Background(), secondUser, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := httpapi.NewServer(nil, nil, nil, false, slog.Default(),
+		httpapi.WithAuthentication(nil, sessionService, httpapi.SessionCookie{Name: "spyglass_test_session", Secure: true}),
+		httpapi.WithPrivacy(consent, ingestion, tokens, httpapi.PrivacyHTTPConfig{
+			PublicOrigin: "https://web.example.test", AppOrigin: "https://app.example.test", CookieName: "spyglass_test_privacy", Secure: true,
+		})).Handler()
+
+	request := httptest.NewRequest(http.MethodGet, "https://app.example.test/api/v1/privacy/consent/history", nil)
+	request.AddCookie(&http.Cookie{Name: "spyglass_test_privacy", Value: privacyReference})
+	request.AddCookie(&http.Cookie{Name: "spyglass_test_session", Value: issued.Token})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	var history struct {
+		Decisions []privacy.Decision `json:"decisions"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || len(history.Decisions) != 1 {
+		t.Fatalf("history status=%d body=%s", response.Code, response.Body.String())
+	}
+	if history.Decisions[0].SubjectID == first.SubjectID || !history.Decisions[0].Analytics || history.Decisions[0].Marketing {
+		t.Fatalf("history exposed or changed the prior subject: %+v", history.Decisions)
+	}
+	if owner := memoryRepository.owners[history.Decisions[0].SubjectID]; owner != secondUser {
+		t.Fatalf("replacement owner=%s want=%s", owner, secondUser)
+	}
+	if cookies := response.Result().Cookies(); len(cookies) != 1 || cookies[0].Name != "spyglass_test_privacy" {
+		t.Fatalf("replacement cookies=%+v", cookies)
 	}
 }
 

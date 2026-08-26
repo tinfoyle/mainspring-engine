@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { getPrivacyConsent, setPrivacyConsent, type PrivacyConsent } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
-import { nextTick, onMounted, ref } from "vue";
+import { nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useAnalyticsConsent } from "~/composables/useAnalyticsConsent";
 
 const preference = ref<PrivacyConsent>();
@@ -16,6 +16,7 @@ const reopenButton = ref<HTMLButtonElement>();
 const consentState = useAnalyticsConsent();
 
 onMounted(async () => {
+  window.addEventListener("spyglass:privacy-data-erased", handlePrivacyErased);
   try {
     preference.value = await getPrivacyConsent();
     consentState.apply(preference.value);
@@ -27,6 +28,17 @@ onMounted(async () => {
   } finally { ready.value = true; }
 });
 
+onUnmounted(() => window.removeEventListener("spyglass:privacy-data-erased", handlePrivacyErased));
+
+function handlePrivacyErased(): void {
+  preference.value = undefined;
+  analytics.value = false;
+  marketing.value = false;
+  managing.value = false;
+  error.value = "";
+  consentState.failClosed();
+}
+
 async function choose(nextAnalytics: boolean, nextMarketing = false): Promise<void> {
   const previous = preference.value;
   saving.value = true;
@@ -37,6 +49,7 @@ async function choose(nextAnalytics: boolean, nextMarketing = false): Promise<vo
     analytics.value = preference.value.analytics;
     marketing.value = preference.value.marketing;
     managing.value = false;
+    window.dispatchEvent(new Event("spyglass:privacy-choice-saved"));
     await nextTick();
     reopenButton.value?.focus();
   } catch {
@@ -69,6 +82,7 @@ async function openPreferences(): Promise<void> {
     <div v-if="managing" class="consent__options">
       <label><span><strong>Analytics</strong><small>Content-free journey events</small></span><input v-model="analytics" type="checkbox" /></label>
       <label><span><strong>Marketing</strong><small>Unused at launch</small></span><input v-model="marketing" type="checkbox" /></label>
+      <a class="consent__history-link" href="/privacy#consent-history">View this browser's consent history</a>
     </div>
     <div class="consent__actions">
       <IoButton v-if="managing" :disabled="saving" @click="choose(analytics, marketing)">Save preferences</IoButton>

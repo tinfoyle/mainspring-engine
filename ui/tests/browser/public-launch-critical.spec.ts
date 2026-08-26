@@ -4,6 +4,9 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 interface PublicAPIState {
   readonly analyticsEvents: Array<{ name: string; fields?: Record<string, string> }>;
   readonly unhandled: string[];
+  currentConsent: Record<string, unknown>;
+  readonly privacyDecisions: Array<Record<string, unknown>>;
+  erasures: number;
 }
 
 const undecidedConsent = {
@@ -38,31 +41,55 @@ function fulfillJSON(route: Route, body: unknown, status = 200) {
 }
 
 async function installPublicAPI(page: Page): Promise<PublicAPIState> {
-  const analyticsEvents: PublicAPIState["analyticsEvents"] = [];
-  const unhandled: string[] = [];
+  const state: PublicAPIState = {
+    analyticsEvents: [],
+    unhandled: [],
+    currentConsent: { ...undecidedConsent },
+    privacyDecisions: [],
+    erasures: 0
+  };
   await page.route("http://127.0.0.1:4174/api/v1/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     if (path === "/api/v1/privacy/consent") {
       if (request.method() === "PUT") {
         const selection = request.postDataJSON() as { analytics: boolean; marketing: boolean };
-        await fulfillJSON(route, {
+        state.currentConsent = {
           ...undecidedConsent,
           ...selection,
           decided: true,
+          effective_at: "2026-08-25T12:00:00Z"
+        };
+        state.privacyDecisions.unshift({
           decision_id: "10000000-0000-4000-8000-000000000001",
+          subject_id: "10000000-0000-4000-8000-000000000002",
+          policy_version: 1,
+          surface: "public",
+          ...selection,
           effective_at: "2026-08-25T12:00:00Z"
         });
-      } else await fulfillJSON(route, undecidedConsent);
+        await fulfillJSON(route, state.currentConsent);
+      } else await fulfillJSON(route, state.currentConsent);
+      return;
+    }
+    if (path === "/api/v1/privacy/consent/history") {
+      await fulfillJSON(route, { decisions: state.privacyDecisions });
+      return;
+    }
+    if (path === "/api/v1/privacy/data" && request.method() === "DELETE") {
+      state.currentConsent = { ...undecidedConsent };
+      state.privacyDecisions.splice(0);
+      state.erasures += 1;
+      await route.fulfill({ status: 204, body: "" });
       return;
     }
     if (path === "/api/v1/analytics/events") {
       const event = request.postDataJSON() as { name: string; fields?: Record<string, string> };
-      analyticsEvents.push({ name: event.name, fields: event.fields });
+      state.analyticsEvents.push({ name: event.name, fields: event.fields });
       await fulfillJSON(route, {}, 202);
       return;
     }
-    unhandled.push(`${request.method()} ${path}`);
+    state.unhandled.push(`${request.method()} ${path}`);
     await fulfillJSON(route, { title: "Synthetic public browser route missing", status: 501 }, 501);
   });
   await page.route("http://127.0.0.1:4173/signup**", (route) => route.fulfill({
@@ -70,7 +97,7 @@ async function installPublicAPI(page: Page): Promise<PublicAPIState> {
     contentType: "text/html",
     body: "<!doctype html><html lang=en><title>Synthetic signup handoff</title><body><main><h1>Signup handoff received</h1></main></body></html>"
   }));
-  return { analyticsEvents, unhandled };
+  return state;
 }
 
 async function expectAccessible(page: Page): Promise<void> {
@@ -189,6 +216,43 @@ test("complete feature and policy inventory remains rendered, private, and acces
       expect(state.analyticsEvents, `${route.path} emitted before an analytics decision`).toEqual([]);
     });
   }
+});
+
+test("public consent history is inspectable and browser erasure reopens equal choices", async ({ page }) => {
+  state.currentConsent = {
+    ...undecidedConsent,
+    analytics: true,
+    decided: true,
+    effective_at: "2026-08-25T11:00:00Z"
+  };
+  state.privacyDecisions.push({
+    decision_id: "12000000-0000-4000-8000-000000000012",
+    subject_id: "13000000-0000-4000-8000-000000000013",
+    policy_version: 1,
+    surface: "public",
+    analytics: true,
+    marketing: false,
+    effective_at: "2026-08-25T11:00:00Z"
+  });
+
+  await page.goto("http://127.0.0.1:4174/privacy#consent-history");
+  const history = page.getByRole("region", { name: "This browser's consent history" });
+  await expect(history).toContainText("Analytics accepted");
+  await expect(history).toContainText("Marketing rejected");
+  await expect(history).not.toContainText("12000000-0000-4000-8000-000000000012");
+  await expect(history).not.toContainText("13000000-0000-4000-8000-000000000013");
+  await history.getByRole("button", { name: "Erase this browser's privacy data" }).click();
+  await expect(history).toContainText("Your login, Accounts, billing and Affiliate records are not affected");
+  await history.getByRole("button", { name: "Confirm public-site data erasure" }).click();
+
+  await expect(history).toContainText("public-site consent receipts and raw analytics were erased");
+  await expect(history).toContainText("No saved public-site consent decision exists");
+  await expect(page.getByRole("button", { name: "Accept analytics" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reject non-essential" })).toBeVisible();
+  expect(state.erasures).toBe(1);
+  expect(state.analyticsEvents).toEqual([]);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
 });
 
 test("@text-zoom public acquisition remains usable at 200% text size", async ({ page }) => {

@@ -71,6 +71,7 @@ main { min-width: 0; }
 .rights-history li { padding: .9rem 0; display: flex; align-items: start; justify-content: space-between; gap: 1rem; border-top: 1px solid #e8eeeb; }
 .rights-history li > div:first-child { min-width: 0; display: grid; gap: .3rem; }
 .rights-history small { color: var(--io-ink-soft); line-height: 1.4; }
+.consent-decision { display: grid; gap: .3rem; text-align: right; font-size: .86rem; }
 .rights-state { flex: 0 0 auto; display: grid; justify-items: end; gap: .35rem; }
 .rights-state > span { padding: .4rem .6rem; border-radius: 999px; color: var(--io-ocean-800); background: var(--io-sky); font-size: .7rem; font-weight: 800; text-transform: uppercase; }
 .rights-state > span[data-state="declined"], .rights-state > span[data-state="canceled"] { color: var(--io-ink-soft); background: #ece9e1; }

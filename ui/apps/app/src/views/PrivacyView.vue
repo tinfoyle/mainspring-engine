@@ -4,10 +4,12 @@ import {
   cancelPrivacyRightsRequest,
   erasePrivacyData,
   getPrivacyConsent,
+  getPrivacyConsentHistory,
   listPrivacyRightsRequests,
   setPrivacyConsent,
   submitPrivacyRightsRequest,
   type PrivacyConsent,
+  type PrivacyDecision,
   type PrivacyRightsKind,
   type PrivacyRightsRequest,
   type PrivacyRightsScope
@@ -19,6 +21,7 @@ import { useSafeNavigation } from "../composables/useSafeNavigation";
 
 const route = useRoute();
 const preference = ref<PrivacyConsent>();
+const consentHistory = ref<ReadonlyArray<PrivacyDecision>>([]);
 const analytics = ref(false);
 const marketing = ref(false);
 const requests = ref<ReadonlyArray<PrivacyRightsRequest>>([]);
@@ -32,6 +35,7 @@ const confirmingBrowserErase = ref(false);
 const erasingBrowserData = ref(false);
 const message = ref("");
 const errorMessage = ref("");
+const historyError = ref("");
 const navigationNotice = ref("");
 
 const openEquivalent = computed(() => requests.value.some((request) =>
@@ -70,8 +74,18 @@ onMounted(async () => {
   }
   if (rightsResult.status === "fulfilled") requests.value = rightsResult.value.requests;
   else errorMessage.value ||= "Privacy rights request history is temporarily unavailable.";
+  await refreshConsentHistory();
   loading.value = false;
 });
+
+async function refreshConsentHistory(): Promise<void> {
+  historyError.value = "";
+  try {
+    consentHistory.value = (await getPrivacyConsentHistory()).decisions;
+  } catch {
+    historyError.value = "Consent history is temporarily unavailable. Your current preference still applies.";
+  }
+}
 
 async function save(): Promise<void> {
   if (saving.value) return;
@@ -85,6 +99,7 @@ async function save(): Promise<void> {
     analytics.value = preference.value.analytics;
     marketing.value = preference.value.marketing;
     message.value = "Your privacy preferences were saved.";
+    void refreshConsentHistory();
   } catch (error) {
     analytics.value = previous?.analytics ?? false;
     marketing.value = previous?.marketing ?? false;
@@ -113,6 +128,8 @@ async function eraseBrowserSubject(): Promise<void> {
     analytics.value = false;
     marketing.value = false;
     preference.value = undefined;
+    consentHistory.value = [];
+    historyError.value = "";
     confirmingBrowserErase.value = false;
     message.value = "This browser's privacy receipt and raw analytics were erased.";
   } catch (error) {
@@ -188,6 +205,18 @@ function date(value: string): string {
         <label class="preference-row"><span><strong>Analytics</strong><small>First-party, content-free journey and usability events.</small></span><input v-model="analytics" type="checkbox" /></label>
         <label class="preference-row"><span><strong>Marketing</strong><small>No marketing tracker or processor is configured at launch.</small></span><input v-model="marketing" type="checkbox" /></label>
         <div class="preference-actions"><IoButton type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save preferences" }}</IoButton><IoButton kind="secondary" :disabled="saving" @click="rejectNonEssential">{{ saving ? "Saving…" : "Reject non-essential" }}</IoButton></div>
+        <section class="rights-history consent-history" aria-labelledby="consent-history-heading">
+          <h3 id="consent-history-heading">Consent history</h3>
+          <p class="form-note">Immutable optional-purpose choices saved for this browser are shown newest first. Necessary processing is always listed separately above.</p>
+          <p v-if="historyError" class="form-error" role="alert">{{ historyError }}</p>
+          <p v-else-if="consentHistory.length === 0" class="form-note">No saved consent decision exists for this browser.</p>
+          <ol v-else>
+            <li v-for="decision in consentHistory" :key="decision.decision_id">
+              <div><strong>{{ date(decision.effective_at) }}</strong><small>Policy {{ decision.policy_version }} · {{ label(decision.surface) }} surface</small></div>
+              <div class="consent-decision"><span>Analytics {{ decision.analytics ? "accepted" : "rejected" }}</span><span>Marketing {{ decision.marketing ? "accepted" : "rejected" }}</span></div>
+            </li>
+          </ol>
+        </section>
       </form>
 
       <section class="rights-panel" aria-labelledby="rights-heading">

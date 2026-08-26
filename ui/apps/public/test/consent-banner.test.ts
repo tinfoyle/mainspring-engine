@@ -68,6 +68,7 @@ describe("public consent banner", () => {
     await wrapper.vm.$nextTick();
     const options = wrapper.findAll<HTMLInputElement>(".consent__options input");
     expect(options).toHaveLength(2);
+    expect(wrapper.get('a[href="/privacy#consent-history"]').text()).toContain("consent history");
     expect(document.activeElement).toBe(options[0]?.element);
     await options[0]?.setValue(true);
     await button(wrapper, "Save preferences").trigger("click");
@@ -86,6 +87,19 @@ describe("public consent banner", () => {
     await flushPromises();
     expect(wrapper.get('[role="alert"]').text()).toContain("Optional tracking remains off");
     expect(button(wrapper, "Accept analytics").attributes("disabled")).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it("reopens equal first-layer choices after browser privacy data is erased", async () => {
+    api.getPrivacyConsent.mockResolvedValue(decided);
+    const wrapper = mount(ConsentBanner, { attachTo: document.body });
+    await flushPromises();
+    expect(button(wrapper, "Privacy choices")).toBeTruthy();
+
+    window.dispatchEvent(new Event("spyglass:privacy-data-erased"));
+    await wrapper.vm.$nextTick();
+    expect(button(wrapper, "Accept analytics").classes()).toContain("io-button--secondary");
+    expect(button(wrapper, "Reject non-essential").classes()).toContain("io-button--secondary");
     wrapper.unmount();
   });
 });

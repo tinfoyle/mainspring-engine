@@ -164,7 +164,23 @@ func (s *Server) getPrivacyConsentHistory(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusOK, map[string]any{"decisions": []privacy.Decision{}})
 		return
 	}
-	decisions, err := s.privacyConsent.History(r.Context(), claims.SubjectID)
+	current, err := s.privacyConsent.Current(r.Context(), claims.SubjectID, surface)
+	if errors.Is(err, privacyconsent.ErrNotFound) {
+		writeJSON(w, http.StatusOK, map[string]any{"decisions": []privacy.Decision{}})
+		return
+	}
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy history is temporarily unavailable")
+		return
+	}
+	current, replaced, ok := s.linkPrivatePrivacySubject(w, r, current)
+	if !ok {
+		return
+	}
+	if replaced && !s.setPrivacyReferenceCookie(w, current) {
+		return
+	}
+	decisions, err := s.privacyConsent.History(r.Context(), current.SubjectID)
 	if err != nil {
 		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy history is temporarily unavailable")
 		return

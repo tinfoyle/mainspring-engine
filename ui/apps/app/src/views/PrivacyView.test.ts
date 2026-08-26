@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   cancelPrivacyRightsRequest: vi.fn(),
   erasePrivacyData: vi.fn(),
   getPrivacyConsent: vi.fn(),
+  getPrivacyConsentHistory: vi.fn(),
   listPrivacyRightsRequests: vi.fn(),
   setPrivacyConsent: vi.fn(),
   submitPrivacyRightsRequest: vi.fn()
@@ -36,6 +37,15 @@ const rightsRequest = {
   updated_at: "2026-08-25T12:00:00Z",
   verified_at: "2026-08-25T12:00:00Z"
 };
+const consentDecision = {
+  decision_id: "12000000-0000-4000-8000-000000000012",
+  subject_id: "13000000-0000-4000-8000-000000000013",
+  policy_version: 1,
+  surface: "private" as const,
+  analytics: true,
+  marketing: false,
+  effective_at: "2026-08-25T11:00:00Z"
+};
 
 async function mountView() {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/privacy", component: PrivacyView }] });
@@ -49,6 +59,7 @@ async function mountView() {
 
 beforeEach(() => {
   api.getPrivacyConsent.mockReset().mockResolvedValue(consent);
+  api.getPrivacyConsentHistory.mockReset().mockResolvedValue({ decisions: [consentDecision] });
   api.listPrivacyRightsRequests.mockReset().mockResolvedValue({ requests: [] });
   api.setPrivacyConsent.mockReset().mockResolvedValue({ ...consent, analytics: false, marketing: false });
   api.submitPrivacyRightsRequest.mockReset();
@@ -57,6 +68,17 @@ beforeEach(() => {
 });
 
 describe("privacy controls", () => {
+  it("shows this browser's immutable consent history without exposing internal identifiers", async () => {
+    const wrapper = await mountView();
+    const history = wrapper.get(".consent-history");
+    expect(history.text()).toContain("Consent history");
+    expect(history.text()).toContain("Analytics accepted");
+    expect(history.text()).toContain("Marketing rejected");
+    expect(history.text()).toContain("Policy 1 · Private surface");
+    expect(history.text()).not.toContain(consentDecision.decision_id);
+    expect(history.text()).not.toContain(consentDecision.subject_id);
+  });
+
   it("offers equal rejection and persists both optional purposes as disabled", async () => {
     const wrapper = await mountView();
     const toggles = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]');
@@ -68,6 +90,7 @@ describe("privacy controls", () => {
 
     expect(api.setPrivacyConsent).toHaveBeenCalledWith({ analytics: false, marketing: false });
     expect(api.setPrivacyConsent).toHaveBeenCalledOnce();
+    expect(api.getPrivacyConsentHistory).toHaveBeenCalledTimes(2);
     expect(wrapper.text()).toContain("Your privacy preferences were saved.");
   });
 

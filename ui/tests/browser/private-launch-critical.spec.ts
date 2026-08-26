@@ -342,7 +342,15 @@ async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
       return;
     }
     if (path === "/api/v1/privacy/consent/history") {
-      await fulfillJSON(route, { decisions: [] });
+      await fulfillJSON(route, { decisions: [{
+        decision_id: "12000000-0000-4000-8000-000000000012",
+        subject_id: "13000000-0000-4000-8000-000000000013",
+        policy_version: 1,
+        surface: "private",
+        analytics: true,
+        marketing: false,
+        effective_at: "2026-08-25T11:00:00Z"
+      }] });
       return;
     }
     if (path === "/api/v1/privacy/rights-requests") {
@@ -933,6 +941,11 @@ test("GDPR controls expose equal rejection and verified rights boundaries", asyn
   await page.goto("/app/privacy");
   await expect(page.getByRole("heading", { level: 1, name: "Privacy you can act on." })).toBeVisible();
   await expect(page.getByRole("button", { name: "Reject non-essential" })).toBeVisible();
+  const consentHistory = page.getByRole("region", { name: "Consent history" });
+  await expect(consentHistory).toContainText("Analytics accepted");
+  await expect(consentHistory).toContainText("Marketing rejected");
+  await expect(consentHistory).not.toContainText("12000000-0000-4000-8000-000000000012");
+  await expect(consentHistory).not.toContainText("13000000-0000-4000-8000-000000000013");
   await expect(page.getByRole("heading", { name: "Make a tracked request" })).toBeVisible();
   await page.getByRole("button", { name: "Reject non-essential" }).click();
   await expect(page.getByText("Your privacy preferences were saved.")).toBeVisible();
