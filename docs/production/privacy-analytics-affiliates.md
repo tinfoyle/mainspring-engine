@@ -146,7 +146,7 @@ Before release, analytics must join:
 - The Affiliate is a distinct commercial aggregate bound to the responsible User and, when required for billing-credit settlement, one owned Spyglass Account.
 - Enrollment records accepted affiliate-terms version, program/rule version, state, generated public code, creation time and suspension/closure history.
 - Public codes are case-insensitive, human-enterable, unique and replaceable for future referrals. A replaced or suspended code cannot affect an attribution already locked to a subscription.
-- Replacement requires recent passkey confirmation and the exact current enrollment version. A retired code is kept in immutable no-reuse history, immediately stops new lookup and can never be issued again; existing locked attributions and ledger entries remain bound to their original opaque attribution.
+- Replacement requires recent passkey confirmation and the exact current enrollment version. During the approved retention period, a retired code is kept in immutable no-reuse history, immediately stops new lookup and can never be issued again; existing locked attributions and ledger entries remain bound to their original opaque attribution. At retention expiry, its readable value and Affiliate/User link are erased while an irreversible identity-free fingerprint continues the permanent non-reuse control.
 - Affiliate terms require truthful claims and clear, conspicuous disclosure that the Affiliate earns recurring value from qualifying purchases.
 
 ### 6.2 Referral capture
@@ -224,7 +224,7 @@ The immutable earning ledger remains independent of settlement. The UI cannot pr
 
 Launch Affiliate enrollment is limited to U.S. persons and entities with a valid U.S. mailing address and approved U.S. payer tax documentation. Referred customers remain geographically unrestricted by this Affiliate-enrollment boundary. Tax-document collection, validation, withholding and reporting remain external Support/accounting procedure; Spyglass does not ingest tax forms or implement a tax-verification workflow. International Affiliate enrollment requires a later terms version and reviewed foreign-payee, withholding, treaty, local advertising-disclosure and check-delivery procedure.
 
-Affiliate terms acceptance, earnings, reversals, billing-credit applications, check settlements and related audit evidence are retained for seven years after the later of Affiliate closure or the final settlement, reversal or tax-relevant transaction. Identifiable commercial records are then deleted or irreversibly minimized unless a documented legal hold applies. The retired-code no-reuse tombstone requires a separate minimization decision because its uniqueness purpose outlives the identifiable commercial ledger.
+Affiliate terms acceptance, earnings, reversals, billing-credit applications, check settlements and related audit evidence are retained for seven years after the later of Affiliate closure or the final settlement, reversal or tax-relevant transaction. Identifiable commercial records are then deleted or irreversibly minimized unless a documented legal hold applies. At that deadline, readable retired codes and their Affiliate/User linkage are erased. A protected irreversible, identity-free fingerprint is retained permanently only to prevent reissue; it cannot be used to recover the code or identify the former Affiliate.
 
 ## 8. Construction and acceptance order
 

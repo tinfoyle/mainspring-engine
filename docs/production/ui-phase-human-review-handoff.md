@@ -56,7 +56,8 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** suspension stops new code use and attribution but existing locked subscriptions continue earning and maturing. Customer subscriptions are unaffected; history and appeal access remain;
 - **Decided 2026-08-26:** permanent closure stops future attribution/earnings, expires the final pending earning through immutable void evidence, and preserves already available credit. Customers and prior available earnings are unaffected;
 - **Decided 2026-08-26:** Affiliate financial/audit records are retained seven years after the later of closure or final settlement, reversal or tax-relevant transaction, then deleted or irreversibly minimized unless legal hold applies; and
-- retired-code no-reuse minimization and remaining data-right limitations.
+- **Decided 2026-08-26:** after the seven-year retention window, erase readable retired Affiliate codes and their Affiliate/User linkage; retain only a protected irreversible identity-free fingerprint permanently to prevent code reuse;
+- remaining data-right limitations.
 
 Until approval, retain:
 
@@ -130,6 +131,7 @@ Affiliate launch jurisdiction: U.S. persons/entities with valid U.S. mailing add
 Suspension: stop new attribution only; preserve existing-subscription earnings, customers, history and appeal (owner decision 2026-08-26)
 Permanent closure: stop future earnings, void final pending, retain available credit, never affect customers or claw back available value (owner decision 2026-08-26)
 Affiliate financial retention: seven years after later of closure or final tax-relevant ledger activity, then delete/minimize absent legal hold (owner decision 2026-08-26)
+Retired Affiliate codes: after retention expiry erase readable code and Affiliate/User link; retain only an irreversible identity-free fingerprint for permanent non-reuse (owner decision 2026-08-26)
 Affiliate terms version:
 Affiliate rule version:
 Privacy processing-registry revision:
