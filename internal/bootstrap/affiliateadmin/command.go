@@ -50,6 +50,28 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 	switch config.Action {
 	case "inspect":
 		enrollment, err = service.Inspect(ctx, config.AffiliateID, config.Actor, config.Reason, config.Environment)
+	case "inspect-risk":
+		var risk application.RiskSummary
+		risk, err = service.InspectRisk(ctx, config.AffiliateID, config.Actor, config.Reason, config.Environment)
+		if err == nil {
+			flags := risk.Flags()
+			flagNames := make([]string, len(flags))
+			for index := range flags {
+				flagNames[index] = string(flags[index])
+			}
+			logger.Info("Spyglass Affiliate risk inspection complete", "action", config.Action,
+				"affiliate_id", risk.AffiliateID, "enrollment_version", risk.EnrollmentVersion,
+				"state", risk.EnrollmentState, "environment", config.Environment, "actor", config.Actor,
+				"observed_at", risk.ObservedAt, "reservation_window_started_at", risk.ReservationWindowStartedAt,
+				"valid_reservations", risk.ValidReservations, "distinct_referred_accounts", risk.DistinctReferredAccounts,
+				"repeated_referred_accounts", risk.RepeatedReferredAccounts,
+				"maximum_reservations_per_account", risk.MaximumReservationsPerAccount,
+				"cross_affiliate_code_cycle_accounts", risk.CrossAffiliateCodeCycleAccounts,
+				"locked_attributions", risk.LockedAttributions,
+				"largest_account_share_basis_points", risk.LargestAccountShareBasisPoints,
+				"code_replacement_window_started_at", risk.CodeReplacementWindowStartedAt,
+				"code_replacements", risk.CodeReplacements, "risk_flags", flagNames)
+		}
 	case "activate", "suspend", "close":
 		state := map[string]affiliates.EnrollmentState{"activate": affiliates.EnrollmentActive,
 			"suspend": affiliates.EnrollmentSuspended, "close": affiliates.EnrollmentClosed}[config.Action]
@@ -60,6 +82,9 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 	}
 	if err != nil {
 		return err
+	}
+	if config.Action == "inspect-risk" {
+		return nil
 	}
 	logger.Info("Spyglass Affiliate operator action complete", "action", config.Action, "affiliate_id", enrollment.ID,
 		"enrollment_version", enrollment.Version, "state", enrollment.State, "environment", config.Environment, "actor", config.Actor)
@@ -72,7 +97,7 @@ func validateConfig(config Config, logger *slog.Logger) error {
 		return application.ErrInvalidChange
 	}
 	switch config.Action {
-	case "inspect":
+	case "inspect", "inspect-risk":
 		if config.ExpectedVersion != 0 {
 			return application.ErrInvalidChange
 		}
@@ -81,7 +106,7 @@ func validateConfig(config Config, logger *slog.Logger) error {
 			return application.ErrInvalidChange
 		}
 	default:
-		return errors.New("Affiliate admin action must be inspect, activate, suspend, or close")
+		return errors.New("Affiliate admin action must be inspect, inspect-risk, activate, suspend, or close")
 	}
 	return nil
 }

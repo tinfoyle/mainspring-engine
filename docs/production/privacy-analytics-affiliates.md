@@ -198,6 +198,8 @@ The customer dashboard offers only a structured enrollment appeal or a review bo
 - Program suspension stops new attribution while preserving earned/reversed ledger history and referred-customer subscriptions.
 - Affiliate identity, terms acceptance, tax/payout material and earnings are personal/commercial data with explicit retention, access, erasure limitations and legal-hold rules.
 
+Local abuse-review checkpoint (2026-08-26): the execute-only Affiliate operator boundary now exposes an audited `inspect-risk` action with only 24-hour reservation aggregates, 30-day code-replacement aggregates and documented deterministic review flags. It returns no referred-customer, public-code, Checkout or provider identifiers and has no authority to suspend automatically. Rejected-validation rate limiting remains a separate serving-edge control.
+
 ## 7. Settlement decision required
 
 Before affiliate implementation reaches payout/credit acceptance, the release owner must choose one launch settlement:

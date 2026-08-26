@@ -29,6 +29,7 @@ Every reversal is a new settled ledger entry bound to the original earning. The 
 `affiliate-admin` is a short-lived operator job, not a serving process. Its actions are:
 
 - `inspect`: record a content-free inspection without changing the enrollment version;
+- `inspect-risk`: record an inspection and return only content-free aggregate risk signals for manual review;
 - `suspend`: stop new code attribution while preserving locked attributions and ledger history;
 - `activate`: reactivate a suspended enrollment at the exact current version; and
 - `close`: terminally close an enrollment. Closure cannot be reversed.
@@ -54,11 +55,26 @@ CREATE ROLE spyglass_affiliate_operator NOLOGIN;
 GRANT USAGE ON SCHEMA public TO spyglass_affiliate_operator;
 GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_enrollment(uuid,uuid,text,text,text)
   TO spyglass_affiliate_operator;
+GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_risk(uuid,uuid,text,text,text)
+  TO spyglass_affiliate_operator;
 GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text)
   TO spyglass_affiliate_operator;
 ```
 
 Do not grant this role direct access to `affiliate_enrollments`, `affiliate_enrollment_events`, the attribution tables, or the commission ledger. Workload identity maps this logical permission to `global.affiliate-operator`; no standing operator deployment is required.
+
+### Content-free risk review
+
+`inspect-risk` writes a distinct immutable `risk_inspected` lifecycle event, then summarizes valid referral reservations in the preceding 24 hours and public-code replacements in the preceding 30 days. It returns the enrollment state/version, observation windows, reservation and distinct-account counts, repeated-account count, maximum reservations associated with one Account, aggregate cross-Affiliate code-cycling count, locked-attribution count, largest Account share in basis points, code-replacement count, and deterministic review flags. It never returns a referred Account or User ID, a public code, Checkout ID, Stripe/provider identifier, or customer content.
+
+The current manual-review thresholds are:
+
+- repeated Checkout creation: at least three valid reservations for one referred Account in 24 hours;
+- cross-Affiliate code cycling: at least one referred Account has valid reservations with more than one Affiliate in 24 hours;
+- referral concentration: at least ten valid reservations in 24 hours and one Account represents at least 50% of them; and
+- rapid code replacement: at least three retired codes in 30 days.
+
+These are investigation signals, not findings of abuse. The command cannot change enrollment state. A reviewer must evaluate context and use a separate, freshly authorized `suspend` action at the observed enrollment version when that decision is justified. Rejected or invalid code validations do not create an attribution and therefore are not represented in this summary; validation rate limiting remains a separate serving-edge control.
 
 ## Customer appeals and commission reviews
 

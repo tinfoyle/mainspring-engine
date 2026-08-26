@@ -263,6 +263,22 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE affiliate_attributions
+		SET created_at=statement_timestamp()-interval '1 hour',locked_at=statement_timestamp()-interval '30 minutes'
+		WHERE attribution_id=$1`, attribution.ID); err != nil {
+		t.Fatal(err)
+	}
+	risk, err := affiliateAdmin.InspectRisk(ctx, enrollment.ID, "affiliate-operator@example.test",
+		"Review aggregate referral risk evidence", "local")
+	if err != nil || risk.ValidReservations != 1 || risk.DistinctReferredAccounts != 1 ||
+		risk.LockedAttributions != 1 || risk.MaximumReservationsPerAccount != 1 ||
+		risk.LargestAccountShareBasisPoints != 10000 || len(risk.Flags()) != 0 {
+		t.Fatalf("Affiliate risk=%+v flags=%v err=%v", risk, risk.Flags(), err)
+	}
+	var riskInspectionEvents int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM affiliate_enrollment_events WHERE affiliate_id=$1 AND action='risk_inspected'`, enrollment.ID).Scan(&riskInspectionEvents); err != nil || riskInspectionEvents != 1 {
+		t.Fatalf("Affiliate risk inspection events=%d err=%v", riskInspectionEvents, err)
+	}
 	inspected, err := affiliateAdmin.Inspect(ctx, enrollment.ID, "affiliate-operator@example.test",
 		"Review the enrollment before a state change", "local")
 	if err != nil || inspected.Version != enrollment.Version || inspected.State != affiliates.EnrollmentActive {
@@ -295,7 +311,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		t.Fatalf("closed Affiliate transition error=%v", err)
 	}
 	var affiliateEvents int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM affiliate_enrollment_events WHERE affiliate_id=$1`, enrollment.ID).Scan(&affiliateEvents); err != nil || affiliateEvents != 5 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM affiliate_enrollment_events WHERE affiliate_id=$1`, enrollment.ID).Scan(&affiliateEvents); err != nil || affiliateEvents != 6 {
 		t.Fatalf("Affiliate enrollment events=%d err=%v", affiliateEvents, err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE affiliate_enrollment_events SET state='active' WHERE affiliate_id=$1 AND action='closed'`, enrollment.ID); err == nil {
@@ -305,19 +321,26 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	if _, err := pool.Exec(ctx, `CREATE ROLE `+affiliateOperatorRole+` NOLOGIN;
 		GRANT USAGE ON SCHEMA public TO `+affiliateOperatorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_enrollment(uuid,uuid,text,text,text) TO `+affiliateOperatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_risk(uuid,uuid,text,text,text) TO `+affiliateOperatorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text) TO `+affiliateOperatorRole); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
 		_, _ = pool.Exec(context.Background(), `DROP OWNED BY `+affiliateOperatorRole+`; DROP ROLE `+affiliateOperatorRole)
 	}()
-	var affiliateDirectAccess, affiliateInspectAccess, affiliateTransitionAccess bool
+	var affiliateDirectAccess, affiliateAttributionAccess, affiliateCodeHistoryAccess, affiliateInspectAccess, affiliateRiskAccess, affiliateTransitionAccess bool
 	if err := pool.QueryRow(ctx, `SELECT
 		has_table_privilege($1,'public.affiliate_enrollments','SELECT'),
+		has_table_privilege($1,'public.affiliate_attributions','SELECT'),
+		has_table_privilege($1,'public.affiliate_public_code_history','SELECT'),
 		has_function_privilege($1,'public.spyglass_inspect_affiliate_enrollment(uuid,uuid,text,text,text)','EXECUTE'),
+		has_function_privilege($1,'public.spyglass_inspect_affiliate_risk(uuid,uuid,text,text,text)','EXECUTE'),
 		has_function_privilege($1,'public.spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text)','EXECUTE')`, affiliateOperatorRole).Scan(
-		&affiliateDirectAccess, &affiliateInspectAccess, &affiliateTransitionAccess); err != nil || affiliateDirectAccess || !affiliateInspectAccess || !affiliateTransitionAccess {
-		t.Fatalf("Affiliate operator table=%v inspect=%v transition=%v err=%v", affiliateDirectAccess, affiliateInspectAccess, affiliateTransitionAccess, err)
+		&affiliateDirectAccess, &affiliateAttributionAccess, &affiliateCodeHistoryAccess, &affiliateInspectAccess, &affiliateRiskAccess,
+		&affiliateTransitionAccess); err != nil || affiliateDirectAccess || affiliateAttributionAccess || affiliateCodeHistoryAccess ||
+		!affiliateInspectAccess || !affiliateRiskAccess || !affiliateTransitionAccess {
+		t.Fatalf("Affiliate operator enrollment=%v attribution=%v code_history=%v inspect=%v risk=%v transition=%v err=%v",
+			affiliateDirectAccess, affiliateAttributionAccess, affiliateCodeHistoryAccess, affiliateInspectAccess, affiliateRiskAccess, affiliateTransitionAccess, err)
 	}
 
 	supportService, err := affiliatesupport.New(postgresadapter.NewAffiliateSupportRepository(pool), ids.RandomGenerator{}, fixedLifecycleClock{now})

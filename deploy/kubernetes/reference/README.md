@@ -220,7 +220,7 @@ provider credentials. See
 [privacy-rights-operations.md](../../../docs/production/privacy-rights-operations.md).
 
 Affiliate enrollment administration is intentionally absent as a standing
-Deployment. Environments run `spyglass affiliate-admin inspect|activate|suspend|close`
+Deployment. Environments run `spyglass affiliate-admin inspect|inspect-risk|activate|suspend|close`
 as a short-lived, human-authorized Job with an execute-only global database
 role, exact environment confirmation and an exact observed enrollment version
 for every state change. It must not inherit Account API, billing worker, Stripe,

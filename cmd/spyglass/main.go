@@ -461,8 +461,8 @@ func runPrivacyRightsAdmin(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
-	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "activate" && os.Args[2] != "suspend" && os.Args[2] != "close") {
-		return errors.New("usage: spyglass affiliate-admin inspect|activate|suspend|close")
+	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "inspect-risk" && os.Args[2] != "activate" && os.Args[2] != "suspend" && os.Args[2] != "close") {
+		return errors.New("usage: spyglass affiliate-admin inspect|inspect-risk|activate|suspend|close")
 	}
 	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
 	if err != nil {
@@ -494,14 +494,14 @@ func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
 	}
 	config := affiliatecommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Actor: actor, Reason: reason,
 		Environment: environment, ConfirmEnvironment: confirmation, AffiliateID: ids.AffiliateID(affiliateID), MaxDatabaseConns: maxConns}
-	if config.Action != "inspect" {
+	if config.Action != "inspect" && config.Action != "inspect-risk" {
 		config.ExpectedVersion, err = uint64Env("SPYGLASS_AFFILIATE_VERSION")
 		if err != nil {
 			return err
 		}
 	}
 	scopeValues := map[string]string{"affiliate_id": string(config.AffiliateID)}
-	if config.Action != "inspect" {
+	if config.Action != "inspect" && config.Action != "inspect-risk" {
 		scopeValues["expected_version"] = strconv.FormatUint(config.ExpectedVersion, 10)
 	}
 	config.Reason, err = requireOperatorAuthorization(logger, "affiliate-admin", config.Action, config.Actor, config.Reason,
