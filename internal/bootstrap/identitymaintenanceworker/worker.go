@@ -18,35 +18,46 @@ import (
 )
 
 type Config struct {
-	DatabaseURL           string
-	MaxDatabaseConns      int32
-	Interval              time.Duration
-	Retention             time.Duration
-	PruneBatch            int
-	AlertBacklog          uint64
-	AnalyticsRetention    time.Duration
-	AnalyticsPruneBatch   int
-	AnalyticsAlertBacklog uint64
+	DatabaseURL              string
+	MaxDatabaseConns         int32
+	Interval                 time.Duration
+	Retention                time.Duration
+	PruneBatch               int
+	AlertBacklog             uint64
+	AnalyticsRetention       time.Duration
+	AnalyticsPruneBatch      int
+	AnalyticsAlertBacklog    uint64
+	NetworkLimitRetention    time.Duration
+	NetworkLimitPruneBatch   int
+	NetworkLimitAlertBacklog uint64
 }
 
 type Status struct {
-	Total                             uint64 `json:"total_ceremonies"`
-	Eligible                          uint64 `json:"eligible_ceremonies"`
-	OldestEligibleAgeSeconds          int64  `json:"oldest_eligible_age_seconds"`
-	Pruned                            int64  `json:"pruned_ceremonies"`
-	Failures                          uint64 `json:"failures"`
-	Alerting                          bool   `json:"alerting"`
-	TotalAnalyticsEvents              uint64 `json:"total_analytics_events"`
-	EligibleAnalyticsEvents           uint64 `json:"eligible_analytics_events"`
-	OldestEligibleAnalyticsAgeSeconds int64  `json:"oldest_eligible_analytics_age_seconds"`
-	PrunedAnalyticsEvents             int64  `json:"pruned_analytics_events"`
-	AnalyticsFailures                 uint64 `json:"analytics_failures"`
-	AnalyticsAlerting                 bool   `json:"analytics_alerting"`
+	Total                                uint64 `json:"total_ceremonies"`
+	Eligible                             uint64 `json:"eligible_ceremonies"`
+	OldestEligibleAgeSeconds             int64  `json:"oldest_eligible_age_seconds"`
+	Pruned                               int64  `json:"pruned_ceremonies"`
+	Failures                             uint64 `json:"failures"`
+	Alerting                             bool   `json:"alerting"`
+	TotalAnalyticsEvents                 uint64 `json:"total_analytics_events"`
+	EligibleAnalyticsEvents              uint64 `json:"eligible_analytics_events"`
+	OldestEligibleAnalyticsAgeSeconds    int64  `json:"oldest_eligible_analytics_age_seconds"`
+	PrunedAnalyticsEvents                int64  `json:"pruned_analytics_events"`
+	AnalyticsFailures                    uint64 `json:"analytics_failures"`
+	AnalyticsAlerting                    bool   `json:"analytics_alerting"`
+	TotalNetworkActorLimits              uint64 `json:"total_network_actor_limits"`
+	EligibleNetworkActorLimits           uint64 `json:"eligible_network_actor_limits"`
+	OldestEligibleNetworkLimitAgeSeconds int64  `json:"oldest_eligible_network_limit_age_seconds"`
+	PrunedNetworkActorLimits             int64  `json:"pruned_network_actor_limits"`
+	NetworkLimitFailures                 uint64 `json:"network_limit_failures"`
+	NetworkLimitAlerting                 bool   `json:"network_limit_alerting"`
 }
 
 type processor interface {
 	Process(context.Context) (int64, error)
 	Stats(context.Context) (identitymaintenance.Stats, error)
+	ProcessNetworkLimits(context.Context, time.Duration, int) (int64, error)
+	NetworkLimitStats(context.Context, time.Duration) (identitymaintenance.Stats, error)
 }
 
 type analyticsProcessor interface {
@@ -55,19 +66,24 @@ type analyticsProcessor interface {
 }
 
 type Worker struct {
-	pool                  *pgxpool.Pool
-	processor             processor
-	analyticsProcessor    analyticsProcessor
-	interval              time.Duration
-	retention             time.Duration
-	alertBacklog          uint64
-	analyticsRetention    time.Duration
-	analyticsAlertBacklog uint64
-	logger                *slog.Logger
-	pruned                atomic.Int64
-	failures              atomic.Uint64
-	analyticsPruned       atomic.Int64
-	analyticsFailures     atomic.Uint64
+	pool                     *pgxpool.Pool
+	processor                processor
+	analyticsProcessor       analyticsProcessor
+	interval                 time.Duration
+	retention                time.Duration
+	alertBacklog             uint64
+	analyticsRetention       time.Duration
+	analyticsAlertBacklog    uint64
+	networkLimitRetention    time.Duration
+	networkLimitPruneBatch   int
+	networkLimitAlertBacklog uint64
+	logger                   *slog.Logger
+	pruned                   atomic.Int64
+	failures                 atomic.Uint64
+	analyticsPruned          atomic.Int64
+	analyticsFailures        atomic.Uint64
+	networkLimitsPruned      atomic.Int64
+	networkLimitFailures     atomic.Uint64
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
@@ -95,13 +111,25 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 	if config.AnalyticsAlertBacklog == 0 {
 		config.AnalyticsAlertBacklog = 100000
 	}
-	if config.Interval < time.Minute || config.Interval > 24*time.Hour || config.AlertBacklog > 10000000 || config.AnalyticsAlertBacklog > 10000000 {
+	if config.NetworkLimitRetention == 0 {
+		config.NetworkLimitRetention = identitymaintenance.DefaultNetworkLimitRetention
+	}
+	if config.NetworkLimitPruneBatch == 0 {
+		config.NetworkLimitPruneBatch = identitymaintenance.DefaultBatch
+	}
+	if config.NetworkLimitAlertBacklog == 0 {
+		config.NetworkLimitAlertBacklog = 10000
+	}
+	if config.Interval < time.Minute || config.Interval > 24*time.Hour || config.AlertBacklog > 10000000 || config.AnalyticsAlertBacklog > 10000000 || config.NetworkLimitAlertBacklog > 10000000 {
 		return nil, errors.New("identity maintenance schedule or alert threshold is out of bounds")
 	}
 	if err := identitymaintenance.ValidateBounds(config.Retention, config.PruneBatch); err != nil {
 		return nil, err
 	}
 	if err := analyticsretention.ValidateBounds(config.AnalyticsRetention, config.AnalyticsPruneBatch); err != nil {
+		return nil, err
+	}
+	if err := identitymaintenance.ValidateBounds(config.NetworkLimitRetention, config.NetworkLimitPruneBatch); err != nil {
 		return nil, err
 	}
 	poolConfig, err := pgxpool.ParseConfig(config.DatabaseURL)
@@ -129,7 +157,10 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	return &Worker{pool: pool, processor: processor, analyticsProcessor: analyticsProcessor, interval: config.Interval, retention: config.Retention, alertBacklog: config.AlertBacklog, analyticsRetention: config.AnalyticsRetention, analyticsAlertBacklog: config.AnalyticsAlertBacklog, logger: logger}, nil
+	return &Worker{pool: pool, processor: processor, analyticsProcessor: analyticsProcessor, interval: config.Interval,
+		retention: config.Retention, alertBacklog: config.AlertBacklog, analyticsRetention: config.AnalyticsRetention,
+		analyticsAlertBacklog: config.AnalyticsAlertBacklog, networkLimitRetention: config.NetworkLimitRetention,
+		networkLimitPruneBatch: config.NetworkLimitPruneBatch, networkLimitAlertBacklog: config.NetworkLimitAlertBacklog, logger: logger}, nil
 }
 
 func (w *Worker) Run(ctx context.Context) error {
@@ -165,7 +196,30 @@ func (w *Worker) runOnce(ctx context.Context) {
 	} else if count > 0 {
 		w.logger.Info("Pruned passkey ceremonies", "count", count)
 	}
+	w.runNetworkLimitsOnce(ctx)
 	w.runAnalyticsOnce(ctx)
+}
+
+func (w *Worker) runNetworkLimitsOnce(ctx context.Context) {
+	count, err := w.processor.ProcessNetworkLimits(ctx, w.networkLimitRetention, w.networkLimitPruneBatch)
+	if err != nil {
+		w.networkLimitFailures.Add(1)
+		w.logger.Error("Network actor limit retention failed", "error", err)
+		return
+	}
+	w.networkLimitsPruned.Add(count)
+	stats, err := w.processor.NetworkLimitStats(ctx, w.networkLimitRetention)
+	if err != nil {
+		w.networkLimitFailures.Add(1)
+		w.logger.Error("Network actor limit retention stats failed", "error", err)
+		return
+	}
+	if stats.Eligible >= w.networkLimitAlertBacklog || stats.OldestEligibleAge > 2*w.networkLimitRetention {
+		w.logger.Warn("Network actor limit retention backlog is abnormal", "eligible", stats.Eligible,
+			"oldest_eligible_age_seconds", int64(stats.OldestEligibleAge/time.Second))
+	} else if count > 0 {
+		w.logger.Info("Pruned network actor limits", "count", count)
+	}
 }
 
 func (w *Worker) runAnalyticsOnce(ctx context.Context) {
@@ -203,9 +257,17 @@ func (w *Worker) Status(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	networkStats, err := w.processor.NetworkLimitStats(ctx, w.networkLimitRetention)
+	if err != nil {
+		return nil, err
+	}
 	return Status{
 		Total: stats.Total, Eligible: stats.Eligible, OldestEligibleAgeSeconds: int64(stats.OldestEligibleAge / time.Second), Pruned: w.pruned.Load(), Failures: w.failures.Load(), Alerting: stats.Eligible >= w.alertBacklog || stats.OldestEligibleAge > 2*w.retention,
 		TotalAnalyticsEvents: analyticsStats.Total, EligibleAnalyticsEvents: analyticsStats.Eligible, OldestEligibleAnalyticsAgeSeconds: int64(analyticsStats.OldestEligibleAge / time.Second), PrunedAnalyticsEvents: w.analyticsPruned.Load(), AnalyticsFailures: w.analyticsFailures.Load(), AnalyticsAlerting: analyticsStats.Eligible >= w.analyticsAlertBacklog || analyticsStats.OldestEligibleAge > 2*w.analyticsRetention,
+		TotalNetworkActorLimits: networkStats.Total, EligibleNetworkActorLimits: networkStats.Eligible,
+		OldestEligibleNetworkLimitAgeSeconds: int64(networkStats.OldestEligibleAge / time.Second),
+		PrunedNetworkActorLimits:             w.networkLimitsPruned.Load(), NetworkLimitFailures: w.networkLimitFailures.Load(),
+		NetworkLimitAlerting: networkStats.Eligible >= w.networkLimitAlertBacklog || networkStats.OldestEligibleAge > 2*w.networkLimitRetention,
 	}, nil
 }
 

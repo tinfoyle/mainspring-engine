@@ -74,7 +74,9 @@ The current manual-review thresholds are:
 - referral concentration: at least ten valid reservations in 24 hours and one Account represents at least 50% of them; and
 - rapid code replacement: at least three retired codes in 30 days.
 
-These are investigation signals, not findings of abuse. The command cannot change enrollment state. A reviewer must evaluate context and use a separate, freshly authorized `suspend` action at the observed enrollment version when that decision is justified. Rejected or invalid code validations do not create an attribution and therefore are not represented in this summary; validation rate limiting remains a separate serving-edge control.
+These are investigation signals, not findings of abuse. The command cannot change enrollment state. A reviewer must evaluate context and use a separate, freshly authorized `suspend` action at the observed enrollment version when that decision is justified. Rejected or invalid code validations do not create an attribution and therefore are not represented in this summary.
+
+Checkout applies a separate distributed validation budget before Affiliate code lookup: twenty code-bearing attempts per rolling 15-minute window. The rate-limit key is a one-way digest of the already pseudonymized network actor plus Account ID; neither an IP address, Account ID nor submitted code is stored in the limiter. Account scoping avoids one shared network consuming another Account's budget. Exhaustion fails before code lookup or Stripe access with `429 affiliate_code_rate_limited` and `Retry-After: 900`; missing network identity or limiter failure fails closed as billing unavailable. Code-free Checkout does not consume this budget. The restore-gated identity-maintenance worker removes stale limiter rows after 24 hours in bounded, replica-safe batches and exposes only aggregate retention status.
 
 ## Customer appeals and commission reviews
 

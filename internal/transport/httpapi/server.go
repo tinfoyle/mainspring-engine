@@ -670,7 +670,10 @@ func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	session, err := s.commercialAccess.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, OfferCode: input.OfferCode, AffiliateCode: input.AffiliateCode, RequestID: r.Header.Get("Idempotency-Key")})
+	networkActor, _ := networkactor.FromContext(r.Context())
+	session, err := s.commercialAccess.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID,
+		Session: authenticated.Session, AccountID: accountID, OfferCode: input.OfferCode, AffiliateCode: input.AffiliateCode,
+		RequestID: r.Header.Get("Idempotency-Key"), NetworkActor: networkActor})
 	if err != nil {
 		s.writeCommercialError(w, err)
 		return
@@ -735,6 +738,9 @@ func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusBadRequest, "affiliate_self_referral", "an Affiliate cannot refer an Account they own")
 	case errors.Is(err, affiliateprogram.ErrAttributionConflict):
 		writeProblem(w, http.StatusConflict, "affiliate_attribution_conflict", "the checkout request already has a different Affiliate attribution")
+	case errors.Is(err, commercialaccess.ErrReferralRateLimited):
+		w.Header().Set("Retry-After", "900")
+		writeProblem(w, http.StatusTooManyRequests, "affiliate_code_rate_limited", "Affiliate code validation is temporarily limited; try again later")
 	case errors.Is(err, commercialaccess.ErrBillingUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "billing_unavailable", "billing is temporarily unavailable")
 	case access.IsDenied(err, access.DenialRole), access.IsDenied(err, access.DenialMembership), access.IsDenied(err, access.DenialAccountUnavailable):

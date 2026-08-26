@@ -2,12 +2,14 @@ package commercialaccess
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
@@ -18,12 +20,13 @@ import (
 )
 
 var (
-	ErrOfferUnavailable   = errors.New("offer is unavailable")
-	ErrBillingUnavailable = errors.New("billing is unavailable")
-	ErrCustomerRequired   = errors.New("billing customer is required")
-	ErrInvalidRequestID   = errors.New("request ID must be a UUID")
-	ErrSubscriptionExists = errors.New("an existing subscription must be managed through the billing portal")
-	ErrCheckoutInProgress = errors.New("a checkout session is already in progress")
+	ErrOfferUnavailable    = errors.New("offer is unavailable")
+	ErrBillingUnavailable  = errors.New("billing is unavailable")
+	ErrCustomerRequired    = errors.New("billing customer is required")
+	ErrInvalidRequestID    = errors.New("request ID must be a UUID")
+	ErrSubscriptionExists  = errors.New("an existing subscription must be managed through the billing portal")
+	ErrCheckoutInProgress  = errors.New("a checkout session is already in progress")
+	ErrReferralRateLimited = errors.New("Affiliate code validation is rate limited")
 )
 
 type Clock interface{ Now() time.Time }
@@ -47,14 +50,15 @@ type Repository interface {
 }
 
 type Service struct {
-	provider   billing.Provider
-	repository Repository
-	authorizer *access.Authorizer
-	catalog    func() catalog.PublishedCatalog
-	clock      Clock
-	appOrigin  string
-	mode       string
-	referrals  ReferralAttributor
+	provider           billing.Provider
+	repository         Repository
+	authorizer         *access.Authorizer
+	catalog            func() catalog.PublishedCatalog
+	clock              Clock
+	appOrigin          string
+	mode               string
+	referrals          ReferralAttributor
+	referralValidation *abuse.Guard
 }
 
 type ReferralAttributor interface {
@@ -64,8 +68,8 @@ type ReferralAttributor interface {
 
 type Option func(*Service)
 
-func WithReferralAttributor(referrals ReferralAttributor) Option {
-	return func(service *Service) { service.referrals = referrals }
+func WithReferralAttributor(referrals ReferralAttributor, validation *abuse.Guard) Option {
+	return func(service *Service) { service.referrals, service.referralValidation = referrals, validation }
 }
 
 func New(provider billing.Provider, repository Repository, authorizer *access.Authorizer, catalogSource func() catalog.PublishedCatalog, clock Clock, appOrigin, mode string, options ...Option) (*Service, error) {
@@ -83,6 +87,9 @@ func New(provider billing.Provider, repository Repository, authorizer *access.Au
 	for _, option := range options {
 		option(service)
 	}
+	if (service.referrals == nil) != (service.referralValidation == nil) {
+		return nil, errors.New("referral attribution and validation budget must be configured together")
+	}
 	return service, nil
 }
 
@@ -93,6 +100,7 @@ type CheckoutCommand struct {
 	OfferCode     string
 	AffiliateCode string
 	RequestID     string
+	NetworkActor  [32]byte
 }
 
 type CheckoutReservation struct {
@@ -167,6 +175,16 @@ func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billin
 	if !reservation.Proceed {
 		return billing.HostedSession{}, ErrCheckoutInProgress
 	}
+	if s.referrals != nil && strings.TrimSpace(command.AffiliateCode) != "" {
+		allowed, limitErr := s.referralValidation.Allow(ctx, abuse.ScopeAffiliateCode,
+			referralBudgetActor(command.NetworkActor, command.AccountID), s.clock.Now(), abuse.AffiliateCodePolicy)
+		if limitErr != nil {
+			return billing.HostedSession{}, fmt.Errorf("%w: Affiliate validation budget", ErrBillingUnavailable)
+		}
+		if !allowed {
+			return billing.HostedSession{}, ErrReferralRateLimited
+		}
+	}
 	var attributionID ids.ReferralAttributionID
 	if s.referrals != nil {
 		if strings.TrimSpace(command.AffiliateCode) != "" {
@@ -213,6 +231,19 @@ func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billin
 		return billing.HostedSession{}, err
 	}
 	return session, nil
+}
+
+func referralBudgetActor(networkActor [32]byte, accountID ids.AccountID) [32]byte {
+	if networkActor == ([32]byte{}) || ids.Validate(string(accountID)) != nil {
+		return [32]byte{}
+	}
+	digest := sha256.New()
+	_, _ = digest.Write([]byte("spyglass-affiliate-code-validation-v1\x00"))
+	_, _ = digest.Write(networkActor[:])
+	_, _ = digest.Write([]byte(accountID))
+	var actor [32]byte
+	copy(actor[:], digest.Sum(nil))
+	return actor
 }
 
 func hasManagedSubscription(subscriptions []Subscription) bool {

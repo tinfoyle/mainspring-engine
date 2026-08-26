@@ -1997,12 +1997,29 @@ func runIdentityMaintenanceWorker(ctx context.Context, logger *slog.Logger) erro
 	if err := analyticsretention.ValidateBounds(analyticsRetention, int(analyticsBatch)); err != nil {
 		return err
 	}
+	networkLimitRetention, err := durationEnv("SPYGLASS_NETWORK_ACTOR_LIMIT_RETENTION", identitymaintenance.DefaultNetworkLimitRetention)
+	if err != nil {
+		return err
+	}
+	networkLimitBatch, err := int32Env("SPYGLASS_NETWORK_ACTOR_LIMIT_PRUNE_BATCH", identitymaintenance.DefaultBatch)
+	if err != nil {
+		return err
+	}
+	networkLimitAlertBacklog, err := int32Env("SPYGLASS_NETWORK_ACTOR_LIMIT_ALERT_BACKLOG", 10000)
+	if err != nil || networkLimitAlertBacklog < 1 || networkLimitAlertBacklog > 10000000 {
+		return errors.New("SPYGLASS_NETWORK_ACTOR_LIMIT_ALERT_BACKLOG must be between 1 and 10000000")
+	}
+	if err := identitymaintenance.ValidateBounds(networkLimitRetention, int(networkLimitBatch)); err != nil {
+		return err
+	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	worker, err := identitymaintenanceworker.New(startup, identitymaintenanceworker.Config{
 		DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, Interval: interval,
 		Retention: retention, PruneBatch: int(batch), AlertBacklog: uint64(alertBacklog),
 		AnalyticsRetention: analyticsRetention, AnalyticsPruneBatch: int(analyticsBatch), AnalyticsAlertBacklog: uint64(analyticsAlertBacklog),
+		NetworkLimitRetention: networkLimitRetention, NetworkLimitPruneBatch: int(networkLimitBatch),
+		NetworkLimitAlertBacklog: uint64(networkLimitAlertBacklog),
 	}, logger)
 	if err != nil {
 		return err

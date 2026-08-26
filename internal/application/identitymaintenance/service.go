@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	DefaultRetention = 24 * time.Hour
-	DefaultBatch     = 500
-	MaximumBatch     = 5000
+	DefaultRetention             = 24 * time.Hour
+	DefaultBatch                 = 500
+	MaximumBatch                 = 5000
+	DefaultNetworkLimitRetention = 24 * time.Hour
 )
 
 type Clock interface{ Now() time.Time }
@@ -25,6 +26,8 @@ type Stats struct {
 type Repository interface {
 	Prune(context.Context, time.Time, time.Duration, int) (int64, error)
 	Stats(context.Context, time.Time, time.Duration) (Stats, error)
+	PruneNetworkLimits(context.Context, time.Time, time.Duration, int) (int64, error)
+	NetworkLimitStats(context.Context, time.Time, time.Duration) (Stats, error)
 }
 
 type Processor struct {
@@ -60,4 +63,18 @@ func (p *Processor) Process(ctx context.Context) (int64, error) {
 
 func (p *Processor) Stats(ctx context.Context) (Stats, error) {
 	return p.repository.Stats(ctx, p.clock.Now().UTC(), p.retention)
+}
+
+func (p *Processor) ProcessNetworkLimits(ctx context.Context, retention time.Duration, batch int) (int64, error) {
+	if err := ValidateBounds(retention, batch); err != nil {
+		return 0, err
+	}
+	return p.repository.PruneNetworkLimits(ctx, p.clock.Now().UTC(), retention, batch)
+}
+
+func (p *Processor) NetworkLimitStats(ctx context.Context, retention time.Duration) (Stats, error) {
+	if err := ValidateBounds(retention, 1); err != nil {
+		return Stats{}, err
+	}
+	return p.repository.NetworkLimitStats(ctx, p.clock.Now().UTC(), retention)
 }

@@ -252,15 +252,18 @@ Worker replicas claim due requests with `FOR UPDATE SKIP LOCKED` and expiring le
 
 | Environment variable | Requirement |
 |---|---|
-| `SPYGLASS_DATABASE_URL` | Required global credential with execute-only access to the two identity-maintenance functions |
+| `SPYGLASS_DATABASE_URL` | Required global credential with execute-only access to the bounded identity, analytics and network-budget retention functions |
 | `SPYGLASS_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `3` |
 | `SPYGLASS_IDENTITY_MAINTENANCE_INTERVAL` | Optional schedule from `1m` through `24h`; defaults to `1h` |
 | `SPYGLASS_PASSKEY_CEREMONY_RETENTION` | Optional whole-second retention from `1h` through `720h`; defaults to `24h` |
 | `SPYGLASS_IDENTITY_MAINTENANCE_PRUNE_BATCH` | Optional bounded delete batch from 1 through 5000; defaults to `500` |
 | `SPYGLASS_IDENTITY_MAINTENANCE_ALERT_BACKLOG` | Optional aggregate eligible-row alert threshold through 10,000,000; defaults to `10000` |
+| `SPYGLASS_NETWORK_ACTOR_LIMIT_RETENTION` | Optional whole-second pseudonymous rate-budget retention from `1h` through `720h`; defaults to `24h` |
+| `SPYGLASS_NETWORK_ACTOR_LIMIT_PRUNE_BATCH` | Optional bounded delete batch from 1 through 5000; defaults to `500` |
+| `SPYGLASS_NETWORK_ACTOR_LIMIT_ALERT_BACKLOG` | Optional aggregate eligible-row alert threshold through 10,000,000; defaults to `10000` |
 | `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
 
-The worker runs immediately and then on its schedule. Each transaction locks and deletes only the oldest eligible consumed or expired ceremonies, using `SKIP LOCKED` so replicas remain safe. The database functions revalidate all policy bounds and expose only aggregate counts and age. `/health/status` and metrics report total/eligible rows, oldest eligible age, prune count, failure count and alert state. Restore readiness gates maintenance, and the credential cannot read ceremony ciphertext or any User, credential, session or Account table directly.
+The worker runs immediately and then on its schedule. Each transaction locks and deletes only the oldest eligible consumed or expired ceremonies or stale pseudonymous network-budget rows, using `SKIP LOCKED` so replicas remain safe. The database functions revalidate all policy bounds and expose only aggregate counts and age. `/health/status` and metrics report separate ceremony, analytics and network-budget total/eligible rows, oldest eligible age, prune count, failure count and alert state. Restore readiness gates maintenance, and the credential cannot read ceremony ciphertext, actor hashes or any User, credential, session or Account table directly.
 
 ## Route receipt worker values
 

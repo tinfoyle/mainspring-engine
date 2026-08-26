@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
@@ -85,6 +86,19 @@ type referralAttributor struct {
 	id                         ids.ReferralAttributionID
 }
 
+type referralLimiter struct {
+	allowed bool
+	calls   int
+	scope   abuse.Scope
+	actor   [32]byte
+	policy  abuse.Policy
+}
+
+func (l *referralLimiter) Consume(_ context.Context, scope abuse.Scope, actor [32]byte, _ time.Time, policy abuse.Policy) (bool, error) {
+	l.calls, l.scope, l.actor, l.policy = l.calls+1, scope, actor, policy
+	return l.allowed, nil
+}
+
 func (a *referralAttributor) ReserveCheckout(_ context.Context, code string, accountID ids.AccountID, requestID, offerCode string, offerVersion uint64) (ids.ReferralAttributionID, error) {
 	a.code, a.accountID, a.requestID, a.offerCode, a.offerVersion = code, accountID, requestID, offerCode, offerVersion
 	return a.id, nil
@@ -139,8 +153,10 @@ func TestCheckoutFreezesAffiliateAttributionIntoProviderMetadata(t *testing.T) {
 	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_private"}
 	provider := &serviceProvider{}
 	referrals := &referralAttributor{id: "44444444-4444-4444-8444-444444444444"}
+	limiter := &referralLimiter{allowed: true}
+	guard, _ := abuse.NewGuard(limiter)
 	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
-	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test", WithReferralAttributor(referrals))
+	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test", WithReferralAttributor(referrals, guard))
 	command := checkoutCommand(now)
 	command.AffiliateCode = "IO-PARTNER1"
 	if _, err := service.Checkout(context.Background(), command); err != nil {
@@ -151,6 +167,42 @@ func TestCheckoutFreezesAffiliateAttributionIntoProviderMetadata(t *testing.T) {
 	}
 	if provider.checkout.AffiliateAttributionID != referrals.id {
 		t.Fatalf("provider attribution=%q want=%q", provider.checkout.AffiliateAttributionID, referrals.id)
+	}
+	if limiter.calls != 1 || limiter.scope != abuse.ScopeAffiliateCode || limiter.policy != abuse.AffiliateCodePolicy ||
+		limiter.actor != referralBudgetActor(command.NetworkActor, command.AccountID) {
+		t.Fatalf("limiter=%+v", limiter)
+	}
+}
+
+func TestCheckoutRateLimitsAffiliateValidationBeforeLookup(t *testing.T) {
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_private"}
+	provider := &serviceProvider{}
+	referrals := &referralAttributor{id: "44444444-4444-4444-8444-444444444444"}
+	limiter := &referralLimiter{allowed: false}
+	guard, _ := abuse.NewGuard(limiter)
+	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
+	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now},
+		"https://app.infiniteocean.net", "test", WithReferralAttributor(referrals, guard))
+	command := checkoutCommand(now)
+	command.AffiliateCode = "IO-GUESS01"
+	if _, err := service.Checkout(context.Background(), command); !errors.Is(err, ErrReferralRateLimited) {
+		t.Fatalf("error=%v", err)
+	}
+	if limiter.calls != 1 || referrals.code != "" || provider.checkoutCalls != 0 {
+		t.Fatalf("limiter=%+v referral=%+v provider=%+v", limiter, referrals, provider)
+	}
+}
+
+func TestReferralBudgetActorIsAccountScopedAndFailsClosed(t *testing.T) {
+	network := [32]byte{1, 2, 3}
+	first := referralBudgetActor(network, testAccountID)
+	second := referralBudgetActor(network, "44444444-4444-4444-8444-444444444444")
+	if first == ([32]byte{}) || second == ([32]byte{}) || first == second {
+		t.Fatalf("first=%x second=%x", first, second)
+	}
+	if missing := referralBudgetActor([32]byte{}, testAccountID); missing != ([32]byte{}) {
+		t.Fatalf("missing network actor=%x", missing)
 	}
 }
 
@@ -244,6 +296,25 @@ func TestCheckoutResumesDurableHostedSession(t *testing.T) {
 	}
 }
 
+func TestAffiliateValidationBudgetDoesNotBreakDurableCheckoutReplay(t *testing.T) {
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	hosted := billing.HostedSession{ID: "cs_existing", URL: "https://checkout.stripe.com/existing", ExpiresAt: now.Add(time.Hour)}
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_private",
+		reservation: CheckoutReservation{Resume: &hosted}}
+	referrals := &referralAttributor{}
+	limiter := &referralLimiter{allowed: false}
+	guard, _ := abuse.NewGuard(limiter)
+	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
+	service, _ := New(&serviceProvider{}, repository, owner, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now},
+		"https://app.infiniteocean.net", "test", WithReferralAttributor(referrals, guard))
+	command := checkoutCommand(now)
+	command.AffiliateCode = "IO-PARTNER1"
+	result, err := service.Checkout(context.Background(), command)
+	if err != nil || result.ID != hosted.ID || limiter.calls != 0 || referrals.code != "" {
+		t.Fatalf("result=%+v limiter=%+v referral=%+v err=%v", result, limiter, referrals, err)
+	}
+}
+
 func TestBillingMutationsRejectPasswordStaleAndCrossUserEvidence(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_private"}
@@ -289,8 +360,9 @@ func checkoutCommand(now time.Time) CheckoutCommand {
 			ReauthenticatedAt:      now,
 			ReauthenticationMethod: sessions.AuthenticationMethodPasskey,
 		},
-		AccountID: testAccountID,
-		OfferCode: "team-monthly-v1",
-		RequestID: testRequestID,
+		AccountID:    testAccountID,
+		OfferCode:    "team-monthly-v1",
+		RequestID:    testRequestID,
+		NetworkActor: [32]byte{9},
 	}
 }

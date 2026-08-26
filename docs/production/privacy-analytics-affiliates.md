@@ -198,7 +198,7 @@ The customer dashboard offers only a structured enrollment appeal or a review bo
 - Program suspension stops new attribution while preserving earned/reversed ledger history and referred-customer subscriptions.
 - Affiliate identity, terms acceptance, tax/payout material and earnings are personal/commercial data with explicit retention, access, erasure limitations and legal-hold rules.
 
-Local abuse-review checkpoint (2026-08-26): the execute-only Affiliate operator boundary now exposes an audited `inspect-risk` action with only 24-hour reservation aggregates, 30-day code-replacement aggregates and documented deterministic review flags. It returns no referred-customer, public-code, Checkout or provider identifiers and has no authority to suspend automatically. Rejected-validation rate limiting remains a separate serving-edge control.
+Local abuse-review checkpoint (2026-08-26): the execute-only Affiliate operator boundary now exposes an audited `inspect-risk` action with only 24-hour reservation aggregates, 30-day code-replacement aggregates and documented deterministic review flags. It returns no referred-customer, public-code, Checkout or provider identifiers and has no authority to suspend automatically. Checkout also enforces a distributed 20-per-15-minute code-validation budget keyed by a content-free digest of network actor plus Account, before lookup or Stripe access. Neither raw network identity nor submitted code enters the limiter, and the existing restore-gated maintenance worker removes stale digests after 24 hours with content-free retention metrics.
 
 ## 7. Settlement decision required
 

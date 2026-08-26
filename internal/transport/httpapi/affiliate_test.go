@@ -2,8 +2,12 @@ package httpapi
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -29,5 +33,14 @@ func TestAffiliateSettlementInputFailsClosed(t *testing.T) {
 				t.Fatalf("error=%v want=%v", err, test.want)
 			}
 		})
+	}
+}
+
+func TestAffiliateCodeRateLimitReturnsRetryableProblem(t *testing.T) {
+	response := httptest.NewRecorder()
+	(&Server{}).writeCommercialError(response, commercialaccess.ErrReferralRateLimited)
+	if response.Code != http.StatusTooManyRequests || response.Header().Get("Retry-After") != "900" ||
+		!strings.Contains(response.Body.String(), `"code":"affiliate_code_rate_limited"`) {
+		t.Fatalf("status=%d retry=%q body=%s", response.Code, response.Header().Get("Retry-After"), response.Body.String())
 	}
 }

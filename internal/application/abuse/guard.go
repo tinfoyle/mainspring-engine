@@ -15,6 +15,7 @@ const (
 	ScopeMCPAuthorization Scope = "mcp_authorization"
 	ScopeMCPToken         Scope = "mcp_token"
 	ScopeMCPRevocation    Scope = "mcp_revocation"
+	ScopeAffiliateCode    Scope = "affiliate_code_validation"
 )
 
 type Policy struct {
@@ -28,6 +29,7 @@ var (
 	MCPAuthorizationPolicy = Policy{Limit: 60, Window: 15 * time.Minute}
 	MCPTokenPolicy         = Policy{Limit: 600, Window: 15 * time.Minute}
 	MCPRevocationPolicy    = Policy{Limit: 120, Window: 15 * time.Minute}
+	AffiliateCodePolicy    = Policy{Limit: 20, Window: 15 * time.Minute}
 )
 
 type Limiter interface {

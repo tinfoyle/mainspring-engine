@@ -326,7 +326,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	}
 	commercialOptions := make([]commercialaccess.Option, 0, 1)
 	if config.AffiliateAttributionEnabled {
-		commercialOptions = append(commercialOptions, commercialaccess.WithReferralAttributor(affiliateService))
+		commercialOptions = append(commercialOptions, commercialaccess.WithReferralAttributor(affiliateService, networkGuard))
 	}
 	commercialService, err := commercialaccess.New(stripeProvider, postgres.NewCommercialAccessRepository(pool), authorizer, catalogCache.Current, clock, config.AppOrigin, config.StripeMode, commercialOptions...)
 	if err != nil {
