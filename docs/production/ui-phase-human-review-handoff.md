@@ -61,6 +61,7 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** after the seven-year retention window, erase readable retired Affiliate codes and their Affiliate/User linkage; retain only a protected irreversible identity-free fingerprint permanently to prevent code reuse;
 - **Decided 2026-08-26:** a verified Affiliate erasure request closes enrollment, disables the code/link, stops future attribution/earnings and erases unneeded data while preserving customers and available credit. Required records remain access-restricted and outside marketing/ordinary product use until deadline; fulfillment discloses retained categories, purpose and deadline, and legal holds are scoped; and
 - **Decided 2026-08-26:** the optional `$250` onboarding/commissioning package never earns Affiliate commission. It is excluded from the eligible basis even on a shared invoice, and package-only adverse evidence does not reverse the subscription earning;
+- **Decided 2026-08-26:** the authorized owner may add commissioning to initial subscription Checkout or buy it later from Billing. The standard package is self-service-purchasable once per team; verified local state suppresses and rejects duplicates, and additional engagements route through Support;
 - remaining privacy-controller and operational release fields.
 
 Until approval, retain:
@@ -141,6 +142,7 @@ Launch pricing: $50/month per team plus optional one-time $250 onboarding/commis
 Commissioning Affiliate treatment: never commission-eligible; exclude its line from earning and reversal qualification (owner decision 2026-08-26)
 Free plan: none at launch; remove free-v1 and permanent-free claims from effective Catalog and customer surfaces (owner decision 2026-08-26)
 Registration/payment: verified identity plus inactive team shell first; restricted pre-payment routes; only signed Stripe webhook projection grants product access (owner decision 2026-08-26)
+Commissioning purchase: optional in initial Checkout or later from Billing, self-service once per team; additional engagements via Support (owner decision 2026-08-26)
 Affiliate terms version:
 Affiliate rule version:
 Privacy processing-registry revision:
