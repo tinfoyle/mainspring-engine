@@ -208,7 +208,7 @@ Local abuse-review checkpoint (2026-08-26): the execute-only Affiliate operator 
 
 ## 7. Settlement policy
 
-The release owner selected an account-credit-first hybrid on 2026-08-26. Available earnings accrue as billing credit for one Affiliate-owned Infinite Ocean Account. Once the available balance reaches **$100.00 USD**, it becomes eligible for payment by check; pending earnings do not count. Checks are never automatic or directly self-service. The Affiliate contacts Support, completes recent passkey confirmation and verifies identity, mailing address and required tax information before Support creates a reviewable request against atomically reserved available credit. Check amount, balance debit, delivery, stop/reissue, expiry and failed/uncashed-check behavior remain open; no payment promise may be exposed until they are implemented.
+The release owner selected an account-credit-first hybrid on 2026-08-26. Available earnings accrue as billing credit for one Affiliate-owned Infinite Ocean Account. Once the available balance reaches **$100.00 USD**, it becomes eligible for payment by check; pending earnings do not count. Checks are never automatic or directly self-service. The Affiliate contacts Support, completes recent passkey confirmation and verifies identity, mailing address and required tax information before Support creates a reviewable request against atomically reserved available credit. Support chooses the amount case by case outside product automation; the application records immutable reservation/debit evidence but does not select an amount or issue a check. Billing-credit order, delivery, stop/reissue, expiry and failed/uncashed-check behavior remain open; no payment promise may be exposed until they are implemented.
 
 ### Account billing credit
 
@@ -216,7 +216,7 @@ Earned commission is applied as a bounded credit toward invoices for one Affilia
 
 ### Threshold check payment
 
-Only an available balance of at least **$100.00 USD** becomes eligible for payment by check. Pending earnings do not count. The authenticated Affiliate must contact Support and complete recent passkey, mailing-address and tax-information verification; there is no direct payout button. Support uses immutable request/approval/payment evidence and atomic reservation rather than discretionary ledger edits. Delivery/stop/reissue operations, uncashed-check treatment, statements and applicable reporting remain required. It is not an unrestricted withdrawable cash balance.
+Only an available balance of at least **$100.00 USD** becomes eligible for payment by check. Pending earnings do not count. The authenticated Affiliate must contact Support and complete recent passkey, mailing-address and tax-information verification; there is no direct payout button. Support determines the amount case by case, while immutable request/approval/payment evidence and atomic reservation prevent discretionary ledger edits or double spending. Product code does not calculate the check amount or issue it. Delivery/stop/reissue operations, uncashed-check treatment, statements and applicable reporting remain required. It is not an unrestricted withdrawable cash balance.
 
 The immutable earning ledger remains independent of settlement. The UI cannot promise a check or label pending earnings as available account credit until the remaining settlement rules and implementation are approved.
 
