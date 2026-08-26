@@ -386,6 +386,7 @@ type jsonSchema struct {
 	Ref                  string                     `json:"$ref"`
 	Type                 string                     `json:"type"`
 	Enum                 []string                   `json:"enum"`
+	Const                json.RawMessage            `json:"const"`
 	AnyOf                []json.RawMessage          `json:"anyOf"`
 	Properties           map[string]json.RawMessage `json:"properties"`
 	Required             []string                   `json:"required"`
@@ -459,6 +460,24 @@ func typeScriptSchemaType(raw json.RawMessage) string {
 			values = append(values, typeScriptSchemaType(item))
 		}
 		return strings.Join(values, " | ")
+	}
+	if len(schema.Const) > 0 {
+		var value any
+		if err := json.Unmarshal(schema.Const, &value); err != nil {
+			panic(fmt.Errorf("decode schema const: %w", err))
+		}
+		switch typed := value.(type) {
+		case string:
+			return strconv.Quote(typed)
+		case bool:
+			return strconv.FormatBool(typed)
+		case float64:
+			return strconv.FormatFloat(typed, 'f', -1, 64)
+		case nil:
+			return "null"
+		default:
+			panic(fmt.Errorf("unsupported schema const %s", schema.Const))
+		}
 	}
 	if len(schema.Enum) > 0 {
 		values := make([]string, 0, len(schema.Enum))

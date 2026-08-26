@@ -4,10 +4,9 @@
   const reopen = document.getElementById("privacy-reopen");
   const options = document.getElementById("privacy-options");
   const analytics = document.getElementById("privacy-analytics");
-  const marketing = document.getElementById("privacy-marketing");
   const error = document.getElementById("privacy-error");
   const marker = document.getElementById("analytics-marker");
-  if (!panel || !reopen || !options || !analytics || !marketing || !error) return;
+  if (!panel || !reopen || !options || !analytics || !error) return;
   let decision;
   let emitted = false;
   let emitting = false;
@@ -80,7 +79,6 @@
     panel.hidden = !needsChoice;
     reopen.hidden = needsChoice;
     analytics.checked = Boolean(decision?.analytics);
-    marketing.checked = Boolean(decision?.marketing);
     if (!needsChoice) void emit();
   };
   const save = async (analyticsChoice, marketingChoice) => {
@@ -98,7 +96,6 @@
     } catch {
       decision = previous || { decided: false, analytics: false, marketing: false, renewal_required: false };
       analytics.checked = Boolean(decision.analytics);
-      marketing.checked = Boolean(decision.marketing);
       panel.hidden = false;
       reopen.hidden = true;
       options.hidden = false;
@@ -110,7 +107,7 @@
   panel.querySelector("[data-privacy-accept]")?.addEventListener("click", () => void save(true, false));
   panel.querySelector("[data-privacy-reject]")?.addEventListener("click", () => void save(false, false));
   panel.querySelector("[data-privacy-manage]")?.addEventListener("click", () => { options.hidden = false; });
-  panel.querySelector("[data-privacy-save]")?.addEventListener("click", () => void save(analytics.checked, marketing.checked));
+  panel.querySelector("[data-privacy-save]")?.addEventListener("click", () => void save(analytics.checked, false));
   reopen.addEventListener("click", () => { panel.hidden = false; reopen.hidden = true; options.hidden = false; });
   window.addEventListener("online", () => void emit());
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") void emit(); });

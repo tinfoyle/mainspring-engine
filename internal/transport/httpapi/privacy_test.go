@@ -180,6 +180,31 @@ func TestPrivacyConsentGatesAnalyticsAndWithdrawalStopsIngestion(t *testing.T) {
 	}
 }
 
+func TestPrivacyConsentRejectsUnavailableMarketingPurpose(t *testing.T) {
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	memory := &privacyMemory{}
+	consent, _ := privacyconsent.New(memory, &sequenceIDs{values: []string{
+		"10000000-0000-4000-8000-000000000081", "10000000-0000-4000-8000-000000000082",
+	}}, privacyClock{now}, 1)
+	ingestion, _ := analyticsingest.New(memory, privacySink{memory}, analytics.LaunchRegistry(), privacyClock{now}, 1)
+	tokens, _ := privacytoken.New([]byte("0123456789abcdef0123456789abcdef"))
+	handler := httpapi.NewServer(nil, nil, nil, false, slog.Default(), httpapi.WithPrivacy(consent, ingestion, tokens,
+		httpapi.PrivacyHTTPConfig{PublicOrigin: "https://web.example.test", AppOrigin: "https://app.example.test", Secure: true})).Handler()
+	payload, _ := json.Marshal(map[string]bool{"analytics": false, "marketing": true})
+	request := httptest.NewRequest(http.MethodPut, "https://web.example.test/api/v1/privacy/consent", bytes.NewReader(payload))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", "https://web.example.test")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest || !bytes.Contains(response.Body.Bytes(), []byte(`"code":"privacy_purpose_unavailable"`)) {
+		t.Fatalf("marketing consent status=%d body=%s", response.Code, response.Body.String())
+	}
+	if len(response.Result().Cookies()) != 0 || len(memory.decisions) != 0 {
+		t.Fatalf("unavailable purpose cookies=%d decisions=%d", len(response.Result().Cookies()), len(memory.decisions))
+	}
+}
+
 func TestPrivateConsentHistoryReplacesSubjectOwnedByDifferentUser(t *testing.T) {
 	now := time.Date(2026, 8, 25, 18, 0, 0, 0, time.UTC)
 	memoryRepository := &privacyMemory{}

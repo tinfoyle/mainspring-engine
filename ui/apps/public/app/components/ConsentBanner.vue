@@ -8,7 +8,6 @@ const preference = ref<PrivacyConsent>();
 const ready = ref(false);
 const managing = ref(false);
 const analytics = ref(false);
-const marketing = ref(false);
 const saving = ref(false);
 const error = ref("");
 const consentPanel = ref<HTMLElement>();
@@ -21,7 +20,6 @@ onMounted(async () => {
     preference.value = await getPrivacyConsent();
     consentState.apply(preference.value);
     analytics.value = preference.value.analytics;
-    marketing.value = preference.value.marketing;
   } catch {
     consentState.failClosed();
     error.value = "Privacy choices are temporarily unavailable. Optional tracking remains off.";
@@ -33,28 +31,25 @@ onUnmounted(() => window.removeEventListener("spyglass:privacy-data-erased", han
 function handlePrivacyErased(): void {
   preference.value = undefined;
   analytics.value = false;
-  marketing.value = false;
   managing.value = false;
   error.value = "";
   consentState.failClosed();
 }
 
-async function choose(nextAnalytics: boolean, nextMarketing = false): Promise<void> {
+async function choose(nextAnalytics: boolean): Promise<void> {
   const previous = preference.value;
   saving.value = true;
   error.value = "";
   try {
-    preference.value = await setPrivacyConsent({ analytics: nextAnalytics, marketing: nextMarketing });
+    preference.value = await setPrivacyConsent({ analytics: nextAnalytics, marketing: false });
     consentState.apply(preference.value);
     analytics.value = preference.value.analytics;
-    marketing.value = preference.value.marketing;
     managing.value = false;
     window.dispatchEvent(new Event("spyglass:privacy-choice-saved"));
     await nextTick();
     reopenButton.value?.focus();
   } catch {
     analytics.value = previous?.analytics ?? false;
-    marketing.value = previous?.marketing ?? false;
     if (previous) consentState.apply(previous);
     else consentState.failClosed();
     error.value = previous?.decided && !previous.renewal_required
@@ -81,11 +76,11 @@ async function openPreferences(): Promise<void> {
     </div>
     <div v-if="managing" class="consent__options">
       <label><span><strong>Analytics</strong><small>Content-free journey events</small></span><input v-model="analytics" type="checkbox" /></label>
-      <label><span><strong>Marketing</strong><small>Unused at launch</small></span><input v-model="marketing" type="checkbox" /></label>
+      <p><strong>Marketing tracking is not used.</strong> No marketing purpose, processor, cookie or destination is configured, so Spyglass does not ask you to consent to one.</p>
       <a class="consent__history-link" href="/privacy#consent-history">View this browser's consent history</a>
     </div>
     <div class="consent__actions">
-      <IoButton v-if="managing" :disabled="saving" @click="choose(analytics, marketing)">Save preferences</IoButton>
+      <IoButton v-if="managing" :disabled="saving" @click="choose(analytics)">Save preferences</IoButton>
       <IoButton v-else kind="secondary" :disabled="saving" @click="choose(true)">Accept analytics</IoButton>
       <IoButton kind="secondary" :disabled="saving" @click="choose(false)">Reject non-essential</IoButton>
       <IoButton v-if="!managing" kind="quiet" :disabled="saving" @click="openPreferences">Manage preferences</IoButton>

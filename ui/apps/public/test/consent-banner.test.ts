@@ -67,7 +67,9 @@ describe("public consent banner", () => {
     await button(wrapper, "Privacy choices").trigger("click");
     await wrapper.vm.$nextTick();
     const options = wrapper.findAll<HTMLInputElement>(".consent__options input");
-    expect(options).toHaveLength(2);
+    expect(options).toHaveLength(1);
+    expect(wrapper.text()).toContain("Spyglass does not ask you to consent to one");
+    expect(wrapper.text()).not.toContain("Unused at launch");
     expect(wrapper.get('a[href="/privacy#consent-history"]').text()).toContain("consent history");
     expect(document.activeElement).toBe(options[0]?.element);
     await options[0]?.setValue(true);

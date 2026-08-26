@@ -10,8 +10,9 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("privacy consent decision was not found")
-	ErrSubjectOwned = errors.New("privacy consent subject belongs to another user")
+	ErrNotFound           = errors.New("privacy consent decision was not found")
+	ErrSubjectOwned       = errors.New("privacy consent subject belongs to another user")
+	ErrPurposeUnavailable = errors.New("privacy consent purpose is not available")
 )
 
 type Clock interface{ Now() time.Time }
@@ -46,6 +47,12 @@ type SetCommand struct {
 }
 
 func (s *Service) Set(ctx context.Context, command SetCommand) (privacy.Decision, error) {
+	// Marketing is reserved in the consent schema, but the launch registry has no
+	// marketing processor, event, cookie or destination. Do not manufacture a
+	// consent receipt for a purpose the customer cannot meaningfully authorize.
+	if command.Marketing {
+		return privacy.Decision{}, ErrPurposeUnavailable
+	}
 	subjectID := command.SubjectID
 	if subjectID == "" {
 		subjectID = ids.ConsentSubjectID(s.ids.New())

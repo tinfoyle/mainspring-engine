@@ -198,7 +198,7 @@ export interface AffiliateDataExport {
   readonly "enrollment_events": ReadonlyArray<AffiliateDataExportLifecycleEvent>;
   readonly "generated_at": string;
   readonly "public_codes": ReadonlyArray<AffiliateDataExportPublicCode>;
-  readonly "schema_version": number;
+  readonly "schema_version": 1;
   readonly "support_events": ReadonlyArray<AffiliateDataExportSupportEvent>;
   readonly "support_requests": ReadonlyArray<AffiliateDataExportSupportRequest>;
 }
@@ -934,7 +934,7 @@ export interface ContactChangeAccepted {
 export interface ContactChangeCompleted {
   readonly "changed_at": string;
   readonly "new_email": string;
-  readonly "sessions_revoked": boolean;
+  readonly "sessions_revoked": true;
   readonly "status": "email_changed";
 }
 
@@ -1669,7 +1669,7 @@ export interface KnowledgeClaim {
   readonly "confidence": number;
   readonly "created_at": string;
   readonly "decision"?: KnowledgeClaimDecision;
-  readonly "hash_version": number;
+  readonly "hash_version": 1;
   readonly "id": string;
   readonly "key": string;
   readonly "proposed_by": KnowledgeActor;
@@ -2052,7 +2052,7 @@ export interface PrivacyConsentHistory {
 
 export interface PrivacyConsentSelection {
   readonly "analytics": boolean;
-  readonly "marketing": boolean;
+  readonly "marketing": false;
 }
 
 export interface PrivacyDecision {

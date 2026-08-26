@@ -46,7 +46,7 @@ func TestValidateReferencesRejectsMissingOrExternalTargets(t *testing.T) {
 func TestRenderTypeScriptSchemasPreservesRequiredOptionalEnumsAndNulls(t *testing.T) {
 	schemas := map[string]json.RawMessage{
 		"State": json.RawMessage(`{"type":"string","enum":["open","done"]}`),
-		"Item":  json.RawMessage(`{"type":"object","required":["state","context","metadata"],"properties":{"state":{"$ref":"#/components/schemas/State"},"note":{"type":"string"},"context":{"anyOf":[{"type":"object","additionalProperties":{"type":"integer"}},{"type":"null"}]},"metadata":{"type":"object"}}}`),
+		"Item":  json.RawMessage(`{"type":"object","required":["state","context","metadata","enabled"],"properties":{"state":{"$ref":"#/components/schemas/State"},"note":{"type":"string"},"context":{"anyOf":[{"type":"object","additionalProperties":{"type":"integer"}},{"type":"null"}]},"metadata":{"type":"object"},"enabled":{"type":"boolean","const":false}}}`),
 	}
 	generated := string(renderTypeScriptSchemas(schemas))
 	for _, expected := range []string{
@@ -55,6 +55,7 @@ func TestRenderTypeScriptSchemasPreservesRequiredOptionalEnumsAndNulls(t *testin
 		`readonly "note"?: string;`,
 		`readonly "context": Readonly<Record<string, number>> | null;`,
 		`readonly "metadata": Readonly<Record<string, unknown>>;`,
+		`readonly "enabled": false;`,
 		`readonly Item: Item;`,
 	} {
 		if !strings.Contains(generated, expected) {

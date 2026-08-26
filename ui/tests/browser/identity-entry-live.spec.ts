@@ -230,7 +230,8 @@ test("identity consent rejection remains equal, compact, reversible, and non-blo
   await reopen.click();
   await expect(panel).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /Analytics/ })).not.toBeChecked();
-  await expect(page.getByRole("checkbox", { name: /Marketing/ })).not.toBeChecked();
+  await expect(page.getByRole("checkbox", { name: /Marketing/ })).toHaveCount(0);
+  await expect(panel.getByText("Spyglass does not ask you to consent to one")).toBeVisible();
   await expect(page.getByLabel("Email address")).toBeEnabled();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);

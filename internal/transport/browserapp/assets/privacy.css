@@ -10,6 +10,7 @@
 .privacy-options { margin: 12px 0; display: grid; border-top: 1px solid var(--line); }
 .privacy-options[hidden], .privacy-reopen[hidden] { display: none; }
 .privacy-options label { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); }
+.privacy-options > p { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--muted); font-size: .75rem; line-height: 1.4; }
 .privacy-options label span { display: grid; gap: 2px; }
 .privacy-options input { width: 28px; min-height: 28px; accent-color: var(--green); }
 .privacy-options button { margin-top: 10px; }

@@ -89,6 +89,10 @@ func (s *Server) setPrivacyConsent(w http.ResponseWriter, r *http.Request) {
 	decision, err := s.privacyConsent.Set(r.Context(), privacyconsent.SetCommand{
 		SubjectID: subjectID, Surface: surface, Analytics: input.Analytics, Marketing: input.Marketing,
 	})
+	if errors.Is(err, privacyconsent.ErrPurposeUnavailable) {
+		writeProblem(w, http.StatusBadRequest, "privacy_purpose_unavailable", "marketing consent is not available because no marketing processor is configured")
+		return
+	}
 	if err != nil {
 		writeProblem(w, http.StatusServiceUnavailable, "privacy_unavailable", "privacy preferences could not be saved")
 		return
@@ -131,7 +135,7 @@ func (s *Server) linkPrivatePrivacySubject(w http.ResponseWriter, r *http.Reques
 		return privacy.Decision{}, false, false
 	}
 	replacement, err := s.privacyConsent.Set(r.Context(), privacyconsent.SetCommand{Surface: decision.Surface,
-		Analytics: decision.Analytics, Marketing: decision.Marketing})
+		Analytics: decision.Analytics, Marketing: false})
 	if err == nil {
 		err = s.privacyConsent.Link(r.Context(), replacement.SubjectID, authenticated.Session.UserID)
 	}

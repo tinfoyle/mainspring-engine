@@ -85,3 +85,16 @@ func TestCurrentRejectsUnverifiableSubject(t *testing.T) {
 		t.Fatalf("invalid subject returned %v", err)
 	}
 }
+
+func TestSetRejectsUnavailableMarketingPurposeWithoutReceipt(t *testing.T) {
+	repository := &repository{}
+	service, _ := privacyconsent.New(repository, &generator{}, clock{time.Now()}, 1)
+	if _, err := service.Set(context.Background(), privacyconsent.SetCommand{
+		Surface: privacy.SurfacePublic, Marketing: true,
+	}); !errors.Is(err, privacyconsent.ErrPurposeUnavailable) {
+		t.Fatalf("marketing consent returned %v", err)
+	}
+	if len(repository.decisions) != 0 {
+		t.Fatalf("unavailable purpose appended %d decisions", len(repository.decisions))
+	}
+}

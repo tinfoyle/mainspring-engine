@@ -941,6 +941,9 @@ test("GDPR controls expose equal rejection and verified rights boundaries", asyn
   await page.goto("/app/privacy");
   await expect(page.getByRole("heading", { level: 1, name: "Privacy you can act on." })).toBeVisible();
   await expect(page.getByRole("button", { name: "Reject non-essential" })).toBeVisible();
+  await expect(page.getByText("Marketing tracking", { exact: true })).toBeVisible();
+  await expect(page.getByText("Not used", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /Marketing/ })).toHaveCount(0);
   const consentHistory = page.getByRole("region", { name: "Consent history" });
   await expect(consentHistory).toContainText("Analytics accepted");
   await expect(consentHistory).toContainText("Marketing rejected");
@@ -2124,8 +2127,8 @@ test("GDPR rights requests are tracked, deduplicated, and cancelable", async ({ 
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
-  const marketing = page.getByLabel("Marketing");
-  await marketing.check();
+  const analytics = page.getByLabel("Analytics");
+  await analytics.uncheck();
   const menu = page.getByRole("button", { name: "Open navigation" });
   const compact = await menu.isVisible();
   const dismissed = new Promise<string>((resolve) => {
@@ -2136,7 +2139,7 @@ test("GDPR rights requests are tracked, deduplicated, and cancelable", async ({ 
   await expect(dismissed).resolves.toBe("Leave Privacy? Your unsaved consent choice or browser-erasure confirmation will be lost.");
   await expect(page).toHaveURL(/\/app\/privacy$/);
   if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
-  await expect(marketing).toBeChecked();
+  await expect(analytics).not.toBeChecked();
   await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Privacy choices remain available." })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
   if (compact) await menu.click();

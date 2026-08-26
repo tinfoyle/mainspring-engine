@@ -27,7 +27,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	loginBody, _ := io.ReadAll(login.Body)
 	login.Body.Close()
-	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Find the signal")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) || !bytes.Contains(loginBody, []byte("Sign in with a passkey")) || !bytes.Contains(loginBody, []byte("/assets/spyglass.css?v=4")) || !bytes.Contains(loginBody, []byte("/assets/passkeys.js")) || !bytes.Contains(loginBody, []byte("/assets/privacy-analytics.js?v=3")) || !bytes.Contains(loginBody, []byte(`class="secondary" type="button" data-privacy-accept`)) || !bytes.Contains(loginBody, []byte("Reject non-essential")) || !bytes.Contains(loginBody, []byte("Manage preferences")) {
+	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Find the signal")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) || !bytes.Contains(loginBody, []byte("Sign in with a passkey")) || !bytes.Contains(loginBody, []byte("/assets/spyglass.css?v=5")) || !bytes.Contains(loginBody, []byte("/assets/passkeys.js")) || !bytes.Contains(loginBody, []byte("/assets/privacy-analytics.js?v=4")) || !bytes.Contains(loginBody, []byte(`class="secondary" type="button" data-privacy-accept`)) || !bytes.Contains(loginBody, []byte("Reject non-essential")) || !bytes.Contains(loginBody, []byte("Manage preferences")) || !bytes.Contains(loginBody, []byte("Spyglass does not ask you to consent to one")) || bytes.Contains(loginBody, []byte("privacy-marketing")) {
 		t.Fatalf("login page: %d %s", login.StatusCode, loginBody)
 	}
 	protected, err := client.Get(server.URL + "/app")

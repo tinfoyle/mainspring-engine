@@ -160,7 +160,12 @@ test("landing consent gates analytics and preserves the signup handoff", async (
     expect(layout.heroActionsBottom).toBeLessThanOrEqual(layout.consentTop);
   }
 
-  await page.getByRole("button", { name: "Accept analytics" }).click();
+  await page.getByRole("button", { name: "Manage preferences" }).click();
+  await expect(page.getByRole("checkbox", { name: /Analytics/ })).toHaveCount(1);
+  await expect(page.getByRole("checkbox", { name: /Marketing/ })).toHaveCount(0);
+  await expect(page.getByText("Spyglass does not ask you to consent to one")).toBeVisible();
+  await page.getByRole("checkbox", { name: /Analytics/ }).check();
+  await page.getByRole("button", { name: "Save preferences" }).click();
   await expect(page.getByRole("button", { name: "Privacy choices" })).toBeFocused();
   expect(state.analyticsEvents).toEqual([]);
 
@@ -249,6 +254,9 @@ test("public consent history is inspectable and browser erasure reopens equal ch
   await expect(history).toContainText("No saved public-site consent decision exists");
   await expect(page.getByRole("button", { name: "Accept analytics" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Reject non-essential" })).toBeVisible();
+  await page.getByRole("button", { name: "Manage preferences" }).click();
+  await expect(page.getByText("Marketing tracking is not used.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /Marketing/ })).toHaveCount(0);
   expect(state.erasures).toBe(1);
   expect(state.analyticsEvents).toEqual([]);
   await expectNoHorizontalOverflow(page);

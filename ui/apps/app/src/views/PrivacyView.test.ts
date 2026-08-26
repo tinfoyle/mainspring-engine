@@ -84,11 +84,12 @@ describe("privacy controls", () => {
   it("offers equal rejection and persists both optional purposes as disabled", async () => {
     const wrapper = await mountView();
     const toggles = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]');
-    expect(toggles.map((toggle) => toggle.element.checked)).toEqual([true, true]);
+    expect(toggles.map((toggle) => toggle.element.checked)).toEqual([true]);
+    expect(wrapper.text()).toContain("there is nothing to accept");
 
     await wrapper.findAll("button").find((button) => button.text() === "Reject non-essential")?.trigger("click");
     await flushPromises();
-    expect(toggles.map((toggle) => toggle.element.checked)).toEqual([false, false]);
+    expect(toggles.map((toggle) => toggle.element.checked)).toEqual([false]);
 
     expect(api.setPrivacyConsent).toHaveBeenCalledWith({ analytics: false, marketing: false });
     expect(api.setPrivacyConsent).toHaveBeenCalledOnce();
@@ -104,7 +105,7 @@ describe("privacy controls", () => {
     await wrapper.findAll("button").find((button) => button.text() === "Reject non-essential")?.trigger("click");
     await flushPromises();
 
-    expect(toggles.map((toggle) => toggle.element.checked)).toEqual([true, true]);
+    expect(toggles.map((toggle) => toggle.element.checked)).toEqual([true]);
     expect(wrapper.text()).toContain("Privacy preferences could not be saved.");
     expect(wrapper.text()).not.toContain("Your privacy preferences were saved.");
   });

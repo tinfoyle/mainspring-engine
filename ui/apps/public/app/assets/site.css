@@ -107,6 +107,8 @@ body.site-menu-open { overflow: hidden; }
 .consent__error { margin: .75rem 0 0; color: #9b2f24; font-size: .86rem; line-height: 1.4; }
 .consent__options { margin: .8rem 0; border-top: 1px solid var(--io-line); }
 .consent__options label { min-height: 4rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; border-bottom: 1px solid var(--io-line); }
+.consent__options > p { margin: 0; padding: .75rem 0; border-bottom: 1px solid var(--io-line); color: var(--io-ink-soft); font-size: .78rem; line-height: 1.4; }
+.consent__options > p strong { color: var(--io-ink); }
 .consent__options span { display: grid; gap: .2rem; }
 .consent__options small { color: var(--io-ink-soft); }
 .consent__options input { width: 2rem; height: 2rem; accent-color: var(--io-ocean-650); }

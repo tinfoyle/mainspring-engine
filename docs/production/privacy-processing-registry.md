@@ -88,3 +88,5 @@ The following must be filled and approved before production:
 - incident/breach assessment owner and supervisory-authority/data-subject notification workflow.
 
 Marketing consent is reserved but has no launch processor, event, cookie or destination. Adding one requires a registry and policy-version change before code is enabled.
+
+Launch enforcement amendment (2026-08-26): public, private and server-rendered consent controls solicit only the configured first-party analytics purpose. They describe Marketing tracking as not used rather than presenting a meaningless checkbox. The reserved transport field remains required for compatibility but is contractually fixed to `false`; the application service rejects `true` without appending a consent decision or setting a preference cookie. Immutable history can still display any earlier Marketing value as evidence rather than rewriting it. Exact built-artifact coverage passes all 393 applicable cases in the 404-case local browser matrix, with eleven intentional compact-navigation skips.

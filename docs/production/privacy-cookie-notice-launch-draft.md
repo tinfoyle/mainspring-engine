@@ -22,9 +22,9 @@ Required for authentication, security, checkout continuity, Affiliate referral a
 
 Allows first-party, pseudonymous events about landing, checkout, onboarding and content-free Your Turn milestones. When you continue from the public site into Spyglass, a signed analytics handoff lasting no more than 24 hours lets us count anonymous onboarding milestones against that visit. It contains no name, email, User or Account ID, offer details or campaign text, and the database never attaches the private privacy subject or identity to the handoff. Raw events are deleted after 395 days by default, or sooner when you erase this browser's privacy data.
 
-**Marketing — optional, currently unused**
+**Marketing tracking — not requested**
 
-No advertising or third-party marketing tracker is enabled at launch. If that changes, we will update this notice and ask again where required.
+No advertising or third-party marketing purpose, processor, cookie or destination is enabled at launch, so the preference surfaces do not ask for Marketing consent. The reserved API field is fixed to `false` and the server rejects an attempt to enable it. If an actual purpose is later approved, we will update the processing registry and policy version, describe the real processing, and ask again where required.
 
 Actions: **Save preferences**, **Reject non-essential**, **Erase this browser's privacy data**, and a link to consent history.
 

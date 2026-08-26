@@ -24,7 +24,6 @@ const route = useRoute();
 const preference = ref<PrivacyConsent>();
 const consentHistory = ref<ReadonlyArray<PrivacyDecision>>([]);
 const analytics = ref(false);
-const marketing = ref(false);
 const requests = ref<ReadonlyArray<PrivacyRightsRequest>>([]);
 const kind = ref<PrivacyRightsKind>("access");
 const scope = ref<PrivacyRightsScope>("identity");
@@ -43,8 +42,7 @@ const navigationNotice = ref("");
 const openEquivalent = computed(() => requests.value.some((request) =>
   request.kind === kind.value && request.scope === scope.value && ["submitted", "in_review"].includes(request.state)));
 const privacyDirty = computed(() => confirmingBrowserErase.value
-  || analytics.value !== (preference.value?.analytics ?? false)
-  || marketing.value !== (preference.value?.marketing ?? false));
+  || analytics.value !== (preference.value?.analytics ?? false));
 const privacyPending = computed(() => saving.value || submitting.value || erasingBrowserData.value || exportingAffiliate.value || Boolean(cancelingID.value));
 const { allowNextNavigation } = useSafeNavigation({
   dirty: privacyDirty,
@@ -70,7 +68,6 @@ onMounted(async () => {
   if (consentResult.status === "fulfilled") {
     preference.value = consentResult.value;
     analytics.value = consentResult.value.analytics;
-    marketing.value = consentResult.value.marketing;
   } else {
     errorMessage.value = "Privacy preferences are temporarily unavailable. Optional tracking remains off unless an existing valid choice allows it.";
   }
@@ -97,14 +94,12 @@ async function save(): Promise<void> {
   navigationNotice.value = "";
   const previous = preference.value;
   try {
-    preference.value = await setPrivacyConsent({ analytics: analytics.value, marketing: marketing.value });
+    preference.value = await setPrivacyConsent({ analytics: analytics.value, marketing: false });
     analytics.value = preference.value.analytics;
-    marketing.value = preference.value.marketing;
     message.value = "Your privacy preferences were saved.";
     void refreshConsentHistory();
   } catch (error) {
     analytics.value = previous?.analytics ?? false;
-    marketing.value = previous?.marketing ?? false;
     errorMessage.value = error instanceof APIProblem ? error.message : "Privacy preferences could not be saved.";
   } finally { saving.value = false; }
 }
@@ -112,7 +107,6 @@ async function save(): Promise<void> {
 async function rejectNonEssential(): Promise<void> {
   if (saving.value) return;
   analytics.value = false;
-  marketing.value = false;
   await save();
 }
 
@@ -128,7 +122,6 @@ async function eraseBrowserSubject(): Promise<void> {
   try {
     await erasePrivacyData();
     analytics.value = false;
-    marketing.value = false;
     preference.value = undefined;
     consentHistory.value = [];
     historyError.value = "";
@@ -232,7 +225,7 @@ function date(value: string): string {
         <div class="privacy-section-heading"><div><p class="eyebrow">Consent</p><h2>Optional measurement</h2></div><span>Policy {{ preference?.policy_version ?? 1 }}</span></div>
         <div class="preference-row"><div><h3>Necessary</h3><p>Security, sign-in, checkout continuity and this preference.</p></div><strong>Always on</strong></div>
         <label class="preference-row"><span><strong>Analytics</strong><small>First-party, content-free journey and usability events.</small></span><input v-model="analytics" type="checkbox" /></label>
-        <label class="preference-row"><span><strong>Marketing</strong><small>No marketing tracker or processor is configured at launch.</small></span><input v-model="marketing" type="checkbox" /></label>
+        <div class="preference-row"><span><strong>Marketing tracking</strong><small>No purpose, processor, cookie or destination is configured, so there is nothing to accept.</small></span><strong>Not used</strong></div>
         <div class="preference-actions"><IoButton type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save preferences" }}</IoButton><IoButton kind="secondary" :disabled="saving" @click="rejectNonEssential">{{ saving ? "Saving…" : "Reject non-essential" }}</IoButton></div>
         <section class="rights-history consent-history" aria-labelledby="consent-history-heading">
           <h3 id="consent-history-heading">Consent history</h3>
