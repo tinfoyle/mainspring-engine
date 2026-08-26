@@ -90,6 +90,7 @@ The public experience must be a first-class product surface, not a decorative sp
 
 - Pricing uses the public Catalog contract, displays the $50 monthly team subscription and optional $250 commissioning package consistently, and fails closed to the last-known published Catalog rather than leaking provider identifiers. No Free plan or obsolete `$49`/`$149` offer may appear.
 - The single subscription includes Knowledge, Work, Agents, Finance, Marketing, Integrations and every other completed launch capability. Explain operational limits without presenting feature tiers or paid software add-ons; commissioning grants no extra software access.
+- Flat team pricing includes 25 active members with no per-seat billing. Pending invitations reserve capacity; admission above the combined limit fails atomically and preserves the attempted form. A reviewed Support override can raise capacity without changing price or creating a tier.
 - Pricing explains included capabilities, meaningful limits and renewal/grace behavior in plain language. It must not advertise a Free plan or free trial.
 - Selecting an offer preserves only an opaque, validated offer intent through registration and verification.
 - Registration creates and verifies the User identity plus an inactive team shell, not a Free plan. Before payment projection, the owner can reach only security, privacy, billing/checkout and sign-out and receives no product/package entitlement. Only that authenticated authorized team owner may perform the separately confirmed checkout mutation.
