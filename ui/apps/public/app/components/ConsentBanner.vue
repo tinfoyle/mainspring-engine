@@ -64,7 +64,7 @@ async function openPreferences(): Promise<void> {
     <div class="consent__copy">
       <p class="eyebrow">Your choice</p>
       <h2 id="consent-title">Privacy without the fog</h2>
-      <p>Necessary storage keeps the site secure. Optional first-party analytics helps us improve landing, checkout and onboarding—never your business content.</p>
+      <p>Necessary storage keeps the site secure. Optional, content-free analytics improves landing, checkout and onboarding—never your business content.</p>
     </div>
     <div v-if="managing" class="consent__options">
       <label><span><strong>Analytics</strong><small>Content-free journey events</small></span><input v-model="analytics" type="checkbox" /></label>

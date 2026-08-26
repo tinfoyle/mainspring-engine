@@ -119,6 +119,20 @@ test("landing consent gates analytics and preserves the signup handoff", async (
   await expectAccessible(page);
   expect(state.analyticsEvents).toEqual([]);
 
+  if (["chromium-phone-360", "chromium-phone", "chromium-phone-412", "chromium-reflow"].includes(testInfo.project.name)) {
+    const layout = await page.evaluate(() => {
+      const consent = document.querySelector<HTMLElement>(".consent")?.getBoundingClientRect();
+      const actions = document.querySelector<HTMLElement>(".hero__actions")?.getBoundingClientRect();
+      return {
+        consentHeight: consent?.height ?? Number.POSITIVE_INFINITY,
+        consentTop: consent?.top ?? Number.NEGATIVE_INFINITY,
+        heroActionsBottom: actions?.bottom ?? Number.POSITIVE_INFINITY
+      };
+    });
+    expect(layout.consentHeight).toBeLessThanOrEqual(300);
+    expect(layout.heroActionsBottom).toBeLessThanOrEqual(layout.consentTop);
+  }
+
   await page.getByRole("button", { name: "Accept analytics" }).click();
   await expect(page.getByRole("button", { name: "Privacy choices" })).toBeFocused();
   expect(state.analyticsEvents).toEqual([]);

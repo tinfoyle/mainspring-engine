@@ -196,14 +196,33 @@ test("@text-zoom identity entry and recovery pages reflow at 200% text size", as
   expect(runtimeErrors).toEqual([]);
 });
 
-test("identity consent rejection remains equal, reversible, and non-blocking", async ({ page, context }) => {
+test("identity consent rejection remains equal, compact, reversible, and non-blocking", async ({ page, context }, testInfo) => {
   await context.clearCookies();
   await page.goto("/login?return_to=%2Fapp");
   const panel = page.locator("#privacy-consent");
   await expect(panel).toBeVisible();
-  await expect(panel.getByRole("button", { name: "Accept analytics" })).toBeVisible();
+  const accept = panel.getByRole("button", { name: "Accept analytics" });
+  await expect(accept).toBeVisible();
   const reject = panel.getByRole("button", { name: "Reject non-essential" });
   await expect(reject).toBeVisible();
+  const choiceStyles = await Promise.all([accept, reject].map((choice) => choice.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { backgroundColor: style.backgroundColor, border: style.border, color: style.color };
+  })));
+  expect(choiceStyles[0]).toEqual(choiceStyles[1]);
+  if (testInfo.project.name === "chromium-phone") {
+    const layout = await page.evaluate(() => {
+      const consent = document.querySelector<HTMLElement>("#privacy-consent")?.getBoundingClientRect();
+      const formHeading = document.querySelector<HTMLElement>(".auth-panel h2")?.getBoundingClientRect();
+      return {
+        consentHeight: consent?.height ?? Number.POSITIVE_INFINITY,
+        formHeadingTop: formHeading?.top ?? Number.POSITIVE_INFINITY,
+        viewportHeight: innerHeight
+      };
+    });
+    expect(layout.consentHeight).toBeLessThanOrEqual(300);
+    expect(layout.formHeadingTop).toBeLessThan(layout.viewportHeight);
+  }
   await reject.click();
   await expect(panel).toBeHidden();
   const reopen = page.getByRole("button", { name: "Privacy choices" });
