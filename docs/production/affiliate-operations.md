@@ -34,6 +34,8 @@ Every reversal is a new settled ledger entry bound to the original earning. The 
 - `activate`: reactivate a suspended enrollment at the exact current version; and
 - `close`: terminally close an enrollment. Closure cannot be reversed.
 
+Approved suspension policy (2026-08-26): suspension disables public-code lookup and new attribution only. Existing locked subscriptions continue producing qualifying earnings and rolling maturity. Customer subscriptions, billing and entitlements are unaffected; immutable history and structured appeal access remain visible. Closure effects remain a separate owner decision.
+
 Every action requires the standard phishing-resistant operator authorization envelope, an exact environment confirmation, a bounded reason, and an exact Affiliate ID. Mutations additionally require the observed enrollment version.
 
 Example shape, with secrets and authorization material supplied through the environment-specific secret mechanism:
