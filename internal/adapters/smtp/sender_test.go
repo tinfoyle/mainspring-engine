@@ -10,6 +10,7 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
+	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 )
 
@@ -54,6 +55,15 @@ func TestVerificationLinkCarriesOfferAndSameOriginReturnTarget(t *testing.T) {
 	parsed, err := url.Parse(link)
 	if err != nil || parsed.Scheme != "https" || parsed.Host != "app.infiniteocean.net" || parsed.Path != "/verify" || parsed.Query().Get("token") != "verification+token" || parsed.Query().Get("offer") != "team-monthly-v1" || parsed.Query().Get("return_to") != returnTo {
 		t.Fatalf("verification link = %q, parsed=%+v err=%v", link, parsed, err)
+	}
+}
+
+func TestRecoveryLinkCarriesSameOriginReturnTarget(t *testing.T) {
+	returnTo := "/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1"
+	link := recoveryLink("https://app.infiniteocean.net", recovery.Message{Token: "recovery+token", ReturnTo: returnTo})
+	parsed, err := url.Parse(link)
+	if err != nil || parsed.Path != "/reset-password" || parsed.Query().Get("token") != "recovery+token" || parsed.Query().Get("return_to") != returnTo {
+		t.Fatalf("recovery link = %q, parsed=%+v err=%v", link, parsed, err)
 	}
 }
 

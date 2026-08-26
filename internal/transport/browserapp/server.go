@@ -227,8 +227,8 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	return s.securityHeaders(s.recover(mux))
 }
 
-func (s *Server) forgotPasswordPage(w http.ResponseWriter, _ *http.Request) {
-	s.render(w, http.StatusOK, "forgot", pageData{Title: "Recover your identity"})
+func (s *Server) forgotPasswordPage(w http.ResponseWriter, r *http.Request) {
+	s.render(w, http.StatusOK, "forgot", pageData{Title: "Recover your identity", ReturnTo: safeReturnTo(r.URL.Query().Get("return_to"))})
 }
 
 func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
@@ -241,11 +241,12 @@ func (s *Server) forgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, _ := networkactor.FromContext(r.Context())
-	result, err := s.recovery.Begin(r.Context(), recovery.BeginCommand{Email: r.FormValue("email"), NetworkActor: actor})
+	returnTo := safeReturnTo(r.FormValue("return_to"))
+	result, err := s.recovery.Begin(r.Context(), recovery.BeginCommand{Email: r.FormValue("email"), NetworkActor: actor, ReturnTo: returnTo})
 	if err != nil {
 		s.logger.Error("begin credential recovery", "error", err)
 	}
-	data := pageData{Title: "Check your email", Notice: "If that email belongs to an Infinite Ocean identity, a recovery link is on its way.", Email: r.FormValue("email")}
+	data := pageData{Title: "Check your email", Notice: "If that email belongs to an Infinite Ocean identity, a recovery link is on its way.", Email: r.FormValue("email"), ReturnTo: returnTo}
 	if s.config.ExposeDevelopmentTokens && result.Delivered && s.recoveryTokens != nil {
 		if message, ok := s.recoveryTokens.Latest(); ok && message.RecoveryID == result.RecoveryID {
 			data.DevelopmentToken = message.Token
@@ -260,7 +261,7 @@ func (s *Server) resetPasswordPage(w http.ResponseWriter, r *http.Request) {
 		s.render(w, http.StatusBadRequest, "reset", pageData{Title: "Set a new password", Error: "The recovery link is incomplete."})
 		return
 	}
-	s.render(w, http.StatusOK, "reset", pageData{Title: "Set a new password", Token: token})
+	s.render(w, http.StatusOK, "reset", pageData{Title: "Set a new password", Token: token, ReturnTo: safeReturnTo(r.URL.Query().Get("return_to"))})
 }
 
 func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
@@ -273,13 +274,18 @@ func (s *Server) resetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := r.FormValue("token")
+	returnTo := safeReturnTo(r.FormValue("return_to"))
 	err := s.recovery.Complete(r.Context(), recovery.CompleteCommand{Token: token, Password: r.FormValue("password")})
 	if err != nil {
-		s.render(w, http.StatusBadRequest, "reset", pageData{Title: "Set a new password", Token: token, Error: "The recovery link is invalid or expired, or the password does not meet the 12-character minimum."})
+		s.render(w, http.StatusBadRequest, "reset", pageData{Title: "Set a new password", Token: token, ReturnTo: returnTo, Error: "The recovery link is invalid or expired, or the password does not meet the 12-character minimum."})
 		return
 	}
 	s.clearCookies(w)
-	http.Redirect(w, r, "/login?status=password_reset", http.StatusSeeOther)
+	loginQuery := url.Values{"status": {"password_reset"}}
+	if returnTo != "" {
+		loginQuery.Set("return_to", returnTo)
+	}
+	http.Redirect(w, r, "/login?"+loginQuery.Encode(), http.StatusSeeOther)
 }
 
 func (s *Server) styles(w http.ResponseWriter, _ *http.Request) {

@@ -114,11 +114,19 @@ func (s *Sender) SendRecovery(ctx context.Context, message recovery.Message) err
 	if message.Suppress {
 		return nil
 	}
-	link := s.origin + "/reset-password?token=" + url.QueryEscape(message.Token)
+	link := recoveryLink(s.origin, message)
 	subject := "Reset your Infinite Ocean identity password"
 	plain := fmt.Sprintf("Hello %s,\r\n\r\nA password reset was requested for your Infinite Ocean identity. Set a new password here:\r\n%s\r\n\r\nThis single-use link expires at %s. If you did not request it, no change has been made.\r\n", message.DisplayName, link, message.ExpiresAt.UTC().Format(time.RFC1123))
 	htmlBody := fmt.Sprintf("<p>Hello %s,</p><p>A password reset was requested for your Infinite Ocean identity.</p><p><a href=\"%s\">Set a new password</a></p><p>This single-use link expires at %s. If you did not request it, no change has been made.</p>", html.EscapeString(message.DisplayName), html.EscapeString(link), html.EscapeString(message.ExpiresAt.UTC().Format(time.RFC1123)))
 	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func recoveryLink(origin string, message recovery.Message) string {
+	link := origin + "/reset-password?token=" + url.QueryEscape(message.Token)
+	if message.ReturnTo != "" {
+		link += "&return_to=" + url.QueryEscape(message.ReturnTo)
+	}
+	return link
 }
 
 func (s *Sender) SendOwnershipTransfer(ctx context.Context, message accountmembers.OwnershipTransferNotice) error {

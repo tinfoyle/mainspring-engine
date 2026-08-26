@@ -54,6 +54,7 @@ type Message struct {
 	Email       string
 	DisplayName string
 	Token       string
+	ReturnTo    string
 	ExpiresAt   time.Time
 	Suppress    bool
 }
@@ -83,6 +84,7 @@ func NewService(repository Repository, sender Sender, limiter AttemptLimiter, ne
 type BeginCommand struct {
 	Email        string
 	NetworkActor [32]byte
+	ReturnTo     string
 }
 type BeginResult struct {
 	RecoveryID ids.RecoveryID
@@ -124,7 +126,7 @@ func (s *Service) Begin(ctx context.Context, command BeginCommand) (BeginResult,
 	if !exists {
 		return BeginResult{}, s.sender.SendRecovery(ctx, Message{Token: token, ExpiresAt: expiresAt, Suppress: true})
 	}
-	message := Message{RecoveryID: pending.ID, Email: recipient.Email, DisplayName: recipient.DisplayName, Token: token, ExpiresAt: pending.ExpiresAt}
+	message := Message{RecoveryID: pending.ID, Email: recipient.Email, DisplayName: recipient.DisplayName, Token: token, ReturnTo: command.ReturnTo, ExpiresAt: pending.ExpiresAt}
 	if err := s.sender.SendRecovery(ctx, message); err != nil {
 		_ = s.repository.Delete(ctx, pending.ID)
 		return BeginResult{}, err

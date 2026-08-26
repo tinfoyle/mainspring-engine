@@ -162,17 +162,31 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	if passwordOnlyInvite.status != http.StatusOK || !bytes.Contains(passwordOnlyInvite.body, []byte("Account owners must add a passkey and save recovery codes")) {
 		t.Fatalf("browser owner enrollment gate: %d %s", passwordOnlyInvite.status, passwordOnlyInvite.body)
 	}
-	recoveryStarted := postForm(t, client, server.URL+"/forgot-password", url.Values{"email": {"avery@example.com"}})
+	recoveryReturnTo := "/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1"
+	recoveryStarted := postForm(t, client, server.URL+"/forgot-password", url.Values{"email": {"avery@example.com"}, "return_to": {recoveryReturnTo}})
 	if recoveryStarted.status != http.StatusAccepted || !bytes.Contains(recoveryStarted.body, []byte("If that email belongs to an Infinite Ocean identity")) {
 		t.Fatalf("browser recovery start: %d %s", recoveryStarted.status, recoveryStarted.body)
 	}
-	recoveryMatch := regexp.MustCompile(`/reset-password\?token=([^"&]+)`).FindSubmatch(recoveryStarted.body)
-	if len(recoveryMatch) != 2 {
+	recoveryMatch := regexp.MustCompile(`/reset-password\?token=([^"&]+)&(?:amp;)?return_to=([^"&]+)`).FindSubmatch(recoveryStarted.body)
+	if len(recoveryMatch) != 3 {
 		t.Fatalf("development recovery link missing: %s", recoveryStarted.body)
 	}
+	if decoded, _ := url.QueryUnescape(string(recoveryMatch[2])); decoded != recoveryReturnTo {
+		t.Fatalf("development recovery return target = %q", decoded)
+	}
 	recoveryToken, _ := url.QueryUnescape(string(recoveryMatch[1]))
-	recovered := postForm(t, client, server.URL+"/reset-password", url.Values{"token": {recoveryToken}, "password": {"replacement password material"}})
-	if recovered.status != http.StatusOK || !bytes.Contains(recovered.body, []byte("Password updated. Sign in again on every device.")) {
+	resetPage, err := client.Get(server.URL + "/reset-password?token=" + url.QueryEscape(recoveryToken) + "&return_to=" + url.QueryEscape(recoveryReturnTo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetBody, _ := io.ReadAll(resetPage.Body)
+	resetPage.Body.Close()
+	if !bytes.Contains(resetBody, []byte(`name="return_to" value="/app/checkout?offer=team-monthly-v1&amp;ref=IO-PARTNER1"`)) {
+		t.Fatalf("recovery reset target missing: %s", resetBody)
+	}
+	recovered := postForm(t, client, server.URL+"/reset-password", url.Values{"token": {recoveryToken}, "password": {"replacement password material"}, "return_to": {recoveryReturnTo}})
+	recoveredURL, parseErr := url.Parse(recovered.url)
+	if parseErr != nil || recovered.status != http.StatusOK || recoveredURL.Path != "/login" || recoveredURL.Query().Get("return_to") != recoveryReturnTo || !bytes.Contains(recovered.body, []byte("Password updated. Sign in again on every device.")) {
 		t.Fatalf("browser recovery completion: %d %s", recovered.status, recovered.body)
 	}
 	oldPassword := postForm(t, client, server.URL+"/login", url.Values{"email": {"avery@example.com"}, "password": {"correct horse battery staple"}})
@@ -283,7 +297,8 @@ func TestAffiliateCheckoutProposalSurvivesSecureSignupJourney(t *testing.T) {
 	loginBody, _ := io.ReadAll(login.Body)
 	login.Body.Close()
 	expectedSignupLink := `/signup?return_to=` + url.QueryEscape(returnTo)
-	if !bytes.Contains(loginBody, []byte(`name="return_to" value="/app/checkout?offer=team-monthly-v1&amp;ref=IO-PARTNER1"`)) || !bytes.Contains(loginBody, []byte(`href="`+expectedSignupLink+`"`)) {
+	expectedRecoveryLink := `/forgot-password?return_to=` + url.QueryEscape(returnTo)
+	if !bytes.Contains(loginBody, []byte(`name="return_to" value="/app/checkout?offer=team-monthly-v1&amp;ref=IO-PARTNER1"`)) || !bytes.Contains(loginBody, []byte(`href="`+expectedSignupLink+`"`)) || !bytes.Contains(loginBody, []byte(`href="`+expectedRecoveryLink+`"`)) {
 		t.Fatalf("affiliate proposal was not preserved by sign-in: %s", loginBody)
 	}
 

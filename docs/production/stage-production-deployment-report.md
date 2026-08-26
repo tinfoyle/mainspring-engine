@@ -18,7 +18,7 @@ Affiliate-code replacement deployment amendment (2026-08-25): migration 49 and g
 
 Affiliate-statement deployment amendment (2026-08-25): the locked-subscription aggregate and UTC monthly statement presentation are likewise local Phase 3 construction. They do not authorize an image publication or environment rollout; Hostinger Docker, GHCR and LKE remain untouched.
 
-Affiliate acquisition-continuity deployment amendment (2026-08-25): the same-origin signup/verification `return_to` handoff and corrected private-entry analytics taxonomy are source changes in the local Phase 3 artifact set. They require the normal matched Go/public/private exact-artifact gate and will not be released independently. GHCR, Hostinger Stage and LKE remain untouched.
+Affiliate acquisition-continuity deployment amendment (2026-08-25): the same-origin signup/verification and password-recovery/reset `return_to` handoffs plus the corrected private-entry analytics taxonomy are source changes in the local Phase 3 artifact set. They require the normal matched Go/public/private exact-artifact gate and will not be released independently. GHCR, Hostinger Stage and LKE remain untouched.
 
 Local provider preparation is isolated from deployment input. Compose accepts an optional Stripe-only override from a validated mode-600 file on UbuntuRojo's native filesystem; the checked-in environment remains deliberately fake and provider-free. The Hostinger webhook secret is endpoint-specific and must not be reused by a local listener. No Stage secret was copied and no deployed resource was changed. Hosted local Checkout remains pending real Stripe test Prices, governed local Catalog mappings, the listener-issued secret and externally authorized Catalog operations.
 

@@ -128,7 +128,7 @@ func (s *QueuedSender) SendRecovery(ctx context.Context, message recovery.Messag
 	if message.Suppress {
 		return s.enqueue(ctx, "", KindDiscard, payload{Token: message.Token, ExpiresAt: message.ExpiresAt})
 	}
-	return s.enqueue(ctx, "", KindRecovery, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, ExpiresAt: message.ExpiresAt})
+	return s.enqueue(ctx, "", KindRecovery, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, ReturnTo: message.ReturnTo, ExpiresAt: message.ExpiresAt})
 }
 
 func (s *QueuedSender) PrepareOwnershipTransfer(id string, message accountmembers.OwnershipTransferNotice) (accountmembers.PreparedNotification, error) {
@@ -241,7 +241,7 @@ func (p *Processor) deliver(ctx context.Context, accountID ids.AccountID, kind K
 	case KindInvitation:
 		return p.delivery.SendInvitation(ctx, invitations.Message{AccountID: accountID, Email: value.Email, Token: value.Token, AccountName: value.AccountName, Role: accounts.MembershipRole(value.Role), ExpiresAt: value.ExpiresAt})
 	case KindRecovery:
-		return p.delivery.SendRecovery(ctx, recovery.Message{Email: value.Email, DisplayName: value.DisplayName, Token: value.Token, ExpiresAt: value.ExpiresAt})
+		return p.delivery.SendRecovery(ctx, recovery.Message{Email: value.Email, DisplayName: value.DisplayName, Token: value.Token, ReturnTo: value.ReturnTo, ExpiresAt: value.ExpiresAt})
 	case KindOwnership:
 		role := accountmembers.OwnershipNoticeRole(value.RecipientRole)
 		return p.delivery.SendOwnershipTransfer(ctx, accountmembers.OwnershipTransferNotice{AccountID: accountID, Email: value.Email, DisplayName: value.DisplayName, AccountName: value.AccountName, CounterpartDisplayName: value.CounterpartDisplayName, RecipientRole: role, OccurredAt: value.OccurredAt})

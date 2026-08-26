@@ -96,8 +96,9 @@ func TestBeginIsGenericForUnknownIdentityAndSendsKnownIdentity(t *testing.T) {
 	}
 	repo.exists = true
 	repo.recipient = recovery.Recipient{UserID: ids.UserID("user-a"), Email: "owner@example.com", DisplayName: "Owner"}
-	started, err := service.Begin(context.Background(), recovery.BeginCommand{Email: " OWNER@example.com ", NetworkActor: testActor})
-	if err != nil || !started.Delivered || delivery.message.Token == "" || delivery.message.Email != "owner@example.com" {
+	returnTo := "/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1"
+	started, err := service.Begin(context.Background(), recovery.BeginCommand{Email: " OWNER@example.com ", NetworkActor: testActor, ReturnTo: returnTo})
+	if err != nil || !started.Delivered || delivery.message.Token == "" || delivery.message.Email != "owner@example.com" || delivery.message.ReturnTo != returnTo {
 		t.Fatalf("known recovery = %+v, message=%+v err=%v", started, delivery.message, err)
 	}
 	if repo.pending.Email != "owner@example.com" || repo.pending.TokenHash != sha256.Sum256([]byte(delivery.message.Token)) {

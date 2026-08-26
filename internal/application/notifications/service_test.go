@@ -134,6 +134,26 @@ func TestDiscardEnvelopeEqualizesRecoveryWithoutDelivery(t *testing.T) {
 	}
 }
 
+func TestQueuedRecoveryPreservesEncryptedReturnTarget(t *testing.T) {
+	envelopeCipher, _ := notifications.NewCipher(bytes.Repeat([]byte{0x23}, 32), 1)
+	queue := &fakeQueue{}
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	sender, _ := notifications.NewQueuedSender(queue, envelopeCipher, generator{"23000000-0000-4000-8000-000000000002"}, clock{now})
+	message := recovery.Message{Email: "owner@example.com", DisplayName: "Owner", Token: "recovery-token", ReturnTo: "/app/checkout?ref=IO-PARTNER1", ExpiresAt: now.Add(time.Hour)}
+	if err := sender.SendRecovery(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if len(queue.entries) != 1 || bytes.Contains(queue.entries[0].Ciphertext, []byte(message.ReturnTo)) {
+		t.Fatalf("recovery envelope leaked return target: %+v", queue.entries)
+	}
+	delivery := &delivery{}
+	processor, _ := notifications.NewProcessor(queue, envelopeCipher, delivery, clock{now}, time.Minute)
+	worked, err := processor.ProcessOne(context.Background())
+	if err != nil || !worked || delivery.recovery.ReturnTo != message.ReturnTo || queue.delivered == "" {
+		t.Fatalf("recovery delivery=%+v worked=%v delivered=%q err=%v", delivery.recovery, worked, queue.delivered, err)
+	}
+}
+
 func TestOwnershipTransferPreparationEncryptsAndDeliversOneRecipient(t *testing.T) {
 	envelopeCipher, _ := notifications.NewCipher(bytes.Repeat([]byte{0x26}, 32), 1)
 	queue := &fakeQueue{}
