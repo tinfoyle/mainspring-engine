@@ -26,6 +26,8 @@ Every new Catalog draft explicitly defines each package default limit:
 - `combine` is one of `replace`, `add`, `maximum`, or `minimum`. Entitlement evaluation applies that rule to active grants in deterministic priority and grant-ID order.
 - `reservation_ttl_seconds` is optional. A positive value recovers abandoned transient capacity, such as a crashed agent run. Long-lived resources such as documents release capacity when their owning resource is deleted or leaves the counted state.
 
+Launch document decision (2026-08-26): the `documents` capacity is 1,000 logical Documents per team. Revisions do not consume separate slots. A Document releases its slot only after guarded physical deletion finishes; requested, queued, quarantined, processing and retained deletion states remain counted. Admission of a 1,001st Document must fail before object creation. A reviewed versioned Support override may raise the Account limit without creating a price or feature tier.
+
 The public Catalog endpoint exposes these product definitions but never provider mappings. New governed drafts fail if a package default has no definition, the package owner is unknown, the rule or kind is unsupported, or a reservation TTL exceeds 30 days. Immutable Catalog versions created before limit definitions remain rollback-compatible with conservative `capacity`/`replace` semantics.
 
 ## Decision sequence
