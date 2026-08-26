@@ -1,6 +1,6 @@
 # Affiliate program terms — launch policy draft
 
-- Status: Commercial and legal draft; enrollment remains feature-flagged closed
+- Status: Owner-approved commercial policy; legal and release draft; enrollment remains feature-flagged closed
 - Terms version: 1 candidate
 - Rule version: 1 candidate
 - Draft date: 2026-08-24
@@ -14,6 +14,8 @@ Owner economics decisions (2026-08-26): the launch subscription is **$50.00 USD 
 There is no Free plan at launch. The `free-v1` offer and every customer-facing permanent-free claim in the current repository are obsolete launch candidates and must be removed from the effective Catalog and acquisition/registration surfaces before enrollment or attribution opens.
 
 There is no free trial at launch. The $50 monthly subscription begins with the first successfully paid invoice after Checkout. Zero-value trial handling remains a defensive ledger invariant only and must not be advertised or configured as a launch offer.
+
+AI Token top-up purchases and promotional Token grants are never Affiliate-eligible. Their lines are excluded from the earning basis even when they share a Stripe invoice with the eligible subscription, and adverse evidence confined to those excluded lines does not reverse the subscription earning. An Affiliate code records attribution only; it is not itself a token promotion or discount.
 
 The $50 subscription is the single complete-product team offer. It includes every completed launch package; there is no higher software tier. Operational capacity limits do not create separate Affiliate-eligible products. Commissioning remains an ineligible service purchase and changes no entitlement.
 
@@ -40,4 +42,4 @@ Owner retention decision (2026-08-26): Affiliate terms acceptance, earnings, rev
 
 Owner erasure decision (2026-08-26): a verified Affiliate erasure request closes the enrollment under the ordinary closure rule, immediately removes the active code and referral link, stops new attribution and future earnings, and erases optional profile data that is no longer needed. It does not cancel referred-customer subscriptions or forfeit already available Affiliate credit. Financial, accounting, settlement and audit records that must remain during the seven-year period move outside ordinary product and marketing use into access-restricted retention. The Affiliate is told what is retained and why. At the deadline those records are deleted or irreversibly minimized; a documented legal hold may extend only the records within its scope.
 
-Until the commercial register is approved, `SPYGLASS_AFFILIATE_ENROLLMENT_OPEN` and `SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED` remain `false`, `SPYGLASS_AFFILIATE_SETTLEMENT_MODE` remains `unconfigured`, and the UI must describe the program as unavailable rather than advertise candidate economics. The current configuration understands only pure `account_credit` or `cash`; it must not be set to either as a substitute for the approved hybrid. `SPYGLASS_AFFILIATE_TERMS_VERSION` and `SPYGLASS_AFFILIATE_RULE_VERSION` select the exact accepted policy and immutable database rule; opening enrollment or attribution while settlement is unconfigured fails process startup, enabling either gate requires the selected rule to exist, and enrollment requests fail closed when their settlement Account shape does not match the selected mode.
+The owner commercial-policy register is complete, but `SPYGLASS_AFFILIATE_ENROLLMENT_OPEN` and `SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED` remain `false`, `SPYGLASS_AFFILIATE_SETTLEMENT_MODE` remains `unconfigured`, and the UI must describe the program as unavailable until implementation, legal and operating gates close. The implementation must add an exact `account_credit_with_support_check` mode; current pure `account_credit` or `cash` modes must not substitute for the approved hybrid. `SPYGLASS_AFFILIATE_TERMS_VERSION` and `SPYGLASS_AFFILIATE_RULE_VERSION` select the exact accepted policy and immutable database rule; opening enrollment or attribution while settlement is unconfigured fails process startup, enabling either gate requires the selected rule to exist, and enrollment requests fail closed when their settlement Account shape does not match the selected mode.

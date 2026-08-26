@@ -6,6 +6,8 @@
 
 This verdict separates executable software from environment evidence. The repository now has a strong security and modularity foundation, but a successful local suite and review-only manifests are not substitutes for live Stripe/SMTP, applied cluster policy, observability, load, restore, accessibility, and canary evidence.
 
+Owner-policy supersession (2026-08-26): Affiliate economics, settlement product policy and the aligned remaining AI Token defaults are now approved. Earlier checkpoint language describing those owner choices as candidate or awaiting commercial approval is historical. The production no-go verdict remains because the exact Catalog/Stripe/token implementation, `account_credit_with_support_check` mode, legal/controller/provider/device/operations evidence and environment certification are still incomplete.
+
 ## What is executable now
 
 | Area | Current evidence | Readiness |

@@ -262,6 +262,8 @@ Status on 2026-08-24: **complete.** The revision-controlled [API and MCP interac
 
 After the backend completion report and API/MCP guide are committed locally, this execution window stops. It does not begin the customer-facing UI workstream automatically. UI planning and implementation resume only under a later explicit direction. GHCR, Stage, LKE and production remain later release work after both backend and UI feature completion.
 
+Policy-alignment amendment (2026-08-26): the owner launch-policy register is complete, including the delegated remaining AI Token issuance, authority, shortfall, rate-notice, promotion, payment-adversity and Affiliate-ineligibility defaults. These are requirements for the next local backend implementation slice, not evidence that token-ledger, Catalog, Stripe or Affiliate settlement code already implements them. External legal/controller/provider/device/environment facts remain explicit release gates.
+
 ## Execution order
 
 ```text

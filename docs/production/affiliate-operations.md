@@ -119,6 +119,6 @@ Do not grant this role direct support-request/event table access or any enrollme
 
 ## Launch boundary
 
-The operational ledger, lifecycle and structured review channel do not approve candidate economics or settlement. Enrollment and attribution flags stay closed until the release owner approves commercial terms, settlement, disclosure handling, and legal/privacy/vendor/transfer decisions. Stage and production credentials are not required for local verification.
+The owner has approved the commercial and account-credit-first Support-check settlement policy. The operational ledger, lifecycle and structured review channel do not implement or release-approve it by themselves. Enrollment and attribution flags stay closed until the exact hybrid settlement mode, Catalog/Stripe mapping, balance controls, disclosures, legal/privacy/vendor/transfer review and Support procedure are complete. Stage and production credentials are not required for local verification.
 
 Stripe references: [event types](https://docs.stripe.com/api/events/types), [Refund object](https://docs.stripe.com/api/refunds/object), [Dispute object](https://docs.stripe.com/api/disputes/object), and [Invoice Payment object](https://docs.stripe.com/api/invoice-payment/object).

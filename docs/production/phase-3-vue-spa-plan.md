@@ -101,6 +101,10 @@ The public experience must be a first-class product surface, not a decorative sp
 - Explain that included Tokens reset without rollover on the next successful renewal, purchased Tokens do not expire while the Account is active, and promotions show their exact expiry. Show balances by origin and consume earliest-expiring grants before purchased Tokens.
 - Identify every token balance as belonging to the current team Account. Ownership or membership changes leave it there, and the UI must not imply or offer transfers between Accounts; billing corrections appear as auditable same-Account ledger entries.
 - Top-up receipts and Billing help disclose the 14-day Support refund window: the exact purchased grant must be wholly unused and unreserved, any use eliminates full and partial discretionary refunds, and included/promotional grants are not refundable. Do not claim that this limits billing-error, fraud or legally required remedies.
+- Show the safe shared balance to active team members, but permit manual top-up purchase/refund initiation only to an owner or billing administrator after recent passkey confirmation. Launch has no automatic replenishment. Insufficient balance must preserve the attempted input, make no provider call and offer a clear top-up-or-renewal recovery.
+- Explain that each positive paid service-period invoice grants the configured full included quantity independent of discount/tax; prorations, retries and commissioning add none. Show payment-dispute freezes and immutable reversals without implying negative debt. Token top-ups and promotions are not Affiliate-eligible.
+- Announce comparable same-complexity rate increases at least 30 days before effect. Emergency security/legal/provider/reliability replacements may be immediate but require prompt notice and a lower-complexity or stop-work choice. Never suggest an existing balance guarantees an old rate or fixed USD value.
+- Render promotions from immutable campaign definitions with exact eligibility, effective/expiry times, redemption limits and stacking behavior. Do not silently stack campaigns, retroactively change a purchase or treat an Affiliate attribution code as a token promotion.
 - Pricing explains included capabilities, meaningful limits and renewal/grace behavior in plain language. It must not advertise a Free plan or free trial.
 - Selecting an offer preserves only an opaque, validated offer intent through registration and verification.
 - Registration creates and verifies the User identity plus an inactive team shell, not a Free plan. Before payment projection, the owner can reach only security, privacy, billing/checkout and sign-out and receives no product/package entitlement. Only that authenticated authorized team owner may perform the separately confirmed checkout mutation.
@@ -169,6 +173,8 @@ Your Turn is the first complete feature slice and the acceptance reference for t
 
 ### PA0 — Privacy, analytics and Affiliate backend extension
 
+Owner-policy supersession (2026-08-26): Affiliate economics, adverse-event handling and the account-credit-first Support-check model are owner-approved, and the aligned remaining AI Token defaults are fixed. Earlier checkpoint language calling commercial settlement undecided or candidate is historical. Feature flags remain closed for implementation and release reasons: the exact `account_credit_with_support_check` mode, Catalog/Stripe mappings, token ledger/admission/UI work, legal/vendor/transfer review and operating procedure are still required.
+
 Affiliate privacy checkpoint (2026-08-26): the PA0 boundary now includes passkey-confirmed identity-owned Affiliate portability. A dedicated execute-only PostgreSQL projection and typed `GET /api/v1/affiliate/data-export` contract return enrollment, public-code history, sanitized lifecycle, aggregate attribution counts, provider-free commission entries, and sanitized support history. Referred-customer, checkout, subscription, payment-provider, staff-actor, and free-form reason data cannot enter the artifact. The mobile-first Privacy tools surface downloads it as no-store JSON without persistent browser storage; correction, restriction, objection, closure, and erasure remain reviewed rights workflows.
 
 Affiliate portability browser checkpoint (2026-08-26): the exact built Vue and Nuxt artifacts exercise the direct JSON download and strong-authentication handoff in every applicable standard browser profile. The download receives a date-stamped filename without persistent browser storage, and a `strong_reauthentication_required` response preserves `/app/privacy` as the exact return target. The full UbuntuRojo Docker matrix passes 393 applicable checks plus eleven intentional compact-navigation skips. This is local product evidence only; it does not open Affiliate flags or authorize provider, Stage, Kubernetes or production work.
@@ -183,7 +189,7 @@ Checkpoint (2026-08-25): the consent, event-ingestion, browser-subject rights, r
 - Implement consent receipts and server-side optional-event enforcement.
 - Implement Affiliate enrollment, generated codes, checkout attribution, versioned commission rules and an immutable recurring commission ledger.
 - Generate the HTTP contracts required by the Vue consent center, checkout review and Affiliate dashboard.
-- Approve account-credit versus cash settlement before either is presented as available value.
+- Implement and certify the approved `account_credit_with_support_check` mode before any Affiliate value is presented as available.
 
 Exit: privacy and Affiliate state has a tested local application boundary; analytics withdrawal cannot alter commercial attribution, and invoice replay cannot duplicate commission.
 

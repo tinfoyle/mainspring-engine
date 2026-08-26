@@ -23,7 +23,7 @@ This handoff separates implemented local behavior from the decisions and externa
 
 The exact UbuntuRojo Docker gate for the snapshot passed 393 applicable browser checks with eleven intentional compact-menu skips, 72 private UI tests, 22 public tests, 42 API-client tests, all seventeen rendered public routes, type checking, lint, both production builds, gzip budgets and a high-severity dependency audit with zero findings. The current private/public JavaScript budgets measured 113.8/90.4 KiB gzip and CSS measured 10.4/4.7 KiB gzip.
 
-## Owner decisions required
+## Owner policy register
 
 ### Affiliate commercial register
 
@@ -45,6 +45,10 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** restricted Accounts retain a visible but unusable AI Token ledger. Recovery before deletion restores surviving purchased grants while included/promotional expiry continues; guarded deletion extinguishes every remaining grant without cash value, refund or migration except where law requires;
 - **Decided 2026-08-26:** AI Tokens belong to the receiving team Account, not a member. Membership/ownership changes preserve that ledger; customer, API and Support paths cannot transfer it between Accounts, and corrections remain auditable same-Account entries;
 - **Decided 2026-08-26:** Support may refund a top-up within 14 calendar days only while that exact grant is wholly unused and unreserved. Any consumption ends full/partial discretionary eligibility; included/promotional grants are nonrefundable, while error/fraud/legal exceptions remain separate;
+- **Decided by delegated policy authority 2026-08-26:** signed projection of each positive paid initial/renewal service period grants the full configured included quantity independent of discount/tax; prorations, retries and commissioning grant none. Payment adversity reverses only unused remainder and never creates negative usage;
+- **Decided by delegated policy authority 2026-08-26:** active members may inspect safe shared token totals and authorized feature actions may consume them. Only owners/billing administrators with recent passkey evidence may manually buy or seek refund; launch has no automatic top-up, and insufficient balance preserves input before provider contact;
+- **Decided by delegated policy authority 2026-08-26:** comparable same-complexity debit increases receive 30 days' notice, with prompt-notice emergency exceptions for security/legal/provider withdrawal/severe reliability. Runs remain frozen, while existing balances carry no old-rate or USD-value guarantee;
+- **Decided by delegated policy authority 2026-08-26:** promotions use bounded immutable campaign versions with explicit eligibility, time/expiry, redemption/issuance caps, effect, disclosure and stacking. No retroactivity or implicit stacking; Affiliate codes are attribution, and token top-ups/promotions earn no commission;
 - **Decided 2026-08-26:** after Account erasure, delete the live User identity only when it has no Membership in another Account and no active Affiliate relationship. Otherwise preserve the identity and unrelated authority while removing every erased-Account link;
 - **Decided 2026-08-26:** send idempotent email and in-app notices immediately, at day 7, day 23 and day 29. State the team, exact deletion time, payment/export links and possible orphaned-identity deletion; projected recovery cancels unsent notices and Stripe dunning is supplemental;
 - **Decided 2026-08-26:** voluntary cancellation retains full access through paid period end, then restricts access and begins the same 30-day deletion clock. Withdrawal before term end prevents it; projected resubscription before deletion cancels it. Notify at scheduling, term end, day 23 and day 29;
@@ -79,9 +83,9 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** a verified Affiliate erasure request closes enrollment, disables the code/link, stops future attribution/earnings and erases unneeded data while preserving customers and available credit. Required records remain access-restricted and outside marketing/ordinary product use until deadline; fulfillment discloses retained categories, purpose and deadline, and legal holds are scoped; and
 - **Decided 2026-08-26:** the optional `$250` onboarding/commissioning package never earns Affiliate commission. It is excluded from the eligible basis even on a shared invoice, and package-only adverse evidence does not reverse the subscription earning;
 - **Decided 2026-08-26:** the authorized owner may add commissioning to initial subscription Checkout or buy it later from Billing. The standard package is self-service-purchasable once per team; verified local state suppresses and rejects duplicates, and additional engagements route through Support;
-- remaining privacy-controller and operational release fields.
+- **Owner commercial policy is complete.** Exact Catalog/Stripe mapping, the account-credit-with-Support-check settlement-mode implementation, legal review, privacy-controller facts and operational release fields remain implementation or external gates rather than unanswered product-policy choices.
 
-Until approval, retain:
+Until every implementation, legal and operational release gate closes, retain:
 
 ```text
 SPYGLASS_AFFILIATE_ENROLLMENT_OPEN=false
@@ -167,7 +171,11 @@ AI token commerce: versioned configurable subscription grants, bundles and promo
 AI token balances: included reset at next successful renewal, purchased non-expiring while active, promotions explicitly expire; earliest-expiring consumed first (owner decision 2026-08-26)
 AI tokens after access loss: visible but unusable while restricted; pre-deletion recovery restores surviving purchased balance; Account deletion extinguishes all remaining grants without cash value/refund/transfer except where law requires (owner decision 2026-08-26)
 AI token ownership: team-Account-bound and non-transferable across Accounts, including common ownership; same-Account auditable corrections only, with mergers/splits/replacements handled case by case and no automated migration (owner decision 2026-08-26)
-AI token refunds: authorized-owner Support request within 14 days only for a wholly unused/unreserved purchased grant; no partial discretionary refund after use; included/promotional grants excluded; append exact-once Stripe-backed reversal (owner decision 2026-08-26)
+AI token refunds: recent-passkey owner/billing-admin Support request within 14 days only for a wholly unused/unreserved purchased grant; no partial discretionary refund after use; included/promotional grants excluded; append exact-once Stripe-backed reversal (owner decision plus delegated authority alignment 2026-08-26)
+AI token issuance/adversity: full configured grant per positive paid initial/renewal service period regardless of discount/tax; no proration/retry/commissioning duplicates; reverse/freeze unused remainder without negative usage (delegated owner policy 2026-08-26)
+AI token authority/shortfall: safe shared balance; ordinary feature authorization to consume; recent-passkey owner/billing-admin manual purchases; no auto-top-up; preserve input and stop before provider contact when insufficient (delegated owner policy 2026-08-26)
+AI token rate changes: 30-day notice for comparable same-complexity increases, narrow prompt-notice emergency exception; admitted Runs frozen, balances not old-rate/USD guarantees (delegated owner policy 2026-08-26)
+AI token promotions/Affiliate: immutable bounded explicit campaign/stacking rules; no retroactivity; Affiliate code is attribution; top-ups and promo grants earn no commission (delegated owner policy 2026-08-26)
 Commissioning Affiliate treatment: never commission-eligible; exclude its line from earning and reversal qualification (owner decision 2026-08-26)
 Free plan: none at launch; remove free-v1 and permanent-free claims from effective Catalog and customer surfaces (owner decision 2026-08-26)
 Free trial: none at launch; first fully paid $50 subscription invoice and signed-webhook projection begin access (owner decision 2026-08-26)
