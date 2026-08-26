@@ -23,7 +23,7 @@ RUN npm run build --workspace=@spyglass/app
 FROM source AS public-build
 RUN npm run build --workspace=@spyglass/public
 
-FROM ${PLAYWRIGHT_IMAGE} AS browser-test
+FROM ${PLAYWRIGHT_IMAGE} AS browser-source
 WORKDIR /workspace
 ENV CI=1 \
     PLAYWRIGHT_HTML_OPEN=never
@@ -37,6 +37,8 @@ COPY --from=app-build /workspace/apps/app/dist apps/app/dist
 COPY --from=public-build /workspace/apps/public/.output apps/public/.output
 COPY playwright.config.ts playwright.config.ts
 COPY tests/browser tests/browser
+
+FROM browser-source AS browser-test
 RUN npm run browser:app && touch /tmp/spyglass-private-browser-passed
 
 FROM ${PLAYWRIGHT_IMAGE} AS identity-browser-test

@@ -1,4 +1,8 @@
 import type {
+  AIComplexity,
+  AIComplexityRate,
+  AITokenBundle,
+  AITokenRenewalGrant,
   CatalogFeaturePackage,
   CatalogLimitDefinition,
   CatalogOffer,
@@ -14,6 +18,7 @@ const packageCodes = new Set<CatalogPackageCode>(["knowledge", "work", "agents",
 const packageModes = new Set<CatalogPackageMode>(["enabled", "read_only", "suspended"]);
 const limitCombinations = new Set<CatalogLimitDefinition["combine"]>(["replace", "add", "maximum", "minimum"]);
 const billingIntervals = new Set<CatalogOffer["billing_interval"]>(["none", "month", "year"]);
+const complexities = new Set<AIComplexity>(["simple", "efficient", "balanced", "thorough", "advanced"]);
 const forbiddenKey = /(stripe|provider|price_id|product_id|customer_id|subscription_id)/i;
 const isoTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
@@ -147,6 +152,24 @@ function copyOffer(value: unknown, index: number): CatalogOffer {
   };
 }
 
+function copyRenewalGrant(value: unknown): AITokenRenewalGrant {
+  const item = asRecord(value, "ai_token_renewal_grant");
+  return { code: asString(item.code, "ai_token_renewal_grant.code"), version: asInteger(item.version, "ai_token_renewal_grant.version", 1), quantity: asInteger(item.quantity, "ai_token_renewal_grant.quantity", 1), disclosure: asString(item.disclosure, "ai_token_renewal_grant.disclosure") };
+}
+
+function copyTokenBundle(value: unknown, index: number): AITokenBundle {
+  const item = asRecord(value, `ai_token_bundles[${index}]`);
+  if (item.currency !== "USD") fail(`ai_token_bundles[${index}].currency is invalid`);
+  return { code: asString(item.code, `ai_token_bundles[${index}].code`), version: asInteger(item.version, `ai_token_bundles[${index}].version`, 1), quantity: asInteger(item.quantity, `ai_token_bundles[${index}].quantity`, 1), currency: "USD", amount_minor: asInteger(item.amount_minor, `ai_token_bundles[${index}].amount_minor`, 1), effective_from: asDate(item.effective_from, `ai_token_bundles[${index}].effective_from`), disclosure: asString(item.disclosure, `ai_token_bundles[${index}].disclosure`) };
+}
+
+function copyComplexityRate(value: unknown, index: number): AIComplexityRate {
+  const item = asRecord(value, `ai_complexity_rates[${index}]`);
+  const complexity = asString(item.complexity, `ai_complexity_rates[${index}].complexity`) as AIComplexity;
+  if (!complexities.has(complexity)) fail(`ai_complexity_rates[${index}].complexity is invalid`);
+  return { code: asString(item.code, `ai_complexity_rates[${index}].code`), version: asInteger(item.version, `ai_complexity_rates[${index}].version`, 1), complexity, input_per_thousand: asInteger(item.input_per_thousand, `ai_complexity_rates[${index}].input_per_thousand`, 1), cached_input_per_thousand: asInteger(item.cached_input_per_thousand, `ai_complexity_rates[${index}].cached_input_per_thousand`, 1), output_per_thousand: asInteger(item.output_per_thousand, `ai_complexity_rates[${index}].output_per_thousand`, 1), tool_invocation: asInteger(item.tool_invocation, `ai_complexity_rates[${index}].tool_invocation`), minimum_charge: asInteger(item.minimum_charge, `ai_complexity_rates[${index}].minimum_charge`, 1), maximum_reservation: asInteger(item.maximum_reservation, `ai_complexity_rates[${index}].maximum_reservation`, 1), estimated_minimum: asInteger(item.estimated_minimum, `ai_complexity_rates[${index}].estimated_minimum`, 1), estimated_maximum: asInteger(item.estimated_maximum, `ai_complexity_rates[${index}].estimated_maximum`, 1) };
+}
+
 function assertUnique(values: ReadonlyArray<string>, label: string): void {
   if (new Set(values).size !== values.length) fail(`${label} contains duplicate identities`);
 }
@@ -158,10 +181,16 @@ export function normalizePublicCatalog(value: unknown): PublicCatalog {
   const limits = asArray(source.limits, "limits").map(copyLimit);
   const plans = asArray(source.plans, "plans").map(copyPlan);
   const offers = asArray(source.offers, "offers").map(copyOffer);
+  const aiTokenRenewalGrant = copyRenewalGrant(source.ai_token_renewal_grant);
+  const aiTokenBundles = asArray(source.ai_token_bundles, "ai_token_bundles").map(copyTokenBundle);
+  const aiComplexityRates = asArray(source.ai_complexity_rates, "ai_complexity_rates").map(copyComplexityRate);
   assertUnique(packages.map((item) => item.code), "packages");
   assertUnique(limits.map((item) => item.code), "limits");
   assertUnique(plans.map((item) => `${item.code}:${item.version}`), "plans");
   assertUnique(offers.map((item) => item.code), "offers");
+  assertUnique(aiTokenBundles.map((item) => item.code), "ai_token_bundles");
+  assertUnique(aiComplexityRates.map((item) => item.complexity), "ai_complexity_rates");
+  if (aiComplexityRates.length !== 5 || complexities.size !== new Set(aiComplexityRates.map((item) => item.complexity)).size) fail("ai_complexity_rates must publish all five classes");
 
   const publishedPackages = new Set(packages.map((item) => item.code));
   const publishedPlans = new Set(plans.map((item) => `${item.code}:${item.version}`));
@@ -179,6 +208,9 @@ export function normalizePublicCatalog(value: unknown): PublicCatalog {
   }
 
   return {
+    ai_complexity_rates: aiComplexityRates,
+    ai_token_bundles: aiTokenBundles,
+    ai_token_renewal_grant: aiTokenRenewalGrant,
     limits,
     offers,
     packages,

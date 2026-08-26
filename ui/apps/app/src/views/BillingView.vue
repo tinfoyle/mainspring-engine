@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { APIProblem, createBillingPortalSession, getBillingStatus, getPublicCatalog, type BillingStatus, type BillingSubscription, type PublicCatalog } from "@spyglass/api";
+import { APIProblem, createBillingPortalSession, getAITokenBalance, getBillingStatus, getPublicCatalog, type AITokenBalance, type BillingStatus, type BillingSubscription, type PublicCatalog } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
@@ -10,6 +10,8 @@ const session = useSessionStore();
 const route = useRoute();
 const billing = ref<BillingStatus>();
 const catalog = ref<PublicCatalog>();
+const tokens = ref<AITokenBalance>();
+const tokenNotice = ref("");
 const loading = ref(false);
 const opening = ref(false);
 const error = ref("");
@@ -31,6 +33,8 @@ function date(value?: string): string {
   return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Not scheduled";
 }
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
+function quantity(value?: number): string { return new Intl.NumberFormat().format(value ?? 0); }
+function money(value: number, currency: string): string { return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(value / 100); }
 function planName(subscription: BillingSubscription): string {
   const offer = catalog.value?.offers.find((item) => item.code === subscription.offer_code);
   const plan = catalog.value?.plans.find((item) => item.code === offer?.plan_code && item.version === offer.plan_version);
@@ -41,11 +45,17 @@ function period(subscription: BillingSubscription): string {
   return `${date(subscription.current_period_start)} – ${date(subscription.current_period_end)}`;
 }
 async function load(): Promise<void> {
-  const accountID = session.selectedID; const current = ++sequence; billing.value = undefined; error.value = ""; requestID.value = "";
+  const accountID = session.selectedID; const current = ++sequence; billing.value = undefined; tokens.value = undefined; tokenNotice.value = ""; error.value = ""; requestID.value = "";
   if (!accountID) return; loading.value = true;
   try {
     const [status, publication] = await Promise.all([getBillingStatus(accountID), getPublicCatalog()]);
     if (current === sequence) { billing.value = status; catalog.value = publication; }
+    try { const balance = await getAITokenBalance(accountID); if (current === sequence) tokens.value = balance; }
+    catch (cause) {
+      if (current === sequence) tokenNotice.value = cause instanceof APIProblem && cause.problem?.code === "owner_security_enrollment_required"
+        ? "Finish owner security setup to inspect this team's AI Token ledger."
+        : "AI Token totals are temporarily unavailable.";
+    }
   } catch (cause) {
     if (current === sequence) error.value = cause instanceof APIProblem ? cause.message : "Billing details are temporarily unavailable.";
   } finally { if (current === sequence) loading.value = false; }
@@ -79,12 +89,25 @@ onMounted(() => void load());
     <template v-else-if="billing">
       <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }}</p>
       <section class="billing-summary-card">
-        <div><p class="eyebrow">Current access</p><h2>{{ managed.length ? `${managed.length} managed subscription${managed.length === 1 ? '' : 's'}` : 'Free or unbilled access' }}</h2><p>{{ billing.has_customer ? "This Account has a Stripe customer record." : "No Stripe customer has been created for this Account." }}</p></div>
+        <div><p class="eyebrow">Current access</p><h2>{{ managed.length ? `${managed.length} managed subscription${managed.length === 1 ? '' : 's'}` : 'Checkout required' }}</h2><p>{{ billing.has_customer ? "This Account has a Stripe customer record." : "No subscription is active. Infinite Ocean has no free plan." }}</p></div>
         <div class="billing-actions"><IoButton v-if="canOpenPortal" :disabled="opening" @click="openPortal">{{ opening ? "Opening Stripe…" : "Manage in Stripe" }}</IoButton><a v-if="billing.can_start_checkout" class="io-link-button" href="/app/checkout">Review paid plans</a></div>
+      </section>
+      <section class="billing-history" aria-labelledby="ai-token-heading">
+        <header><div><p class="eyebrow">Shared team usage</p><h2 id="ai-token-heading">Infinite Ocean AI Tokens</h2></div><span v-if="tokens">{{ quantity(tokens.available) }} available</span></header>
+        <p>AI Tokens are provider-neutral usage credits, not money or raw vendor tokens. Every run freezes its complexity rate before work begins and settles only trusted usage.</p>
+        <p v-if="tokenNotice" class="queue-inline-status" role="status">{{ tokenNotice }}</p>
+        <dl v-else-if="tokens" class="billing-token-grid">
+          <div><dt>Available</dt><dd>{{ quantity(tokens.available) }}</dd></div><div><dt>Reserved</dt><dd>{{ quantity(tokens.reserved) }}</dd></div><div><dt>Included</dt><dd>{{ quantity(tokens.included) }}</dd></div><div><dt>Purchased</dt><dd>{{ quantity(tokens.purchased) }}</dd></div><div><dt>Promotional</dt><dd>{{ quantity(tokens.promotion) }}</dd></div><div><dt>Used to date</dt><dd>{{ quantity(tokens.consumed) }}</dd></div>
+        </dl>
+        <div v-if="catalog" class="billing-token-offers">
+          <p><strong>{{ quantity(catalog.ai_token_renewal_grant.quantity) }} included per paid renewal.</strong> Unused included Tokens reset when the next successful renewal grant arrives.</p>
+          <p v-for="bundle in catalog.ai_token_bundles" :key="`${bundle.code}:${bundle.version}`"><strong>{{ quantity(bundle.quantity) }} Tokens · {{ money(bundle.amount_minor, bundle.currency) }}</strong><br><span>{{ bundle.disclosure }}</span></p>
+          <small>Top-ups are manual—there is no automatic replenishment or surprise overage charge. Purchase checkout will appear only when the Account and strong-auth requirements are satisfied.</small>
+        </div>
       </section>
       <section class="billing-history">
         <header><div><p class="eyebrow">Local projection</p><h2>Subscription history</h2></div><span>{{ billing.subscriptions.length }} records</span></header>
-        <div v-if="billing.subscriptions.length === 0" class="queue-state"><h3>No subscription history</h3><p>This Account currently uses its local free entitlements.</p></div>
+        <div v-if="billing.subscriptions.length === 0" class="queue-state"><h3>No subscription history</h3><p>This inactive team shell has no product entitlements until Stripe confirms a successful checkout.</p></div>
         <ol v-else class="billing-list"><li v-for="item in billing.subscriptions" :key="`${item.offer_code}-${item.catalog_version}-${item.last_synced_at}`"><div><span class="state-badge" :class="{ 'state-badge--warning': ['past_due', 'unpaid', 'incomplete'].includes(item.state) }">{{ label(item.state) }}</span><h3>{{ planName(item) }}</h3><small>{{ item.offer_code }} · Catalog {{ item.catalog_version }}</small><dl><div><dt>Billing period</dt><dd>{{ period(item) }}</dd></div><div><dt>Cancel at</dt><dd>{{ date(item.cancel_at) }}</dd></div><div><dt>Last verified</dt><dd>{{ date(item.last_synced_at) }}</dd></div></dl></div></li></ol>
       </section>
       <section v-if="!billing.can_manage" class="queue-state"><h2>Billing administrator access required</h2><p>You can inspect this Account's subscription state, but only its owner or billing administrator can start checkout or open Stripe billing management.</p></section>

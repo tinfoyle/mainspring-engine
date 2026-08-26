@@ -276,7 +276,7 @@ func TestPublishedOfferIntentSurvivesSecureSignupJourney(t *testing.T) {
 		t.Fatalf("offer-aware verification: %d %s", verified.status, verified.body)
 	}
 	signedIn := postForm(t, client, server.URL+"/login", url.Values{"email": {"taylor@example.com"}, "password": {"correct horse battery staple"}, "return_to": {"/app?offer=team-monthly-v2&status=welcome#billing"}})
-	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Your selected plan is highlighted")) || !bytes.Contains(signedIn.body, []byte("SELECTED ON INFINITE OCEAN")) {
+	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Your team shell is ready")) || !bytes.Contains(signedIn.body, []byte("SELECTED ON INFINITE OCEAN")) {
 		t.Fatalf("selected offer landing: %d %s", signedIn.status, signedIn.body)
 	}
 }

@@ -169,28 +169,28 @@ test("landing consent gates analytics and preserves the signup handoff", async (
   await expect(page.getByRole("button", { name: "Privacy choices" })).toBeFocused();
   expect(state.analyticsEvents).toEqual([]);
 
-  await page.getByRole("link", { name: "Start free", exact: true }).first().click();
-  await expect(page).toHaveURL("http://127.0.0.1:4173/signup");
+  await page.getByRole("link", { name: "Create your team", exact: true }).first().click();
+  await expect(page).toHaveURL("http://127.0.0.1:4173/signup?offer=team-monthly-v2");
   await expect.poll(() => state.analyticsEvents.length).toBe(2);
   expect(state.analyticsEvents.map((event) => event.name).sort()).toEqual(["primary_cta_selected", "signup_handoff_started"]);
   expect(state.analyticsEvents.find((event) => event.name === "primary_cta_selected")?.fields).toMatchObject(
     ["chromium-phone-360", "chromium-phone", "chromium-phone-412", "chromium-reflow"].includes(testInfo.project.name)
-      ? { cta_code: "hero_start_free", route_name: "landing" }
-      : { cta_code: "navigation_start_free", route_name: "index" }
+      ? { cta_code: "hero_create_team", route_name: "landing" }
+      : { cta_code: "navigation_create_team", route_name: "index" }
   );
 });
 
 test("pricing remains usable after rejection and carries only the opaque offer", async ({ page }) => {
   await page.goto("http://127.0.0.1:4174/pricing");
-  await expect(page.getByRole("heading", { level: 1, name: /Start free/ })).toBeVisible();
-  await expect(page.getByText("$49.00")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /One team/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: /\$50\.00/ })).toBeVisible();
   await page.getByRole("button", { name: "Reject non-essential" }).click();
   await expect(page.getByRole("button", { name: "Privacy choices" })).toBeFocused();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
-  await page.getByRole("link", { name: "Choose Team" }).click();
-  await expect(page).toHaveURL("http://127.0.0.1:4173/signup?offer=team-monthly-v1");
+  await page.getByRole("link", { name: "Create your team Account" }).click();
+  await expect(page).toHaveURL("http://127.0.0.1:4173/signup?offer=team-monthly-v2");
   expect(state.analyticsEvents).toEqual([]);
 });
 
@@ -202,7 +202,7 @@ test("public phone menu contains focus and restores the opener", async ({ page }
   const dialog = page.getByRole("dialog", { name: "Site menu" });
   await expect(dialog.getByRole("button", { name: "Close site menu" })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
-  await expect(dialog.getByRole("link", { name: "Start free" })).toBeFocused();
+  await expect(dialog.getByRole("link", { name: "Create your team" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(menu).toBeFocused();
@@ -266,7 +266,7 @@ test("public consent history is inspectable and browser erasure reopens equal ch
 test("@text-zoom public acquisition remains usable at 200% text size", async ({ page }) => {
   const routes = [
     { path: "/", heading: "Know what needs you next." },
-    { path: "/pricing", heading: /Start free/ },
+    { path: "/pricing", heading: /One team/ },
     ...publicFeatureAndPolicyRoutes
   ] as const;
 
@@ -304,7 +304,7 @@ test("@browser-zoom public acquisition reflows at 400% browser scale", async ({ 
 
   const routes = [
     { path: "/", heading: "Know what needs you next." },
-    { path: "/pricing", heading: /Start free/ },
+    { path: "/pricing", heading: /One team/ },
     ...publicFeatureAndPolicyRoutes
   ] as const;
 

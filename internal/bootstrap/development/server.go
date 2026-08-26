@@ -12,6 +12,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
+	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
@@ -94,6 +95,10 @@ func Handler(logger *slog.Logger) http.Handler {
 	if err != nil {
 		panic(err)
 	}
+	aiTokenService, err := aitokenledger.New(memory.NewAITokenLedger(), authorizer, store.Catalog, ids.RandomGenerator{}, clock)
+	if err != nil {
+		panic(err)
+	}
 	accountAccess, err := accountaccess.NewService(store, authorizer, securityPosture)
 	if err != nil {
 		panic(err)
@@ -111,7 +116,7 @@ func Handler(logger *slog.Logger) http.Handler {
 	if err != nil {
 		panic(err)
 	}
-	options := []httpapi.Option{httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Name: "spyglass_development_session"}), httpapi.WithAccountAccess(accountAccess), httpapi.WithAccountLifecycle(accountLifecycle), httpapi.WithAccountMembers(memberService), httpapi.WithInvitations(invitationService, invitationSink, true), httpapi.WithRecovery(recoveryService, recoverySink, true), httpapi.WithPasskeys(passkeyService), httpapi.WithRecoveryCodes(recoveryCodeService), httpapi.WithSecurityPosture(securityPosture), httpapi.WithContactChanges(contactChangeService, contactChangeSink, true)}
+	options := []httpapi.Option{httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Name: "spyglass_development_session"}), httpapi.WithAccountAccess(accountAccess), httpapi.WithAccountLifecycle(accountLifecycle), httpapi.WithAccountMembers(memberService), httpapi.WithInvitations(invitationService, invitationSink, true), httpapi.WithRecovery(recoveryService, recoverySink, true), httpapi.WithPasskeys(passkeyService), httpapi.WithRecoveryCodes(recoveryCodeService), httpapi.WithSecurityPosture(securityPosture), httpapi.WithContactChanges(contactChangeService, contactChangeSink, true), httpapi.WithAITokens(aiTokenService)}
 	if secret := os.Getenv("SPYGLASS_STRIPE_WEBHOOK_SECRET"); secret != "" {
 		verifier, err := billing.NewSignatureVerifier(secret, 5*time.Minute, clock)
 		if err != nil {

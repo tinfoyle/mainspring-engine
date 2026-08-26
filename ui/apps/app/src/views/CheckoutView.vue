@@ -339,10 +339,11 @@ onBeforeUnmount(() => {
           </option>
         </select>
         <div v-if="requestedOfferUnavailable" class="queue-inline-status queue-inline-status--error" role="alert">The offer selected before signup is no longer available. Review and choose a current offer before continuing.</div>
-        <div v-else-if="paidOffers.length === 0" class="queue-inline-status" role="status">No paid offer is currently published. Your free Account remains available and unchanged.</div>
+        <div v-else-if="paidOffers.length === 0" class="queue-inline-status" role="status">No verified subscription offer is currently published. Checkout is paused and this inactive team shell remains unchanged.</div>
         <div v-if="selectedOffer && selectedPlan" class="offer-summary">
           <strong>{{ selectedPlan.name }} · {{ formatPrice(selectedOffer) }} per {{ selectedOffer.billing_interval }}</strong>
           <p>{{ selectedPlan.description }}</p>
+          <p v-if="catalog"><strong>{{ catalog.ai_token_renewal_grant.quantity.toLocaleString() }} AI Tokens included per successful renewal.</strong> Stripe calculates applicable tax in the hosted checkout.</p>
           <ul><li v-for="(mode, packageCode) in selectedPlan.packages" :key="packageCode"><span>{{ packageCode }}</span><small>{{ String(mode).replace('_', ' ') }}</small></li></ul>
         </div>
       </section>

@@ -5,6 +5,8 @@ import {
   createAgentBoardroom,
   getAgentConversation,
   getAgentRun,
+  getAITokenBalance,
+  getPublicCatalog,
   listAgentBoardrooms,
   listAgentConversations,
   listAgentMessages,
@@ -19,6 +21,8 @@ import {
   type AgentRun,
   type AgentRunMode,
   type AgentRunResolutionAction,
+  type AITokenBalance,
+  type PublicCatalog,
   type PublishAgentPersonaRequest
 } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
@@ -37,6 +41,8 @@ const conversations = ref<ReadonlyArray<AgentConversation>>([]);
 const conversation = ref<AgentConversation>();
 const messages = ref<ReadonlyArray<AgentMessage>>([]);
 const activeRun = ref<AgentRun>();
+const tokenBalance = ref<AITokenBalance>();
+const publicCatalog = ref<PublicCatalog>();
 const loading = ref(false);
 const roomLoading = ref(false);
 const saving = ref(false);
@@ -81,6 +87,11 @@ const hasRunDraft = computed(() => {
 });
 const hasRecoveryDraft = computed(() => Boolean(recoverableRun.value && (recoveryAction.value !== "retry_failed" || recoveryNote.value.trim())));
 const hasUnsavedAgentWork = computed(() => hasRoomDraft.value || hasManagerDraft.value || hasRunDraft.value || hasRecoveryDraft.value || personaDirty.value);
+const selectedTokenEstimate = computed(() => selectedPersonaIDs.value.reduce((total, id) => {
+  const persona = personas.value.find((value) => value.id === id);
+  const rate = publicCatalog.value?.ai_complexity_rates.find((value) => value.complexity === personaComplexity(persona));
+  return total + (rate?.estimated_maximum ?? 0);
+}, 0));
 
 const { allowNextNavigation } = useSafeNavigation({
   dirty: hasUnsavedAgentWork,
@@ -97,6 +108,19 @@ function label(value: string): string { return value.replaceAll("_", " ").replac
 function initials(value: string): string { return value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function date(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 function personaName(message: AgentMessage): string { return personas.value.find((value) => value.persona_version_id === message.persona_version_id)?.name ?? "Boardroom Persona"; }
+function personaComplexity(persona?: AgentPersona): "simple" | "efficient" | "balanced" | "thorough" | "advanced" {
+  const value = persona?.policy.model;
+  return typeof value === "string" && ["simple", "efficient", "balanced", "thorough", "advanced"].includes(value) ? value as "simple" | "efficient" | "balanced" | "thorough" | "advanced" : "balanced";
+}
+
+async function loadTokenContext(): Promise<void> {
+  const accountID = session.selectedID;
+  if (!accountID) { tokenBalance.value = undefined; return; }
+  try {
+    const [balance, publication] = await Promise.all([getAITokenBalance(accountID), getPublicCatalog()]);
+    tokenBalance.value = balance; publicCatalog.value = publication;
+  } catch { tokenBalance.value = undefined; }
+}
 
 async function loadRooms(): Promise<void> {
   const accountID = session.selectedID;
@@ -222,6 +246,7 @@ async function resolveRun(): Promise<void> {
 
 watch(mode, () => { const allowed = new Set(selectablePersonas.value.map((value) => value.id)); selectedPersonaIDs.value = selectedPersonaIDs.value.filter((value) => allowed.has(value)); if (selectedPersonaIDs.value.length === 0) selectedPersonaIDs.value = [...allowed]; });
 watch(() => [session.selectedID, available.value], () => void loadRooms(), { immediate: true });
+watch(() => session.selectedID, () => void loadTokenContext(), { immediate: true });
 watch(() => [session.selectedID, roomID.value, room.value?.version, available.value], () => void loadRoom(), { immediate: true });
 watch(() => [session.selectedID, conversationID.value, available.value], () => void loadConversation(), { immediate: true });
 onBeforeUnmount(() => { pollGeneration += 1; if (pollTimer !== undefined) window.clearTimeout(pollTimer); });
@@ -253,11 +278,11 @@ onBeforeUnmount(() => { pollGeneration += 1; if (pollTimer !== undefined) window
         <header class="detail-heading agents-heading"><div><p class="eyebrow">Boardroom · policy version {{ room.version }}</p><h1>{{ room.name }}</h1><p>{{ room.purpose }}</p></div><span class="state-badge">{{ label(room.state) }}</span></header>
         <p v-if="roomError" class="queue-inline-status queue-inline-status--error" role="alert">{{ roomError }}</p>
         <section class="agents-roster">
-          <header><div><p class="eyebrow">Frozen specialist definitions</p><h2>Personas</h2></div><div><span>{{ activePersonas.length }} active</span><IoButton v-if="configurable" @click="openPersona()">New Persona</IoButton></div></header><div v-if="personas.length === 0" class="queue-state"><h3>No published Personas</h3><p>A Boardroom needs at least one active, versioned Persona before it can run.</p></div><div v-else class="agents-personas"><details v-for="persona in personas" :key="persona.id" class="agents-persona"><summary><span class="agents-avatar">{{ initials(persona.name) }}</span><span><strong>{{ persona.name }}</strong><small>{{ persona.role }} · version {{ persona.latest_version }}</small></span></summary><p>{{ persona.description }}</p><dl><div><dt>Model policy</dt><dd>{{ persona.policy.provider }} · {{ persona.policy.model }}</dd></div><div><dt>Citations</dt><dd>{{ label(persona.policy.citation_policy) }}</dd></div><div><dt>Actions</dt><dd>{{ persona.policy.action_policy === "propose" ? "Propose only—human approval remains external" : "None" }}</dd></div><div><dt>Tools</dt><dd>{{ persona.policy.tools.length }}</dd></div><div><dt>Digest</dt><dd><code>{{ persona.content_digest.slice(0, 16) }}…</code></dd></div></dl><IoButton v-if="configurable && persona.state === 'active'" kind="secondary" @click="openPersona(persona)">Publish new version</IoButton></details></div>
+          <header><div><p class="eyebrow">Frozen specialist definitions</p><h2>Personas</h2></div><div><span>{{ activePersonas.length }} active</span><IoButton v-if="configurable" @click="openPersona()">New Persona</IoButton></div></header><div v-if="personas.length === 0" class="queue-state"><h3>No published Personas</h3><p>A Boardroom needs at least one active, versioned Persona before it can run.</p></div><div v-else class="agents-personas"><details v-for="persona in personas" :key="persona.id" class="agents-persona"><summary><span class="agents-avatar">{{ initials(persona.name) }}</span><span><strong>{{ persona.name }}</strong><small>{{ persona.role }} · version {{ persona.latest_version }}</small></span></summary><p>{{ persona.description }}</p><dl><div><dt>Complexity</dt><dd>{{ label(personaComplexity(persona)) }}</dd></div><div><dt>Citations</dt><dd>{{ label(persona.policy.citation_policy) }}</dd></div><div><dt>Actions</dt><dd>{{ persona.policy.action_policy === "propose" ? "Propose only—human approval remains external" : "None" }}</dd></div><div><dt>Tools</dt><dd>{{ persona.policy.tools.length }}</dd></div><div><dt>Digest</dt><dd><code>{{ persona.content_digest.slice(0, 16) }}…</code></dd></div></dl><IoButton v-if="configurable && persona.state === 'active'" kind="secondary" @click="openPersona(persona)">Publish new version</IoButton></details></div>
           <form v-if="configurable && activePersonas.length" class="agents-manager" @submit.prevent="saveManager"><label>Synthesis manager<select v-model="managerPersonaID" required><option v-for="persona in activePersonas" :key="persona.id" :value="persona.id">{{ persona.name }} · v{{ persona.latest_version }}</option></select></label><IoButton type="submit" kind="secondary" :disabled="saving">Set manager</IoButton></form>
         </section>
 
-        <form v-if="runnable && activePersonas.length" class="decision-card agents-composer" @submit.prevent="runBoardroom"><h2>{{ conversationID ? `Continue ${conversation?.subject ?? 'conversation'}` : "Convene this Boardroom" }}</h2><label v-if="!conversationID">Subject<input v-model="subject" minlength="2" maxlength="240" required placeholder="What needs a clear view?"></label><label>Your question<textarea v-model="prompt" maxlength="65536" rows="5" required placeholder="Context, constraints and the outcome you need"></textarea></label><label>Run mode<select v-model="mode"><option value="selected">Selected Personas</option><option value="manager_led" :disabled="!room.manager_persona_id">Specialists, then synthesis manager</option></select></label><fieldset><legend>Invite Personas</legend><label v-for="persona in selectablePersonas" :key="persona.id"><input v-model="selectedPersonaIDs" type="checkbox" :value="persona.id"> <span><strong>{{ persona.name }}</strong><small>{{ persona.role }} · v{{ persona.latest_version }}</small></span></label></fieldset><p class="form-note">Runs freeze exact Persona versions, policy and Account entitlements. Proposed consequential actions appear in Your Turn for human review.</p><IoButton type="submit" :disabled="saving || selectedPersonaIDs.length === 0">{{ saving ? "Convening…" : "Convene Boardroom" }}</IoButton></form>
+        <form v-if="runnable && activePersonas.length" class="decision-card agents-composer" @submit.prevent="runBoardroom"><h2>{{ conversationID ? `Continue ${conversation?.subject ?? 'conversation'}` : "Convene this Boardroom" }}</h2><label v-if="!conversationID">Subject<input v-model="subject" minlength="2" maxlength="240" required placeholder="What needs a clear view?"></label><label>Your question<textarea v-model="prompt" maxlength="65536" rows="5" required placeholder="Context, constraints and the outcome you need"></textarea></label><label>Run mode<select v-model="mode"><option value="selected">Selected Personas</option><option value="manager_led" :disabled="!room.manager_persona_id">Specialists, then synthesis manager</option></select></label><fieldset><legend>Invite Personas</legend><label v-for="persona in selectablePersonas" :key="persona.id"><input v-model="selectedPersonaIDs" type="checkbox" :value="persona.id"> <span><strong>{{ persona.name }}</strong><small>{{ persona.role }} · {{ label(personaComplexity(persona)) }} · v{{ persona.latest_version }}</small></span></label></fieldset><p v-if="tokenBalance" class="agents-token-estimate"><strong>{{ tokenBalance.available.toLocaleString() }} AI Tokens available</strong><span> · current selected-turn estimate up to {{ selectedTokenEstimate.toLocaleString() }}</span></p><p class="form-note">Runs freeze exact Persona versions, complexity rate, policy and Account entitlements. Proposed consequential actions appear in Your Turn for human review.</p><IoButton type="submit" :disabled="saving || selectedPersonaIDs.length === 0">{{ saving ? "Convening…" : "Convene Boardroom" }}</IoButton></form>
 
         <section class="agents-conversations"><header><div><p class="eyebrow">Decision history</p><h2>Conversations</h2></div><span>{{ conversations.length }}</span></header><div v-if="conversations.length === 0" class="queue-state"><h3>No conversations yet</h3><p>Convene the Boardroom with a clear question.</p></div><ol v-else><li v-for="item in conversations" :key="item.id"><RouterLink :to="`/app/agents/boardrooms/${room.id}/conversations/${item.id}`" class="agents-conversation-card"><strong>{{ item.subject }}</strong><span>{{ item.message_count }} {{ item.message_count === 1 ? "message" : "messages" }} · {{ label(item.state) }}</span><small>{{ date(item.updated_at) }}</small></RouterLink></li></ol></section>
 

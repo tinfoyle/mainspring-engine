@@ -29,6 +29,7 @@ import (
 	postgresadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
+	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
 	"github.com/tinfoyle/spyglass-engine/internal/application/catalogadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
@@ -47,6 +48,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/workreleaseadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/aitokens"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
@@ -290,6 +292,50 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	}
 	if provisioned.Account.Type != "inactive" || len(provisioned.Snapshot.Packages) != 0 || len(provisioned.Grants) != 0 {
 		t.Fatalf("unexpected inactive Account projection: type=%s grants=%v packages=%v", provisioned.Account.Type, provisioned.Grants, provisioned.Snapshot.Packages)
+	}
+	tokenRepository := postgresadapter.NewAITokenLedgerRepository(pool)
+	tokenDefinition := rolledForward.AITokenRenewalGrant
+	includedGrant, err := aitokens.NewGrant(ids.AITokenGrantID(ids.RandomGenerator{}.New()), provisioned.Account.ID, aitokens.OriginIncluded, tokenDefinition.Code, rolledForward.Version, "in_token_period_1", tokenDefinition.Quantity, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuedTokenGrant, tokenBalance, err := tokenRepository.Issue(ctx, includedGrant, true)
+	if err != nil || tokenBalance.Available != tokenDefinition.Quantity {
+		t.Fatalf("issue included AI Tokens: grant=%+v balance=%+v err=%v", issuedTokenGrant, tokenBalance, err)
+	}
+	duplicateGrant := includedGrant
+	duplicateGrant.ID = ids.AITokenGrantID(ids.RandomGenerator{}.New())
+	issuedTokenGrant, _, err = tokenRepository.Issue(ctx, duplicateGrant, true)
+	if err != nil || issuedTokenGrant.ID != includedGrant.ID {
+		t.Fatalf("idempotent included AI Token issue: grant=%+v err=%v", issuedTokenGrant, err)
+	}
+	balancedRate, found := func() (catalog.AIComplexityRate, bool) {
+		for _, rate := range rolledForward.AIComplexityRates {
+			if rate.Complexity == catalog.AIComplexityBalanced {
+				return rate, true
+			}
+		}
+		return catalog.AIComplexityRate{}, false
+	}()
+	if !found {
+		t.Fatal("balanced AI Token rate missing")
+	}
+	tokenRequestID := ids.RandomGenerator{}.New()
+	reservedTokens, tokenBalance, err := tokenRepository.Reserve(ctx, aitokens.Reservation{ID: ids.AITokenReservationID(ids.RandomGenerator{}.New()), AccountID: provisioned.Account.ID, RequestID: tokenRequestID, Rate: balancedRate, Maximum: balancedRate.MaximumReservation, State: aitokens.ReservationActive}, now)
+	if err != nil || reservedTokens.State != aitokens.ReservationActive || tokenBalance.Reserved != balancedRate.MaximumReservation {
+		t.Fatalf("reserve AI Tokens: reservation=%+v balance=%+v err=%v", reservedTokens, tokenBalance, err)
+	}
+	closedTokens, tokenBalance, err := tokenRepository.Close(ctx, provisioned.Account.ID, tokenRequestID, aitokenledger.Usage{ProviderStarted: true, InputTokens: 1000, OutputTokens: 500, ToolInvocations: 1}, now.Add(time.Second))
+	if err != nil || closedTokens.State != aitokens.ReservationSettled || closedTokens.Settled <= 0 || tokenBalance.Reserved != 0 || tokenBalance.Available != tokenDefinition.Quantity-closedTokens.Settled {
+		t.Fatalf("settle AI Tokens: reservation=%+v balance=%+v err=%v", closedTokens, tokenBalance, err)
+	}
+	releaseRequestID := ids.RandomGenerator{}.New()
+	if _, _, err := tokenRepository.Reserve(ctx, aitokens.Reservation{ID: ids.AITokenReservationID(ids.RandomGenerator{}.New()), AccountID: provisioned.Account.ID, RequestID: releaseRequestID, Rate: balancedRate, Maximum: balancedRate.MaximumReservation, State: aitokens.ReservationActive}, now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	releasedTokens, tokenBalance, err := tokenRepository.Close(ctx, provisioned.Account.ID, releaseRequestID, aitokenledger.Usage{ProviderStarted: false}, now.Add(3*time.Second))
+	if err != nil || releasedTokens.State != aitokens.ReservationReleased || releasedTokens.Settled != 0 || tokenBalance.Reserved != 0 {
+		t.Fatalf("release unstarted AI Token reservation: reservation=%+v balance=%+v err=%v", releasedTokens, tokenBalance, err)
 	}
 	attributedInvitation := invitations.Message{AccountID: provisioned.Account.ID, Email: "member@example.com", AccountName: provisioned.Account.DisplayName, Token: "account-attributed-invitation", Role: accounts.RoleMember, ExpiresAt: now.Add(time.Hour)}
 	if err := queuedSender.SendInvitation(ctx, attributedInvitation); err != nil {

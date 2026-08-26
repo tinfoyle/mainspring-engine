@@ -15,6 +15,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliatesupport"
+	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsconversion"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
@@ -59,6 +60,7 @@ type Server struct {
 	invitationTokens      InvitationTokenSource
 	exposeInvitationToken bool
 	commercialAccess      *commercialaccess.Service
+	aiTokens              *aitokenledger.Service
 	commercialOrigin      string
 	recovery              *recovery.Service
 	recoveryTokens        RecoveryTokenSource
@@ -162,6 +164,10 @@ func WithCommercialAccess(service *commercialaccess.Service, applicationOrigin s
 		server.commercialAccess = service
 		server.commercialOrigin = strings.TrimSuffix(applicationOrigin, "/")
 	}
+}
+
+func WithAITokens(service *aitokenledger.Service) Option {
+	return func(server *Server) { server.aiTokens = service }
 }
 
 func WithRecovery(service *recovery.Service, tokens RecoveryTokenSource, exposeDevelopmentToken bool) Option {
@@ -312,6 +318,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/checkout-sessions", s.createCheckoutSession)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/billing-portal-sessions", s.createBillingPortalSession)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/billing", s.billingStatus)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/ai-tokens", s.aiTokenBalance)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/exports", s.listAccountExports)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/exports", s.createAccountExport)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/exports/{exportID}", s.getAccountExport)
@@ -656,6 +663,36 @@ func (s *Server) billingStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) aiTokenBalance(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	if s.aiTokens == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "ai_tokens_unconfigured", "AI Token balance is not configured")
+		return
+	}
+	raw := r.PathValue("accountID")
+	if ids.Validate(raw) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_account_id", "account ID is invalid")
+		return
+	}
+	balance, err := s.aiTokens.Balance(r.Context(), access.Actor{UserID: authenticated.Session.UserID}, ids.AccountID(raw))
+	if err != nil {
+		if access.IsDenied(err, access.DenialOwnerEnrollment) {
+			writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before viewing team AI Tokens")
+			return
+		}
+		if access.IsDenied(err, access.DenialMembership) || access.IsDenied(err, access.DenialAccountUnavailable) {
+			writeProblem(w, http.StatusForbidden, "ai_tokens_denied", "AI Token balance access was denied")
+			return
+		}
+		writeProblem(w, http.StatusServiceUnavailable, "ai_tokens_unavailable", "AI Token balance is temporarily unavailable")
+		return
+	}
+	writeJSON(w, http.StatusOK, balance)
 }
 
 func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
@@ -1641,7 +1678,7 @@ func (s *Server) ready(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) publicCatalog(w http.ResponseWriter, _ *http.Request) {
 	catalog := s.catalog()
 	offers := effectiveCatalogOffers(catalog, time.Now().UTC())
-	writeJSON(w, http.StatusOK, map[string]any{"version": catalog.Version, "published_at": catalog.PublishedAt, "packages": catalog.Packages, "limits": catalog.EffectiveLimitDefinitions(), "plans": catalog.Plans, "offers": offers})
+	writeJSON(w, http.StatusOK, map[string]any{"version": catalog.Version, "published_at": catalog.PublishedAt, "packages": catalog.Packages, "limits": catalog.EffectiveLimitDefinitions(), "plans": catalog.Plans, "offers": offers, "ai_token_renewal_grant": catalog.AITokenRenewalGrant, "ai_token_bundles": effectiveAITokenBundles(catalog, time.Now().UTC()), "ai_complexity_rates": publicAIComplexityRates(catalog)})
 }
 
 func effectiveCatalogOffers(publication catalog.PublishedCatalog, now time.Time) []catalogOffer {
@@ -1663,6 +1700,38 @@ type catalogOffer struct {
 	AmountMinor     int64     `json:"amount_minor"`
 	BillingInterval string    `json:"billing_interval"`
 	EffectiveFrom   time.Time `json:"effective_from"`
+}
+
+func effectiveAITokenBundles(publication catalog.PublishedCatalog, now time.Time) []catalog.AITokenBundle {
+	bundles := make([]catalog.AITokenBundle, 0, len(publication.AITokenBundles))
+	for _, bundle := range publication.AITokenBundles {
+		if !bundle.EffectiveFrom.After(now) {
+			bundles = append(bundles, bundle)
+		}
+	}
+	return bundles
+}
+
+type publicAIComplexityRate struct {
+	Code                   string               `json:"code"`
+	Version                uint64               `json:"version"`
+	Complexity             catalog.AIComplexity `json:"complexity"`
+	InputPerThousand       int64                `json:"input_per_thousand"`
+	CachedInputPerThousand int64                `json:"cached_input_per_thousand"`
+	OutputPerThousand      int64                `json:"output_per_thousand"`
+	ToolInvocation         int64                `json:"tool_invocation"`
+	MinimumCharge          int64                `json:"minimum_charge"`
+	MaximumReservation     int64                `json:"maximum_reservation"`
+	EstimatedMinimum       int64                `json:"estimated_minimum"`
+	EstimatedMaximum       int64                `json:"estimated_maximum"`
+}
+
+func publicAIComplexityRates(publication catalog.PublishedCatalog) []publicAIComplexityRate {
+	rates := make([]publicAIComplexityRate, 0, len(publication.AIComplexityRates))
+	for _, rate := range publication.AIComplexityRates {
+		rates = append(rates, publicAIComplexityRate{Code: rate.Code, Version: rate.Version, Complexity: rate.Complexity, InputPerThousand: rate.InputPerThousand, CachedInputPerThousand: rate.CachedInputPerThousand, OutputPerThousand: rate.OutputPerThousand, ToolInvocation: rate.ToolInvocation, MinimumCharge: rate.MinimumCharge, MaximumReservation: rate.MaximumReservation, EstimatedMinimum: rate.EstimatedMinimum, EstimatedMaximum: rate.EstimatedMaximum})
+	}
+	return rates
 }
 
 func (s *Server) beginRegistration(w http.ResponseWriter, r *http.Request) {

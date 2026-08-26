@@ -182,12 +182,19 @@ func extractAccountID(data json.RawMessage) ids.AccountID {
 					AccountID string `json:"spyglass_account_id"`
 				} `json:"metadata"`
 			} `json:"subscription_details"`
+			Parent struct {
+				SubscriptionDetails struct {
+					Metadata struct {
+						AccountID string `json:"spyglass_account_id"`
+					} `json:"metadata"`
+				} `json:"subscription_details"`
+			} `json:"parent"`
 		} `json:"object"`
 	}
 	if json.Unmarshal(data, &wrapper) != nil {
 		return ""
 	}
-	for _, candidate := range []string{wrapper.Object.Metadata.AccountID, wrapper.Object.ClientReferenceID, wrapper.Object.SubscriptionDetails.Metadata.AccountID} {
+	for _, candidate := range []string{wrapper.Object.Metadata.AccountID, wrapper.Object.ClientReferenceID, wrapper.Object.SubscriptionDetails.Metadata.AccountID, wrapper.Object.Parent.SubscriptionDetails.Metadata.AccountID} {
 		if ids.Validate(candidate) == nil {
 			return ids.AccountID(candidate)
 		}

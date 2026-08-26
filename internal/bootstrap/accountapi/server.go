@@ -25,6 +25,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliatesupport"
+	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsconversion"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsingest"
 	"github.com/tinfoyle/spyglass-engine/internal/application/authentication"
@@ -229,6 +230,11 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	aiTokenService, err := aitokenledger.New(postgres.NewAITokenLedgerRepository(pool), authorizer, catalogCache.Current, ids.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	exportRepository := postgres.NewAccountExportRepository(pool)
 	exportService, err := accountexport.NewService(exportRepository, authorizer, ids.RandomGenerator{}, clock, 7*24*time.Hour)
 	if err != nil {
@@ -372,6 +378,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	}
 	apiHandler := httpapi.NewServer(registrations, catalogCache.Current, nil, false, logger,
 		httpapi.WithBillingWebhook(webhook),
+		httpapi.WithAITokens(aiTokenService),
 		httpapi.WithCommercialAccess(commercialService, config.AppOrigin),
 		httpapi.WithAuthentication(authenticationService, sessionService, httpapi.SessionCookie{Secure: true, Origin: config.AppOrigin}),
 		httpapi.WithAccountAccess(accountAccess),

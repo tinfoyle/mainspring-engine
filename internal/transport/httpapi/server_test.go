@@ -48,7 +48,7 @@ func TestPublicCatalogDoesNotLeakStripeReferences(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status %d: %s", response.StatusCode, body)
 	}
-	if bytes.Contains(body, []byte("stripe")) {
+	if bytes.Contains(body, []byte("stripe")) || bytes.Contains(body, []byte("internal_provider")) || bytes.Contains(body, []byte("internal_model")) || bytes.Contains(body, []byte("configurable")) {
 		t.Fatalf("public catalog leaked provider mapping: %s", body)
 	}
 	if !bytes.Contains(body, []byte(`"work"`)) || !bytes.Contains(body, []byte(`"agents"`)) {
@@ -56,6 +56,9 @@ func TestPublicCatalogDoesNotLeakStripeReferences(t *testing.T) {
 	}
 	if !bytes.Contains(body, []byte(`"concurrent_runs"`)) || !bytes.Contains(body, []byte(`"combine":"maximum"`)) {
 		t.Fatalf("catalog missing governed limit definitions: %s", body)
+	}
+	if !bytes.Contains(body, []byte(`"quantity":10000`)) || !bytes.Contains(body, []byte(`"complexity":"balanced"`)) || !bytes.Contains(body, []byte(`"amount_minor":1000`)) {
+		t.Fatalf("catalog missing customer-safe AI Token commerce: %s", body)
 	}
 }
 
@@ -113,6 +116,10 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 	currentIdentity := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/identity", "", cookies[0])
 	if currentIdentity.StatusCode != http.StatusOK || !bytes.Contains(currentIdentity.Body, []byte(`"user_id":"`+provisioned.User.ID+`"`)) || !bytes.Contains(currentIdentity.Body, []byte(`"primary_email":"avery@example.com"`)) {
 		t.Fatalf("current identity: %d %s", currentIdentity.StatusCode, currentIdentity.Body)
+	}
+	tokenBalance := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/ai-tokens", "", cookies[0])
+	if tokenBalance.StatusCode != http.StatusForbidden || !bytes.Contains(tokenBalance.Body, []byte(`"code":"owner_security_enrollment_required"`)) {
+		t.Fatalf("pre-enrollment AI Token balance: %d %s", tokenBalance.StatusCode, tokenBalance.Body)
 	}
 	initialPosture := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/security-posture", "", cookies[0])
 	if initialPosture.StatusCode != http.StatusOK || !bytes.Contains(initialPosture.Body, []byte(`"passkey_count":0`)) || !bytes.Contains(initialPosture.Body, []byte(`"recovery_codes_configured":false`)) || !bytes.Contains(initialPosture.Body, []byte(`"owner_ready":false`)) {

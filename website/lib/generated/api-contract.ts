@@ -15,6 +15,7 @@ export const apiRoutes = [
   { service: "account-api", method: "DELETE", path: "/api/v1/sessions/{sessionID}", operationId: "revokeSession", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/account-closures", operationId: "listAccountClosures", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/account-exports/{exportID}/artifact", operationId: "downloadAccountExport", authentication: "exportDownloadCapability", contract: "typed" },
+  { service: "account-api", method: "GET", path: "/api/v1/accounts/{accountID}/ai-tokens", operationId: "aiTokenBalance", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/accounts/{accountID}/billing", operationId: "billingStatus", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/accounts/{accountID}/exports", operationId: "listAccountExports", authentication: "sessionCookie", contract: "typed" },
   { service: "account-api", method: "GET", path: "/api/v1/accounts/{accountID}/exports/{exportID}", operationId: "getAccountExport", authentication: "sessionCookie", contract: "typed" },

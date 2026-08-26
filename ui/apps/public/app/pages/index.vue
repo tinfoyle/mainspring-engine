@@ -19,15 +19,15 @@ usePublicSeo({
     description: "Spyglass turns business context into guided work, then brings consequential decisions back to the people who hold authority.",
     featureList: publicFeatures.map((feature) => feature.name),
     provider: { "@type": "Organization", name: "Infinite Ocean", url: "https://www.infiniteocean.net/" },
-    offers: { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free Account creation" }
+    offers: { "@type": "Offer", price: "50.00", priceCurrency: "USD", description: "Complete Infinite Ocean team subscription", url: "https://www.infiniteocean.net/pricing" }
   }
 });
 const appOrigin = useRuntimeConfig().public.appOrigin;
 const analyticsConsent = useAnalyticsConsent();
 
-async function startFree(event: MouseEvent, ctaCode: string): Promise<void> {
+async function startTeam(event: MouseEvent, ctaCode: string): Promise<void> {
   event.preventDefault();
-  const destination = `${appOrigin}/signup`;
+  const destination = `${appOrigin}/signup?offer=team-monthly-v2`;
   try {
     await Promise.race([
       Promise.all([
@@ -55,8 +55,8 @@ onMounted(async () => {
         <p class="eyebrow">A clearer operating rhythm</p>
         <h1>Know what needs <em>you</em> next.</h1>
         <p class="hero__lead">Spyglass turns scattered business context into guided work. Agents move the routine forward; important questions, reviews and approvals arrive in one calm place.</p>
-        <div class="hero__actions"><a class="button button--primary" :href="`${appOrigin}/signup`" @click="startFree($event, 'hero_start_free')">Start free</a><NuxtLink class="button button--secondary" to="/features">See how it works</NuxtLink></div>
-        <p class="hero__note">No payment required to start. Optional analytics stays off unless you accept it.</p>
+        <div class="hero__actions"><a class="button button--primary" :href="`${appOrigin}/signup?offer=team-monthly-v2`" @click="startTeam($event, 'hero_create_team')">Create your team</a><NuxtLink class="button button--secondary" to="/features">See how it works</NuxtLink></div>
+        <p class="hero__note">$50 USD per team each month, plus applicable tax. Optional analytics stays off unless you accept it.</p>
       </div>
       <div class="turn-preview" aria-label="Preview of Your Turn">
         <header><span>Your Turn</span><strong>3 need you</strong></header>
@@ -76,6 +76,6 @@ onMounted(async () => {
       <blockquote>“What needs my judgment today?”<small>Spyglass answers this before it shows you everything else.</small></blockquote>
     </section>
 
-    <section class="closing-cta section-frame"><p class="eyebrow">Start with clarity</p><h2>Bring the business you have.<br />Build the operating system it needs.</h2><a class="button button--primary" :href="`${appOrigin}/signup`" @click="startFree($event, 'closing_start_free')">Create your free Account</a></section>
+    <section class="closing-cta section-frame"><p class="eyebrow">Start with clarity</p><h2>Bring the business you have.<br />Build the operating system it needs.</h2><a class="button button--primary" :href="`${appOrigin}/signup?offer=team-monthly-v2`" @click="startTeam($event, 'closing_create_team')">Create your team Account</a></section>
   </div>
 </template>

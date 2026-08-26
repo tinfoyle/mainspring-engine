@@ -79,15 +79,15 @@ function containMenuFocus(event: KeyboardEvent): void {
   }
 }
 
-async function startFree(event: MouseEvent): Promise<void> {
+async function startSignup(event: MouseEvent): Promise<void> {
   event.preventDefault();
-  const destination = `${appOrigin}/signup`;
+  const destination = `${appOrigin}/signup?offer=team-monthly-v2`;
   try {
     await Promise.race([
       Promise.all([
         analyticsConsent.track({
           name: "primary_cta_selected",
-          fields: { cta_code: "navigation_start_free", route_name: route.name?.toString() ?? "unknown" }
+          fields: { cta_code: "navigation_create_team", route_name: route.name?.toString() ?? "unknown" }
         }),
         analyticsConsent.track({ name: "signup_handoff_started", fields: {} })
       ]),
@@ -124,7 +124,7 @@ async function startFree(event: MouseEvent): Promise<void> {
           <NuxtLink to="/pricing">Pricing</NuxtLink>
           <NuxtLink to="/privacy">Privacy</NuxtLink>
           <a :href="`${appOrigin}/login?return_to=%2Fapp`">Sign in</a>
-          <a class="nav-cta" :href="`${appOrigin}/signup`" @click="startFree">Start free</a>
+          <a class="nav-cta" :href="`${appOrigin}/signup?offer=team-monthly-v2`" @click="startSignup">Create your team</a>
         </nav>
       </div>
     </div>

@@ -14,7 +14,10 @@ function catalog(version = 1): Record<string, unknown> {
     packages: [{ code: "work", name: "Work", description: "Governed work", features: ["Queues"], version: 1 }],
     limits: [{ code: "work_items", combine: "maximum", kind: "capacity", name: "Work items", package_code: "work", unit: "items" }],
     plans: [{ code: "team", version: 1, name: "Team", description: "Team plan", packages: { work: "enabled" } }],
-    offers: [{ code: "team-monthly-v1", plan_code: "team", plan_version: 1, currency: "USD", amount_minor: 5000, billing_interval: "month", effective_from: "2026-08-25T12:00:00Z" }]
+    offers: [{ code: "team-monthly-v2", plan_code: "team", plan_version: 1, currency: "USD", amount_minor: 5000, billing_interval: "month", effective_from: "2026-08-25T12:00:00Z" }],
+    ai_token_renewal_grant: { code: "team_renewal_v1", version: 1, quantity: 10000, disclosure: "Included per paid renewal." },
+    ai_token_bundles: [{ code: "tokens_10k_v1", version: 1, quantity: 10000, currency: "USD", amount_minor: 1000, effective_from: "2026-08-25T12:00:00Z", disclosure: "Purchased Tokens remain with the active team." }],
+    ai_complexity_rates: ["simple", "efficient", "balanced", "thorough", "advanced"].map((complexity, index) => ({ code: `${complexity}_v1`, version: 1, complexity, input_per_thousand: index + 1, cached_input_per_thousand: 1, output_per_thousand: (index + 1) * 4, tool_invocation: index * 10, minimum_charge: index + 1, maximum_reservation: (index + 1) * 1000, estimated_minimum: index + 1, estimated_maximum: (index + 1) * 100 }))
   };
 }
 

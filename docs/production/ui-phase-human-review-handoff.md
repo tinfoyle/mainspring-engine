@@ -8,6 +8,8 @@
 
 This handoff separates implemented local behavior from the decisions and external evidence still required to exit UI7. It is not an approval, legal conclusion or deployment instruction. Stage, GHCR, LKE and production work remain outside this checkpoint.
 
+Implementation update (2026-08-26): the approved `$50`/no-Free launch Catalog identities, inactive zero-entitlement registration, configurable token Catalog, persistent AI Token ledger, paid-renewal grant projector, safe balance API and provider-neutral complexity customer surfaces are now implemented and locally verified. The handoff's earlier references to those foundations as wholly unencoded are superseded by the [UI revamp milestone report](ui-revamp-milestone-report.md). Token purchase/refund/promotion flows, internal run-time complexity resolution, Agent-run debit integration, commissioning, Account-credit settlement and subscription-remediation lifecycle remain open; the review record remains unsigned and every remote environment remains untouched.
+
 ## Locally implemented and verified
 
 | Requirement | Current evidence |
@@ -29,7 +31,7 @@ The exact UbuntuRojo Docker gate for the snapshot passed 393 applicable browser 
 
 The launch flags must remain closed until every item below is recorded in an approved revision of the [Affiliate terms draft](affiliate-program-terms-launch-draft.md):
 
-- **Decided 2026-08-26:** launch pricing is `$50.00 USD` (`5,000` minor units) per month per team plus an optional one-time `$250.00 USD` (`25,000` minor units) onboarding/commissioning package, before applicable Stripe-calculated tax. The checked-in `$49` Team and `$149` Operating candidates are obsolete; exact replacement Catalog identities and private Stripe Price mappings remain to be encoded;
+- **Decided 2026-08-26:** launch pricing is `$50.00 USD` (`5,000` minor units) per month per team plus an optional one-time `$250.00 USD` (`25,000` minor units) onboarding/commissioning package, before applicable Stripe-calculated tax. The effective local Catalog now encodes the replacement monthly offer; private Stripe Price mapping and the commissioning purchase offer remain release construction;
 - **Decided 2026-08-26:** the single `$50` subscription includes every completed launch package and feature. There are no software tiers or paid feature add-ons; operational limits protect capacity, and commissioning grants no additional entitlement;
 - **Decided 2026-08-26:** flat team pricing includes 25 active members with no per-seat charge. Pending invitations reserve slots; admission above the combined limit fails atomically. Support may grant a reviewed versioned capacity increase without changing price or creating a tier;
 - **Decided 2026-08-26:** include 1,000 logical Documents per team. Revisions share the Document slot; capacity releases after guarded physical deletion completes. Admission above the limit creates no partial state, and reviewed Support overrides do not create tiers;
@@ -83,7 +85,7 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** a verified Affiliate erasure request closes enrollment, disables the code/link, stops future attribution/earnings and erases unneeded data while preserving customers and available credit. Required records remain access-restricted and outside marketing/ordinary product use until deadline; fulfillment discloses retained categories, purpose and deadline, and legal holds are scoped; and
 - **Decided 2026-08-26:** the optional `$250` onboarding/commissioning package never earns Affiliate commission. It is excluded from the eligible basis even on a shared invoice, and package-only adverse evidence does not reverse the subscription earning;
 - **Decided 2026-08-26:** the authorized owner may add commissioning to initial subscription Checkout or buy it later from Billing. The standard package is self-service-purchasable once per team; verified local state suppresses and rejects duplicates, and additional engagements route through Support;
-- **Owner commercial policy is complete.** Exact Catalog/Stripe mapping, the account-credit-with-Support-check settlement-mode implementation, legal review, privacy-controller facts and operational release fields remain implementation or external gates rather than unanswered product-policy choices.
+- **Owner commercial policy is complete.** The local monthly Catalog and AI Token ledger foundation are encoded. Private Stripe mapping, token commerce/run integration, commissioning, the account-credit-with-Support-check settlement implementation, legal review, privacy-controller facts and operational release fields remain implementation or external gates rather than unanswered product-policy choices.
 
 Until every implementation, legal and operational release gate closes, retain:
 

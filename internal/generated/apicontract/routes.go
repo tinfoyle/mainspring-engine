@@ -19,6 +19,7 @@ var Routes = [...]Route{
 	{Service: "account-api", Method: "DELETE", Path: "/api/v1/sessions/{sessionID}", OperationID: "revokeSession", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/account-closures", OperationID: "listAccountClosures", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/account-exports/{exportID}/artifact", OperationID: "downloadAccountExport", Authentication: "exportDownloadCapability", Contract: "typed"},
+	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/ai-tokens", OperationID: "aiTokenBalance", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/billing", OperationID: "billingStatus", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/exports", OperationID: "listAccountExports", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "account-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/exports/{exportID}", OperationID: "getAccountExport", Authentication: "sessionCookie", Contract: "typed"},

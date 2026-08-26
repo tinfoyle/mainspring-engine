@@ -12,6 +12,7 @@ type PackageMode string
 type LimitCode string
 type LimitKind string
 type LimitCombineRule string
+type AIComplexity string
 
 const (
 	PackageWork         PackageCode = "work"
@@ -31,7 +32,15 @@ const (
 	LimitAdd     LimitCombineRule = "add"
 	LimitMaximum LimitCombineRule = "maximum"
 	LimitMinimum LimitCombineRule = "minimum"
+
+	AIComplexitySimple    AIComplexity = "simple"
+	AIComplexityEfficient AIComplexity = "efficient"
+	AIComplexityBalanced  AIComplexity = "balanced"
+	AIComplexityThorough  AIComplexity = "thorough"
+	AIComplexityAdvanced  AIComplexity = "advanced"
 )
+
+var AIComplexities = []AIComplexity{AIComplexitySimple, AIComplexityEfficient, AIComplexityBalanced, AIComplexityThorough, AIComplexityAdvanced}
 
 type FeaturePackage struct {
 	Code          PackageCode         `json:"code"`
@@ -76,13 +85,61 @@ type Offer struct {
 	StripePriceRef  string    `json:"-"`
 }
 
+// AITokenRenewalGrant defines the provider-neutral quantity appended for one
+// successfully paid positive subscription service period. The definition is
+// immutable within a Catalog publication; Stripe projections freeze its
+// Catalog version and code on the resulting Account grant.
+type AITokenRenewalGrant struct {
+	Code       string `json:"code"`
+	Version    uint64 `json:"version"`
+	Quantity   int64  `json:"quantity"`
+	Disclosure string `json:"disclosure"`
+}
+
+// AITokenBundle is a separately purchasable, non-recurring top-up. Provider
+// Price references remain in the private mapping table rather than this
+// customer-safe Catalog record.
+type AITokenBundle struct {
+	Code          string    `json:"code"`
+	Version       uint64    `json:"version"`
+	Quantity      int64     `json:"quantity"`
+	Currency      string    `json:"currency"`
+	AmountMinor   int64     `json:"amount_minor"`
+	EffectiveFrom time.Time `json:"effective_from"`
+	Disclosure    string    `json:"disclosure"`
+}
+
+// AIComplexityRate maps the customer-facing complexity control to one private,
+// reviewed execution target and an exact customer AI Token schedule. The
+// public API deliberately projects only the complexity and token fields.
+type AIComplexityRate struct {
+	Code                       string       `json:"code"`
+	Version                    uint64       `json:"version"`
+	Complexity                 AIComplexity `json:"complexity"`
+	InputPerThousand           int64        `json:"input_per_thousand"`
+	CachedInputPerThousand     int64        `json:"cached_input_per_thousand"`
+	OutputPerThousand          int64        `json:"output_per_thousand"`
+	ToolInvocation             int64        `json:"tool_invocation"`
+	MinimumCharge              int64        `json:"minimum_charge"`
+	MaximumReservation         int64        `json:"maximum_reservation"`
+	EstimatedMinimum           int64        `json:"estimated_minimum"`
+	EstimatedMaximum           int64        `json:"estimated_maximum"`
+	InternalProvider           string       `json:"internal_provider"`
+	InternalModel              string       `json:"internal_model"`
+	InternalAdapterVersion     uint64       `json:"internal_adapter_version"`
+	InternalModelPolicyVersion uint64       `json:"internal_model_policy_version"`
+}
+
 type PublishedCatalog struct {
-	Version     uint64            `json:"version"`
-	PublishedAt time.Time         `json:"published_at"`
-	Packages    []FeaturePackage  `json:"packages"`
-	Limits      []LimitDefinition `json:"limits,omitempty"`
-	Plans       []Plan            `json:"plans"`
-	Offers      []Offer           `json:"offers"`
+	Version             uint64               `json:"version"`
+	PublishedAt         time.Time            `json:"published_at"`
+	Packages            []FeaturePackage     `json:"packages"`
+	Limits              []LimitDefinition    `json:"limits,omitempty"`
+	Plans               []Plan               `json:"plans"`
+	Offers              []Offer              `json:"offers"`
+	AITokenRenewalGrant *AITokenRenewalGrant `json:"ai_token_renewal_grant,omitempty"`
+	AITokenBundles      []AITokenBundle      `json:"ai_token_bundles,omitempty"`
+	AIComplexityRates   []AIComplexityRate   `json:"ai_complexity_rates,omitempty"`
 }
 
 func Default(now time.Time) PublishedCatalog {
@@ -100,9 +157,18 @@ func Default(now time.Time) PublishedCatalog {
 		{Code: "active_items", PackageCode: PackageWork, Name: "Active work items", Unit: "work_item", Kind: LimitKindCapacity, Combine: LimitMaximum},
 		{Code: "concurrent_runs", PackageCode: PackageAgents, Name: "Concurrent agent runs", Unit: "run", Kind: LimitKindCapacity, Combine: LimitMaximum, ReservationTTLSeconds: 3600},
 	}
+	renewalGrant := &AITokenRenewalGrant{Code: "team_renewal_v1", Version: 1, Quantity: 10_000, Disclosure: "Included with each successfully paid monthly team service period; unused included Tokens expire when the next paid renewal grant commits."}
+	bundles := []AITokenBundle{{Code: "tokens_10k_v1", Version: 1, Quantity: 10_000, Currency: "USD", AmountMinor: 1000, EffectiveFrom: now.UTC(), Disclosure: "One-time team AI Token top-up. Purchased Tokens do not expire while the team Account remains active."}}
+	rates := []AIComplexityRate{
+		{Code: "simple_v1", Version: 1, Complexity: AIComplexitySimple, InputPerThousand: 1, CachedInputPerThousand: 1, OutputPerThousand: 4, ToolInvocation: 10, MinimumCharge: 5, MaximumReservation: 1_000, EstimatedMinimum: 5, EstimatedMaximum: 250, InternalProvider: "configurable", InternalModel: "simple", InternalAdapterVersion: 1, InternalModelPolicyVersion: 1},
+		{Code: "efficient_v1", Version: 1, Complexity: AIComplexityEfficient, InputPerThousand: 2, CachedInputPerThousand: 1, OutputPerThousand: 8, ToolInvocation: 15, MinimumCharge: 10, MaximumReservation: 1_500, EstimatedMinimum: 10, EstimatedMaximum: 500, InternalProvider: "configurable", InternalModel: "efficient", InternalAdapterVersion: 1, InternalModelPolicyVersion: 1},
+		{Code: "balanced_v1", Version: 1, Complexity: AIComplexityBalanced, InputPerThousand: 4, CachedInputPerThousand: 1, OutputPerThousand: 16, ToolInvocation: 25, MinimumCharge: 20, MaximumReservation: 2_500, EstimatedMinimum: 20, EstimatedMaximum: 1_000, InternalProvider: "configurable", InternalModel: "balanced", InternalAdapterVersion: 1, InternalModelPolicyVersion: 1},
+		{Code: "thorough_v1", Version: 1, Complexity: AIComplexityThorough, InputPerThousand: 8, CachedInputPerThousand: 2, OutputPerThousand: 32, ToolInvocation: 50, MinimumCharge: 40, MaximumReservation: 5_000, EstimatedMinimum: 40, EstimatedMaximum: 2_000, InternalProvider: "configurable", InternalModel: "thorough", InternalAdapterVersion: 1, InternalModelPolicyVersion: 1},
+		{Code: "advanced_v1", Version: 1, Complexity: AIComplexityAdvanced, InputPerThousand: 16, CachedInputPerThousand: 4, OutputPerThousand: 64, ToolInvocation: 100, MinimumCharge: 80, MaximumReservation: 10_000, EstimatedMinimum: 80, EstimatedMaximum: 4_000, InternalProvider: "configurable", InternalModel: "advanced", InternalAdapterVersion: 1, InternalModelPolicyVersion: 1},
+	}
 	return PublishedCatalog{Version: 3, PublishedAt: now.UTC(), Packages: packages, Limits: limits, Plans: []Plan{team}, Offers: []Offer{
 		{Code: "team-monthly-v2", PlanCode: "team", PlanVersion: 2, Currency: "USD", AmountMinor: 5000, BillingInterval: "month", Published: true, EffectiveFrom: now.UTC()},
-	}}
+	}, AITokenRenewalGrant: renewalGrant, AITokenBundles: bundles, AIComplexityRates: rates}
 }
 
 // EffectiveLimitDefinitions keeps immutable pre-definition Catalog versions
@@ -139,6 +205,9 @@ func (c PublishedCatalog) ValidateGoverned() error {
 				return fmt.Errorf("package %q default limit %q requires an explicit definition", item.Code, code)
 			}
 		}
+	}
+	if err := c.validateAITokenCommerce(true); err != nil {
+		return err
 	}
 	return nil
 }
@@ -266,7 +335,64 @@ func (c PublishedCatalog) Validate() error {
 		}
 		offers[offer.Code] = struct{}{}
 	}
+	if err := c.validateAITokenCommerce(false); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (c PublishedCatalog) validateAITokenCommerce(required bool) error {
+	configured := c.AITokenRenewalGrant != nil || len(c.AITokenBundles) > 0 || len(c.AIComplexityRates) > 0
+	if !configured {
+		if required {
+			return errors.New("governed catalog requires AI Token commerce and rates")
+		}
+		return nil
+	}
+	if c.AITokenRenewalGrant == nil || !validMachineCode(c.AITokenRenewalGrant.Code) || c.AITokenRenewalGrant.Version == 0 || c.AITokenRenewalGrant.Quantity <= 0 || strings.TrimSpace(c.AITokenRenewalGrant.Disclosure) == "" {
+		return errors.New("AI Token renewal grant is invalid")
+	}
+	bundleCodes := map[string]struct{}{}
+	for _, bundle := range c.AITokenBundles {
+		if !validMachineCode(bundle.Code) || bundle.Version == 0 || bundle.Quantity <= 0 || bundle.AmountMinor <= 0 || bundle.Currency != "USD" || bundle.EffectiveFrom.IsZero() || strings.TrimSpace(bundle.Disclosure) == "" {
+			return fmt.Errorf("AI Token bundle %q is invalid", bundle.Code)
+		}
+		if _, exists := bundleCodes[bundle.Code]; exists {
+			return fmt.Errorf("duplicate AI Token bundle %q", bundle.Code)
+		}
+		bundleCodes[bundle.Code] = struct{}{}
+	}
+	if len(c.AITokenBundles) == 0 {
+		return errors.New("AI Token top-up bundle is required")
+	}
+	rateCodes, complexities := map[string]struct{}{}, map[AIComplexity]struct{}{}
+	for _, rate := range c.AIComplexityRates {
+		if !validMachineCode(rate.Code) || rate.Version == 0 || !validComplexity(rate.Complexity) || rate.InputPerThousand <= 0 || rate.CachedInputPerThousand <= 0 || rate.OutputPerThousand <= 0 || rate.ToolInvocation < 0 || rate.MinimumCharge <= 0 || rate.MaximumReservation < rate.MinimumCharge || rate.EstimatedMinimum < rate.MinimumCharge || rate.EstimatedMaximum < rate.EstimatedMinimum || rate.EstimatedMaximum > rate.MaximumReservation || !validMachineCode(rate.InternalProvider) || !validMachineCode(rate.InternalModel) || rate.InternalAdapterVersion == 0 || rate.InternalModelPolicyVersion == 0 {
+			return fmt.Errorf("AI complexity rate %q is invalid", rate.Code)
+		}
+		if _, exists := rateCodes[rate.Code]; exists {
+			return fmt.Errorf("duplicate AI complexity rate %q", rate.Code)
+		}
+		if _, exists := complexities[rate.Complexity]; exists {
+			return fmt.Errorf("duplicate AI complexity %q", rate.Complexity)
+		}
+		rateCodes[rate.Code], complexities[rate.Complexity] = struct{}{}, struct{}{}
+	}
+	for _, complexity := range AIComplexities {
+		if _, exists := complexities[complexity]; !exists {
+			return fmt.Errorf("AI complexity %q is missing", complexity)
+		}
+	}
+	return nil
+}
+
+func validComplexity(value AIComplexity) bool {
+	for _, complexity := range AIComplexities {
+		if value == complexity {
+			return true
+		}
+	}
+	return false
 }
 
 func limitIdentity(packageCode PackageCode, limitCode LimitCode) string {

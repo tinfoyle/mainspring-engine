@@ -25,7 +25,7 @@ vi.mock("@spyglass/api", async (importOriginal) => {
 
 const account = {
   account_id: "10000000-0000-4000-8000-000000000001",
-  account_type: "free",
+  account_type: "inactive",
   account_version: 1,
   cell_id: "cell-us-east-01",
   display_name: "Northstar Studio",
@@ -37,11 +37,14 @@ const account = {
 } satisfies AccountChoice;
 
 const catalog = {
-  version: 2,
+  version: 3,
   published_at: "2026-08-24T20:00:00Z",
   limits: [], packages: [],
-  plans: [{ code: "team", version: 1, name: "Team", description: "A governed operating workspace.", packages: { work: "enabled", knowledge: "enabled" } }],
-  offers: [{ code: "team-monthly-v1", plan_code: "team", plan_version: 1, currency: "USD", amount_minor: 4900, billing_interval: "month", effective_from: "2026-08-20T20:00:00Z" }]
+  plans: [{ code: "team", version: 2, name: "Infinite Ocean Team", description: "The complete Infinite Ocean operating system for one team.", packages: { work: "enabled", knowledge: "enabled" } }],
+  offers: [{ code: "team-monthly-v2", plan_code: "team", plan_version: 2, currency: "USD", amount_minor: 5000, billing_interval: "month", effective_from: "2026-08-20T20:00:00Z" }],
+  ai_token_renewal_grant: { code: "team_renewal_v1", version: 1, quantity: 10000, disclosure: "Included per renewal." },
+  ai_token_bundles: [{ code: "tokens_10k_v1", version: 1, quantity: 10000, currency: "USD", amount_minor: 1000, effective_from: "2026-08-20T20:00:00Z", disclosure: "Purchased Tokens remain with the active team." }],
+  ai_complexity_rates: []
 } satisfies PublicCatalog;
 
 beforeEach(() => {
@@ -55,7 +58,7 @@ beforeEach(() => {
 
 afterEach(() => vi.useRealTimers());
 
-async function mountCheckout(path = "/app/checkout?offer=team-monthly-v1") {
+async function mountCheckout(path = "/app/checkout?offer=team-monthly-v2") {
   const session = useSessionStore();
   session.accounts = [account];
   session.selectedID = account.account_id;
@@ -69,11 +72,11 @@ async function mountCheckout(path = "/app/checkout?offer=team-monthly-v1") {
 
 describe("checkout review", () => {
   it("requires active referral application and explicit checkout confirmation", async () => {
-    const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1");
+    const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v2&ref=IO-PARTNER1");
     await expectNoAxeViolations(wrapper.element);
 
     expect(wrapper.text()).toContain("A referral was proposed by your link");
-    expect(wrapper.text()).toContain("$49.00 per month");
+    expect(wrapper.text()).toContain("$50.00 per month");
     expect(wrapper.get("button:disabled").text()).toBe("Continue to Stripe");
 
     await wrapper.findAll("button").find((button) => button.text() === "Apply")?.trigger("click");
@@ -83,7 +86,7 @@ describe("checkout review", () => {
     await flushPromises();
 
     expect(api.createCheckoutSession).toHaveBeenCalledWith(account.account_id, {
-      offer_code: "team-monthly-v1", affiliate_code: "IO-PARTNER1"
+      offer_code: "team-monthly-v2", affiliate_code: "IO-PARTNER1"
     }, expect.stringMatching(/^[0-9a-f-]{36}$/));
     expect(wrapper.text()).toContain("provider unavailable");
     wrapper.unmount();
@@ -93,7 +96,7 @@ describe("checkout review", () => {
     api.getPrivacyConsent.mockReturnValue(new Promise(() => undefined));
     const wrapper = await mountCheckout();
 
-    expect(wrapper.text()).toContain("$49.00 per month");
+    expect(wrapper.text()).toContain("$50.00 per month");
     expect(wrapper.text()).not.toContain("Checkout is unavailable");
     expect(api.getBillingStatus).toHaveBeenCalledWith(account.account_id);
     expect(api.emitAnalytics).not.toHaveBeenCalled();
@@ -105,7 +108,7 @@ describe("checkout review", () => {
     api.emitAnalytics.mockResolvedValue(true);
     const wrapper = await mountCheckout();
 
-    expect(wrapper.text()).toContain("$49.00 per month");
+    expect(wrapper.text()).toContain("$50.00 per month");
     expect(api.emitAnalytics).not.toHaveBeenCalled();
 
     resolveConsent?.({ decided: true, analytics: true, marketing: false, renewal_required: false });
@@ -113,7 +116,7 @@ describe("checkout review", () => {
     expect(api.emitAnalytics).toHaveBeenCalledOnce();
     expect(api.emitAnalytics).toHaveBeenCalledWith(true, {
       name: "checkout_reviewed",
-      fields: { offer_code: "team-monthly-v1", referral_present: "false" }
+      fields: { offer_code: "team-monthly-v2", referral_present: "false" }
     });
   });
 
@@ -122,9 +125,9 @@ describe("checkout review", () => {
     api.getPrivacyConsent.mockReturnValue(new Promise((resolve) => { resolveConsent = resolve; }));
     api.emitAnalytics.mockResolvedValue(true);
     api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [{
-      offer_code: "team-monthly-v1", catalog_version: 2, state: "active", current_period_start: "2026-08-25T12:00:00Z", current_period_end: "2026-09-25T12:00:00Z", last_synced_at: "2026-08-25T12:01:00Z"
+      offer_code: "team-monthly-v2", catalog_version: 2, state: "active", current_period_start: "2026-08-25T12:00:00Z", current_period_end: "2026-09-25T12:00:00Z", last_synced_at: "2026-08-25T12:01:00Z"
     }] });
-    const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v1&status=billing");
+    const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v2&status=billing");
 
     expect(wrapper.text()).toContain("Your subscription is active");
     expect(api.emitAnalytics).not.toHaveBeenCalled();
@@ -134,22 +137,22 @@ describe("checkout review", () => {
     expect(api.emitAnalytics).toHaveBeenCalledTimes(3);
     expect(api.emitAnalytics).toHaveBeenCalledWith(true, {
       name: "checkout_returned",
-      fields: { offer_code: "team-monthly-v1", result: "returned" }
+      fields: { offer_code: "team-monthly-v2", result: "returned" }
     });
     expect(api.emitAnalytics).toHaveBeenCalledWith(true, {
       name: "subscription_projected",
-      fields: { offer_code: "team-monthly-v1", result: "active" }
+      fields: { offer_code: "team-monthly-v2", result: "active" }
     });
     expect(api.emitAnalytics).toHaveBeenCalledWith(true, {
       name: "checkout_reviewed",
-      fields: { offer_code: "team-monthly-v1", referral_present: "false" }
+      fields: { offer_code: "team-monthly-v2", referral_present: "false" }
     });
     wrapper.unmount();
   });
 
   it("does not silently substitute a different offer when signup intent is no longer published", async () => {
     api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [{
-      offer_code: "team-monthly-v1", catalog_version: 2, state: "active", last_synced_at: "2026-08-25T12:01:00Z"
+      offer_code: "team-monthly-v2", catalog_version: 2, state: "active", last_synced_at: "2026-08-25T12:01:00Z"
     }] });
     const wrapper = await mountCheckout("/app/checkout?offer=retired-annual-v1&status=billing");
 
@@ -158,9 +161,9 @@ describe("checkout review", () => {
     expect(wrapper.findAll("button").find((button) => button.text() === "Continue to Stripe")?.attributes("disabled")).toBeDefined();
     expect(wrapper.text()).not.toContain("Your subscription is active");
 
-    await wrapper.get("#checkout-offer").setValue("team-monthly-v1");
+    await wrapper.get("#checkout-offer").setValue("team-monthly-v2");
     expect(wrapper.text()).not.toContain("offer selected before signup is no longer available");
-    expect(wrapper.get<HTMLSelectElement>("#checkout-offer").element.value).toBe("team-monthly-v1");
+    expect(wrapper.get<HTMLSelectElement>("#checkout-offer").element.value).toBe("team-monthly-v2");
     wrapper.unmount();
   });
 
@@ -197,9 +200,9 @@ describe("checkout review", () => {
     api.getBillingStatus
       .mockResolvedValueOnce({ has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [] })
       .mockResolvedValueOnce({ has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [{
-        offer_code: "team-monthly-v1", catalog_version: 2, state: "active", current_period_start: "2026-08-25T12:00:00Z", current_period_end: "2026-09-25T12:00:00Z", last_synced_at: "2026-08-25T12:01:00Z"
+        offer_code: "team-monthly-v2", catalog_version: 2, state: "active", current_period_start: "2026-08-25T12:00:00Z", current_period_end: "2026-09-25T12:00:00Z", last_synced_at: "2026-08-25T12:01:00Z"
       }] });
-    const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v1&status=billing");
+    const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v2&status=billing");
     expect(wrapper.text()).toContain("access is being confirmed");
 
     await vi.advanceTimersByTimeAsync(2500);
@@ -211,9 +214,9 @@ describe("checkout review", () => {
 
   it("renders a failed signed projection without claiming paid access", async () => {
     api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: true, subscriptions: [{
-      offer_code: "team-monthly-v1", catalog_version: 2, state: "incomplete_expired", last_synced_at: "2026-08-25T12:01:00Z"
+      offer_code: "team-monthly-v2", catalog_version: 2, state: "incomplete_expired", last_synced_at: "2026-08-25T12:01:00Z"
     }] });
-    const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v1&status=billing");
+    const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v2&status=billing");
 
     expect(wrapper.text()).toContain("subscription did not become active");
     expect(wrapper.text()).toContain("No paid access was granted");

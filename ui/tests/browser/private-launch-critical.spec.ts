@@ -61,26 +61,29 @@ const terminalPrivacyRightsRequests = [
   { ...privacyRightsRequest, request_id: "14000000-0000-4000-8000-000000000014", kind: "objection", scope: "affiliate", state: "declined", updated_at: "2026-08-26T12:00:00Z" }
 ];
 const catalog = {
-  version: 2,
+  version: 3,
   published_at: "2026-08-24T20:00:00Z",
   limits: [],
   packages: [],
   plans: [{
     code: "team",
-    version: 1,
-    name: "Team",
-    description: "A governed operating workspace.",
+    version: 2,
+    name: "Infinite Ocean Team",
+    description: "The complete Infinite Ocean operating system for one team.",
     packages: { work: "enabled", knowledge: "enabled" }
   }],
   offers: [{
-    code: "team-monthly-v1",
+    code: "team-monthly-v2",
     plan_code: "team",
-    plan_version: 1,
+    plan_version: 2,
     currency: "USD",
-    amount_minor: 4900,
+    amount_minor: 5000,
     billing_interval: "month",
     effective_from: "2026-08-20T20:00:00Z"
-  }]
+  }],
+  ai_token_renewal_grant: { code: "team_renewal_v1", version: 1, quantity: 10000, disclosure: "Included per successful renewal." },
+  ai_token_bundles: [{ code: "tokens_10k_v1", version: 1, quantity: 10000, currency: "USD", amount_minor: 1000, effective_from: "2026-08-20T20:00:00Z", disclosure: "Purchased AI Tokens remain with the active team." }],
+  ai_complexity_rates: ["simple", "efficient", "balanced", "thorough", "advanced"].map((complexity, index) => ({ complexity, code: `${complexity}_v1`, version: 1, input_per_thousand: 1 + index, cached_input_per_thousand: 1 + index, output_per_thousand: 4 + index * 4, tool_invocation: 10 + index * 10, minimum_charge: 5 + index * 5, maximum_reservation: 1000 + index * 1000, estimated_minimum: 10 + index * 10, estimated_maximum: 100 + index * 100 }))
 };
 const ownerMembership = {
   membership_id: "80000000-0000-4000-8000-000000000008",
@@ -452,6 +455,10 @@ async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
       await fulfillJSON(route, { has_customer: false, can_manage: true, can_start_checkout: true, subscriptions: [] });
       return;
     }
+    if (path === `/api/v1/accounts/${accountID}/ai-tokens`) {
+      await fulfillJSON(route, { available: 0, reserved: 0, consumed: 0, included: 0, purchased: 0, promotion: 0 });
+      return;
+    }
     if (path === `/api/v1/accounts/${accountID}/membership`) {
       await fulfillJSON(route, { membership: ownerMembership });
       return;
@@ -722,9 +729,9 @@ test("affiliate checkout sign-in preserves the proposal without analytics consen
     await route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><html lang=\"en\"><title>Sign in</title><body><main><h1>Sign in again</h1></main></body></html>" });
   });
 
-  await page.goto("/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1");
+  await page.goto("/app/checkout?offer=team-monthly-v2&ref=IO-PARTNER1");
 
-  await expect(page).toHaveURL("http://127.0.0.1:4173/login?return_to=%2Fapp%2Fcheckout%3Foffer%3Dteam-monthly-v1%26ref%3DIO-PARTNER1");
+  await expect(page).toHaveURL("http://127.0.0.1:4173/login?return_to=%2Fapp%2Fcheckout%3Foffer%3Dteam-monthly-v2%26ref%3DIO-PARTNER1");
   await expect(page.getByRole("heading", { level: 1, name: "Sign in again" })).toBeVisible();
   expect(state.analyticsEvents).toEqual([]);
 });
@@ -834,7 +841,7 @@ test("Your Turn warns before leaving an unsaved consequential decision", async (
 test("@text-zoom authenticated routes retain content and reflow at 200% text size", async ({ page }) => {
   const routes = [
     { path: "/app/your-turn", heading: "Your Turn" },
-    { path: "/app/checkout?offer=team-monthly-v1", heading: "Review before Stripe." },
+    { path: "/app/checkout?offer=team-monthly-v2", heading: "Review before Stripe." },
     { path: "/app/privacy", heading: "Privacy you can act on." },
     { path: "/app/affiliate", heading: "One identity. One clear ledger." },
     { path: "/app/account", heading: "People and authority" },
@@ -885,7 +892,7 @@ test("@browser-zoom authenticated routes reflow at 400% browser scale", async ({
 
   const routes = [
     { path: "/app/your-turn", heading: "Your Turn" },
-    { path: "/app/checkout?offer=team-monthly-v1", heading: "Review before Stripe." },
+    { path: "/app/checkout?offer=team-monthly-v2", heading: "Review before Stripe." },
     { path: "/app/privacy", heading: "Privacy you can act on." },
     { path: "/app/affiliate", heading: "One identity. One clear ledger." },
     { path: "/app/account", heading: "People and authority" },
@@ -931,7 +938,7 @@ test("mobile navigation traps and restores focus", async ({ page }, testInfo) =>
 });
 
 test("checkout requires deliberate referral application and remains usable at phone width", async ({ page }) => {
-  await page.goto("/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1");
+  await page.goto("/app/checkout?offer=team-monthly-v2&ref=IO-PARTNER1");
   await expect(page.getByRole("heading", { level: 1, name: "Review before Stripe." })).toBeVisible();
   await expect.poll(() => state.analyticsEvents.find((event) => event.name === "application_entered")?.fields).toEqual({ entry_point: "checkout" });
   await expect(page.getByText("A referral was proposed by your link.")).toBeVisible();
@@ -1167,7 +1174,7 @@ test("checkout keeps the chosen referral visible when self-referral is denied wi
     await fulfillProblem(route, 400, "affiliate_self_referral", "An Affiliate cannot refer an Account they own.");
   });
 
-  await page.goto("/app/checkout?offer=team-monthly-v1&ref=IO-PARTNER1");
+  await page.goto("/app/checkout?offer=team-monthly-v2&ref=IO-PARTNER1");
   await page.getByRole("button", { name: "Apply" }).click();
   await page.getByRole("checkbox", { name: /I confirm this offer and Affiliate referral/ }).check();
   await page.getByRole("button", { name: "Continue to Stripe" }).click();
@@ -1176,7 +1183,7 @@ test("checkout keeps the chosen referral visible when self-referral is denied wi
   await expect(page.getByRole("textbox", { name: "Affiliate code" })).toHaveValue("IO-PARTNER1");
   await expect(page.getByRole("button", { name: "Remove" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue to Stripe" })).toBeEnabled();
-  expect(checkoutRequests).toEqual([{ offer_code: "team-monthly-v1", affiliate_code: "IO-PARTNER1" }]);
+  expect(checkoutRequests).toEqual([{ offer_code: "team-monthly-v2", affiliate_code: "IO-PARTNER1" }]);
   expect(state.analyticsEvents).toEqual([]);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
@@ -1233,7 +1240,7 @@ test("Account administration keeps authority, billing, portability, and closure 
     {
       path: "/app/billing",
       heading: "Know what the Account pays for",
-      evidence: ["Free or unbilled access", "No subscription history", "Review paid plans"]
+      evidence: ["Checkout required", "No subscription history", "Review paid plans"]
     },
     {
       path: "/app/account-exports",
@@ -1527,11 +1534,11 @@ test("Checkout provider failure leaves payment and Account state unchanged", asy
   await page.route(`**/api/v1/accounts/${accountID}/checkout-sessions`, async (route) => {
     await fulfillProblem(route, 502, "billing_provider_unavailable", "Stripe is temporarily unavailable. No payment was started and this Account is unchanged.");
   });
-  await page.goto("/app/checkout?offer=team-monthly-v1");
+  await page.goto("/app/checkout?offer=team-monthly-v2");
   await page.getByRole("checkbox", { name: /I confirm this offer/ }).check();
   await page.getByRole("button", { name: "Continue to Stripe" }).click();
   await expect(page.getByRole("alert")).toContainText("No payment was started and this Account is unchanged.");
-  await expect(page).toHaveURL(/\/app\/checkout\?offer=team-monthly-v1$/);
+  await expect(page).toHaveURL(/\/app\/checkout\?offer=team-monthly-v2$/);
   await expect(page.getByRole("button", { name: "Continue to Stripe" })).toBeEnabled();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
@@ -1544,7 +1551,7 @@ test("Checkout provider failure leaves payment and Account state unchanged", asy
   if (compact) await menu.click();
   await page.getByRole("link", { name: "Your Turn", exact: true }).click();
   await expect(dismissed).resolves.toBe("Leave checkout? Your reviewed offer, Affiliate code, or confirmation will be lost.");
-  await expect(page).toHaveURL(/\/app\/checkout\?offer=team-monthly-v1$/);
+  await expect(page).toHaveURL(/\/app\/checkout\?offer=team-monthly-v2$/);
   if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: /I confirm this offer/ })).toBeChecked();
   await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your checkout review remains available." })).toBeVisible();

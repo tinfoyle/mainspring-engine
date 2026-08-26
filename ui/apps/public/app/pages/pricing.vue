@@ -15,7 +15,7 @@ const paidOffers = computed(() => catalogState.value === "unavailable" || catalo
 usePublicSeo({
   title: "Spyglass pricing · Infinite Ocean",
   path: "/pricing",
-  description: "Start Spyglass free and compare current published plans before continuing to secure Stripe Checkout.",
+  description: "Infinite Ocean is $50 per team each month, with all product packages and configurable provider-neutral AI Token usage.",
   schema: {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -23,16 +23,13 @@ usePublicSeo({
     url: "https://www.infiniteocean.net/pricing",
     applicationCategory: "BusinessApplication",
     operatingSystem: "Web",
-    offers: [
-      { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free Account creation", url: "https://www.infiniteocean.net/pricing" },
-      ...paidOffers.value.map((offer) => ({
+    offers: paidOffers.value.map((offer) => ({
         "@type": "Offer",
         price: (offer.amount_minor / 100).toFixed(2),
         priceCurrency: offer.currency,
         category: `${offer.billing_interval} subscription`,
         url: "https://www.infiniteocean.net/pricing"
       }))
-    ]
   }
 });
 
@@ -61,17 +58,6 @@ async function chooseOffer(event: MouseEvent, offer: CatalogOffer): Promise<void
   window.location.assign(destination);
 }
 
-async function startFree(event: MouseEvent): Promise<void> {
-  event.preventDefault();
-  try {
-    await Promise.race([
-      analyticsConsent.track({ name: "signup_handoff_started", fields: {} }),
-      new Promise((resolve) => window.setTimeout(resolve, 180))
-    ]);
-  } catch { /* Optional analytics never interrupts free Account creation. */ }
-  window.location.assign(`${appOrigin}/signup`);
-}
-
 onMounted(async () => {
   if (await analyticsConsent.resolve()) {
     await analyticsConsent.track({ name: "pricing_viewed", fields: { route_name: "pricing" } });
@@ -80,18 +66,19 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="content-hero section-frame"><p class="eyebrow">Published pricing</p><h1>Start free.<br />Upgrade with context.</h1><p>Creating an Account never requires payment. Spyglass revalidates every selected offer before secure Stripe Checkout, so this browser never chooses a provider price.</p></section>
+  <section class="content-hero section-frame"><p class="eyebrow">Simple team pricing</p><h1>One team.<br />The whole system.</h1><p>Infinite Ocean is $50 USD per team each month, before applicable Stripe-calculated tax. There is no stripped-down free tier and no maze of package upgrades.</p></section>
   <section class="pricing-grid section-frame" aria-label="Plan comparison">
-    <article><p class="eyebrow">Free</p><h2>$0</h2><p>Build the baseline, organize Work and experience Your Turn before making a purchase decision.</p><ul class="plan-packages"><li>Free Account creation</li><li>Published baseline access</li><li>No payment details required</li></ul><a class="button button--secondary" :href="`${appOrigin}/signup`" @click="startFree">Start free</a></article>
     <article v-if="catalogState === 'stale'" class="pricing-unavailable" role="status"><p class="eyebrow">Last verified Catalog</p><h2>Current publication is temporarily delayed</h2><p>These offers were verified from Catalog version {{ catalog?.version }}, published {{ publishedLabel }}. Spyglass revalidates any selection before secure Checkout.</p><button class="button button--secondary" type="button" @click="() => refresh()">Check for current Catalog</button></article>
     <article v-for="offer in paidOffers" :key="offer.code" class="pricing-card--featured">
       <p class="eyebrow">{{ planFor(offer)?.name ?? offer.plan_code }}</p>
       <h2>{{ formatPrice(offer) }}<small>/{{ offer.billing_interval }}</small></h2>
       <p>{{ planFor(offer)?.description }}</p>
+      <p><strong>{{ catalog?.ai_token_renewal_grant.quantity.toLocaleString() }} AI Tokens included with each successful renewal.</strong></p>
       <ul class="plan-packages"><li v-for="(mode, packageCode) in planFor(offer)?.packages" :key="packageCode"><span>{{ packageCode }}</span><small>{{ String(mode).replace('_', ' ') }}</small></li></ul>
-      <a class="button button--primary" :href="`${appOrigin}/signup?offer=${encodeURIComponent(offer.code)}`" @click="chooseOffer($event, offer)">Choose {{ planFor(offer)?.name ?? "plan" }}</a>
+      <a class="button button--primary" :href="`${appOrigin}/signup?offer=${encodeURIComponent(offer.code)}`" @click="chooseOffer($event, offer)">Create your team Account</a>
     </article>
-    <article v-if="catalogError" class="pricing-unavailable" role="status"><p class="eyebrow">Catalog unavailable</p><h2>Paid offers are temporarily hidden</h2><p>Free Account creation remains available. We will not show or submit an unverified price.</p><button class="button button--secondary" type="button" @click="() => refresh()">Try Catalog again</button></article>
+    <article><p class="eyebrow">Optional commissioning</p><h2>$250<small> one time</small></h2><p>Hands-on onboarding and commissioning for teams that want guided setup. It is optional, carries no Affiliate commission and is not part of the recurring subscription.</p><a class="button button--secondary" href="mailto:support@infiniteocean.net?subject=Infinite%20Ocean%20commissioning">Contact Support</a></article>
+    <article v-if="catalogError" class="pricing-unavailable" role="status"><p class="eyebrow">Catalog unavailable</p><h2>Checkout is temporarily paused</h2><p>We will not display or submit a price that the application cannot revalidate. No payment attempt has been made.</p><button class="button button--secondary" type="button" @click="() => refresh()">Try Catalog again</button></article>
   </section>
-  <section class="pricing-trust section-frame"><h2>What happens after you choose?</h2><ol><li><strong>Create your free Account.</strong><span>Your selected opaque offer code follows the signup journey.</span></li><li><strong>Review inside Spyglass.</strong><span>An owner confirms the current Catalog offer and any actively applied Affiliate referral.</span></li><li><strong>Pay securely at Stripe.</strong><span>Spyglass waits for a signed payment event before changing access.</span></li></ol></section>
+  <section class="pricing-trust section-frame"><h2>What happens after you choose?</h2><ol><li><strong>Create your identity and team shell.</strong><span>No product access is granted until payment succeeds.</span></li><li><strong>Review one clear offer.</strong><span>The owner confirms $50/month, included AI Tokens and any Affiliate attribution before leaving Infinite Ocean.</span></li><li><strong>Pay securely at Stripe.</strong><span>Stripe calculates applicable tax. Infinite Ocean waits for a signed payment event before enabling the complete product.</span></li></ol></section>
 </template>

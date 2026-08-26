@@ -79,5 +79,29 @@
       "amount_minor": 5000,
       "billing_interval": "month"
     }
+  ],
+  "ai_token_renewal_grant": {
+    "code": "team_renewal_v1",
+    "version": 1,
+    "quantity": 10000,
+    "disclosure": "Included with each successfully paid monthly team service period; unused included Tokens expire when the next paid renewal grant commits."
+  },
+  "ai_token_bundles": [
+    {
+      "code": "tokens_10k_v1",
+      "version": 1,
+      "quantity": 10000,
+      "currency": "USD",
+      "amount_minor": 1000,
+      "effective_from": "2026-08-26T00:00:00Z",
+      "disclosure": "One-time team AI Token top-up. Purchased Tokens do not expire while the team Account remains active."
+    }
+  ],
+  "ai_complexity_rates": [
+    {"code": "simple_v1", "version": 1, "complexity": "simple", "input_per_thousand": 1, "cached_input_per_thousand": 1, "output_per_thousand": 4, "tool_invocation": 10, "minimum_charge": 5, "maximum_reservation": 1000, "estimated_minimum": 5, "estimated_maximum": 250, "internal_provider": "configurable", "internal_model": "simple", "internal_adapter_version": 1, "internal_model_policy_version": 1},
+    {"code": "efficient_v1", "version": 1, "complexity": "efficient", "input_per_thousand": 2, "cached_input_per_thousand": 1, "output_per_thousand": 8, "tool_invocation": 15, "minimum_charge": 10, "maximum_reservation": 1500, "estimated_minimum": 10, "estimated_maximum": 500, "internal_provider": "configurable", "internal_model": "efficient", "internal_adapter_version": 1, "internal_model_policy_version": 1},
+    {"code": "balanced_v1", "version": 1, "complexity": "balanced", "input_per_thousand": 4, "cached_input_per_thousand": 1, "output_per_thousand": 16, "tool_invocation": 25, "minimum_charge": 20, "maximum_reservation": 2500, "estimated_minimum": 20, "estimated_maximum": 1000, "internal_provider": "configurable", "internal_model": "balanced", "internal_adapter_version": 1, "internal_model_policy_version": 1},
+    {"code": "thorough_v1", "version": 1, "complexity": "thorough", "input_per_thousand": 8, "cached_input_per_thousand": 2, "output_per_thousand": 32, "tool_invocation": 50, "minimum_charge": 40, "maximum_reservation": 5000, "estimated_minimum": 40, "estimated_maximum": 2000, "internal_provider": "configurable", "internal_model": "thorough", "internal_adapter_version": 1, "internal_model_policy_version": 1},
+    {"code": "advanced_v1", "version": 1, "complexity": "advanced", "input_per_thousand": 16, "cached_input_per_thousand": 4, "output_per_thousand": 64, "tool_invocation": 100, "minimum_charge": 80, "maximum_reservation": 10000, "estimated_minimum": 80, "estimated_maximum": 4000, "internal_provider": "configurable", "internal_model": "advanced", "internal_adapter_version": 1, "internal_model_policy_version": 1}
   ]
 }

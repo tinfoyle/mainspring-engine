@@ -28,7 +28,7 @@ func TestAPIMCPGuideMatchesGeneratedInventories(t *testing.T) {
 			}
 		}
 	}
-	if operations != 209 || !strings.Contains(guide, "HTTP contract: `api/spyglass.openapi.json` (209 operations)") {
+	if operations != 210 || !strings.Contains(guide, "HTTP contract: `api/spyglass.openapi.json` (210 operations)") {
 		t.Fatalf("HTTP operation inventory=%d or guide count is stale", operations)
 	}
 

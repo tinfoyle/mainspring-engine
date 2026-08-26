@@ -16,6 +16,9 @@ func TestDefaultCatalogIsValid(t *testing.T) {
 	if len(value.Plans[0].Packages) != len(value.Packages) {
 		t.Fatalf("complete-product plan packages=%d definitions=%d", len(value.Plans[0].Packages), len(value.Packages))
 	}
+	if value.AITokenRenewalGrant == nil || value.AITokenRenewalGrant.Quantity != 10_000 || len(value.AITokenBundles) != 1 || value.AITokenBundles[0].Quantity != 10_000 || value.AITokenBundles[0].AmountMinor != 1000 || len(value.AIComplexityRates) != 5 || value.AIComplexityRates[2].Complexity != AIComplexityBalanced {
+		t.Fatalf("default AI Token commerce = grant=%+v bundles=%+v rates=%+v", value.AITokenRenewalGrant, value.AITokenBundles, value.AIComplexityRates)
+	}
 }
 
 func TestGovernedCatalogRequiresExplicitDefinitionsForDefaults(t *testing.T) {
@@ -92,5 +95,21 @@ func TestCatalogDoesNotRequireFreePlan(t *testing.T) {
 	}
 	if err := value.Validate(); err != nil {
 		t.Fatalf("paid-only Catalog rejected: %v", err)
+	}
+}
+
+func TestGovernedCatalogRequiresAllComplexityClasses(t *testing.T) {
+	value := Default(time.Now())
+	value.AIComplexityRates = value.AIComplexityRates[:4]
+	if err := value.ValidateGoverned(); err == nil {
+		t.Fatal("governed Catalog accepted a missing complexity class")
+	}
+}
+
+func TestCatalogRejectsDuplicateComplexityClass(t *testing.T) {
+	value := Default(time.Now())
+	value.AIComplexityRates[4].Complexity = AIComplexityBalanced
+	if err := value.Validate(); err == nil {
+		t.Fatal("Catalog accepted a duplicate complexity class")
 	}
 }

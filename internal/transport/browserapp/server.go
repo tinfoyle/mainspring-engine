@@ -1662,7 +1662,7 @@ func appNotice(status string) string {
 	case "billing_unavailable":
 		return "Billing is not configured in this environment."
 	case "welcome":
-		return "Your free Account is ready. Your selected plan is highlighted below; no charge occurs until you explicitly begin Stripe checkout."
+		return "Your team shell is ready. No product access is granted until you review the offer, complete Stripe checkout, and payment is confirmed."
 	case "member_role_changed":
 		return "Membership role updated and recorded in the Account audit history."
 	case "member_removed":

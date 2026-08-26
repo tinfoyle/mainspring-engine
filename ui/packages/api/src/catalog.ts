@@ -1,10 +1,13 @@
 import { requestJSON } from "./client";
-import type { BillingStatus, CreateCheckoutSessionRequest, HostedBillingSession, PublicCatalog } from "./generated/api-types";
+import type { AITokenBalance, BillingStatus, CreateCheckoutSessionRequest, HostedBillingSession, PublicCatalog } from "./generated/api-types";
 
 export const getPublicCatalog = (): Promise<PublicCatalog> => requestJSON("/api/v1/catalog/public");
 
 export const getBillingStatus = (accountID: string): Promise<BillingStatus> =>
   requestJSON(`/api/v1/accounts/${encodeURIComponent(accountID)}/billing`);
+
+export const getAITokenBalance = (accountID: string): Promise<AITokenBalance> =>
+  requestJSON(`/api/v1/accounts/${encodeURIComponent(accountID)}/ai-tokens`);
 
 export const createCheckoutSession = (
   accountID: string,

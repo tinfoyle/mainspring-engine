@@ -12,8 +12,10 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	stripeadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
+	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -86,6 +88,21 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
+	publishedCatalog, err := postgres.NewCatalogRepository(pool).Published(ctx)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	tokenIssuer, err := aitokenledger.NewIssuer(postgres.NewAITokenLedgerRepository(pool), func() catalog.PublishedCatalog { return publishedCatalog }, ids.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	tokenProjector, err := aitokenledger.NewBillingEventProjector(tokenIssuer)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	affiliateService, err := affiliateprogram.New(postgres.NewAffiliateProgramRepository(pool), ids.RandomGenerator{}, affiliateprogram.RandomCodeGenerator{}, clock, 1, 1)
 	if err != nil {
 		pool.Close()
@@ -96,7 +113,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	processor, err := billing.NewProcessor(postgres.NewBillingInbox(pool), billing.SequenceHandler{projector, affiliateProjector}, clock, 2*time.Minute)
+	processor, err := billing.NewProcessor(postgres.NewBillingInbox(pool), billing.SequenceHandler{projector, tokenProjector, affiliateProjector}, clock, 2*time.Minute)
 	if err != nil {
 		pool.Close()
 		return nil, err

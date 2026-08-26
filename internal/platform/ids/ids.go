@@ -74,6 +74,9 @@ type CommissionEntryID string
 type AffiliateProviderEventID string
 type PrivacyRightsRequestID string
 type PrivacyRightsEventID string
+type AITokenGrantID string
+type AITokenReservationID string
+type AITokenLedgerEntryID string
 
 type Generator interface {
 	New() string
