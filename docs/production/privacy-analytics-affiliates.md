@@ -208,7 +208,7 @@ Local abuse-review checkpoint (2026-08-26): the execute-only Affiliate operator 
 
 ## 7. Settlement policy
 
-The release owner selected an account-credit-first hybrid on 2026-08-26. Available earnings accrue as billing credit for one Affiliate-owned Infinite Ocean Account. Once the available balance reaches a separately approved threshold, it becomes eligible for payment by check. The threshold, check initiation, identity/address/tax evidence, atomic balance debit, delivery, stop/reissue, expiry and failed/uncashed-check behavior remain open; no payment promise may be exposed until they are implemented.
+The release owner selected an account-credit-first hybrid on 2026-08-26. Available earnings accrue as billing credit for one Affiliate-owned Infinite Ocean Account. Once the available balance reaches **$100.00 USD**, it becomes eligible for payment by check; pending earnings do not count. Check initiation, identity/address/tax evidence, atomic balance debit, delivery, stop/reissue, expiry and failed/uncashed-check behavior remain open; no payment promise may be exposed until they are implemented.
 
 ### Account billing credit
 
@@ -216,7 +216,7 @@ Earned commission is applied as a bounded credit toward invoices for one Affilia
 
 ### Threshold check payment
 
-Only an available balance at or above the approved threshold becomes eligible for payment by check. This requires payee identity/address and tax handling, supported jurisdictions, immutable request/approval/payment evidence, atomic reservation and debit, delivery/stop/reissue operations, uncashed-check treatment, statements and applicable reporting. It is not an unrestricted withdrawable cash balance.
+Only an available balance of at least **$100.00 USD** becomes eligible for payment by check. Pending earnings do not count. This requires payee identity/address and tax handling, supported jurisdictions, immutable request/approval/payment evidence, atomic reservation and debit, delivery/stop/reissue operations, uncashed-check treatment, statements and applicable reporting. It is not an unrestricted withdrawable cash balance.
 
 The immutable earning ledger remains independent of settlement. The UI cannot promise a check or label pending earnings as available account credit until the remaining settlement rules and implementation are approved.
 
