@@ -34,6 +34,7 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** flat team pricing includes 25 active members with no per-seat charge. Pending invitations reserve slots; admission above the combined limit fails atomically. Support may grant a reviewed versioned capacity increase without changing price or creating a tier;
 - **Decided 2026-08-26:** include 1,000 logical Documents per team. Revisions share the Document slot; capacity releases after guarded physical deletion completes. Admission above the limit creates no partial state, and reviewed Support overrides do not create tiers;
 - **Decided 2026-08-26:** retain the 100-active-Work-item limit. Active child items count individually; completed/cancelled history releases capacity. Support may grant a reviewed versioned override without changing price or features;
+- **Decided 2026-08-26:** retain two concurrent Agent Runs per team. Queued Runs consume no slot before admission; terminal/cancelled/expired reservations release once. A third cannot start provider work, and Support may grant a reviewed versioned override;
 - **Decided 2026-08-26:** there is no Free plan at launch. The checked-in `free-v1` offer, free entitlement and permanent-free acquisition/signup copy are migration work and may not appear in the effective launch Catalog or customer surface;
 - **Decided 2026-08-26:** there is no free trial. Normal product access begins only after the first `$50` subscription invoice is fully paid and signed-webhook projection activates the team; zero-value/trial implementation states are defensive only;
 - **Decided 2026-08-26:** the first unresolved renewal failure starts a 30-day clock. Days 0–7 are read-only remediation; afterward only billing, security, privacy, export and sign-out remain. Projected payment before day 30 cancels deletion; otherwise guarded Account/live-data erasure completes at day 30 while required evidence follows separate restricted retention;
@@ -152,6 +153,7 @@ Launch entitlement: one complete-product subscription with all completed package
 Team members: 25 active members included, pending invitations reserve slots, no per-seat charge; reviewed Support capacity override (owner decision 2026-08-26)
 Documents: 1,000 logical Documents per team; revisions share a slot, completed guarded deletion releases it; reviewed Support override (owner decision 2026-08-26)
 Active Work: 100 items per team; children count, terminal history releases capacity; reviewed Support override (owner decision 2026-08-26)
+Agent concurrency: two admitted Runs per team; queued Runs do not count, terminal/cancelled/expired releases; reviewed Support override (owner decision 2026-08-26)
 Commissioning Affiliate treatment: never commission-eligible; exclude its line from earning and reversal qualification (owner decision 2026-08-26)
 Free plan: none at launch; remove free-v1 and permanent-free claims from effective Catalog and customer surfaces (owner decision 2026-08-26)
 Free trial: none at launch; first fully paid $50 subscription invoice and signed-webhook projection begin access (owner decision 2026-08-26)
