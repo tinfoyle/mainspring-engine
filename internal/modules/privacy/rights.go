@@ -48,12 +48,27 @@ type RightsRequest struct {
 }
 
 func NewRightsRequest(id ids.PrivacyRightsRequestID, userID ids.UserID, kind RightsKind, scope RightsScope, now time.Time) (RightsRequest, error) {
+	now = now.UTC()
 	request := RightsRequest{ID: id, UserID: userID, Version: 1, Kind: kind, Scope: scope, State: RightsSubmitted,
-		VerifiedAt: now.UTC(), RequestedAt: now.UTC(), ResponseDueAt: now.UTC().AddDate(0, 1, 0), UpdatedAt: now.UTC()}
+		VerifiedAt: now, RequestedAt: now, ResponseDueAt: oneCalendarMonthAfter(now), UpdatedAt: now}
 	if err := request.Validate(); err != nil {
 		return RightsRequest{}, err
 	}
 	return request, nil
+}
+
+// oneCalendarMonthAfter preserves the UTC wall-clock time and clamps the day
+// to the target month's last day. time.AddDate normalizes 31 January plus one
+// month into March, which would silently overstate the GDPR response window.
+func oneCalendarMonthAfter(value time.Time) time.Time {
+	value = value.UTC()
+	year, month, day := value.Date()
+	targetMonth := time.Date(year, month+1, 1, value.Hour(), value.Minute(), value.Second(), value.Nanosecond(), time.UTC)
+	lastDay := targetMonth.AddDate(0, 1, -1).Day()
+	if day > lastDay {
+		day = lastDay
+	}
+	return time.Date(targetMonth.Year(), targetMonth.Month(), day, value.Hour(), value.Minute(), value.Second(), value.Nanosecond(), time.UTC)
 }
 
 func (r RightsRequest) Validate() error {
@@ -72,6 +87,12 @@ func validRightsKind(kind RightsKind) bool {
 	default:
 		return false
 	}
+}
+
+// ValidRightsClassification is shared by customer requests and minimized
+// operator queue projections so neither boundary can invent a right or scope.
+func ValidRightsClassification(kind RightsKind, scope RightsScope) bool {
+	return validRightsKind(kind) && validRightsScope(scope)
 }
 
 func validRightsScope(scope RightsScope) bool {

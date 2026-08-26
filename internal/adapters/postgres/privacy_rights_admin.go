@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -20,6 +21,30 @@ type PrivacyRightsAdminRepository struct{ pool *pgxpool.Pool }
 
 func NewPrivacyRightsAdminRepository(pool *pgxpool.Pool) *PrivacyRightsAdminRepository {
 	return &PrivacyRightsAdminRepository{pool: pool}
+}
+
+func (r *PrivacyRightsAdminRepository) ListOpen(ctx context.Context, dueBefore time.Time, limit int, change privacyrightsadmin.Change) ([]privacyrightsadmin.QueueItem, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT request_id,version,kind,scope,state,requested_at,response_due_at,updated_at
+		FROM public.spyglass_list_open_privacy_rights_requests($1,$2,$3,$4,$5,$6)`,
+		change.EventID, dueBefore, limit, change.Actor, change.Reason, change.Environment)
+	if err != nil {
+		return nil, classifyPrivacyRightsAdminError(err)
+	}
+	defer rows.Close()
+	items := make([]privacyrightsadmin.QueueItem, 0)
+	for rows.Next() {
+		var item privacyrightsadmin.QueueItem
+		if err := rows.Scan(&item.RequestID, &item.Version, &item.Kind, &item.Scope, &item.State,
+			&item.RequestedAt, &item.ResponseDueAt, &item.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan privacy rights queue: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read privacy rights queue: %w", err)
+	}
+	return items, nil
 }
 
 func (r *PrivacyRightsAdminRepository) Inspect(ctx context.Context, requestID ids.PrivacyRightsRequestID, change privacyrightsadmin.Change) (privacy.RightsRequest, error) {

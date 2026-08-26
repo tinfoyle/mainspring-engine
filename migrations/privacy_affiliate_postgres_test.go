@@ -94,9 +94,36 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	secondOpenRequest, err := rightsService.Submit(ctx, privacyrights.SubmitCommand{UserID: affiliateUser, Session: rightsSession,
+		Kind: privacy.RightsRestriction, Scope: privacy.RightsIdentity})
+	if err != nil {
+		t.Fatal(err)
+	}
 	rightsAdmin, err := privacyrightsadmin.New(postgresadapter.NewPrivacyRightsAdminRepository(pool), ids.RandomGenerator{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	beforeDue, err := rightsAdmin.ListOpen(ctx, fulfillmentRequest.ResponseDueAt.Add(-time.Nanosecond), 25,
+		"privacy-operator@example.test", "Prioritize requests approaching deadline", "local")
+	if err != nil || len(beforeDue) != 0 {
+		t.Fatalf("privacy rights queue before due=%+v err=%v", beforeDue, err)
+	}
+	due, err := rightsAdmin.ListOpen(ctx, fulfillmentRequest.ResponseDueAt, 25,
+		"privacy-operator@example.test", "Prioritize requests approaching deadline", "local")
+	if err != nil || len(due) != 2 || string(due[0].RequestID) >= string(due[1].RequestID) {
+		t.Fatalf("privacy rights queue=%+v err=%v", due, err)
+	}
+	queueByID := map[ids.PrivacyRightsRequestID]privacyrightsadmin.QueueItem{due[0].RequestID: due[0], due[1].RequestID: due[1]}
+	if item := queueByID[fulfillmentRequest.ID]; item.Version != fulfillmentRequest.Version || item.Kind != fulfillmentRequest.Kind ||
+		item.Scope != fulfillmentRequest.Scope || item.State != fulfillmentRequest.State || queueByID[secondOpenRequest.ID].Kind != secondOpenRequest.Kind {
+		t.Fatalf("privacy rights queue projection=%+v", queueByID)
+	}
+	var queueAccesses, lastResultCount int
+	if queryErr := pool.QueryRow(ctx, `SELECT count(*),max(result_count) FROM privacy_rights_queue_access_events`).Scan(&queueAccesses, &lastResultCount); queryErr != nil || queueAccesses != 2 || lastResultCount != 2 {
+		t.Fatalf("privacy rights queue accesses=%d result_count=%d err=%v", queueAccesses, lastResultCount, queryErr)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE privacy_rights_queue_access_events SET result_count=0`); err == nil {
+		t.Fatal("privacy rights queue access evidence was mutable")
 	}
 	reviewedRights, err := rightsAdmin.StartReview(ctx, fulfillmentRequest.ID, fulfillmentRequest.Version,
 		"privacy-operator@example.test", "Verify the submitted request", "local")
@@ -162,6 +189,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	const operatorRole = "spyglass_privacy_rights_operator_contract"
 	if _, err := pool.Exec(ctx, `CREATE ROLE `+operatorRole+` NOLOGIN;
 		GRANT USAGE ON SCHEMA public TO `+operatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_list_open_privacy_rights_requests(uuid,timestamptz,integer,text,text,text) TO `+operatorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_inspect_privacy_rights_request(uuid,uuid,text,text,text) TO `+operatorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_transition_privacy_rights_request(uuid,uuid,bigint,text,text,uuid,bytea,text,text,text) TO `+operatorRole); err != nil {
 		t.Fatal(err)
@@ -169,13 +197,15 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	defer func() {
 		_, _ = pool.Exec(context.Background(), `DROP OWNED BY `+operatorRole+`; DROP ROLE `+operatorRole)
 	}()
-	var directTableAccess, inspectFunctionAccess, transitionFunctionAccess bool
+	var directTableAccess, directQueueAuditAccess, listFunctionAccess, inspectFunctionAccess, transitionFunctionAccess bool
 	if err := pool.QueryRow(ctx, `SELECT
 		has_table_privilege($1,'public.privacy_rights_requests','SELECT'),
+		has_table_privilege($1,'public.privacy_rights_queue_access_events','SELECT'),
+		has_function_privilege($1,'public.spyglass_list_open_privacy_rights_requests(uuid,timestamptz,integer,text,text,text)','EXECUTE'),
 		has_function_privilege($1,'public.spyglass_inspect_privacy_rights_request(uuid,uuid,text,text,text)','EXECUTE'),
 		has_function_privilege($1,'public.spyglass_transition_privacy_rights_request(uuid,uuid,bigint,text,text,uuid,bytea,text,text,text)','EXECUTE')`, operatorRole).Scan(
-		&directTableAccess, &inspectFunctionAccess, &transitionFunctionAccess); err != nil || directTableAccess || !inspectFunctionAccess || !transitionFunctionAccess {
-		t.Fatalf("operator table=%v inspect=%v transition=%v err=%v", directTableAccess, inspectFunctionAccess, transitionFunctionAccess, err)
+		&directTableAccess, &directQueueAuditAccess, &listFunctionAccess, &inspectFunctionAccess, &transitionFunctionAccess); err != nil || directTableAccess || directQueueAuditAccess || !listFunctionAccess || !inspectFunctionAccess || !transitionFunctionAccess {
+		t.Fatalf("operator table=%v queue_audit=%v list=%v inspect=%v transition=%v err=%v", directTableAccess, directQueueAuditAccess, listFunctionAccess, inspectFunctionAccess, transitionFunctionAccess, err)
 	}
 
 	affiliateRepository := postgresadapter.NewAffiliateProgramRepository(pool)

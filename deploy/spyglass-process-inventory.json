@@ -378,10 +378,10 @@
       "port": null,
       "health": null,
       "database_roles": ["global.privacy-rights-operator"],
-      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_PRIVACY_RIGHTS_REQUEST_ID", "SPYGLASS_PRIVACY_RIGHTS_VERSION", "SPYGLASS_PRIVACY_RIGHTS_RESOLUTION_STATE", "SPYGLASS_PRIVACY_RIGHTS_EVIDENCE_ID", "SPYGLASS_PRIVACY_RIGHTS_EVIDENCE_SHA256", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_PRIVACY_RIGHTS_DUE_BEFORE", "SPYGLASS_PRIVACY_RIGHTS_LIMIT", "SPYGLASS_PRIVACY_RIGHTS_REQUEST_ID", "SPYGLASS_PRIVACY_RIGHTS_VERSION", "SPYGLASS_PRIVACY_RIGHTS_RESOLUTION_STATE", "SPYGLASS_PRIVACY_RIGHTS_EVIDENCE_ID", "SPYGLASS_PRIVACY_RIGHTS_EVIDENCE_SHA256", "SPYGLASS_MAX_DATABASE_CONNS"],
       "configuration_profiles": ["traced", "operator_authorization"],
       "dependencies": ["global-postgresql"],
-      "actions": ["inspect", "start-review", "resolve"]
+      "actions": ["list-open", "inspect", "start-review", "resolve"]
     },
     {
       "mode": "affiliate-admin",

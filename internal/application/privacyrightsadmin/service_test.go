@@ -20,10 +20,48 @@ func (fixedID) New() string { return "20000000-0000-4000-8000-000000000002" }
 type store struct {
 	request  privacy.RightsRequest
 	evidence privacyrightsadmin.ResolutionEvidence
+	queue    []privacyrightsadmin.QueueItem
+}
+
+func (s *store) ListOpen(_ context.Context, _ time.Time, _ int, _ privacyrightsadmin.Change) ([]privacyrightsadmin.QueueItem, error) {
+	return append([]privacyrightsadmin.QueueItem(nil), s.queue...), nil
 }
 
 func (s *store) Inspect(_ context.Context, _ ids.PrivacyRightsRequestID, _ privacyrightsadmin.Change) (privacy.RightsRequest, error) {
 	return s.request, nil
+}
+
+func TestOpenQueueIsBoundedAndContainsNoCustomerIdentity(t *testing.T) {
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	item := privacyrightsadmin.QueueItem{RequestID: requestID, Version: 2, Kind: privacy.RightsRestriction,
+		Scope: privacy.RightsAnalytics, State: privacy.RightsInReview, RequestedAt: now,
+		ResponseDueAt: now.AddDate(0, 1, 0), UpdatedAt: now.Add(time.Hour)}
+	service, _ := privacyrightsadmin.New(&store{queue: []privacyrightsadmin.QueueItem{item}}, fixedID{})
+	items, err := service.ListOpen(context.Background(), now.AddDate(0, 1, 0), 25,
+		"privacy@example.test", "Prioritize the open deadline queue", "local")
+	if err != nil || len(items) != 1 || items[0] != item {
+		t.Fatalf("items=%+v err=%v", items, err)
+	}
+	for name, run := range map[string]func() error{
+		"deadline": func() error {
+			_, err := service.ListOpen(context.Background(), time.Time{}, 25, "privacy@example.test", "Prioritize open requests", "local")
+			return err
+		},
+		"zero limit": func() error {
+			_, err := service.ListOpen(context.Background(), now, 0, "privacy@example.test", "Prioritize open requests", "local")
+			return err
+		},
+		"large limit": func() error {
+			_, err := service.ListOpen(context.Background(), now, 101, "privacy@example.test", "Prioritize open requests", "local")
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := run(); !errors.Is(err, privacyrightsadmin.ErrInvalidChange) {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
 }
 
 func (s *store) StartReview(_ context.Context, _ ids.PrivacyRightsRequestID, expected uint64, _ privacyrightsadmin.Change) (privacy.RightsRequest, error) {

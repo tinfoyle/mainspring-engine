@@ -382,8 +382,8 @@ func runPasskeyAdmin(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runPrivacyRightsAdmin(ctx context.Context, logger *slog.Logger) error {
-	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "start-review" && os.Args[2] != "resolve") {
-		return errors.New("usage: spyglass privacy-rights-admin inspect|start-review|resolve")
+	if len(os.Args) != 3 || (os.Args[2] != "list-open" && os.Args[2] != "inspect" && os.Args[2] != "start-review" && os.Args[2] != "resolve") {
+		return errors.New("usage: spyglass privacy-rights-admin list-open|inspect|start-review|resolve")
 	}
 	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
 	if err != nil {
@@ -405,17 +405,34 @@ func runPrivacyRightsAdmin(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	requestID, err := requiredEnv("SPYGLASS_PRIVACY_RIGHTS_REQUEST_ID")
-	if err != nil {
-		return err
-	}
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
 	if err != nil {
 		return err
 	}
 	config := privacyrightscommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Actor: actor, Reason: reason,
-		Environment: environment, ConfirmEnvironment: confirmation, RequestID: ids.PrivacyRightsRequestID(requestID), MaxDatabaseConns: maxConns}
-	if config.Action != "inspect" {
+		Environment: environment, ConfirmEnvironment: confirmation, MaxDatabaseConns: maxConns}
+	if config.Action == "list-open" {
+		rawDueBefore, err := requiredEnv("SPYGLASS_PRIVACY_RIGHTS_DUE_BEFORE")
+		if err != nil {
+			return err
+		}
+		config.DueBefore, err = time.Parse(time.RFC3339, rawDueBefore)
+		if err != nil {
+			return errors.New("SPYGLASS_PRIVACY_RIGHTS_DUE_BEFORE must be an RFC3339 timestamp")
+		}
+		limit, err := int64Env("SPYGLASS_PRIVACY_RIGHTS_LIMIT", 100)
+		if err != nil || limit > 100 {
+			return errors.New("SPYGLASS_PRIVACY_RIGHTS_LIMIT must be between 1 and 100")
+		}
+		config.Limit = int(limit)
+	} else {
+		requestID, err := requiredEnv("SPYGLASS_PRIVACY_RIGHTS_REQUEST_ID")
+		if err != nil {
+			return err
+		}
+		config.RequestID = ids.PrivacyRightsRequestID(requestID)
+	}
+	if config.Action == "start-review" || config.Action == "resolve" {
 		config.ExpectedVersion, err = uint64Env("SPYGLASS_PRIVACY_RIGHTS_VERSION")
 		if err != nil {
 			return err
@@ -441,8 +458,14 @@ func runPrivacyRightsAdmin(ctx context.Context, logger *slog.Logger) error {
 		}
 		copy(config.Evidence.SHA256[:], digest)
 	}
-	scopeValues := map[string]string{"request_id": string(config.RequestID)}
-	if config.Action != "inspect" {
+	scopeValues := map[string]string{}
+	if config.Action == "list-open" {
+		scopeValues["due_before"] = config.DueBefore.UTC().Format(time.RFC3339Nano)
+		scopeValues["limit"] = strconv.Itoa(config.Limit)
+	} else {
+		scopeValues["request_id"] = string(config.RequestID)
+	}
+	if config.Action == "start-review" || config.Action == "resolve" {
 		scopeValues["expected_version"] = strconv.FormatUint(config.ExpectedVersion, 10)
 	}
 	if config.Action == "resolve" {

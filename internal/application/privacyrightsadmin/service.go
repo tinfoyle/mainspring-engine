@@ -8,6 +8,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -32,10 +33,42 @@ type ResolutionEvidence struct {
 	SHA256 [32]byte
 }
 
+// QueueItem is the content-minimized operator index needed to discover and
+// prioritize open requests. It intentionally excludes the requesting User ID
+// and all customer data; Inspect remains the audited identity-bearing step.
+type QueueItem struct {
+	RequestID     ids.PrivacyRightsRequestID
+	Version       uint64
+	Kind          privacy.RightsKind
+	Scope         privacy.RightsScope
+	State         privacy.RightsState
+	RequestedAt   time.Time
+	ResponseDueAt time.Time
+	UpdatedAt     time.Time
+}
+
 type Store interface {
+	ListOpen(context.Context, time.Time, int, Change) ([]QueueItem, error)
 	Inspect(context.Context, ids.PrivacyRightsRequestID, Change) (privacy.RightsRequest, error)
 	StartReview(context.Context, ids.PrivacyRightsRequestID, uint64, Change) (privacy.RightsRequest, error)
 	Resolve(context.Context, ids.PrivacyRightsRequestID, uint64, privacy.RightsState, ResolutionEvidence, Change) (privacy.RightsRequest, error)
+}
+
+func (s *Service) ListOpen(ctx context.Context, dueBefore time.Time, limit int, actor, reason, environment string) ([]QueueItem, error) {
+	change, err := s.change(actor, reason, environment)
+	if err != nil || dueBefore.IsZero() || limit < 1 || limit > 100 {
+		return nil, ErrInvalidChange
+	}
+	items, err := s.store.ListOpen(ctx, dueBefore.UTC(), limit, change)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if err := validateQueueItem(item); err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
 }
 
 type Service struct {
@@ -83,4 +116,14 @@ func (s *Service) change(actor, reason, environment string) (Change, error) {
 		return Change{}, ErrInvalidChange
 	}
 	return Change{EventID: eventID, Actor: actor, Reason: reason, Environment: environment}, nil
+}
+
+func validateQueueItem(item QueueItem) error {
+	if ids.Validate(string(item.RequestID)) != nil || item.Version == 0 || !privacy.ValidRightsClassification(item.Kind, item.Scope) ||
+		(item.State != privacy.RightsSubmitted && item.State != privacy.RightsInReview) ||
+		item.RequestedAt.IsZero() || item.ResponseDueAt.IsZero() || item.UpdatedAt.IsZero() ||
+		!item.ResponseDueAt.After(item.RequestedAt) || item.UpdatedAt.Before(item.RequestedAt) {
+		return ErrInvalidChange
+	}
+	return nil
 }

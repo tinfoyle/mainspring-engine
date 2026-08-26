@@ -71,7 +71,7 @@ func TestSubmitRequiresStrongAuthenticationAndTracksCalendarMonth(t *testing.T) 
 	}
 	command.Session = verifiedSession(now)
 	request, err := service.Submit(context.Background(), command)
-	if err != nil || request.ResponseDueAt != now.AddDate(0, 1, 0) {
+	if err != nil || request.ResponseDueAt != time.Date(2026, 2, 28, 12, 0, 0, 0, time.UTC) {
 		t.Fatalf("request=%+v err=%v", request, err)
 	}
 }

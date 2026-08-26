@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -22,6 +23,8 @@ type Config struct {
 	ExpectedVersion                                                     uint64
 	ResolutionState                                                     privacy.RightsState
 	Evidence                                                            application.ResolutionEvidence
+	DueBefore                                                           time.Time
+	Limit                                                               int
 	MaxDatabaseConns                                                    int32
 }
 
@@ -50,6 +53,20 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 	}
 	var request privacy.RightsRequest
 	switch config.Action {
+	case "list-open":
+		var items []application.QueueItem
+		items, err = service.ListOpen(ctx, config.DueBefore, config.Limit, config.Actor, config.Reason, config.Environment)
+		if err == nil {
+			for _, item := range items {
+				logger.Info("Spyglass open privacy rights request", "request_id", item.RequestID,
+					"request_version", item.Version, "kind", item.Kind, "scope", item.Scope, "state", item.State,
+					"requested_at", item.RequestedAt, "response_due_at", item.ResponseDueAt, "updated_at", item.UpdatedAt,
+					"environment", config.Environment)
+			}
+			logger.Info("Spyglass privacy rights deadline queue listed", "result_count", len(items),
+				"due_before", config.DueBefore, "limit", config.Limit, "environment", config.Environment, "actor", config.Actor)
+			return nil
+		}
 	case "inspect":
 		request, err = service.Inspect(ctx, config.RequestID, config.Actor, config.Reason, config.Environment)
 	case "start-review":
@@ -74,25 +91,30 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 
 func validateConfig(config Config, logger *slog.Logger) error {
 	if config.DatabaseURL == "" || config.Actor == "" || config.Reason == "" || config.Environment == "" ||
-		config.ConfirmEnvironment != config.Environment || ids.Validate(string(config.RequestID)) != nil || logger == nil {
+		config.ConfirmEnvironment != config.Environment || logger == nil {
 		return application.ErrInvalidChange
 	}
 	switch config.Action {
+	case "list-open":
+		if config.RequestID != "" || config.ExpectedVersion != 0 || config.ResolutionState != "" || config.Evidence.ID != "" ||
+			config.DueBefore.IsZero() || config.Limit < 1 || config.Limit > 100 {
+			return application.ErrInvalidChange
+		}
 	case "inspect":
-		if config.ExpectedVersion != 0 || config.ResolutionState != "" || config.Evidence.ID != "" {
+		if ids.Validate(string(config.RequestID)) != nil || config.ExpectedVersion != 0 || config.ResolutionState != "" || config.Evidence.ID != "" || !config.DueBefore.IsZero() || config.Limit != 0 {
 			return application.ErrInvalidChange
 		}
 	case "start-review":
-		if config.ExpectedVersion == 0 || config.ResolutionState != "" || config.Evidence.ID != "" {
+		if ids.Validate(string(config.RequestID)) != nil || config.ExpectedVersion == 0 || config.ResolutionState != "" || config.Evidence.ID != "" || !config.DueBefore.IsZero() || config.Limit != 0 {
 			return application.ErrInvalidChange
 		}
 	case "resolve":
-		if config.ExpectedVersion == 0 || ids.Validate(config.Evidence.ID) != nil ||
+		if ids.Validate(string(config.RequestID)) != nil || config.ExpectedVersion == 0 || ids.Validate(config.Evidence.ID) != nil || !config.DueBefore.IsZero() || config.Limit != 0 ||
 			(config.ResolutionState != privacy.RightsCompleted && config.ResolutionState != privacy.RightsPartiallyCompleted && config.ResolutionState != privacy.RightsDeclined) {
 			return application.ErrInvalidChange
 		}
 	default:
-		return errors.New("privacy rights admin action must be inspect, start-review, or resolve")
+		return errors.New("privacy rights admin action must be list-open, inspect, start-review, or resolve")
 	}
 	return nil
 }
