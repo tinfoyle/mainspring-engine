@@ -2,6 +2,8 @@
 
 Spyglass treats the Catalog as versioned production configuration. Package definitions, plan composition, offers, and private Stripe mappings change through an immutable, audited workflow; they are not edited in place and do not require a customer-specific deployment.
 
+Commercial extension target (owner decision 2026-08-26): the governed Catalog must also publish immutable prospective Infinite Ocean AI Token renewal grants, top-up bundle quantities/USD prices, promotion definitions, discrete Agent complexity classes, internal certified provider/model mappings and customer usage rates. These records are independently versioned so token quantity, purchase price, promotional amount and model economics can evolve without a code deployment or retroactive mutation. The local construction seed is 10,000 tokens per successful subscription renewal and a 10,000-token/$10 bundle; release must explicitly reaffirm or replace it. Provider/model identifiers and internal cost remain private; the public projection exposes only approved complexity labels, customer token rates, grant/bundle quantities, prices and effective disclosures.
+
 ## Lifecycle
 
 ```text
