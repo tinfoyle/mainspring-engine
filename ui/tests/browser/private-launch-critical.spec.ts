@@ -953,6 +953,54 @@ test("GDPR controls expose equal rejection and verified rights boundaries", asyn
   await expectAccessible(page);
 });
 
+test("Affiliate portability downloads a privacy-safe JSON artifact", async ({ page }) => {
+  let exportRequests = 0;
+  await page.route("**/api/v1/affiliate/data-export", async (route) => {
+    exportRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Disposition": "attachment; filename=\"spyglass-affiliate-data.json\""
+      },
+      body: JSON.stringify({
+        schema_version: 1,
+        generated_at: "2026-08-26T12:00:00Z",
+        public_codes: [],
+        enrollment_events: [],
+        attribution_summary: { total: 0, reserved: 0, locked: 0, canceled: 0 },
+        commission_entries: [],
+        support_requests: [],
+        support_events: []
+      })
+    });
+  });
+  await page.goto("/app/privacy");
+  const downloadStarted = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download Affiliate data" }).click();
+  const download = await downloadStarted;
+
+  expect(exportRequests).toBe(1);
+  expect(download.suggestedFilename()).toMatch(/^spyglass-affiliate-data-\d{4}-\d{2}-\d{2}\.json$/);
+  await expect(page.getByRole("status").filter({ hasText: "Affiliate data export download started" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("Affiliate portability hands off exact context for passkey confirmation", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*403/);
+  await page.route("**/api/v1/affiliate/data-export", async (route) => {
+    await fulfillProblem(route, 403, "strong_reauthentication_required", "Confirm this Affiliate export with a passkey.");
+  });
+  await page.goto("/app/privacy");
+  await page.getByRole("button", { name: "Download Affiliate data" }).click();
+  await expect(page).toHaveURL(/\/app\/security\?return_to=%2Fapp%2Fprivacy&status=strong_reauthentication_required$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
 test("closed Affiliate launch state makes no unapproved payout promise", async ({ page }) => {
   await page.goto("/app/affiliate");
   await expect(page.getByRole("heading", { level: 1, name: "One identity. One clear ledger." })).toBeVisible();
