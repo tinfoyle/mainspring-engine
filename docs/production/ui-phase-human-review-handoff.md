@@ -49,7 +49,8 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** Support determines each check amount case by case. Product code does not choose an amount or issue checks; immutable reservation/debit evidence still prevents double spending;
 - **Decided 2026-08-26:** oldest available credit automatically reduces the Affiliate-owned Account's next invoice up to the amount due after Stripe calculates tax. Pending, voided, reversed and Support-reserved value is excluded; unused credit carries forward;
 - **Decided 2026-08-26:** available credit has no arbitrary product expiration. Legally required dormant-property treatment is jurisdiction-specific rather than a hidden expiry rule;
-- transferability and failed/uncashed-check handling;
+- **Decided 2026-08-26:** credit cannot be sold, gifted, assigned or transferred to another User/Affiliate. With recent passkey confirmation, the same Affiliate may change the billing destination to another Infinite Ocean Account it owns; reserved credit cannot move;
+- failed/uncashed-check handling;
 - supported countries, tax documentation, withholding and reporting;
 - suspension, closure, code-replacement, appeal and support policy; and
 - commercial/accounting retention and data-right limitations.
@@ -120,6 +121,7 @@ Check initiation: Support-assisted only after recent passkey and identity/addres
 Check amount: determined manually by Support case by case; no product amount-selection or check-issuance automation (owner decision 2026-08-26)
 Billing-credit order: automatically apply oldest available eligible credit after tax, excluding unavailable/reserved value; carry remainder (owner decision 2026-08-26)
 Credit expiration: none as product policy; jurisdictional dormant-property duties remain separate (owner decision 2026-08-26)
+Credit transferability: non-transferable between people; same Affiliate may change to another owned billing Account with passkey when unreserved (owner decision 2026-08-26)
 Affiliate terms version:
 Affiliate rule version:
 Privacy processing-registry revision:
