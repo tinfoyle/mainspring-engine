@@ -42,7 +42,7 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** there is no maximum earning-cycle count; qualifying earnings continue for the eligible lifetime of the attributed subscription;
 - **Decided 2026-08-26:** any successful non-zero Refund voids the entire associated invoice earning. Pending earnings cannot mature; available earnings receive an immutable full reversal. Cancellation without a Refund remains non-adverse;
 - **Decided 2026-08-26:** any finalized non-zero credit note follows the same full-void rule as a Refund. Draft or voided credit notes have no effect;
-- dispute and chargeback reversal policy;
+- **Decided 2026-08-26:** a final lost dispute or chargeback follows the same full-void rule. Open, warning, pending and won disputes have no effect;
 - `account_credit` or `cash` settlement, including minimums, expiry, transferability and failed-settlement handling;
 - supported countries, tax documentation, withholding and reporting;
 - suspension, closure, code-replacement, appeal and support policy; and
@@ -107,6 +107,7 @@ Partial payments: only fully paid invoice creates one invoice-bound earning; att
 Maximum cycles: none; qualifying earnings continue while the attributed subscription remains eligible (owner decision 2026-08-26)
 Refunds: any successful non-zero Refund voids the complete associated invoice earning (owner decision 2026-08-26)
 Credit notes: any finalized non-zero credit note voids the complete associated invoice earning (owner decision 2026-08-26)
+Disputes/chargebacks: final loss voids the complete associated invoice earning; non-final/won states do nothing (owner decision 2026-08-26)
 Affiliate settlement decision:
 Affiliate terms version:
 Affiliate rule version:
