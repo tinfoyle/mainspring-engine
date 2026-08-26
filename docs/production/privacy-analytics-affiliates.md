@@ -224,6 +224,8 @@ The immutable earning ledger remains independent of settlement. The UI cannot pr
 
 Launch Affiliate enrollment is limited to U.S. persons and entities with a valid U.S. mailing address and approved U.S. payer tax documentation. Referred customers remain geographically unrestricted by this Affiliate-enrollment boundary. Tax-document collection, validation, withholding and reporting remain external Support/accounting procedure; Spyglass does not ingest tax forms or implement a tax-verification workflow. International Affiliate enrollment requires a later terms version and reviewed foreign-payee, withholding, treaty, local advertising-disclosure and check-delivery procedure.
 
+Affiliate terms acceptance, earnings, reversals, billing-credit applications, check settlements and related audit evidence are retained for seven years after the later of Affiliate closure or the final settlement, reversal or tax-relevant transaction. Identifiable commercial records are then deleted or irreversibly minimized unless a documented legal hold applies. The retired-code no-reuse tombstone requires a separate minimization decision because its uniqueness purpose outlives the identifiable commercial ledger.
+
 ## 8. Construction and acceptance order
 
 1. Approve the processing/event registry, consent policy, retention schedule and analytics provider boundary.
@@ -259,6 +261,8 @@ Local acceptance checkpoint (2026-08-25): the service, PostgreSQL lifecycle and 
 - [FTC affiliate and endorsement disclosure guidance](https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking)
 - [European Commission Influencer Legal Hub](https://commission.europa.eu/topics/consumers/consumer-rights-and-complaints/influencer-legal-hub_en)
 - [IRS Form W-8BEN foreign-payee guidance](https://www.irs.gov/forms-pubs/about-form-w-8-ben)
+- [IRS business-record retention guidance](https://www.irs.gov/businesses/small-businesses-self-employed/how-long-should-i-keep-records)
+- [GDPR storage-limitation principle](https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CONSIL%3APE_31_2018_INIT)
 
 ## Customer rights-status presentation
 
