@@ -220,6 +220,8 @@ Only an available balance of at least **$100.00 USD** becomes eligible for payme
 
 The immutable earning ledger remains independent of settlement. The UI cannot promise a check or label pending earnings as available account credit until the remaining settlement rules and implementation are approved.
 
+Launch Affiliate enrollment is limited to U.S. persons and entities with a valid U.S. mailing address and approved U.S. payer tax documentation. Referred customers remain geographically unrestricted by this Affiliate-enrollment boundary. International Affiliate enrollment requires a later terms version and reviewed foreign-payee, withholding, treaty, local advertising-disclosure and check-delivery procedure.
+
 ## 8. Construction and acceptance order
 
 1. Approve the processing/event registry, consent policy, retention schedule and analytics provider boundary.
@@ -254,6 +256,7 @@ Local acceptance checkpoint (2026-08-25): the service, PostgreSQL lifecycle and 
 - [Stripe subscription Checkout and recurring `invoice.paid` events](https://docs.stripe.com/payments/checkout/build-subscriptions)
 - [FTC affiliate and endorsement disclosure guidance](https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking)
 - [European Commission Influencer Legal Hub](https://commission.europa.eu/topics/consumers/consumer-rights-and-complaints/influencer-legal-hub_en)
+- [IRS Form W-8BEN foreign-payee guidance](https://www.irs.gov/forms-pubs/about-form-w-8-ben)
 
 ## Customer rights-status presentation
 

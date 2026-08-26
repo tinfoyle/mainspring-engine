@@ -51,7 +51,8 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** available credit has no arbitrary product expiration. Legally required dormant-property treatment is jurisdiction-specific rather than a hidden expiry rule;
 - **Decided 2026-08-26:** credit cannot be sold, gifted, assigned or transferred to another User/Affiliate. With recent passkey confirmation, the same Affiliate may change the billing destination to another Infinite Ocean Account it owns; reserved credit cannot move;
 - **Decided 2026-08-26:** lost, returned, stopped, reissued and uncashed checks are handled by Support procedure, not product automation. Software prevents double settlement but has no check-delivery/reissue state machine;
-- supported countries, tax documentation, withholding and reporting;
+- **Decided 2026-08-26:** launch Affiliate enrollment is U.S.-only for U.S. persons/entities with a valid U.S. mailing address and approved payer tax documentation. Referred customers remain geographically unrestricted by this enrollment boundary;
+- exact tax-document collection timing, withholding and reporting procedure for the U.S.-only launch;
 - suspension, closure, code-replacement, appeal and support policy; and
 - commercial/accounting retention and data-right limitations.
 
@@ -123,6 +124,7 @@ Billing-credit order: automatically apply oldest available eligible credit after
 Credit expiration: none as product policy; jurisdictional dormant-property duties remain separate (owner decision 2026-08-26)
 Credit transferability: non-transferable between people; same Affiliate may change to another owned billing Account with passkey when unreserved (owner decision 2026-08-26)
 Check exceptions: Support procedure only; no delivery/reissue product workflow beyond preventing double settlement (owner decision 2026-08-26)
+Affiliate launch jurisdiction: U.S. persons/entities with valid U.S. mailing address and approved tax documentation; customer geography unaffected (owner decision 2026-08-26)
 Affiliate terms version:
 Affiliate rule version:
 Privacy processing-registry revision:
