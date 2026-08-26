@@ -35,7 +35,8 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** when a subscription actually terminates before another qualifying renewal, its unmatched pending earning expires through immutable void evidence. Scheduled cancellation alone does not void it; withdrawing the schedule and renewing successfully preserves normal maturity;
 - **Decided 2026-08-26:** a customer discount applies the same percentage reduction to the Affiliate earning, calculated from the eligible subscription charge after discounts and before tax. At full price the earning is `$10`; a 10% discount produces `$9`;
 - **Decided 2026-08-26:** fractional-cent earnings round independently per invoice to the nearest cent, with an exact half-cent rounded upward and no carried fractional balance;
-- proration, trial, upgrade, downgrade and partial-payment treatment;
+- **Decided 2026-08-26:** a successfully paid positive eligible proration charge creates an earning at the same 20% rate and performs the rolling maturity transition. Zero or negative proration creates no earning;
+- trial, upgrade, downgrade and partial-payment treatment beyond the approved positive-proration rule;
 - maximum earning cycles, if any;
 - Refund, credit-note, dispute and chargeback reversal policy;
 - `account_credit` or `cash` settlement, including minimums, expiry, transferability and failed-settlement handling;
@@ -95,6 +96,7 @@ Initial invoice and rolling hold: initial invoice qualifies; each successor qual
 Final pending earning: expires with immutable void evidence only when the subscription actually terminates (owner decision 2026-08-26)
 Discount treatment: apply the same discount percentage to the pre-tax Affiliate earning (owner decision 2026-08-26)
 Commission rounding: nearest cent per invoice, exact half-cent upward, no fractional carry (owner decision 2026-08-26)
+Proration: positive eligible paid proration earns 20% and advances the rolling window; zero/negative proration earns nothing (owner decision 2026-08-26)
 Affiliate settlement decision:
 Affiliate terms version:
 Affiliate rule version:
