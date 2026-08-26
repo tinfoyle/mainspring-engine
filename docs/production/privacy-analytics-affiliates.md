@@ -169,10 +169,10 @@ Commission policy is versioned and frozen with the locked attribution. It define
 - qualifying renewal cadence and any maximum cycle count;
 - treatment of trials, coupons, proration, upgrades, downgrades and taxes;
 - refund, credit-note, dispute and chargeback reversal policy;
-- pending/hold period before settlement; and
+- pending/hold transition before settlement; and
 - code/Enrollment suspension behavior.
 
-The proposed launch example is **$10 USD for each qualifying successfully paid $50 USD monthly renewal**. It remains a commercial candidate until the initial-invoice, discount/proration, refund window and settlement-mode decisions below are approved.
+The approved launch amount is **$10 USD for each qualifying successfully paid $50 USD subscription invoice**, including the initial invoice, independent of tax. Each invoice creates one pending earning. The next qualifying successfully paid renewal makes only the immediately preceding earning available and creates the next pending earning; this is a successor-invoice transition, not a fixed number of elapsed days. Cancellation does not claw back an earning already available. Discount/proration, the final unmatched pending earning, adverse-event and settlement-mode decisions remain open.
 
 Each verified `invoice.paid` projection evaluates the frozen rule and appends at most one immutable commission entry. A unique subscription/invoice/rule/PaymentIntent binding makes webhook replay exactly once. Failed, void, zero-value or ineligible invoices earn nothing. Succeeded Refund evidence accumulates until the frozen rule's full qualifying invoice amount is refunded; a final lost dispute qualifies at the same threshold. The projector then appends one reversal and never edits history. Pending or failed refunds, won disputes and duplicate Refund lifecycle events do not reverse. Refund and dispute loss are compared rather than added to avoid double-counting one payment loss. Entitlement projection and customer access never depend on Affiliate settlement success. See [Affiliate operations](affiliate-operations.md).
 

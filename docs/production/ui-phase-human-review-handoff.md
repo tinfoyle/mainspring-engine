@@ -31,11 +31,11 @@ The launch flags must remain closed until every item below is recorded in an app
 
 - **Decided 2026-08-26:** the launch subscription base price is `$50.00 USD` (`5,000` minor units) before tax, and Stripe calculates and adds applicable tax to the customer's total. The exact Catalog offer identity and Stripe Price mapping must be reconciled from the observed `$49`/`4,900` draft;
 - **Decided 2026-08-26:** each qualifying paid renewal earns a fixed `$10.00 USD` (`1,000` minor units), independent of any tax Stripe adds to the customer invoice;
-- whether the first invoice qualifies;
+- **Decided 2026-08-26:** the initial qualifying paid invoice creates the first pending earning. Each later qualifying successfully paid renewal makes only the immediately preceding pending earning available for settlement and creates a new pending earning. Cancellation does not claw back earnings already available;
 - coupon, proration, trial, upgrade, downgrade and partial-payment treatment;
 - maximum earning cycles, if any;
 - Refund, credit-note, dispute and chargeback reversal policy;
-- hold period and the exact transition from earned to settled;
+- disposition of the final unmatched pending earning when the subscription ends before another qualifying renewal;
 - `account_credit` or `cash` settlement, including minimums, expiry, transferability and failed-settlement handling;
 - supported countries, tax documentation, withholding and reporting;
 - suspension, closure, code-replacement, appeal and support policy; and
@@ -89,6 +89,7 @@ Leave the following fields unset until the owner has actually reviewed the linke
 Affiliate commercial register revision:
 Launch subscription base price: USD 50.00 before applicable tax (owner decision 2026-08-26)
 Affiliate earning: fixed USD 10.00 per qualifying paid renewal, independent of tax (owner decision 2026-08-26)
+Initial invoice and rolling hold: initial invoice qualifies; each successor qualifying renewal releases only the prior earning (owner decision 2026-08-26)
 Affiliate settlement decision:
 Affiliate terms version:
 Affiliate rule version:
