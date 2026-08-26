@@ -1,6 +1,6 @@
 # Affiliate operations
 
-Status: implemented and verified locally on 2026-08-25. The enrollment and attribution feature flags remain closed. Nothing in this runbook authorizes Stage or production use.
+Status: the original fixed-rule kernel was verified locally on 2026-08-25; owner policy decisions recorded on 2026-08-26 require a new immutable rule, ledger transitions and projector verification before launch. The enrollment and attribution feature flags remain closed. Nothing in this runbook authorizes Stage or production use.
 
 The customer dashboard derives a proposal-only link from the application origin and generated public code. It carries no Affiliate identity, customer identity, offer, analytics subject or commercial attribution. Checkout displays the proposed code but requires the customer to select **Apply** before server validation. Suspension or closure removes the URL and disables both code/link copying while preserving the immutable statement and structured support path.
 
@@ -20,7 +20,7 @@ The billing worker projects Affiliate commercial evidence only from events alrea
 
 The pinned invoice parser accepts the Dahlia `payments.data[].payment.payment_intent` shape and the legacy top-level `payment_intent` during a rolling API-version transition. A commission stores the opaque Invoice, Subscription and PaymentIntent IDs but no customer, payment-method or referred-business data.
 
-Successful Refund objects are semantically deduplicated even when Stripe emits both creation and update events. Partial refunds are retained as immutable evidence; the fixed commission is reversed once their aggregate reaches the frozen rule's full eligible invoice amount. A lost dispute reverses once its amount reaches that threshold. Pending/failed/canceled refunds and won or warning disputes do not reverse. Refund and dispute amounts are not added together, preventing one loss from being counted twice. An adverse event received before its earning is retained and evaluated atomically when the earning later arrives.
+Approved Refund target (2026-08-26): successful Refund objects are semantically deduplicated even when Stripe emits both creation and update events. Any successful non-zero Refund voids the entire commission associated with that invoice. A pending earning cannot mature; an available earning receives one immutable full reversal. Pending, failed or canceled refunds do not reverse. An adverse event received before its earning is retained and evaluated atomically when the earning later arrives. The current full-refund-threshold projector does not yet satisfy this target and must be replaced before either launch flag opens. Dispute and credit-note rules remain separate owner decisions.
 
 Every reversal is a new settled ledger entry bound to the original earning. The earning, provider evidence and reversal cannot be updated or deleted. Webhook replay returns the existing semantic result.
 

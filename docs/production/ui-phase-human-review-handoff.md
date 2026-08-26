@@ -40,7 +40,8 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** attribution survives eligible upgrades and downgrades within the same Stripe subscription. Eligible positive charges continue at 20%; free/ineligible periods do not earn or advance maturity; a new subscription does not silently inherit attribution;
 - **Decided 2026-08-26:** partial payment attempts create no earning and do not advance maturity. A fully paid invoice creates one invoice-bound earning regardless of the number of payment attempts or PaymentIntents; partial, uncollectible or void invoices create none;
 - **Decided 2026-08-26:** there is no maximum earning-cycle count; qualifying earnings continue for the eligible lifetime of the attributed subscription;
-- Refund, credit-note, dispute and chargeback reversal policy;
+- **Decided 2026-08-26:** any successful non-zero Refund voids the entire associated invoice earning. Pending earnings cannot mature; available earnings receive an immutable full reversal. Cancellation without a Refund remains non-adverse;
+- credit-note, dispute and chargeback reversal policy;
 - `account_credit` or `cash` settlement, including minimums, expiry, transferability and failed-settlement handling;
 - supported countries, tax documentation, withholding and reporting;
 - suspension, closure, code-replacement, appeal and support policy; and
@@ -103,6 +104,7 @@ Free trials: zero-value trials earn nothing and do not advance maturity; first l
 Plan changes: eligible changes within the same subscription retain attribution; free/ineligible periods pause it; new subscriptions do not inherit it (owner decision 2026-08-26)
 Partial payments: only fully paid invoice creates one invoice-bound earning; attempts never duplicate or advance maturity (owner decision 2026-08-26)
 Maximum cycles: none; qualifying earnings continue while the attributed subscription remains eligible (owner decision 2026-08-26)
+Refunds: any successful non-zero Refund voids the complete associated invoice earning (owner decision 2026-08-26)
 Affiliate settlement decision:
 Affiliate terms version:
 Affiliate rule version:
