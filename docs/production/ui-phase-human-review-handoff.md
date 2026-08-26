@@ -52,7 +52,7 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** credit cannot be sold, gifted, assigned or transferred to another User/Affiliate. With recent passkey confirmation, the same Affiliate may change the billing destination to another Infinite Ocean Account it owns; reserved credit cannot move;
 - **Decided 2026-08-26:** lost, returned, stopped, reissued and uncashed checks are handled by Support procedure, not product automation. Software prevents double settlement but has no check-delivery/reissue state machine;
 - **Decided 2026-08-26:** launch Affiliate enrollment is U.S.-only for U.S. persons/entities with a valid U.S. mailing address and approved payer tax documentation. Referred customers remain geographically unrestricted by this enrollment boundary;
-- exact tax-document collection timing, withholding and reporting procedure for the U.S.-only launch;
+- **Procedural 2026-08-26:** tax-document collection, validation, withholding and reporting belong to Support/accounting, not product logic. Spyglass does not ingest tax forms or implement a tax-verification workflow;
 - suspension, closure, code-replacement, appeal and support policy; and
 - commercial/accounting retention and data-right limitations.
 

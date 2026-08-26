@@ -220,7 +220,7 @@ Only an available balance of at least **$100.00 USD** becomes eligible for payme
 
 The immutable earning ledger remains independent of settlement. The UI cannot promise a check or label pending earnings as available account credit until the remaining settlement rules and implementation are approved.
 
-Launch Affiliate enrollment is limited to U.S. persons and entities with a valid U.S. mailing address and approved U.S. payer tax documentation. Referred customers remain geographically unrestricted by this Affiliate-enrollment boundary. International Affiliate enrollment requires a later terms version and reviewed foreign-payee, withholding, treaty, local advertising-disclosure and check-delivery procedure.
+Launch Affiliate enrollment is limited to U.S. persons and entities with a valid U.S. mailing address and approved U.S. payer tax documentation. Referred customers remain geographically unrestricted by this Affiliate-enrollment boundary. Tax-document collection, validation, withholding and reporting remain external Support/accounting procedure; Spyglass does not ingest tax forms or implement a tax-verification workflow. International Affiliate enrollment requires a later terms version and reviewed foreign-payee, withholding, treaty, local advertising-disclosure and check-delivery procedure.
 
 ## 8. Construction and acceptance order
 
