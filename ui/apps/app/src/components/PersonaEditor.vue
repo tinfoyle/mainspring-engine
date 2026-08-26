@@ -29,7 +29,7 @@ const props = defineProps<{ persona?: AgentPersona | undefined; saving: boolean;
 const emit = defineEmits<{ close: []; publish: [input: PublishAgentPersonaRequest]; "dirty-change": [dirty: boolean] }>();
 const name = ref(props.persona?.name ?? ""); const role = ref(props.persona?.role ?? ""); const description = ref(props.persona?.description ?? ""); const instructions = ref(props.persona?.system_instructions ?? "");
 const complexityCodes = ["simple", "efficient", "balanced", "thorough", "advanced"] as const satisfies ReadonlyArray<AIComplexity>;
-const existingComplexity = complexityCodes.includes(props.persona?.policy.model as AIComplexity) ? props.persona?.policy.model as AIComplexity : "balanced";
+const existingComplexity = complexityCodes.includes(props.persona?.policy.complexity as AIComplexity) ? props.persona?.policy.complexity as AIComplexity : "balanced";
 const complexityIndex = ref(complexityCodes.indexOf(existingComplexity));
 const complexity = computed(() => complexityCodes[complexityIndex.value] ?? "balanced");
 const complexityRates = ref<ReadonlyArray<AIComplexityRate>>([]);
@@ -68,7 +68,7 @@ function publish(): void {
   emit("publish", {
     persona_id: props.persona?.id ?? crypto.randomUUID(), expected_latest_version: props.persona?.latest_version ?? 0,
     name: name.value.trim(), role: role.value.trim(), description: description.value.trim(), system_instructions: instructions.value.trim(),
-    policy: { provider: "configurable", model: complexity.value, fallback_models: [], reasoning_effort: "medium", maximum_input_tokens: maximumInputTokens.value, maximum_output_tokens: maximumOutputTokens.value, maximum_cost_micros: maximumCostMicros.value, maximum_tool_steps: maximumToolSteps.value, citation_policy: citationPolicy.value, action_policy: actionPolicy.value, ...(actionPolicy.value === "propose" && actionCapabilities.value.length ? { action_capabilities: actionCapabilities.value } : {}), tools: selectedTools }
+    policy: { complexity: complexity.value, maximum_input_tokens: maximumInputTokens.value, maximum_output_tokens: maximumOutputTokens.value, maximum_cost_micros: maximumCostMicros.value, maximum_tool_steps: maximumToolSteps.value, citation_policy: citationPolicy.value, action_policy: actionPolicy.value, ...(actionPolicy.value === "propose" && actionCapabilities.value.length ? { action_capabilities: actionCapabilities.value } : {}), tools: selectedTools }
   });
 }
 onMounted(async () => { try { complexityRates.value = (await getPublicCatalog()).ai_complexity_rates; } catch { complexityRates.value = []; } });

@@ -202,9 +202,7 @@ const agentPersona = {
   system_instructions: "Review the evidence and state bounded recommendations.",
   content_digest: "b".repeat(64),
   policy: {
-    provider: "openai",
-    model: "gpt-5.4",
-    fallback_models: [],
+    complexity: "balanced",
     maximum_input_tokens: 10000,
     maximum_output_tokens: 2000,
     maximum_cost_micros: 100000,

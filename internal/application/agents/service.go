@@ -216,14 +216,15 @@ type Repository interface {
 type Service struct {
 	authorizer Authorizer
 	repository Repository
+	execution  ExecutionPolicyResolver
 	clock      Clock
 }
 
-func New(authorizer Authorizer, repository Repository, clock Clock) (*Service, error) {
-	if authorizer == nil || repository == nil || clock == nil {
+func New(authorizer Authorizer, repository Repository, execution ExecutionPolicyResolver, clock Clock) (*Service, error) {
+	if authorizer == nil || repository == nil || execution == nil || clock == nil {
 		return nil, errors.New("agent service dependencies are required")
 	}
-	return &Service{authorizer: authorizer, repository: repository, clock: clock}, nil
+	return &Service{authorizer: authorizer, repository: repository, execution: execution, clock: clock}, nil
 }
 
 type CreateBoardroomCommand struct {
@@ -279,7 +280,22 @@ type PublishPersonaCommand struct {
 	Role                  string
 	Description           string
 	SystemInstructions    string
-	Policy                agentdomain.PersonaPolicy
+	Policy                PersonaPolicyDraft
+}
+
+// PersonaPolicyDraft is the customer-controlled portion of a Persona policy.
+// Exact provider and model targets enter the immutable domain object only
+// after private server-side resolution.
+type PersonaPolicyDraft struct {
+	Complexity          agentdomain.PersonaComplexity
+	MaximumInputTokens  int64
+	MaximumOutputTokens int64
+	MaximumCostMicros   int64
+	MaximumToolSteps    int
+	CitationPolicy      string
+	ActionPolicy        string
+	ActionCapabilities  []string
+	Tools               []agentdomain.ToolGrant
 }
 
 func (s *Service) PublishPersona(ctx context.Context, command PublishPersonaCommand) (PersonaSummary, bool, error) {
@@ -305,12 +321,23 @@ func (s *Service) PublishPersona(ctx context.Context, command PublishPersonaComm
 			return PersonaSummary{}, false, ErrInvalidCommand
 		}
 	}
-	command.Policy.OutputSchema = agentdomain.ResultSchema()
+	target, err := s.execution.Resolve(command.Policy.Complexity)
+	if err != nil {
+		return PersonaSummary{}, false, ErrInvalidCommand
+	}
+	policy := agentdomain.PersonaPolicy{
+		Complexity: command.Policy.Complexity, Provider: target.Provider, Model: target.Model,
+		FallbackModels: target.FallbackModels, ReasoningEffort: target.ReasoningEffort,
+		MaximumInputTokens: command.Policy.MaximumInputTokens, MaximumOutputTokens: command.Policy.MaximumOutputTokens,
+		MaximumCostMicros: command.Policy.MaximumCostMicros, MaximumToolSteps: command.Policy.MaximumToolSteps,
+		CitationPolicy: command.Policy.CitationPolicy, ActionPolicy: command.Policy.ActionPolicy,
+		ActionCapabilities: command.Policy.ActionCapabilities, Tools: command.Policy.Tools, OutputSchema: agentdomain.ResultSchema(),
+	}
 	version, err := agentdomain.NewPersonaVersion(agentdomain.PersonaVersionDraft{
 		ID: command.VersionID, PersonaID: command.PersonaID, AccountID: command.AccountID,
 		Version: command.ExpectedLatestVersion + 1, Name: command.Name, Role: command.Role,
 		Description: command.Description, SystemInstructions: command.SystemInstructions,
-		Policy: command.Policy, CreatedBy: command.Actor.UserID, CreatedAt: s.clock.Now().UTC(),
+		Policy: policy, CreatedBy: command.Actor.UserID, CreatedAt: s.clock.Now().UTC(),
 	})
 	if err != nil {
 		return PersonaSummary{}, false, ErrInvalidCommand

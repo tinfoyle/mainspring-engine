@@ -25,6 +25,7 @@ sed -i \
   -e 's/SPYGLASS_OPENAI_API_KEY=REPLACE/SPYGLASS_OPENAI_API_KEY=sk-proj-stagecontract/' \
   -e 's|SPYGLASS_OPENAI_ORIGIN=https://api.openai.com|SPYGLASS_OPENAI_ORIGIN=https://api.openai.com|' \
   -e 's|SPYGLASS_OPENAI_MODEL_PRICING_JSON=REPLACE_WITH_COMPACT_EXACT_MODEL_PRICE_BOOK|SPYGLASS_OPENAI_MODEL_PRICING_JSON={"gpt-test":{"input_micros_per_million_tokens":1000000,"output_micros_per_million_tokens":2000000}}|' \
+  -e 's|SPYGLASS_AGENT_EXECUTION_POLICIES_JSON=REPLACE_WITH_COMPACT_FIVE_LEVEL_EXECUTION_MAP|SPYGLASS_AGENT_EXECUTION_POLICIES_JSON={"simple":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"low"},"efficient":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"low"},"balanced":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"medium"},"thorough":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"high"},"advanced":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"high"}}|' \
   "$provider_file"
 chmod 600 "$provider_file"
 

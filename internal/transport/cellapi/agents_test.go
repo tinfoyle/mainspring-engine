@@ -55,9 +55,11 @@ func (service *agentTransportService) ConfigureBoardroomManager(_ context.Contex
 
 func (service *agentTransportService) PublishPersona(_ context.Context, command agentapp.PublishPersonaCommand) (agentapp.PersonaSummary, bool, error) {
 	service.publishCommand = command
-	policy := command.Policy
-	policy.Tools = append(make([]agentdomain.ToolGrant, 0, len(policy.Tools)), policy.Tools...)
-	policy.OutputSchema = agentdomain.ResultSchema()
+	policy := agentdomain.PersonaPolicy{Complexity: command.Policy.Complexity, Provider: "openai", Model: "gpt-test",
+		MaximumInputTokens: command.Policy.MaximumInputTokens, MaximumOutputTokens: command.Policy.MaximumOutputTokens,
+		MaximumCostMicros: command.Policy.MaximumCostMicros, MaximumToolSteps: command.Policy.MaximumToolSteps,
+		CitationPolicy: command.Policy.CitationPolicy, ActionPolicy: command.Policy.ActionPolicy,
+		ActionCapabilities: append([]string(nil), command.Policy.ActionCapabilities...), Tools: append(make([]agentdomain.ToolGrant, 0, len(command.Policy.Tools)), command.Policy.Tools...), OutputSchema: agentdomain.ResultSchema()}
 	return agentapp.PersonaSummary{ID: command.PersonaID, BoardroomID: command.BoardroomID, State: "active", LatestVersion: 1,
 		Published: agentdomain.PersonaVersion{PersonaVersionDraft: agentdomain.PersonaVersionDraft{ID: command.VersionID, PersonaID: command.PersonaID,
 			AccountID: command.AccountID, Version: 1, Name: command.Name, Role: command.Role, Description: command.Description,
@@ -72,7 +74,7 @@ func (service *agentTransportService) StartRun(_ context.Context, command agenta
 		PolicyVersion: 1, Turns: []agentdomain.PlannedTurn{{Turn: 1, PersonaID: ids.PersonaID(agentPersona), PersonaVersionID: ids.PersonaVersionID(agentOperation)}},
 		CreatedBy: command.Actor.UserID, CreatedAt: service.now, Digest: [32]byte{1}}, Mode: command.Mode, State: "planned",
 		Subject: command.Subject, Prompt: command.Prompt, UserMessageID: ids.MessageID("81000000-0000-4000-8000-000000000001"),
-		InvocationIDs: []ids.AgentInvocationID{ids.AgentInvocationID(agentInvocation)}, Invocations: []agentapp.RunInvocation{{ID: ids.AgentInvocationID(agentInvocation), Turn: 1, PersonaVersionID: ids.PersonaVersionID(agentOperation), Status: "queued"}}, Resolutions: []agentapp.RunResolution{}}, true, nil
+		InvocationIDs: []ids.AgentInvocationID{ids.AgentInvocationID(agentInvocation)}, Invocations: []agentapp.RunInvocation{{ID: ids.AgentInvocationID(agentInvocation), Turn: 1, PersonaVersionID: ids.PersonaVersionID(agentOperation), Status: "queued", SelectedModel: "gpt-test"}}, Resolutions: []agentapp.RunResolution{}}, true, nil
 }
 
 func (service *agentTransportService) ResolveRun(_ context.Context, command agentapp.ResolveRunCommand) (agentapp.RunResolution, bool, error) {
@@ -149,10 +151,11 @@ func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testi
 		t.Fatal(err)
 	}
 
-	personaBody := `{"persona_id":"` + agentPersona + `","expected_latest_version":0,"name":"Operations Lead","role":"Operations","description":"Coordinates work","system_instructions":"Review evidence and report a recommendation.","policy":{"provider":"openai","model":"gpt-5","fallback_models":[],"maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose","tools":[]}}`
+	personaBody := `{"persona_id":"` + agentPersona + `","expected_latest_version":0,"name":"Operations Lead","role":"Operations","description":"Coordinates work","system_instructions":"Review evidence and report a recommendation.","policy":{"complexity":"balanced","maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose","tools":[]}}`
 	publish := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/personas", agentOperation, personaBody)
 	if publish.Code != http.StatusCreated || !strings.Contains(publish.Body.String(), `"persona_version_id":"`+agentOperation+`"`) ||
-		!strings.Contains(publish.Body.String(), `"tools":[]`) || !strings.Contains(publish.Body.String(), `"output_schema":{`) || service.publishCommand.VersionID != ids.PersonaVersionID(agentOperation) {
+		!strings.Contains(publish.Body.String(), `"complexity":"balanced"`) || !strings.Contains(publish.Body.String(), `"tools":[]`) || !strings.Contains(publish.Body.String(), `"output_schema":{`) ||
+		strings.Contains(publish.Body.String(), `"provider"`) || strings.Contains(publish.Body.String(), `"model"`) || service.publishCommand.VersionID != ids.PersonaVersionID(agentOperation) {
 		t.Fatalf("publish=%d body=%s command=%+v", publish.Code, publish.Body.String(), service.publishCommand)
 	}
 
@@ -160,7 +163,7 @@ func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testi
 		`{"subject":"Weekly review","prompt":"What should we prioritize?","mode":"selected","persona_ids":["`+agentPersona+`"],"context":{"knowledge_document_ids":["66000000-0000-4000-8000-000000000006"]}}`)
 	if run.Code != http.StatusAccepted || run.Header().Get("Location") != "/api/v1/accounts/"+agentAccount+"/agent-runs/"+agentOperation ||
 		service.runCommand.RequestID != agentOperation || !strings.Contains(run.Body.String(), `"state":"planned"`) ||
-		!strings.Contains(run.Body.String(), `"turns":[{`) || !strings.Contains(run.Body.String(), `"invocation_ids":["`+agentInvocation+`"]`) || service.runCommand.Mode != agentapp.RunModeSelected || len(service.runCommand.Context.KnowledgeDocumentIDs) != 1 {
+		!strings.Contains(run.Body.String(), `"turns":[{`) || !strings.Contains(run.Body.String(), `"invocation_ids":["`+agentInvocation+`"]`) || strings.Contains(run.Body.String(), "selected_model") || service.runCommand.Mode != agentapp.RunModeSelected || len(service.runCommand.Context.KnowledgeDocumentIDs) != 1 {
 		t.Fatalf("run=%d location=%q body=%s command=%+v", run.Code, run.Header().Get("Location"), run.Body.String(), service.runCommand)
 	}
 
@@ -180,7 +183,7 @@ func TestAgentCommandContractsBindRoutedOperationAndExposeExplicitViews(t *testi
 func TestPersonaPublicationRequiresVersionAndRejectsCallerOwnedOutputSchema(t *testing.T) {
 	service := &agentTransportService{now: time.Now().UTC()}
 	server, _ := New(claimAcceptor{claims: agentClaims()}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithAgents(service))
-	base := `{"persona_id":"` + agentPersona + `","name":"Operations Lead","role":"Operations","description":"Coordinates work","system_instructions":"Review evidence and report a recommendation.","policy":{"provider":"openai","model":"gpt-5","fallback_models":[],"maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose","tools":[]`
+	base := `{"persona_id":"` + agentPersona + `","name":"Operations Lead","role":"Operations","description":"Coordinates work","system_instructions":"Review evidence and report a recommendation.","policy":{"complexity":"balanced","maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose","tools":[]`
 	missingVersion := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/personas", agentOperation, base+`}}`)
 	if missingVersion.Code != http.StatusBadRequest || service.publishCommand.PersonaID != "" {
 		t.Fatalf("missing version=%d body=%s command=%+v", missingVersion.Code, missingVersion.Body.String(), service.publishCommand)
@@ -189,6 +192,12 @@ func TestPersonaPublicationRequiresVersionAndRejectsCallerOwnedOutputSchema(t *t
 	rejected := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/personas", agentOperation, callerSchema)
 	if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), "invalid_agent_command") {
 		t.Fatalf("caller output schema=%d body=%s", rejected.Code, rejected.Body.String())
+	}
+	callerProvider := strings.Replace(base, `"complexity":"balanced"`, `"provider":"openai","complexity":"balanced"`, 1)
+	callerProvider = strings.Replace(callerProvider, `"name":"Operations Lead"`, `"expected_latest_version":0,"name":"Operations Lead"`, 1) + `}}`
+	rejected = agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/personas", agentOperation, callerProvider)
+	if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), "invalid_agent_command") {
+		t.Fatalf("caller provider=%d body=%s", rejected.Code, rejected.Body.String())
 	}
 }
 
@@ -200,7 +209,7 @@ func TestAgentCommandsRequireExplicitEmptyCapableFields(t *testing.T) {
 		t.Fatalf("missing purpose=%d body=%s command=%+v", missingPurpose.Code, missingPurpose.Body.String(), service.createCommand)
 	}
 	missingTools := agentCommandRequest(server.Handler(), http.MethodPost, "/api/v1/accounts/"+agentAccount+"/agent-boardrooms/"+agentBoardroom+"/personas", agentOperation,
-		`{"persona_id":"`+agentPersona+`","expected_latest_version":0,"name":"Operations Lead","role":"Operations","description":"","system_instructions":"Review evidence and report a recommendation.","policy":{"provider":"openai","model":"gpt-5","maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose"}}`)
+		`{"persona_id":"`+agentPersona+`","expected_latest_version":0,"name":"Operations Lead","role":"Operations","description":"","system_instructions":"Review evidence and report a recommendation.","policy":{"complexity":"balanced","maximum_input_tokens":128000,"maximum_output_tokens":4096,"maximum_cost_micros":100000,"maximum_tool_steps":0,"citation_policy":"best_effort","action_policy":"propose"}}`)
 	if missingTools.Code != http.StatusBadRequest || service.publishCommand.PersonaID != "" {
 		t.Fatalf("missing tools=%d body=%s command=%+v", missingTools.Code, missingTools.Body.String(), service.publishCommand)
 	}

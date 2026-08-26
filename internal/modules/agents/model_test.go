@@ -42,6 +42,27 @@ func TestPersonaVersionCanonicalizesAndDetectsMutation(t *testing.T) {
 	}
 }
 
+func TestPersonaPolicyProjectsDurableAndLegacyComplexityWithoutChangingLegacyContent(t *testing.T) {
+	draft := personaDraft()
+	draft.Policy.Complexity = PersonaComplexityThorough
+	version, err := NewPersonaVersion(draft)
+	if err != nil || version.Policy.CustomerComplexity() != PersonaComplexityThorough {
+		t.Fatalf("complexity=%q err=%v", version.Policy.CustomerComplexity(), err)
+	}
+	legacy := personaDraft()
+	legacy.Policy.Complexity = ""
+	legacy.Policy.Model = "advanced"
+	legacyVersion, err := NewPersonaVersion(legacy)
+	if err != nil || legacyVersion.Policy.Complexity != "" || legacyVersion.Policy.CustomerComplexity() != PersonaComplexityAdvanced {
+		t.Fatalf("legacy=%+v err=%v", legacyVersion.Policy, err)
+	}
+	legacy.Policy.Model = "gpt-legacy"
+	legacyVersion, err = NewPersonaVersion(legacy)
+	if err != nil || legacyVersion.Policy.CustomerComplexity() != PersonaComplexityBalanced {
+		t.Fatalf("legacy default=%q err=%v", legacyVersion.Policy.CustomerComplexity(), err)
+	}
+}
+
 func TestPersonaVersionRejectsToolPolicyMismatchAndDuplicates(t *testing.T) {
 	draft := personaDraft()
 	draft.Policy.MaximumToolSteps = 0
@@ -112,5 +133,5 @@ func TestResultSchemaIsAcceptedAsImmutablePersonaPolicy(t *testing.T) {
 }
 
 func personaDraft() PersonaVersionDraft {
-	return PersonaVersionDraft{ID: versionID, PersonaID: personaID, AccountID: accountID, Version: 1, Name: " Operations Lead ", Role: "Operations", Description: "Keeps work moving.", SystemInstructions: "You coordinate operational work and report evidence clearly.", Policy: PersonaPolicy{Provider: "openai", Model: "gpt-5.6", ReasoningEffort: "medium", MaximumInputTokens: 100000, MaximumOutputTokens: 4000, MaximumCostMicros: 500000, MaximumToolSteps: 3, CitationPolicy: "best_effort", ActionPolicy: "propose", Tools: []ToolGrant{{Name: "read_work", Capability: "work.summary.read", Description: "Read the current Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)}}, OutputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["contribution"],"properties":{"contribution":{"type":"string"}}}`)}, CreatedBy: userID, CreatedAt: time.Unix(100, 0)}
+	return PersonaVersionDraft{ID: versionID, PersonaID: personaID, AccountID: accountID, Version: 1, Name: " Operations Lead ", Role: "Operations", Description: "Keeps work moving.", SystemInstructions: "You coordinate operational work and report evidence clearly.", Policy: PersonaPolicy{Complexity: PersonaComplexityBalanced, Provider: "openai", Model: "gpt-5.6", ReasoningEffort: "medium", MaximumInputTokens: 100000, MaximumOutputTokens: 4000, MaximumCostMicros: 500000, MaximumToolSteps: 3, CitationPolicy: "best_effort", ActionPolicy: "propose", Tools: []ToolGrant{{Name: "read_work", Capability: "work.summary.read", Description: "Read the current Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)}}, OutputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["contribution"],"properties":{"contribution":{"type":"string"}}}`)}, CreatedBy: userID, CreatedAt: time.Unix(100, 0)}
 }

@@ -38,11 +38,20 @@ var (
 )
 
 type BoardroomState string
+type PersonaComplexity string
 
 const (
 	BoardroomActive   BoardroomState = "active"
 	BoardroomArchived BoardroomState = "archived"
+
+	PersonaComplexitySimple    PersonaComplexity = "simple"
+	PersonaComplexityEfficient PersonaComplexity = "efficient"
+	PersonaComplexityBalanced  PersonaComplexity = "balanced"
+	PersonaComplexityThorough  PersonaComplexity = "thorough"
+	PersonaComplexityAdvanced  PersonaComplexity = "advanced"
 )
+
+var PersonaComplexities = []PersonaComplexity{PersonaComplexitySimple, PersonaComplexityEfficient, PersonaComplexityBalanced, PersonaComplexityThorough, PersonaComplexityAdvanced}
 
 type Boardroom struct {
 	ID               ids.BoardroomID
@@ -79,19 +88,24 @@ type ToolGrant struct {
 }
 
 type PersonaPolicy struct {
-	Provider            string          `json:"provider"`
-	Model               string          `json:"model"`
-	FallbackModels      []string        `json:"fallback_models"`
-	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
-	MaximumInputTokens  int64           `json:"maximum_input_tokens"`
-	MaximumOutputTokens int64           `json:"maximum_output_tokens"`
-	MaximumCostMicros   int64           `json:"maximum_cost_micros"`
-	MaximumToolSteps    int             `json:"maximum_tool_steps"`
-	CitationPolicy      string          `json:"citation_policy"`
-	ActionPolicy        string          `json:"action_policy"`
-	ActionCapabilities  []string        `json:"action_capabilities,omitempty"`
-	Tools               []ToolGrant     `json:"tools"`
-	OutputSchema        json.RawMessage `json:"output_schema"`
+	// Complexity is the durable customer choice. Provider, model, fallbacks and
+	// reasoning effort are a private execution snapshot resolved at publish time.
+	// omitempty preserves the digest of legacy versions created before the
+	// provider-neutral contract existed.
+	Complexity          PersonaComplexity `json:"complexity,omitempty"`
+	Provider            string            `json:"provider"`
+	Model               string            `json:"model"`
+	FallbackModels      []string          `json:"fallback_models"`
+	ReasoningEffort     string            `json:"reasoning_effort,omitempty"`
+	MaximumInputTokens  int64             `json:"maximum_input_tokens"`
+	MaximumOutputTokens int64             `json:"maximum_output_tokens"`
+	MaximumCostMicros   int64             `json:"maximum_cost_micros"`
+	MaximumToolSteps    int               `json:"maximum_tool_steps"`
+	CitationPolicy      string            `json:"citation_policy"`
+	ActionPolicy        string            `json:"action_policy"`
+	ActionCapabilities  []string          `json:"action_capabilities,omitempty"`
+	Tools               []ToolGrant       `json:"tools"`
+	OutputSchema        json.RawMessage   `json:"output_schema"`
 }
 
 type PersonaVersionDraft struct {
@@ -141,6 +155,7 @@ func canonicalPersonaDraft(draft PersonaVersionDraft) (PersonaVersionDraft, erro
 	draft.Policy.FallbackModels = append(make([]string, 0, len(draft.Policy.FallbackModels)), draft.Policy.FallbackModels...)
 	draft.Policy.ActionCapabilities = append(make([]string, 0, len(draft.Policy.ActionCapabilities)), draft.Policy.ActionCapabilities...)
 	draft.Name, draft.Role, draft.Description, draft.SystemInstructions = strings.TrimSpace(draft.Name), strings.TrimSpace(draft.Role), strings.TrimSpace(draft.Description), strings.TrimSpace(draft.SystemInstructions)
+	draft.Policy.Complexity = PersonaComplexity(strings.TrimSpace(string(draft.Policy.Complexity)))
 	draft.Policy.Provider, draft.Policy.Model, draft.Policy.ReasoningEffort = strings.TrimSpace(draft.Policy.Provider), strings.TrimSpace(draft.Policy.Model), strings.TrimSpace(draft.Policy.ReasoningEffort)
 	for index := range draft.Policy.FallbackModels {
 		draft.Policy.FallbackModels[index] = strings.TrimSpace(draft.Policy.FallbackModels[index])
@@ -152,7 +167,7 @@ func canonicalPersonaDraft(draft PersonaVersionDraft) (PersonaVersionDraft, erro
 	draft.CreatedAt = draft.CreatedAt.UTC()
 	if ids.Validate(string(draft.ID)) != nil || ids.Validate(string(draft.PersonaID)) != nil || ids.Validate(string(draft.AccountID)) != nil || ids.Validate(string(draft.CreatedBy)) != nil || draft.Version == 0 || draft.CreatedAt.IsZero() ||
 		len(draft.Name) < 2 || len(draft.Name) > 120 || len(draft.Role) < 2 || len(draft.Role) > 160 || len(draft.Description) > 4000 || len(draft.SystemInstructions) < 20 || len(draft.SystemInstructions) > MaximumInstructions ||
-		!validCode.MatchString(draft.Policy.Provider) || !validCode.MatchString(draft.Policy.Model) || len(draft.Policy.FallbackModels) > MaximumFallbackModels || (draft.Policy.ReasoningEffort != "" && !validCode.MatchString(draft.Policy.ReasoningEffort)) ||
+		(draft.Policy.Complexity != "" && !slices.Contains(PersonaComplexities, draft.Policy.Complexity)) || !validCode.MatchString(draft.Policy.Provider) || !validCode.MatchString(draft.Policy.Model) || len(draft.Policy.FallbackModels) > MaximumFallbackModels || (draft.Policy.ReasoningEffort != "" && !validCode.MatchString(draft.Policy.ReasoningEffort)) ||
 		draft.Policy.MaximumInputTokens < 1 || draft.Policy.MaximumInputTokens > 2_000_000 || draft.Policy.MaximumOutputTokens < 1 || draft.Policy.MaximumOutputTokens > 32_768 || draft.Policy.MaximumCostMicros < 0 || draft.Policy.MaximumCostMicros > 1_000_000_000 ||
 		draft.Policy.MaximumToolSteps < 0 || draft.Policy.MaximumToolSteps > MaximumToolSteps || !slices.Contains([]string{"none", "required", "best_effort"}, draft.Policy.CitationPolicy) || !slices.Contains([]string{"none", "propose"}, draft.Policy.ActionPolicy) || len(draft.Policy.ActionCapabilities) > MaximumToolsPerPersona || len(draft.Policy.Tools) > MaximumToolsPerPersona {
 		return PersonaVersionDraft{}, ErrInvalidPersona
@@ -203,6 +218,19 @@ func canonicalPersonaDraft(draft PersonaVersionDraft) (PersonaVersionDraft, erro
 
 func (policy PersonaPolicy) ModelTargets() []string {
 	return append([]string{policy.Model}, policy.FallbackModels...)
+}
+
+// CustomerComplexity gives legacy Persona versions a stable public projection
+// without mutating their immutable policy or content digest.
+func (policy PersonaPolicy) CustomerComplexity() PersonaComplexity {
+	if slices.Contains(PersonaComplexities, policy.Complexity) {
+		return policy.Complexity
+	}
+	legacy := PersonaComplexity(policy.Model)
+	if slices.Contains(PersonaComplexities, legacy) {
+		return legacy
+	}
+	return PersonaComplexityBalanced
 }
 
 func personaDigest(draft PersonaVersionDraft) ([sha256.Size]byte, error) {

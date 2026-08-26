@@ -109,7 +109,7 @@ function initials(value: string): string { return value.split(/\s+/).filter(Bool
 function date(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 function personaName(message: AgentMessage): string { return personas.value.find((value) => value.persona_version_id === message.persona_version_id)?.name ?? "Boardroom Persona"; }
 function personaComplexity(persona?: AgentPersona): "simple" | "efficient" | "balanced" | "thorough" | "advanced" {
-  const value = persona?.policy.model;
+  const value = persona?.policy.complexity;
   return typeof value === "string" && ["simple", "efficient", "balanced", "thorough", "advanced"].includes(value) ? value as "simple" | "efficient" | "balanced" | "thorough" | "advanced" : "balanced";
 }
 

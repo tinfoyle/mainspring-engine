@@ -1486,6 +1486,10 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	agentExecutionPolicies, err := requiredEnv("SPYGLASS_AGENT_EXECUTION_POLICIES_JSON")
+	if err != nil {
+		return err
+	}
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 10)
 	if err != nil {
 		return err
@@ -1538,7 +1542,8 @@ func runAppAPI(ctx context.Context, logger *slog.Logger) error {
 		Environment: os.Getenv("SPYGLASS_ENVIRONMENT"),
 		DatabaseURL: databaseURL, CellID: ids.CellID(cellID), RouteIssuer: issuer, RouteVerifyKeys: keys, MaxDatabaseConns: maxConns, MaxRequestBody: maxBody,
 		AdmissionOrigin: admissionOrigin, AdmissionTransport: admissionTransport, AllowHTTPAdmission: developmentMode,
-		ObjectEndpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), ObjectRegion: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), ObjectBucket: envOr("SPYGLASS_OBJECT_STORE_BUCKET", "spyglass-documents"),
+		AgentExecutionPoliciesJSON: agentExecutionPolicies,
+		ObjectEndpoint:             envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), ObjectRegion: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), ObjectBucket: envOr("SPYGLASS_OBJECT_STORE_BUCKET", "spyglass-documents"),
 		ObjectAccessKey: objectAccessKey, ObjectSecretKey: objectSecretKey, ObjectSecure: objectSecure, ObjectSSE: objectSSE,
 		MCPVersion: buildinfo.Current().Version, MCPResourceMetadataURL: mcpResourceMetadataURL,
 		ProviderSecretRoot: os.Getenv("SPYGLASS_PROVIDER_SECRET_ROOT"), ProviderSecretKeyFile: os.Getenv("SPYGLASS_PROVIDER_SECRET_KEY_FILE"),

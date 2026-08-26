@@ -137,6 +137,7 @@ Each account-api replica holds one immutable Catalog snapshot. It polls for the 
 | `SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY` | Account API | Dedicated exact-version artifact reader identity; never supplied to MCP gateway |
 | `SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY` | Account API | Secret for the dedicated artifact reader identity |
 | `SPYGLASS_WORK_ADMISSION_ORIGIN` | App API | Exact private admission-api origin; HTTPS is the fail-closed default |
+| `SPYGLASS_AGENT_EXECUTION_POLICIES_JSON` | App API | Complete private five-level complexity map to exact provider/model/fallback/reasoning targets; startup fails closed on omissions or unknown fields |
 | `SPYGLASS_WORKLOAD_CERT_FILE` | App router, MCP gateway, app API, admission API, route canary | PEM workload certificate path; app-api certificates need server and client usage |
 | `SPYGLASS_WORKLOAD_KEY_FILE` | App router, MCP gateway, app API, admission API, route canary | PEM private-key path readable only by the workload |
 | `SPYGLASS_WORKLOAD_CA_FILE` | App router, MCP gateway, app API, admission API, route canary | PEM trust-bundle path for the environment workload CA rotation set |

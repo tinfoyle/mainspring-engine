@@ -15,6 +15,7 @@
 - Catalog version 3 publishes `team-monthly-v2`, the configurable included AI Token grant, purchasable bundle candidates and five public complexity rates. Provider/model mappings stay out of the public Catalog.
 - The backend now has a persistent Account-owned AI Token ledger with included, purchased and promotional cohorts; deterministic expiry ordering; reservation, settlement and release; exact-once invoice grant projection; adversity reversal; and safe shared balance output.
 - Billing shows the shared token balance and configured grant/bundle terms. Persona editing presents only the five-stop complexity slider and accessible estimates; customer-facing Agent views no longer show vendor/model choices.
+- Persona publication now carries a first-class `complexity` value across the domain, OpenAPI contract, generated clients and Vue editor. Caller-owned provider/model/fallback/reasoning fields are rejected, run responses omit selected-model output, portability exports exclude private execution targeting, and startup requires a complete validated five-level private target map.
 - The launch/browser fixtures, checkout path and server-rendered identity entry are aligned to the inactive-shell and `$50` offer model.
 
 ## Verification evidence
@@ -38,7 +39,7 @@ The Playwright matrix covered Chromium, Firefox and WebKit desktop; 360, 390 and
 
 The remaining work is feature construction, not hosting:
 
-1. Replace the transitional Persona compatibility payload with a first-class `complexity` domain/API field. Resolve the private provider, model, adapter and immutable rate only inside the run-admission/model boundary.
+1. Move the private execution target snapshot from Persona-publication compatibility into the run-admission boundary, where complexity, provider, model, adapter and immutable customer rate are frozen together.
 2. Connect AI Token reservation and settlement to real Agent execution. Insufficient balance must stop before provider contact, while admitted runs retain their frozen rate and exact retries remain idempotent.
 3. Implement strong-authenticated AI Token top-up Checkout, grant issuance, whole-unused-grant refund reversal and governed promotion issuance. The Billing screen currently discloses candidates but deliberately does not pretend purchase is available.
 4. Encode the optional one-time commissioning purchase and duplicate-suppression flow. Additional engagements remain a Support path.
@@ -54,4 +55,3 @@ The remaining work is feature construction, not hosting:
 4. Perform the customer-facing visual/content refinement and human review against the exact local artifacts.
 5. Re-run the complete local Docker gate and declare the feature-complete boundary.
 6. Only after that boundary, resume the separate Stage and production release plan.
-

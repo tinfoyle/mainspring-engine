@@ -51,18 +51,15 @@ type publishPersonaRequest struct {
 	Policy                personaPolicyRequest `json:"policy"`
 }
 type personaPolicyRequest struct {
-	Provider            string              `json:"provider"`
-	Model               string              `json:"model"`
-	FallbackModels      []string            `json:"fallback_models"`
-	ReasoningEffort     string              `json:"reasoning_effort,omitempty"`
-	MaximumInputTokens  int64               `json:"maximum_input_tokens"`
-	MaximumOutputTokens int64               `json:"maximum_output_tokens"`
-	MaximumCostMicros   int64               `json:"maximum_cost_micros"`
-	MaximumToolSteps    int                 `json:"maximum_tool_steps"`
-	CitationPolicy      string              `json:"citation_policy"`
-	ActionPolicy        string              `json:"action_policy"`
-	ActionCapabilities  []string            `json:"action_capabilities,omitempty"`
-	Tools               *[]toolGrantRequest `json:"tools"`
+	Complexity          agentdomain.PersonaComplexity `json:"complexity"`
+	MaximumInputTokens  int64                         `json:"maximum_input_tokens"`
+	MaximumOutputTokens int64                         `json:"maximum_output_tokens"`
+	MaximumCostMicros   int64                         `json:"maximum_cost_micros"`
+	MaximumToolSteps    int                           `json:"maximum_tool_steps"`
+	CitationPolicy      string                        `json:"citation_policy"`
+	ActionPolicy        string                        `json:"action_policy"`
+	ActionCapabilities  []string                      `json:"action_capabilities,omitempty"`
+	Tools               *[]toolGrantRequest           `json:"tools"`
 }
 type toolGrantRequest struct {
 	Name        string          `json:"name"`
@@ -208,7 +205,7 @@ func (s *Server) agentPersonaPublish(w http.ResponseWriter, r *http.Request) {
 	item, created, err := s.agents.PublishPersona(routecontext.WithClaims(r.Context(), claims), agentapp.PublishPersonaCommand{
 		Actor: actor, AccountID: accountID, BoardroomID: boardroomID, PersonaID: request.PersonaID,
 		VersionID: ids.PersonaVersionID(operationID), ExpectedLatestVersion: *request.ExpectedLatestVersion,
-		Name: request.Name, Role: request.Role, Description: *request.Description, SystemInstructions: request.SystemInstructions, Policy: request.Policy.domainPolicy(),
+		Name: request.Name, Role: request.Role, Description: *request.Description, SystemInstructions: request.SystemInstructions, Policy: request.Policy.applicationPolicy(),
 	})
 	if err != nil {
 		s.writeAgentError(w, "publish_persona", err)
@@ -221,13 +218,13 @@ func (s *Server) agentPersonaPublish(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, agentPersonaView(item))
 }
 
-func (request personaPolicyRequest) domainPolicy() agentdomain.PersonaPolicy {
+func (request personaPolicyRequest) applicationPolicy() agentapp.PersonaPolicyDraft {
 	tools := make([]agentdomain.ToolGrant, len(*request.Tools))
 	for index, tool := range *request.Tools {
 		tools[index] = agentdomain.ToolGrant{Name: tool.Name, Capability: tool.Capability, Description: tool.Description, InputSchema: tool.InputSchema}
 	}
-	return agentdomain.PersonaPolicy{
-		Provider: request.Provider, Model: request.Model, FallbackModels: request.FallbackModels, ReasoningEffort: request.ReasoningEffort,
+	return agentapp.PersonaPolicyDraft{
+		Complexity:         request.Complexity,
 		MaximumInputTokens: request.MaximumInputTokens, MaximumOutputTokens: request.MaximumOutputTokens,
 		MaximumCostMicros: request.MaximumCostMicros, MaximumToolSteps: request.MaximumToolSteps,
 		CitationPolicy: request.CitationPolicy, ActionPolicy: request.ActionPolicy, ActionCapabilities: request.ActionCapabilities, Tools: tools,
@@ -608,25 +605,48 @@ func agentBoardroomView(item agentdomain.Boardroom) agentBoardroomResponse {
 }
 
 type agentPersonaResponse struct {
-	ID                 ids.PersonaID             `json:"id"`
-	BoardroomID        ids.BoardroomID           `json:"boardroom_id"`
-	State              string                    `json:"state"`
-	LatestVersion      uint64                    `json:"latest_version"`
-	PersonaVersionID   ids.PersonaVersionID      `json:"persona_version_id"`
-	Name               string                    `json:"name"`
-	Role               string                    `json:"role"`
-	Description        string                    `json:"description"`
-	SystemInstructions string                    `json:"system_instructions"`
-	Policy             agentdomain.PersonaPolicy `json:"policy"`
-	ContentDigest      string                    `json:"content_digest"`
-	CreatedAt          time.Time                 `json:"created_at"`
-	UpdatedAt          time.Time                 `json:"updated_at"`
+	ID                 ids.PersonaID              `json:"id"`
+	BoardroomID        ids.BoardroomID            `json:"boardroom_id"`
+	State              string                     `json:"state"`
+	LatestVersion      uint64                     `json:"latest_version"`
+	PersonaVersionID   ids.PersonaVersionID       `json:"persona_version_id"`
+	Name               string                     `json:"name"`
+	Role               string                     `json:"role"`
+	Description        string                     `json:"description"`
+	SystemInstructions string                     `json:"system_instructions"`
+	Policy             agentPersonaPolicyResponse `json:"policy"`
+	ContentDigest      string                     `json:"content_digest"`
+	CreatedAt          time.Time                  `json:"created_at"`
+	UpdatedAt          time.Time                  `json:"updated_at"`
+}
+
+type agentPersonaPolicyResponse struct {
+	Complexity          agentdomain.PersonaComplexity `json:"complexity"`
+	MaximumInputTokens  int64                         `json:"maximum_input_tokens"`
+	MaximumOutputTokens int64                         `json:"maximum_output_tokens"`
+	MaximumCostMicros   int64                         `json:"maximum_cost_micros"`
+	MaximumToolSteps    int                           `json:"maximum_tool_steps"`
+	CitationPolicy      string                        `json:"citation_policy"`
+	ActionPolicy        string                        `json:"action_policy"`
+	ActionCapabilities  []string                      `json:"action_capabilities,omitempty"`
+	Tools               []agentdomain.ToolGrant       `json:"tools"`
+	OutputSchema        json.RawMessage               `json:"output_schema"`
+}
+
+func agentPersonaPolicyView(policy agentdomain.PersonaPolicy) agentPersonaPolicyResponse {
+	return agentPersonaPolicyResponse{
+		Complexity: policy.CustomerComplexity(), MaximumInputTokens: policy.MaximumInputTokens,
+		MaximumOutputTokens: policy.MaximumOutputTokens, MaximumCostMicros: policy.MaximumCostMicros,
+		MaximumToolSteps: policy.MaximumToolSteps, CitationPolicy: policy.CitationPolicy,
+		ActionPolicy: policy.ActionPolicy, ActionCapabilities: policy.ActionCapabilities,
+		Tools: policy.Tools, OutputSchema: policy.OutputSchema,
+	}
 }
 
 func agentPersonaView(item agentapp.PersonaSummary) agentPersonaResponse {
 	return agentPersonaResponse{ID: item.ID, BoardroomID: item.BoardroomID, State: item.State, LatestVersion: item.LatestVersion,
 		PersonaVersionID: item.Published.ID, Name: item.Published.Name, Role: item.Published.Role, Description: item.Published.Description,
-		SystemInstructions: item.Published.SystemInstructions, Policy: item.Published.Policy, ContentDigest: hex.EncodeToString(item.Published.ContentDigest[:]),
+		SystemInstructions: item.Published.SystemInstructions, Policy: agentPersonaPolicyView(item.Published.Policy), ContentDigest: hex.EncodeToString(item.Published.ContentDigest[:]),
 		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt}
 }
 
@@ -640,7 +660,6 @@ type agentRunInvocationResponse struct {
 	Turn             uint32                 `json:"turn"`
 	PersonaVersionID ids.PersonaVersionID   `json:"persona_version_id"`
 	Status           string                 `json:"status"`
-	SelectedModel    string                 `json:"selected_model,omitempty"`
 	StartedAt        *time.Time             `json:"started_at,omitempty"`
 	CompletedAt      *time.Time             `json:"completed_at,omitempty"`
 	Usage            *agentRunUsageResponse `json:"usage,omitempty"`
@@ -695,7 +714,7 @@ func agentRunView(run agentapp.Run) agentRunResponse {
 	invocations := make([]agentRunInvocationResponse, len(run.Invocations))
 	for index, invocation := range run.Invocations {
 		invocations[index] = agentRunInvocationResponse{ID: invocation.ID, Turn: invocation.Turn, PersonaVersionID: invocation.PersonaVersionID,
-			Status: invocation.Status, SelectedModel: invocation.SelectedModel, StartedAt: invocation.StartedAt, CompletedAt: invocation.CompletedAt}
+			Status: invocation.Status, StartedAt: invocation.StartedAt, CompletedAt: invocation.CompletedAt}
 		if invocation.Usage != nil {
 			invocations[index].Usage = &agentRunUsageResponse{InputTokens: invocation.Usage.InputTokens, OutputTokens: invocation.Usage.OutputTokens,
 				TotalTokens: invocation.Usage.TotalTokens, CostMicros: invocation.Usage.CostMicros}
