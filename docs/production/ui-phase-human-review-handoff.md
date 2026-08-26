@@ -36,7 +36,8 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** a customer discount applies the same percentage reduction to the Affiliate earning, calculated from the eligible subscription charge after discounts and before tax. At full price the earning is `$10`; a 10% discount produces `$9`;
 - **Decided 2026-08-26:** fractional-cent earnings round independently per invoice to the nearest cent, with an exact half-cent rounded upward and no carried fractional balance;
 - **Decided 2026-08-26:** a successfully paid positive eligible proration charge creates an earning at the same 20% rate and performs the rolling maturity transition. Zero or negative proration creates no earning;
-- trial, upgrade, downgrade and partial-payment treatment beyond the approved positive-proration rule;
+- **Decided 2026-08-26:** free and zero-value trials create no earning and do not advance maturity. The first positive paid invoice afterward is the initial qualifying invoice; a future paid-trial program requires a separate rule version;
+- upgrade, downgrade and partial-payment treatment beyond the approved positive-proration rule;
 - maximum earning cycles, if any;
 - Refund, credit-note, dispute and chargeback reversal policy;
 - `account_credit` or `cash` settlement, including minimums, expiry, transferability and failed-settlement handling;
@@ -97,6 +98,7 @@ Final pending earning: expires with immutable void evidence only when the subscr
 Discount treatment: apply the same discount percentage to the pre-tax Affiliate earning (owner decision 2026-08-26)
 Commission rounding: nearest cent per invoice, exact half-cent upward, no fractional carry (owner decision 2026-08-26)
 Proration: positive eligible paid proration earns 20% and advances the rolling window; zero/negative proration earns nothing (owner decision 2026-08-26)
+Free trials: zero-value trials earn nothing and do not advance maturity; first later positive invoice is initial (owner decision 2026-08-26)
 Affiliate settlement decision:
 Affiliate terms version:
 Affiliate rule version:
