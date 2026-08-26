@@ -31,6 +31,7 @@ The launch flags must remain closed until every item below is recorded in an app
 
 - **Decided 2026-08-26:** launch pricing is `$50.00 USD` (`5,000` minor units) per month per team plus an optional one-time `$250.00 USD` (`25,000` minor units) onboarding/commissioning package, before applicable Stripe-calculated tax. The checked-in `$49` Team and `$149` Operating candidates are obsolete; exact replacement Catalog identities and private Stripe Price mappings remain to be encoded;
 - **Decided 2026-08-26:** there is no Free plan at launch. The checked-in `free-v1` offer, free entitlement and permanent-free acquisition/signup copy are migration work and may not appear in the effective launch Catalog or customer surface;
+- **Decided 2026-08-26:** registration creates a verified identity and inactive team shell. Before signed-webhook payment projection, the owner can use only security, privacy, billing/checkout and sign-out and has no product entitlement. Redirect, cancellation, abandonment, pending or failure never activates the team;
 - **Decided 2026-08-26:** each qualifying paid renewal earns a fixed `$10.00 USD` (`1,000` minor units), independent of any tax Stripe adds to the customer invoice;
 - **Decided 2026-08-26:** the initial qualifying paid invoice creates the first pending earning. Each later qualifying successfully paid renewal makes only the immediately preceding pending earning available for settlement and creates a new pending earning. Cancellation does not claw back earnings already available;
 - **Decided 2026-08-26:** when a subscription actually terminates before another qualifying renewal, its unmatched pending earning expires through immutable void evidence. Scheduled cancellation alone does not void it; withdrawing the schedule and renewing successfully preserves normal maturity;
@@ -139,6 +140,7 @@ Affiliate erasure during retention: close enrollment and erase unneeded data; pr
 Launch pricing: $50/month per team plus optional one-time $250 onboarding/commissioning package; legacy $49/$149 offers are obsolete (owner correction 2026-08-26)
 Commissioning Affiliate treatment: never commission-eligible; exclude its line from earning and reversal qualification (owner decision 2026-08-26)
 Free plan: none at launch; remove free-v1 and permanent-free claims from effective Catalog and customer surfaces (owner decision 2026-08-26)
+Registration/payment: verified identity plus inactive team shell first; restricted pre-payment routes; only signed Stripe webhook projection grants product access (owner decision 2026-08-26)
 Affiliate terms version:
 Affiliate rule version:
 Privacy processing-registry revision:
