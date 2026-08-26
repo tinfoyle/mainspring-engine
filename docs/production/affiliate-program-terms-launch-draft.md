@@ -7,9 +7,9 @@
 
 An Affiliate uses their ordinary Infinite Ocean login and receives a generated public code after accepting the current terms with recent passkey confirmation. A referred customer must actively enter or apply that code during checkout review. The Affiliate must make a clear and conspicuous disclosure near any endorsement that they may receive recurring value from qualifying purchases.
 
-The current product candidate is **$10 USD for each qualifying successfully paid $50 USD monthly renewal**. This is not yet an operative promise. Before enrollment opens, the release owner must approve and encode:
+Owner price decision (2026-08-26): the launch subscription has a **$50.00 USD base price before tax** (`5,000` minor units). Stripe calculates and adds applicable tax to the customer's total. The current Affiliate candidate remains **$10 USD for each qualifying successfully paid monthly renewal**; that earning and its eligibility rules are not yet an operative promise. Before enrollment opens, the release owner must approve and encode:
 
-- the actual published offer and exact eligible amount (the current Catalog appears to use $49/4,900 minor units, not $50/5,000);
+- the exact eligible Catalog offer identity and Stripe Price mapping, reconciled to the approved $50/5,000-minor-unit base price rather than the observed $49/4,900-minor-unit draft;
 - whether the initial invoice qualifies;
 - coupon, tax, proration, trial, upgrade, downgrade and partial-payment behavior;
 - maximum paid cycles, if any;
