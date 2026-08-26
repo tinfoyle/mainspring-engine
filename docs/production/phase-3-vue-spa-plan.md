@@ -73,7 +73,7 @@ The public experience must be a first-class product surface, not a decorative sp
 - Make Your Turn the central product story: Spyglass gathers operational work and brings people only the questions, reviews and approvals that require them.
 - Show a credible visual product preview using controlled demonstration content; never expose a live customer Account or imply unavailable behavior.
 - Explain the operating loop from captured context through governed action and human attention.
-- Provide clear paths to explore features, compare plans, create a free Account, select a paid offer and sign in.
+- Provide clear paths to explore features, review the single paid team subscription and optional commissioning package, begin the approved registration/payment flow and sign in. Do not advertise a Free plan.
 - Establish trust through concrete security, governance, privacy and reliability claims that are traceable to implemented capabilities. Do not invent testimonials, customer logos or performance claims.
 - Keep the page visually distinctive without excessive motion, autoplay media, crowded card walls or repeated competing calls to action.
 
@@ -88,10 +88,10 @@ The public experience must be a first-class product surface, not a decorative sp
 
 #### Pricing and checkout
 
-- Pricing uses the public Catalog contract, displays free and paid offers consistently, and fails closed to the last-known published Catalog rather than leaking provider identifiers.
+- Pricing uses the public Catalog contract, displays the $50 monthly team subscription and optional $250 commissioning package consistently, and fails closed to the last-known published Catalog rather than leaking provider identifiers. No Free plan or obsolete `$49`/`$149` offer may appear.
 - Plan comparison explains included packages, meaningful limits, trial/grace behavior and what changes on downgrade in plain language.
 - Selecting an offer preserves only an opaque, validated offer intent through registration and verification.
-- Account creation remains free. Only an authenticated authorized Account owner can initiate the separately confirmed checkout mutation.
+- No product feature entitlement is granted as a permanent Free plan. The exact registration, team creation and payment ordering remains an owner decision; only an authenticated authorized team owner may perform the separately confirmed checkout mutation.
 - The server revalidates the selected offer and creates or reuses the Stripe Customer and hosted Checkout Session; the browser never submits a Stripe Price ID.
 - The customer is redirected to Stripe-hosted Checkout for payment details. Spyglass owns the coherent pre-checkout review, cancellation return, success return and pending/failed projection states.
 - The return page never grants access from the redirect alone. It waits for signed webhook projection, explains pending state and refreshes effective packages only from the local entitlement snapshot.

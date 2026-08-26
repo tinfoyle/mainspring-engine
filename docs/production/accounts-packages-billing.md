@@ -349,6 +349,8 @@ Spyglass v1 uses stable Stripe Customer, Product, Price, Checkout, Subscription,
 
 Stripe Billing Entitlements may mirror paid package features, but it is not the sole Spyglass authorization source because free plans, trials, promotions, internal accounts, grandfathering, emergency suspension, and support overrides also affect access. The local Entitlements module always produces the effective snapshot used by the application.
 
+Launch correction (2026-08-26): the release Catalog has no Free plan. The checked-in `free-v1` offer, permanent-free acquisition copy and free entitlement remain current implementation/history only and must not be published or presented as launch behavior. The local Entitlements architecture may continue to represent historical, trial, promotional, internal and support-granted access without turning any of those sources into a public Free plan. Registration-to-payment ordering remains a separate owner decision.
+
 ## 9. Public website content architecture
 
 The website content model supports:

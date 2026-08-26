@@ -11,6 +11,8 @@ Owner economics decisions (2026-08-26): the launch subscription is **$50.00 USD 
 
 - the exact subscription and onboarding/commissioning Catalog offer identities and Stripe Price mappings, reconciled to the approved $50/5,000-minor-unit monthly team price and $250/25,000-minor-unit optional one-time package rather than the obsolete $49/$149 draft offers.
 
+There is no Free plan at launch. The `free-v1` offer and every customer-facing permanent-free claim in the current repository are obsolete launch candidates and must be removed from the effective Catalog and acquisition/registration surfaces before enrollment or attribution opens.
+
 Technical invariants already fixed:
 
 - self-referral is denied against every Account owned by the Affiliate User;
