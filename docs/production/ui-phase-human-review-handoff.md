@@ -33,7 +33,8 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** each qualifying paid renewal earns a fixed `$10.00 USD` (`1,000` minor units), independent of any tax Stripe adds to the customer invoice;
 - **Decided 2026-08-26:** the initial qualifying paid invoice creates the first pending earning. Each later qualifying successfully paid renewal makes only the immediately preceding pending earning available for settlement and creates a new pending earning. Cancellation does not claw back earnings already available;
 - **Decided 2026-08-26:** when a subscription actually terminates before another qualifying renewal, its unmatched pending earning expires through immutable void evidence. Scheduled cancellation alone does not void it; withdrawing the schedule and renewing successfully preserves normal maturity;
-- coupon, proration, trial, upgrade, downgrade and partial-payment treatment;
+- **Decided 2026-08-26:** a customer discount applies the same percentage reduction to the Affiliate earning, calculated from the eligible subscription charge after discounts and before tax. At full price the earning is `$10`; a 10% discount produces `$9`;
+- commission minor-unit rounding plus proration, trial, upgrade, downgrade and partial-payment treatment;
 - maximum earning cycles, if any;
 - Refund, credit-note, dispute and chargeback reversal policy;
 - `account_credit` or `cash` settlement, including minimums, expiry, transferability and failed-settlement handling;
@@ -91,6 +92,7 @@ Launch subscription base price: USD 50.00 before applicable tax (owner decision 
 Affiliate earning: fixed USD 10.00 per qualifying paid renewal, independent of tax (owner decision 2026-08-26)
 Initial invoice and rolling hold: initial invoice qualifies; each successor qualifying renewal releases only the prior earning (owner decision 2026-08-26)
 Final pending earning: expires with immutable void evidence only when the subscription actually terminates (owner decision 2026-08-26)
+Discount treatment: apply the same discount percentage to the pre-tax Affiliate earning (owner decision 2026-08-26)
 Affiliate settlement decision:
 Affiliate terms version:
 Affiliate rule version:
