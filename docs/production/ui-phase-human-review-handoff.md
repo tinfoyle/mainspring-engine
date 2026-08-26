@@ -47,7 +47,8 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** check eligibility begins at `$100.00 USD` of available credit. Pending earnings do not count toward the threshold;
 - **Decided 2026-08-26:** checks are never automatic or directly self-service. The Affiliate contacts Support, completes recent passkey confirmation and verifies the authenticated Affiliate, mailing address and required tax information before Support initiates a reviewable request against reserved available credit;
 - **Decided 2026-08-26:** Support determines each check amount case by case. Product code does not choose an amount or issue checks; immutable reservation/debit evidence still prevents double spending;
-- billing-credit application order, expiry, transferability and failed/uncashed-check handling;
+- **Decided 2026-08-26:** oldest available credit automatically reduces the Affiliate-owned Account's next invoice up to the amount due after Stripe calculates tax. Pending, voided, reversed and Support-reserved value is excluded; unused credit carries forward;
+- expiry, transferability and failed/uncashed-check handling;
 - supported countries, tax documentation, withholding and reporting;
 - suspension, closure, code-replacement, appeal and support policy; and
 - commercial/accounting retention and data-right limitations.
@@ -116,6 +117,7 @@ Affiliate settlement decision: account-credit-first with threshold check eligibi
 Check eligibility threshold: USD 100.00 available credit; pending excluded (owner decision 2026-08-26)
 Check initiation: Support-assisted only after recent passkey and identity/address/tax verification; never automatic/self-service (owner decision 2026-08-26)
 Check amount: determined manually by Support case by case; no product amount-selection or check-issuance automation (owner decision 2026-08-26)
+Billing-credit order: automatically apply oldest available eligible credit after tax, excluding unavailable/reserved value; carry remainder (owner decision 2026-08-26)
 Affiliate terms version:
 Affiliate rule version:
 Privacy processing-registry revision:
