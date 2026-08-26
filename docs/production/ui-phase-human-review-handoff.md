@@ -54,7 +54,7 @@ The launch flags must remain closed until every item below is recorded in an app
 - **Decided 2026-08-26:** launch Affiliate enrollment is U.S.-only for U.S. persons/entities with a valid U.S. mailing address and approved payer tax documentation. Referred customers remain geographically unrestricted by this enrollment boundary;
 - **Procedural 2026-08-26:** tax-document collection, validation, withholding and reporting belong to Support/accounting, not product logic. Spyglass does not ingest tax forms or implement a tax-verification workflow;
 - **Decided 2026-08-26:** suspension stops new code use and attribution but existing locked subscriptions continue earning and maturing. Customer subscriptions are unaffected; history and appeal access remain;
-- permanent closure policy; and
+- **Decided 2026-08-26:** permanent closure stops future attribution/earnings, expires the final pending earning through immutable void evidence, and preserves already available credit. Customers and prior available earnings are unaffected; and
 - commercial/accounting retention and data-right limitations.
 
 Until approval, retain:
@@ -127,6 +127,7 @@ Credit transferability: non-transferable between people; same Affiliate may chan
 Check exceptions: Support procedure only; no delivery/reissue product workflow beyond preventing double settlement (owner decision 2026-08-26)
 Affiliate launch jurisdiction: U.S. persons/entities with valid U.S. mailing address and approved tax documentation; customer geography unaffected (owner decision 2026-08-26)
 Suspension: stop new attribution only; preserve existing-subscription earnings, customers, history and appeal (owner decision 2026-08-26)
+Permanent closure: stop future earnings, void final pending, retain available credit, never affect customers or claw back available value (owner decision 2026-08-26)
 Affiliate terms version:
 Affiliate rule version:
 Privacy processing-registry revision:
