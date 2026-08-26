@@ -30,8 +30,9 @@ The exact UbuntuRojo Docker gate for the snapshot passed 393 applicable browser 
 The launch flags must remain closed until every item below is recorded in an approved revision of the [Affiliate terms draft](affiliate-program-terms-launch-draft.md):
 
 - **Decided 2026-08-26:** the launch subscription base price is `$50.00 USD` (`5,000` minor units) before tax, and Stripe calculates and adds applicable tax to the customer's total. The exact Catalog offer identity and Stripe Price mapping must be reconciled from the observed `$49`/`4,900` draft;
+- **Decided 2026-08-26:** each qualifying paid renewal earns a fixed `$10.00 USD` (`1,000` minor units), independent of any tax Stripe adds to the customer invoice;
 - whether the first invoice qualifies;
-- coupon, tax, proration, trial, upgrade, downgrade and partial-payment treatment;
+- coupon, proration, trial, upgrade, downgrade and partial-payment treatment;
 - maximum earning cycles, if any;
 - Refund, credit-note, dispute and chargeback reversal policy;
 - hold period and the exact transition from earned to settled;
@@ -87,6 +88,7 @@ Leave the following fields unset until the owner has actually reviewed the linke
 ```text
 Affiliate commercial register revision:
 Launch subscription base price: USD 50.00 before applicable tax (owner decision 2026-08-26)
+Affiliate earning: fixed USD 10.00 per qualifying paid renewal, independent of tax (owner decision 2026-08-26)
 Affiliate settlement decision:
 Affiliate terms version:
 Affiliate rule version:
