@@ -24,7 +24,7 @@ No launch processing permits fingerprinting, session replay, heatmaps, DOM/form 
 
 ## Analytics event inventory
 
-Every event requires an effective analytics consent receipt for the same privacy subject and surface. Common optional dimensions are `device_class`, `locale` and `route_name`; values are 1–80 characters from a restricted non-free-text alphabet. Events accept no fields except those listed.
+Every event requires an effective analytics consent receipt for the same privacy subject and its registered public or private surface. Common optional dimensions are `device_class`, `locale` and `route_name`; values are 1–80 characters from a restricted non-free-text alphabet. `device_class` is additionally restricted to `desktop`, `phone` or `tablet`. Events accept no fields except those listed. Catalog, feature, package, campaign, CTA, locale and route codes remain bounded identifiers rather than categorical enums; every categorical dimension has its complete launch vocabulary below and is rejected when it does not match.
 
 | Event | Surface/purpose | Additional allowed dimensions |
 |---|---|---|
@@ -37,15 +37,15 @@ Every event requires an effective analytics consent receipt for the same privacy
 | `registration_started` | Private registration funnel | `offer_code` |
 | `verification_completed` | Private identity verification milestone | none |
 | `account_created` | Private onboarding milestone | none |
-| `security_enrollment_completed` | Private security milestone | `method` |
-| `checkout_reviewed` | Private checkout review | `offer_code`, `referral_present` |
-| `referral_code_accepted` | Private active referral application | `offer_code`, `entry_method` |
-| `checkout_redirected` | Private Stripe handoff | `offer_code`, `referral_present` |
-| `checkout_returned` | Private checkout return | `offer_code`, `result` |
-| `subscription_projected` | Private local billing projection | `offer_code`, `result` |
+| `security_enrollment_completed` | Private security milestone | `method` (`passkey_recovery_codes`) |
+| `checkout_reviewed` | Private checkout review | `offer_code`, `referral_present` (`true` or `false`) |
+| `referral_code_accepted` | Private active referral application | `offer_code`, `entry_method` (`manual` or `link`) |
+| `checkout_redirected` | Private Stripe handoff | `offer_code`, `referral_present` (`true` or `false`) |
+| `checkout_returned` | Private checkout return | `offer_code`, `result` (`cancelled` or `returned`) |
+| `subscription_projected` | Private local billing projection | `offer_code`, `result` (`active`, `attention` or `failed`) |
 | `application_entered` | Private onboarding completion | `entry_point` (`checkout`, `your_turn` or `deep_link`) |
-| `your_turn_opened` | Private content-free queue usability | `queue_state` |
-| `your_turn_item_completed` | Private first-value usability | `task_category`, `result`, `duration_bucket` |
+| `your_turn_opened` | Private content-free queue usability | `queue_state` (`empty` or `open`) |
+| `your_turn_item_completed` | Private first-value usability | `task_category` (`information`, `review`, `approval` or `action`), `result` (`completed`), `duration_bucket` (`under_1m`, `1m_5m` or `over_5m`) |
 
 The executable source of truth is `internal/modules/analytics`; unknown events, unsupported dimensions, prohibited identity/content fields, stale/future timestamps and events without matching consent fail closed at ingestion.
 
@@ -67,7 +67,7 @@ Optional analytics must stop before the next event after withdrawal. Public with
 - After a consented `signup_handoff_started`, a separate signed `__Secure-spyglass_analytics_handoff` cookie is scoped to the configured Infinite Ocean parent domain and `/api/v1`, is HTTP-only/Secure/SameSite=Lax, contains only the anonymous public subject, handoff event and expiry, and expires within 24 hours. The HMAC uses a separate domain label from the privacy-preference token.
 - The server binds each event to the exact immutable consent decision that allowed it.
 - Reviewed private milestones are mirrored into `analytics_conversion_events` under the public subject and public consent evidence. That table has no private-subject, User, Account or private-event identifier column; one receipt records at most one copy of each milestone.
-- The event registry rejects arbitrary fields and known identity/content fields.
+- The event registry rejects arbitrary fields, known identity/content fields, events submitted on an unreviewed surface and unreviewed categorical values.
 - PostgreSQL prevents consent-receipt mutation outside subject erasure and prevents analytics updates.
 - The maintenance worker prunes raw events in batches under an execute-only database identity and exposes only aggregate backlog status.
 - Disposable PostgreSQL tests prove consent history/erasure, exact replay, cross-host milestone aggregation without target identity, small-cohort suppression, retention, Affiliate anti-self-referral, pre- and post-lock code replacement, permanent retired-code non-reuse/immutability, attribution lock, recurring commission replay and Account-erasure detachment.

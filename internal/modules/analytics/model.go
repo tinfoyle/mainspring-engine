@@ -43,7 +43,9 @@ var (
 
 type Definition struct {
 	Name          EventName
+	Surface       privacy.Surface
 	AllowedFields map[string]struct{}
+	AllowedValues map[string]map[string]struct{}
 }
 
 type Registry struct{ definitions map[EventName]Definition }
@@ -81,6 +83,24 @@ var alwaysProhibited = map[string]struct{}{
 
 func LaunchRegistry() Registry {
 	common := []string{"device_class", "locale", "route_name"}
+	publicEvents := map[EventName]struct{}{
+		LandingViewed: {}, PrimaryCTASelected: {}, FeatureViewed: {}, PricingViewed: {}, OfferSelected: {}, SignupHandoffStarted: {},
+	}
+	enums := map[EventName]map[string][]string{
+		SecurityEnrollmentComplete: {"method": {"passkey_recovery_codes"}},
+		CheckoutReviewed:           {"referral_present": {"false", "true"}},
+		ReferralCodeAccepted:       {"entry_method": {"link", "manual"}},
+		CheckoutRedirected:         {"referral_present": {"false", "true"}},
+		CheckoutReturned:           {"result": {"cancelled", "returned"}},
+		SubscriptionProjected:      {"result": {"active", "attention", "failed"}},
+		ApplicationEntered:         {"entry_point": {"checkout", "deep_link", "your_turn"}},
+		YourTurnOpened:             {"queue_state": {"empty", "open"}},
+		YourTurnItemCompleted: {
+			"task_category":   {"action", "approval", "information", "review"},
+			"result":          {"completed"},
+			"duration_bucket": {"under_1m", "1m_5m", "over_5m"},
+		},
+	}
 	definitions := []struct {
 		name   EventName
 		fields []string
@@ -110,9 +130,27 @@ func LaunchRegistry() Registry {
 		for _, field := range item.fields {
 			allowed[field] = struct{}{}
 		}
-		registry.definitions[item.name] = Definition{Name: item.name, AllowedFields: allowed}
+		allowedValues := map[string]map[string]struct{}{
+			"device_class": valueSet("desktop", "phone", "tablet"),
+		}
+		for field, values := range enums[item.name] {
+			allowedValues[field] = valueSet(values...)
+		}
+		surface := privacy.SurfacePrivate
+		if _, public := publicEvents[item.name]; public {
+			surface = privacy.SurfacePublic
+		}
+		registry.definitions[item.name] = Definition{Name: item.name, Surface: surface, AllowedFields: allowed, AllowedValues: allowedValues}
 	}
 	return registry
+}
+
+func valueSet(values ...string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return set
 }
 
 func (r Registry) Validate(envelope Envelope, decision privacy.Decision, now time.Time) error {
@@ -120,7 +158,7 @@ func (r Registry) Validate(envelope Envelope, decision privacy.Decision, now tim
 	if !ok {
 		return ErrUnknownEvent
 	}
-	if ids.Validate(string(envelope.ID)) != nil || ids.Validate(string(envelope.SubjectID)) != nil || envelope.SubjectID != decision.SubjectID || envelope.Surface != decision.Surface || envelope.OccurredAt.IsZero() {
+	if ids.Validate(string(envelope.ID)) != nil || ids.Validate(string(envelope.SubjectID)) != nil || envelope.SubjectID != decision.SubjectID || envelope.Surface != decision.Surface || envelope.Surface != definition.Surface || envelope.OccurredAt.IsZero() {
 		return ErrInvalidEvent
 	}
 	if !decision.Allows(privacy.CategoryAnalytics) || decision.EffectiveAt.After(envelope.OccurredAt) {
@@ -142,8 +180,10 @@ func (r Registry) Validate(envelope Envelope, decision privacy.Decision, now tim
 		if !validDimension(value) {
 			return ErrInvalidEvent
 		}
-		if envelope.Name == ApplicationEntered && field == "entry_point" && value != "checkout" && value != "your_turn" && value != "deep_link" {
-			return ErrInvalidEvent
+		if allowedValues, constrained := definition.AllowedValues[field]; constrained {
+			if _, allowed := allowedValues[value]; !allowed {
+				return ErrInvalidEvent
+			}
 		}
 	}
 	return nil
