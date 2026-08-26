@@ -6,6 +6,10 @@ Account closure and Account erasure are deliberately different operations. Closu
 
 No HTTP request, account-api replica, or lifecycle-worker attempt may directly erase an Account.
 
+## Nonpayment deadline
+
+Owner policy (2026-08-26): the first unresolved subscription renewal failure starts a 30-calendar-day Account-retention clock. The system automatically prepares export and closure/erasure state during that window. A successfully paid invoice projected before the deadline cancels the pending deletion and restores paid access. If unresolved at day 30, the Account and live customer data must complete this guarded erasure workflow. This deadline does not authorize a browser request or standing application role to bypass preparation, distinct approval, cross-store execution, tombstones, restore replay or backup-expiry tracking. Required financial, Affiliate and scoped legal-hold evidence is detached into its separately approved restricted retention and is not preserved as live Account data. User-identity deletion remains a separate decision and workflow.
+
 ## Safety invariants
 
 1. The Account is already `closed`; `closing`, suspended, restricted, and active Accounts are ineligible.
