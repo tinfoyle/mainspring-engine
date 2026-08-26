@@ -226,6 +226,8 @@ Launch Affiliate enrollment is limited to U.S. persons and entities with a valid
 
 Affiliate terms acceptance, earnings, reversals, billing-credit applications, check settlements and related audit evidence are retained for seven years after the later of Affiliate closure or the final settlement, reversal or tax-relevant transaction. Identifiable commercial records are then deleted or irreversibly minimized unless a documented legal hold applies. At that deadline, readable retired codes and their Affiliate/User linkage are erased. A protected irreversible, identity-free fingerprint is retained permanently only to prevent reissue; it cannot be used to recover the code or identify the former Affiliate.
 
+A verified Affiliate erasure request closes the enrollment, removes the active code and share link, stops new attribution and future earnings, and erases data not needed for the approved retention purpose. It does not affect referred customers or extinguish already available credit. Required financial, accounting, settlement and audit evidence is retained under restricted access for the remainder of the seven-year period and excluded from marketing and ordinary product use. The response identifies the retained categories, purpose and deadline. At deadline the data is deleted or irreversibly minimized; a documented legal hold extends only its scoped records.
+
 ## 8. Construction and acceptance order
 
 1. Approve the processing/event registry, consent policy, retention schedule and analytics provider boundary.
