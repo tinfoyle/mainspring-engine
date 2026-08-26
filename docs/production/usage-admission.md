@@ -42,6 +42,8 @@ AI Token restricted-access amendment (2026-08-26): a restricted Account cannot a
 
 AI Token ownership amendment (2026-08-26): grants and reservations are scoped to the receiving team Account, not a User. Membership or ownership changes cannot move them, and neither application nor Support authority may transfer a cohort between Accounts. Corrections append same-Account reversal or replacement ledger entries. Account merger, split or replacement handling remains a reviewed commercial procedure with no automated balance migration.
 
+AI Token refund amendment (2026-08-26): an authorized-owner Support request may refund a purchased top-up within 14 calendar days only if no token from that exact grant has been consumed or remains reserved. Any consumption rejects full and partial discretionary refunds. Review must wait for outstanding reservations to settle or release. A confirmed Stripe refund appends an idempotent full-grant reversal; included and promotional grants are not refundable, while duplicate, fraud, technical-error and legally required remedies follow their separate exception paths.
+
 The public Catalog endpoint exposes these product definitions but never provider mappings. New governed drafts fail if a package default has no definition, the package owner is unknown, the rule or kind is unsupported, or a reservation TTL exceeds 30 days. Immutable Catalog versions created before limit definitions remain rollback-compatible with conservative `capacity`/`replace` semantics.
 
 ## Decision sequence
