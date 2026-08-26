@@ -165,6 +165,11 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 			t.Fatalf("rolling compatibility write: %v", err)
 		}
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO privacy_rights_requests
+		(request_id,user_id,kind,scope,state,verified_at,requested_at,response_due_at,updated_at)
+		VALUES ('10000000-0000-4000-8000-000000000016',$1,'access','identity','submitted',$2,$2,$2::timestamptz+interval '2 months',$2)`, affiliateUser, now); err == nil {
+		t.Fatal("database accepted an overstated privacy-rights response deadline")
+	}
 	var legacyVersion uint64
 	var legacyActions []string
 	if err := pool.QueryRow(ctx, `SELECT version FROM privacy_rights_requests WHERE request_id=$1`, legacyRequest).Scan(&legacyVersion); err != nil {

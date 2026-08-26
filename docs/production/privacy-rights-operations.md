@@ -34,7 +34,7 @@ GRANT EXECUTE ON FUNCTION public.spyglass_transition_privacy_rights_request(uuid
   TO spyglass_privacy_rights_operator;
 ```
 
-Migrations 43 and 54 revoke all three functions from `PUBLIC`. Fresh-PostgreSQL integration coverage proves the role has function execution but no direct `privacy_rights_requests` or queue-audit read authority.
+Migrations 43 and 54 revoke all three functions from `PUBLIC`; migration 55 repairs and constrains the stored response deadline without widening operator authority. Fresh-PostgreSQL integration coverage proves the role has function execution but no direct `privacy_rights_requests` or queue-audit read authority.
 
 ## Required configuration
 

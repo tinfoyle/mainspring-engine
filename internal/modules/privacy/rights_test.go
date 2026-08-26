@@ -35,3 +35,20 @@ func TestRightsRequestDeadlineIsOneClampedCalendarMonth(t *testing.T) {
 		})
 	}
 }
+
+func TestRightsRequestRejectsAnOverstatedDeadline(t *testing.T) {
+	request, err := privacy.NewRightsRequest(
+		ids.PrivacyRightsRequestID("10000000-0000-4000-8000-000000000001"),
+		ids.UserID("20000000-0000-4000-8000-000000000002"),
+		privacy.RightsAccess,
+		privacy.RightsIdentity,
+		time.Date(2026, 1, 31, 12, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.ResponseDueAt = time.Date(2026, 3, 3, 12, 0, 0, 0, time.UTC)
+	if err := request.Validate(); err == nil {
+		t.Fatal("overstated privacy-rights response deadline was accepted")
+	}
+}

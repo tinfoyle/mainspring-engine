@@ -50,17 +50,17 @@ type RightsRequest struct {
 func NewRightsRequest(id ids.PrivacyRightsRequestID, userID ids.UserID, kind RightsKind, scope RightsScope, now time.Time) (RightsRequest, error) {
 	now = now.UTC()
 	request := RightsRequest{ID: id, UserID: userID, Version: 1, Kind: kind, Scope: scope, State: RightsSubmitted,
-		VerifiedAt: now, RequestedAt: now, ResponseDueAt: oneCalendarMonthAfter(now), UpdatedAt: now}
+		VerifiedAt: now, RequestedAt: now, ResponseDueAt: RightsResponseDueAt(now), UpdatedAt: now}
 	if err := request.Validate(); err != nil {
 		return RightsRequest{}, err
 	}
 	return request, nil
 }
 
-// oneCalendarMonthAfter preserves the UTC wall-clock time and clamps the day
+// RightsResponseDueAt preserves the UTC wall-clock time and clamps the day
 // to the target month's last day. time.AddDate normalizes 31 January plus one
 // month into March, which would silently overstate the GDPR response window.
-func oneCalendarMonthAfter(value time.Time) time.Time {
+func RightsResponseDueAt(value time.Time) time.Time {
 	value = value.UTC()
 	year, month, day := value.Date()
 	targetMonth := time.Date(year, month+1, 1, value.Hour(), value.Minute(), value.Second(), value.Nanosecond(), time.UTC)
@@ -74,7 +74,7 @@ func oneCalendarMonthAfter(value time.Time) time.Time {
 func (r RightsRequest) Validate() error {
 	if ids.Validate(string(r.ID)) != nil || ids.Validate(string(r.UserID)) != nil || r.Version == 0 || !validRightsKind(r.Kind) || !validRightsScope(r.Scope) ||
 		!validRightsState(r.State) || r.VerifiedAt.IsZero() || r.RequestedAt.IsZero() || r.ResponseDueAt.IsZero() || r.UpdatedAt.IsZero() ||
-		r.VerifiedAt.After(r.RequestedAt) || !r.ResponseDueAt.After(r.RequestedAt) || r.UpdatedAt.Before(r.RequestedAt) {
+		r.VerifiedAt.After(r.RequestedAt) || !r.ResponseDueAt.Equal(RightsResponseDueAt(r.RequestedAt)) || r.UpdatedAt.Before(r.RequestedAt) {
 		return ErrInvalidRightsRequest
 	}
 	return nil

@@ -122,7 +122,7 @@ func validateQueueItem(item QueueItem) error {
 	if ids.Validate(string(item.RequestID)) != nil || item.Version == 0 || !privacy.ValidRightsClassification(item.Kind, item.Scope) ||
 		(item.State != privacy.RightsSubmitted && item.State != privacy.RightsInReview) ||
 		item.RequestedAt.IsZero() || item.ResponseDueAt.IsZero() || item.UpdatedAt.IsZero() ||
-		!item.ResponseDueAt.After(item.RequestedAt) || item.UpdatedAt.Before(item.RequestedAt) {
+		!item.ResponseDueAt.Equal(privacy.RightsResponseDueAt(item.RequestedAt)) || item.UpdatedAt.Before(item.RequestedAt) {
 		return ErrInvalidChange
 	}
 	return nil
