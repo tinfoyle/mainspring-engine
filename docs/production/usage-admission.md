@@ -40,6 +40,8 @@ AI Token balance amendment (2026-08-26): included renewal grants expire without 
 
 AI Token restricted-access amendment (2026-08-26): a restricted Account cannot admit or reserve new AI work even when its ledger has an available balance. Remaining grants may be reported through the necessary billing/privacy/export surfaces. Recovery before Account deletion restores the surviving purchased cohorts, while included and promotional cohorts continue to expire normally. Account deletion extinguishes all remaining grants, with no restoration or migration to a replacement Account and no cash value or refund except where law requires.
 
+AI Token ownership amendment (2026-08-26): grants and reservations are scoped to the receiving team Account, not a User. Membership or ownership changes cannot move them, and neither application nor Support authority may transfer a cohort between Accounts. Corrections append same-Account reversal or replacement ledger entries. Account merger, split or replacement handling remains a reviewed commercial procedure with no automated balance migration.
+
 The public Catalog endpoint exposes these product definitions but never provider mappings. New governed drafts fail if a package default has no definition, the package owner is unknown, the rule or kind is unsupported, or a reservation TTL exceeds 30 days. Immutable Catalog versions created before limit definitions remain rollback-compatible with conservative `capacity`/`replace` semantics.
 
 ## Decision sequence
