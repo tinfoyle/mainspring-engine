@@ -395,3 +395,5 @@ Phase 3 product-surface construction is complete only when:
 - Stage, GHCR and LKE work can begin without further application construction.
 
 Customer privacy-status checkpoint (2026-08-26): the rights-history surface no longer requires a full application reload to observe staff-side progress. A bounded refresh reuses the existing customer-safe list contract, retains prior results on failure, labels the last recorded update and provides distinct guidance for open and terminal states. No operator evidence, staff identity, reason or case content crosses into the SPA. The exact local Docker gate passes 393 browser checks with eleven intentional compact-menu skips plus 72 private, 22 public and 42 API-client tests; external fulfillment procedure approval remains outside the UI exit.
+
+Human-review boundary (2026-08-26): the [UI-focused phase human-review handoff](ui-phase-human-review-handoff.md) reconciles implemented local construction with the unsigned Affiliate commercial register, privacy/compliance register and external provider/device certificates. It is the required resume point; no feature flag or deployment environment is changed by the handoff.
