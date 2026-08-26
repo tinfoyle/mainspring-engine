@@ -14,6 +14,8 @@ The responsible owner receives durable email and in-application notices at clock
 
 Voluntary cancellation uses the same erasure boundary, but its clock begins only when the already-paid subscription period actually ends. Full access continues until then, and withdrawal before term end prevents the clock from starting. After term end, access is restricted to billing, security, privacy, export and sign-out. A projected resubscription before deletion cancels the request. Notices are due at cancellation scheduling, term end, deletion-clock day 23 and day 29 with the same exact-time, recovery, export and orphaned-identity disclosures.
 
+AI Token policy (2026-08-26): restricted access blocks new token reservations but keeps remaining grant cohorts visible through necessary billing/privacy/export surfaces. Recovery before deletion restores the surviving purchased balance; included and promotional grants still follow their ordinary expiry. Account erasure must extinguish every remaining token grant without cash value or refund except where applicable law requires and must leave no mechanism to migrate the balance to a newly created Account.
+
 ## Safety invariants
 
 1. The Account is already `closed`; `closing`, suspended, restricted, and active Accounts are ineligible.

@@ -38,6 +38,8 @@ AI Token commerce amendment (2026-08-26): renewal grants, top-up bundles, promot
 
 AI Token balance amendment (2026-08-26): included renewal grants expire without carryover when the next successful renewal grant commits. Purchased grants remain non-expiring while the Account is active. Promotional grants require an explicit published expiry. Admission reserves earliest-expiring cohorts first, using creation time and grant ID for deterministic ties and preserving non-expiring purchased cohorts until last. Exact settlement and release retain cohort identity; a release cannot resurrect a cohort that expired during execution.
 
+AI Token restricted-access amendment (2026-08-26): a restricted Account cannot admit or reserve new AI work even when its ledger has an available balance. Remaining grants may be reported through the necessary billing/privacy/export surfaces. Recovery before Account deletion restores the surviving purchased cohorts, while included and promotional cohorts continue to expire normally. Account deletion extinguishes all remaining grants, with no restoration or migration to a replacement Account and no cash value or refund except where law requires.
+
 The public Catalog endpoint exposes these product definitions but never provider mappings. New governed drafts fail if a package default has no definition, the package owner is unknown, the rule or kind is unsupported, or a reservation TTL exceeds 30 days. Immutable Catalog versions created before limit definitions remain rollback-compatible with conservative `capacity`/`replace` semantics.
 
 ## Decision sequence
