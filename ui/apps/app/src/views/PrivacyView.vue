@@ -30,6 +30,7 @@ const scope = ref<PrivacyRightsScope>("identity");
 const loading = ref(true);
 const saving = ref(false);
 const submitting = ref(false);
+const refreshingRequests = ref(false);
 const cancelingID = ref("");
 const confirmingBrowserErase = ref(false);
 const erasingBrowserData = ref(false);
@@ -37,13 +38,14 @@ const exportingAffiliate = ref(false);
 const message = ref("");
 const errorMessage = ref("");
 const historyError = ref("");
+const rightsHistoryError = ref("");
 const navigationNotice = ref("");
 
 const openEquivalent = computed(() => requests.value.some((request) =>
   request.kind === kind.value && request.scope === scope.value && ["submitted", "in_review"].includes(request.state)));
 const privacyDirty = computed(() => confirmingBrowserErase.value
   || analytics.value !== (preference.value?.analytics ?? false));
-const privacyPending = computed(() => saving.value || submitting.value || erasingBrowserData.value || exportingAffiliate.value || Boolean(cancelingID.value));
+const privacyPending = computed(() => saving.value || submitting.value || refreshingRequests.value || erasingBrowserData.value || exportingAffiliate.value || Boolean(cancelingID.value));
 const { allowNextNavigation } = useSafeNavigation({
   dirty: privacyDirty,
   pending: privacyPending,
@@ -72,7 +74,7 @@ onMounted(async () => {
     errorMessage.value = "Privacy preferences are temporarily unavailable. Optional tracking remains off unless an existing valid choice allows it.";
   }
   if (rightsResult.status === "fulfilled") requests.value = rightsResult.value.requests;
-  else errorMessage.value ||= "Privacy rights request history is temporarily unavailable.";
+  else rightsHistoryError.value = "Privacy rights request history is temporarily unavailable.";
   await refreshConsentHistory();
   loading.value = false;
 });
@@ -83,6 +85,21 @@ async function refreshConsentHistory(): Promise<void> {
     consentHistory.value = (await getPrivacyConsentHistory()).decisions;
   } catch {
     historyError.value = "Consent history is temporarily unavailable. Your current preference still applies.";
+  }
+}
+
+async function refreshRightsRequestHistory(): Promise<void> {
+  if (refreshingRequests.value) return;
+  refreshingRequests.value = true;
+  rightsHistoryError.value = "";
+  message.value = "";
+  try {
+    requests.value = (await listPrivacyRightsRequests()).requests;
+    message.value = "Your privacy request status is up to date.";
+  } catch {
+    rightsHistoryError.value = "Privacy rights request history is temporarily unavailable. Your existing requests are unchanged.";
+  } finally {
+    refreshingRequests.value = false;
   }
 }
 
@@ -208,6 +225,17 @@ function label(value: string): string {
 function date(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
 }
+
+function rightsStateDescription(state: PrivacyRightsRequest["state"]): string {
+  return {
+    submitted: "Received and awaiting review.",
+    in_review: "A privacy reviewer is working on this request.",
+    completed: "Resolution recorded. The reviewed response is delivered separately.",
+    partially_completed: "Partial resolution recorded. The reviewed response explains what could and could not be completed.",
+    declined: "Decline recorded. The reviewed response explains the decision and available next steps.",
+    canceled: "Canceled before review."
+  }[state];
+}
 </script>
 
 <template>
@@ -259,11 +287,12 @@ function date(value: string): string {
         </form>
 
         <div class="rights-history">
-          <h3>Request history</h3>
-          <p v-if="requests.length === 0" class="form-note">No privacy rights requests have been submitted.</p>
+          <div class="rights-history-heading"><h3>Request history</h3><IoButton kind="quiet" :disabled="privacyPending" @click="refreshRightsRequestHistory">{{ refreshingRequests ? "Refreshing status…" : "Refresh request status" }}</IoButton></div>
+          <p v-if="rightsHistoryError" class="form-error" role="alert">{{ rightsHistoryError }}</p>
+          <p v-else-if="requests.length === 0" class="form-note">No privacy rights requests have been submitted.</p>
           <ol v-else>
             <li v-for="request in requests" :key="request.request_id">
-              <div><strong>{{ label(request.kind) }} · {{ label(request.scope) }}</strong><small>Submitted {{ date(request.requested_at) }} · response due {{ date(request.response_due_at) }}</small></div>
+              <div><strong>{{ label(request.kind) }} · {{ label(request.scope) }}</strong><small>Submitted {{ date(request.requested_at) }} · response due {{ date(request.response_due_at) }}</small><small>{{ rightsStateDescription(request.state) }} Updated {{ date(request.updated_at) }}.</small></div>
               <div class="rights-state"><span :data-state="request.state">{{ label(request.state) }}</span><IoButton v-if="request.state === 'submitted'" kind="quiet" :disabled="Boolean(cancelingID)" @click="cancelRequest(request.request_id)">{{ cancelingID === request.request_id ? "Canceling…" : "Cancel" }}</IoButton></div>
             </li>
           </ol>

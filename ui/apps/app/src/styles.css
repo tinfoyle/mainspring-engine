@@ -66,7 +66,9 @@ main { min-width: 0; }
 .rights-form .io-button { justify-self: start; margin-top: .25rem; }
 .scope-description { margin: .25rem 0; padding: .8rem; border-radius: .7rem; color: var(--io-ink-soft); background: var(--io-sky); line-height: 1.45; }
 .rights-history { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid #e8eeeb; }
-.rights-history h3 { margin: 0 0 .8rem; color: var(--io-ocean-950); }
+.rights-history h3 { margin: 0; color: var(--io-ocean-950); }
+.rights-history-heading { margin-bottom: .8rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+.rights-history-heading .io-button { flex: 0 0 auto; }
 .rights-history ol { margin: 0; padding: 0; display: grid; list-style: none; }
 .rights-history li { padding: .9rem 0; display: flex; align-items: start; justify-content: space-between; gap: 1rem; border-top: 1px solid #e8eeeb; }
 .rights-history li > div:first-child { min-width: 0; display: grid; gap: .3rem; }

@@ -55,6 +55,11 @@ const privacyRightsRequest = {
   updated_at: "2026-08-25T12:00:00Z",
   verified_at: "2026-08-25T12:00:00Z"
 };
+const terminalPrivacyRightsRequests = [
+  { ...privacyRightsRequest, request_id: "12000000-0000-4000-8000-000000000012", kind: "access", scope: "identity", state: "in_review", updated_at: "2026-08-26T10:00:00Z" },
+  { ...privacyRightsRequest, request_id: "13000000-0000-4000-8000-000000000013", kind: "restriction", scope: "analytics", state: "partially_completed", updated_at: "2026-08-26T11:00:00Z" },
+  { ...privacyRightsRequest, request_id: "14000000-0000-4000-8000-000000000014", kind: "objection", scope: "affiliate", state: "declined", updated_at: "2026-08-26T12:00:00Z" }
+];
 const catalog = {
   version: 2,
   published_at: "2026-08-24T20:00:00Z",
@@ -2101,11 +2106,15 @@ test("Integration research failure retains the scoped customer query", async ({ 
 test("GDPR rights requests are tracked, deduplicated, and cancelable", async ({ page }) => {
   const submissions: unknown[] = [];
   const cancellations: string[] = [];
+  let rightsReads = 0;
   await page.route("**/api/v1/privacy/rights-requests", async (route) => {
     if (route.request().method() === "POST") {
       submissions.push(route.request().postDataJSON());
       await fulfillJSON(route, privacyRightsRequest, 201);
-    } else await fulfillJSON(route, { requests: [] });
+    } else {
+      rightsReads += 1;
+      await fulfillJSON(route, { requests: rightsReads === 1 ? [] : terminalPrivacyRightsRequests });
+    }
   });
   await page.route(`**/api/v1/privacy/rights-requests/${privacyRightsRequest.request_id}`, async (route) => {
     cancellations.push(route.request().method());
@@ -2124,6 +2133,11 @@ test("GDPR rights requests are tracked, deduplicated, and cancelable", async ({ 
   await expect(page.getByRole("button", { name: "Submit verified request" })).toBeEnabled();
   expect(submissions).toEqual([{ kind: "erasure", scope: "affiliate" }]);
   expect(cancellations).toEqual(["DELETE"]);
+  await page.getByRole("button", { name: "Refresh request status" }).click();
+  await expect(page.getByRole("status")).toContainText("Your privacy request status is up to date.");
+  await expect(page.getByRole("listitem").filter({ hasText: "Access · Identity" })).toContainText("A privacy reviewer is working on this request.");
+  await expect(page.getByRole("listitem").filter({ hasText: "Restriction · Analytics" })).toContainText("Partial resolution recorded.");
+  await expect(page.getByRole("listitem").filter({ hasText: "Objection · Affiliate" })).toContainText("Decline recorded.");
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 

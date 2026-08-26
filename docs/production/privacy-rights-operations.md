@@ -77,3 +77,7 @@ This local checkpoint does not grant the role in Stage or production and does no
 | Analytics | consent withdrawal and immediate current-browser subject erasure | identity-linked access, portability, correction, broader erasure, restriction and objection use the verified request queue |
 
 The operator boundary records discovery, review and evidence integrity; it does not turn a queue transition into fulfillment. The approved staff procedure must identify the applicable direct workflow or produce and review the scoped artifact before `resolve` is authorized.
+
+## Customer communication checkpoint
+
+The Vue Privacy route can explicitly refresh the existing customer-safe request list, preserves previously rendered history when that read fails, displays the last recorded update and explains every open and terminal lifecycle state. Completed, partially completed and declined outcomes tell the customer that the reviewed response or next steps are delivered separately; the browser does not infer fulfillment from the state alone. Operator evidence identifiers and hashes, staff identity, operational reasons and fulfillment content remain excluded from the customer API and UI.

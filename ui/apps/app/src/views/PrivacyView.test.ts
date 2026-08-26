@@ -163,6 +163,27 @@ describe("privacy controls", () => {
     expect(wrapper.get<HTMLButtonElement>('.rights-form button[type="submit"]').element.disabled).toBe(false);
   });
 
+  it("refreshes authoritative review states and explains terminal outcomes without staff evidence", async () => {
+    api.listPrivacyRightsRequests
+      .mockResolvedValueOnce({ requests: [] })
+      .mockResolvedValueOnce({ requests: [
+        { ...rightsRequest, request_id: "21000000-0000-4000-8000-000000000021", kind: "access", scope: "identity", state: "in_review", updated_at: "2026-08-26T10:00:00Z" },
+        { ...rightsRequest, request_id: "22000000-0000-4000-8000-000000000022", kind: "restriction", scope: "analytics", state: "partially_completed", updated_at: "2026-08-26T11:00:00Z" },
+        { ...rightsRequest, request_id: "23000000-0000-4000-8000-000000000023", kind: "objection", scope: "affiliate", state: "declined", updated_at: "2026-08-26T12:00:00Z" }
+      ] });
+    const wrapper = await mountView();
+
+    await wrapper.findAll("button").find((button) => button.text() === "Refresh request status")?.trigger("click");
+    await flushPromises();
+
+    expect(api.listPrivacyRightsRequests).toHaveBeenCalledTimes(2);
+    expect(wrapper.text()).toContain("A privacy reviewer is working on this request.");
+    expect(wrapper.text()).toContain("Partial resolution recorded. The reviewed response explains what could and could not be completed.");
+    expect(wrapper.text()).toContain("Decline recorded. The reviewed response explains the decision and available next steps.");
+    expect(wrapper.text()).toContain("Your privacy request status is up to date.");
+    expect(wrapper.text()).not.toContain("evidence_sha256");
+  });
+
   it("downloads a customer-owned Affiliate portability artifact without browser persistence", async () => {
     const createObjectURL = vi.fn().mockReturnValue("blob:affiliate-export");
     const revokeObjectURL = vi.fn();

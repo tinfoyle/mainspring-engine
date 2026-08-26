@@ -105,3 +105,5 @@ Current privacy-rights deadline amendment (2026-08-26): request deadlines now im
 ## Go/no-go rule
 
 Production launch is a **no-go** while any P0 item lacks current evidence. “Current” means evidence from the exact release artifact and target environment, not a local mock, an earlier image, or a review-only manifest. P1 scope may be deferred only by removing the corresponding public offer/claim and keeping its entitlement unavailable.
+
+Local privacy communication amendment (2026-08-26): customers can refresh the authoritative rights-request projection, retain prior history through a read failure, see the last update and distinguish open, completed, partial, declined and canceled outcomes without receiving operator evidence or case material. This closes the local UI communication gap only. Approved fulfillment procedures, legal/retention decisions, environment role grants and target-environment evidence remain production blockers.

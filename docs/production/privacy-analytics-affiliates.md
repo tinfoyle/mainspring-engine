@@ -252,3 +252,9 @@ Local acceptance checkpoint (2026-08-25): the service, PostgreSQL lifecycle and 
 - [Stripe subscription Checkout and recurring `invoice.paid` events](https://docs.stripe.com/payments/checkout/build-subscriptions)
 - [FTC affiliate and endorsement disclosure guidance](https://www.ftc.gov/business-guidance/resources/ftcs-endorsement-guides-what-people-are-asking)
 - [European Commission Influencer Legal Hub](https://commission.europa.eu/topics/consumers/consumer-rights-and-complaints/influencer-legal-hub_en)
+
+## Customer rights-status presentation
+
+The authenticated Privacy workspace reads only the customer-safe rights-request projection. Customers can refresh that projection without a full application reload, see the last recorded update and receive distinct explanations for `submitted`, `in_review`, `completed`, `partially_completed`, `declined` and `canceled`. If refresh fails, the last known history remains visible and is not presented as current.
+
+Operator evidence UUIDs and digests, staff identity, operational reasons and fulfillment artifacts never enter the browser contract. A terminal status communicates the recorded review outcome; it is not itself evidence that an export, correction, restriction, objection or erasure was performed. That evidence remains governed by the fulfillment procedure and execute-only operator boundary.
