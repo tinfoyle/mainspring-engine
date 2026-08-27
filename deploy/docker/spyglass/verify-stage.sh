@@ -191,6 +191,10 @@ if services["private-ui"]["image"] != private_ui_image:
     raise SystemExit("private UI image does not match the release file")
 if services["mcp-gateway"].get("scale") != 2:
     raise SystemExit("stage MCP gateway must run exactly two replicas")
+affiliate_restore = services["affiliate-retention-worker"].get("environment", {})
+for variable in ("SPYGLASS_ERASURE_CHECKPOINT_SEQUENCE", "SPYGLASS_ERASURE_CHECKPOINT_ROOT"):
+    if not affiliate_restore.get(variable):
+        raise SystemExit(f"affiliate retention worker is missing {variable}")
 for name in application_services:
     if services[name]["image"] != application_image:
         raise SystemExit(f"{name} image does not match the application release digest")

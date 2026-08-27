@@ -187,6 +187,9 @@ services:
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE:-0}
       SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT: ${SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT:-0000000000000000000000000000000000000000000000000000000000000000}
     depends_on: {global-roles: {condition: service_completed_successfully}, object-store-init: {condition: service_completed_successfully}}
+  affiliate-retention-worker:
+    environment: *global-restore
+    depends_on: {global-roles: {condition: service_completed_successfully}}
   identity-maintenance-worker:
     environment: *global-restore
     depends_on: {global-roles: {condition: service_completed_successfully}}
