@@ -6,7 +6,7 @@ import { usePublicSeo } from "~/composables/usePublicSeo";
 usePublicSeo({
   title: "Spyglass features · Infinite Ocean",
   path: "/features",
-  description: "Explore Your Turn, Work, Knowledge, Agents, Finance, Marketing and governed integrations in Spyglass.",
+  description: "See how Spyglass helps your team manage work, schedules, business information, AI agents, finances, marketing and connected tools.",
   schema: {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -28,7 +28,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="content-hero section-frame"><p class="eyebrow">Complete feature map</p><h1>One operating loop.<br />Clear boundaries.</h1><p>Spyglass connects what the business knows, what needs doing, what Agents can move, and what still requires human authority.</p></section>
+  <section class="content-hero section-frame"><p class="eyebrow">What Spyglass does</p><h1>Keep the whole business<br />in view.</h1><p>See what needs doing, who is handling it and what is waiting on you. Your team and AI agents can move the routine work while the important calls stay yours.</p></section>
   <section id="your-turn" class="feature-grid section-frame"><article v-for="(feature, index) in publicFeatures" :key="feature.slug"><small>{{ String(index + 1).padStart(2, '0') }} · {{ feature.name }}</small><h2>{{ feature.title }}</h2><p>{{ feature.summary }}</p><NuxtLink :to="`/features/${feature.slug}`">Learn more →</NuxtLink></article></section>
-  <section class="workflow-story section-frame"><p class="eyebrow">Cross-package workflow</p><h2>Knowledge explains the gap. Work moves it. Agents help. Your Turn keeps judgment human.</h2><p>Spyglass packages share one governed operating loop without collapsing their authority boundaries. A cited fact can answer a blocked task; an Agent can prepare a release; the consequential approval still arrives with exact evidence in Your Turn.</p><NuxtLink to="/pricing">Compare published plans →</NuxtLink></section>
+  <section class="workflow-story section-frame"><p class="eyebrow">It all works together</p><h2>Keep the facts. Assign the work. Let agents help. Make the final call.</h2><p>Spyglass connects the parts instead of making you chase them across different apps. A saved answer can unblock a task. An AI agent can prepare the next step. If something important needs approval, it shows up in Your Turn with the details you need.</p><NuxtLink to="/pricing">See pricing →</NuxtLink></section>
 </template>

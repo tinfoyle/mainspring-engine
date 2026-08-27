@@ -19,19 +19,19 @@ const undecidedConsent = {
 };
 
 const publicFeatureAndPolicyRoutes = [
-  { path: "/features", heading: "One operating loop. Clear boundaries." },
-  { path: "/features/your-turn", heading: "Decide with context" },
-  { path: "/features/work", heading: "Turn gaps into progress" },
-  { path: "/features/knowledge", heading: "Build memory with evidence" },
-  { path: "/features/baseline", heading: "See what is missing" },
-  { path: "/features/agents", heading: "Delegate inside boundaries" },
-  { path: "/features/schedules", heading: "Make recurrence explicit" },
-  { path: "/features/finance", heading: "Keep records governed" },
-  { path: "/features/marketing", heading: "Move from plan to release" },
-  { path: "/features/integrations", heading: "Connect without surrendering control" },
-  { path: "/features/account-administration", heading: "Keep authority understandable" },
-  { path: "/features/security", heading: "Protect consequential authority" },
-  { path: "/features/export-lifecycle", heading: "Leave with a traceable boundary" },
+  { path: "/features", heading: "Keep the whole business in view." },
+  { path: "/features/your-turn", heading: "Handle what needs you" },
+  { path: "/features/work", heading: "Keep every job moving" },
+  { path: "/features/knowledge", heading: "Keep answers and documents together" },
+  { path: "/features/baseline", heading: "Get the business out of your head" },
+  { path: "/features/agents", heading: "Give AI agents real jobs" },
+  { path: "/features/schedules", heading: "Stay ahead of recurring work" },
+  { path: "/features/finance", heading: "Keep financial records organized" },
+  { path: "/features/marketing", heading: "Plan it, review it, send it" },
+  { path: "/features/integrations", heading: "Connect the tools you already use" },
+  { path: "/features/account-administration", heading: "Manage your team and access" },
+  { path: "/features/security", heading: "Protect the important stuff" },
+  { path: "/features/export-lifecycle", heading: "Get your data when you need it" },
   { path: "/privacy", heading: "Privacy, in plain language." },
   { path: "/affiliate-terms", heading: "Affiliate program terms" }
 ] as const;
@@ -142,7 +142,7 @@ test("landing consent gates analytics and preserves the signup handoff", async (
   await page.goto("http://127.0.0.1:4174/");
   await expect(page.getByRole("heading", { level: 1, name: "Know what needs you next." })).toBeVisible();
   await expect(page.locator(".turn-preview")).toHaveCSS("transform", "none");
-  await expect(page.getByRole("heading", { name: "Privacy without the fog" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your privacy choices" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
   expect(state.analyticsEvents).toEqual([]);
@@ -183,18 +183,18 @@ test("landing consent gates analytics and preserves the signup handoff", async (
 
 test("pricing remains usable after rejection and carries only the opaque offer", async ({ page }) => {
   await page.goto("http://127.0.0.1:4174/pricing");
-  await expect(page.getByRole("heading", { level: 1, name: /One team/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /\$50 a month/ })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: /\$50\.00/ })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: /\$250\.00/ })).toBeVisible();
-  await expect(page.getByText(/Choose it during initial Checkout or purchase it once later from Billing/)).toBeVisible();
-  await expect(page.getByRole("link", { name: "Choose during Checkout" })).toHaveAttribute("href", "http://127.0.0.1:4173/signup?offer=team-monthly-v2");
+  await expect(page.getByText(/help you bring in your business information and get Spyglass set up/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Add setup help at checkout" })).toHaveAttribute("href", "http://127.0.0.1:4173/signup?offer=team-monthly-v2");
   await expect(page.getByRole("link", { name: "Contact Support" })).toHaveCount(0);
   await page.getByRole("button", { name: "Reject non-essential" }).click();
   await expect(page.getByRole("button", { name: "Privacy choices" })).toBeFocused();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
-  await page.getByRole("link", { name: "Create your team Account" }).click();
+  await page.getByRole("link", { name: "Create your team", exact: true }).last().click();
   await expect(page).toHaveURL("http://127.0.0.1:4173/signup?offer=team-monthly-v2");
   expect(state.analyticsEvents).toEqual([]);
 });
@@ -220,7 +220,7 @@ test("complete feature and policy inventory remains rendered, private, and acces
     await test.step(route.path, async () => {
       await page.goto(`http://127.0.0.1:4174${route.path}`);
       await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Privacy without the fog" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Your privacy choices" })).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
       expect(state.analyticsEvents, `${route.path} emitted before an analytics decision`).toEqual([]);
@@ -275,7 +275,7 @@ test("public consent history is inspectable and browser erasure reopens equal ch
 test("@text-zoom public acquisition remains usable at 200% text size", async ({ page }) => {
   const routes = [
     { path: "/", heading: "Know what needs you next." },
-    { path: "/pricing", heading: /One team/ },
+    { path: "/pricing", heading: /\$50 a month/ },
     ...publicFeatureAndPolicyRoutes
   ] as const;
 
@@ -313,7 +313,7 @@ test("@browser-zoom public acquisition reflows at 400% browser scale", async ({ 
 
   const routes = [
     { path: "/", heading: "Know what needs you next." },
-    { path: "/pricing", heading: /One team/ },
+    { path: "/pricing", heading: /\$50 a month/ },
     ...publicFeatureAndPolicyRoutes
   ] as const;
 

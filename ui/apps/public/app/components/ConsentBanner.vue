@@ -71,11 +71,11 @@ async function openPreferences(): Promise<void> {
   <section v-if="ready && (!preference?.decided || preference.renewal_required || managing)" ref="consentPanel" class="consent" aria-labelledby="consent-title">
     <div class="consent__copy">
       <p class="eyebrow">Your choice</p>
-      <h2 id="consent-title">Privacy without the fog</h2>
-      <p>Necessary storage keeps the site secure. Optional, content-free analytics improves landing, checkout and onboarding—never your business content.</p>
+      <h2 id="consent-title">Your privacy choices</h2>
+      <p>We use necessary storage to keep the site secure. If you allow analytics, we count basic steps such as landing, checkout and setup. We never include your business content.</p>
     </div>
     <div v-if="managing" class="consent__options">
-      <label><span><strong>Analytics</strong><small>Content-free journey events</small></span><input v-model="analytics" type="checkbox" /></label>
+      <label><span><strong>Analytics</strong><small>Basic site and signup activity, without your business content</small></span><input v-model="analytics" type="checkbox" /></label>
       <p><strong>Marketing tracking is not used.</strong> No marketing purpose, processor, cookie or destination is configured, so Spyglass does not ask you to consent to one.</p>
       <a class="consent__history-link" href="/privacy#consent-history">View this browser's consent history</a>
     </div>

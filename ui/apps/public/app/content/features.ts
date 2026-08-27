@@ -10,18 +10,120 @@ export interface PublicFeature {
 }
 
 export const publicFeatures: ReadonlyArray<PublicFeature> = [
-  { slug: "your-turn", name: "Your Turn", title: "Decide with context", summary: "Questions, reviews, approvals and recovery in one action-first queue.", purpose: "Your Turn separates moments that need human judgment from routine operational work, then explains the exact decision and its Account context.", workflows: ["Answer an information request with an exact Knowledge fact", "Accept or return assigned Work for changes", "Inspect and decide a consequential Agent proposal", "Resolve uncertain external outcomes with independent confirmation"], boundaries: ["Approval payloads, policy versions and evidence digests remain visible", "Stale decisions are rejected and reloaded", "Dual-control recovery cannot be confirmed by its requester"] },
-  { slug: "work", name: "Work", title: "Turn gaps into progress", summary: "Durable work, ownership, priorities and history across people and Agents.", purpose: "Work turns discovered gaps and planned outcomes into accountable items with explicit state, assignment and provenance.", workflows: ["Create and prioritize bounded work", "Assign people or governed Agent workflows", "Review outcomes and request changes", "Trace work back to source context"], boundaries: ["Account role and package mode govern every mutation", "Version conflicts require a fresh review", "Consequential results return through Your Turn"], packageCode: "work" },
-  { slug: "knowledge", name: "Knowledge", title: "Build memory with evidence", summary: "Facts, documents, revisions and citations stay attributable.", purpose: "Knowledge gives the business a versioned memory without turning drafts or guesses into silent authority.", workflows: ["Capture scoped facts and cited claims", "Revise documents without losing history", "Publish reviewed revisions", "Use exact fact versions when resolving Work"], boundaries: ["Draft and published states remain distinct", "Sensitivity and scope travel with knowledge", "Answers cite exact fact versions"], packageCode: "knowledge" },
-  { slug: "baseline", name: "Baseline", title: "See what is missing", summary: "A guided assessment connects evidence gaps to practical work.", purpose: "Baseline inventories the current operating picture, identifies evidence-backed gaps and proposes a reviewable plan.", workflows: ["Collect a bounded source inventory", "Review requirements and evidence", "Classify gaps and exceptions", "Approve proposed Work"], boundaries: ["Source grants are explicit and revocable", "Evidence decisions remain attributable", "Plan approval stays human-authorized"] },
-  { slug: "agents", name: "Agents", title: "Delegate inside boundaries", summary: "Versioned personas, approved tools and inspectable runs.", purpose: "Agents help move routine work while keeping their instructions, tools, evidence and consequential proposals inspectable.", workflows: ["Publish versioned Personas", "Organize Boardrooms and conversations", "Run bounded work with approved tools", "Inspect events, artifacts and recovery state"], boundaries: ["A run cannot silently expand its capabilities", "Consequential operations require Your Turn approval", "Uncertain external effects enter recovery instead of being guessed"], packageCode: "agents" },
-  { slug: "schedules", name: "Schedules", title: "Make recurrence explicit", summary: "Versioned schedules create governed work at reviewed times.", purpose: "Schedules make recurring operating rhythms visible, reviewable and suspendable.", workflows: ["Create and revise a schedule", "Inspect the next planned run", "Pause or resume recurrence", "Trace scheduled outcomes into Work and Agent runs"], boundaries: ["Schedules use Account authority and current versions", "Pausing does not erase history", "Execution remains subject to package and capability policy"] },
-  { slug: "finance", name: "Finance", title: "Keep records governed", summary: "Balanced entries, reconciliation and approvals without mixing product billing.", purpose: "Finance supports accountable operational records while keeping Spyglass subscription billing in its own commercial boundary.", workflows: ["Maintain ledgers and posting accounts", "Draft balanced journal entries", "Reconcile statements and periods", "Route material decisions for approval"], boundaries: ["Entries must balance in one supported currency", "Evidence and reversal history remain immutable", "Product subscriptions are not customer finance records"], packageCode: "finance" },
-  { slug: "marketing", name: "Marketing", title: "Move from plan to release", summary: "Governed campaigns, assets, channels and consequential publishing.", purpose: "Marketing connects planning and reviewed assets to bounded release operations.", workflows: ["Plan campaigns and revise assets", "Prepare channel releases", "Submit releases for review", "Activate, pause and complete campaigns"], boundaries: ["Publishing remains a consequential capability", "Asset and release revisions are versioned", "External uncertainty uses recovery rather than duplicate release"], packageCode: "marketing" },
-  { slug: "integrations", name: "Integrations", title: "Connect without surrendering control", summary: "Scoped credentials, health evidence and bounded execution.", purpose: "Integrations connect external systems through explicit capabilities and revocable credential bindings.", workflows: ["Create and authorize a connection", "Bind, rotate or revoke credentials", "Inspect health and execution evidence", "Resolve uncertain external actions"], boundaries: ["Credentials are never exposed back to the browser", "Capabilities are connector-specific and scoped", "Revocation and recovery preserve an audit trail"], packageCode: "integrations" },
-  { slug: "account-administration", name: "Account administration", title: "Keep authority understandable", summary: "Membership, roles, Account selection and package-aware access.", purpose: "Account administration makes ownership, billing authority, membership and effective package access explicit.", workflows: ["Select among authorized Accounts", "Invite and manage members", "Assign bounded roles", "Inspect current entitlements and billing state"], boundaries: ["The server remains the authorization authority", "Owner and billing authority are distinct", "Disabled packages explain access without leaking data"] },
-  { slug: "security", name: "Security and recovery", title: "Protect consequential authority", summary: "Passkeys, strong reauthentication, session control and dual-control recovery.", purpose: "Security raises assurance in proportion to the operation instead of treating one login as permanent authority.", workflows: ["Enroll passkeys and recovery material", "Confirm privileged actions", "Review and revoke sessions", "Recover uncertain or lost access safely"], boundaries: ["Owner authority requires security enrollment", "Privileged operations require recent strong authentication", "Recovery and consequential confirmation preserve separation of duties"] },
-  { slug: "export-lifecycle", name: "Export and lifecycle", title: "Leave with a traceable boundary", summary: "Account export, closure review, retention and privacy rights.", purpose: "Lifecycle controls make access, export, closure and erasure understandable rather than hiding them behind support requests.", workflows: ["Request and retrieve Account exports", "Review closure blockers and timing", "Cancel or complete closure", "Exercise privacy access and erasure choices"], boundaries: ["Legal, security and operational retention classes stay explicit", "Closure waits for governed blockers and timing", "Affiliate identity rights remain distinct from referred Account data"] }
+  {
+    slug: "your-turn",
+    name: "Your Turn",
+    title: "Handle what needs you",
+    summary: "Questions, reviews, approvals and problems that need your call—all in one list.",
+    purpose: "Your Turn puts the decisions only you can make in one place. Each item tells you what happened, what it needs and what happens after you answer.",
+    workflows: ["Answer a question that is holding up the work", "Approve finished work or send it back with changes", "Review an important action suggested by an AI agent", "Sort out an outside action when the result is unclear"],
+    boundaries: ["You can see exactly what you are approving", "Changed or out-of-date items must be reviewed again", "The person who asks for a sensitive recovery action cannot approve it alone"]
+  },
+  {
+    slug: "work",
+    name: "Work",
+    title: "Keep every job moving",
+    summary: "Clear tasks, owners, priorities and history for your team and AI agents.",
+    purpose: "Work gives every job a clear owner, status and next step. You can see what is moving, what is stuck and what needs another look.",
+    workflows: ["Create and prioritize work", "Assign it to a person or AI agent", "Review the result and ask for changes", "See why the work was created in the first place"],
+    boundaries: ["People can only make changes allowed by their role", "If someone else changes an item, you review the latest version", "Important results come back through Your Turn"],
+    packageCode: "work"
+  },
+  {
+    slug: "knowledge",
+    name: "Knowledge",
+    title: "Keep answers and documents together",
+    summary: "Save the facts your business runs on, along with where they came from.",
+    purpose: "Knowledge gives your team one dependable place for documents, answers and business rules. Old versions stay available, and unreviewed guesses do not quietly become fact.",
+    workflows: ["Save useful facts and the source behind them", "Update documents without losing the old version", "Review information before publishing it", "Use a saved answer to unblock work"],
+    boundaries: ["Drafts stay separate from approved information", "Private information keeps its access limits", "Answers point back to the exact information used"],
+    packageCode: "knowledge"
+  },
+  {
+    slug: "baseline",
+    name: "Baseline",
+    title: "Get the business out of your head",
+    summary: "Answer a few questions, bring in what you have and see what is missing.",
+    purpose: "Baseline helps Spyglass learn how your business works today. It finds missing information and turns the gaps you care about into a plan you can review.",
+    workflows: ["List the information and records you already have", "Review what the business needs", "See missing items and exceptions", "Approve the work Spyglass suggests"],
+    boundaries: ["You choose which sources Spyglass can use", "You can see who made each decision", "The final plan does not start without your approval"]
+  },
+  {
+    slug: "agents",
+    name: "Agents",
+    title: "Give AI agents real jobs",
+    summary: "Give each agent a job, the tools it needs and clear limits.",
+    purpose: "AI agents can handle routine work without getting free rein over your business. You decide their responsibilities, tools and limits, and you can inspect what they did.",
+    workflows: ["Set up an agent for a specific job", "Bring several agents together to work through a problem", "Let agents use only the tools you approve", "Review their work, results and problems"],
+    boundaries: ["An agent cannot give itself more access", "Important actions still need your approval", "If an outside action has an unclear result, Spyglass stops instead of guessing"],
+    packageCode: "agents"
+  },
+  {
+    slug: "schedules",
+    name: "Schedules",
+    title: "Stay ahead of recurring work",
+    summary: "Set up repeat work once and see exactly when it will run again.",
+    purpose: "Schedules keep inspections, follow-ups, reports and other repeat work from slipping through the cracks.",
+    workflows: ["Create or change a schedule", "See what will run next", "Pause and restart repeat work", "Follow scheduled work through to the result"],
+    boundaries: ["Only authorized team members can change schedules", "Pausing a schedule does not erase its history", "Scheduled work still follows the same access and approval rules"]
+  },
+  {
+    slug: "finance",
+    name: "Finance",
+    title: "Keep financial records organized",
+    summary: "Track entries, accounts and reconciliations without mixing them with your Spyglass bill.",
+    purpose: "Finance helps you keep clear internal records, balance entries and compare them with statements. Your Spyglass subscription stays separate.",
+    workflows: ["Set up ledgers and accounts", "Draft balanced entries", "Compare records with statements", "Send important entries for approval"],
+    boundaries: ["Every entry must balance in one supported currency", "Posted and reversed entries keep a permanent history", "Your Spyglass subscription is not mixed into your business records"],
+    packageCode: "finance"
+  },
+  {
+    slug: "marketing",
+    name: "Marketing",
+    title: "Plan it, review it, send it",
+    summary: "Keep campaigns, drafts, channels and approvals together from idea to release.",
+    purpose: "Marketing gives your team one place to plan a campaign, prepare the material and review it before anything goes out.",
+    workflows: ["Plan campaigns and update drafts", "Prepare releases for each channel", "Send a release for review", "Start, pause and finish campaigns"],
+    boundaries: ["Publishing requires the right approval", "Every draft and release keeps its version history", "If a channel gives an unclear result, Spyglass checks before trying again"],
+    packageCode: "marketing"
+  },
+  {
+    slug: "integrations",
+    name: "Integrations",
+    title: "Connect the tools you already use",
+    summary: "Choose what Spyglass can access, check connection health and disconnect at any time.",
+    purpose: "Integrations let Spyglass work with outside services without handing over more access than the job requires.",
+    workflows: ["Connect and approve an outside service", "Update or remove its credentials", "Check whether the connection is working", "Review an outside action when the result is unclear"],
+    boundaries: ["Passwords and access tokens are never shown back in the browser", "Each connection gets only the access it needs", "Disconnecting or fixing a connection keeps a useful history"],
+    packageCode: "integrations"
+  },
+  {
+    slug: "account-administration",
+    name: "Team administration",
+    title: "Manage your team and access",
+    summary: "Invite people, choose their roles and keep ownership and billing access clear.",
+    purpose: "Team administration makes it easy to see who belongs to the team, what they can do and who is responsible for ownership and billing.",
+    workflows: ["Switch between teams you can access", "Invite or remove team members", "Choose roles and responsibilities", "Check plan access and billing status"],
+    boundaries: ["The server checks access on every action", "Business ownership and billing access can be assigned separately", "Unavailable features stay closed without exposing their data"]
+  },
+  {
+    slug: "security",
+    name: "Security and recovery",
+    title: "Protect the important stuff",
+    summary: "Use passkeys, control active sessions and add extra checks to sensitive actions.",
+    purpose: "Spyglass asks for stronger proof when the action carries more risk. Signing in once does not give anyone unlimited authority forever.",
+    workflows: ["Set up passkeys and recovery codes", "Confirm a sensitive action", "Review and sign out active sessions", "Recover access safely"],
+    boundaries: ["Owners must finish security setup", "Sensitive changes require a recent security check", "High-risk recovery and approvals require another person when needed"]
+  },
+  {
+    slug: "export-lifecycle",
+    name: "Data and account closure",
+    title: "Get your data when you need it",
+    summary: "Download your business data, review account closure and manage privacy requests.",
+    purpose: "Your data should not be trapped. Spyglass gives you a clear way to request an export, close an account and understand what must be kept for legal or security reasons.",
+    workflows: ["Request and download a team data export", "See what must be handled before closure", "Cancel or finish an account closure", "Request access to or deletion of personal data"],
+    boundaries: ["Spyglass clearly explains records that must be kept", "An account closes only after required steps and waiting periods", "Affiliate privacy requests do not expose referred customers"]
+  }
 ];
 
 export const featureBySlug = (slug: string): PublicFeature | undefined => publicFeatures.find((feature) => feature.slug === slug);
