@@ -17,6 +17,11 @@ type Provider interface {
 	RetrieveSubscription(context.Context, string) (ProviderSubscription, error)
 }
 
+type CustomerBalanceProvider interface {
+	CreateCustomerBalanceCredit(context.Context, CreateCustomerBalanceCreditCommand) (CustomerBalanceTransaction, error)
+	CreateCustomerBalanceDebit(context.Context, CreateCustomerBalanceDebitCommand) (CustomerBalanceTransaction, error)
+}
+
 type PurchaseKind string
 
 const (
@@ -68,6 +73,31 @@ type CreatePortalCommand struct {
 	CustomerID     string
 	ReturnURL      string
 	IdempotencyKey string
+}
+
+type CreateCustomerBalanceCreditCommand struct {
+	AccountID      ids.AccountID
+	CustomerID     string
+	AmountMinor    int64
+	Currency       string
+	Reference      string
+	IdempotencyKey string
+}
+
+type CreateCustomerBalanceDebitCommand struct {
+	AccountID      ids.AccountID
+	CustomerID     string
+	AmountMinor    int64
+	Currency       string
+	Reference      string
+	IdempotencyKey string
+}
+
+type CustomerBalanceTransaction struct {
+	ID          string
+	CustomerID  string
+	AmountMinor int64
+	Currency    string
 }
 
 type HostedSession struct {

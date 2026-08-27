@@ -81,8 +81,12 @@ func TestCommissionRuleProducesPendingEarningAndImmutableReversal(t *testing.T) 
 		t.Fatalf("first invoice returned %v", err)
 	}
 	earning, err := affiliates.NewEarnedEntry(ids.CommissionEntryID(entryID), attribution, rule, "in_renewal", "pi_renewal", 2, now)
-	if err != nil || earning.AmountMinor != 1000 || earning.State != affiliates.CommissionPending || !earning.AvailableAt.Equal(now.Add(30*24*time.Hour)) {
+	if err != nil || earning.AmountMinor != 1000 || earning.State != affiliates.CommissionPending || !earning.AvailableAt.Equal(now) {
 		t.Fatalf("earning=%+v err=%v", earning, err)
+	}
+	discounted, err := rule.CommissionAmount(4500)
+	if err != nil || discounted != 900 {
+		t.Fatalf("discounted commission=%d err=%v", discounted, err)
 	}
 	reversal, err := affiliates.NewReversalEntry(ids.CommissionEntryID("10000000-0000-4000-8000-000000000009"), earning, "in_renewal", now.Add(time.Hour))
 	if err != nil || reversal.Kind != affiliates.CommissionReversal || reversal.ReversesID == nil || *reversal.ReversesID != earning.ID || reversal.State != affiliates.CommissionSettled {

@@ -26,12 +26,17 @@ const (
 
 	CommissionEarned   CommissionKind = "earned"
 	CommissionReversal CommissionKind = "reversal"
+	CommissionMaturity CommissionKind = "maturity"
+	CommissionVoid     CommissionKind = "void"
 
-	CommissionPending CommissionState = "pending"
-	CommissionSettled CommissionState = "settled"
+	CommissionPending   CommissionState = "pending"
+	CommissionAvailable CommissionState = "available"
+	CommissionVoided    CommissionState = "voided"
+	CommissionSettled   CommissionState = "settled"
 
-	AdverseRefund  AdverseKind = "refund"
-	AdverseDispute AdverseKind = "dispute"
+	AdverseRefund     AdverseKind = "refund"
+	AdverseDispute    AdverseKind = "dispute"
+	AdverseCreditNote AdverseKind = "credit_note"
 )
 
 var (
@@ -141,23 +146,48 @@ func (a Attribution) Lock(subscriptionID string, now time.Time) (Attribution, er
 }
 
 type CommissionRule struct {
-	ID                      ids.CommissionRuleID `json:"rule_id"`
-	Version                 uint64               `json:"version"`
-	OfferCode               string               `json:"offer_code"`
-	Currency                string               `json:"currency"`
-	EligibleInvoiceMinor    int64                `json:"eligible_invoice_minor"`
-	CommissionMinor         int64                `json:"commission_minor"`
-	InitialInvoiceQualifies bool                 `json:"initial_invoice_qualifies"`
-	MaximumCycles           uint32               `json:"maximum_cycles,omitempty"`
-	HoldDays                uint16               `json:"hold_days"`
-	EffectiveFrom           time.Time            `json:"effective_from"`
+	ID                        ids.CommissionRuleID `json:"rule_id"`
+	Version                   uint64               `json:"version"`
+	OfferCode                 string               `json:"offer_code"`
+	Currency                  string               `json:"currency"`
+	EligibleInvoiceMinor      int64                `json:"eligible_invoice_minor"`
+	CommissionMinor           int64                `json:"commission_minor"`
+	CommissionRateBasisPoints int64                `json:"commission_rate_basis_points"`
+	InitialInvoiceQualifies   bool                 `json:"initial_invoice_qualifies"`
+	MaximumCycles             uint32               `json:"maximum_cycles,omitempty"`
+	HoldDays                  uint16               `json:"hold_days"`
+	EffectiveFrom             time.Time            `json:"effective_from"`
 }
 
 func (r CommissionRule) Validate() error {
-	if ids.Validate(string(r.ID)) != nil || r.Version == 0 || !validCode(r.OfferCode) || len(r.Currency) != 3 || r.Currency != strings.ToUpper(r.Currency) || r.EligibleInvoiceMinor <= 0 || r.CommissionMinor <= 0 || r.CommissionMinor > r.EligibleInvoiceMinor || r.HoldDays > 180 || r.EffectiveFrom.IsZero() {
+	if ids.Validate(string(r.ID)) != nil || r.Version == 0 || !validCode(r.OfferCode) || len(r.Currency) != 3 || r.Currency != strings.ToUpper(r.Currency) || r.EligibleInvoiceMinor <= 0 || r.CommissionMinor <= 0 || r.CommissionMinor > r.EligibleInvoiceMinor || r.rateBasisPoints() <= 0 || r.rateBasisPoints() > 10_000 || r.HoldDays > 180 || r.EffectiveFrom.IsZero() {
 		return ErrInvalidRule
 	}
 	return nil
+}
+
+func (r CommissionRule) rateBasisPoints() int64 {
+	if r.CommissionRateBasisPoints > 0 {
+		return r.CommissionRateBasisPoints
+	}
+	if r.EligibleInvoiceMinor <= 0 || r.CommissionMinor <= 0 {
+		return 0
+	}
+	return (r.CommissionMinor*10_000 + r.EligibleInvoiceMinor/2) / r.EligibleInvoiceMinor
+}
+
+// CommissionAmount applies the immutable rule percentage to an eligible
+// pre-tax, post-discount subscription basis. Each invoice rounds independently
+// to the nearest cent, with an exact half-cent rounded upward.
+func (r CommissionRule) CommissionAmount(eligibleMinor int64) (int64, error) {
+	if r.Validate() != nil || eligibleMinor <= 0 || eligibleMinor > 99_999_999 {
+		return 0, ErrInvalidCommission
+	}
+	amount := (eligibleMinor*r.rateBasisPoints() + 5_000) / 10_000
+	if amount <= 0 || amount > eligibleMinor {
+		return 0, ErrInvalidCommission
+	}
+	return amount, nil
 }
 
 type CommissionEntry struct {
@@ -174,15 +204,20 @@ type CommissionEntry struct {
 	AmountMinor     int64                     `json:"amount_minor"`
 	Currency        string                    `json:"currency"`
 	ReversesID      *ids.CommissionEntryID    `json:"reverses_entry_id,omitempty"`
+	SourceID        *ids.CommissionEntryID    `json:"source_entry_id,omitempty"`
 	AvailableAt     time.Time                 `json:"available_at"`
 	CreatedAt       time.Time                 `json:"created_at"`
 }
 
 func NewEarnedEntry(id ids.CommissionEntryID, attribution Attribution, rule CommissionRule, invoiceID, paymentIntentID string, cycle uint32, now time.Time) (CommissionEntry, error) {
-	if attribution.State != AttributionLocked || attribution.RuleVersion != rule.Version || attribution.OfferCode != rule.OfferCode || rule.Validate() != nil || ids.Validate(string(id)) != nil || !validProviderID(invoiceID, "in_") || !validProviderID(paymentIntentID, "pi_") || cycle == 0 || now.IsZero() || (cycle == 1 && !rule.InitialInvoiceQualifies) || (rule.MaximumCycles > 0 && cycle > rule.MaximumCycles) {
+	return NewEarnedEntryAmount(id, attribution, rule, invoiceID, paymentIntentID, cycle, rule.CommissionMinor, now)
+}
+
+func NewEarnedEntryAmount(id ids.CommissionEntryID, attribution Attribution, rule CommissionRule, invoiceID, paymentIntentID string, cycle uint32, amountMinor int64, now time.Time) (CommissionEntry, error) {
+	if attribution.State != AttributionLocked || attribution.RuleVersion != rule.Version || attribution.OfferCode != rule.OfferCode || rule.Validate() != nil || ids.Validate(string(id)) != nil || !validProviderID(invoiceID, "in_") || (paymentIntentID != "" && !validProviderID(paymentIntentID, "pi_")) || cycle == 0 || amountMinor <= 0 || now.IsZero() || (cycle == 1 && !rule.InitialInvoiceQualifies) || (rule.MaximumCycles > 0 && cycle > rule.MaximumCycles) {
 		return CommissionEntry{}, ErrInvalidCommission
 	}
-	return CommissionEntry{ID: id, AffiliateID: attribution.AffiliateID, AttributionID: attribution.ID, RuleVersion: rule.Version, SubscriptionID: attribution.SubscriptionID, InvoiceID: invoiceID, PaymentIntentID: paymentIntentID, Cycle: cycle, Kind: CommissionEarned, State: CommissionPending, AmountMinor: rule.CommissionMinor, Currency: rule.Currency, AvailableAt: now.UTC().Add(time.Duration(rule.HoldDays) * 24 * time.Hour), CreatedAt: now.UTC()}, nil
+	return CommissionEntry{ID: id, AffiliateID: attribution.AffiliateID, AttributionID: attribution.ID, RuleVersion: rule.Version, SubscriptionID: attribution.SubscriptionID, InvoiceID: invoiceID, PaymentIntentID: paymentIntentID, Cycle: cycle, Kind: CommissionEarned, State: CommissionPending, AmountMinor: amountMinor, Currency: rule.Currency, AvailableAt: now.UTC(), CreatedAt: now.UTC()}, nil
 }
 
 func NewReversalEntry(id ids.CommissionEntryID, original CommissionEntry, invoiceID string, now time.Time) (CommissionEntry, error) {
@@ -193,6 +228,28 @@ func NewReversalEntry(id ids.CommissionEntryID, original CommissionEntry, invoic
 	return CommissionEntry{ID: id, AffiliateID: original.AffiliateID, AttributionID: original.AttributionID, RuleVersion: original.RuleVersion, SubscriptionID: original.SubscriptionID, InvoiceID: invoiceID, PaymentIntentID: original.PaymentIntentID, Cycle: original.Cycle, Kind: CommissionReversal, State: CommissionSettled, AmountMinor: original.AmountMinor, Currency: original.Currency, ReversesID: &reverses, AvailableAt: now.UTC(), CreatedAt: now.UTC()}, nil
 }
 
+func NewMaturityEntry(id ids.CommissionEntryID, original CommissionEntry, successorInvoiceID string, now time.Time) (CommissionEntry, error) {
+	if original.Kind != CommissionEarned || ids.Validate(string(id)) != nil || !validProviderID(successorInvoiceID, "in_") || now.IsZero() || now.Before(original.CreatedAt) {
+		return CommissionEntry{}, ErrInvalidCommission
+	}
+	source := original.ID
+	return CommissionEntry{ID: id, AffiliateID: original.AffiliateID, AttributionID: original.AttributionID,
+		RuleVersion: original.RuleVersion, SubscriptionID: original.SubscriptionID, InvoiceID: successorInvoiceID,
+		Cycle: original.Cycle, Kind: CommissionMaturity, State: CommissionSettled, AmountMinor: original.AmountMinor,
+		Currency: original.Currency, SourceID: &source, AvailableAt: now.UTC(), CreatedAt: now.UTC()}, nil
+}
+
+func NewVoidEntry(id ids.CommissionEntryID, original CommissionEntry, now time.Time) (CommissionEntry, error) {
+	if original.Kind != CommissionEarned || ids.Validate(string(id)) != nil || now.IsZero() || now.Before(original.CreatedAt) {
+		return CommissionEntry{}, ErrInvalidCommission
+	}
+	source := original.ID
+	return CommissionEntry{ID: id, AffiliateID: original.AffiliateID, AttributionID: original.AttributionID,
+		RuleVersion: original.RuleVersion, SubscriptionID: original.SubscriptionID, InvoiceID: original.InvoiceID,
+		Cycle: original.Cycle, Kind: CommissionVoid, State: CommissionSettled, AmountMinor: original.AmountMinor,
+		Currency: original.Currency, SourceID: &source, AvailableAt: now.UTC(), CreatedAt: now.UTC()}, nil
+}
+
 // AdverseBillingEvidence is the minimal, verified provider evidence needed to
 // reverse a commission. It deliberately excludes customer and payment-method
 // data and is safe to retain as immutable commercial evidence.
@@ -201,6 +258,8 @@ type AdverseBillingEvidence struct {
 	Kind             AdverseKind
 	ProviderObjectID string
 	PaymentIntentID  string
+	InvoiceID        string
+	InvoiceLineIDs   []string
 	AmountMinor      int64
 	Currency         string
 	OccurredAt       time.Time
@@ -212,13 +271,31 @@ func (e AdverseBillingEvidence) Validate() error {
 	case AdverseRefund:
 		prefix = "re_"
 	case AdverseDispute:
-		prefix = "du_"
+		prefix = "dp_"
+	case AdverseCreditNote:
+		prefix = "cn_"
 	default:
 		return ErrInvalidAdverse
 	}
-	if !validProviderID(string(e.EventID), "evt_") || !validProviderID(e.ProviderObjectID, prefix) ||
-		!validProviderID(e.PaymentIntentID, "pi_") || e.AmountMinor <= 0 || len(e.Currency) != 3 ||
+	if !validProviderID(string(e.EventID), "evt_") || !validProviderID(e.ProviderObjectID, prefix) || e.AmountMinor <= 0 || len(e.Currency) != 3 ||
 		e.Currency != strings.ToUpper(e.Currency) || e.OccurredAt.IsZero() {
+		return ErrInvalidAdverse
+	}
+	if e.Kind == AdverseCreditNote {
+		if e.PaymentIntentID != "" || !validProviderID(e.InvoiceID, "in_") || len(e.InvoiceLineIDs) == 0 {
+			return ErrInvalidAdverse
+		}
+		seen := make(map[string]struct{}, len(e.InvoiceLineIDs))
+		for _, lineID := range e.InvoiceLineIDs {
+			if !validProviderID(lineID, "il_") {
+				return ErrInvalidAdverse
+			}
+			if _, duplicate := seen[lineID]; duplicate {
+				return ErrInvalidAdverse
+			}
+			seen[lineID] = struct{}{}
+		}
+	} else if !validProviderID(e.PaymentIntentID, "pi_") || e.InvoiceID != "" || len(e.InvoiceLineIDs) != 0 {
 		return ErrInvalidAdverse
 	}
 	return nil

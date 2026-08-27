@@ -484,8 +484,8 @@ func runPrivacyRightsAdmin(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
-	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "inspect-risk" && os.Args[2] != "activate" && os.Args[2] != "suspend" && os.Args[2] != "close") {
-		return errors.New("usage: spyglass affiliate-admin inspect|inspect-risk|activate|suspend|close")
+	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "inspect-risk" && os.Args[2] != "activate" && os.Args[2] != "suspend" && os.Args[2] != "close" && os.Args[2] != "set-check-threshold" && os.Args[2] != "reserve-check" && os.Args[2] != "settle-check" && os.Args[2] != "release-check") {
+		return errors.New("usage: spyglass affiliate-admin inspect|inspect-risk|activate|suspend|close|set-check-threshold|reserve-check|settle-check|release-check")
 	}
 	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
 	if err != nil {
@@ -507,9 +507,12 @@ func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	affiliateID, err := requiredEnv("SPYGLASS_AFFILIATE_ID")
-	if err != nil {
-		return err
+	affiliateID := ""
+	if os.Args[2] != "set-check-threshold" && os.Args[2] != "settle-check" && os.Args[2] != "release-check" {
+		affiliateID, err = requiredEnv("SPYGLASS_AFFILIATE_ID")
+		if err != nil {
+			return err
+		}
 	}
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 2)
 	if err != nil {
@@ -517,14 +520,61 @@ func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
 	}
 	config := affiliatecommand.Config{DatabaseURL: databaseURL, Action: os.Args[2], Actor: actor, Reason: reason,
 		Environment: environment, ConfirmEnvironment: confirmation, AffiliateID: ids.AffiliateID(affiliateID), MaxDatabaseConns: maxConns}
-	if config.Action != "inspect" && config.Action != "inspect-risk" {
+	if config.Action == "set-check-threshold" {
+		config.ExpectedPolicyVersion, err = uint64Env("SPYGLASS_AFFILIATE_SETTLEMENT_POLICY_VERSION")
+		if err != nil {
+			return err
+		}
+		config.NewPolicyVersion, err = uint64Env("SPYGLASS_AFFILIATE_SETTLEMENT_NEW_POLICY_VERSION")
+		if err != nil {
+			return err
+		}
+		config.CheckThresholdMinor, err = int64Env("SPYGLASS_AFFILIATE_CHECK_THRESHOLD_MINOR", 0)
+		if err != nil {
+			return err
+		}
+	} else if config.Action == "reserve-check" {
+		customerSessionID, requiredErr := requiredEnv("SPYGLASS_AFFILIATE_CUSTOMER_SESSION_ID")
+		if requiredErr != nil {
+			return requiredErr
+		}
+		config.CustomerSessionID = ids.SessionID(customerSessionID)
+		config.CheckAmountMinor, err = int64Env("SPYGLASS_AFFILIATE_CHECK_AMOUNT_MINOR", 0)
+		if err != nil {
+			return err
+		}
+	} else if config.Action == "settle-check" || config.Action == "release-check" {
+		config.CheckReservationID, err = requiredEnv("SPYGLASS_AFFILIATE_CHECK_RESERVATION_ID")
+		if err != nil {
+			return err
+		}
+		config.ExpectedVersion, err = uint64Env("SPYGLASS_AFFILIATE_CHECK_RESERVATION_VERSION")
+		if err != nil {
+			return err
+		}
+	} else if config.Action != "inspect" && config.Action != "inspect-risk" {
 		config.ExpectedVersion, err = uint64Env("SPYGLASS_AFFILIATE_VERSION")
 		if err != nil {
 			return err
 		}
 	}
-	scopeValues := map[string]string{"affiliate_id": string(config.AffiliateID)}
-	if config.Action != "inspect" && config.Action != "inspect-risk" {
+	scopeValues := map[string]string{}
+	if config.Action == "set-check-threshold" {
+		scopeValues["expected_policy_version"] = strconv.FormatUint(config.ExpectedPolicyVersion, 10)
+		scopeValues["new_policy_version"] = strconv.FormatUint(config.NewPolicyVersion, 10)
+		scopeValues["check_threshold_minor"] = strconv.FormatInt(config.CheckThresholdMinor, 10)
+	} else if config.Action == "settle-check" || config.Action == "release-check" {
+		scopeValues["check_reservation_id"] = config.CheckReservationID
+		scopeValues["expected_version"] = strconv.FormatUint(config.ExpectedVersion, 10)
+	} else {
+		scopeValues["affiliate_id"] = string(config.AffiliateID)
+	}
+	if config.Action == "reserve-check" {
+		scopeValues["customer_session_id"] = string(config.CustomerSessionID)
+		scopeValues["check_amount_minor"] = strconv.FormatInt(config.CheckAmountMinor, 10)
+	}
+	if config.Action != "inspect" && config.Action != "inspect-risk" && config.Action != "set-check-threshold" &&
+		config.Action != "reserve-check" && config.Action != "settle-check" && config.Action != "release-check" {
 		scopeValues["expected_version"] = strconv.FormatUint(config.ExpectedVersion, 10)
 	}
 	config.Reason, err = requireOperatorAuthorization(logger, "affiliate-admin", config.Action, config.Actor, config.Reason,
@@ -3384,7 +3434,7 @@ func productionConfig() (persistentConfig, error) {
 	if err != nil {
 		return persistentConfig{}, err
 	}
-	result.affiliateSettlementMode, err = enumEnv("SPYGLASS_AFFILIATE_SETTLEMENT_MODE", "unconfigured", "unconfigured", "account_credit", "cash")
+	result.affiliateSettlementMode, err = enumEnv("SPYGLASS_AFFILIATE_SETTLEMENT_MODE", "unconfigured", "unconfigured", "account_credit", "cash", "account_credit_with_support_check")
 	if err != nil {
 		return persistentConfig{}, err
 	}

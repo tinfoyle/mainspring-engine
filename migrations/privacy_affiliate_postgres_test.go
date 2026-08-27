@@ -40,7 +40,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	if _, err := migrations.Apply(ctx, pool, migrations.Global); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
 	const affiliateUser = "10000000-0000-4000-8000-000000000001"
 	const customerUser = "10000000-0000-4000-8000-000000000002"
 	const affiliateAccount = "10000000-0000-4000-8000-000000000003"
@@ -57,10 +57,16 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		`INSERT INTO memberships(id,account_id,user_id,role,state,created_at) VALUES
 		 ('10000000-0000-4000-8000-000000000006','` + affiliateAccount + `','` + affiliateUser + `','owner','active',$1),
 		 ('10000000-0000-4000-8000-000000000007','` + customerAccount + `','` + customerUser + `','owner','active',$1)`,
+		`INSERT INTO billing_profiles(account_id,stripe_customer_id,billing_email,version,created_at,updated_at)
+		 VALUES ('` + affiliateAccount + `','cus_affiliate_settlement','affiliate@example.test',1,$1,$1)`,
 		`INSERT INTO billing_checkout_attempts(request_id,account_id,provider,mode,offer_code,state,expires_at,created_at,updated_at)
 		 VALUES ('` + checkoutRequest + `','` + customerAccount + `','stripe','test','team-monthly-v1','active',$1::timestamptz+interval '30 minutes',$1,$1)`,
 		`INSERT INTO affiliate_commission_rules(rule_id,version,offer_code,currency,eligible_invoice_minor,commission_minor,initial_invoice_qualifies,maximum_cycles,hold_days,effective_from)
 		 VALUES ('10000000-0000-4000-8000-000000000008',1,'team-monthly-v1','USD',5000,1000,false,0,30,$1)`,
+		`INSERT INTO catalog_publications(version,state,content,content_hash,created_at,created_by,change_reason)
+		 SELECT 999,'draft',content,decode(repeat('99',32),'hex'),$1,'migration-test','exercise Affiliate line matching' FROM catalog_publications WHERE version=1`,
+		`INSERT INTO offer_provider_prices(catalog_version,offer_code,provider,mode,provider_price_id,active,created_at)
+		 VALUES (999,'team-monthly-v1','stripe','test','price_affiliate_team',true,$1)`,
 	}
 	for _, statement := range statements {
 		if _, err := pool.Exec(ctx, statement, now); err != nil {
@@ -229,7 +235,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		t.Fatalf("retired public code lookup error=%v", err)
 	}
 	attribution, err := affiliateService.Reserve(ctx, affiliateprogram.ReserveCommand{PublicCode: enrollment.PublicCode,
-		ReferredAccountID: customerAccount, CheckoutRequestID: checkoutRequest, OfferCode: "team-monthly-v1", OfferVersion: 1})
+		ReferredAccountID: customerAccount, CheckoutRequestID: checkoutRequest, OfferCode: "team-monthly-v1", OfferVersion: 999})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +261,8 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	if _, err := pool.Exec(ctx, `DELETE FROM affiliate_public_code_history WHERE public_code='IO-PARTNER1'`); err == nil {
 		t.Fatal("retired Affiliate public code history was deletable")
 	}
-	paid := affiliateprogram.PaidInvoice{SubscriptionID: "sub_affiliate_test", InvoiceID: "in_affiliate_renewal", PaymentIntentID: "pi_affiliate_renewal", AmountPaidMinor: 5000, Currency: "USD"}
+	paid := affiliateprogram.PaidInvoice{SubscriptionID: "sub_affiliate_test", InvoiceID: "in_affiliate_renewal", PaymentIntentID: "pi_affiliate_renewal", AmountPaidMinor: 5000, Currency: "USD", Mode: "test",
+		Lines: []affiliateprogram.InvoiceLine{{ID: "il_affiliate_renewal", ProviderPriceID: "price_affiliate_team", AmountMinor: 5000, Currency: "USD"}}}
 	first, err := affiliateService.RecordPaidInvoice(ctx, paid)
 	if err != nil {
 		t.Fatal(err)
@@ -266,13 +273,14 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	}
 	partial := affiliates.AdverseBillingEvidence{EventID: "evt_affiliate_partial_refund", Kind: affiliates.AdverseRefund,
 		ProviderObjectID: "re_affiliate_partial", PaymentIntentID: paid.PaymentIntentID, AmountMinor: 2000, Currency: "USD", OccurredAt: now}
-	if reversal, reversed, err := affiliateService.RecordAdverseBilling(ctx, partial); err != nil || reversed {
-		t.Fatalf("partial reversal=%+v reversed=%v err=%v", reversal, reversed, err)
+	partialReversal, reversed, err := affiliateService.RecordAdverseBilling(ctx, partial)
+	if err != nil || !reversed || partialReversal.ReversesID == nil || *partialReversal.ReversesID != first.ID {
+		t.Fatalf("partial reversal=%+v reversed=%v err=%v", partialReversal, reversed, err)
 	}
 	remaining := affiliates.AdverseBillingEvidence{EventID: "evt_affiliate_remaining_refund", Kind: affiliates.AdverseRefund,
 		ProviderObjectID: "re_affiliate_remaining", PaymentIntentID: paid.PaymentIntentID, AmountMinor: 3000, Currency: "USD", OccurredAt: now}
 	reversal, reversed, err := affiliateService.RecordAdverseBilling(ctx, remaining)
-	if err != nil || !reversed || reversal.ReversesID == nil || *reversal.ReversesID != first.ID {
+	if err != nil || !reversed || reversal.ID != partialReversal.ID || reversal.ReversesID == nil || *reversal.ReversesID != first.ID {
 		t.Fatalf("full reversal=%+v reversed=%v err=%v", reversal, reversed, err)
 	}
 	replayed, replayedReversal, err := affiliateService.RecordAdverseBilling(ctx, remaining)
@@ -283,22 +291,149 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		t.Fatal("Affiliate adverse provider evidence was mutable")
 	}
 	futureEvidence := affiliates.AdverseBillingEvidence{EventID: "evt_affiliate_early_dispute", Kind: affiliates.AdverseDispute,
-		ProviderObjectID: "du_affiliate_early", PaymentIntentID: "pi_affiliate_next", AmountMinor: 5000, Currency: "USD", OccurredAt: now}
+		ProviderObjectID: "dp_affiliate_early", PaymentIntentID: "pi_affiliate_next", AmountMinor: 5000, Currency: "USD", OccurredAt: now}
 	if early, reversed, err := affiliateService.RecordAdverseBilling(ctx, futureEvidence); err != nil || reversed {
 		t.Fatalf("early adverse evidence reversal=%+v reversed=%v err=%v", early, reversed, err)
 	}
 	next, err := affiliateService.RecordPaidInvoice(ctx, affiliateprogram.PaidInvoice{SubscriptionID: "sub_affiliate_test",
-		InvoiceID: "in_affiliate_next", PaymentIntentID: futureEvidence.PaymentIntentID, AmountPaidMinor: 5000, Currency: "USD"})
+		InvoiceID: "in_affiliate_next", PaymentIntentID: futureEvidence.PaymentIntentID, AmountPaidMinor: 5000, Currency: "USD", Mode: "test",
+		Lines: []affiliateprogram.InvoiceLine{{ID: "il_affiliate_next", ProviderPriceID: "price_affiliate_team", AmountMinor: 5000, Currency: "USD"}}})
 	if err != nil || next.Cycle != 3 {
 		t.Fatalf("next earning=%+v err=%v", next, err)
 	}
 	statement, err := affiliateService.Statement(ctx, affiliateUser)
-	if err != nil || statement.ReferredSubscriptions != 1 || statement.PendingMinor != 2000 || statement.ReversedMinor != 2000 || len(statement.Entries) != 4 {
+	if err != nil || statement.ReferredSubscriptions != 1 || statement.PendingMinor != 0 || statement.AvailableMinor != 0 || statement.ReversedMinor != 2000 || len(statement.Entries) != 4 {
 		t.Fatalf("Affiliate statement=%+v err=%v", statement, err)
+	}
+	third, err := affiliateService.RecordPaidInvoice(ctx, affiliateprogram.PaidInvoice{SubscriptionID: "sub_affiliate_test",
+		InvoiceID: "in_affiliate_third", PaymentIntentID: "pi_affiliate_third", AmountPaidMinor: 4500, Currency: "USD", Mode: "test",
+		Lines: []affiliateprogram.InvoiceLine{{ID: "il_affiliate_third", ProviderPriceID: "price_affiliate_team", AmountMinor: 4500, Currency: "USD"}}})
+	if err != nil || third.AmountMinor != 900 || third.Cycle != 4 {
+		t.Fatalf("third earning=%+v err=%v", third, err)
+	}
+	fourth, err := affiliateService.RecordPaidInvoice(ctx, affiliateprogram.PaidInvoice{SubscriptionID: "sub_affiliate_test",
+		InvoiceID: "in_affiliate_fourth", PaymentIntentID: "pi_affiliate_fourth", AmountPaidMinor: 5000, Currency: "USD", Mode: "test",
+		Lines: []affiliateprogram.InvoiceLine{{ID: "il_affiliate_fourth", ProviderPriceID: "price_affiliate_team", AmountMinor: 5000, Currency: "USD"}}})
+	if err != nil || fourth.Cycle != 5 {
+		t.Fatalf("fourth earning=%+v err=%v", fourth, err)
 	}
 	affiliateAdmin, err := affiliateadmin.New(postgresadapter.NewAffiliateAdminRepository(pool), ids.RandomGenerator{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	policy, err := affiliateAdmin.PublishSettlementPolicy(ctx, 1, 2, 500, "affiliate-operator@example.test",
+		"Exercise the reviewed Support check threshold", "local")
+	if err != nil || policy.Version != 2 || policy.CheckThresholdMinor != 500 {
+		t.Fatalf("Affiliate settlement policy=%+v err=%v", policy, err)
+	}
+	var settlementNow time.Time
+	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&settlementNow); err != nil {
+		t.Fatal(err)
+	}
+	const affiliatePasskeySession = "10000000-0000-4000-8000-000000000089"
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO sessions
+			(id,user_id,token_hash,security_version,authenticated_at,reauthenticated_at,last_seen_at,rotated_at,expires_at,
+			 client_label,authentication_method,reauthentication_method)
+		SELECT $1,$2,decode(repeat('89',32),'hex'),security_version,statement_timestamp()-interval '1 minute',
+		       statement_timestamp(),statement_timestamp(),statement_timestamp(),statement_timestamp()+interval '1 hour',
+		       'Affiliate Support confirmation','password','passkey'
+		FROM users WHERE id=$2`, affiliatePasskeySession, affiliateUser); err != nil {
+		t.Fatal(err)
+	}
+	checkReservation, err := affiliateAdmin.ReserveSupportCheck(ctx, enrollment.ID, affiliatePasskeySession, 500,
+		"affiliate-operator@example.test", "Reserve the customer-confirmed Support check amount", "local")
+	if err != nil || checkReservation.State != "reserved" || checkReservation.AmountMinor != 500 || checkReservation.PolicyVersion != 2 {
+		t.Fatalf("Affiliate Support check reservation=%+v err=%v", checkReservation, err)
+	}
+	policy, err = affiliateAdmin.PublishSettlementPolicy(ctx, 2, 3, 500, "affiliate-operator@example.test",
+		"Prove reservations retain their original settlement policy", "local")
+	if err != nil || policy.Version != 3 || policy.CheckThresholdMinor != 500 {
+		t.Fatalf("replacement Affiliate settlement policy=%+v err=%v", policy, err)
+	}
+	releasedCheck, err := affiliateAdmin.TransitionSupportCheck(ctx, checkReservation.ID, checkReservation.Version, "released",
+		"affiliate-operator@example.test", "Release the canceled Support check review", "local")
+	if err != nil || releasedCheck.State != "released" || releasedCheck.Version != 2 || releasedCheck.PolicyVersion != 2 {
+		t.Fatalf("released Affiliate Support check=%+v err=%v", releasedCheck, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&settlementNow); err != nil {
+		t.Fatal(err)
+	}
+	settlementRepository := postgresadapter.NewAffiliateSettlementRepository(pool)
+	reservations, err := settlementRepository.PrepareInvoiceCredits(ctx, "10000000-0000-4000-8000-000000000090", affiliateAccount,
+		"in_affiliate_account_renewal", 5350, "USD", settlementNow)
+	if err != nil || len(reservations) != 1 || reservations[0].AmountMinor != 900 || reservations[0].PolicyVersion != 3 || reservations[0].ProviderCustomerID != "cus_affiliate_settlement" {
+		t.Fatalf("Affiliate credit reservations=%+v err=%v", reservations, err)
+	}
+	credited, err := settlementRepository.CompleteInvoiceCredit(ctx, reservations[0].ID, "cus_affiliate_settlement", "cbtxn_affiliate_credit", settlementNow)
+	if err != nil || credited.State != "credited" {
+		t.Fatalf("credited reservation=%+v err=%v", credited, err)
+	}
+	settledMinor, err := settlementRepository.SettleInvoiceCredits(ctx, "in_affiliate_account_renewal", settlementNow)
+	if err != nil || settledMinor != 900 {
+		t.Fatalf("settled credit=%d err=%v", settledMinor, err)
+	}
+	settlementSnapshot, err := affiliateRepository.SettlementSnapshot(ctx, enrollment.ID)
+	if err != nil || settlementSnapshot.AvailableMinor != 0 || settlementSnapshot.ReservedMinor != 0 || settlementSnapshot.SettledMinor != 900 || settlementSnapshot.CheckThresholdMinor != 500 {
+		t.Fatalf("settlement snapshot=%+v err=%v", settlementSnapshot, err)
+	}
+	settledAdverse := affiliates.AdverseBillingEvidence{EventID: "evt_affiliate_settled_credit_note", Kind: affiliates.AdverseCreditNote,
+		ProviderObjectID: "cn_affiliate_settled", InvoiceID: "in_affiliate_third", InvoiceLineIDs: []string{"il_affiliate_third"},
+		AmountMinor: 1, Currency: "USD", OccurredAt: now}
+	settledReversal, reversed, err := affiliateService.RecordAdverseBilling(ctx, settledAdverse)
+	if err != nil || !reversed || settledReversal.ReversesID == nil || *settledReversal.ReversesID != third.ID {
+		t.Fatalf("settled Affiliate reversal=%+v reversed=%v err=%v", settledReversal, reversed, err)
+	}
+	adjustments, err := settlementRepository.PrepareReversalAdjustments(ctx, "10000000-0000-4000-8000-000000000091", settledAdverse.ProviderObjectID, settlementNow)
+	if err != nil || len(adjustments) != 1 || adjustments[0].Kind != "customer_balance_debit" || adjustments[0].State != "pending" || adjustments[0].AmountMinor != 900 {
+		t.Fatalf("Affiliate reversal adjustments=%+v err=%v", adjustments, err)
+	}
+	adjusted, err := settlementRepository.CompleteReversalAdjustment(ctx, adjustments[0].ID, "cus_affiliate_settlement", "cbtxn_affiliate_reversal", settlementNow)
+	if err != nil || adjusted.State != "applied" {
+		t.Fatalf("Affiliate reversal adjustment=%+v err=%v", adjusted, err)
+	}
+	commissioningCredit := affiliates.AdverseBillingEvidence{EventID: "evt_affiliate_commissioning_credit_note", Kind: affiliates.AdverseCreditNote,
+		ProviderObjectID: "cn_affiliate_commissioning", InvoiceID: "in_affiliate_fourth", InvoiceLineIDs: []string{"il_commissioning_only"},
+		AmountMinor: 25_000, Currency: "USD", OccurredAt: now}
+	if entry, reversed, err := affiliateService.RecordAdverseBilling(ctx, commissioningCredit); err != nil || reversed || entry.ID != "" {
+		t.Fatalf("commissioning-only credit note reversal=%+v reversed=%v err=%v", entry, reversed, err)
+	}
+	fifth, err := affiliateService.RecordPaidInvoice(ctx, affiliateprogram.PaidInvoice{SubscriptionID: "sub_affiliate_test",
+		InvoiceID: "in_affiliate_fifth", PaymentIntentID: "pi_affiliate_fifth", AmountPaidMinor: 5000, Currency: "USD", Mode: "test",
+		Lines: []affiliateprogram.InvoiceLine{{ID: "il_affiliate_fifth", ProviderPriceID: "price_affiliate_team", AmountMinor: 5000, Currency: "USD"}}})
+	if err != nil || fifth.Cycle != 6 {
+		t.Fatalf("fifth earning=%+v err=%v", fifth, err)
+	}
+	settledCheck, err := affiliateAdmin.ReserveSupportCheck(ctx, enrollment.ID, affiliatePasskeySession, 500,
+		"affiliate-operator@example.test", "Reserve the reviewed Support check accounting amount", "local")
+	if err != nil || settledCheck.State != "reserved" || settledCheck.AmountMinor != 500 || settledCheck.PolicyVersion != 3 {
+		t.Fatalf("settled Support check reservation=%+v err=%v", settledCheck, err)
+	}
+	settledCheck, err = affiliateAdmin.TransitionSupportCheck(ctx, settledCheck.ID, settledCheck.Version, "settled",
+		"affiliate-operator@example.test", "Record the externally completed Support check", "local")
+	if err != nil || settledCheck.State != "settled" {
+		t.Fatalf("settled Support check accounting=%+v err=%v", settledCheck, err)
+	}
+	checkAdverse := affiliates.AdverseBillingEvidence{EventID: "evt_affiliate_check_refund", Kind: affiliates.AdverseRefund,
+		ProviderObjectID: "re_affiliate_check", PaymentIntentID: "pi_affiliate_fourth", AmountMinor: 1, Currency: "USD", OccurredAt: now}
+	checkReversal, reversed, err := affiliateService.RecordAdverseBilling(ctx, checkAdverse)
+	if err != nil || !reversed || checkReversal.ReversesID == nil || *checkReversal.ReversesID != fourth.ID {
+		t.Fatalf("Support-check earning reversal=%+v reversed=%v err=%v", checkReversal, reversed, err)
+	}
+	checkAdjustments, err := settlementRepository.PrepareReversalAdjustments(ctx, "10000000-0000-4000-8000-000000000092", checkAdverse.ProviderObjectID, settlementNow)
+	if err != nil || len(checkAdjustments) != 1 || checkAdjustments[0].Kind != "support_check_recovery" ||
+		checkAdjustments[0].State != "applied" || checkAdjustments[0].AmountMinor != 500 {
+		t.Fatalf("Support-check recovery adjustments=%+v err=%v", checkAdjustments, err)
+	}
+	sixth, err := affiliateService.RecordPaidInvoice(ctx, affiliateprogram.PaidInvoice{SubscriptionID: "sub_affiliate_test",
+		InvoiceID: "in_affiliate_sixth", PaymentIntentID: "pi_affiliate_sixth", AmountPaidMinor: 5000, Currency: "USD", Mode: "test",
+		Lines: []affiliateprogram.InvoiceLine{{ID: "il_affiliate_sixth", ProviderPriceID: "price_affiliate_team", AmountMinor: 5000, Currency: "USD"}}})
+	if err != nil || sixth.Cycle != 7 {
+		t.Fatalf("sixth earning=%+v err=%v", sixth, err)
+	}
+	recoveredSnapshot, err := affiliateRepository.SettlementSnapshot(ctx, enrollment.ID)
+	if err != nil || recoveredSnapshot.AvailableMinor != 500 || recoveredSnapshot.ReservedMinor != 0 || recoveredSnapshot.CheckThresholdMinor != 500 {
+		t.Fatalf("Support-check recovery snapshot=%+v err=%v", recoveredSnapshot, err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE affiliate_attributions
 		SET created_at=statement_timestamp()-interval '1 hour',locked_at=statement_timestamp()-interval '30 minutes'
@@ -343,6 +478,10 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	if err != nil || closed.Version != 6 || closed.State != affiliates.EnrollmentClosed {
 		t.Fatalf("closed enrollment=%+v err=%v", closed, err)
 	}
+	var closureVoids int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM affiliate_commission_entries WHERE kind='void' AND source_entry_id=$1`, sixth.ID).Scan(&closureVoids); err != nil || closureVoids != 1 {
+		t.Fatalf("closure voids=%d err=%v", closureVoids, err)
+	}
 	if _, err := affiliateAdmin.Transition(ctx, enrollment.ID, closed.Version, affiliates.EnrollmentActive,
 		"affiliate-operator@example.test", "Attempt to reopen a terminal enrollment", "local"); !errors.Is(err, affiliateadmin.ErrStateConflict) {
 		t.Fatalf("closed Affiliate transition error=%v", err)
@@ -359,25 +498,33 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		GRANT USAGE ON SCHEMA public TO `+affiliateOperatorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_enrollment(uuid,uuid,text,text,text) TO `+affiliateOperatorRole+`;
 		GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_risk(uuid,uuid,text,text,text) TO `+affiliateOperatorRole+`;
-		GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text) TO `+affiliateOperatorRole); err != nil {
+		GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text) TO `+affiliateOperatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_publish_affiliate_settlement_policy(uuid,bigint,bigint,bigint,text,text,text) TO `+affiliateOperatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_reserve_affiliate_support_check(uuid,uuid,uuid,uuid,bigint,text,text,text) TO `+affiliateOperatorRole+`;
+		GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_support_check(uuid,uuid,bigint,text,text,text,text) TO `+affiliateOperatorRole); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
 		_, _ = pool.Exec(context.Background(), `DROP OWNED BY `+affiliateOperatorRole+`; DROP ROLE `+affiliateOperatorRole)
 	}()
-	var affiliateDirectAccess, affiliateAttributionAccess, affiliateCodeHistoryAccess, affiliateInspectAccess, affiliateRiskAccess, affiliateTransitionAccess bool
+	var affiliateDirectAccess, affiliateAttributionAccess, affiliateCodeHistoryAccess, affiliateInspectAccess, affiliateRiskAccess, affiliateTransitionAccess, affiliatePolicyAccess, affiliateCheckReserveAccess, affiliateCheckTransitionAccess bool
 	if err := pool.QueryRow(ctx, `SELECT
 		has_table_privilege($1,'public.affiliate_enrollments','SELECT'),
 		has_table_privilege($1,'public.affiliate_attributions','SELECT'),
 		has_table_privilege($1,'public.affiliate_public_code_history','SELECT'),
 		has_function_privilege($1,'public.spyglass_inspect_affiliate_enrollment(uuid,uuid,text,text,text)','EXECUTE'),
 		has_function_privilege($1,'public.spyglass_inspect_affiliate_risk(uuid,uuid,text,text,text)','EXECUTE'),
-		has_function_privilege($1,'public.spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text)','EXECUTE')`, affiliateOperatorRole).Scan(
+		has_function_privilege($1,'public.spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text)','EXECUTE'),
+		has_function_privilege($1,'public.spyglass_publish_affiliate_settlement_policy(uuid,bigint,bigint,bigint,text,text,text)','EXECUTE'),
+		has_function_privilege($1,'public.spyglass_reserve_affiliate_support_check(uuid,uuid,uuid,uuid,bigint,text,text,text)','EXECUTE'),
+		has_function_privilege($1,'public.spyglass_transition_affiliate_support_check(uuid,uuid,bigint,text,text,text,text)','EXECUTE')`, affiliateOperatorRole).Scan(
 		&affiliateDirectAccess, &affiliateAttributionAccess, &affiliateCodeHistoryAccess, &affiliateInspectAccess, &affiliateRiskAccess,
-		&affiliateTransitionAccess); err != nil || affiliateDirectAccess || affiliateAttributionAccess || affiliateCodeHistoryAccess ||
-		!affiliateInspectAccess || !affiliateRiskAccess || !affiliateTransitionAccess {
-		t.Fatalf("Affiliate operator enrollment=%v attribution=%v code_history=%v inspect=%v risk=%v transition=%v err=%v",
-			affiliateDirectAccess, affiliateAttributionAccess, affiliateCodeHistoryAccess, affiliateInspectAccess, affiliateRiskAccess, affiliateTransitionAccess, err)
+		&affiliateTransitionAccess, &affiliatePolicyAccess, &affiliateCheckReserveAccess, &affiliateCheckTransitionAccess); err != nil ||
+		affiliateDirectAccess || affiliateAttributionAccess || affiliateCodeHistoryAccess || !affiliateInspectAccess || !affiliateRiskAccess ||
+		!affiliateTransitionAccess || !affiliatePolicyAccess || !affiliateCheckReserveAccess || !affiliateCheckTransitionAccess {
+		t.Fatalf("Affiliate operator enrollment=%v attribution=%v code_history=%v inspect=%v risk=%v transition=%v policy=%v reserve_check=%v transition_check=%v err=%v",
+			affiliateDirectAccess, affiliateAttributionAccess, affiliateCodeHistoryAccess, affiliateInspectAccess, affiliateRiskAccess,
+			affiliateTransitionAccess, affiliatePolicyAccess, affiliateCheckReserveAccess, affiliateCheckTransitionAccess, err)
 	}
 
 	supportService, err := affiliatesupport.New(postgresadapter.NewAffiliateSupportRepository(pool), ids.RandomGenerator{}, fixedLifecycleClock{now})
@@ -441,7 +588,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		exported.Enrollment.UserID != affiliateUser || exported.Enrollment.PublicCode != "IO-PARTNER3" ||
 		len(exported.PublicCodes) != 3 || len(exported.EnrollmentEvents) != 6 ||
 		exported.AttributionSummary.Total != 1 || exported.AttributionSummary.Locked != 1 ||
-		len(exported.CommissionEntries) != 4 || len(exported.SupportRequests) != 2 || len(exported.SupportEvents) != 6 {
+		len(exported.CommissionEntries) != 14 || len(exported.CreditSettlements) != 3 || len(exported.CreditReversals) != 2 || len(exported.SupportRequests) != 2 || len(exported.SupportEvents) != 6 {
 		t.Fatalf("Affiliate data export=%+v err=%v", exported, err)
 	}
 	rawExport, err := json.Marshal(exported)
@@ -449,7 +596,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, forbidden := range []string{customerAccount, "sub_affiliate_test", "in_affiliate_renewal", "pi_affiliate_renewal",
-		"affiliate-operator@example.test", "affiliate-support@example.test", "documented enrollment review"} {
+		"cus_affiliate_settlement", "cbtxn_affiliate_credit", "cbtxn_affiliate_reversal", "affiliate-operator@example.test", "affiliate-support@example.test", "documented enrollment review"} {
 		if strings.Contains(string(rawExport), forbidden) {
 			t.Fatalf("Affiliate data export leaked prohibited value %q: %s", forbidden, rawExport)
 		}
@@ -575,7 +722,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT referred_account_id::text,checkout_request_id::text FROM affiliate_attributions WHERE attribution_id=$1`, attribution.ID).Scan(&detachedAccount, &detachedCheckout); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM affiliate_commission_entries WHERE attribution_id=$1`, attribution.ID).Scan(&commissions); err != nil || detachedAccount != nil || detachedCheckout != nil || commissions != 4 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM affiliate_commission_entries WHERE attribution_id=$1`, attribution.ID).Scan(&commissions); err != nil || detachedAccount != nil || detachedCheckout != nil || commissions != 14 {
 		t.Fatalf("account=%v checkout=%v commissions=%d err=%v", detachedAccount, detachedCheckout, commissions, err)
 	}
 }

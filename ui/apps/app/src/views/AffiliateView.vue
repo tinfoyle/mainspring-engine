@@ -8,6 +8,7 @@ import {
   getAffiliateSupportRequests,
   replaceAffiliateCode,
   submitAffiliateSupportRequest,
+  type AffiliateCommissionEntry,
   type AffiliateProgram,
   type AffiliateStatement,
   type AffiliateSupportRequest
@@ -68,7 +69,7 @@ const monthlyStatements = computed(() => {
     }
     month.entries.push(entry);
     if (entry.kind === "reversal") month.reversedMinor += entry.amount_minor;
-    else month.earnedMinor += entry.amount_minor;
+    if (entry.kind === "earned") month.earnedMinor += entry.amount_minor;
   }
   return [...months.values()].sort((left, right) => right.key.localeCompare(left.key));
 });
@@ -92,8 +93,16 @@ function money(minor: number, currency: string): string {
   return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
 }
 
+function commissionEntryLabel(entry: AffiliateCommissionEntry): string {
+  if (entry.kind === "maturity") return `Cycle ${entry.cycle} became available`;
+  if (entry.kind === "void") return `Cycle ${entry.cycle} pending earning expired`;
+  if (entry.kind === "reversal") return `Cycle ${entry.cycle} reversed`;
+  return `Qualifying cycle ${entry.cycle}`;
+}
+
 function settlementLabel(mode: AffiliateProgram["settlement_mode"]): string {
   if (mode === "account_credit") return "Account billing credit";
+  if (mode === "account_credit_with_support_check") return "Account billing credit · Support check eligibility";
   if (mode === "cash") return "Cash settlement";
   return "Not approved";
 }
@@ -156,7 +165,7 @@ async function cancelSupport(requestID: string): Promise<void> {
 
 async function enroll(): Promise<void> {
   if (!program.value || !termsAccepted.value || !enrollmentAvailable.value || enrolling.value) return;
-  if (program.value.settlement_mode === "account_credit" && !settlementAccountID.value) {
+  if ((program.value.settlement_mode === "account_credit" || program.value.settlement_mode === "account_credit_with_support_check") && !settlementAccountID.value) {
     errorMessage.value = "Choose an Account you own for billing-credit settlement.";
     return;
   }
@@ -166,7 +175,7 @@ async function enroll(): Promise<void> {
   try {
     program.value = await enrollAffiliate({
       accepted_terms_version: program.value.terms_version,
-      ...(program.value.settlement_mode === "account_credit" ? { settlement_account_id: settlementAccountID.value } : {})
+      ...((program.value.settlement_mode === "account_credit" || program.value.settlement_mode === "account_credit_with_support_check") ? { settlement_account_id: settlementAccountID.value } : {})
     });
     statement.value = await getAffiliateStatement();
     supportRequests.value = [...(await getAffiliateSupportRequests()).requests];
@@ -249,8 +258,9 @@ onMounted(() => void load());
           <IoButton v-if="program.enrollment.state === 'suspended' || program.enrollment.state === 'closed'" kind="secondary" :disabled="enrollmentAppealOpen || !!supportPending" @click="submitSupport('enrollment_appeal')">{{ enrollmentAppealOpen ? "Review requested" : "Request status review" }}</IoButton>
         </div>
       </section>
-      <div class="affiliate-totals" role="group" aria-label="Commission totals"><article><small>Referred subscriptions</small><strong>{{ statement?.referred_subscriptions ?? 0 }}</strong></article><article><small>Pending</small><strong>{{ money(statement?.pending_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Settled</small><strong>{{ money(statement?.settled_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Reversed</small><strong>{{ money(statement?.reversed_minor ?? 0, statement?.currency ?? '') }}</strong></article></div>
-      <section class="affiliate-statement"><header><div><p class="eyebrow">Commission history</p><h2>Monthly statements</h2></div><span>{{ settlementLabel(program.settlement_mode) }}</span></header><p v-if="!monthlyStatements.length" class="form-note">No qualifying commission entries have been recorded. Referred customer identities and business details are never shown here.</p><div v-else class="affiliate-statement__months"><article v-for="month in monthlyStatements" :key="month.key" class="affiliate-statement__month"><header><h3>{{ month.label }}</h3><p><span>Earned {{ money(month.earnedMinor, statement?.currency ?? '') }}</span><span>Reversed {{ money(month.reversedMinor, statement?.currency ?? '') }}</span></p></header><ol><li v-for="entry in month.entries" :key="entry.entry_id"><div><strong>{{ entry.kind === 'reversal' ? 'Reversal' : `Qualifying cycle ${entry.cycle}` }}</strong><small>{{ new Date(entry.created_at).toLocaleDateString() }} · rule {{ entry.rule_version }}</small><button class="affiliate-review-link" type="button" :disabled="commissionReviewOpen(entry.entry_id) || !!supportPending" @click="submitSupport('commission_review', entry.entry_id)">{{ commissionReviewOpen(entry.entry_id) ? "Review requested" : "Request review" }}</button></div><span>{{ entry.kind === 'reversal' ? '−' : '' }}{{ money(entry.amount_minor, entry.currency) }}<small>{{ entry.state }}</small></span></li></ol></article></div></section>
+      <div class="affiliate-totals" role="group" aria-label="Commission totals"><article><small>Referred subscriptions</small><strong>{{ statement?.referred_subscriptions ?? 0 }}</strong></article><article><small>Pending</small><strong>{{ money(statement?.pending_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Available credit</small><strong>{{ money(statement?.available_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Reserved</small><strong>{{ money(statement?.reserved_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Settled</small><strong>{{ money(statement?.settled_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Reversed</small><strong>{{ money(statement?.reversed_minor ?? 0, statement?.currency ?? '') }}</strong></article><article><small>Expired pending</small><strong>{{ money(statement?.voided_minor ?? 0, statement?.currency ?? '') }}</strong></article></div>
+      <p v-if="program.settlement_mode === 'account_credit_with_support_check' && statement" class="form-note">{{ statement.check_eligible ? `Your available credit has reached ${money(statement.check_threshold_minor, statement.currency)}. Contact Support if you want a reviewed check reservation instead of ordinary Account billing credit.` : `Support-assisted check eligibility begins at ${money(statement.check_threshold_minor, statement.currency)} of available credit. Checks are not automatic or self-service.` }}</p>
+      <section class="affiliate-statement"><header><div><p class="eyebrow">Commission history</p><h2>Monthly statements</h2></div><span>{{ settlementLabel(program.settlement_mode) }}</span></header><p v-if="!monthlyStatements.length" class="form-note">No qualifying commission entries have been recorded. Referred customer identities and business details are never shown here.</p><div v-else class="affiliate-statement__months"><article v-for="month in monthlyStatements" :key="month.key" class="affiliate-statement__month"><header><h3>{{ month.label }}</h3><p><span>Earned {{ money(month.earnedMinor, statement?.currency ?? '') }}</span><span>Reversed {{ money(month.reversedMinor, statement?.currency ?? '') }}</span></p></header><ol><li v-for="entry in month.entries" :key="entry.entry_id"><div><strong>{{ commissionEntryLabel(entry) }}</strong><small>{{ new Date(entry.created_at).toLocaleDateString() }} · rule {{ entry.rule_version }}</small><button class="affiliate-review-link" type="button" :disabled="commissionReviewOpen(entry.entry_id) || !!supportPending" @click="submitSupport('commission_review', entry.entry_id)">{{ commissionReviewOpen(entry.entry_id) ? "Review requested" : "Request review" }}</button></div><span>{{ entry.kind === 'reversal' || entry.kind === 'void' ? '−' : '' }}{{ money(entry.amount_minor, entry.currency) }}<small>{{ entry.state }}</small></span></li></ol></article></div></section>
       <section class="affiliate-support" aria-labelledby="affiliate-support-heading"><header><div><p class="eyebrow">Support</p><h2 id="affiliate-support-heading">Appeals and ledger reviews</h2></div></header><p class="form-note">Requests use only the enrollment or ledger entry already on this page. Do not send customer names, payment details, or referred-business information.</p><p v-if="!supportRequests.length" class="form-note">No review requests have been submitted.</p><ol v-else><li v-for="request in supportRequests" :key="request.request_id"><div><strong>{{ request.kind === 'enrollment_appeal' ? 'Enrollment status review' : 'Commission entry review' }}</strong><small>{{ new Date(request.created_at).toLocaleDateString() }}</small></div><div><span>{{ supportLabel(request) }}</span><button v-if="request.state === 'submitted'" class="affiliate-review-link" type="button" :disabled="!!supportPending" @click="cancelSupport(request.request_id)">Cancel</button></div></li></ol></section>
       <p v-if="errorMessage" class="form-error" role="alert">{{ errorMessage }}</p>
     </template>
@@ -261,7 +271,7 @@ onMounted(() => void load());
       <div v-if="program.settlement_mode === 'unconfigured'" class="queue-inline-status queue-inline-status--error">Enrollment cannot open until the release owner approves whether qualifying commissions become Account credit or cash. The UI makes no payout promise before that decision.</div>
       <div v-else-if="!program.enrollment_open" class="queue-inline-status">Enrollment is currently closed. Existing commercial records remain available to enrolled Affiliates.</div>
       <template v-else>
-        <label v-if="program.settlement_mode === 'account_credit'" for="settlement-account">Owned settlement Account</label><select v-if="program.settlement_mode === 'account_credit'" id="settlement-account" v-model="settlementAccountID"><option value="">Choose an Account</option><option v-for="account in ownerAccounts" :key="account.account_id" :value="account.account_id">{{ account.display_name }}</option></select>
+        <label v-if="program.settlement_mode === 'account_credit' || program.settlement_mode === 'account_credit_with_support_check'" for="settlement-account">Owned settlement Account</label><select v-if="program.settlement_mode === 'account_credit' || program.settlement_mode === 'account_credit_with_support_check'" id="settlement-account" v-model="settlementAccountID"><option value="">Choose an Account</option><option v-for="account in ownerAccounts" :key="account.account_id" :value="account.account_id">{{ account.display_name }}</option></select>
         <label class="confirmation"><input v-model="termsAccepted" type="checkbox" /><span>I accept Affiliate terms version {{ program.terms_version }}, will clearly disclose the financial relationship, and understand that only qualifying paid invoices create ledger entries. <a href="https://www.infiniteocean.net/affiliate-terms" target="_blank" rel="noopener">Read terms</a>.</span></label>
         <IoButton :disabled="!termsAccepted || enrolling" @click="enroll">{{ enrolling ? "Enabling…" : "Enable Affiliate status" }}</IoButton>
       </template>

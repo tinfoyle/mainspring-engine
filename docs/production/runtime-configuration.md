@@ -34,7 +34,7 @@ The revision-controlled machine contract is [`deploy/spyglass-process-inventory.
 | `account-move-admin` | One audited prepare, inspect, single-phase advance, pause/resume, rollback or source-retirement action for one exact source/destination pair | Serving traffic, cell discovery, endpoint substitution, automatic dead-letter disposal, provider credentials |
 | `passkey-admin` | One audited key-version inspection or bounded credential/ceremony envelope re-encryption batch | Serving traffic, User/contact reads, password/session authority, automatic key retirement |
 | `privacy-rights-admin` | One audited, bounded open-deadline listing, one exact-request inspection, exact-version review start, or evidence-bound terminal privacy-rights resolution | Serving traffic, case-artifact content, direct request-table access, automatic fulfillment decisions |
-| `affiliate-admin` | One audited enrollment inspection, exact-version suspension/reactivation, or terminal closure | Serving traffic, direct Affiliate-table access, attribution/ledger mutation, settlement decisions |
+| `affiliate-admin` | One audited enrollment/risk inspection, exact-version suspension/reactivation/closure, immutable check-threshold publication, or Support-check accounting reservation/settlement/release | Serving traffic, direct Affiliate-table access, automatic check amount selection, check issuance/delivery, customer subscription mutation |
 | `affiliate-support-admin` | One audited support inspection, exact-version review start, or approved/denied resolution | Serving traffic, direct support-table access, enrollment/ledger mutation, settlement decisions |
 | `analytics-report` | One bounded aggregate event report over reviewed dimensions with enforced small-cohort suppression | Serving traffic, raw analytics-table access, subject/customer identifiers, arbitrary dimensions or commercial attribution |
 | `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
@@ -51,6 +51,24 @@ The account API and workers share no in-memory state. Multiple replicas coordina
 | `SPYGLASS_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `2` |
 
 `analytics-report` is a one-shot JSON command, not a serving process. Its `--from`/`--to` window is at most 395 days, hourly buckets are limited to 31 days, dimensions come from a compiled and database-enforced allowlist, and `--minimum-cohort` cannot be less than five distinct consent subjects. Provision this credential independently from the migrator, account API and maintenance worker. See [Analytics reporting operations](analytics-reporting-operations.md).
+
+## Affiliate operator values
+
+`affiliate-admin` always uses the common operator identity, reason, exact-environment confirmation and signed authorization values. Actions then require only their exact scope:
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_AFFILIATE_ID` | Exact Affiliate UUID for inspection, lifecycle transition or check reservation |
+| `SPYGLASS_AFFILIATE_VERSION` | Exact enrollment version for `activate`, `suspend` or `close` |
+| `SPYGLASS_AFFILIATE_SETTLEMENT_POLICY_VERSION` | Current immutable policy version for `set-check-threshold` |
+| `SPYGLASS_AFFILIATE_SETTLEMENT_NEW_POLICY_VERSION` | Exactly current version plus one |
+| `SPYGLASS_AFFILIATE_CHECK_THRESHOLD_MINOR` | Reviewed positive USD-minor-unit eligibility threshold |
+| `SPYGLASS_AFFILIATE_CUSTOMER_SESSION_ID` | Affiliate-owned live session containing passkey reauthentication no more than ten minutes old |
+| `SPYGLASS_AFFILIATE_CHECK_AMOUNT_MINOR` | Support-selected positive USD-minor-unit reservation no larger than available credit |
+| `SPYGLASS_AFFILIATE_CHECK_RESERVATION_ID` | Exact reservation UUID for `settle-check` or `release-check` |
+| `SPYGLASS_AFFILIATE_CHECK_RESERVATION_VERSION` | Exact current reservation version for its one terminal accounting transition |
+
+The operator database role has execute-only access to the audited Affiliate functions. The check path records accounting disposition and prevents double settlement; it has no provider credential and cannot issue or manage a physical check.
 
 ## Common production values
 
@@ -89,7 +107,7 @@ Database connection limits are per replica. Environment overlays must ensure the
 | `SPYGLASS_ANALYTICS_HANDOFF_COOKIE_DOMAIN` | Exact owned parent domain containing both public and application origins, without a leading dot or port; for example `stage.infiniteocean.net` on Stage and `infiniteocean.net` in production |
 | `SPYGLASS_AFFILIATE_ENROLLMENT_OPEN` | Optional launch gate; defaults closed and process startup rejects `true` while settlement mode is `unconfigured` |
 | `SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED` | Optional checkout-attribution gate; defaults closed and is independent from analytics consent |
-| `SPYGLASS_AFFILIATE_SETTLEMENT_MODE` | Exact `unconfigured`, `account_credit` or `cash`; enrollment request shape is enforced server-side for the selected mode |
+| `SPYGLASS_AFFILIATE_SETTLEMENT_MODE` | Exact `unconfigured`, legacy `account_credit`/`cash`, or approved `account_credit_with_support_check`; enrollment request shape is enforced server-side for the selected mode |
 | `SPYGLASS_AFFILIATE_TERMS_VERSION` | Positive current Affiliate terms version; defaults to `1` and must match the accepted customer receipt |
 | `SPYGLASS_AFFILIATE_RULE_VERSION` | Positive immutable commission-rule version; defaults to `1` and must exist in `affiliate_commission_rules` before enrollment or attribution is enabled |
 | `SPYGLASS_TRUSTED_PROXY_CIDRS` | Optional comma-separated ingress/load-balancer networks allowed to supply `X-Forwarded-For`; empty trusts no proxy |

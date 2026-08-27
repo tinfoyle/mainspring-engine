@@ -15,11 +15,40 @@ import (
 const adminAffiliateID = "10000000-0000-4000-8000-000000000001"
 
 type adminStore struct {
-	enrollment affiliates.Enrollment
-	risk       affiliateadmin.RiskSummary
-	state      affiliates.EnrollmentState
-	version    uint64
-	change     affiliateadmin.Change
+	enrollment    affiliates.Enrollment
+	risk          affiliateadmin.RiskSummary
+	state         affiliates.EnrollmentState
+	version       uint64
+	change        affiliateadmin.Change
+	policy        affiliateadmin.SettlementPolicy
+	check         affiliateadmin.CheckReservation
+	sessionID     ids.SessionID
+	amount        int64
+	reservationID string
+}
+
+func (s *adminStore) ReserveSupportCheck(_ context.Context, affiliateID ids.AffiliateID, sessionID ids.SessionID, amount int64, reservationID string, change affiliateadmin.Change) (affiliateadmin.CheckReservation, error) {
+	s.sessionID, s.amount, s.reservationID, s.change = sessionID, amount, reservationID, change
+	value := affiliateadmin.CheckReservation{ID: reservationID, AffiliateID: affiliateID, State: "reserved",
+		AmountMinor: amount, Currency: "USD", PolicyVersion: 1, Version: 1,
+		CreatedAt: time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)}
+	s.check = value
+	return value, nil
+}
+
+func (s *adminStore) TransitionSupportCheck(_ context.Context, reservationID string, version uint64, state string, change affiliateadmin.Change) (affiliateadmin.CheckReservation, error) {
+	s.reservationID, s.version, s.state, s.change = reservationID, version, affiliates.EnrollmentState(state), change
+	value := affiliateadmin.CheckReservation{ID: reservationID, AffiliateID: adminAffiliateID, State: state,
+		AmountMinor: 10_000, Currency: "USD", PolicyVersion: 1, Version: version + 1,
+		CreatedAt: time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)}
+	s.check = value
+	return value, nil
+}
+
+func (s *adminStore) PublishSettlementPolicy(_ context.Context, _, newVersion uint64, threshold int64, change affiliateadmin.Change) (affiliateadmin.SettlementPolicy, error) {
+	s.change = change
+	s.policy = affiliateadmin.SettlementPolicy{Version: newVersion, Mode: "account_credit_with_support_check", Currency: "USD", CheckThresholdMinor: threshold, EffectiveFrom: time.Date(2026, 8, 26, 0, 0, 0, 0, time.UTC)}
+	return s.policy, nil
 }
 
 func (s *adminStore) Inspect(_ context.Context, _ ids.AffiliateID, change affiliateadmin.Change) (affiliates.Enrollment, error) {
@@ -61,6 +90,37 @@ func TestTransitionRejectsUnboundedAuditInput(t *testing.T) {
 		"op", "short", "Local")
 	if !errors.Is(err, affiliateadmin.ErrInvalidChange) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestSupportCanPublishNextCheckThresholdPolicy(t *testing.T) {
+	store := &adminStore{}
+	service, _ := affiliateadmin.New(store, adminIDs{"10000000-0000-4000-8000-000000000003"})
+	policy, err := service.PublishSettlementPolicy(context.Background(), 1, 2, 25_000,
+		"support@example.test", "Adjust the reviewed check eligibility threshold", "local")
+	if err != nil || policy.Version != 2 || policy.CheckThresholdMinor != 25_000 || store.change.Actor != "support@example.test" {
+		t.Fatalf("policy=%+v change=%+v err=%v", policy, store.change, err)
+	}
+	if _, err := service.PublishSettlementPolicy(context.Background(), 1, 3, 25_000,
+		"support@example.test", "Attempt to skip a policy version", "local"); !errors.Is(err, affiliateadmin.ErrInvalidChange) {
+		t.Fatalf("nonsequential policy error=%v", err)
+	}
+}
+
+func TestSupportCheckReservationBindsCustomerPasskeyEvidenceAndExactAmount(t *testing.T) {
+	store := &adminStore{}
+	service, _ := affiliateadmin.New(store, adminIDs{"10000000-0000-4000-8000-000000000003"})
+	value, err := service.ReserveSupportCheck(context.Background(), adminAffiliateID,
+		"10000000-0000-4000-8000-000000000004", 12_500, "support@example.test",
+		"Reserve the amount selected during Support review", "local")
+	if err != nil || value.State != "reserved" || store.amount != 12_500 ||
+		store.sessionID != "10000000-0000-4000-8000-000000000004" || store.change.Actor != "support@example.test" {
+		t.Fatalf("value=%+v store=%+v err=%v", value, store, err)
+	}
+	settled, err := service.TransitionSupportCheck(context.Background(), value.ID, 1, "settled",
+		"support@example.test", "Record external check accounting completion", "local")
+	if err != nil || settled.State != "settled" || settled.Version != 2 || store.version != 1 {
+		t.Fatalf("settled=%+v store=%+v err=%v", settled, store, err)
 	}
 }
 

@@ -108,8 +108,8 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	if config.AffiliateSettlementMode == "" {
 		config.AffiliateSettlementMode = "unconfigured"
 	}
-	if config.AffiliateSettlementMode != "unconfigured" && config.AffiliateSettlementMode != "account_credit" && config.AffiliateSettlementMode != "cash" {
-		return nil, errors.New("Affiliate settlement mode must be unconfigured, account_credit or cash")
+	if config.AffiliateSettlementMode != "unconfigured" && config.AffiliateSettlementMode != "account_credit" && config.AffiliateSettlementMode != "cash" && config.AffiliateSettlementMode != "account_credit_with_support_check" {
+		return nil, errors.New("Affiliate settlement mode must be unconfigured, account_credit, cash or account_credit_with_support_check")
 	}
 	if (config.AffiliateEnrollmentOpen || config.AffiliateAttributionEnabled) && config.AffiliateSettlementMode == "unconfigured" {
 		return nil, errors.New("Affiliate enrollment and attribution cannot open before settlement mode is configured")

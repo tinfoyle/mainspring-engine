@@ -390,10 +390,10 @@
       "port": null,
       "health": null,
       "database_roles": ["global.affiliate-operator"],
-      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_AFFILIATE_ID", "SPYGLASS_AFFILIATE_VERSION", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_AFFILIATE_ID", "SPYGLASS_AFFILIATE_VERSION", "SPYGLASS_AFFILIATE_SETTLEMENT_POLICY_VERSION", "SPYGLASS_AFFILIATE_SETTLEMENT_NEW_POLICY_VERSION", "SPYGLASS_AFFILIATE_CHECK_THRESHOLD_MINOR", "SPYGLASS_AFFILIATE_CUSTOMER_SESSION_ID", "SPYGLASS_AFFILIATE_CHECK_AMOUNT_MINOR", "SPYGLASS_AFFILIATE_CHECK_RESERVATION_ID", "SPYGLASS_AFFILIATE_CHECK_RESERVATION_VERSION", "SPYGLASS_MAX_DATABASE_CONNS"],
       "configuration_profiles": ["traced", "operator_authorization"],
       "dependencies": ["global-postgresql"],
-      "actions": ["inspect", "inspect-risk", "activate", "suspend", "close"]
+      "actions": ["inspect", "inspect-risk", "activate", "suspend", "close", "set-check-threshold", "reserve-check", "settle-check", "release-check"]
     },
     {
       "mode": "affiliate-support-admin",

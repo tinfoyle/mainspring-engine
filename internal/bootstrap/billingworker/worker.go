@@ -12,6 +12,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	stripeadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliatesettlement"
 	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -119,7 +120,17 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	processor, err := billing.NewProcessor(postgres.NewBillingInbox(pool), billing.SequenceHandler{projector, tokenProjector, purchaseProjector, affiliateProjector}, clock, 2*time.Minute)
+	settlementService, err := affiliatesettlement.New(postgres.NewAffiliateSettlementRepository(pool), provider, ids.RandomGenerator{}, clock)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	settlementProjector, err := affiliatesettlement.NewBillingEventProjector(settlementService)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	processor, err := billing.NewProcessor(postgres.NewBillingInbox(pool), billing.SequenceHandler{projector, tokenProjector, purchaseProjector, affiliateProjector, settlementProjector}, clock, 2*time.Minute)
 	if err != nil {
 		pool.Close()
 		return nil, err

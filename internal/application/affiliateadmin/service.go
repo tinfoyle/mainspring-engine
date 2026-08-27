@@ -18,6 +18,7 @@ var (
 	ErrInvalidChange = errors.New("Affiliate operator change is invalid")
 	ErrNotFound      = errors.New("Affiliate enrollment was not found")
 	ErrStateConflict = errors.New("Affiliate enrollment state changed")
+	ErrStrongAuth    = errors.New("recent Affiliate passkey confirmation is required")
 	validEnvironment = regexp.MustCompile(`^[a-z][a-z0-9-]{0,99}$`)
 )
 
@@ -100,6 +101,45 @@ type Store interface {
 	Inspect(context.Context, ids.AffiliateID, Change) (affiliates.Enrollment, error)
 	InspectRisk(context.Context, ids.AffiliateID, Change) (RiskSummary, error)
 	Transition(context.Context, ids.AffiliateID, uint64, affiliates.EnrollmentState, Change) (affiliates.Enrollment, error)
+	PublishSettlementPolicy(context.Context, uint64, uint64, int64, Change) (SettlementPolicy, error)
+	ReserveSupportCheck(context.Context, ids.AffiliateID, ids.SessionID, int64, string, Change) (CheckReservation, error)
+	TransitionSupportCheck(context.Context, string, uint64, string, Change) (CheckReservation, error)
+}
+
+type SettlementPolicy struct {
+	Version             uint64
+	Mode                string
+	Currency            string
+	CheckThresholdMinor int64
+	EffectiveFrom       time.Time
+}
+
+type CheckReservation struct {
+	ID            string
+	AffiliateID   ids.AffiliateID
+	State         string
+	AmountMinor   int64
+	Currency      string
+	PolicyVersion uint64
+	Version       uint64
+	CreatedAt     time.Time
+}
+
+func (r CheckReservation) Validate() error {
+	if ids.Validate(r.ID) != nil || ids.Validate(string(r.AffiliateID)) != nil ||
+		(r.State != "reserved" && r.State != "settled" && r.State != "released") ||
+		r.AmountMinor <= 0 || r.AmountMinor > 99_999_999 || r.Currency != "USD" ||
+		r.PolicyVersion == 0 || r.Version == 0 || r.CreatedAt.IsZero() {
+		return ErrInvalidChange
+	}
+	return nil
+}
+
+func (p SettlementPolicy) Validate() error {
+	if p.Version == 0 || p.Mode != "account_credit_with_support_check" || p.Currency != "USD" || p.CheckThresholdMinor <= 0 || p.EffectiveFrom.IsZero() {
+		return ErrInvalidChange
+	}
+	return nil
 }
 
 type Service struct {
@@ -144,6 +184,57 @@ func (s *Service) Transition(ctx context.Context, affiliateID ids.AffiliateID, e
 		return affiliates.Enrollment{}, ErrInvalidChange
 	}
 	return s.store.Transition(ctx, affiliateID, expectedVersion, state, change)
+}
+
+func (s *Service) PublishSettlementPolicy(ctx context.Context, expectedVersion, newVersion uint64, checkThresholdMinor int64, actor, reason, environment string) (SettlementPolicy, error) {
+	change, err := s.change(actor, reason, environment)
+	if err != nil || expectedVersion == 0 || newVersion != expectedVersion+1 || checkThresholdMinor <= 0 || checkThresholdMinor > 99_999_999 {
+		return SettlementPolicy{}, ErrInvalidChange
+	}
+	value, err := s.store.PublishSettlementPolicy(ctx, expectedVersion, newVersion, checkThresholdMinor, change)
+	if err != nil {
+		return SettlementPolicy{}, err
+	}
+	if err := value.Validate(); err != nil {
+		return SettlementPolicy{}, err
+	}
+	return value, nil
+}
+
+// ReserveSupportCheck atomically removes an operator-selected amount from the
+// Affiliate's available balance. The store re-verifies that the supplied
+// session belongs to this Affiliate and contains recent passkey evidence.
+// This records accounting authority only; it does not select or issue a check.
+func (s *Service) ReserveSupportCheck(ctx context.Context, affiliateID ids.AffiliateID, sessionID ids.SessionID, amountMinor int64, actor, reason, environment string) (CheckReservation, error) {
+	change, err := s.change(actor, reason, environment)
+	if err != nil || ids.Validate(string(affiliateID)) != nil || ids.Validate(string(sessionID)) != nil || amountMinor <= 0 || amountMinor > 99_999_999 {
+		return CheckReservation{}, ErrInvalidChange
+	}
+	value, err := s.store.ReserveSupportCheck(ctx, affiliateID, sessionID, amountMinor, s.ids.New(), change)
+	if err != nil {
+		return CheckReservation{}, err
+	}
+	if err := value.Validate(); err != nil {
+		return CheckReservation{}, err
+	}
+	return value, nil
+}
+
+// TransitionSupportCheck records only the internal accounting disposition of
+// a reserved amount. Delivery, stop, loss and reissue remain Support procedure.
+func (s *Service) TransitionSupportCheck(ctx context.Context, reservationID string, expectedVersion uint64, state, actor, reason, environment string) (CheckReservation, error) {
+	change, err := s.change(actor, reason, environment)
+	if err != nil || ids.Validate(reservationID) != nil || expectedVersion == 0 || (state != "settled" && state != "released") {
+		return CheckReservation{}, ErrInvalidChange
+	}
+	value, err := s.store.TransitionSupportCheck(ctx, reservationID, expectedVersion, state, change)
+	if err != nil {
+		return CheckReservation{}, err
+	}
+	if err := value.Validate(); err != nil {
+		return CheckReservation{}, err
+	}
+	return value, nil
 }
 
 func (s *Service) change(actor, reason, environment string) (Change, error) {

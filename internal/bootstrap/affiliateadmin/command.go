@@ -19,7 +19,11 @@ import (
 type Config struct {
 	DatabaseURL, Action, Actor, Reason, Environment, ConfirmEnvironment string
 	AffiliateID                                                         ids.AffiliateID
+	CustomerSessionID                                                   ids.SessionID
+	CheckReservationID                                                  string
 	ExpectedVersion                                                     uint64
+	ExpectedPolicyVersion, NewPolicyVersion                             uint64
+	CheckThresholdMinor, CheckAmountMinor                               int64
 	MaxDatabaseConns                                                    int32
 }
 
@@ -77,13 +81,39 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 			"suspend": affiliates.EnrollmentSuspended, "close": affiliates.EnrollmentClosed}[config.Action]
 		enrollment, err = service.Transition(ctx, config.AffiliateID, config.ExpectedVersion, state,
 			config.Actor, config.Reason, config.Environment)
+	case "set-check-threshold":
+		var policy application.SettlementPolicy
+		policy, err = service.PublishSettlementPolicy(ctx, config.ExpectedPolicyVersion, config.NewPolicyVersion,
+			config.CheckThresholdMinor, config.Actor, config.Reason, config.Environment)
+		if err == nil {
+			logger.Info("Spyglass Affiliate settlement policy published", "action", config.Action,
+				"policy_version", policy.Version, "mode", policy.Mode, "currency", policy.Currency,
+				"check_threshold_minor", policy.CheckThresholdMinor, "effective_from", policy.EffectiveFrom,
+				"environment", config.Environment, "actor", config.Actor)
+		}
+	case "reserve-check":
+		var reservation application.CheckReservation
+		reservation, err = service.ReserveSupportCheck(ctx, config.AffiliateID, config.CustomerSessionID,
+			config.CheckAmountMinor, config.Actor, config.Reason, config.Environment)
+		if err == nil {
+			logCheckReservation(logger, config, reservation)
+		}
+	case "settle-check", "release-check":
+		state := map[string]string{"settle-check": "settled", "release-check": "released"}[config.Action]
+		var reservation application.CheckReservation
+		reservation, err = service.TransitionSupportCheck(ctx, config.CheckReservationID, config.ExpectedVersion,
+			state, config.Actor, config.Reason, config.Environment)
+		if err == nil {
+			logCheckReservation(logger, config, reservation)
+		}
 	default:
 		return fmt.Errorf("unsupported Affiliate operator action %q", config.Action)
 	}
 	if err != nil {
 		return err
 	}
-	if config.Action == "inspect-risk" {
+	if config.Action == "inspect-risk" || config.Action == "set-check-threshold" ||
+		config.Action == "reserve-check" || config.Action == "settle-check" || config.Action == "release-check" {
 		return nil
 	}
 	logger.Info("Spyglass Affiliate operator action complete", "action", config.Action, "affiliate_id", enrollment.ID,
@@ -91,22 +121,44 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 	return nil
 }
 
+func logCheckReservation(logger *slog.Logger, config Config, reservation application.CheckReservation) {
+	logger.Info("Spyglass Affiliate Support check accounting updated", "action", config.Action,
+		"reservation_id", reservation.ID, "affiliate_id", reservation.AffiliateID, "state", reservation.State,
+		"amount_minor", reservation.AmountMinor, "currency", reservation.Currency,
+		"policy_version", reservation.PolicyVersion, "version", reservation.Version,
+		"environment", config.Environment, "actor", config.Actor)
+}
+
 func validateConfig(config Config, logger *slog.Logger) error {
 	if config.DatabaseURL == "" || config.Actor == "" || config.Reason == "" || config.Environment == "" ||
-		config.ConfirmEnvironment != config.Environment || ids.Validate(string(config.AffiliateID)) != nil || logger == nil {
+		config.ConfirmEnvironment != config.Environment || logger == nil {
 		return application.ErrInvalidChange
 	}
 	switch config.Action {
 	case "inspect", "inspect-risk":
-		if config.ExpectedVersion != 0 {
+		if ids.Validate(string(config.AffiliateID)) != nil || config.ExpectedVersion != 0 {
 			return application.ErrInvalidChange
 		}
 	case "activate", "suspend", "close":
-		if config.ExpectedVersion == 0 {
+		if ids.Validate(string(config.AffiliateID)) != nil || config.ExpectedVersion == 0 {
+			return application.ErrInvalidChange
+		}
+	case "set-check-threshold":
+		if config.AffiliateID != "" || config.ExpectedPolicyVersion == 0 || config.NewPolicyVersion != config.ExpectedPolicyVersion+1 || config.CheckThresholdMinor <= 0 {
+			return application.ErrInvalidChange
+		}
+	case "reserve-check":
+		if ids.Validate(string(config.AffiliateID)) != nil || ids.Validate(string(config.CustomerSessionID)) != nil ||
+			config.CheckAmountMinor <= 0 || config.ExpectedVersion != 0 || config.CheckReservationID != "" {
+			return application.ErrInvalidChange
+		}
+	case "settle-check", "release-check":
+		if config.AffiliateID != "" || config.CustomerSessionID != "" || ids.Validate(config.CheckReservationID) != nil ||
+			config.ExpectedVersion == 0 || config.CheckAmountMinor != 0 {
 			return application.ErrInvalidChange
 		}
 	default:
-		return errors.New("Affiliate admin action must be inspect, inspect-risk, activate, suspend, or close")
+		return errors.New("Affiliate admin action must be inspect, inspect-risk, activate, suspend, close, set-check-threshold, reserve-check, settle-check, or release-check")
 	}
 	return nil
 }

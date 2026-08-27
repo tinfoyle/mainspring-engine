@@ -154,6 +154,60 @@ func (c *Client) CreatePortalSession(ctx context.Context, command billing.Create
 	return response.session("bps_", "portal")
 }
 
+func (c *Client) CreateCustomerBalanceCredit(ctx context.Context, command billing.CreateCustomerBalanceCreditCommand) (billing.CustomerBalanceTransaction, error) {
+	if ids.Validate(string(command.AccountID)) != nil || !strings.HasPrefix(command.CustomerID, "cus_") || command.AmountMinor <= 0 || command.AmountMinor > 99_999_999 || len(command.Currency) != 3 || strings.ToUpper(command.Currency) != command.Currency || ids.Validate(command.Reference) != nil {
+		return billing.CustomerBalanceTransaction{}, errors.New("invalid customer balance credit")
+	}
+	values := url.Values{
+		"amount":                          {strconv.FormatInt(-command.AmountMinor, 10)},
+		"currency":                        {strings.ToLower(command.Currency)},
+		"description":                     {"Infinite Ocean Affiliate account credit"},
+		"metadata[spyglass_account_id]":   {string(command.AccountID)},
+		"metadata[spyglass_reference_id]": {command.Reference},
+	}
+	var response struct {
+		ID       string `json:"id"`
+		Customer string `json:"customer"`
+		Amount   int64  `json:"amount"`
+		Currency string `json:"currency"`
+	}
+	path := "/v1/customers/" + url.PathEscape(command.CustomerID) + "/balance_transactions"
+	if err := c.request(ctx, http.MethodPost, path, values, command.IdempotencyKey, &response); err != nil {
+		return billing.CustomerBalanceTransaction{}, err
+	}
+	if !strings.HasPrefix(response.ID, "cbtxn_") || response.Customer != command.CustomerID || response.Amount != -command.AmountMinor || strings.ToUpper(response.Currency) != command.Currency {
+		return billing.CustomerBalanceTransaction{}, errors.New("Stripe returned an invalid customer balance credit")
+	}
+	return billing.CustomerBalanceTransaction{ID: response.ID, CustomerID: response.Customer, AmountMinor: command.AmountMinor, Currency: command.Currency}, nil
+}
+
+func (c *Client) CreateCustomerBalanceDebit(ctx context.Context, command billing.CreateCustomerBalanceDebitCommand) (billing.CustomerBalanceTransaction, error) {
+	if ids.Validate(string(command.AccountID)) != nil || !strings.HasPrefix(command.CustomerID, "cus_") || command.AmountMinor <= 0 || command.AmountMinor > 99_999_999 || len(command.Currency) != 3 || strings.ToUpper(command.Currency) != command.Currency || ids.Validate(command.Reference) != nil {
+		return billing.CustomerBalanceTransaction{}, errors.New("invalid customer balance debit")
+	}
+	values := url.Values{
+		"amount":                          {strconv.FormatInt(command.AmountMinor, 10)},
+		"currency":                        {strings.ToLower(command.Currency)},
+		"description":                     {"Infinite Ocean Affiliate commission reversal"},
+		"metadata[spyglass_account_id]":   {string(command.AccountID)},
+		"metadata[spyglass_reference_id]": {command.Reference},
+	}
+	var response struct {
+		ID       string `json:"id"`
+		Customer string `json:"customer"`
+		Amount   int64  `json:"amount"`
+		Currency string `json:"currency"`
+	}
+	path := "/v1/customers/" + url.PathEscape(command.CustomerID) + "/balance_transactions"
+	if err := c.request(ctx, http.MethodPost, path, values, command.IdempotencyKey, &response); err != nil {
+		return billing.CustomerBalanceTransaction{}, err
+	}
+	if !strings.HasPrefix(response.ID, "cbtxn_") || response.Customer != command.CustomerID || response.Amount != command.AmountMinor || strings.ToUpper(response.Currency) != command.Currency {
+		return billing.CustomerBalanceTransaction{}, errors.New("Stripe returned an invalid customer balance debit")
+	}
+	return billing.CustomerBalanceTransaction{ID: response.ID, CustomerID: response.Customer, AmountMinor: command.AmountMinor, Currency: command.Currency}, nil
+}
+
 type hostedResponse struct {
 	ID        string `json:"id"`
 	URL       string `json:"url"`
@@ -286,3 +340,4 @@ func unixPointer(value int64) *time.Time {
 }
 
 var _ billing.Provider = (*Client)(nil)
+var _ billing.CustomerBalanceProvider = (*Client)(nil)

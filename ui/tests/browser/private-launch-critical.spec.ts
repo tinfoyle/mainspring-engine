@@ -1077,8 +1077,13 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
       referred_subscriptions: 3,
       currency: "USD",
       pending_minor: 1000,
+      available_minor: 2000,
+      reserved_minor: 0,
       settled_minor: 2000,
       reversed_minor: 1000,
+      voided_minor: 0,
+      check_threshold_minor: 10000,
+      check_eligible: false,
       entries: [{
         entry_id: "10000000-0000-4000-8000-000000000042",
         affiliate_id: "10000000-0000-4000-8000-000000000041",

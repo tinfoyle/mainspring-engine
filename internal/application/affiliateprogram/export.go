@@ -11,21 +11,34 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
-const AffiliateDataExportSchemaVersion uint64 = 1
+const AffiliateDataExportSchemaVersion uint64 = 3
 
 // DataExport is the customer-owned Affiliate portability artifact. Its shape is
 // deliberately separate from the operational models: referred-customer,
 // payment-provider, staff-actor, and free-form reason fields cannot enter it.
 type DataExport struct {
-	SchemaVersion      uint64                     `json:"schema_version"`
-	GeneratedAt        time.Time                  `json:"generated_at"`
-	Enrollment         *DataExportEnrollment      `json:"enrollment,omitempty"`
-	PublicCodes        []DataExportPublicCode     `json:"public_codes"`
-	EnrollmentEvents   []DataExportLifecycleEvent `json:"enrollment_events"`
-	AttributionSummary DataExportAttribution      `json:"attribution_summary"`
-	CommissionEntries  []DataExportCommission     `json:"commission_entries"`
-	SupportRequests    []DataExportSupportRequest `json:"support_requests"`
-	SupportEvents      []DataExportSupportEvent   `json:"support_events"`
+	SchemaVersion      uint64                       `json:"schema_version"`
+	GeneratedAt        time.Time                    `json:"generated_at"`
+	Enrollment         *DataExportEnrollment        `json:"enrollment,omitempty"`
+	PublicCodes        []DataExportPublicCode       `json:"public_codes"`
+	EnrollmentEvents   []DataExportLifecycleEvent   `json:"enrollment_events"`
+	AttributionSummary DataExportAttribution        `json:"attribution_summary"`
+	CommissionEntries  []DataExportCommission       `json:"commission_entries"`
+	CreditSettlements  []DataExportCreditSettlement `json:"credit_settlements"`
+	CreditReversals    []DataExportCreditReversal   `json:"credit_reversals"`
+	SupportRequests    []DataExportSupportRequest   `json:"support_requests"`
+	SupportEvents      []DataExportSupportEvent     `json:"support_events"`
+}
+
+type DataExportCreditReversal struct {
+	AdjustmentID  string    `json:"adjustment_id"`
+	ReservationID string    `json:"reservation_id"`
+	Kind          string    `json:"kind"`
+	State         string    `json:"state"`
+	AmountMinor   int64     `json:"amount_minor"`
+	Currency      string    `json:"currency"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type DataExportEnrollment struct {
@@ -74,8 +87,20 @@ type DataExportCommission struct {
 	AmountMinor     int64                      `json:"amount_minor"`
 	Currency        string                     `json:"currency"`
 	ReversesEntryID ids.CommissionEntryID      `json:"reverses_entry_id,omitempty"`
+	SourceEntryID   ids.CommissionEntryID      `json:"source_entry_id,omitempty"`
 	AvailableAt     time.Time                  `json:"available_at"`
 	CreatedAt       time.Time                  `json:"created_at"`
+}
+
+type DataExportCreditSettlement struct {
+	ReservationID       string        `json:"reservation_id"`
+	SettlementAccountID ids.AccountID `json:"settlement_account_id"`
+	Kind                string        `json:"kind"`
+	State               string        `json:"state"`
+	AmountMinor         int64         `json:"amount_minor"`
+	Currency            string        `json:"currency"`
+	CreatedAt           time.Time     `json:"created_at"`
+	UpdatedAt           time.Time     `json:"updated_at"`
 }
 
 type DataExportSupportRequest struct {
@@ -113,8 +138,8 @@ func (s *Service) Export(ctx context.Context, command ExportCommand) (DataExport
 		return DataExport{}, err
 	}
 	if value.SchemaVersion != AffiliateDataExportSchemaVersion || value.GeneratedAt.IsZero() ||
-		value.PublicCodes == nil || value.EnrollmentEvents == nil || value.CommissionEntries == nil ||
-		value.SupportRequests == nil || value.SupportEvents == nil {
+		value.PublicCodes == nil || value.EnrollmentEvents == nil || value.CommissionEntries == nil || value.CreditSettlements == nil ||
+		value.CreditReversals == nil || value.SupportRequests == nil || value.SupportEvents == nil {
 		return DataExport{}, errors.New("invalid Affiliate data export")
 	}
 	if value.Enrollment != nil && value.Enrollment.UserID != command.UserID {

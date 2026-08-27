@@ -59,6 +59,46 @@ func (r *AffiliateAdminRepository) Transition(ctx context.Context, affiliateID i
 		change.EventID, affiliateID, expectedVersion, state, change.Actor, change.Reason, change.Environment))
 }
 
+func (r *AffiliateAdminRepository) PublishSettlementPolicy(ctx context.Context, expectedVersion, newVersion uint64, checkThresholdMinor int64, change affiliateadmin.Change) (affiliateadmin.SettlementPolicy, error) {
+	var value affiliateadmin.SettlementPolicy
+	err := r.pool.QueryRow(ctx, `
+		SELECT version,mode,currency,check_threshold_minor,effective_from
+		FROM public.spyglass_publish_affiliate_settlement_policy($1,$2,$3,$4,$5,$6,$7)`,
+		change.EventID, expectedVersion, newVersion, checkThresholdMinor, change.Actor, change.Reason, change.Environment).Scan(
+		&value.Version, &value.Mode, &value.Currency, &value.CheckThresholdMinor, &value.EffectiveFrom)
+	if err := classifyAffiliateAdminError(err); err != nil {
+		return affiliateadmin.SettlementPolicy{}, err
+	}
+	return value, value.Validate()
+}
+
+func (r *AffiliateAdminRepository) ReserveSupportCheck(ctx context.Context, affiliateID ids.AffiliateID, sessionID ids.SessionID, amountMinor int64, reservationID string, change affiliateadmin.Change) (affiliateadmin.CheckReservation, error) {
+	return scanAffiliateCheckReservation(r.pool.QueryRow(ctx, `
+		SELECT reservation_id,affiliate_id,state,amount_minor,currency,policy_version,version,created_at
+		FROM public.spyglass_reserve_affiliate_support_check($1,$2,$3,$4,$5,$6,$7,$8)`,
+		change.EventID, reservationID, affiliateID, sessionID, amountMinor, change.Actor, change.Reason, change.Environment))
+}
+
+func (r *AffiliateAdminRepository) TransitionSupportCheck(ctx context.Context, reservationID string, expectedVersion uint64, state string, change affiliateadmin.Change) (affiliateadmin.CheckReservation, error) {
+	return scanAffiliateCheckReservation(r.pool.QueryRow(ctx, `
+		SELECT reservation_id,affiliate_id,state,amount_minor,currency,policy_version,version,created_at
+		FROM public.spyglass_transition_affiliate_support_check($1,$2,$3,$4,$5,$6,$7)`,
+		change.EventID, reservationID, expectedVersion, state, change.Actor, change.Reason, change.Environment))
+}
+
+func scanAffiliateCheckReservation(row pgx.Row) (affiliateadmin.CheckReservation, error) {
+	var value affiliateadmin.CheckReservation
+	err := row.Scan(&value.ID, &value.AffiliateID, &value.State, &value.AmountMinor, &value.Currency,
+		&value.PolicyVersion, &value.Version, &value.CreatedAt)
+	if err := classifyAffiliateAdminError(err); err != nil {
+		return affiliateadmin.CheckReservation{}, err
+	}
+	if err := value.Validate(); err != nil {
+		return affiliateadmin.CheckReservation{}, fmt.Errorf("Affiliate Support check operation returned invalid state: %w", err)
+	}
+	return value, nil
+}
+
 func scanAffiliateAdminEnrollment(row pgx.Row) (affiliates.Enrollment, error) {
 	value, err := scanAffiliateEnrollment(row)
 	if err := classifyAffiliateAdminError(err); err != nil {
@@ -77,6 +117,8 @@ func classifyAffiliateAdminError(err error) error {
 	var databaseError *pgconn.PgError
 	if errors.As(err, &databaseError) {
 		switch databaseError.Code {
+		case "28000":
+			return affiliateadmin.ErrStrongAuth
 		case "22023":
 			return affiliateadmin.ErrInvalidChange
 		case "P0002":

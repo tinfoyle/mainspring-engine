@@ -56,6 +56,58 @@ func TestOneTimeCheckoutPinsPurchaseMetadataToSessionAndPayment(t *testing.T) {
 	}
 }
 
+func TestCustomerBalanceCreditIsNegativeAndIdempotentlyBound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/customers/cus_affiliate/balance_transactions" || r.Header.Get("Idempotency-Key") != "credit-key" {
+			t.Errorf("request path=%q headers=%v", r.URL.Path, r.Header)
+		}
+		body, _ := io.ReadAll(r.Body)
+		form := string(body)
+		for _, expected := range []string{"amount=-1000", "currency=usd", "metadata%5Bspyglass_account_id%5D=11111111-1111-4111-8111-111111111111", "metadata%5Bspyglass_reference_id%5D=33333333-3333-4333-8333-333333333333"} {
+			if !strings.Contains(form, expected) {
+				t.Errorf("form missing %q: %s", expected, form)
+			}
+		}
+		_, _ = w.Write([]byte(`{"id":"cbtxn_affiliate","customer":"cus_affiliate","amount":-1000,"currency":"usd"}`))
+	}))
+	defer server.Close()
+	client, _ := New("sk_test_not_a_real_secret", DefaultAPIVersion, server.Client())
+	client.baseURL = server.URL
+	result, err := client.CreateCustomerBalanceCredit(context.Background(), billing.CreateCustomerBalanceCreditCommand{
+		AccountID: "11111111-1111-4111-8111-111111111111", CustomerID: "cus_affiliate", AmountMinor: 1000,
+		Currency: "USD", Reference: "33333333-3333-4333-8333-333333333333", IdempotencyKey: "credit-key",
+	})
+	if err != nil || result.ID != "cbtxn_affiliate" || result.AmountMinor != 1000 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestCustomerBalanceDebitCompensatesAReversedAffiliateCredit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/customers/cus_affiliate/balance_transactions" || r.Header.Get("Idempotency-Key") != "debit-key" {
+			t.Errorf("request path=%q headers=%v", r.URL.Path, r.Header)
+		}
+		body, _ := io.ReadAll(r.Body)
+		form := string(body)
+		for _, expected := range []string{"amount=1000", "currency=usd", "metadata%5Bspyglass_account_id%5D=11111111-1111-4111-8111-111111111111", "metadata%5Bspyglass_reference_id%5D=33333333-3333-4333-8333-333333333333"} {
+			if !strings.Contains(form, expected) {
+				t.Errorf("form missing %q: %s", expected, form)
+			}
+		}
+		_, _ = w.Write([]byte(`{"id":"cbtxn_reversal","customer":"cus_affiliate","amount":1000,"currency":"usd"}`))
+	}))
+	defer server.Close()
+	client, _ := New("sk_test_not_a_real_secret", DefaultAPIVersion, server.Client())
+	client.baseURL = server.URL
+	result, err := client.CreateCustomerBalanceDebit(context.Background(), billing.CreateCustomerBalanceDebitCommand{
+		AccountID: "11111111-1111-4111-8111-111111111111", CustomerID: "cus_affiliate", AmountMinor: 1000,
+		Currency: "USD", Reference: "33333333-3333-4333-8333-333333333333", IdempotencyKey: "debit-key",
+	})
+	if err != nil || result.ID != "cbtxn_reversal" || result.AmountMinor != 1000 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
 func TestRetrieveSubscriptionTranslatesCurrentItemPeriods(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"id":"sub_1","customer":"cus_1","status":"active","created":1,"metadata":{"spyglass_account_id":"11111111-1111-4111-8111-111111111111","spyglass_offer_code":"team","spyglass_offer_version":"2","spyglass_affiliate_attribution_id":"22222222-2222-4222-8222-222222222222"},"items":{"data":[{"current_period_start":1786968000,"current_period_end":1789646400,"price":{"id":"price_private"}}]}}`))

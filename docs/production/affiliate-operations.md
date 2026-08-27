@@ -1,6 +1,6 @@
 # Affiliate operations
 
-Status: the original fixed-rule kernel was verified locally on 2026-08-25; owner policy decisions recorded on 2026-08-26 require a new immutable rule, ledger transitions and projector verification before launch. The enrollment and attribution feature flags remain closed. Nothing in this runbook authorizes Stage or production use.
+Status: the approved recurring-rule, adverse-event and account-credit-with-Support-check boundaries are implemented and verified locally as of 2026-08-27. The enrollment and attribution feature flags remain closed pending privacy-retention work and external legal, accounting, Support and provider acceptance. Nothing in this runbook authorizes Stage or production use.
 
 The customer dashboard derives a proposal-only link from the application origin and generated public code. It carries no Affiliate identity, customer identity, offer, analytics subject or commercial attribution. Checkout displays the proposed code but requires the customer to select **Apply** before server validation. Suspension or closure removes the URL and disables both code/link copying while preserving the immutable statement and structured support path.
 
@@ -15,12 +15,13 @@ The customer statement counts only locked subscription attributions and never ex
 The billing worker projects Affiliate commercial evidence only from events already accepted by the signed Stripe webhook inbox. The launch webhook selection must include:
 
 - `invoice.paid` for a qualifying earning;
-- `refund.created` and `refund.updated` so a Refund that becomes `succeeded` is observed; and
+- `refund.created` and `refund.updated` so a Refund that becomes `succeeded` is observed;
+- `credit_note.created` and `credit_note.updated` so an issued, line-complete credit note is observed; and
 - `charge.dispute.closed` so only a final `lost` dispute is adverse.
 
 The pinned invoice parser accepts the Dahlia `payments.data[].payment.payment_intent` shape and the legacy top-level `payment_intent` during a rolling API-version transition. A commission stores the opaque Invoice, Subscription and PaymentIntent IDs but no customer, payment-method or referred-business data.
 
-Approved adverse-event target (2026-08-26): successful Refund objects, finalized credit notes and disputes are semantically deduplicated across lifecycle events. Any successful non-zero Refund, finalized non-zero credit note, or final lost dispute/chargeback voids the entire commission associated with that invoice. A pending earning cannot mature; an available earning receives one immutable full reversal. Pending, failed or canceled refunds; draft or voided credit notes; and open, warning, pending or won disputes do not reverse. An adverse event received before its earning is retained and evaluated atomically when the earning later arrives. The current full-amount-threshold projector has no credit-note path and does not satisfy this target; it must be replaced before either launch flag opens.
+Successful Refund objects, issued credit notes and final lost disputes are semantically deduplicated across lifecycle events. Any successful non-zero Refund or final lost dispute/chargeback voids the entire PaymentIntent-associated invoice commission. An issued non-zero credit note does so only when its complete line collection contains the eligible subscription invoice line; a commissioning-only credit note has no effect. A webhook with a paginated or incomplete credit-note line collection fails closed for reconciliation. A pending earning cannot mature; an available earning receives one immutable full reversal. Pending, failed or canceled refunds; draft or voided credit notes; and open, warning, pending or won disputes do not reverse. Adverse evidence received before its earning is retained and evaluated atomically when the earning later arrives.
 
 Every reversal is a new settled ledger entry bound to the original earning. The earning, provider evidence and reversal cannot be updated or deleted. Webhook replay returns the existing semantic result.
 
@@ -31,10 +32,16 @@ Every reversal is a new settled ledger entry bound to the original earning. The 
 - `inspect`: record a content-free inspection without changing the enrollment version;
 - `inspect-risk`: record an inspection and return only content-free aggregate risk signals for manual review;
 - `suspend`: stop new code attribution while preserving locked attributions and ledger history;
-- `activate`: reactivate a suspended enrollment at the exact current version; and
-- `close`: terminally close an enrollment. Closure cannot be reversed.
+- `activate`: reactivate a suspended enrollment at the exact current version;
+- `close`: terminally close an enrollment. Closure cannot be reversed;
+- `set-check-threshold`: publish the next immutable settlement-policy version and reviewed USD threshold;
+- `reserve-check`: after the Affiliate's recent passkey confirmation, reserve an operator-selected available amount;
+- `settle-check`: record that the reserved amount was externally paid; and
+- `release-check`: return a canceled reservation to available credit.
 
-Approved lifecycle policy (2026-08-26): suspension disables public-code lookup and new attribution only. Existing locked subscriptions continue producing qualifying earnings and rolling maturity. Permanent closure stops new attribution and all future earnings from its effective time, expires the final pending earning through immutable void evidence, and preserves already available credit for ordinary billing or Support-assisted check settlement. Neither state affects customer subscriptions, billing or entitlements; immutable history and structured appeal access remain visible. The current projector does not yet enforce the closure cutoff or append the pending-expiry evidence and must be revised before launch.
+The check actions are an accounting boundary only. They neither select a payment amount for Support nor issue, mail, stop or reissue a check. Every reservation freezes the settlement-policy version under which it was made. A later reversal of an earning already applied to a customer balance produces an idempotent Stripe customer-balance debit. A reversal of an earning already settled through Support creates a provider-free recovery offset against future available earnings; it does not attempt to claw back a check.
+
+Suspension disables public-code lookup and new attribution only. Existing locked subscriptions continue producing qualifying earnings and rolling maturity. Permanent closure stops new attribution and all future earnings from its effective time, expires the final pending earning through immutable void evidence, and preserves already available credit for ordinary billing or Support-assisted check settlement. Neither state affects customer subscriptions, billing or entitlements; immutable history and structured appeal access remain visible. The projector enforces the closure cutoff and exact-replay terminal void.
 
 Approved erasure policy (2026-08-26): a verified Affiliate erasure request invokes permanent closure, removes the active code/share link and erases optional data that is no longer required. Available credit remains settleable and referred-customer subscriptions remain untouched. Required financial, accounting, settlement and audit evidence is restricted from ordinary product and marketing access until the approved seven-year deadline, when it is deleted or irreversibly minimized. A documented legal hold may extend only scoped records. The fulfillment record must identify retained categories, purpose and deadline. The current data model has no restricted-retention projection or automated deadline minimization and must be extended before launch.
 
@@ -52,6 +59,8 @@ spyglass affiliate-admin suspend
 
 The command also requires `SPYGLASS_DATABASE_URL`, `SPYGLASS_OPERATOR_ID`, `SPYGLASS_OPERATOR_REASON`, `SPYGLASS_OPERATOR_AUTH_ISSUER`, `SPYGLASS_OPERATOR_AUTH_VERIFY_KEYS`, and `SPYGLASS_OPERATOR_AUTHORIZATION`. Do not place database credentials or authorization envelopes in shell history.
 
+Settlement-policy publication uses `SPYGLASS_AFFILIATE_SETTLEMENT_POLICY_VERSION`, `SPYGLASS_AFFILIATE_SETTLEMENT_NEW_POLICY_VERSION` and `SPYGLASS_AFFILIATE_CHECK_THRESHOLD_MINOR`. Check reservation uses `SPYGLASS_AFFILIATE_ID`, `SPYGLASS_AFFILIATE_CUSTOMER_SESSION_ID` and `SPYGLASS_AFFILIATE_CHECK_AMOUNT_MINOR`. Settlement or release uses `SPYGLASS_AFFILIATE_CHECK_RESERVATION_ID` and `SPYGLASS_AFFILIATE_CHECK_RESERVATION_VERSION`.
+
 The environment database role should be execute-only:
 
 ```sql
@@ -62,6 +71,12 @@ GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_enrollment(uuid,uuid
 GRANT EXECUTE ON FUNCTION public.spyglass_inspect_affiliate_risk(uuid,uuid,text,text,text)
   TO spyglass_affiliate_operator;
 GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text)
+  TO spyglass_affiliate_operator;
+GRANT EXECUTE ON FUNCTION public.spyglass_publish_affiliate_settlement_policy(uuid,bigint,bigint,bigint,text,text,text)
+  TO spyglass_affiliate_operator;
+GRANT EXECUTE ON FUNCTION public.spyglass_reserve_affiliate_support_check(uuid,uuid,uuid,uuid,bigint,text,text,text)
+  TO spyglass_affiliate_operator;
+GRANT EXECUTE ON FUNCTION public.spyglass_transition_affiliate_support_check(uuid,uuid,bigint,text,text,text,text)
   TO spyglass_affiliate_operator;
 ```
 
@@ -119,6 +134,6 @@ Do not grant this role direct support-request/event table access or any enrollme
 
 ## Launch boundary
 
-The owner has approved the commercial and account-credit-first Support-check settlement policy. The operational ledger, lifecycle and structured review channel do not implement or release-approve it by themselves. Enrollment and attribution flags stay closed until the exact hybrid settlement mode, Catalog/Stripe mapping, balance controls, disclosures, legal/privacy/vendor/transfer review and Support procedure are complete. Stage and production credentials are not required for local verification.
+The owner-approved recurring rule and account-credit-first Support-check settlement mechanism are implemented locally. This does not release-approve the program. Enrollment and attribution flags stay closed until readable-code/identity minimization and restricted-retention work, Catalog/Stripe mapping, disclosures, legal/privacy/vendor/transfer review and Support/accounting procedure are complete. Stage and production credentials are not required for local verification.
 
-Stripe references: [event types](https://docs.stripe.com/api/events/types), [Refund object](https://docs.stripe.com/api/refunds/object), [Dispute object](https://docs.stripe.com/api/disputes/object), and [Invoice Payment object](https://docs.stripe.com/api/invoice-payment/object).
+Stripe references: [event types](https://docs.stripe.com/api/events/types), [Refund object](https://docs.stripe.com/api/refunds/object), [Credit Note object](https://docs.stripe.com/api/credit_notes/object), [Dispute object](https://docs.stripe.com/api/disputes/object), and [Invoice Payment object](https://docs.stripe.com/api/invoice-payment/object).

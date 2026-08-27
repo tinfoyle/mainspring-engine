@@ -159,7 +159,13 @@ GRANT SELECT, INSERT, DELETE ON entitlement_grants TO spyglass_billing_worker;
 GRANT SELECT, UPDATE ON affiliate_attributions TO spyglass_billing_worker;
 GRANT SELECT ON affiliate_enrollments, affiliate_commission_rules TO spyglass_billing_worker;
 GRANT SELECT, INSERT ON affiliate_commission_entries TO spyglass_billing_worker;
-GRANT SELECT, INSERT ON affiliate_provider_adverse_events TO spyglass_billing_worker;
+GRANT SELECT, INSERT ON affiliate_commission_invoice_payments, affiliate_commission_invoice_lines TO spyglass_billing_worker;
+GRANT SELECT ON affiliate_settlement_policies, affiliate_settlement_policy_current TO spyglass_billing_worker;
+GRANT SELECT, INSERT, UPDATE ON affiliate_credit_reservations TO spyglass_billing_worker;
+GRANT SELECT, INSERT ON affiliate_credit_allocations, affiliate_credit_reservation_events TO spyglass_billing_worker;
+GRANT SELECT, INSERT, UPDATE ON affiliate_credit_reversal_adjustments TO spyglass_billing_worker;
+GRANT SELECT, INSERT ON affiliate_credit_reversal_adjustment_events TO spyglass_billing_worker;
+GRANT SELECT, INSERT ON affiliate_provider_adverse_events, affiliate_provider_adverse_invoice_lines TO spyglass_billing_worker;
 
 GRANT SELECT, UPDATE ON identity_notification_outbox TO spyglass_notification_worker;
 

@@ -42,10 +42,13 @@ type Repository interface {
 	LockAttribution(context.Context, ids.ReferralAttributionID, string, time.Time) (affiliates.Attribution, error)
 	AttributionBySubscription(context.Context, string) (affiliates.Attribution, error)
 	CommissionRule(context.Context, uint64) (affiliates.CommissionRule, error)
+	EligibleInvoiceLines(context.Context, affiliates.Attribution, string, []InvoiceLine) ([]InvoiceLine, int64, error)
 	AppendCommission(context.Context, affiliates.CommissionEntry) (affiliates.CommissionEntry, error)
-	RecordPaidCommission(context.Context, ids.CommissionEntryID, ids.CommissionEntryID, affiliates.Attribution, affiliates.CommissionRule, string, string, bool, time.Time) (affiliates.CommissionEntry, error)
+	RecordPaidCommission(context.Context, ids.CommissionEntryID, ids.CommissionEntryID, ids.CommissionEntryID, affiliates.Attribution, affiliates.CommissionRule, PaidInvoice, []InvoiceLine, int64, time.Time) (affiliates.CommissionEntry, error)
 	RecordAdverseCommission(context.Context, ids.CommissionEntryID, affiliates.AdverseBillingEvidence, time.Time) (affiliates.CommissionEntry, bool, error)
+	RecordSubscriptionTermination(context.Context, string, ids.CommissionEntryID, time.Time) (affiliates.CommissionEntry, bool, error)
 	StatementSnapshot(context.Context, ids.AffiliateID) (uint64, []affiliates.CommissionEntry, error)
+	SettlementSnapshot(context.Context, ids.AffiliateID) (SettlementSnapshot, error)
 	DataExport(context.Context, ids.UserID) (DataExport, error)
 }
 
@@ -212,12 +215,23 @@ func (s *Service) Lock(ctx context.Context, attributionID ids.ReferralAttributio
 }
 
 type PaidInvoice struct {
-	SubscriptionID  string
-	InvoiceID       string
-	PaymentIntentID string
-	AmountPaidMinor int64
+	SubscriptionID   string
+	InvoiceID        string
+	PaymentIntentID  string
+	PaymentIntentIDs []string
+	AmountPaidMinor  int64
+	Currency         string
+	Initial          bool
+	Mode             string
+	OccurredAt       time.Time
+	Lines            []InvoiceLine
+}
+
+type InvoiceLine struct {
+	ID              string
+	ProviderPriceID string
+	AmountMinor     int64
 	Currency        string
-	Initial         bool
 }
 
 func (s *Service) RecordPaidInvoice(ctx context.Context, paid PaidInvoice) (affiliates.CommissionEntry, error) {
@@ -229,15 +243,30 @@ func (s *Service) RecordPaidInvoice(ctx context.Context, paid PaidInvoice) (affi
 	if err != nil {
 		return affiliates.CommissionEntry{}, err
 	}
-	if paid.AmountPaidMinor != rule.EligibleInvoiceMinor || strings.ToUpper(paid.Currency) != rule.Currency {
+	if strings.ToUpper(paid.Currency) != rule.Currency || paid.AmountPaidMinor <= 0 || (paid.Mode != "test" && paid.Mode != "live") {
 		return affiliates.CommissionEntry{}, ErrInvoiceIneligible
 	}
-	stored, err := s.repository.RecordPaidCommission(ctx, ids.CommissionEntryID(s.ids.New()), ids.CommissionEntryID(s.ids.New()),
-		attribution, rule, paid.InvoiceID, paid.PaymentIntentID, paid.Initial, s.clock.Now())
+	eligibleLines, eligibleMinor, err := s.repository.EligibleInvoiceLines(ctx, attribution, paid.Mode, paid.Lines)
+	if err != nil || eligibleMinor <= 0 {
+		return affiliates.CommissionEntry{}, ErrInvoiceIneligible
+	}
+	commissionMinor, err := rule.CommissionAmount(eligibleMinor)
+	if err != nil {
+		return affiliates.CommissionEntry{}, ErrInvoiceIneligible
+	}
+	stored, err := s.repository.RecordPaidCommission(ctx, ids.CommissionEntryID(s.ids.New()), ids.CommissionEntryID(s.ids.New()), ids.CommissionEntryID(s.ids.New()),
+		attribution, rule, paid, eligibleLines, commissionMinor, s.clock.Now())
 	if err != nil {
 		return affiliates.CommissionEntry{}, err
 	}
 	return stored, nil
+}
+
+func (s *Service) RecordSubscriptionTermination(ctx context.Context, subscriptionID string, occurredAt time.Time) (affiliates.CommissionEntry, bool, error) {
+	if !strings.HasPrefix(subscriptionID, "sub_") || occurredAt.IsZero() {
+		return affiliates.CommissionEntry{}, false, affiliates.ErrInvalidCommission
+	}
+	return s.repository.RecordSubscriptionTermination(ctx, subscriptionID, ids.CommissionEntryID(s.ids.New()), occurredAt.UTC())
 }
 
 // RecordAdverseBilling projects only verified Stripe refund/dispute evidence.
@@ -256,9 +285,21 @@ type Statement struct {
 	ReferredSubscriptions uint64                       `json:"referred_subscriptions"`
 	Currency              string                       `json:"currency"`
 	PendingMinor          int64                        `json:"pending_minor"`
+	AvailableMinor        int64                        `json:"available_minor"`
+	ReservedMinor         int64                        `json:"reserved_minor"`
 	SettledMinor          int64                        `json:"settled_minor"`
 	ReversedMinor         int64                        `json:"reversed_minor"`
+	VoidedMinor           int64                        `json:"voided_minor"`
+	CheckThresholdMinor   int64                        `json:"check_threshold_minor"`
+	CheckEligible         bool                         `json:"check_eligible"`
 	Entries               []affiliates.CommissionEntry `json:"entries"`
+}
+
+type SettlementSnapshot struct {
+	AvailableMinor      int64
+	ReservedMinor       int64
+	SettledMinor        int64
+	CheckThresholdMinor int64
 }
 
 func (s *Service) Statement(ctx context.Context, userID ids.UserID) (Statement, error) {
@@ -271,6 +312,9 @@ func (s *Service) Statement(ctx context.Context, userID ids.UserID) (Statement, 
 		return Statement{}, err
 	}
 	statement := Statement{AffiliateID: enrollment.ID, ReferredSubscriptions: referredSubscriptions, Entries: entries}
+	matured := make(map[ids.CommissionEntryID]struct{})
+	voided := make(map[ids.CommissionEntryID]struct{})
+	reversed := make(map[ids.CommissionEntryID]struct{})
 	for _, entry := range entries {
 		if statement.Currency == "" {
 			statement.Currency = entry.Currency
@@ -278,15 +322,48 @@ func (s *Service) Statement(ctx context.Context, userID ids.UserID) (Statement, 
 		if statement.Currency != entry.Currency {
 			return Statement{}, affiliates.ErrInvalidCommission
 		}
-		switch {
-		case entry.Kind == affiliates.CommissionReversal:
+		switch entry.Kind {
+		case affiliates.CommissionMaturity:
+			if entry.SourceID != nil {
+				matured[*entry.SourceID] = struct{}{}
+			}
+		case affiliates.CommissionVoid:
+			if entry.SourceID != nil {
+				voided[*entry.SourceID] = struct{}{}
+			}
+			statement.VoidedMinor += entry.AmountMinor
+		case affiliates.CommissionReversal:
+			if entry.ReversesID != nil {
+				reversed[*entry.ReversesID] = struct{}{}
+			}
 			statement.ReversedMinor += entry.AmountMinor
-		case entry.State == affiliates.CommissionSettled:
-			statement.SettledMinor += entry.AmountMinor
-		default:
+		}
+	}
+	for _, entry := range entries {
+		if entry.Kind != affiliates.CommissionEarned {
+			continue
+		}
+		if _, exists := reversed[entry.ID]; exists {
+			continue
+		}
+		if _, exists := voided[entry.ID]; exists {
+			continue
+		}
+		if _, exists := matured[entry.ID]; exists {
+			statement.AvailableMinor += entry.AmountMinor
+		} else {
 			statement.PendingMinor += entry.AmountMinor
 		}
 	}
+	settlement, err := s.repository.SettlementSnapshot(ctx, enrollment.ID)
+	if err != nil {
+		return Statement{}, err
+	}
+	statement.AvailableMinor = settlement.AvailableMinor
+	statement.ReservedMinor = settlement.ReservedMinor
+	statement.SettledMinor = settlement.SettledMinor
+	statement.CheckThresholdMinor = settlement.CheckThresholdMinor
+	statement.CheckEligible = settlement.AvailableMinor >= settlement.CheckThresholdMinor && settlement.CheckThresholdMinor > 0
 	return statement, nil
 }
 

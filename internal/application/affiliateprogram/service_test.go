@@ -82,13 +82,27 @@ func (r *repository) AttributionBySubscription(_ context.Context, subscriptionID
 func (r *repository) CommissionRule(context.Context, uint64) (affiliates.CommissionRule, error) {
 	return r.rule, nil
 }
+func (r *repository) EligibleInvoiceLines(_ context.Context, _ affiliates.Attribution, _ string, lines []affiliateprogram.InvoiceLine) ([]affiliateprogram.InvoiceLine, int64, error) {
+	eligible := make([]affiliateprogram.InvoiceLine, 0, len(lines))
+	var total int64
+	for _, line := range lines {
+		if line.AmountMinor > 0 {
+			eligible = append(eligible, line)
+			total += line.AmountMinor
+		}
+	}
+	if total == 0 {
+		return nil, 0, affiliateprogram.ErrInvoiceIneligible
+	}
+	return eligible, total, nil
+}
 func (r *repository) AppendCommission(_ context.Context, entry affiliates.CommissionEntry) (affiliates.CommissionEntry, error) {
 	r.entries = append(r.entries, entry)
 	return entry, nil
 }
-func (r *repository) RecordPaidCommission(_ context.Context, id, _ ids.CommissionEntryID, attribution affiliates.Attribution, rule affiliates.CommissionRule, invoiceID, paymentIntentID string, initial bool, now time.Time) (affiliates.CommissionEntry, error) {
+func (r *repository) RecordPaidCommission(_ context.Context, id, maturityID, _ ids.CommissionEntryID, attribution affiliates.Attribution, rule affiliates.CommissionRule, paid affiliateprogram.PaidInvoice, _ []affiliateprogram.InvoiceLine, commissionMinor int64, now time.Time) (affiliates.CommissionEntry, error) {
 	cycle := uint32(1)
-	if !initial {
+	if !paid.Initial {
 		cycle = 2
 		for _, entry := range r.entries {
 			if entry.SubscriptionID == attribution.SubscriptionID && entry.Kind == affiliates.CommissionEarned && entry.Cycle >= cycle {
@@ -96,9 +110,20 @@ func (r *repository) RecordPaidCommission(_ context.Context, id, _ ids.Commissio
 			}
 		}
 	}
-	entry, err := affiliates.NewEarnedEntry(id, attribution, rule, invoiceID, paymentIntentID, cycle, now)
+	entry, err := affiliates.NewEarnedEntryAmount(id, attribution, rule, paid.InvoiceID, paid.PaymentIntentID, cycle, commissionMinor, now)
 	if err != nil {
 		return affiliates.CommissionEntry{}, err
+	}
+	for index := len(r.entries) - 1; index >= 0; index-- {
+		previous := r.entries[index]
+		if previous.SubscriptionID == attribution.SubscriptionID && previous.Kind == affiliates.CommissionEarned {
+			maturity, maturityErr := affiliates.NewMaturityEntry(maturityID, previous, paid.InvoiceID, now)
+			if maturityErr != nil {
+				return affiliates.CommissionEntry{}, maturityErr
+			}
+			r.entries = append(r.entries, maturity)
+			break
+		}
 	}
 	r.entries = append(r.entries, entry)
 	return entry, nil
@@ -106,13 +131,31 @@ func (r *repository) RecordPaidCommission(_ context.Context, id, _ ids.Commissio
 
 func (r *repository) RecordAdverseCommission(_ context.Context, id ids.CommissionEntryID, evidence affiliates.AdverseBillingEvidence, now time.Time) (affiliates.CommissionEntry, bool, error) {
 	for _, original := range r.entries {
-		if original.Kind == affiliates.CommissionEarned && original.PaymentIntentID == evidence.PaymentIntentID {
+		matches := original.PaymentIntentID == evidence.PaymentIntentID
+		if evidence.Kind == affiliates.AdverseCreditNote {
+			matches = original.InvoiceID == evidence.InvoiceID
+		}
+		if original.Kind == affiliates.CommissionEarned && matches {
 			reversal, err := affiliates.NewReversalEntry(id, original, original.InvoiceID, now)
 			if err != nil {
 				return affiliates.CommissionEntry{}, false, err
 			}
 			r.entries = append(r.entries, reversal)
 			return reversal, true, nil
+		}
+	}
+	return affiliates.CommissionEntry{}, false, nil
+}
+func (r *repository) RecordSubscriptionTermination(_ context.Context, subscriptionID string, id ids.CommissionEntryID, now time.Time) (affiliates.CommissionEntry, bool, error) {
+	for index := len(r.entries) - 1; index >= 0; index-- {
+		original := r.entries[index]
+		if original.Kind == affiliates.CommissionEarned && original.SubscriptionID == subscriptionID {
+			voided, err := affiliates.NewVoidEntry(id, original, now)
+			if err != nil {
+				return affiliates.CommissionEntry{}, false, err
+			}
+			r.entries = append(r.entries, voided)
+			return voided, true, nil
 		}
 	}
 	return affiliates.CommissionEntry{}, false, nil
@@ -131,6 +174,32 @@ func (r *repository) StatementSnapshot(_ context.Context, affiliateID ids.Affili
 	}
 	return count, append([]affiliates.CommissionEntry{}, r.entries...), nil
 }
+func (r *repository) SettlementSnapshot(context.Context, ids.AffiliateID) (affiliateprogram.SettlementSnapshot, error) {
+	matured := make(map[ids.CommissionEntryID]struct{})
+	reversed := make(map[ids.CommissionEntryID]struct{})
+	for _, entry := range r.entries {
+		if entry.Kind == affiliates.CommissionMaturity && entry.SourceID != nil {
+			matured[*entry.SourceID] = struct{}{}
+		}
+		if entry.Kind == affiliates.CommissionReversal && entry.ReversesID != nil {
+			reversed[*entry.ReversesID] = struct{}{}
+		}
+	}
+	result := affiliateprogram.SettlementSnapshot{CheckThresholdMinor: 10_000}
+	for _, entry := range r.entries {
+		if entry.Kind != affiliates.CommissionEarned {
+			continue
+		}
+		if _, ok := matured[entry.ID]; !ok {
+			continue
+		}
+		if _, ok := reversed[entry.ID]; ok {
+			continue
+		}
+		result.AvailableMinor += entry.AmountMinor
+	}
+	return result, nil
+}
 func (r *repository) DataExport(context.Context, ids.UserID) (affiliateprogram.DataExport, error) {
 	return r.dataExport, nil
 }
@@ -138,6 +207,9 @@ func (r *repository) DataExport(context.Context, ids.UserID) (affiliateprogram.D
 type generator struct{ values []string }
 
 func (g *generator) New() string {
+	if len(g.values) == 0 {
+		return "90000000-0000-4000-8000-000000000001"
+	}
 	value := g.values[0]
 	g.values = g.values[1:]
 	return value
@@ -164,6 +236,8 @@ func TestAffiliateDataExportRequiresStrongAuthenticationAndOwnedIdentity(t *test
 		PublicCodes:       []affiliateprogram.DataExportPublicCode{},
 		EnrollmentEvents:  []affiliateprogram.DataExportLifecycleEvent{},
 		CommissionEntries: []affiliateprogram.DataExportCommission{},
+		CreditSettlements: []affiliateprogram.DataExportCreditSettlement{},
+		CreditReversals:   []affiliateprogram.DataExportCreditReversal{},
 		SupportRequests:   []affiliateprogram.DataExportSupportRequest{},
 		SupportEvents:     []affiliateprogram.DataExportSupportEvent{},
 	}}
@@ -241,7 +315,7 @@ func TestReferralAndPaidRenewalProduceOneLedgerEntry(t *testing.T) {
 	if _, err := service.Lock(context.Background(), attribution.ID, "sub_paid"); err != nil {
 		t.Fatal(err)
 	}
-	entry, err := service.RecordPaidInvoice(context.Background(), affiliateprogram.PaidInvoice{SubscriptionID: "sub_paid", InvoiceID: "in_renewal", PaymentIntentID: "pi_renewal", AmountPaidMinor: 5000, Currency: "usd", Initial: false})
+	entry, err := service.RecordPaidInvoice(context.Background(), affiliateprogram.PaidInvoice{SubscriptionID: "sub_paid", InvoiceID: "in_renewal", PaymentIntentID: "pi_renewal", AmountPaidMinor: 5000, Currency: "usd", Initial: false, Mode: "test", Lines: []affiliateprogram.InvoiceLine{{ID: "il_renewal", ProviderPriceID: "price_team", AmountMinor: 5000, Currency: "USD"}}})
 	if err != nil || entry.AmountMinor != 1000 || len(repository.entries) != 1 {
 		t.Fatalf("entry=%+v err=%v entries=%d", entry, err, len(repository.entries))
 	}
@@ -251,13 +325,14 @@ func TestReferralAndPaidRenewalProduceOneLedgerEntry(t *testing.T) {
 	}
 }
 
-func TestPaidInvoiceMustMatchFrozenRule(t *testing.T) {
+func TestPaidInvoiceAppliesFrozenPercentageAfterDiscount(t *testing.T) {
 	now := time.Now().UTC()
 	repository := &repository{rule: affiliates.CommissionRule{ID: ids.CommissionRuleID("10000000-0000-4000-8000-000000000020"), Version: 3, OfferCode: "team-monthly-v1", Currency: "USD", EligibleInvoiceMinor: 5000, CommissionMinor: 1000, InitialInvoiceQualifies: true, EffectiveFrom: now}}
 	repository.attribution = affiliates.Attribution{ID: ids.ReferralAttributionID("10000000-0000-4000-8000-000000000011"), AffiliateID: ids.AffiliateID("10000000-0000-4000-8000-000000000010"), OfferCode: "team-monthly-v1", RuleVersion: 3, State: affiliates.AttributionLocked, SubscriptionID: "sub_paid"}
 	service, _ := affiliateprogram.New(repository, &generator{values: []string{"10000000-0000-4000-8000-000000000012"}}, codes{"IO-PARTNER1"}, clock{now}, 2, 3)
-	if _, err := service.RecordPaidInvoice(context.Background(), affiliateprogram.PaidInvoice{SubscriptionID: "sub_paid", InvoiceID: "in_discounted", PaymentIntentID: "pi_discounted", AmountPaidMinor: 4900, Currency: "USD", Initial: true}); !errors.Is(err, affiliateprogram.ErrInvoiceIneligible) {
-		t.Fatalf("discounted invoice returned %v", err)
+	entry, err := service.RecordPaidInvoice(context.Background(), affiliateprogram.PaidInvoice{SubscriptionID: "sub_paid", InvoiceID: "in_discounted", PaymentIntentID: "pi_discounted", AmountPaidMinor: 4900, Currency: "USD", Initial: true, Mode: "test", Lines: []affiliateprogram.InvoiceLine{{ID: "il_discounted", ProviderPriceID: "price_team", AmountMinor: 4500, Currency: "USD"}}})
+	if err != nil || entry.AmountMinor != 900 {
+		t.Fatalf("discounted entry=%+v err=%v", entry, err)
 	}
 }
 

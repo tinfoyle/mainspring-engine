@@ -65,6 +65,17 @@ func TestAccountExportCoverageMatchesAccountOwnedSchema(t *testing.T) {
 	seen["public.affiliate_enrollments"] = true
 	seen["public.affiliate_commission_entries"] = true
 	seen["public.affiliate_commission_rules"] = true
+	seen["public.affiliate_commission_invoice_payments"] = true
+	seen["public.affiliate_commission_invoice_lines"] = true
+	seen["public.affiliate_provider_adverse_invoice_lines"] = true
+	seen["public.affiliate_credit_reservations"] = true
+	seen["public.affiliate_credit_allocations"] = true
+	seen["public.affiliate_credit_reservation_events"] = true
+	seen["public.affiliate_credit_reversal_adjustments"] = true
+	seen["public.affiliate_credit_reversal_adjustment_events"] = true
+	seen["public.affiliate_settlement_policies"] = true
+	seen["public.affiliate_settlement_policy_current"] = true
+	seen["public.affiliate_settlement_policy_events"] = true
 	seen["public.privacy_consent_subjects"] = true
 	seen["public.privacy_consent_decisions"] = true
 	seen["public.analytics_events"] = true

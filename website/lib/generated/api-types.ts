@@ -240,9 +240,10 @@ export interface AffiliateCommissionEntry {
   readonly "currency": string;
   readonly "cycle": number;
   readonly "entry_id": string;
-  readonly "kind": "earned" | "reversal";
+  readonly "kind": "earned" | "maturity" | "void" | "reversal";
   readonly "reverses_entry_id"?: string;
   readonly "rule_version": number;
+  readonly "source_entry_id"?: string;
   readonly "state": "pending" | "settled";
 }
 
@@ -348,18 +349,23 @@ export interface AffiliateProgram {
   readonly "enrollment"?: AffiliateEnrollment;
   readonly "enrollment_open": boolean;
   readonly "rule_version": number;
-  readonly "settlement_mode": "unconfigured" | "account_credit" | "cash";
+  readonly "settlement_mode": "unconfigured" | "account_credit" | "cash" | "account_credit_with_support_check";
   readonly "terms_version": number;
 }
 
 export interface AffiliateStatement {
   readonly "affiliate_id": string;
+  readonly "available_minor": number;
+  readonly "check_eligible": boolean;
+  readonly "check_threshold_minor": number;
   readonly "currency": string;
   readonly "entries": ReadonlyArray<AffiliateCommissionEntry>;
   readonly "pending_minor": number;
   readonly "referred_subscriptions": number;
+  readonly "reserved_minor": number;
   readonly "reversed_minor": number;
   readonly "settled_minor": number;
+  readonly "voided_minor": number;
 }
 
 export type AffiliateSupportKind = "enrollment_appeal" | "commission_review";

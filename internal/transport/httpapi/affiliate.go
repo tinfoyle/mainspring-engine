@@ -34,7 +34,7 @@ var (
 
 func validateAffiliateSettlement(mode string, accountID ids.AccountID) error {
 	switch mode {
-	case "account_credit":
+	case "account_credit", "account_credit_with_support_check":
 		if accountID == "" {
 			return errAffiliateSettlementRequired
 		}
