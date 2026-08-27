@@ -25,6 +25,25 @@ type adminStore struct {
 	sessionID     ids.SessionID
 	amount        int64
 	reservationID string
+	retention     affiliateadmin.RetentionControl
+	legalHold     bool
+}
+
+func (s *adminStore) SetRetentionHold(_ context.Context, affiliateID ids.AffiliateID, version uint64, legalHold bool, change affiliateadmin.Change) (affiliateadmin.RetentionControl, error) {
+	s.version, s.legalHold, s.change = version, legalHold, change
+	value := affiliateadmin.RetentionControl{AffiliateID: affiliateID, LegalHold: legalHold, Version: version + 1,
+		UpdatedAt: time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)}
+	s.retention = value
+	return value, nil
+}
+
+func (s *adminStore) RestrictRetention(_ context.Context, affiliateID ids.AffiliateID, version uint64, change affiliateadmin.Change) (affiliateadmin.RetentionControl, error) {
+	s.version, s.change = version, change
+	restrictedAt := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	value := affiliateadmin.RetentionControl{AffiliateID: affiliateID, RestrictedAt: &restrictedAt,
+		Version: version + 1, UpdatedAt: restrictedAt}
+	s.retention = value
+	return value, nil
 }
 
 func (s *adminStore) ReserveSupportCheck(_ context.Context, affiliateID ids.AffiliateID, sessionID ids.SessionID, amount int64, reservationID string, change affiliateadmin.Change) (affiliateadmin.CheckReservation, error) {
@@ -121,6 +140,36 @@ func TestSupportCheckReservationBindsCustomerPasskeyEvidenceAndExactAmount(t *te
 		"support@example.test", "Record external check accounting completion", "local")
 	if err != nil || settled.State != "settled" || settled.Version != 2 || store.version != 1 {
 		t.Fatalf("settled=%+v store=%+v err=%v", settled, store, err)
+	}
+}
+
+func TestRetentionHoldIsScopedVersionedAndAudited(t *testing.T) {
+	store := &adminStore{}
+	service, _ := affiliateadmin.New(store, adminIDs{"10000000-0000-4000-8000-000000000003"})
+	held, err := service.SetRetentionHold(context.Background(), adminAffiliateID, 2, true,
+		"privacy@example.test", "Preserve Affiliate evidence for a scoped legal review", "local")
+	if err != nil || !held.LegalHold || held.Version != 3 || store.version != 2 || !store.legalHold ||
+		store.change.Actor != "privacy@example.test" {
+		t.Fatalf("held=%+v store=%+v err=%v", held, store, err)
+	}
+	released, err := service.SetRetentionHold(context.Background(), adminAffiliateID, held.Version, false,
+		"privacy@example.test", "Release the Affiliate hold after the legal review", "local")
+	if err != nil || released.LegalHold || released.Version != 4 {
+		t.Fatalf("released=%+v err=%v", released, err)
+	}
+	if _, err := service.SetRetentionHold(context.Background(), adminAffiliateID, 0, true,
+		"privacy@example.test", "Attempt a hold without an observed version", "local"); !errors.Is(err, affiliateadmin.ErrInvalidChange) {
+		t.Fatalf("unversioned hold error=%v", err)
+	}
+}
+
+func TestVerifiedErasureRestrictionIsExplicitAndOneWay(t *testing.T) {
+	store := &adminStore{}
+	service, _ := affiliateadmin.New(store, adminIDs{"10000000-0000-4000-8000-000000000003"})
+	restricted, err := service.RestrictRetention(context.Background(), adminAffiliateID, 4,
+		"privacy@example.test", "Restrict retained evidence after verified Affiliate erasure", "local")
+	if err != nil || restricted.RestrictedAt == nil || restricted.Version != 5 || store.version != 4 {
+		t.Fatalf("restricted=%+v store=%+v err=%v", restricted, store, err)
 	}
 }
 

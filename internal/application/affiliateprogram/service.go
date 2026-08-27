@@ -23,6 +23,7 @@ var (
 	ErrAttributionConflict     = errors.New("affiliate checkout attribution conflicts with the existing request")
 	ErrProgramUnavailable      = errors.New("affiliate program rule is unavailable")
 	ErrEnrollmentNotFound      = errors.New("Affiliate enrollment was not found")
+	ErrEnrollmentRestricted    = errors.New("Affiliate enrollment is restricted after verified erasure")
 	ErrEnrollmentState         = errors.New("Affiliate enrollment does not permit public code replacement")
 	ErrEnrollmentConflict      = errors.New("Affiliate enrollment changed before public code replacement")
 )

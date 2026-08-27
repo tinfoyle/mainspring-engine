@@ -2,7 +2,7 @@
 
 - Status: executable Phase 2.5 account, global router, cell API, private admission API, route rotation canary, route-receipt retention, billing, notification, entitlement-rollout, Account lifecycle, Work reconciliation, migration, Catalog/Work release/passkey rotation operators, and reviewed Account erasure/movement processes
 - Binary: `spyglass`
-- Process modes: `account-api`, `app-router`, public `mcp-gateway`, private `tool-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `identity-maintenance-worker`, `work-reconciler`, `baseline-maintenance-worker`, provider-capable `integration-connector-worker`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `schedule-execution-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`schedule-queue-admin`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`privacy-rights-admin`/`affiliate-admin`/`affiliate-support-admin`/`analytics-report`/`catalog-admin`/`migrate`, and explicit local-only `development`
+- Process modes: `account-api`, `app-router`, public `mcp-gateway`, private `tool-router`, `app-api`, `admission-api`, `route-receipt-worker`, `billing-worker`, `notification-worker`, `entitlement-worker`, `account-lifecycle-worker`, `identity-maintenance-worker`, `affiliate-retention-worker`, `work-reconciler`, `baseline-maintenance-worker`, provider-capable `integration-connector-worker`, `runner-controller`, `runner-broker`, stage-only `docker-runner-launcher`, `model-gateway`, `agent-dispatch-worker`, `schedule-execution-worker`, `agent-projection-worker`, one-shot `runner-invocation`/`route-canary`/`schedule-queue-admin`/`agent-queue-admin`/`work-release-admin`/`account-erasure-admin`/`account-move-admin`/`passkey-admin`/`privacy-rights-admin`/`affiliate-admin`/`affiliate-support-admin`/`analytics-report`/`catalog-admin`/`migrate`, and explicit local-only `development`
 
 The revision-controlled machine contract is [`deploy/spyglass-process-inventory.json`](../../deploy/spyglass-process-inventory.json). Its verification script compares the complete mode set to the binary switch and fails local verification when they drift.
 
@@ -34,7 +34,8 @@ The revision-controlled machine contract is [`deploy/spyglass-process-inventory.
 | `account-move-admin` | One audited prepare, inspect, single-phase advance, pause/resume, rollback or source-retirement action for one exact source/destination pair | Serving traffic, cell discovery, endpoint substitution, automatic dead-letter disposal, provider credentials |
 | `passkey-admin` | One audited key-version inspection or bounded credential/ceremony envelope re-encryption batch | Serving traffic, User/contact reads, password/session authority, automatic key retirement |
 | `privacy-rights-admin` | One audited, bounded open-deadline listing, one exact-request inspection, exact-version review start, or evidence-bound terminal privacy-rights resolution | Serving traffic, case-artifact content, direct request-table access, automatic fulfillment decisions |
-| `affiliate-admin` | One audited enrollment/risk inspection, exact-version suspension/reactivation/closure, immutable check-threshold publication, or Support-check accounting reservation/settlement/release | Serving traffic, direct Affiliate-table access, automatic check amount selection, check issuance/delivery, customer subscription mutation |
+| `affiliate-retention-worker` | Execute-only, bounded seven-calendar-year Affiliate graph minimization after database rechecks legal holds, open cases and unsettled value | Direct Affiliate/tombstone reads, policy changes, customer access, settlement decisions |
+| `affiliate-admin` | One audited enrollment/risk inspection, exact-version suspension/reactivation/closure, immutable check-threshold publication, Support-check accounting reservation/settlement/release, verified-erasure restriction or legal-hold transition | Serving traffic, direct Affiliate-table access, automatic check amount selection, check issuance/delivery, customer subscription mutation |
 | `affiliate-support-admin` | One audited support inspection, exact-version review start, or approved/denied resolution | Serving traffic, direct support-table access, enrollment/ledger mutation, settlement decisions |
 | `analytics-report` | One bounded aggregate event report over reviewed dimensions with enforced small-cohort suppression | Serving traffic, raw analytics-table access, subject/customer identifiers, arbitrary dimensions or commercial attribution |
 | `catalog-admin` | One audited draft, mapping, review, approval, publish, retire, or rollback action | Serving traffic, automatic publication decisions, customer data mutation |
@@ -58,7 +59,7 @@ The account API and workers share no in-memory state. Multiple replicas coordina
 
 | Environment variable | Requirement |
 |---|---|
-| `SPYGLASS_AFFILIATE_ID` | Exact Affiliate UUID for inspection, lifecycle transition or check reservation |
+| `SPYGLASS_AFFILIATE_ID` | Exact Affiliate UUID for inspection, lifecycle/retention transition or check reservation |
 | `SPYGLASS_AFFILIATE_VERSION` | Exact enrollment version for `activate`, `suspend` or `close` |
 | `SPYGLASS_AFFILIATE_SETTLEMENT_POLICY_VERSION` | Current immutable policy version for `set-check-threshold` |
 | `SPYGLASS_AFFILIATE_SETTLEMENT_NEW_POLICY_VERSION` | Exactly current version plus one |
@@ -67,6 +68,7 @@ The account API and workers share no in-memory state. Multiple replicas coordina
 | `SPYGLASS_AFFILIATE_CHECK_AMOUNT_MINOR` | Support-selected positive USD-minor-unit reservation no larger than available credit |
 | `SPYGLASS_AFFILIATE_CHECK_RESERVATION_ID` | Exact reservation UUID for `settle-check` or `release-check` |
 | `SPYGLASS_AFFILIATE_CHECK_RESERVATION_VERSION` | Exact current reservation version for its one terminal accounting transition |
+| `SPYGLASS_AFFILIATE_RETENTION_VERSION` | Exact current retention-control version for `restrict-retention`, `hold-retention` or `release-retention` |
 
 The operator database role has execute-only access to the audited Affiliate functions. The check path records accounting disposition and prevents double settlement; it has no provider credential and cannot issue or manage a physical check.
 
@@ -283,6 +285,19 @@ Worker replicas claim due requests with `FOR UPDATE SKIP LOCKED` and expiring le
 | `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
 
 The worker runs immediately and then on its schedule. Each transaction locks and deletes only the oldest eligible consumed or expired ceremonies or stale pseudonymous network-budget rows, using `SKIP LOCKED` so replicas remain safe. The database functions revalidate all policy bounds and expose only aggregate counts and age. `/health/status` and metrics report separate ceremony, analytics and network-budget total/eligible rows, oldest eligible age, prune count, failure count and alert state. Restore readiness gates maintenance, and the credential cannot read ceremony ciphertext, actor hashes or any User, credential, session or Account table directly.
+
+## Affiliate retention worker values
+
+| Environment variable | Requirement |
+|---|---|
+| `SPYGLASS_DATABASE_URL` | Required global credential with execute-only access to Affiliate minimization and aggregate-status functions |
+| `SPYGLASS_MAX_DATABASE_CONNS` | Optional positive pool cap; defaults to `3` |
+| `SPYGLASS_AFFILIATE_RETENTION_INTERVAL` | Optional schedule from `1m` through `168h`; defaults to `24h` |
+| `SPYGLASS_AFFILIATE_RETENTION_BATCH` | Optional bounded graph count from 1 through 1000; defaults to `100` |
+| `SPYGLASS_AFFILIATE_RETENTION_ALERT_BACKLOG` | Optional eligible-graph threshold from 1 through 1,000,000; defaults to `100` |
+| `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
+
+The worker runs immediately and then on its schedule. The reviewed PostgreSQL boundary—not a mutable environment duration—applies seven calendar years after the later of closure or final ledger/settlement/support activity. It locks the enrollment and retention control, rechecks legal hold and terminal financial/case state, and minimizes each complete graph atomically. Readable codes and Affiliate/User/provider links are deleted. Random content-free tombstones, currency totals and irreversible identity-free retired-code fingerprints remain immutable; the latter permanently reject accidental code reuse. The worker role can execute only the minimizer, stats and restore-readiness boundary. `/health/status` exposes content-free total, eligible, oldest-age, minimized, failure and alert values.
 
 ## Route receipt worker values
 
@@ -596,6 +611,7 @@ spyglass notification-worker
 spyglass entitlement-worker
 spyglass account-lifecycle-worker
 spyglass identity-maintenance-worker
+spyglass affiliate-retention-worker
 spyglass work-reconciler
 spyglass work-release-admin <action>
 spyglass account-erasure-admin <action>

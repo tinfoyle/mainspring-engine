@@ -180,6 +180,17 @@
       "dependencies": ["global-postgresql"]
     },
     {
+      "mode": "affiliate-retention-worker",
+      "kind": "worker",
+      "scope": "global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.affiliate-retention-worker"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_AFFILIATE_RETENTION_INTERVAL", "SPYGLASS_AFFILIATE_RETENTION_BATCH", "SPYGLASS_AFFILIATE_RETENTION_ALERT_BACKLOG", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate"],
+      "dependencies": ["global-postgresql"]
+    },
+    {
       "mode": "account-export-build-worker",
       "kind": "worker",
       "scope": "cell-and-global",

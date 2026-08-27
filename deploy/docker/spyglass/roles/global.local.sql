@@ -27,6 +27,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_identity_maintenance_worker') THEN
     CREATE ROLE spyglass_identity_maintenance_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_affiliate_retention_worker') THEN
+    CREATE ROLE spyglass_affiliate_retention_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_work_reconciler') THEN
     CREATE ROLE spyglass_work_reconciler LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
@@ -60,6 +63,7 @@ $$;
 \getenv entitlement_password SPYGLASS_ENTITLEMENT_WORKER_DATABASE_PASSWORD
 \getenv lifecycle_password SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD
 \getenv identity_maintenance_password SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD
+\getenv affiliate_retention_password SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_PASSWORD
 \getenv work_reconciler_password SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD
 \getenv baseline_maintenance_password SPYGLASS_BASELINE_MAINTENANCE_WORKER_DATABASE_PASSWORD
 \getenv prototype_migration_password SPYGLASS_PROTOTYPE_MIGRATION_DATABASE_PASSWORD
@@ -76,6 +80,7 @@ SELECT format('ALTER ROLE spyglass_notification_worker PASSWORD %L', :'notificat
 SELECT format('ALTER ROLE spyglass_entitlement_worker PASSWORD %L', :'entitlement_password') \gexec
 SELECT format('ALTER ROLE spyglass_account_lifecycle_worker PASSWORD %L', :'lifecycle_password') \gexec
 SELECT format('ALTER ROLE spyglass_identity_maintenance_worker PASSWORD %L', :'identity_maintenance_password') \gexec
+SELECT format('ALTER ROLE spyglass_affiliate_retention_worker PASSWORD %L', :'affiliate_retention_password') \gexec
 SELECT format('ALTER ROLE spyglass_work_reconciler PASSWORD %L', :'work_reconciler_password') \gexec
 SELECT format('ALTER ROLE spyglass_baseline_maintenance_worker PASSWORD %L', :'baseline_maintenance_password') \gexec
 SELECT format('ALTER ROLE spyglass_prototype_migration PASSWORD %L', :'prototype_migration_password') \gexec
@@ -86,11 +91,11 @@ SELECT format('ALTER ROLE spyglass_analytics_reporter PASSWORD %L', :'analytics_
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_mcp_gateway, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
-  spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_work_reconciler,
+  spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_affiliate_retention_worker, spyglass_work_reconciler,
   spyglass_baseline_maintenance_worker, spyglass_prototype_migration, spyglass_integration_connector_worker;
 GRANT USAGE ON SCHEMA public TO spyglass_account_api, spyglass_app_router, spyglass_mcp_gateway, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
-  spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_work_reconciler,
+  spyglass_account_lifecycle_worker, spyglass_identity_maintenance_worker, spyglass_affiliate_retention_worker, spyglass_work_reconciler,
   spyglass_baseline_maintenance_worker, spyglass_prototype_migration, spyglass_integration_connector_worker;
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_account_export_build_worker, spyglass_account_export_expiry_worker;
@@ -109,15 +114,15 @@ GRANT EXECUTE ON FUNCTION spyglass_analytics_funnel_report(timestamptz,timestamp
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
-  spyglass_identity_maintenance_worker,
+  spyglass_identity_maintenance_worker, spyglass_affiliate_retention_worker,
   spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration, spyglass_integration_connector_worker;
 REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
-  spyglass_identity_maintenance_worker,
+  spyglass_identity_maintenance_worker, spyglass_affiliate_retention_worker,
   spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration, spyglass_integration_connector_worker;
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
-  spyglass_identity_maintenance_worker,
+  spyglass_identity_maintenance_worker, spyglass_affiliate_retention_worker,
   spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration, spyglass_integration_connector_worker;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO spyglass_account_api;
@@ -145,7 +150,7 @@ GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid) TO spy
 
 GRANT SELECT ON account_erasure_restore_ledger TO spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
-  spyglass_identity_maintenance_worker, spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
+  spyglass_identity_maintenance_worker, spyglass_affiliate_retention_worker, spyglass_work_reconciler, spyglass_baseline_maintenance_worker, spyglass_prototype_migration,
   spyglass_integration_connector_worker;
 
 GRANT SELECT, UPDATE ON billing_event_inbox TO spyglass_billing_worker;
@@ -186,6 +191,10 @@ GRANT EXECUTE ON FUNCTION spyglass_prune_passkey_ceremonies(timestamptz,bigint,i
   spyglass_prune_network_actor_limits(timestamptz,bigint,integer),
   spyglass_network_actor_limit_retention_stats(timestamptz,bigint)
   TO spyglass_identity_maintenance_worker;
+
+GRANT EXECUTE ON FUNCTION spyglass_minimize_due_affiliates(timestamptz,integer),
+  spyglass_affiliate_minimization_stats(timestamptz)
+  TO spyglass_affiliate_retention_worker;
 
 GRANT SELECT ON accounts TO spyglass_work_reconciler;
 GRANT SELECT, UPDATE ON entitlement_usage_counters, entitlement_usage_reservations

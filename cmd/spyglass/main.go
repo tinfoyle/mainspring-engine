@@ -71,6 +71,7 @@ import (
 	accountmovecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountmoveadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	affiliatecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/affiliateadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/affiliateretentionworker"
 	affiliatesupportcommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/affiliatesupportadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentdispatchworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/agentprojectionworker"
@@ -178,6 +179,8 @@ func main() {
 		err = runAccountExportExpiryWorker(ctx, logger)
 	case "identity-maintenance-worker":
 		err = runIdentityMaintenanceWorker(ctx, logger)
+	case "affiliate-retention-worker":
+		err = runAffiliateRetentionWorker(ctx, logger)
 	case "work-reconciler":
 		err = runWorkReconciler(ctx, logger)
 	case "runner-controller":
@@ -231,7 +234,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | affiliate-support-admin <action> | analytics-report | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | affiliate-retention-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | affiliate-support-admin <action> | analytics-report | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -484,8 +487,8 @@ func runPrivacyRightsAdmin(ctx context.Context, logger *slog.Logger) error {
 }
 
 func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
-	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "inspect-risk" && os.Args[2] != "activate" && os.Args[2] != "suspend" && os.Args[2] != "close" && os.Args[2] != "set-check-threshold" && os.Args[2] != "reserve-check" && os.Args[2] != "settle-check" && os.Args[2] != "release-check") {
-		return errors.New("usage: spyglass affiliate-admin inspect|inspect-risk|activate|suspend|close|set-check-threshold|reserve-check|settle-check|release-check")
+	if len(os.Args) != 3 || (os.Args[2] != "inspect" && os.Args[2] != "inspect-risk" && os.Args[2] != "activate" && os.Args[2] != "suspend" && os.Args[2] != "close" && os.Args[2] != "set-check-threshold" && os.Args[2] != "reserve-check" && os.Args[2] != "settle-check" && os.Args[2] != "release-check" && os.Args[2] != "hold-retention" && os.Args[2] != "release-retention" && os.Args[2] != "restrict-retention") {
+		return errors.New("usage: spyglass affiliate-admin inspect|inspect-risk|activate|suspend|close|set-check-threshold|reserve-check|settle-check|release-check|hold-retention|release-retention|restrict-retention")
 	}
 	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
 	if err != nil {
@@ -552,6 +555,11 @@ func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
 		if err != nil {
 			return err
 		}
+	} else if config.Action == "hold-retention" || config.Action == "release-retention" || config.Action == "restrict-retention" {
+		config.RetentionVersion, err = uint64Env("SPYGLASS_AFFILIATE_RETENTION_VERSION")
+		if err != nil {
+			return err
+		}
 	} else if config.Action != "inspect" && config.Action != "inspect-risk" {
 		config.ExpectedVersion, err = uint64Env("SPYGLASS_AFFILIATE_VERSION")
 		if err != nil {
@@ -566,6 +574,9 @@ func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
 	} else if config.Action == "settle-check" || config.Action == "release-check" {
 		scopeValues["check_reservation_id"] = config.CheckReservationID
 		scopeValues["expected_version"] = strconv.FormatUint(config.ExpectedVersion, 10)
+	} else if config.Action == "hold-retention" || config.Action == "release-retention" || config.Action == "restrict-retention" {
+		scopeValues["affiliate_id"] = string(config.AffiliateID)
+		scopeValues["retention_version"] = strconv.FormatUint(config.RetentionVersion, 10)
 	} else {
 		scopeValues["affiliate_id"] = string(config.AffiliateID)
 	}
@@ -574,7 +585,8 @@ func runAffiliateAdmin(ctx context.Context, logger *slog.Logger) error {
 		scopeValues["check_amount_minor"] = strconv.FormatInt(config.CheckAmountMinor, 10)
 	}
 	if config.Action != "inspect" && config.Action != "inspect-risk" && config.Action != "set-check-threshold" &&
-		config.Action != "reserve-check" && config.Action != "settle-check" && config.Action != "release-check" {
+		config.Action != "reserve-check" && config.Action != "settle-check" && config.Action != "release-check" &&
+		config.Action != "hold-retention" && config.Action != "release-retention" && config.Action != "restrict-retention" {
 		scopeValues["expected_version"] = strconv.FormatUint(config.ExpectedVersion, 10)
 	}
 	config.Reason, err = requireOperatorAuthorization(logger, "affiliate-admin", config.Action, config.Actor, config.Reason,
@@ -2107,6 +2119,46 @@ func runIdentityMaintenanceWorker(ctx context.Context, logger *slog.Logger) erro
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "identity-maintenance", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
+}
+
+func runAffiliateRetentionWorker(ctx context.Context, logger *slog.Logger) error {
+	databaseURL, err := requiredEnv("SPYGLASS_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	restoreGate, err := openRequiredRestoreGate(ctx, databaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 3)
+	if err != nil {
+		return err
+	}
+	interval, err := durationEnv("SPYGLASS_AFFILIATE_RETENTION_INTERVAL", 24*time.Hour)
+	if err != nil || interval < time.Minute || interval > 7*24*time.Hour {
+		return errors.New("SPYGLASS_AFFILIATE_RETENTION_INTERVAL must be between 1m and 168h")
+	}
+	batch, err := int32Env("SPYGLASS_AFFILIATE_RETENTION_BATCH", 100)
+	if err != nil || batch < 1 || batch > 1000 {
+		return errors.New("SPYGLASS_AFFILIATE_RETENTION_BATCH must be between 1 and 1000")
+	}
+	alertBacklog, err := int32Env("SPYGLASS_AFFILIATE_RETENTION_ALERT_BACKLOG", 100)
+	if err != nil || alertBacklog < 1 || alertBacklog > 1_000_000 {
+		return errors.New("SPYGLASS_AFFILIATE_RETENTION_ALERT_BACKLOG must be between 1 and 1000000")
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := affiliateretentionworker.New(startup, affiliateretentionworker.Config{
+		DatabaseURL: databaseURL, MaxDatabaseConns: maxConns, Interval: interval,
+		Batch: int(batch), AlertBacklog: uint64(alertBacklog),
+	}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "affiliate-retention", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"),
+		&restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
 }
 
 func runWorkReconciler(ctx context.Context, logger *slog.Logger) error {

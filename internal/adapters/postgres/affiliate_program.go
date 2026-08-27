@@ -43,6 +43,10 @@ func (r *AffiliateProgramRepository) CreateEnrollment(ctx context.Context, enrol
 		VALUES ($1,$2,NULLIF($3::text,'')::uuid,$4,$5,$6,$7,$8,$9,$9)`, enrollment.ID, enrollment.UserID,
 		enrollment.SettlementAccountID, enrollment.PublicCode, enrollment.TermsVersion, enrollment.RuleVersion,
 		enrollment.State, enrollment.Version, enrollment.CreatedAt)
+	var databaseError *pgconn.PgError
+	if errors.As(err, &databaseError) && databaseError.Code == "23505" {
+		return affiliateprogram.ErrCodeUnavailable
+	}
 	return err
 }
 
@@ -53,8 +57,10 @@ func (r *AffiliateProgramRepository) ReplaceEnrollmentCode(ctx context.Context, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	current, err := scanAffiliateEnrollment(tx.QueryRow(ctx, `
-		SELECT affiliate_id,user_id,settlement_account_id::text,public_code,terms_version,rule_version,state,version,created_at
-		FROM affiliate_enrollments WHERE user_id=$1 FOR UPDATE`, userID))
+		SELECT enrollment.affiliate_id,enrollment.user_id,enrollment.settlement_account_id::text,
+		       enrollment.public_code,enrollment.terms_version,enrollment.rule_version,enrollment.state,
+		       enrollment.version,enrollment.created_at
+		FROM affiliate_enrollments enrollment WHERE enrollment.user_id=$1 FOR UPDATE`, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentNotFound
 	}
@@ -100,9 +106,24 @@ func (r *AffiliateProgramRepository) ReplaceEnrollmentCode(ctx context.Context, 
 
 func (r *AffiliateProgramRepository) EnrollmentByUser(ctx context.Context, userID ids.UserID) (affiliates.Enrollment, error) {
 	value, err := scanAffiliateEnrollment(r.pool.QueryRow(ctx, `
-		SELECT affiliate_id,user_id,settlement_account_id::text,public_code,terms_version,rule_version,state,version,created_at
-		FROM affiliate_enrollments WHERE user_id=$1`, userID))
+		SELECT enrollment.affiliate_id,enrollment.user_id,enrollment.settlement_account_id::text,
+		       enrollment.public_code,enrollment.terms_version,enrollment.rule_version,enrollment.state,
+		       enrollment.version,enrollment.created_at
+		FROM affiliate_enrollments enrollment
+		JOIN affiliate_retention_controls retention ON retention.affiliate_id=enrollment.affiliate_id
+		WHERE enrollment.user_id=$1 AND retention.restricted_at IS NULL`, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
+		var restricted bool
+		if lookupErr := r.pool.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM affiliate_enrollments enrollment
+			JOIN affiliate_retention_controls retention ON retention.affiliate_id=enrollment.affiliate_id
+			WHERE enrollment.user_id=$1 AND retention.restricted_at IS NOT NULL
+		)`, userID).Scan(&restricted); lookupErr != nil {
+			return affiliates.Enrollment{}, lookupErr
+		}
+		if restricted {
+			return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentRestricted
+		}
 		return affiliates.Enrollment{}, affiliateprogram.ErrEnrollmentNotFound
 	}
 	return value, err
@@ -766,6 +787,9 @@ func (r *AffiliateProgramRepository) SettlementSnapshot(ctx context.Context, aff
 }
 
 func (r *AffiliateProgramRepository) DataExport(ctx context.Context, userID ids.UserID) (affiliateprogram.DataExport, error) {
+	if _, err := r.EnrollmentByUser(ctx, userID); err != nil && !errors.Is(err, affiliateprogram.ErrEnrollmentNotFound) {
+		return affiliateprogram.DataExport{}, err
+	}
 	var raw []byte
 	if err := r.pool.QueryRow(ctx, `SELECT spyglass_export_affiliate_data($1)`, userID).Scan(&raw); err != nil {
 		return affiliateprogram.DataExport{}, err

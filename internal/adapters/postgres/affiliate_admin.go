@@ -86,6 +86,38 @@ func (r *AffiliateAdminRepository) TransitionSupportCheck(ctx context.Context, r
 		change.EventID, reservationID, expectedVersion, state, change.Actor, change.Reason, change.Environment))
 }
 
+func (r *AffiliateAdminRepository) SetRetentionHold(ctx context.Context, affiliateID ids.AffiliateID, expectedVersion uint64, legalHold bool, change affiliateadmin.Change) (affiliateadmin.RetentionControl, error) {
+	var value affiliateadmin.RetentionControl
+	err := r.pool.QueryRow(ctx, `
+		SELECT affiliate_id,legal_hold,restricted_at,version,updated_at
+		FROM public.spyglass_set_affiliate_retention_hold($1,$2,$3,$4,$5,$6,$7)`,
+		change.EventID, affiliateID, expectedVersion, legalHold, change.Actor, change.Reason, change.Environment).Scan(
+		&value.AffiliateID, &value.LegalHold, &value.RestrictedAt, &value.Version, &value.UpdatedAt)
+	if err := classifyAffiliateAdminError(err); err != nil {
+		return affiliateadmin.RetentionControl{}, err
+	}
+	if err := value.Validate(); err != nil {
+		return affiliateadmin.RetentionControl{}, fmt.Errorf("Affiliate retention operation returned invalid state: %w", err)
+	}
+	return value, nil
+}
+
+func (r *AffiliateAdminRepository) RestrictRetention(ctx context.Context, affiliateID ids.AffiliateID, expectedVersion uint64, change affiliateadmin.Change) (affiliateadmin.RetentionControl, error) {
+	var value affiliateadmin.RetentionControl
+	err := r.pool.QueryRow(ctx, `
+		SELECT affiliate_id,legal_hold,restricted_at,version,updated_at
+		FROM public.spyglass_restrict_affiliate_retention($1,$2,$3,$4,$5,$6)`,
+		change.EventID, affiliateID, expectedVersion, change.Actor, change.Reason, change.Environment).Scan(
+		&value.AffiliateID, &value.LegalHold, &value.RestrictedAt, &value.Version, &value.UpdatedAt)
+	if err := classifyAffiliateAdminError(err); err != nil {
+		return affiliateadmin.RetentionControl{}, err
+	}
+	if err := value.Validate(); err != nil {
+		return affiliateadmin.RetentionControl{}, fmt.Errorf("Affiliate retention restriction returned invalid state: %w", err)
+	}
+	return value, nil
+}
+
 func scanAffiliateCheckReservation(row pgx.Row) (affiliateadmin.CheckReservation, error) {
 	var value affiliateadmin.CheckReservation
 	err := row.Scan(&value.ID, &value.AffiliateID, &value.State, &value.AmountMinor, &value.Currency,

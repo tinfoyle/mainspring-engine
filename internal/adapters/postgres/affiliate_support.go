@@ -66,7 +66,10 @@ func (r *AffiliateSupportRepository) Create(ctx context.Context, request affilia
 }
 
 func (r *AffiliateSupportRepository) List(ctx context.Context, userID ids.UserID) ([]affiliates.SupportRequest, error) {
-	rows, err := r.pool.Query(ctx, affiliateSupportSelect+` WHERE user_id=$1 ORDER BY created_at DESC,request_id DESC`, userID)
+	rows, err := r.pool.Query(ctx, affiliateSupportSelect+` WHERE user_id=$1 AND EXISTS (
+		SELECT 1 FROM affiliate_retention_controls retention
+		WHERE retention.affiliate_id=affiliate_support_requests.affiliate_id AND retention.restricted_at IS NULL
+	) ORDER BY created_at DESC,request_id DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +94,10 @@ func (r *AffiliateSupportRepository) Cancel(ctx context.Context, requestID ids.A
 		return affiliates.SupportRequest{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	current, err := scanAffiliateSupportRequest(tx.QueryRow(ctx, affiliateSupportSelect+` WHERE request_id=$1 AND user_id=$2 FOR UPDATE`, requestID, userID))
+	current, err := scanAffiliateSupportRequest(tx.QueryRow(ctx, affiliateSupportSelect+` WHERE request_id=$1 AND user_id=$2 AND EXISTS (
+		SELECT 1 FROM affiliate_retention_controls retention
+		WHERE retention.affiliate_id=affiliate_support_requests.affiliate_id AND retention.restricted_at IS NULL
+	) FOR UPDATE`, requestID, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return affiliates.SupportRequest{}, affiliatesupport.ErrNotFound
 	}

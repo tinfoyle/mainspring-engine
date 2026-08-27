@@ -22,6 +22,7 @@ type Config struct {
 	CustomerSessionID                                                   ids.SessionID
 	CheckReservationID                                                  string
 	ExpectedVersion                                                     uint64
+	RetentionVersion                                                    uint64
 	ExpectedPolicyVersion, NewPolicyVersion                             uint64
 	CheckThresholdMinor, CheckAmountMinor                               int64
 	MaxDatabaseConns                                                    int32
@@ -106,6 +107,21 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 		if err == nil {
 			logCheckReservation(logger, config, reservation)
 		}
+	case "hold-retention", "release-retention", "restrict-retention":
+		var control application.RetentionControl
+		if config.Action == "restrict-retention" {
+			control, err = service.RestrictRetention(ctx, config.AffiliateID, config.RetentionVersion,
+				config.Actor, config.Reason, config.Environment)
+		} else {
+			control, err = service.SetRetentionHold(ctx, config.AffiliateID, config.RetentionVersion,
+				config.Action == "hold-retention", config.Actor, config.Reason, config.Environment)
+		}
+		if err == nil {
+			logger.Info("Spyglass Affiliate retention control updated", "action", config.Action,
+				"affiliate_id", control.AffiliateID, "legal_hold", control.LegalHold,
+				"retention_version", control.Version, "updated_at", control.UpdatedAt,
+				"environment", config.Environment, "actor", config.Actor)
+		}
 	default:
 		return fmt.Errorf("unsupported Affiliate operator action %q", config.Action)
 	}
@@ -113,7 +129,8 @@ func Run(ctx context.Context, config Config, logger *slog.Logger) error {
 		return err
 	}
 	if config.Action == "inspect-risk" || config.Action == "set-check-threshold" ||
-		config.Action == "reserve-check" || config.Action == "settle-check" || config.Action == "release-check" {
+		config.Action == "reserve-check" || config.Action == "settle-check" || config.Action == "release-check" ||
+		config.Action == "hold-retention" || config.Action == "release-retention" || config.Action == "restrict-retention" {
 		return nil
 	}
 	logger.Info("Spyglass Affiliate operator action complete", "action", config.Action, "affiliate_id", enrollment.ID,
@@ -157,8 +174,13 @@ func validateConfig(config Config, logger *slog.Logger) error {
 			config.ExpectedVersion == 0 || config.CheckAmountMinor != 0 {
 			return application.ErrInvalidChange
 		}
+	case "hold-retention", "release-retention", "restrict-retention":
+		if ids.Validate(string(config.AffiliateID)) != nil || config.RetentionVersion == 0 ||
+			config.ExpectedVersion != 0 || config.CustomerSessionID != "" || config.CheckReservationID != "" {
+			return application.ErrInvalidChange
+		}
 	default:
-		return errors.New("Affiliate admin action must be inspect, inspect-risk, activate, suspend, close, set-check-threshold, reserve-check, settle-check, or release-check")
+		return errors.New("Affiliate admin action must be inspect, inspect-risk, activate, suspend, close, set-check-threshold, reserve-check, settle-check, release-check, hold-retention, release-retention, or restrict-retention")
 	}
 	return nil
 }

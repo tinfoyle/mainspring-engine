@@ -682,6 +682,21 @@ services:
       global-seed: {condition: service_completed_successfully}
     networks: [application, database]
 
+  affiliate-retention-worker:
+    <<: *worker
+    command: [affiliate-retention-worker]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV:?set SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT:?set SPYGLASS_ENVIRONMENT}
+      SPYGLASS_DATABASE_URL: ${SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_URL:?set SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_URL}
+      SPYGLASS_AFFILIATE_RETENTION_INTERVAL: ${SPYGLASS_AFFILIATE_RETENTION_INTERVAL:-24h}
+      SPYGLASS_AFFILIATE_RETENTION_BATCH: ${SPYGLASS_AFFILIATE_RETENTION_BATCH:-100}
+      SPYGLASS_AFFILIATE_RETENTION_ALERT_BACKLOG: ${SPYGLASS_AFFILIATE_RETENTION_ALERT_BACKLOG:-100}
+      SPYGLASS_HEALTH_ADDRESS: :8081
+    depends_on:
+      global-seed: {condition: service_completed_successfully}
+    networks: [application, database]
+
   work-reconciler-a:
     <<: *worker
     command: [work-reconciler]

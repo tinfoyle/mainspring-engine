@@ -526,6 +526,16 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 			affiliateDirectAccess, affiliateAttributionAccess, affiliateCodeHistoryAccess, affiliateInspectAccess, affiliateRiskAccess,
 			affiliateTransitionAccess, affiliatePolicyAccess, affiliateCheckReserveAccess, affiliateCheckTransitionAccess, err)
 	}
+	finalCheck, err := affiliateAdmin.ReserveSupportCheck(ctx, enrollment.ID, affiliatePasskeySession, 500,
+		"affiliate-operator@example.test", "Reserve the remaining closed-enrollment credit before retention", "local")
+	if err != nil || finalCheck.State != "reserved" || finalCheck.AmountMinor != 500 || finalCheck.PolicyVersion != 3 {
+		t.Fatalf("final Affiliate Support check reservation=%+v err=%v", finalCheck, err)
+	}
+	finalCheck, err = affiliateAdmin.TransitionSupportCheck(ctx, finalCheck.ID, finalCheck.Version, "settled",
+		"affiliate-operator@example.test", "Record the final closed-enrollment Support check settlement", "local")
+	if err != nil || finalCheck.State != "settled" {
+		t.Fatalf("final Affiliate Support check settlement=%+v err=%v", finalCheck, err)
+	}
 
 	supportService, err := affiliatesupport.New(postgresadapter.NewAffiliateSupportRepository(pool), ids.RandomGenerator{}, fixedLifecycleClock{now})
 	if err != nil {
@@ -588,7 +598,7 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 		exported.Enrollment.UserID != affiliateUser || exported.Enrollment.PublicCode != "IO-PARTNER3" ||
 		len(exported.PublicCodes) != 3 || len(exported.EnrollmentEvents) != 6 ||
 		exported.AttributionSummary.Total != 1 || exported.AttributionSummary.Locked != 1 ||
-		len(exported.CommissionEntries) != 14 || len(exported.CreditSettlements) != 3 || len(exported.CreditReversals) != 2 || len(exported.SupportRequests) != 2 || len(exported.SupportEvents) != 6 {
+		len(exported.CommissionEntries) != 14 || len(exported.CreditSettlements) != 4 || len(exported.CreditReversals) != 2 || len(exported.SupportRequests) != 2 || len(exported.SupportEvents) != 6 {
 		t.Fatalf("Affiliate data export=%+v err=%v", exported, err)
 	}
 	rawExport, err := json.Marshal(exported)
@@ -724,6 +734,49 @@ func TestPostgresPrivacyAnalyticsAndAffiliateLifecycle(t *testing.T) {
 	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM affiliate_commission_entries WHERE attribution_id=$1`, attribution.ID).Scan(&commissions); err != nil || detachedAccount != nil || detachedCheckout != nil || commissions != 14 {
 		t.Fatalf("account=%v checkout=%v commissions=%d err=%v", detachedAccount, detachedCheckout, commissions, err)
+	}
+
+	retentionNow := now.AddDate(8, 0, 0)
+	var retainedAffiliates, eligibleAffiliates int64
+	if err := pool.QueryRow(ctx, `SELECT total,eligible FROM spyglass_affiliate_minimization_stats($1)`, retentionNow).Scan(
+		&retainedAffiliates, &eligibleAffiliates); err != nil || retainedAffiliates != 1 || eligibleAffiliates != 1 {
+		var ledgerState []byte
+		_ = pool.QueryRow(ctx, `SELECT COALESCE(jsonb_agg(jsonb_build_object(
+			'cycle',earned.cycle,'amount_minor',earned.amount_minor,
+			'allocated_minor',COALESCE((SELECT sum(allocation.amount_minor) FROM affiliate_credit_allocations allocation
+				JOIN affiliate_credit_reservations reservation ON reservation.reservation_id=allocation.reservation_id
+				WHERE allocation.earning_entry_id=earned.entry_id AND reservation.state='settled'),0),
+			'reversed',EXISTS(SELECT 1 FROM affiliate_commission_entries terminal WHERE terminal.reverses_entry_id=earned.entry_id),
+			'voided',EXISTS(SELECT 1 FROM affiliate_commission_entries terminal WHERE terminal.source_entry_id=earned.entry_id AND terminal.kind='void'))
+			ORDER BY earned.cycle),'[]'::jsonb)
+			FROM affiliate_commission_entries earned WHERE earned.affiliate_id=$1 AND earned.kind='earned'`, enrollment.ID).Scan(&ledgerState)
+		t.Fatalf("populated Affiliate retention stats total=%d eligible=%d ledger=%s err=%v", retainedAffiliates, eligibleAffiliates, ledgerState, err)
+	}
+	var minimizedAffiliates int64
+	if err := pool.QueryRow(ctx, `SELECT spyglass_minimize_due_affiliates($1,100)`, retentionNow).Scan(&minimizedAffiliates); err != nil || minimizedAffiliates != 1 {
+		t.Fatalf("populated Affiliate minimization=%d err=%v", minimizedAffiliates, err)
+	}
+	var remainingAffiliateRows, tombstoneAttributions, tombstoneCommissions, tombstoneReservations, tombstoneSupportRequests, tombstoneCodes int64
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM affiliate_enrollments),
+		attribution_count,commission_entry_count,credit_reservation_count,support_request_count,code_count
+		FROM affiliate_minimization_tombstones`).Scan(
+		&remainingAffiliateRows, &tombstoneAttributions, &tombstoneCommissions, &tombstoneReservations,
+		&tombstoneSupportRequests, &tombstoneCodes); err != nil || remainingAffiliateRows != 0 || tombstoneAttributions != 1 ||
+		tombstoneCommissions != 14 || tombstoneReservations != 4 || tombstoneSupportRequests != 2 || tombstoneCodes != 3 {
+		t.Fatalf("populated Affiliate tombstone remaining=%d attributions=%d commissions=%d reservations=%d support=%d codes=%d err=%v",
+			remainingAffiliateRows, tombstoneAttributions, tombstoneCommissions, tombstoneReservations,
+			tombstoneSupportRequests, tombstoneCodes, err)
+	}
+	var affiliateGraphRows int64
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM affiliate_attributions)+
+		(SELECT count(*) FROM affiliate_commission_entries)+
+		(SELECT count(*) FROM affiliate_credit_reservations)+
+		(SELECT count(*) FROM affiliate_support_requests)+
+		(SELECT count(*) FROM affiliate_public_code_history)+
+		(SELECT count(*) FROM affiliate_retention_controls)`).Scan(&affiliateGraphRows); err != nil || affiliateGraphRows != 0 {
+		t.Fatalf("populated Affiliate graph rows=%d err=%v", affiliateGraphRows, err)
 	}
 }
 

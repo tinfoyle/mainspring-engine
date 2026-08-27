@@ -24,6 +24,7 @@ scrape_configs:
           - account-lifecycle-worker:8081
           - account-export-expiry-worker:8081
           - identity-maintenance-worker:8081
+          - affiliate-retention-worker:8081
 
   - job_name: spyglass-cell-workers
     metrics_path: /metrics

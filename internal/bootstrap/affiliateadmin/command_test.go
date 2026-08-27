@@ -72,3 +72,21 @@ func TestValidateConfigRequiresExactSupportCheckInputs(t *testing.T) {
 		t.Fatal("Support check transition accepted an unrelated Affiliate target")
 	}
 }
+
+func TestValidateConfigRequiresVersionedRetentionHoldTarget(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	config := Config{DatabaseURL: "postgres://example", Action: "hold-retention", Actor: "privacy@example.test",
+		Reason: "Preserve Affiliate evidence for a scoped legal review", Environment: "local", ConfirmEnvironment: "local",
+		AffiliateID: "10000000-0000-4000-8000-000000000001", RetentionVersion: 2}
+	if err := validateConfig(config, logger); err != nil {
+		t.Fatal(err)
+	}
+	config.Action = "restrict-retention"
+	if err := validateConfig(config, logger); err != nil {
+		t.Fatal(err)
+	}
+	config.RetentionVersion = 0
+	if err := validateConfig(config, logger); err == nil {
+		t.Fatal("Affiliate retention hold accepted without an observed retention version")
+	}
+}

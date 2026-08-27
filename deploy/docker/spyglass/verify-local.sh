@@ -48,7 +48,7 @@ for service in app-router mcp-gateway app-api-a app-api-b admission-api; do
     --url=http://127.0.0.1:8080/health/ready
 done
 
-worker_services=(billing-worker notification-worker entitlement-worker account-lifecycle-worker account-export-build-worker-a account-export-build-worker-b account-export-expiry-worker identity-maintenance-worker work-reconciler-a work-reconciler-b \
+worker_services=(billing-worker notification-worker entitlement-worker account-lifecycle-worker account-export-build-worker-a account-export-build-worker-b account-export-expiry-worker identity-maintenance-worker affiliate-retention-worker work-reconciler-a work-reconciler-b \
   baseline-maintenance-worker-a baseline-maintenance-worker-b \
   route-receipt-worker-a route-receipt-worker-b agent-dispatch-worker-a \
   agent-dispatch-worker-b schedule-execution-worker-a schedule-execution-worker-b \
@@ -73,8 +73,8 @@ test "$cell_count" = "2"
 
 runtime_role_count="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
-    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_account_api','spyglass_app_router','spyglass_mcp_gateway','spyglass_admission_api','spyglass_billing_worker','spyglass_notification_worker','spyglass_entitlement_worker','spyglass_account_lifecycle_worker','spyglass_account_export_build_worker','spyglass_account_export_expiry_worker','spyglass_work_reconciler','spyglass_baseline_maintenance_worker','spyglass_prototype_migration','spyglass_integration_connector_worker') AND NOT rolsuper AND NOT rolbypassrls")"
-test "$runtime_role_count" = "14"
+    --command="SELECT count(*) FROM pg_roles WHERE rolname IN ('spyglass_account_api','spyglass_app_router','spyglass_mcp_gateway','spyglass_admission_api','spyglass_billing_worker','spyglass_notification_worker','spyglass_entitlement_worker','spyglass_account_lifecycle_worker','spyglass_account_export_build_worker','spyglass_account_export_expiry_worker','spyglass_identity_maintenance_worker','spyglass_affiliate_retention_worker','spyglass_work_reconciler','spyglass_baseline_maintenance_worker','spyglass_prototype_migration','spyglass_integration_connector_worker') AND NOT rolsuper AND NOT rolbypassrls")"
+test "$runtime_role_count" = "16"
 
 export_global_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \

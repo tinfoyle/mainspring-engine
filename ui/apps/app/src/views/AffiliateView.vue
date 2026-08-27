@@ -36,7 +36,7 @@ const confirmingCodeReplacement = ref(false);
 const replacingCode = ref(false);
 const codeMessage = ref("");
 const ownerAccounts = computed(() => session.accounts.filter((account) => account.role === "owner"));
-const enrollmentAvailable = computed(() => program.value?.enrollment_open && program.value.settlement_mode !== "unconfigured");
+const enrollmentAvailable = computed(() => program.value?.enrollment_open && !program.value.retention_restricted && program.value.settlement_mode !== "unconfigured");
 const codeShareable = computed(() => program.value?.enrollment?.state === "active" && program.value.attribution_enabled);
 const referralLink = computed(() => {
   const code = program.value?.enrollment?.public_code;
@@ -232,6 +232,15 @@ onMounted(() => void load());
     <header class="page-heading"><p class="eyebrow">Affiliate</p><h1>One identity. One clear ledger.</h1><p>Your ordinary Infinite Ocean login holds the Affiliate enrollment. Customers actively enter your generated code at checkout; optional analytics never controls attribution or earnings.</p></header>
     <div v-if="loading" class="queue-state" role="status">Loading Affiliate program status…</div>
     <div v-else-if="errorMessage && !program" class="queue-state queue-state--error" role="alert"><h2>Affiliate details are unavailable</h2><p>{{ errorMessage }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>
+
+    <section v-else-if="program?.retention_restricted" class="affiliate-enrollment" aria-labelledby="affiliate-retention-heading">
+      <p class="eyebrow">Privacy status</p>
+      <h2 id="affiliate-retention-heading">Affiliate records are restricted</h2>
+      <p>Your verified erasure request closed the Affiliate enrollment and removed its code, statements, support history, and export from ordinary product access. You cannot enroll again while required evidence remains under restricted retention.</p>
+      <p class="form-note">Required financial and audit evidence is minimized after the approved seven-year period, measured from the later of closure or final settlement, reversal, or tax-relevant activity. A scoped legal hold can extend only affected records.</p>
+      <p class="form-note">Referred customer subscriptions are unchanged. Existing available credit remains usable through its approved Account-billing or Support process; contact Support for an authenticated review.</p>
+      <RouterLink class="affiliate-review-link" to="/app/privacy">Review your privacy-request history</RouterLink>
+    </section>
 
     <template v-else-if="program?.enrollment">
       <section class="affiliate-code" aria-labelledby="affiliate-code-heading">

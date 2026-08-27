@@ -18,7 +18,10 @@ const api = vi.hoisted(() => ({
 vi.mock("@spyglass/api", async (importOriginal) => ({ ...await importOriginal<typeof import("@spyglass/api")>(), ...api }));
 
 async function mountView() {
-  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/affiliate", component: AffiliateView }] });
+  const router = createRouter({ history: createMemoryHistory(), routes: [
+    { path: "/app/affiliate", component: AffiliateView },
+    { path: "/app/privacy", component: { template: "<main>Privacy</main>" } }
+  ] });
   await router.push("/app/affiliate");
   await router.isReady();
   const wrapper = mount(AffiliateView, { global: { plugins: [router] } });
@@ -40,6 +43,19 @@ beforeEach(() => {
 });
 
 describe("Affiliate identity dashboard", () => {
+  it("keeps verified-erasure evidence outside ordinary Affiliate access", async () => {
+    api.getAffiliateProgram.mockResolvedValue({ enrollment_open: true, attribution_enabled: true, terms_version: 2,
+      rule_version: 3, settlement_mode: "account_credit_with_support_check", retention_restricted: true });
+    const wrapper = await mountView();
+    expect(wrapper.text()).toContain("Affiliate records are restricted");
+    expect(wrapper.text()).toContain("cannot enroll again");
+    expect(wrapper.text()).toContain("seven-year period");
+    expect(wrapper.text()).toContain("Referred customer subscriptions are unchanged");
+    expect(wrapper.find('a[href="/app/privacy"]').exists()).toBe(true);
+    expect(api.getAffiliateStatement).not.toHaveBeenCalled();
+    expect(api.getAffiliateSupportRequests).not.toHaveBeenCalled();
+  });
+
   it("does not advertise candidate economics while settlement is unresolved", async () => {
     api.getAffiliateProgram.mockResolvedValue({ enrollment_open: false, attribution_enabled: false, terms_version: 1, rule_version: 1, settlement_mode: "unconfigured" });
     const wrapper = await mountView();

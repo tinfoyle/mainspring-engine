@@ -348,6 +348,7 @@ export interface AffiliateProgram {
   readonly "attribution_enabled": boolean;
   readonly "enrollment"?: AffiliateEnrollment;
   readonly "enrollment_open": boolean;
+  readonly "retention_restricted": boolean;
   readonly "rule_version": number;
   readonly "settlement_mode": "unconfigured" | "account_credit" | "cash" | "account_credit_with_support_check";
   readonly "terms_version": number;

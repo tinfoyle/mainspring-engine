@@ -104,6 +104,8 @@ type Store interface {
 	PublishSettlementPolicy(context.Context, uint64, uint64, int64, Change) (SettlementPolicy, error)
 	ReserveSupportCheck(context.Context, ids.AffiliateID, ids.SessionID, int64, string, Change) (CheckReservation, error)
 	TransitionSupportCheck(context.Context, string, uint64, string, Change) (CheckReservation, error)
+	SetRetentionHold(context.Context, ids.AffiliateID, uint64, bool, Change) (RetentionControl, error)
+	RestrictRetention(context.Context, ids.AffiliateID, uint64, Change) (RetentionControl, error)
 }
 
 type SettlementPolicy struct {
@@ -123,6 +125,25 @@ type CheckReservation struct {
 	PolicyVersion uint64
 	Version       uint64
 	CreatedAt     time.Time
+}
+
+// RetentionControl is the version-fenced legal-hold state for one Affiliate.
+// It deliberately exposes no retained Affiliate identity beyond the operator's
+// exact target and contains no case material.
+type RetentionControl struct {
+	AffiliateID  ids.AffiliateID
+	LegalHold    bool
+	RestrictedAt *time.Time
+	Version      uint64
+	UpdatedAt    time.Time
+}
+
+func (r RetentionControl) Validate() error {
+	if ids.Validate(string(r.AffiliateID)) != nil || r.Version == 0 || r.UpdatedAt.IsZero() ||
+		(r.RestrictedAt != nil && (r.RestrictedAt.IsZero() || r.RestrictedAt.After(r.UpdatedAt))) {
+		return ErrInvalidChange
+	}
+	return nil
 }
 
 func (r CheckReservation) Validate() error {
@@ -233,6 +254,41 @@ func (s *Service) TransitionSupportCheck(ctx context.Context, reservationID stri
 	}
 	if err := value.Validate(); err != nil {
 		return CheckReservation{}, err
+	}
+	return value, nil
+}
+
+// SetRetentionHold applies or releases a scoped, auditable legal hold. The
+// expected version prevents one reviewer from overwriting another decision.
+func (s *Service) SetRetentionHold(ctx context.Context, affiliateID ids.AffiliateID, expectedVersion uint64, legalHold bool, actor, reason, environment string) (RetentionControl, error) {
+	change, err := s.change(actor, reason, environment)
+	if err != nil || ids.Validate(string(affiliateID)) != nil || expectedVersion == 0 {
+		return RetentionControl{}, ErrInvalidChange
+	}
+	value, err := s.store.SetRetentionHold(ctx, affiliateID, expectedVersion, legalHold, change)
+	if err != nil {
+		return RetentionControl{}, err
+	}
+	if err := value.Validate(); err != nil {
+		return RetentionControl{}, err
+	}
+	return value, nil
+}
+
+// RestrictRetention is the one-way verified-erasure transition. The
+// enrollment must already be terminally closed; billing-credit settlement and
+// required evidence remain available only to constrained operational roles.
+func (s *Service) RestrictRetention(ctx context.Context, affiliateID ids.AffiliateID, expectedVersion uint64, actor, reason, environment string) (RetentionControl, error) {
+	change, err := s.change(actor, reason, environment)
+	if err != nil || ids.Validate(string(affiliateID)) != nil || expectedVersion == 0 {
+		return RetentionControl{}, ErrInvalidChange
+	}
+	value, err := s.store.RestrictRetention(ctx, affiliateID, expectedVersion, change)
+	if err != nil {
+		return RetentionControl{}, err
+	}
+	if err := value.Validate(); err != nil || value.RestrictedAt == nil {
+		return RetentionControl{}, ErrInvalidChange
 	}
 	return value, nil
 }

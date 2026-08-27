@@ -18,12 +18,13 @@ type AffiliateHTTPConfig struct {
 }
 
 type affiliateProgramResponse struct {
-	EnrollmentOpen     bool   `json:"enrollment_open"`
-	AttributionEnabled bool   `json:"attribution_enabled"`
-	TermsVersion       uint64 `json:"terms_version"`
-	RuleVersion        uint64 `json:"rule_version"`
-	SettlementMode     string `json:"settlement_mode"`
-	Enrollment         any    `json:"enrollment,omitempty"`
+	EnrollmentOpen      bool   `json:"enrollment_open"`
+	AttributionEnabled  bool   `json:"attribution_enabled"`
+	TermsVersion        uint64 `json:"terms_version"`
+	RuleVersion         uint64 `json:"rule_version"`
+	SettlementMode      string `json:"settlement_mode"`
+	RetentionRestricted bool   `json:"retention_restricted"`
+	Enrollment          any    `json:"enrollment,omitempty"`
 }
 
 var (
@@ -55,6 +56,11 @@ func (s *Server) getAffiliateProgram(w http.ResponseWriter, r *http.Request) {
 	}
 	response := s.affiliateProgramStatus()
 	enrollment, err := s.affiliateProgram.Current(r.Context(), authenticated.Session.UserID)
+	if errors.Is(err, affiliateprogram.ErrEnrollmentRestricted) {
+		response.RetentionRestricted = true
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
 	if errors.Is(err, affiliateprogram.ErrEnrollmentNotFound) {
 		writeJSON(w, http.StatusOK, response)
 		return
@@ -108,6 +114,8 @@ func (s *Server) enrollAffiliate(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusForbidden, "affiliate_settlement_account_denied", "the settlement Account must be owned by the Affiliate")
 	case errors.Is(err, strongauth.ErrRequired):
 		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before accepting Affiliate terms")
+	case errors.Is(err, affiliateprogram.ErrEnrollmentRestricted):
+		writeProblem(w, http.StatusGone, "affiliate_retention_restricted", "Affiliate records are restricted after verified erasure")
 	default:
 		writeProblem(w, http.StatusServiceUnavailable, "affiliate_enrollment_failed", "Affiliate enrollment could not be completed")
 	}
@@ -135,6 +143,8 @@ func (s *Server) replaceAffiliateCode(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, response)
 	case errors.Is(err, affiliateprogram.ErrEnrollmentNotFound):
 		writeProblem(w, http.StatusNotFound, "affiliate_enrollment_not_found", "Affiliate enrollment was not found")
+	case errors.Is(err, affiliateprogram.ErrEnrollmentRestricted):
+		writeProblem(w, http.StatusGone, "affiliate_retention_restricted", "Affiliate records are restricted after verified erasure")
 	case errors.Is(err, affiliateprogram.ErrEnrollmentState):
 		writeProblem(w, http.StatusConflict, "affiliate_code_replacement_unavailable", "only an active Affiliate enrollment can replace its public code")
 	case errors.Is(err, affiliateprogram.ErrEnrollmentConflict):
@@ -160,6 +170,10 @@ func (s *Server) getAffiliateStatement(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusNotFound, "affiliate_enrollment_not_found", "Affiliate enrollment was not found")
 		return
 	}
+	if errors.Is(err, affiliateprogram.ErrEnrollmentRestricted) {
+		writeProblem(w, http.StatusGone, "affiliate_retention_restricted", "Affiliate records are restricted after verified erasure")
+		return
+	}
 	if err != nil {
 		writeProblem(w, http.StatusServiceUnavailable, "affiliate_unavailable", "the Affiliate statement is temporarily unavailable")
 		return
@@ -182,6 +196,8 @@ func (s *Server) getAffiliateDataExport(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, value)
 	case errors.Is(err, strongauth.ErrRequired):
 		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before exporting Affiliate data")
+	case errors.Is(err, affiliateprogram.ErrEnrollmentRestricted):
+		writeProblem(w, http.StatusGone, "affiliate_retention_restricted", "Affiliate records are restricted after verified erasure")
 	default:
 		writeProblem(w, http.StatusServiceUnavailable, "affiliate_export_unavailable", "the Affiliate data export is temporarily unavailable")
 	}
