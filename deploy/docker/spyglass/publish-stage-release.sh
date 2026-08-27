@@ -94,7 +94,11 @@ test "$(wc -l < "$token_file")" -le 1 || die "GHCR token file must contain one l
 
 temporary_directory="$(mktemp -d)"
 test -n "$temporary_directory" && test "$temporary_directory" != / || die "could not create a safe temporary directory"
+builder_name=''
 cleanup() {
+  if test -n "$builder_name"; then
+    docker buildx rm "$builder_name" >/dev/null 2>&1 || true
+  fi
   rm -rf -- "$temporary_directory"
 }
 trap cleanup EXIT
@@ -111,6 +115,10 @@ docker buildx version >/dev/null 2>&1 || die "temporary Docker credentials hid t
 ghcr_token="$(tr -d '\r\n' < "$token_file")"
 test -n "$ghcr_token" || die "GHCR token is empty after newline removal"
 printf '%s' "$ghcr_token" | docker login ghcr.io --username "$ghcr_username" --password-stdin >/dev/null
+
+builder_name="spyglass-release-${revision:0:12}-$$"
+docker buildx create --driver docker-container --name "$builder_name" --use >/dev/null
+docker buildx inspect --builder "$builder_name" --bootstrap >/dev/null
 
 for image in "$application_image" "$website_image" "$private_ui_image"; do
   for tag in "$version" "sha-$revision"; do
@@ -136,6 +144,7 @@ build_image() {
 
   echo "Building and pushing $name image..." >&2
   docker buildx build \
+    --builder "$builder_name" \
     --file "$dockerfile" \
     "${target_argument[@]}" \
     --platform "$platforms" \

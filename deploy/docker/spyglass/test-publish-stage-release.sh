@@ -16,6 +16,8 @@ fi
 
 grep -Fq 'docker buildx imagetools inspect' "$publisher"
 grep -Fq 'temporary Docker credentials hid the Buildx plugin' "$publisher"
+grep -Fq 'docker buildx create --driver docker-container' "$publisher"
+grep -Fq 'docker buildx rm "$builder_name"' "$publisher"
 grep -Fq -- '--provenance mode=max' "$publisher"
 grep -Fq -- '--sbom true' "$publisher"
 grep -Fq -- '--scanners vuln,secret' "$publisher"
