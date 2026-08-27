@@ -1,6 +1,6 @@
 # Release artifacts and provenance
 
-Status: Phase 3 RC.4 is the active signed and CI-admitted Stage construction candidate; RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate
+Status: RC.6 is the active Hostinger Stage review candidate; it passed local AMD64 admission but is deliberately not production-promotable because GitHub-hosted release jobs did not execute. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
 
 Spyglass uses one shared, multi-mode application image for Account API, routers, cell APIs, private brokers, workers, runner execution, migrations, and one-shot operator commands. Runtime arguments choose the workload class. Kubernetes ServiceAccounts, NetworkPolicies, mounted credentials, database roles, and workload certificates—not separate per-customer builds—bound each process's authority. Ordinary Accounts never create an image, Deployment, namespace, or long-running container.
 
@@ -32,7 +32,7 @@ ghcr.io/tinfoyle/spyglass-engine@sha256:<manifest-digest>
 
 Copy that exact reference into the reviewed environment overlay and the staging certification input. Never reconstruct a digest from a tag after review.
 
-`.github/workflows/release-website-image.yml` applies the same overwrite refusal, AMD64/ARM64 build, attached SBOM, maximal BuildKit provenance, two-platform admission scan and keyless Cosign policy to `ghcr.io/tinfoyle/infinite-ocean-website`. It is triggered by a reviewed `website-v*` tag or release-environment dispatch. Application and website artifacts from one release candidate must record the same source revision, but retain independent manifest digests because they are distinct images.
+`.github/workflows/release-website-image.yml` applies the same overwrite refusal, AMD64/ARM64 build, attached SBOM, maximal BuildKit provenance, two-platform admission scan and keyless Cosign policy to the two final UI images: `ghcr.io/tinfoyle/infinite-ocean-public-ui` from target `public-runtime` and `ghcr.io/tinfoyle/infinite-ocean-private-ui` from target `app-runtime`. It is triggered by a reviewed `ui-v*` tag or release-environment dispatch. Application, public UI and private UI artifacts from one release candidate must record the same source revision, but retain independent manifest digests because they are distinct images.
 
 The first successfully signed pair is recorded in `deploy/releases/0.2.5-rc.2.env`: application digest `sha256:213a90c40198339ab92a48242310186a6cf9c0e29217ea32575e510631093add` and website digest `sha256:dfd0cf0480f7eff767db367b2ff8f4ccfa5c13ae3d96c66596185194e536f134`, both built from `5ce697933661e5b6d467804ad3608666f9c2dddd`. RC.2 predates the enforced admission scan and is retained only as publication history, not an approved rollback target.
 
@@ -73,6 +73,32 @@ provenance/SBOM, both-platform vulnerability/secret admission and keyless
 signing. RC.4 is an intermediate construction candidate, not a production
 release.
 
+## RC.6 Stage review artifact
+
+The first three-image product-surface candidate is recorded in
+`deploy/releases/0.3.0-rc.6.env`:
+
+| Artifact | Immutable Stage reference |
+|---|---|
+| Application | `ghcr.io/tinfoyle/spyglass-engine@sha256:475a174705306f81e1d118ea647a994cfcc75334c6ef7b175ef65814cdcb5fdc` |
+| Public UI | `ghcr.io/tinfoyle/infinite-ocean-public-ui@sha256:5f665b11d8b7d411ce6230781162da1bbd593079c56cb2f4b2e8f80f07fabd1f` |
+| Private UI | `ghcr.io/tinfoyle/infinite-ocean-private-ui@sha256:f173a9e64817d856c79b36f12d43690853fcdb1d7093f0cd4868e48fde2a2e27` |
+
+All three were built from source revision
+`791d1eee2c9c258cec73868825daa2434ced8533`. GitHub release runs were
+attempted but failed before runner steps executed. To unblock the explicitly
+authorized Stage review, the images were built natively for Linux AMD64 in
+UbuntuRojo, scanned with the pinned Trivy policy, and pushed without replacing
+an existing tag. The three scans reported zero high/critical vulnerabilities
+and zero secrets. Connected Stage runs the exact digests above from deployment
+checkout `8f3370e4cee1b4f3c5aa6fe310507ef38bd64263`.
+
+This fallback does not produce the workflow's AMD64/ARM64 manifest, attached
+SBOM, maximal provenance or keyless signature. RC.6 is admissible only for the
+current Stage review and cannot be promoted to LKE. Production requires a new
+complete-product release whose application/public/private artifacts all pass
+the normal GitHub release workflows and independent verification.
+
 ## RC.4 and RC.5 independent evidence
 
 Verification from Docker in `ubunturojo` used Cosign 3.1.3 image digest `sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8` and Trivy 0.74.0 image digest `sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969`:
@@ -108,4 +134,4 @@ Promotion reuses the same digest through staging, internal canary, customer cana
 
 ## Remaining release evidence
 
-RC.4/RC.5 independent evidence and RC.1 workflow admission plus stage Scheduling evidence are recorded. Before final promotion, publish a complete-product immutable pair, independently verify its signature/provenance/SBOM/scans, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-pair staged rollback remain launch gates.
+RC.4/RC.5 independent evidence, the earlier signed Phase 3 checkpoints and RC.6 connected Stage evidence are recorded. Before final promotion, publish a complete-product immutable application/public/private triple, independently verify each signature/provenance/SBOM/scan set, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-triple staged rollback remain launch gates.

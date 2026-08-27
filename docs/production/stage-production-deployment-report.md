@@ -8,11 +8,15 @@
 - Environment sequence: `ubunturojo` Docker -> Hostinger Docker stage -> vanilla Linode Kubernetes Engine production
 - Production rule: **all application construction in Phase 3 must be complete before release**
 
-## Current local-only UI construction boundary
+## Current connected Stage checkpoint (2026-08-27)
 
-The active Phase 3 product-surface work is local only. The repository now builds a Nuxt-rendered public acquisition image and a separate static Vue private-SPA image in addition to the multi-mode Go application. Local Caddy routes the Vue shell and durable detail paths for Your Turn, Work, Knowledge, Baseline, Agents, Schedules, Finance, Integrations, Marketing, Account team administration, Billing, identity Security, Account exports, Account lifecycle, Privacy, Checkout and Affiliate, and the composed smoke gate fetches each route from the TLS application origin. These UI artifacts have not been published to GHCR or applied to Hostinger/LKE. Existing Stage RC records below remain historical platform/backend evidence and are not a substitute for the final product release.
+The matched RC.6 Go application, Nuxt public UI and Vue private UI have passed the local exact-artifact gate, were pushed to GHCR, and are deployed by digest to Hostinger Stage. The active checkout is `8f3370e4cee1b4f3c5aa6fe310507ef38bd64263`; the three images were built from source revision `791d1eee2c9c258cec73868825daa2434ced8533` and are recorded in `deploy/releases/0.3.0-rc.6.env`. Stage has 47 long-running containers, all 46 healthchecked workloads are healthy, and its retained databases report global migration 61 and cell migrations 79/79.
 
-The current local exact-artifact checkpoint records 363 applicable browser passes and eleven intentional compact-menu profile skips. It includes active and suspended Affiliate dashboard states, proposal-only referral-link handling across unauthenticated sign-in, consent-denied acquisition silence, accurate direct-Checkout entry measurement, passkey-confirmed exact-version public-code replacement with permanent retired-code non-reuse, referred-customer concealment, consent-independent self-referral denial recovery and single-flight browser privacy erasure, while the Go suite explicitly covers lost-dispute reversal and the encrypted signup/verification return handoff. Every private Vue form-bearing surface participates in shared route/unload protection, including one-time recovery codes and unresolved Billing, Checkout, Privacy and Affiliate requests. A dedicated pinned-Chromium project additionally asserts a 1280×900 surface, 320×225 CSS viewport and DPR 4 before certifying the seventeen-route private and public inventories at 400% browser scale. The evidence remains local and synthetic/adversarial: Affiliate program flags and settlement remain closed, hosted Stripe and physical-device/assistive-technology journeys are uncertified, and no UI artifact or configuration from this checkpoint may move to GHCR, Hostinger Stage or LKE yet.
+Public smoke acceptance covers the landing, features, pricing, privacy and affiliate-terms pages; login/signup; all 17 private Vue routes and direct deep links; the privacy-consent API; cell API routing; MCP protected-resource metadata; and HSTS across the three Stage origins. Catalog v3 is published through the governed draft/review/approval path with Stripe test-mode Prices for the $50 monthly team subscription, optional $250 commissioning package and $10/10,000-token starter package. This deployment corrects the shared Caddy routing so the Vue application and its private API families are actually reachable.
+
+RC.6 was produced from UbuntuRojo as native AMD64 images after the GitHub release jobs failed before executing runner steps. All three local images passed the pinned Trivy high/critical vulnerability and secret gate, but they do not carry the workflow's AMD64/ARM64 manifest, attached SBOM/provenance or keyless signature. RC.6 is therefore an explicit Stage review artifact, not a production-promotable release. LKE and live Stripe remain untouched. Production requires a fresh complete-product release through the normal signed multi-architecture workflows after the remaining signed-in, provider, browser/accessibility and rollback evidence is complete.
+
+The exact-artifact checkpoint records 363 applicable browser passes and eleven intentional compact-menu profile skips. It includes active and suspended Affiliate dashboard states, proposal-only referral-link handling across unauthenticated sign-in, consent-denied acquisition silence, accurate direct-Checkout entry measurement, passkey-confirmed exact-version public-code replacement with permanent retired-code non-reuse, referred-customer concealment, consent-independent self-referral denial recovery and single-flight browser privacy erasure, while the Go suite explicitly covers lost-dispute reversal and the encrypted signup/verification return handoff. Every private Vue form-bearing surface participates in shared route/unload protection, including one-time recovery codes and unresolved Billing, Checkout, Privacy and Affiliate requests. A dedicated pinned-Chromium project additionally asserts a 1280×900 surface, 320×225 CSS viewport and DPR 4 before certifying the seventeen-route private and public inventories at 400% browser scale. Those checks remain synthetic/adversarial: Affiliate program flags and settlement remain closed, while hosted Stripe and physical-device/assistive-technology journeys remain uncertified. The Stage deployment authorizes human review only, not LKE promotion.
 
 Affiliate-code replacement deployment amendment (2026-08-25): migration 49 and generated API operation 208 are local construction inputs only. They will ride the eventual complete Phase 3 artifact/migration set; there is no standalone Stage or production rollout for this slice. Hostinger Docker, GHCR and LKE remain untouched.
 
@@ -28,7 +32,7 @@ Owner-policy closure deployment amendment (2026-08-26): launch product policy, i
 
 Local provider preparation is isolated from deployment input. Compose accepts an optional Stripe-only override from a validated mode-600 file on UbuntuRojo's native filesystem; the checked-in environment remains deliberately fake and provider-free. The Hostinger webhook secret is endpoint-specific and must not be reused by a local listener. No Stage secret was copied and no deployed resource was changed. Hosted local Checkout remains pending real Stripe test Prices, governed local Catalog mappings, the listener-issued secret and externally authorized Catalog operations.
 
-Before deployment resumes, UI7 must consolidate the website/private-shell release inputs into three matched immutable artifacts built from one source revision: the Go application, public Nuxt UI and private Vue UI. Local Docker must certify the exact routed set first; then the same digests move to Hostinger Docker Stage and finally to vanilla LKE. Every launch package—including Marketing, Baseline, Work, Knowledge, Agents, Schedules, Finance, Integrations, Account administration, Billing, Security, exports and Account lifecycle—now has a generated-boundary Vue route. UI6 construction is complete, but no Stage or production manifest may claim release readiness until UI7 closes cross-feature product journeys, responsive/browser/accessibility evidence and the local immutable-artifact gate.
+UI7 consolidated the release inputs into three matched immutable artifacts built from one source revision: the Go application, public Nuxt UI and private Vue UI. Local Docker certified the exact routed set and those digests now run on Hostinger Stage. Every launch package—including Marketing, Baseline, Work, Knowledge, Agents, Schedules, Finance, Integrations, Account administration, Billing, Security, exports and Account lifecycle—has a generated-boundary Vue route. LKE remains gated on human Stage review, hosted cross-feature product journeys, physical-device/assistive-technology evidence, a signed multi-architecture build and final rollback certification.
 
 ## Fixed deployment decisions
 
@@ -40,7 +44,7 @@ Before deployment resumes, UI7 must consolidate the website/private-shell releas
 | Registry | GHCR, with immutable digest deployment |
 | Application artifact | One multi-mode Go image: `ghcr.io/tinfoyle/spyglass-engine` |
 | Public UI artifact | Final target: one standalone Nuxt/Node image, `ghcr.io/tinfoyle/infinite-ocean-public-ui`; existing `infinite-ocean-website` releases remain historical until UI7 cutover |
-| Private UI artifact | Final target: one static Vue/Caddy image, `ghcr.io/tinfoyle/infinite-ocean-private-ui`; do not publish or deploy before local parity/certification |
+| Private UI artifact | One static Vue SPA served by its minimal non-root Go runtime, `ghcr.io/tinfoyle/infinite-ocean-private-ui` |
 | Databases | Containerized PostgreSQL 17 in every environment |
 | Production database operator | CloudNativePG on LKE with LKE block storage and configurable replicas |
 | Document objects | Private versioned S3 contract: encrypted MinIO volumes in local/Hostinger stage and managed Linode Object Storage in production |
@@ -72,38 +76,38 @@ Cross-cell Account movement uses the same short-lived `account-move-admin` image
 
 The existing root `Dockerfile` remains the shared Go image. Process arguments select Account API, router, cell API, workers, brokers, migrations and short-lived operator jobs. The release workflow publishes AMD64/ARM64 GHCR images with attached BuildKit SBOM/provenance and a keyless Cosign signature.
 
-Current active Phase 3 stage candidate:
+Current active Stage review candidate:
 
 | Artifact | Tag | Immutable manifest |
 |---|---|---|
-| Application | `spyglass-v0.3.0-rc.4` | `ghcr.io/tinfoyle/spyglass-engine@sha256:ab5c8274eec8db17dd2e5f41155cad8f662009cdec9794bf44e188589d7f2990` |
-| Website | `website-v0.3.0-rc.4` | `ghcr.io/tinfoyle/infinite-ocean-website@sha256:1c3199c83594a5acefec78a9ff58c4ab59375ea6b6423b6a3560542c1c1592b6` |
+| Application | `0.3.0-rc.6` | `ghcr.io/tinfoyle/spyglass-engine@sha256:475a174705306f81e1d118ea647a994cfcc75334c6ef7b175ef65814cdcb5fdc` |
+| Public UI | `0.3.0-rc.6` | `ghcr.io/tinfoyle/infinite-ocean-public-ui@sha256:5f665b11d8b7d411ce6230781162da1bbd593079c56cb2f4b2e8f80f07fabd1f` |
+| Private UI | `0.3.0-rc.6` | `ghcr.io/tinfoyle/infinite-ocean-private-ui@sha256:f173a9e64817d856c79b36f12d43690853fcdb1d7093f0cd4868e48fde2a2e27` |
 
-The RC.4 pair was built from the same source revision
-`069b25992fb50f82aacbebf24ee6ab7a2cdfccb0`; application workflow run
-`32651217283`, website workflow run `32651216899` and source verification run
-`32651203877` completed successfully. The exact pair is tracked in
-`deploy/releases/0.3.0-rc.4.env`. It is immutable Stage evidence for the
-Account-export worker slice, not the final production release.
+The RC.6 triple was built from source revision
+`791d1eee2c9c258cec73868825daa2434ced8533` and is tracked in
+`deploy/releases/0.3.0-rc.6.env`. It passed local AMD64 admission and connected
+Stage acceptance. Because the GitHub-hosted release jobs did not execute, it
+lacks the signed multi-architecture release evidence required for production.
 
 RC.2 predates the admission gate. RC.3 is signed but its website image failed the later independent scan with 5 critical and 48 high findings per platform. Both remain immutable history and neither is an approved rollback target. Admitted RC.4 is retained as the RC.5 rollback pair. `git diff --name-only spyglass-v0.2.5-rc.4..spyglass-v0.2.5-rc.5` contains no application, website, migration or Catalog code; the connected environment rehearsal confirmed the expected compatibility.
 
-The actual connected-stage RC.5 -> RC.4 -> RC.5 rehearsal completed successfully against retained PostgreSQL volumes. RC.4 and the restored RC.5 each passed the same 11-check exact-origin/Catalog boundary certificate. RC.5 remains the Phase 2.5 platform rollback baseline, while Phase 3 RC.4 is active on Stage. The final complete-product release will be a later immutable pair; neither is predeclared as the production release.
+The historical connected-stage RC.5 -> RC.4 -> RC.5 rehearsal completed successfully against retained PostgreSQL volumes. RC.4 and the restored RC.5 each passed the same 11-check exact-origin/Catalog boundary certificate. RC.5 remains the Phase 2.5 platform rollback baseline; RC.6 is active on Stage, and its expanded schema does not inherit that earlier downgrade proof. The final production release will be a later signed immutable triple; no current candidate is predeclared as that release.
 
 MCP deployment checkpoint (2026-08-22): RC.2 is applied on Hostinger with migrations 33-34, the least-privilege gateway role, generated password/client certificate, public `mcp.stage.infiniteocean.net` ingress and two healthy gateway replicas. The account application origin publishes OAuth metadata and consent/token/revocation endpoints; the MCP origin publishes protected-resource metadata and the Account-scoped Streamable HTTP endpoint. Both discovery documents and the RFC 9728 Bearer challenge pass through public DNS/TLS. A controlled public-edge certificate returned the expected response for 128/128 requests with both replicas, 128/128 with each replica removed in turn and 128/128 after restoration. The remaining activation gate is a signed-in external-client authorization, routed tool call, refresh rotation and revocation certificate; the executable surface is tracked in the package inventory, while that acceptance evidence remains open.
 
-### Website image
+### Public and private UI images
 
-Phase 2.5 replaces the preview-specific Vinext/Cloudflare runtime with a standalone Next.js Node 22 image:
+Phase 3 replaces the prototype web surface with a standalone Nuxt/Node public acquisition image and a separately deployable Vue private SPA:
 
-- multi-stage build with `npm ci`, test, lint and production build;
-- non-root minimal runtime;
-- runtime-injected, exact HTTPS application and Catalog origins;
-- server-side Catalog proxy, security headers and health endpoints;
-- no `.openai/hosting.json`, Wrangler state or Cloudflare bindings;
-- matching attached SBOM, BuildKit provenance, keyless signing and retention policy.
+- multi-stage builds with locked dependencies, tests, lint and production builds;
+- non-root minimal runtimes;
+- runtime-injected exact HTTPS application and Catalog origins;
+- server-rendered acquisition, Catalog resilience, security headers and health endpoints in the public image;
+- mobile-first Vue navigation and durable generated-boundary routes in the private image; and
+- no `.openai/hosting.json`, Wrangler state or Cloudflare release dependency.
 
-The same website digest must move through local validation, Hostinger stage and LKE production configuration without rebuilding.
+The same matched application/public/private digests must move through local validation, Hostinger Stage and LKE production configuration without rebuilding. The signed release workflow supplies the attached SBOM, BuildKit provenance, keyless signature and retention evidence required for production; the RC.6 Stage fallback does not satisfy that final gate.
 
 ## Revision-controlled deployment structure
 
@@ -133,6 +137,7 @@ deploy/releases/
   0.3.0-rc.2.env
   0.3.0-rc.3.env
   0.3.0-rc.4.env
+  0.3.0-rc.6.env
 deploy/kubernetes/overlays/
   linode-common/
   linode-preproduction/
@@ -201,9 +206,9 @@ The implementation must provide these documented operations through Compose and/
 
 The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 
-On 2026-08-21 the website and application stage names resolved to the VPS public address and the shared Caddy routes were activated with the repository's shared security-header policy, including HSTS. On 2026-08-22 the MCP wildcard hostname was activated. On 2026-08-23 the clean checkout became `/opt/spyglass-stage/releases/ba68ecc64804be3e357794ef4af6301121d726f9`; `/opt/spyglass-stage/current` selects it atomically. The immutable Phase 3 RC.4 pair is deployed, 45 long-running containers are present, all 44 healthchecked workloads are healthy, the internal edge is running, and the retained global/cell A/cell B PostgreSQL services have applied migrations 35/66/66.
+On 2026-08-21 the website and application stage names resolved to the VPS public address and the shared Caddy routes were activated with the repository's shared security-header policy, including HSTS. On 2026-08-22 the MCP wildcard hostname was activated. On 2026-08-27 `/opt/spyglass-stage/current` selected clean checkout `/opt/spyglass-stage/releases/8f3370e4cee1b4f3c5aa6fe310507ef38bd64263`. The exact RC.6 application/public/private digest triple is deployed, 47 long-running containers are present, all 46 healthchecked workloads are healthy, the internal edge is running, and the retained global/cell A/cell B PostgreSQL services have applied migrations 61/79/79.
 
-The provider input remains mode 600 outside Git. Generated secret set `/opt/spyglass-stage/secrets/2026-08-23-01` passes its mode, identity, certificate and restore-checkpoint verifier while carrying retained database/service credentials forward from `2026-08-22-03` and adding only the Account-export database/object identities. Future additive topology upgrades must supply the previous active environment to `prepare-stage-secrets.sh`; full credential rotation needs coordinated datastore changes. Stripe sandbox access and webhook endpoint `we_1U6uGAPokWCfkh4CBSN0SjNI`, non-production OpenAI access, Stalwart implicit TLS and model-gateway health all passed the content-free provider certificate. RC.4 rollback and RC.5 restoration completed without database restoration. Owner-managed backup destinations/schedules and external disk/certificate alerting remain environment operations, as agreed; they are not application-construction blockers.
+The provider input remains mode 600 outside Git. Generated secret set `/opt/spyglass-stage/secrets/2026-08-27-01` passes its mode, identity, certificate and restore-checkpoint verifier while carrying retained database/service credentials forward and adding the Affiliate, analytics and privacy identities required by RC.6. Future additive topology upgrades must supply the previous active environment to `prepare-stage-secrets.sh`; full credential rotation needs coordinated datastore changes. Stripe test access, non-production model access, Stalwart implicit TLS and model-gateway health passed the content-free provider certificate. The historical RC.4 rollback and RC.5 restoration completed without database restoration; that does not prove an RC.6 schema downgrade. Owner-managed backup destinations/schedules and external disk/certificate alerting remain environment operations, as agreed; they are not application-construction blockers.
 
 The required non-secret `SPYGLASS_OPENAI_MODEL_PRICING_JSON` provider input now contains reviewed current prices for every exact model enabled in immutable Personas. Stage secret preparation and the LKE model-gateway Secret fail closed when it is absent or malformed; neither actual prices nor provider credentials belong in Git because prices are environment-reviewed operational input.
 
