@@ -6,6 +6,32 @@ The connected Hostinger layout is defined by `compose.stage.yml`; its verified c
 
 Stage deployment takes two inputs: a tracked, non-secret `deploy/releases/<version>.env` binding the application/website digests to their source revision, followed by the mode-600 environment secret file. The verifier rejects image overrides in the secret file.
 
+When hosted GitHub release jobs are unavailable, UbuntuRojo can publish the
+matched Stage image set directly to GHCR. First place a GHCR token with
+`read:packages` and `write:packages` authority on the native Linux filesystem;
+the publisher rejects Windows-mounted, symlinked, permissive, empty or
+multi-line credential files:
+
+```bash
+install -d -m 700 ~/.config/spyglass
+install -m 600 /path/to/source-token ~/.config/spyglass/ghcr-token
+make verify-stage-release-publisher
+make publish-stage-release VERSION=0.3.0-rc.9
+```
+
+The publisher requires a clean `main` exactly matching `origin/main`, refuses
+to overwrite version or source-revision tags, builds the application/public UI/
+private UI from the same commit, attaches BuildKit SBOM and maximal provenance,
+scans every requested platform with the pinned Trivy policy, and writes the
+exact resulting digests to `deploy/releases/<version>.env`. The default Stage
+platform is `linux/amd64`; a multi-platform-capable Buildx builder can select
+`SPYGLASS_RELEASE_PLATFORMS=linux/amd64,linux/arm64`.
+
+The generated release manifest is deliberately not committed automatically.
+Review and commit it before deployment so `verify-stage.sh` can enforce its
+revision-controlled input contract. This tool never reads or edits the
+protected Stage environment file under `/opt/spyglass-stage/secrets`.
+
 ```bash
 make verify
 ```
