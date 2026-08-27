@@ -15,6 +15,7 @@ if bash "$publisher" definitely-not-semver >/dev/null 2>&1; then
 fi
 
 grep -Fq 'docker buildx imagetools inspect' "$publisher"
+grep -Fq 'temporary Docker credentials hid the Buildx plugin' "$publisher"
 grep -Fq -- '--provenance mode=max' "$publisher"
 grep -Fq -- '--sbom true' "$publisher"
 grep -Fq -- '--scanners vuln,secret' "$publisher"

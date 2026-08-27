@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s inherit_errexit
 
 stack_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(cd "$stack_dir/../../.." && pwd)"
@@ -98,8 +99,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+original_docker_config="${DOCKER_CONFIG:-$HOME/.docker}"
+buildx_plugin="$original_docker_config/cli-plugins/docker-buildx"
 export DOCKER_CONFIG="$temporary_directory/docker-config"
 mkdir -m 700 "$DOCKER_CONFIG"
+if test -x "$buildx_plugin"; then
+  mkdir -m 700 "$DOCKER_CONFIG/cli-plugins"
+  ln -s "$buildx_plugin" "$DOCKER_CONFIG/cli-plugins/docker-buildx"
+fi
+docker buildx version >/dev/null 2>&1 || die "temporary Docker credentials hid the Buildx plugin"
 ghcr_token="$(tr -d '\r\n' < "$token_file")"
 test -n "$ghcr_token" || die "GHCR token is empty after newline removal"
 printf '%s' "$ghcr_token" | docker login ghcr.io --username "$ghcr_username" --password-stdin >/dev/null
