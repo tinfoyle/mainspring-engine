@@ -18,7 +18,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@spyglass/api", async (importOriginal) => ({ ...await importOriginal<typeof import("@spyglass/api")>(), ...api }));
 
 const account = {
-  account_id: "10000000-0000-4000-8000-000000000001", account_type: "paid", account_version: 1, cell_id: "cell-us-east-01",
+  account_id: "10000000-0000-4000-8000-000000000001", account_type: "paid", account_state: "active", account_version: 1, cell_id: "cell-us-east-01",
   display_name: "Northstar Studio", placement_generation: 1, role: "owner", slug: "northstar-studio", owner_enrollment_required: false,
   entitlements: { account_id: "10000000-0000-4000-8000-000000000001", catalog_version: 2, evaluated_at: "2026-08-24T20:00:00Z", version: 3,
     packages: [{ code: "agents", version: 1, mode: "enabled", sources: ["subscription"] }] }

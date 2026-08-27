@@ -16,12 +16,13 @@ type MembershipState string
 type InvitationState string
 
 const (
-	AccountInactive AccountType  = "inactive"
-	AccountFree     AccountType  = "free"
-	AccountPaid     AccountType  = "paid"
-	AccountActive   AccountState = "active"
-	AccountClosing  AccountState = "closing"
-	AccountClosed   AccountState = "closed"
+	AccountInactive   AccountType  = "inactive"
+	AccountFree       AccountType  = "free"
+	AccountPaid       AccountType  = "paid"
+	AccountActive     AccountState = "active"
+	AccountRestricted AccountState = "restricted"
+	AccountClosing    AccountState = "closing"
+	AccountClosed     AccountState = "closed"
 
 	RoleOwner         MembershipRole = "owner"
 	RoleAdministrator MembershipRole = "administrator"

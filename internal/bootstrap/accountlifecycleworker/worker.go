@@ -12,6 +12,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
@@ -29,14 +30,18 @@ type Worker struct {
 	processor interface {
 		ProcessOne(context.Context) (bool, error)
 	}
-	poll                time.Duration
-	logger              *slog.Logger
-	processed, failures atomic.Uint64
+	subscriptionProcessor interface {
+		ProcessOne(context.Context) (bool, error)
+	}
+	poll                                       time.Duration
+	logger                                     *slog.Logger
+	processed, subscriptionProcessed, failures atomic.Uint64
 }
 
 type Status struct {
-	Processed uint64 `json:"processed"`
-	Failures  uint64 `json:"failures"`
+	Processed             uint64 `json:"processed"`
+	SubscriptionProcessed uint64 `json:"subscription_processed"`
+	Failures              uint64 `json:"failures"`
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, error) {
@@ -75,12 +80,21 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	return &Worker{pool: pool, processor: processor, poll: config.PollInterval, logger: logger}, nil
+	subscriptionProcessor, err := subscriptionlifecycle.NewProcessor(postgres.NewSubscriptionLifecycleRepository(pool), registration.SystemClock{}, config.Lease, config.BlockedRetry)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return &Worker{pool: pool, processor: processor, subscriptionProcessor: subscriptionProcessor, poll: config.PollInterval, logger: logger}, nil
 }
 
 func (w *Worker) Run(ctx context.Context) error {
 	for {
 		worked, err := w.processor.ProcessOne(ctx)
+		subscriptionWorked, subscriptionErr := false, error(nil)
+		if w.subscriptionProcessor != nil {
+			subscriptionWorked, subscriptionErr = w.subscriptionProcessor.ProcessOne(ctx)
+		}
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -88,10 +102,17 @@ func (w *Worker) Run(ctx context.Context) error {
 			w.failures.Add(1)
 			w.logger.Error("Account lifecycle processing failed", "error", err)
 		}
+		if subscriptionErr != nil {
+			w.failures.Add(1)
+			w.logger.Error("subscription lifecycle processing failed", "error", subscriptionErr)
+		}
 		if worked {
 			w.processed.Add(1)
 		}
-		if worked {
+		if subscriptionWorked {
+			w.subscriptionProcessed.Add(1)
+		}
+		if worked || subscriptionWorked {
 			continue
 		}
 		timer := time.NewTimer(w.poll)
@@ -108,6 +129,6 @@ func (w *Worker) Run(ctx context.Context) error {
 
 func (w *Worker) Ready(ctx context.Context) error { return w.pool.Ping(ctx) }
 func (w *Worker) Status(context.Context) (any, error) {
-	return Status{Processed: w.processed.Load(), Failures: w.failures.Load()}, nil
+	return Status{Processed: w.processed.Load(), SubscriptionProcessed: w.subscriptionProcessed.Load(), Failures: w.failures.Load()}, nil
 }
 func (w *Worker) Close() { w.pool.Close() }

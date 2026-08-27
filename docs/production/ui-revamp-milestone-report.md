@@ -3,7 +3,7 @@
 - Report date: 2026-08-27
 - Scope: local construction only in UbuntuRojo Docker
 - Overall UI-revamp status: **not complete**
-- Milestone status: **commercial Catalog, AI Token commerce, commissioning, Agent execution admission, Affiliate settlement and Affiliate GDPR retention complete**
+- Milestone status: **commercial Catalog, AI Token commerce, commissioning, Agent execution admission, Affiliate settlement/retention and subscription remediation complete**
 - Explicit exclusions: GHCR, Hostinger Stage, LKE and production
 
 ## What is complete
@@ -25,6 +25,8 @@
 - Succeeded Refunds, final lost disputes and issued line-complete credit notes append one whole-earning reversal. Customer-balance credits receive compensating Stripe debits, settled Support checks produce provider-free future-earning recovery, commissioning-only credit notes do nothing, and adverse-before-earning delivery converges exactly once.
 - Verified Affiliate erasure now has a separate one-way, version-fenced restriction after terminal closure. It removes code, statement, support history and export from ordinary customer access while preserving referred subscriptions and constrained settlement authority. The customer sees only a safe retention notice and privacy-history route.
 - A dedicated restore-gated local worker minimizes closed Affiliate graphs after seven calendar years from the later of closure or final relevant activity. Legal holds, open cases, in-flight settlement/recovery and unsettled earnings block deletion. One transaction removes readable codes, User/Affiliate/provider links and raw evidence; only immutable identity-free tombstones, currency totals and retired-code fingerprints remain.
+- Signed subscription projection now owns the nonpayment and cancellation clocks. It preserves the first unresolved failure, makes subscription-granted product access read-only for days 0–7, restricts the Account afterward, sends idempotent owner notices immediately and on days 7, 23 and 29, and queues provider termination at day 30. Voluntary cancellation keeps paid-term access and starts the same remediation clock only when that term ends.
+- Recovery before terminal closure clears the lifecycle and restores the Account; terminal provider state closes the Account and creates the existing guarded closure/erasure handoff instead of bypassing its review and transaction fences. Restricted customers retain only Account selection, Billing recovery, export, privacy, security, sign-out and safe AI Token balance visibility; ordinary product work and token consumption remain denied.
 - Governed AI Token promotions now publish arbitrary quantities, effective windows, grant lifetime, per-Account redemption limits, global issuance caps, disclosure and an explicit no-stacking rule. Owner/billing-admin redemption requires recent passkey proof, survives exact retries across later Catalog publications, and appends one expiring labeled grant through a transactionally capped ledger boundary.
 - The launch/browser fixtures, checkout path and server-rendered identity entry are aligned to the inactive-shell and `$50` offer model.
 
@@ -37,7 +39,7 @@ dockerized go test ./...
 dockerized go test -race ./...
 go vet, formatting and API-contract checks
 UI type checks, lint and production builds
-73 private Vue component tests
+75 private Vue component tests
 22 public Nuxt tests
 44 generated API-client tests
 17 rendered public-route accessibility checks
@@ -52,14 +54,12 @@ The Playwright matrix covered Chromium, Firefox and WebKit desktop; 360, 390 and
 
 The remaining work is feature construction, not hosting:
 
-1. Finish the approved subscription nonpayment/cancellation remediation, notification and guarded 30-day erasure lifecycle.
-2. Connect the completed token top-up, promotion and commissioning boundaries to the final Billing/Checkout presentation and run the customer-facing visual/content refinement.
-3. Run a human product/visual review of the exact local artifacts, with particular attention to Your Turn, onboarding, checkout and real-device mobile ergonomics. Automated reflow/accessibility evidence is strong but is not a substitute for that review.
+1. Connect the completed token top-up, promotion and commissioning boundaries to the final Billing/Checkout presentation and run the customer-facing visual/content refinement.
+2. Run a human product/visual review of the exact local artifacts, with particular attention to Your Turn, onboarding, checkout and real-device mobile ergonomics. Automated reflow/accessibility evidence is strong but is not a substitute for that review.
 
 ## Next implementation order
 
-1. Complete subscription lifecycle behavior locally.
-2. Wire the completed commercial APIs into Billing/Checkout and perform the customer-facing visual/content refinement.
-3. Complete human review against the exact local artifacts.
-4. Re-run the complete local Docker gate and declare the feature-complete boundary.
-5. Only after that boundary, resume the separate Stage and production release plan.
+1. Wire the completed commercial APIs into Billing/Checkout and perform the customer-facing visual/content refinement.
+2. Complete human review against the exact local artifacts.
+3. Re-run the complete local Docker gate and declare the feature-complete boundary.
+4. Only after that boundary, resume the separate Stage and production release plan.

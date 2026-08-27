@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
 	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -28,17 +29,19 @@ type Config struct {
 }
 
 type Worker struct {
-	pool                              *pgxpool.Pool
-	processor                         eventProcessor
-	reconciler                        reconciliationProcessor
-	poll                              time.Duration
-	logger                            *slog.Logger
-	events, reconciliations, failures atomic.Uint64
+	pool                                            *pgxpool.Pool
+	processor                                       eventProcessor
+	reconciler                                      reconciliationProcessor
+	terminator                                      reconciliationProcessor
+	poll                                            time.Duration
+	logger                                          *slog.Logger
+	events, reconciliations, terminations, failures atomic.Uint64
 }
 
 type Status struct {
 	EventsProcessed          uint64 `json:"events_processed"`
 	ReconciliationsProcessed uint64 `json:"reconciliations_processed"`
+	TerminationsProcessed    uint64 `json:"terminations_processed"`
 	Failures                 uint64 `json:"failures"`
 }
 
@@ -140,13 +143,22 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	return &Worker{pool: pool, processor: processor, reconciler: reconciler, poll: config.PollInterval, logger: logger}, nil
+	terminator, err := subscriptionlifecycle.NewTerminationProcessor(postgres.NewSubscriptionLifecycleRepository(pool), provider, clock, 2*time.Minute)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return &Worker{pool: pool, processor: processor, reconciler: reconciler, terminator: terminator, poll: config.PollInterval, logger: logger}, nil
 }
 
 func (w *Worker) Run(ctx context.Context) error {
 	for {
 		worked, eventErr := w.processor.ProcessOne(ctx)
 		reconciled, reconcileErr := w.reconciler.ProcessOne(ctx)
+		terminated, terminationErr := false, error(nil)
+		if w.terminator != nil {
+			terminated, terminationErr = w.terminator.ProcessOne(ctx)
+		}
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -158,13 +170,20 @@ func (w *Worker) Run(ctx context.Context) error {
 			w.failures.Add(1)
 			w.logger.Error("billing reconciliation failed", "error", reconcileErr)
 		}
+		if terminationErr != nil {
+			w.failures.Add(1)
+			w.logger.Error("subscription termination failed", "error", terminationErr)
+		}
 		if worked {
 			w.events.Add(1)
 		}
 		if reconciled {
 			w.reconciliations.Add(1)
 		}
-		if worked || reconciled {
+		if terminated {
+			w.terminations.Add(1)
+		}
+		if worked || reconciled || terminated {
 			continue
 		}
 		timer := time.NewTimer(w.poll)
@@ -181,6 +200,6 @@ func (w *Worker) Run(ctx context.Context) error {
 
 func (w *Worker) Ready(ctx context.Context) error { return w.pool.Ping(ctx) }
 func (w *Worker) Status(context.Context) (any, error) {
-	return Status{EventsProcessed: w.events.Load(), ReconciliationsProcessed: w.reconciliations.Load(), Failures: w.failures.Load()}, nil
+	return Status{EventsProcessed: w.events.Load(), ReconciliationsProcessed: w.reconciliations.Load(), TerminationsProcessed: w.terminations.Load(), Failures: w.failures.Load()}, nil
 }
 func (w *Worker) Close() { w.pool.Close() }

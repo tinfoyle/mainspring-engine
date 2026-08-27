@@ -51,7 +51,7 @@ describe("application shell", () => {
     const session = useSessionStore(pinia);
     session.accounts = [{
       account_id: "10000000-0000-4000-8000-000000000001",
-      account_type: "paid",
+      account_type: "paid", account_state: "active",
       account_version: 1,
       cell_id: "cell-a",
       display_name: "Northstar",
@@ -86,6 +86,30 @@ describe("application shell", () => {
     expect(workspace.text()).not.toContain("Marketing");
     expect(workspace.text()).toContain("1 more areas");
     wrapper.unmount();
+  });
+
+  it("limits a restricted Account to recovery and privacy navigation", async () => {
+	const account = {
+		account_id: "10000000-0000-4000-8000-000000000001", account_type: "paid" as const, account_state: "restricted" as const,
+		account_version: 3, cell_id: "cell-a", display_name: "Northstar", placement_generation: 1,
+		role: "owner" as const, slug: "northstar", owner_enrollment_required: false,
+		entitlements: { account_id: "10000000-0000-4000-8000-000000000001", catalog_version: 2, evaluated_at: "2026-08-27T12:00:00Z", version: 3, packages: [] }
+	};
+	fetcher.mockResolvedValue(new Response(JSON.stringify({ user_id: "20000000-0000-4000-8000-000000000002", selected_account_id: account.account_id, accounts: [account] }), { status: 200 }));
+	sessionStorage.setItem("spyglass_application_entered", "1");
+	await router.push("/app/your-turn");
+	await router.isReady();
+	const pinia = createPinia();
+	const session = useSessionStore(pinia); session.accounts = [account]; session.selectedID = account.account_id;
+	const wrapper = mount(App, { global: { plugins: [pinia, router] } });
+	await flushPromises();
+	expect(router.currentRoute.value.path).toBe("/app/billing");
+	expect(wrapper.get(".session-notice").text()).toContain("Billing, security, privacy, and data export");
+	const navigation = wrapper.get("nav").text(); const links = wrapper.findAll(".nav-link").map((item) => item.text());
+	expect(navigation).toContain("Billing"); expect(navigation).toContain("Security"); expect(navigation).toContain("Exports"); expect(navigation).toContain("Privacy");
+	expect(links).not.toContain("Your Turn"); expect(links).not.toContain("Work"); expect(links).not.toContain("Affiliate"); expect(links).not.toContain("Lifecycle");
+	expect(wrapper.get("option").text()).toContain("restricted");
+	wrapper.unmount();
   });
 
   it("records first application entry once per tab after authenticated session load", async () => {

@@ -17,6 +17,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -24,12 +25,13 @@ import (
 type Kind string
 
 const (
-	KindVerification  Kind = "verification"
-	KindInvitation    Kind = "invitation"
-	KindRecovery      Kind = "recovery"
-	KindDiscard       Kind = "discard"
-	KindOwnership     Kind = "ownership_transfer"
-	KindContactChange Kind = "contact_change"
+	KindVerification          Kind = "verification"
+	KindInvitation            Kind = "invitation"
+	KindRecovery              Kind = "recovery"
+	KindDiscard               Kind = "discard"
+	KindOwnership             Kind = "ownership_transfer"
+	KindContactChange         Kind = "contact_change"
+	KindSubscriptionLifecycle Kind = "subscription_lifecycle"
 )
 
 var ErrDeliveryFailed = errors.New("notification delivery failed")
@@ -100,6 +102,8 @@ type payload struct {
 	Email, DisplayName, Token, OfferCode, ReturnTo, AccountName, Role, CounterpartDisplayName, RecipientRole string
 	Action, OldEmail, NewEmail                                                                               string
 	ExpiresAt, OccurredAt                                                                                    time.Time
+	NoticeKind                                                                                               string
+	DueAt, DeleteAt                                                                                          time.Time
 }
 
 type QueuedSender struct {
@@ -153,6 +157,18 @@ func (s *QueuedSender) PrepareContactChange(id string, message contactchange.Mes
 		return contactchange.PreparedNotification{}, err
 	}
 	return contactchange.PreparedNotification{ID: id, Ciphertext: ciphertext, Nonce: nonce, KeyVersion: keyVersion, CreatedAt: s.clock.Now().UTC()}, nil
+}
+
+func (s *QueuedSender) PrepareSubscriptionLifecycle(id string, message subscriptionlifecycle.Message) (subscriptionlifecycle.PreparedNotification, error) {
+	raw, err := json.Marshal(payload{Email: message.Email, DisplayName: message.DisplayName, AccountName: message.AccountName, NoticeKind: string(message.Kind), DueAt: message.DueAt.UTC(), DeleteAt: message.DeleteAt.UTC()})
+	if err != nil {
+		return subscriptionlifecycle.PreparedNotification{}, err
+	}
+	ciphertext, nonce, keyVersion, err := s.cipher.Seal(id, KindSubscriptionLifecycle, raw)
+	if err != nil {
+		return subscriptionlifecycle.PreparedNotification{}, err
+	}
+	return subscriptionlifecycle.PreparedNotification{ID: id, AccountID: message.AccountID, Ciphertext: ciphertext, Nonce: nonce, KeyVersion: keyVersion, CreatedAt: s.clock.Now().UTC()}, nil
 }
 
 func (s *QueuedSender) enqueue(ctx context.Context, accountID ids.AccountID, kind Kind, value payload) error {
@@ -211,10 +227,13 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 	if entry.Kind == KindContactChange && !validContactChangePayload(value) {
 		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "payload_invalid", true)
 	}
+	if entry.Kind == KindSubscriptionLifecycle && !validSubscriptionLifecyclePayload(value) {
+		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "payload_invalid", true)
+	}
 	if entry.Kind == KindDiscard {
 		return true, p.queue.MarkDelivered(ctx, entry.ID, now)
 	}
-	if entry.Kind != KindOwnership && entry.Kind != KindContactChange && !value.ExpiresAt.After(now) {
+	if entry.Kind != KindOwnership && entry.Kind != KindContactChange && entry.Kind != KindSubscriptionLifecycle && !value.ExpiresAt.After(now) {
 		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "expired", true)
 	}
 	if entry.Kind == KindContactChange && contactchange.Action(value.Action) == contactchange.ActionVerifyNew && !value.ExpiresAt.After(now) {
@@ -247,6 +266,12 @@ func (p *Processor) deliver(ctx context.Context, accountID ids.AccountID, kind K
 		return p.delivery.SendOwnershipTransfer(ctx, accountmembers.OwnershipTransferNotice{AccountID: accountID, Email: value.Email, DisplayName: value.DisplayName, AccountName: value.AccountName, CounterpartDisplayName: value.CounterpartDisplayName, RecipientRole: role, OccurredAt: value.OccurredAt})
 	case KindContactChange:
 		return p.delivery.SendContactChange(ctx, contactchange.Message{Action: contactchange.Action(value.Action), Email: value.Email, DisplayName: value.DisplayName, OldEmail: value.OldEmail, NewEmail: value.NewEmail, Token: value.Token, ExpiresAt: value.ExpiresAt, OccurredAt: value.OccurredAt})
+	case KindSubscriptionLifecycle:
+		delivery, ok := p.delivery.(subscriptionlifecycle.Sender)
+		if !ok {
+			return errors.New("subscription lifecycle delivery is unavailable")
+		}
+		return delivery.SendSubscriptionLifecycle(ctx, subscriptionlifecycle.Message{AccountID: accountID, Email: value.Email, DisplayName: value.DisplayName, AccountName: value.AccountName, Kind: subscriptionlifecycle.NoticeKind(value.NoticeKind), DueAt: value.DueAt, DeleteAt: value.DeleteAt})
 	default:
 		return fmt.Errorf("unsupported notification kind %q", kind)
 	}
@@ -274,6 +299,13 @@ func validContactChangePayload(value payload) bool {
 	}
 }
 
+func validSubscriptionLifecyclePayload(value payload) bool {
+	kind := subscriptionlifecycle.NoticeKind(value.NoticeKind)
+	validKind := kind == "payment_failed" || kind == "payment_restricted" || kind == "payment_day23" || kind == "payment_day29" ||
+		kind == "cancellation_scheduled" || kind == "cancellation_effective" || kind == "cancellation_day23" || kind == "cancellation_day29"
+	return validKind && value.Email != "" && value.DisplayName != "" && value.AccountName != "" && !value.DueAt.IsZero() && !value.DeleteAt.IsZero()
+}
+
 func retryDelay(attempt int) time.Duration {
 	if attempt < 1 {
 		attempt = 1
@@ -293,3 +325,4 @@ var _ invitations.Sender = (*QueuedSender)(nil)
 var _ recovery.Sender = (*QueuedSender)(nil)
 var _ accountmembers.OwnershipNotificationPreparer = (*QueuedSender)(nil)
 var _ contactchange.NotificationPreparer = (*QueuedSender)(nil)
+var _ subscriptionlifecycle.NotificationPreparer = (*QueuedSender)(nil)

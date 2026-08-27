@@ -2,11 +2,12 @@
 import { IoLogo } from "@spyglass/design-system";
 import { emitAnalytics, getPrivacyConsent, type CatalogPackageCode } from "@spyglass/api";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { RouterLink, RouterView, useRoute } from "vue-router";
+import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { applicationEntryPoint } from "./applicationEntry";
 import { useSessionStore } from "./stores/session";
 
 const route = useRoute();
+const router = useRouter();
 const session = useSessionStore();
 const menuOpen = ref(false);
 const menuButton = ref<HTMLButtonElement>();
@@ -58,19 +59,28 @@ const accountNavigation: NavigationItem[] = [
   { to: "/app/affiliate", label: "Affiliate" },
   { to: "/app/privacy", label: "Privacy" }
 ];
+const restrictedNavigation = new Set(["/app/billing", "/app/security", "/app/account-exports", "/app/privacy", "/app/checkout"]);
+const restricted = computed(() => session.selected?.account_state === "restricted");
+const visibleAccountNavigation = computed(() => restricted.value
+  ? accountNavigation.filter((item) => restrictedNavigation.has(item.to))
+  : accountNavigation);
 const availablePackageCodes = computed(() => new Set(
   session.selected?.entitlements.packages
     .filter((item) => item.mode !== "suspended")
     .map((item) => item.code) ?? []
 ));
 const visibleWorkspaceNavigation = computed(() => workspaceNavigation.filter(
-  (item) => !item.packageCode || availablePackageCodes.value.has(item.packageCode)
+	(item) => !restricted.value && (!item.packageCode || availablePackageCodes.value.has(item.packageCode))
 ));
 const hiddenPackageCount = computed(() => new Set(
   workspaceNavigation
     .map((item) => item.packageCode)
     .filter((code): code is CatalogPackageCode => code !== undefined && !availablePackageCodes.value.has(code))
 ).size);
+
+watch([restricted, () => route.path], ([isRestricted, path]) => {
+  if (isRestricted && !restrictedNavigation.has(path)) void router.replace("/app/billing");
+}, { immediate: true });
 
 async function selectAccount(event: Event): Promise<void> {
   const target = event.target as HTMLSelectElement;
@@ -158,13 +168,13 @@ function containMenuFocus(event: KeyboardEvent): void {
           <RouterLink v-for="item in visibleWorkspaceNavigation" :key="item.to" :to="item.to" class="nav-link">
             <span>{{ item.label }}</span>
           </RouterLink>
-          <RouterLink v-if="hiddenPackageCount" to="/app/checkout" class="nav-link nav-link--packages">
+          <RouterLink v-if="!restricted && hiddenPackageCount" to="/app/checkout" class="nav-link nav-link--packages">
             <span>Explore plans</span><small>{{ hiddenPackageCount }} more areas</small>
           </RouterLink>
         </div>
         <div class="nav-group" role="group" aria-labelledby="account-navigation-label">
           <p id="account-navigation-label" class="nav-group-title">Account</p>
-          <RouterLink v-for="item in accountNavigation" :key="item.to" :to="item.to" class="nav-link">
+          <RouterLink v-for="item in visibleAccountNavigation" :key="item.to" :to="item.to" class="nav-link">
             <span>{{ item.label }}</span>
           </RouterLink>
         </div>
@@ -173,7 +183,7 @@ function containMenuFocus(event: KeyboardEvent): void {
         <label for="account">Account</label>
         <select id="account" :value="session.selectedID" :disabled="session.loading || session.selecting || session.accounts.length === 0" @change="selectAccount">
           <option v-if="session.accounts.length === 0" value="">{{ session.loading ? "Loading…" : "No Account" }}</option>
-          <option v-for="account in session.accounts" :key="account.account_id" :value="account.account_id">{{ account.display_name }}</option>
+          <option v-for="account in session.accounts" :key="account.account_id" :value="account.account_id">{{ account.display_name }}{{ account.account_state === "restricted" ? " — restricted" : "" }}</option>
         </select>
       </div>
     </aside>
@@ -184,6 +194,9 @@ function containMenuFocus(event: KeyboardEvent): void {
         We could not load your Account. <a href="/login?return_to=%2Fapp">Sign in again</a>
       </div>
       <div v-else-if="session.selectionError" class="session-notice" role="alert">{{ session.selectionError }}</div>
+      <div v-else-if="restricted" class="session-notice" role="status">
+        This Account is restricted. Billing, security, privacy, and data export remain available while you restore the subscription.
+      </div>
       <RouterView />
     </main>
   </div>

@@ -89,7 +89,7 @@ func (service *DownloadService) Issue(ctx context.Context, command CapabilityCom
 }
 
 func (service *CapabilityIssuer) Issue(ctx context.Context, command CapabilityCommand) (Capability, error) {
-	if _, err := service.authorizer.Authorize(ctx, access.Actor{UserID: command.Actor}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}}); err != nil {
+	if _, err := service.authorizer.Authorize(ctx, access.Actor{UserID: command.Actor}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}, AllowRestricted: true}); err != nil {
 		return Capability{}, err
 	}
 	now := service.clock.Now().UTC()

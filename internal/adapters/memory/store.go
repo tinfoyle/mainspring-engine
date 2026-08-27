@@ -262,7 +262,7 @@ func (s *Store) Choices(_ context.Context, userID ids.UserID) ([]accountaccess.C
 		if !ok || account.State != accounts.AccountActive {
 			continue
 		}
-		result = append(result, accountaccess.Choice{AccountID: account.ID, Slug: account.Slug, DisplayName: account.DisplayName, AccountType: account.Type, AccountVersion: account.Version, Role: membership.Role, CellID: account.CellID, PlacementGeneration: account.PlacementGeneration, Entitlements: s.snapshots[account.ID]})
+		result = append(result, accountaccess.Choice{AccountID: account.ID, Slug: account.Slug, DisplayName: account.DisplayName, AccountType: account.Type, AccountState: account.State, AccountVersion: account.Version, Role: membership.Role, CellID: account.CellID, PlacementGeneration: account.PlacementGeneration, Entitlements: s.snapshots[account.ID]})
 	}
 	return result, nil
 }

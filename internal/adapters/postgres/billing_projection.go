@@ -124,6 +124,11 @@ func (r *BillingProjectionRepository) ApplyProjection(ctx context.Context, proje
 	if err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `SELECT spyglass_project_subscription_lifecycle($1,$2,$3,$4,$5,$6)`,
+		projection.Mapping.AccountID, projection.Subscription.ID, projection.Subscription.State,
+		nullableTime(projection.Subscription.CurrentPeriodEnd), projection.Subscription.CancelAt, projection.SyncedAt.UTC()); err != nil {
+		return err
+	}
 	if projection.Subscription.AffiliateAttributionID != "" {
 		var lockedID ids.ReferralAttributionID
 		err = tx.QueryRow(ctx, `

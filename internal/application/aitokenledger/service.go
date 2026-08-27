@@ -90,7 +90,7 @@ func (s *Service) Balance(ctx context.Context, actor access.Actor, accountID ids
 	if !actor.Valid() || accountID == "" {
 		return aitokens.Balance{}, ErrInvalidRequest
 	}
-	if _, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{}); err != nil {
+	if _, err := s.authorizer.Authorize(ctx, actor, accountID, access.Requirement{AllowRestricted: true}); err != nil {
 		return aitokens.Balance{}, err
 	}
 	return s.store.Balance(ctx, accountID, s.clock.Now().UTC())

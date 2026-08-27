@@ -71,6 +71,7 @@ export interface AcceptedMembership {
 
 export interface AccountChoice {
   readonly "account_id": string;
+  readonly "account_state": "active" | "restricted";
   readonly "account_type": "inactive" | "free" | "paid";
   readonly "account_version": number;
   readonly "cell_id": string;
@@ -852,6 +853,7 @@ export interface BillingStatus {
   readonly "can_manage": boolean;
   readonly "can_start_checkout": boolean;
   readonly "has_customer": boolean;
+  readonly "lifecycle"?: BillingSubscriptionLifecycle;
   readonly "subscriptions": ReadonlyArray<BillingSubscription>;
 }
 
@@ -863,6 +865,14 @@ export interface BillingSubscription {
   readonly "last_synced_at": string;
   readonly "offer_code": string;
   readonly "state": BillingSubscriptionState;
+}
+
+export interface BillingSubscriptionLifecycle {
+  readonly "delete_at": string;
+  readonly "effective_at": string;
+  readonly "restriction_at": string;
+  readonly "state": "cancellation_scheduled" | "grace_read_only" | "restricted" | "termination_pending";
+  readonly "trigger": "payment_failure" | "cancellation";
 }
 
 export type BillingSubscriptionState = "incomplete" | "incomplete_expired" | "trialing" | "active" | "past_due" | "canceled" | "unpaid" | "paused";
@@ -2433,6 +2443,7 @@ export interface SelectAccountRequest {
 export interface SelectedAccountContext {
   readonly "account_id": string;
   readonly "account_name": string;
+  readonly "account_state": "active" | "restricted";
   readonly "cell_id": string;
   readonly "entitlement_version": number;
   readonly "placement_generation": number;
@@ -2768,6 +2779,7 @@ export interface ApiSchemas {
   readonly BeginRegistrationRequest: BeginRegistrationRequest;
   readonly BillingStatus: BillingStatus;
   readonly BillingSubscription: BillingSubscription;
+  readonly BillingSubscriptionLifecycle: BillingSubscriptionLifecycle;
   readonly BillingSubscriptionState: BillingSubscriptionState;
   readonly CancelAccountExportRequest: CancelAccountExportRequest;
   readonly CatalogFeaturePackage: CatalogFeaturePackage;

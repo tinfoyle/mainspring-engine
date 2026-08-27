@@ -81,7 +81,19 @@ func (r *CommercialAccessRepository) BillingStatus(ctx context.Context, accountI
 		}
 		status.Subscriptions = append(status.Subscriptions, value)
 	}
-	return status, rows.Err()
+	if err := rows.Err(); err != nil {
+		return commercialaccess.Status{}, err
+	}
+	var lifecycle commercialaccess.SubscriptionLifecycle
+	err = r.pool.QueryRow(ctx, `SELECT state,trigger_kind,effective_at,restriction_at,delete_at
+		FROM account_subscription_lifecycles WHERE account_id=$1 AND state NOT IN ('recovered','closed')`, accountID).Scan(
+		&lifecycle.State, &lifecycle.Trigger, &lifecycle.EffectiveAt, &lifecycle.RestrictionAt, &lifecycle.DeleteAt)
+	if err == nil {
+		status.Lifecycle = &lifecycle
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return commercialaccess.Status{}, err
+	}
+	return status, nil
 }
 
 func (r *CommercialAccessRepository) BeginCheckout(ctx context.Context, accountID ids.AccountID, offerCode string, commissioning *commercialaccess.PurchaseSnapshot, mode, requestID string, now time.Time) (commercialaccess.CheckoutReservation, error) {

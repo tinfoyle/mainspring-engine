@@ -21,7 +21,7 @@ const api = vi.hoisted(() => ({
 vi.mock("@spyglass/api", async (importOriginal) => ({ ...await importOriginal<typeof import("@spyglass/api")>(), ...api }));
 
 const account = {
-  account_id: "10000000-0000-4000-8000-000000000001", account_type: "paid", account_version: 1, cell_id: "cell-us-east-01", display_name: "Northstar Studio", placement_generation: 1, role: "owner", slug: "northstar", owner_enrollment_required: false,
+  account_id: "10000000-0000-4000-8000-000000000001", account_type: "paid", account_state: "active", account_version: 1, cell_id: "cell-us-east-01", display_name: "Northstar Studio", placement_generation: 1, role: "owner", slug: "northstar", owner_enrollment_required: false,
   entitlements: { account_id: "10000000-0000-4000-8000-000000000001", catalog_version: 2, evaluated_at: "2026-08-24T20:00:00Z", version: 3, packages: [{ code: "knowledge", version: 1, mode: "enabled", sources: ["subscription"] }, { code: "integrations", version: 1, mode: "enabled", sources: ["subscription"] }] }
 } satisfies AccountChoice;
 const baseline = { id: "20000000-0000-4000-8000-000000000002", account_id: account.account_id, catalog_version: "baseline-evidence-2026-08-22", scope_policy_version: "baseline-scope-v1", state: "interview", answers: [], requirements: [], created_by_user_id: "30000000-0000-4000-8000-000000000003", version: 1, created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z" } satisfies BaselineAssessment;

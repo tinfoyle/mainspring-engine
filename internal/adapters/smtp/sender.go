@@ -26,6 +26,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
 )
 
 type Config struct {
@@ -143,6 +144,41 @@ func (s *Sender) SendContactChange(ctx context.Context, message contactchange.Me
 		return err
 	}
 	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func (s *Sender) SendSubscriptionLifecycle(ctx context.Context, message subscriptionlifecycle.Message) error {
+	subject, summary, action, err := subscriptionLifecycleContent(message)
+	if err != nil {
+		return err
+	}
+	link := s.origin + "/app/billing"
+	deleteAt := message.DeleteAt.UTC().Format(time.RFC1123)
+	plain := fmt.Sprintf("Hello %s,\r\n\r\n%s\r\n\r\n%s:\r\n%s\r\n\r\nUnless billing is restored, Account data is scheduled for deletion after %s.\r\n", message.DisplayName, summary, action, link, deleteAt)
+	htmlBody := fmt.Sprintf("<p>Hello %s,</p><p>%s</p><p><a href=\"%s\">%s</a></p><p>Unless billing is restored, Account data is scheduled for deletion after %s.</p>", html.EscapeString(message.DisplayName), html.EscapeString(summary), html.EscapeString(link), html.EscapeString(action), html.EscapeString(deleteAt))
+	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func subscriptionLifecycleContent(message subscriptionlifecycle.Message) (string, string, string, error) {
+	switch message.Kind {
+	case "payment_failed":
+		return "Payment failed for " + message.AccountName, "We could not collect the latest subscription payment for " + message.AccountName + ". The Account is read-only while you update billing.", "Update billing", nil
+	case "payment_restricted":
+		return message.AccountName + " is now restricted", "Payment has remained unresolved for seven days. Access is now limited to billing, security, privacy, and data export.", "Restore subscription access", nil
+	case "payment_day23":
+		return "Seven days remain before data deletion", "Payment for " + message.AccountName + " remains unresolved. Seven days remain before its deletion deadline.", "Resolve billing", nil
+	case "payment_day29":
+		return "Final notice: deletion tomorrow", message.AccountName + " remains unpaid and is scheduled for data deletion tomorrow.", "Restore the subscription now", nil
+	case "cancellation_scheduled":
+		return "Cancellation scheduled for " + message.AccountName, "The subscription cancellation is scheduled. Access continues through the current paid term.", "Review billing", nil
+	case "cancellation_effective":
+		return "Subscription ended for " + message.AccountName, "The paid term has ended. Access is now limited to billing, security, privacy, and data export.", "Resubscribe", nil
+	case "cancellation_day23":
+		return "Seven days remain before data deletion", message.AccountName + " has been canceled for 23 days. Seven days remain before its deletion deadline.", "Resubscribe", nil
+	case "cancellation_day29":
+		return "Final notice: deletion tomorrow", message.AccountName + " is scheduled for data deletion tomorrow following cancellation.", "Resubscribe now", nil
+	default:
+		return "", "", "", errors.New("subscription lifecycle notification kind is invalid")
+	}
 }
 
 func contactChangeContent(origin string, message contactchange.Message) (string, string, string, error) {

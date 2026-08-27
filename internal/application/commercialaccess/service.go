@@ -145,14 +145,23 @@ type Subscription struct {
 }
 
 type Status struct {
-	HasCustomer      bool           `json:"has_customer"`
-	CanManage        bool           `json:"can_manage"`
-	CanStartCheckout bool           `json:"can_start_checkout"`
-	Subscriptions    []Subscription `json:"subscriptions"`
+	HasCustomer      bool                   `json:"has_customer"`
+	CanManage        bool                   `json:"can_manage"`
+	CanStartCheckout bool                   `json:"can_start_checkout"`
+	Subscriptions    []Subscription         `json:"subscriptions"`
+	Lifecycle        *SubscriptionLifecycle `json:"lifecycle,omitempty"`
+}
+
+type SubscriptionLifecycle struct {
+	State         string    `json:"state"`
+	Trigger       string    `json:"trigger"`
+	EffectiveAt   time.Time `json:"effective_at"`
+	RestrictionAt time.Time `json:"restriction_at"`
+	DeleteAt      time.Time `json:"delete_at"`
 }
 
 func (s *Service) Status(ctx context.Context, userID ids.UserID, accountID ids.AccountID) (Status, error) {
-	accountContext, err := s.authorizer.Authorize(ctx, access.Actor{UserID: userID}, accountID, access.Requirement{})
+	accountContext, err := s.authorizer.Authorize(ctx, access.Actor{UserID: userID}, accountID, access.Requirement{AllowRestricted: true})
 	if err != nil {
 		return Status{}, err
 	}
@@ -166,7 +175,7 @@ func (s *Service) Status(ctx context.Context, userID ids.UserID, accountID ids.A
 }
 
 func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billing.HostedSession, error) {
-	if err := s.authorize(ctx, command.ActorUserID, command.AccountID); err != nil {
+	if err := s.authorizeBilling(ctx, command.ActorUserID, command.AccountID); err != nil {
 		return billing.HostedSession{}, err
 	}
 	if err := strongauth.Require(command.Session, command.ActorUserID, s.clock.Now()); err != nil {
@@ -398,7 +407,7 @@ type PortalCommand struct {
 }
 
 func (s *Service) Portal(ctx context.Context, command PortalCommand) (billing.HostedSession, error) {
-	if err := s.authorize(ctx, command.ActorUserID, command.AccountID); err != nil {
+	if err := s.authorizeBilling(ctx, command.ActorUserID, command.AccountID); err != nil {
 		return billing.HostedSession{}, err
 	}
 	if err := strongauth.Require(command.Session, command.ActorUserID, s.clock.Now()); err != nil {
@@ -422,6 +431,11 @@ func (s *Service) Portal(ctx context.Context, command PortalCommand) (billing.Ho
 
 func (s *Service) authorize(ctx context.Context, userID ids.UserID, accountID ids.AccountID) error {
 	_, err := s.authorizer.Authorize(ctx, access.Actor{UserID: userID}, accountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleBillingAdmin}})
+	return err
+}
+
+func (s *Service) authorizeBilling(ctx context.Context, userID ids.UserID, accountID ids.AccountID) error {
+	_, err := s.authorizer.Authorize(ctx, access.Actor{UserID: userID}, accountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleBillingAdmin}, AllowRestricted: true})
 	return err
 }
 

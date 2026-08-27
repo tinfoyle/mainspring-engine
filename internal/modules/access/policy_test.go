@@ -75,6 +75,27 @@ func TestAuthorizeRejectsCrossAccountState(t *testing.T) {
 	}
 }
 
+func TestRestrictedAccountRequiresAnExplicitNarrowException(t *testing.T) {
+	accountID, userID := ids.AccountID("account-a"), ids.UserID("user-a")
+	state := State{
+		Account:      accounts.Account{ID: accountID, State: accounts.AccountRestricted, EntitlementVersion: 1},
+		Membership:   accounts.Membership{AccountID: accountID, UserID: userID, Role: accounts.RoleOwner, State: accounts.MembershipActive},
+		Entitlements: entitlements.Snapshot{AccountID: accountID, Version: 1},
+	}
+	authorizer, _ := NewAuthorizer(fixedSource{state: state})
+	if _, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{}); !IsDenied(err, DenialAccountUnavailable) {
+		t.Fatalf("ordinary restricted access error=%v", err)
+	}
+	contextValue, err := authorizer.Authorize(context.Background(), Actor{UserID: userID}, accountID, Requirement{AllowRestricted: true})
+	if err != nil || contextValue.AccountState != accounts.AccountRestricted {
+		t.Fatalf("explicit restricted access context=%+v err=%v", contextValue, err)
+	}
+	workload, _ := NewWorkloadAuthorizer(fixedWorkloadSource{state: WorkloadState{Account: state.Account, Entitlements: state.Entitlements}})
+	if _, err := workload.Authorize(context.Background(), Actor{WorkloadID: "worker"}, accountID, Requirement{AllowRestricted: true}); !IsDenied(err, DenialAccountUnavailable) {
+		t.Fatalf("workload bypassed restricted boundary: %v", err)
+	}
+}
+
 func TestMembershipAuthorizerDoesNotAcceptWorkloadIdentity(t *testing.T) {
 	authorizer, _ := NewAuthorizer(fixedSource{})
 	_, err := authorizer.Authorize(context.Background(), Actor{WorkloadID: "schedule-worker"}, ids.AccountID("account-a"), Requirement{})

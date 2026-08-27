@@ -58,6 +58,7 @@ type AccountContext struct {
 	PlacementGeneration uint64                      `json:"placement_generation"`
 	EntitlementVersion  uint64                      `json:"entitlement_version"`
 	Role                accounts.MembershipRole     `json:"role"`
+	AccountState        accounts.AccountState       `json:"account_state"`
 	PackageAccess       *entitlements.PackageAccess `json:"package_access,omitempty"`
 }
 
@@ -89,9 +90,10 @@ type OwnerSecurityPolicy interface {
 }
 
 type Requirement struct {
-	Roles    []accounts.MembershipRole
-	Package  catalog.PackageCode
-	Mutation bool
+	Roles           []accounts.MembershipRole
+	Package         catalog.PackageCode
+	Mutation        bool
+	AllowRestricted bool
 }
 
 type Authorizer struct {
@@ -136,7 +138,7 @@ func (a *Authorizer) Authorize(ctx context.Context, actor Actor, accountID ids.A
 	if state.Account.ID != accountID || state.Membership.AccountID != accountID || state.Entitlements.AccountID != accountID || state.Membership.UserID != actor.UserID || state.Account.EntitlementVersion != state.Entitlements.Version {
 		return AccountContext{}, &DeniedError{Code: DenialCorruptContext}
 	}
-	if state.Account.State != accounts.AccountActive {
+	if state.Account.State != accounts.AccountActive && !(requirement.AllowRestricted && state.Account.State == accounts.AccountRestricted) {
 		return AccountContext{}, &DeniedError{Code: DenialAccountUnavailable}
 	}
 	if state.Membership.State != accounts.MembershipActive {
@@ -165,7 +167,7 @@ func (a *Authorizer) Authorize(ctx context.Context, actor Actor, accountID ids.A
 		}
 		packageAccess = &effective
 	}
-	return AccountContext{AccountID: accountID, AccountName: state.Account.DisplayName, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, Role: state.Membership.Role, PackageAccess: packageAccess}, nil
+	return AccountContext{AccountID: accountID, AccountName: state.Account.DisplayName, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, Role: state.Membership.Role, AccountState: state.Account.State, PackageAccess: packageAccess}, nil
 }
 
 // Authorize accepts only a named workload and returns no Membership role. The
@@ -196,7 +198,7 @@ func (a *WorkloadAuthorizer) Authorize(ctx context.Context, actor Actor, account
 		}
 		packageAccess = &effective
 	}
-	return AccountContext{AccountID: accountID, AccountName: state.Account.DisplayName, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, PackageAccess: packageAccess}, nil
+	return AccountContext{AccountID: accountID, AccountName: state.Account.DisplayName, CellID: state.Account.CellID, PlacementGeneration: state.Account.PlacementGeneration, EntitlementVersion: state.Entitlements.Version, AccountState: state.Account.State, PackageAccess: packageAccess}, nil
 }
 
 func containsRole(roles []accounts.MembershipRole, role accounts.MembershipRole) bool {

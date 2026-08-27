@@ -259,6 +259,21 @@ func (c *Client) RetrieveSubscription(ctx context.Context, subscriptionID string
 	return result, nil
 }
 
+func (c *Client) CancelSubscription(ctx context.Context, subscriptionID, idempotencyKey string) error {
+	if !strings.HasPrefix(subscriptionID, "sub_") || idempotencyKey == "" {
+		return errors.New("invalid Stripe subscription cancellation")
+	}
+	var response subscriptionResponse
+	path := "/v1/subscriptions/" + url.PathEscape(subscriptionID)
+	if err := c.request(ctx, http.MethodDelete, path, nil, idempotencyKey, &response); err != nil {
+		return err
+	}
+	if response.ID != subscriptionID || response.Status != "canceled" {
+		return errors.New("Stripe returned an invalid canceled subscription")
+	}
+	return nil
+}
+
 type subscriptionResponse struct {
 	ID                 string `json:"id"`
 	Customer           string `json:"customer"`

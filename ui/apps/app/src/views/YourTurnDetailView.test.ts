@@ -43,7 +43,7 @@ vi.mock("@spyglass/api", async (importOriginal) => {
 
 const account = {
   account_id: "10000000-0000-4000-8000-000000000001",
-  account_type: "paid",
+  account_type: "paid", account_state: "active",
   account_version: 1,
   cell_id: "cell-us-east-01",
   display_name: "Northstar Studio",

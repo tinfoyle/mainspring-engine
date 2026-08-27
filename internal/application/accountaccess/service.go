@@ -15,6 +15,7 @@ type Choice struct {
 	Slug                    string                  `json:"slug"`
 	DisplayName             string                  `json:"display_name"`
 	AccountType             accounts.AccountType    `json:"account_type"`
+	AccountState            accounts.AccountState   `json:"account_state"`
 	AccountVersion          uint64                  `json:"account_version"`
 	Role                    accounts.MembershipRole `json:"role"`
 	CellID                  ids.CellID              `json:"cell_id"`
@@ -65,5 +66,5 @@ func (s *Service) List(ctx context.Context, userID ids.UserID) ([]Choice, error)
 }
 
 func (s *Service) Select(ctx context.Context, userID ids.UserID, accountID ids.AccountID) (access.AccountContext, error) {
-	return s.authorizer.Authorize(ctx, access.Actor{UserID: userID}, accountID, access.Requirement{})
+	return s.authorizer.Authorize(ctx, access.Actor{UserID: userID}, accountID, access.Requirement{AllowRestricted: true})
 }

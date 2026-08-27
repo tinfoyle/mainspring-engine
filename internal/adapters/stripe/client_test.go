@@ -133,3 +133,18 @@ func TestRetrieveSubscriptionIdentifiesPausedCollection(t *testing.T) {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
+
+func TestCancelSubscriptionUsesDeleteAndStableIdempotency(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete || r.URL.Path != "/v1/subscriptions/sub_lifecycle" || r.Header.Get("Idempotency-Key") != "subscription-lifecycle/lifecycle-id" {
+			t.Errorf("request method=%q path=%q headers=%v", r.Method, r.URL.Path, r.Header)
+		}
+		_, _ = w.Write([]byte(`{"id":"sub_lifecycle","customer":"cus_1","status":"canceled","items":{"data":[]}}`))
+	}))
+	defer server.Close()
+	client, _ := New("sk_test_not_a_real_secret", DefaultAPIVersion, server.Client())
+	client.baseURL = server.URL
+	if err := client.CancelSubscription(context.Background(), "sub_lifecycle", "subscription-lifecycle/lifecycle-id"); err != nil {
+		t.Fatal(err)
+	}
+}

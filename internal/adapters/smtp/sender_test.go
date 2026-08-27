@@ -12,6 +12,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
 )
 
 func TestNewRequiresExactHTTPSOriginAndCompleteCredentials(t *testing.T) {
@@ -107,6 +108,18 @@ func TestSendRejectsHeaderInjectionBeforeNetwork(t *testing.T) {
 	}
 	if err := sender.send(context.Background(), "owner@example.com", "Subject\r\nBcc: attacker@example.com", "plain", "html"); err == nil {
 		t.Fatal("expected subject injection rejection")
+	}
+}
+
+func TestSubscriptionLifecycleContentCoversEveryGovernedNotice(t *testing.T) {
+	for _, kind := range []subscriptionlifecycle.NoticeKind{"payment_failed", "payment_restricted", "payment_day23", "payment_day29", "cancellation_scheduled", "cancellation_effective", "cancellation_day23", "cancellation_day29"} {
+		subject, summary, action, err := subscriptionLifecycleContent(subscriptionlifecycle.Message{AccountName: "Northwind", Kind: kind})
+		if err != nil || subject == "" || summary == "" || action == "" {
+			t.Fatalf("kind=%q subject=%q summary=%q action=%q err=%v", kind, subject, summary, action, err)
+		}
+	}
+	if _, _, _, err := subscriptionLifecycleContent(subscriptionlifecycle.Message{Kind: "unknown"}); err == nil {
+		t.Fatal("invalid subscription lifecycle notice accepted")
 	}
 }
 

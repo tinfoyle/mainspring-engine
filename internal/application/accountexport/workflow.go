@@ -161,7 +161,7 @@ type CreateCommand struct {
 }
 
 func (service *Service) Create(ctx context.Context, command CreateCommand) (Status, error) {
-	account, err := service.authorizer.Authorize(ctx, access.Actor{UserID: command.Actor}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}})
+	account, err := service.authorizer.Authorize(ctx, access.Actor{UserID: command.Actor}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}, AllowRestricted: true})
 	if err != nil {
 		return Status{}, err
 	}
@@ -174,7 +174,7 @@ func (service *Service) Create(ctx context.Context, command CreateCommand) (Stat
 }
 
 func (service *Service) Get(ctx context.Context, accountID ids.AccountID, actor ids.UserID, id string) (Status, error) {
-	if _, err := service.authorizer.Authorize(ctx, access.Actor{UserID: actor}, accountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}}); err != nil {
+	if _, err := service.authorizer.Authorize(ctx, access.Actor{UserID: actor}, accountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}, AllowRestricted: true}); err != nil {
 		return Status{}, err
 	}
 	if ids.Validate(id) != nil {
@@ -184,7 +184,7 @@ func (service *Service) Get(ctx context.Context, accountID ids.AccountID, actor 
 }
 
 func (service *Service) List(ctx context.Context, accountID ids.AccountID, actor ids.UserID, limit uint64) ([]Status, error) {
-	if _, err := service.authorizer.Authorize(ctx, access.Actor{UserID: actor}, accountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}}); err != nil {
+	if _, err := service.authorizer.Authorize(ctx, access.Actor{UserID: actor}, accountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}, AllowRestricted: true}); err != nil {
 		return nil, err
 	}
 	if limit == 0 || limit > 100 {
@@ -202,7 +202,7 @@ type CancelCommand struct {
 }
 
 func (service *Service) Cancel(ctx context.Context, command CancelCommand) (Status, error) {
-	if _, err := service.authorizer.Authorize(ctx, access.Actor{UserID: command.Actor}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}}); err != nil {
+	if _, err := service.authorizer.Authorize(ctx, access.Actor{UserID: command.Actor}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner}, AllowRestricted: true}); err != nil {
 		return Status{}, err
 	}
 	now := service.clock.Now().UTC()

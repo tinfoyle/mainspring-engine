@@ -13,6 +13,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
 )
 
 type fakeQueue struct {
@@ -52,6 +53,7 @@ type delivery struct {
 	recovery     recovery.Message
 	ownership    accountmembers.OwnershipTransferNotice
 	contact      contactchange.Message
+	subscription subscriptionlifecycle.Message
 	err          error
 	ownershipErr map[string]error
 }
@@ -77,6 +79,10 @@ func (d *delivery) SendOwnershipTransfer(_ context.Context, message accountmembe
 }
 func (d *delivery) SendContactChange(_ context.Context, message contactchange.Message) error {
 	d.contact = message
+	return d.err
+}
+func (d *delivery) SendSubscriptionLifecycle(_ context.Context, message subscriptionlifecycle.Message) error {
+	d.subscription = message
 	return d.err
 }
 
@@ -115,6 +121,29 @@ func TestQueuedNotificationIsEncryptedAndDelivered(t *testing.T) {
 	worked, err := processor.ProcessOne(context.Background())
 	if err != nil || !worked || delivery.verification.Token != message.Token || delivery.verification.OfferCode != message.OfferCode || delivery.verification.ReturnTo != message.ReturnTo || queue.delivered == "" {
 		t.Fatalf("delivery result: worked=%v message=%+v delivered=%q err=%v", worked, delivery.verification, queue.delivered, err)
+	}
+}
+
+func TestSubscriptionLifecycleNotificationIsEncryptedAndDelivered(t *testing.T) {
+	key := bytes.Repeat([]byte{0x62}, 32)
+	envelopeCipher, _ := notifications.NewCipher(key, 1)
+	queue := &fakeQueue{}
+	now := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	sender, _ := notifications.NewQueuedSender(queue, envelopeCipher, generator{"10000000-0000-4000-8000-000000000001"}, clock{now})
+	message := subscriptionlifecycle.Message{AccountID: "20000000-0000-4000-8000-000000000002", Email: "owner@example.com", DisplayName: "Owner", AccountName: "Northwind", Kind: "payment_day23", DueAt: now, DeleteAt: now.Add(7 * 24 * time.Hour)}
+	prepared, err := sender.PrepareSubscriptionLifecycle("30000000-0000-4000-8000-000000000003", message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(prepared.Ciphertext, []byte(message.Email)) || bytes.Contains(prepared.Ciphertext, []byte(message.AccountName)) {
+		t.Fatal("subscription lifecycle envelope leaked plaintext")
+	}
+	queue.entries = append(queue.entries, notifications.Entry{ID: prepared.ID, AccountID: prepared.AccountID, Kind: notifications.KindSubscriptionLifecycle, Ciphertext: prepared.Ciphertext, Nonce: prepared.Nonce, KeyVersion: prepared.KeyVersion, CreatedAt: prepared.CreatedAt})
+	delivery := &delivery{}
+	processor, _ := notifications.NewProcessor(queue, envelopeCipher, delivery, clock{now}, time.Minute)
+	worked, err := processor.ProcessOne(context.Background())
+	if err != nil || !worked || delivery.subscription.Kind != message.Kind || delivery.subscription.DeleteAt != message.DeleteAt || queue.delivered == "" {
+		t.Fatalf("subscription delivery=%+v worked=%v err=%v", delivery.subscription, worked, err)
 	}
 }
 

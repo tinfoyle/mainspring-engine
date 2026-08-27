@@ -23,6 +23,22 @@ let sequence = 0;
 const managed = computed(() => billing.value?.subscriptions.filter((item) => item.state !== "canceled" && item.state !== "incomplete_expired") ?? []);
 const canOpenPortal = computed(() => billing.value?.can_manage === true && billing.value.has_customer);
 const returned = computed(() => route.query.status === "portal_returned");
+const lifecycleTitle = computed(() => {
+  const lifecycle = billing.value?.lifecycle;
+  if (!lifecycle) return "";
+  if (lifecycle.state === "cancellation_scheduled") return "Cancellation is scheduled";
+  if (lifecycle.state === "grace_read_only") return "Payment needs attention";
+  if (lifecycle.state === "termination_pending") return "Deletion deadline reached";
+  return "Account access is restricted";
+});
+const lifecycleMessage = computed(() => {
+  const lifecycle = billing.value?.lifecycle;
+  if (!lifecycle) return "";
+  if (lifecycle.state === "cancellation_scheduled") return `Paid access continues until ${date(lifecycle.effective_at)}. Resuming the subscription before then cancels this lifecycle.`;
+  if (lifecycle.state === "grace_read_only") return `The Account is read-only while payment is unresolved. Broader restriction begins ${date(lifecycle.restriction_at)}.`;
+  if (lifecycle.state === "termination_pending") return "Provider termination is being verified. The reviewed Account-erasure workflow remains the final safety gate.";
+  return `Only billing, security, privacy, and data export remain available. Restore billing before ${date(lifecycle.delete_at)} to prevent the deletion handoff.`;
+});
 const { allowNextNavigation } = useSafeNavigation({
   dirty: false,
   pending: opening,
@@ -88,6 +104,10 @@ onMounted(() => void load());
     <section v-else-if="error && !billing" class="queue-state queue-state--error" role="alert"><h2>Billing is unavailable</h2><p>{{ error }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></section>
     <template v-else-if="billing">
       <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }}</p>
+      <section v-if="billing.lifecycle" class="queue-state" :class="{ 'queue-state--error': billing.lifecycle.state === 'termination_pending' }" role="status">
+        <p class="eyebrow">Subscription lifecycle</p><h2>{{ lifecycleTitle }}</h2><p>{{ lifecycleMessage }}</p>
+        <dl class="billing-token-grid"><div><dt>Trigger</dt><dd>{{ label(billing.lifecycle.trigger) }}</dd></div><div><dt>Effective</dt><dd>{{ date(billing.lifecycle.effective_at) }}</dd></div><div><dt>Restricted</dt><dd>{{ date(billing.lifecycle.restriction_at) }}</dd></div><div><dt>Deletion handoff</dt><dd>{{ date(billing.lifecycle.delete_at) }}</dd></div></dl>
+      </section>
       <section class="billing-summary-card">
         <div><p class="eyebrow">Current access</p><h2>{{ managed.length ? `${managed.length} managed subscription${managed.length === 1 ? '' : 's'}` : 'Checkout required' }}</h2><p>{{ billing.has_customer ? "This Account has a Stripe customer record." : "No subscription is active. Infinite Ocean has no free plan." }}</p></div>
         <div class="billing-actions"><IoButton v-if="canOpenPortal" :disabled="opening" @click="openPortal">{{ opening ? "Opening Stripe…" : "Manage in Stripe" }}</IoButton><a v-if="billing.can_start_checkout" class="io-link-button" href="/app/checkout">Review paid plans</a></div>
