@@ -151,6 +151,11 @@ services:
       global-migrate: {condition: service_completed_successfully}
     networks: [database]
 
+  global-seed:
+    volumes:
+      - ./seed/global.local.sql:/opt/spyglass/seed/global.sql:ro
+      - ./catalog/launch-v3.json:/opt/spyglass/catalog/launch-v3.json:ro
+
   cell-a-migrate:
     image: spyglass-application:local
 

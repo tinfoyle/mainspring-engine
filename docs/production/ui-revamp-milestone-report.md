@@ -30,6 +30,7 @@
 - Governed AI Token promotions now publish arbitrary quantities, effective windows, grant lifetime, per-Account redemption limits, global issuance caps, disclosure and an explicit no-stacking rule. Owner/billing-admin redemption requires recent passkey proof, survives exact retries across later Catalog publications, and appends one expiring labeled grant through a transactionally capped ledger boundary.
 - The final mobile-first Billing presentation now exposes Catalog-frozen AI Token top-ups, promotion redemption and the once-per-team later commissioning purchase with stable retry identities, strong-authentication recovery, durable balance/ownership refresh and explicit tax, refund, entitlement and Affiliate exclusions. Checkout independently confirms the `$50/month` recurring subscription, optional `$250` one-time commissioning service, applicable Stripe-calculated tax and any deliberately applied Affiliate referral before redirecting to hosted Stripe Checkout.
 - The launch/browser fixtures, checkout path and server-rendered identity entry are aligned to the inactive-shell and `$50` offer model.
+- The final clean-bootstrap audit now publishes the approved launch Catalog v3 from a revision-controlled local-only artifact and grants the Admission, Billing, Notification and Account-lifecycle processes only the new Catalog, AI Token and subscription-remediation privileges they actually exercise. Local Price identities are deterministic fixtures; no Stage or production Price mapping is embedded.
 
 ## Verification evidence
 
@@ -47,9 +48,13 @@ UI type checks, lint and production builds
 private/public gzip budgets
 424 Playwright checks; 11 intentional profile-specific skips
 complete fresh PostgreSQL migration ledger
+fresh zero-data Docker composition startup with every persistent service healthy
+certificate-verified local Docker smoke gate, launch-Catalog assertion, and positive/negative least-privilege assertions
 ```
 
 The Playwright matrix covered Chromium, Firefox and WebKit desktop; 360, 390 and 412 pixel phone widths; 320 pixel reflow; tablet; forced colors; reduced motion; 200% text enlargement; and 400% browser-scale reflow. No remote environment or provider was contacted.
+
+The final acceptance audit used a separate disposable `spyglass-ui-review` Compose project so the developer's older `spyglass-local` volumes remained untouched. That project was removed with its own volumes, recreated from zero, brought fully healthy without rebuilding images, and passed `verify-local.sh` with all worker failure counters at zero. This caught and closed defects that an already-seeded database could hide.
 
 ## Why approval is not yet complete
 

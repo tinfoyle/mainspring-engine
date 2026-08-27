@@ -144,8 +144,13 @@ GRANT EXECUTE ON FUNCTION spyglass_authenticate_mcp_access_token(bytea,text,text
 
 GRANT SELECT ON accounts, memberships, entitlement_snapshots,
   entitlement_usage_counters, entitlement_usage_reservations,
-  account_erasure_restore_ledger TO spyglass_admission_api;
+  account_erasure_restore_ledger, catalog_publications,
+  ai_token_grants, ai_token_reservations, ai_token_reservation_allocations,
+  ai_token_ledger_entries TO spyglass_admission_api;
 GRANT INSERT, UPDATE ON entitlement_usage_counters, entitlement_usage_reservations TO spyglass_admission_api;
+GRANT UPDATE ON ai_token_grants TO spyglass_admission_api;
+GRANT INSERT, UPDATE ON ai_token_reservations TO spyglass_admission_api;
+GRANT INSERT ON ai_token_reservation_allocations, ai_token_ledger_entries TO spyglass_admission_api;
 GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid) TO spyglass_admission_api;
 
 GRANT SELECT ON account_erasure_restore_ledger TO spyglass_billing_worker,
@@ -171,8 +176,11 @@ GRANT SELECT, INSERT ON affiliate_credit_allocations, affiliate_credit_reservati
 GRANT SELECT, INSERT, UPDATE ON affiliate_credit_reversal_adjustments TO spyglass_billing_worker;
 GRANT SELECT, INSERT ON affiliate_credit_reversal_adjustment_events TO spyglass_billing_worker;
 GRANT SELECT, INSERT ON affiliate_provider_adverse_events, affiliate_provider_adverse_invoice_lines TO spyglass_billing_worker;
+GRANT SELECT, UPDATE ON account_subscription_termination_jobs TO spyglass_billing_worker;
 
-GRANT SELECT, UPDATE ON identity_notification_outbox TO spyglass_notification_worker;
+GRANT SELECT, INSERT, UPDATE ON identity_notification_outbox TO spyglass_notification_worker;
+GRANT SELECT, UPDATE ON account_subscription_lifecycle_notices TO spyglass_notification_worker;
+GRANT SELECT ON account_subscription_lifecycles, accounts, memberships, users TO spyglass_notification_worker;
 
 GRANT SELECT ON catalog_publications TO spyglass_entitlement_worker;
 GRANT SELECT, INSERT, UPDATE ON entitlement_catalog_rollouts,
@@ -183,6 +191,9 @@ GRANT SELECT, INSERT, DELETE ON entitlement_grants TO spyglass_entitlement_worke
 GRANT SELECT, UPDATE ON account_closure_requests, accounts TO spyglass_account_lifecycle_worker;
 GRANT SELECT ON memberships, subscriptions, billing_checkout_attempts TO spyglass_account_lifecycle_worker;
 GRANT INSERT ON account_lifecycle_events TO spyglass_account_lifecycle_worker;
+GRANT EXECUTE ON FUNCTION spyglass_claim_subscription_lifecycle(timestamptz,bigint),
+  spyglass_advance_subscription_lifecycle(uuid,uuid,timestamptz,bigint)
+  TO spyglass_account_lifecycle_worker;
 
 GRANT EXECUTE ON FUNCTION spyglass_prune_passkey_ceremonies(timestamptz,bigint,integer),
   spyglass_passkey_ceremony_retention_stats(timestamptz,bigint),

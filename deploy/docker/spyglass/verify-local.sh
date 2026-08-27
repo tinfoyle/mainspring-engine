@@ -8,7 +8,8 @@ public_origin="https://web.infiniteocean.localhost:${tls_port}"
 app_origin="https://app.infiniteocean.localhost:${tls_port}"
 mcp_origin="https://mcp.infiniteocean.localhost:${tls_port}"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-compose=(docker compose --project-name spyglass-local --env-file "$script_dir/env/local.env" --file "$script_dir/compose.yml" --file "$script_dir/compose.local.yml")
+compose_project="${SPYGLASS_COMPOSE_PROJECT_NAME:-spyglass-local}"
+compose=(docker compose --project-name "$compose_project" --env-file "$script_dir/env/local.env" --file "$script_dir/compose.yml" --file "$script_dir/compose.local.yml")
 root_ca=/tmp/spyglass-local-caddy-root.crt
 bash "$script_dir/../../verify-process-inventory.sh"
 "${compose[@]}" cp edge:/data/caddy/pki/authorities/local/root.crt "$root_ca" >/dev/null
@@ -62,7 +63,7 @@ worker_ids=()
 for service in "${worker_services[@]}"; do
   worker_ids+=("$("${compose[@]}" ps --quiet "$service")")
 done
-worker_statuses="$(docker inspect -f '{{(index .NetworkSettings.Networks "spyglass-local_application").IPAddress}}' "${worker_ids[@]}" | \
+worker_statuses="$(docker inspect -f "{{(index .NetworkSettings.Networks \"${compose_project}_application\").IPAddress}}" "${worker_ids[@]}" | \
   xargs -I{} curl --fail --silent --show-error http://{}:8081/health/status)"
 jq -s -e --argjson expected "${#worker_services[@]}" 'length == $expected and all(.[]; (.failures // 0) == 0)' <<<"$worker_statuses" >/dev/null
 
@@ -70,6 +71,11 @@ cell_count="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
   --command="SELECT count(*) FROM cells WHERE state='active' AND route_origin IS NOT NULL")"
 test "$cell_count" = "2"
+
+launch_catalog="$("${compose[@]}" exec --no-TTY global-db psql \
+  --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+  --command="SELECT version=3 AND state='published' AND content->'plans'->0->>'code'='team' AND (content->'offers'->0->>'amount_minor')::bigint=5000 AND jsonb_array_length(content->'ai_complexity_rates')=5 AND EXISTS (SELECT 1 FROM offer_provider_prices WHERE catalog_version=3 AND mode='test' GROUP BY catalog_version HAVING count(*)=3) FROM catalog_publications WHERE state='published'")"
+test "$launch_catalog" = "t"
 
 runtime_role_count="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
@@ -85,6 +91,16 @@ mcp_export_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
   --command="SELECT has_table_privilege('spyglass_mcp_gateway','account_export_requests','SELECT,INSERT,UPDATE') AND NOT has_table_privilege('spyglass_mcp_gateway','account_export_requests','DELETE') AND has_table_privilege('spyglass_mcp_gateway','account_export_events','INSERT') AND NOT has_table_privilege('spyglass_mcp_gateway','account_export_events','SELECT,UPDATE,DELETE') AND has_function_privilege('spyglass_mcp_gateway','spyglass_authenticate_mcp_access_token(bytea,text,text,timestamptz)','EXECUTE')")"
 test "$mcp_export_privileges" = "t"
+
+admission_token_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
+  --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+  --command="SELECT has_table_privilege('spyglass_admission_api','catalog_publications','SELECT') AND has_table_privilege('spyglass_admission_api','ai_token_grants','SELECT,UPDATE') AND NOT has_table_privilege('spyglass_admission_api','ai_token_grants','INSERT,DELETE') AND has_table_privilege('spyglass_admission_api','ai_token_reservations','SELECT,INSERT,UPDATE') AND NOT has_table_privilege('spyglass_admission_api','ai_token_reservations','DELETE') AND has_table_privilege('spyglass_admission_api','ai_token_reservation_allocations','SELECT,INSERT') AND NOT has_table_privilege('spyglass_admission_api','ai_token_reservation_allocations','UPDATE,DELETE') AND has_table_privilege('spyglass_admission_api','ai_token_ledger_entries','SELECT,INSERT') AND NOT has_table_privilege('spyglass_admission_api','ai_token_ledger_entries','UPDATE,DELETE')")"
+test "$admission_token_privileges" = "t"
+
+subscription_lifecycle_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
+  --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+  --command="SELECT has_table_privilege('spyglass_billing_worker','account_subscription_termination_jobs','SELECT,UPDATE') AND NOT has_table_privilege('spyglass_billing_worker','account_subscription_termination_jobs','INSERT,DELETE') AND has_table_privilege('spyglass_notification_worker','account_subscription_lifecycle_notices','SELECT,UPDATE') AND NOT has_table_privilege('spyglass_notification_worker','account_subscription_lifecycle_notices','INSERT,DELETE') AND has_table_privilege('spyglass_notification_worker','identity_notification_outbox','SELECT,INSERT,UPDATE') AND NOT has_table_privilege('spyglass_notification_worker','identity_notification_outbox','DELETE') AND has_table_privilege('spyglass_notification_worker','account_subscription_lifecycles','SELECT') AND has_table_privilege('spyglass_notification_worker','accounts','SELECT') AND has_table_privilege('spyglass_notification_worker','memberships','SELECT') AND has_table_privilege('spyglass_notification_worker','users','SELECT') AND has_function_privilege('spyglass_account_lifecycle_worker','spyglass_claim_subscription_lifecycle(timestamptz,bigint)','EXECUTE') AND has_function_privilege('spyglass_account_lifecycle_worker','spyglass_advance_subscription_lifecycle(uuid,uuid,timestamptz,bigint)','EXECUTE') AND NOT has_table_privilege('spyglass_account_lifecycle_worker','account_subscription_lifecycles','SELECT,INSERT,UPDATE,DELETE')")"
+test "$subscription_lifecycle_privileges" = "t"
 
 for database in cell-a-db cell-b-db; do
   cell_runtime_role_count="$("${compose[@]}" exec --no-TTY "$database" psql \
@@ -115,9 +131,14 @@ assert_role_denied global-db spyglass_mcp_gateway 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_mcp_gateway 'SELECT count(*) FROM mcp_oauth_access_tokens'
 assert_role_denied global-db spyglass_mcp_gateway 'SELECT count(*) FROM account_export_events'
 assert_role_denied global-db spyglass_mcp_gateway 'DELETE FROM account_export_requests'
-assert_role_denied global-db spyglass_notification_worker 'SELECT count(*) FROM accounts'
+assert_role_denied global-db spyglass_admission_api 'INSERT INTO ai_token_grants DEFAULT VALUES'
+assert_role_denied global-db spyglass_admission_api 'DELETE FROM ai_token_ledger_entries'
+assert_role_denied global-db spyglass_billing_worker 'INSERT INTO account_subscription_termination_jobs DEFAULT VALUES'
+assert_role_denied global-db spyglass_notification_worker 'DELETE FROM account_subscription_lifecycle_notices'
+assert_role_denied global-db spyglass_notification_worker 'SELECT count(*) FROM catalog_publications'
 assert_role_denied global-db spyglass_entitlement_worker 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_account_lifecycle_worker 'SELECT count(*) FROM users'
+assert_role_denied global-db spyglass_account_lifecycle_worker 'SELECT count(*) FROM account_subscription_lifecycles'
 assert_role_denied global-db spyglass_work_reconciler 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_baseline_maintenance_worker 'SELECT count(*) FROM users'
 assert_role_denied global-db spyglass_prototype_migration 'SELECT count(*) FROM users'
