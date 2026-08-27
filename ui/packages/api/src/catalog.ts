@@ -1,5 +1,5 @@
 import { requestJSON } from "./client";
-import type { AITokenBalance, BillingStatus, CreateCheckoutSessionRequest, HostedBillingSession, PublicCatalog } from "./generated/api-types";
+import type { AITokenBalance, AITokenPromotionRedemption, BillingStatus, CreateCheckoutSessionRequest, CreatePurchaseCheckoutSessionRequest, HostedBillingSession, PublicCatalog, RedeemAITokenPromotionRequest } from "./generated/api-types";
 
 export const getPublicCatalog = (): Promise<PublicCatalog> => requestJSON("/api/v1/catalog/public");
 
@@ -24,3 +24,23 @@ export const createBillingPortalSession = (accountID: string, requestID: string)
     method: "POST",
     headers: { "Idempotency-Key": requestID }
   });
+
+export const createPurchaseCheckoutSession = (
+  accountID: string,
+  input: CreatePurchaseCheckoutSessionRequest,
+  requestID: string
+): Promise<HostedBillingSession> => requestJSON(`/api/v1/accounts/${encodeURIComponent(accountID)}/purchase-checkout-sessions`, {
+  method: "POST",
+  headers: { "Idempotency-Key": requestID },
+  body: JSON.stringify(input)
+});
+
+export const redeemAITokenPromotion = (
+  accountID: string,
+  input: RedeemAITokenPromotionRequest,
+  requestID: string
+): Promise<AITokenPromotionRedemption> => requestJSON(`/api/v1/accounts/${encodeURIComponent(accountID)}/ai-token-promotions`, {
+  method: "POST",
+  headers: { "Idempotency-Key": requestID },
+  body: JSON.stringify(input)
+});

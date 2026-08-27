@@ -19,7 +19,7 @@ func TestCheckoutPinsVersionIdempotencyAndMetadata(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		form := string(body)
-		for _, expected := range []string{"line_items%5B0%5D%5Bprice%5D=price_private", "metadata%5Bspyglass_account_id%5D=11111111-1111-4111-8111-111111111111", "subscription_data%5Bmetadata%5D%5Bspyglass_offer_code%5D=team", "metadata%5Bspyglass_affiliate_attribution_id%5D=22222222-2222-4222-8222-222222222222", "subscription_data%5Bmetadata%5D%5Bspyglass_affiliate_attribution_id%5D=22222222-2222-4222-8222-222222222222"} {
+		for _, expected := range []string{"line_items%5B0%5D%5Bprice%5D=price_private", "line_items%5B1%5D%5Bprice%5D=price_commissioning", "metadata%5Bspyglass_account_id%5D=11111111-1111-4111-8111-111111111111", "subscription_data%5Bmetadata%5D%5Bspyglass_offer_code%5D=team", "metadata%5Bspyglass_affiliate_attribution_id%5D=22222222-2222-4222-8222-222222222222", "subscription_data%5Bmetadata%5D%5Bspyglass_affiliate_attribution_id%5D=22222222-2222-4222-8222-222222222222", "subscription_data%5Bmetadata%5D%5Bspyglass_commissioning_code%5D=commissioning_v1"} {
 			if !strings.Contains(form, expected) {
 				t.Errorf("form missing %q: %s", expected, form)
 			}
@@ -30,9 +30,29 @@ func TestCheckoutPinsVersionIdempotencyAndMetadata(t *testing.T) {
 	defer server.Close()
 	client, _ := New("sk_test_not_a_real_secret", DefaultAPIVersion, server.Client())
 	client.baseURL = server.URL
-	session, err := client.CreateCheckoutSession(context.Background(), billing.CreateCheckoutCommand{AccountID: ids.AccountID("11111111-1111-4111-8111-111111111111"), CustomerID: "cus_1", StripePriceID: "price_private", OfferCode: "team", OfferVersion: 2, AffiliateAttributionID: ids.ReferralAttributionID("22222222-2222-4222-8222-222222222222"), SuccessURL: "https://app.infiniteocean.net/success", CancelURL: "https://app.infiniteocean.net/cancel", IdempotencyKey: "checkout-key"})
+	session, err := client.CreateCheckoutSession(context.Background(), billing.CreateCheckoutCommand{AccountID: ids.AccountID("11111111-1111-4111-8111-111111111111"), CustomerID: "cus_1", StripePriceID: "price_private", OfferCode: "team", OfferVersion: 2, AffiliateAttributionID: ids.ReferralAttributionID("22222222-2222-4222-8222-222222222222"), RequestID: "33333333-3333-4333-8333-333333333333", CommissioningPriceID: "price_commissioning", CommissioningCode: "commissioning_v1", CommissioningVersion: 1, SuccessURL: "https://app.infiniteocean.net/success", CancelURL: "https://app.infiniteocean.net/cancel", IdempotencyKey: "checkout-key"})
 	if err != nil || session.ID != "cs_test_1" {
 		t.Fatalf("session=%+v err=%v", session, err)
+	}
+}
+
+func TestOneTimeCheckoutPinsPurchaseMetadataToSessionAndPayment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		form := string(body)
+		for _, expected := range []string{"mode=payment", "line_items%5B0%5D%5Bprice%5D=price_tokens", "metadata%5Bspyglass_purchase_kind%5D=ai_token_top_up", "metadata%5Bspyglass_checkout_request_id%5D=33333333-3333-4333-8333-333333333333", "payment_intent_data%5Bmetadata%5D%5Bspyglass_item_code%5D=tokens_10k_v1"} {
+			if !strings.Contains(form, expected) {
+				t.Errorf("form missing %q: %s", expected, form)
+			}
+		}
+		_, _ = w.Write([]byte(`{"id":"cs_test_purchase","url":"https://checkout.stripe.com/c/pay/purchase","expires_at":1786971600}`))
+	}))
+	defer server.Close()
+	client, _ := New("sk_test_not_a_real_secret", DefaultAPIVersion, server.Client())
+	client.baseURL = server.URL
+	command := billing.CreateOneTimeCheckoutCommand{AccountID: "11111111-1111-4111-8111-111111111111", CustomerID: "cus_1", StripePriceID: "price_tokens", Kind: billing.PurchaseAITokenTopUp, ItemCode: "tokens_10k_v1", ItemVersion: 1, CatalogVersion: 3, RequestID: "33333333-3333-4333-8333-333333333333", SuccessURL: "https://app.infiniteocean.net/success", CancelURL: "https://app.infiniteocean.net/cancel", IdempotencyKey: "purchase-key"}
+	if result, err := client.CreateOneTimeCheckoutSession(context.Background(), command); err != nil || result.ID != "cs_test_purchase" {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
 

@@ -156,6 +156,9 @@ func (r *AITokenLedgerRepository) Close(ctx context.Context, accountID ids.Accou
 }
 
 func (r *AITokenLedgerRepository) Issue(ctx context.Context, requested aitokens.Grant, expireIncluded bool) (aitokens.Grant, aitokens.Balance, error) {
+	if requested.Origin == aitokens.OriginPromotion {
+		return aitokens.Grant{}, aitokens.Balance{}, aitokens.ErrInvalidGrant
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return aitokens.Grant{}, aitokens.Balance{}, err
@@ -237,6 +240,138 @@ func (r *AITokenLedgerRepository) Issue(ctx context.Context, requested aitokens.
 		return aitokens.Grant{}, aitokens.Balance{}, err
 	}
 	return requested, balance, nil
+}
+
+func (r *AITokenLedgerRepository) Promotion(ctx context.Context, accountID ids.AccountID, sourceReference string, now time.Time) (aitokens.Grant, aitokens.Balance, bool, error) {
+	var grantID ids.AITokenGrantID
+	err := r.pool.QueryRow(ctx, `SELECT id FROM ai_token_grants WHERE account_id=$1 AND origin='promotion' AND source_reference=$2`, accountID, sourceReference).Scan(&grantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return aitokens.Grant{}, aitokens.Balance{}, false, nil
+	}
+	if err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, false, err
+	}
+	grant, err := loadAITokenGrant(ctx, r.pool, grantID)
+	if err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, false, err
+	}
+	balance, err := r.Balance(ctx, accountID, now.UTC())
+	return grant, balance, true, err
+}
+
+func (r *AITokenLedgerRepository) RedeemPromotion(ctx context.Context, requested aitokens.Grant, campaignVersion uint64, perAccountLimit, issuanceCap int64) (aitokens.Grant, aitokens.Balance, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, fmt.Sprintf("ai-token-promotion:%s:%d", requested.DefinitionCode, campaignVersion)); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	if err := lockAITokenAccount(ctx, tx, requested.AccountID); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	var existingID ids.AITokenGrantID
+	err = tx.QueryRow(ctx, `SELECT id FROM ai_token_grants WHERE account_id=$1 AND origin='promotion' AND source_reference=$2 FOR UPDATE`, requested.AccountID, requested.SourceReference).Scan(&existingID)
+	if err == nil {
+		grant, loadErr := loadAITokenGrant(ctx, tx, existingID)
+		if loadErr != nil {
+			return aitokens.Grant{}, aitokens.Balance{}, loadErr
+		}
+		if grant.DefinitionCode != requested.DefinitionCode {
+			return aitokens.Grant{}, aitokens.Balance{}, aitokenledger.ErrPromotionConflict
+		}
+		balance, loadErr := transactionAITokenBalance(ctx, tx, requested.AccountID, requested.CreatedAt)
+		if loadErr == nil {
+			loadErr = tx.Commit(ctx)
+		}
+		return grant, balance, loadErr
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	var accountRedemptions, totalRedemptions int64
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM ai_token_promotion_issuances WHERE account_id=$1 AND campaign_code=$2 AND campaign_version=$3`, requested.AccountID, requested.DefinitionCode, campaignVersion).Scan(&accountRedemptions); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	if accountRedemptions >= perAccountLimit {
+		return aitokens.Grant{}, aitokens.Balance{}, aitokenledger.ErrPromotionAccountLimit
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM ai_token_promotion_issuances WHERE campaign_code=$1 AND campaign_version=$2`, requested.DefinitionCode, campaignVersion).Scan(&totalRedemptions); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	if totalRedemptions >= issuanceCap {
+		return aitokens.Grant{}, aitokens.Balance{}, aitokenledger.ErrPromotionIssuanceLimit
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO ai_token_grants
+		(id,account_id,origin,definition_code,catalog_version,source_reference,quantity,available,reserved,consumed,state,expires_at,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, requested.ID, requested.AccountID, requested.Origin, requested.DefinitionCode, requested.CatalogVersion, requested.SourceReference, requested.Quantity, requested.Available, requested.Reserved, requested.Consumed, requested.State, requested.ExpiresAt, requested.CreatedAt); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO ai_token_promotion_issuances
+		(grant_id,account_id,campaign_code,campaign_version,catalog_version,source_reference,issued_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`, requested.ID, requested.AccountID, requested.DefinitionCode, campaignVersion, requested.CatalogVersion, requested.SourceReference, requested.CreatedAt); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	if err := insertAITokenEntry(ctx, tx, string(requested.ID), requested.AccountID, &requested.ID, nil, "issue:promotion:"+requested.DefinitionCode+":"+requested.SourceReference, "issued", requested.Quantity, requested.CreatedAt); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	balance, err := transactionAITokenBalance(ctx, tx, requested.AccountID, requested.CreatedAt)
+	if err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	return requested, balance, nil
+}
+
+func (r *AITokenLedgerRepository) ReverseUnused(ctx context.Context, accountID ids.AccountID, origin aitokens.GrantOrigin, sourceReference, adversityReference string, now time.Time) (aitokens.Grant, aitokens.Balance, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := lockAITokenAccount(ctx, tx, accountID); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	var grantID ids.AITokenGrantID
+	err = tx.QueryRow(ctx, `SELECT id FROM ai_token_grants WHERE account_id=$1 AND origin=$2 AND source_reference=$3 FOR UPDATE`, accountID, origin, sourceReference).Scan(&grantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return aitokens.Grant{}, aitokens.Balance{}, aitokens.ErrInvalidGrant
+	}
+	if err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	grant, err := loadAITokenGrant(ctx, tx, grantID)
+	if err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	if grant.State != aitokens.GrantReversed {
+		unused := grant.Available
+		grant, err = aitokens.ReverseUnused(grant, aitokens.GrantReversed)
+		if err != nil {
+			return aitokens.Grant{}, aitokens.Balance{}, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE ai_token_grants SET available=0,state='reversed' WHERE id=$1`, grant.ID); err != nil {
+			return aitokens.Grant{}, aitokens.Balance{}, err
+		}
+		if unused > 0 {
+			if err := insertAITokenEntry(ctx, tx, string(grant.ID), accountID, &grant.ID, nil, "reverse:"+adversityReference, "reversed", unused, now.UTC()); err != nil {
+				return aitokens.Grant{}, aitokens.Balance{}, err
+			}
+		}
+	}
+	balance, err := transactionAITokenBalance(ctx, tx, accountID, now.UTC())
+	if err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	return grant, balance, nil
 }
 
 type aiTokenQueryer interface {

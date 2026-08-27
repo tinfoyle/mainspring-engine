@@ -6,18 +6,26 @@ package aitokenledger
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/strongauth"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/aitokens"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 var (
-	ErrInvalidRequest    = errors.New("AI Token ledger request is invalid")
-	ErrRateUnavailable   = errors.New("AI complexity rate is unavailable")
-	ErrBundleUnavailable = errors.New("AI Token bundle is unavailable")
+	ErrInvalidRequest         = errors.New("AI Token ledger request is invalid")
+	ErrRateUnavailable        = errors.New("AI complexity rate is unavailable")
+	ErrBundleUnavailable      = errors.New("AI Token bundle is unavailable")
+	ErrPromotionUnavailable   = errors.New("AI Token promotion is unavailable")
+	ErrPromotionAccountLimit  = errors.New("AI Token promotion Account limit has been reached")
+	ErrPromotionIssuanceLimit = errors.New("AI Token promotion issuance limit has been reached")
+	ErrPromotionConflict      = errors.New("AI Token promotion request conflicts with its original redemption")
 )
 
 type Usage struct {
@@ -33,6 +41,9 @@ type Store interface {
 	Reserve(context.Context, aitokens.Reservation, time.Time) (aitokens.Reservation, aitokens.Balance, error)
 	Close(context.Context, ids.AccountID, string, Usage, time.Time) (aitokens.Reservation, aitokens.Balance, error)
 	Issue(context.Context, aitokens.Grant, bool) (aitokens.Grant, aitokens.Balance, error)
+	Promotion(context.Context, ids.AccountID, string, time.Time) (aitokens.Grant, aitokens.Balance, bool, error)
+	RedeemPromotion(context.Context, aitokens.Grant, uint64, int64, int64) (aitokens.Grant, aitokens.Balance, error)
+	ReverseUnused(context.Context, ids.AccountID, aitokens.GrantOrigin, string, string, time.Time) (aitokens.Grant, aitokens.Balance, error)
 }
 
 type Authorizer interface {
@@ -147,11 +158,88 @@ func (s *Issuer) IssuePurchased(ctx context.Context, accountID ids.AccountID, bu
 	if accountID == "" || sourceReference == "" || !exists {
 		return aitokens.Grant{}, aitokens.Balance{}, ErrBundleUnavailable
 	}
-	grant, err := aitokens.NewGrant(ids.AITokenGrantID(s.ids.New()), accountID, aitokens.OriginPurchased, bundle.Code, publication.Version, sourceReference, bundle.Quantity, nil, now)
+	return s.IssuePurchasedSnapshot(ctx, accountID, bundle.Code, bundle.Version, publication.Version, bundle.Quantity, sourceReference)
+}
+
+// IssuePurchasedSnapshot is fed only by the verified local Checkout-attempt
+// projection. It deliberately avoids the current Catalog so a price or
+// quantity publication made after the customer left for Stripe cannot change
+// what their completed purchase grants.
+func (s *Issuer) IssuePurchasedSnapshot(ctx context.Context, accountID ids.AccountID, bundleCode string, bundleVersion, catalogVersion uint64, quantity int64, sourceReference string) (aitokens.Grant, aitokens.Balance, error) {
+	now := s.clock.Now().UTC()
+	if accountID == "" || !validLedgerCode(bundleCode) || bundleVersion == 0 || catalogVersion == 0 || quantity <= 0 || sourceReference == "" {
+		return aitokens.Grant{}, aitokens.Balance{}, ErrInvalidRequest
+	}
+	grant, err := aitokens.NewGrant(ids.AITokenGrantID(s.ids.New()), accountID, aitokens.OriginPurchased, bundleCode, catalogVersion, sourceReference, quantity, nil, now)
 	if err != nil {
 		return aitokens.Grant{}, aitokens.Balance{}, err
 	}
 	return s.store.Issue(ctx, grant, false)
+}
+
+type RedeemPromotionCommand struct {
+	ActorUserID   ids.UserID
+	Session       sessions.Session
+	AccountID     ids.AccountID
+	PromotionCode string
+	RequestID     string
+}
+
+// RedeemPromotion converts a currently effective Catalog campaign into one
+// expiring Account grant. Durable request identity is checked before the
+// current Catalog so an exact retry remains stable after a later publication.
+func (s *Service) RedeemPromotion(ctx context.Context, command RedeemPromotionCommand) (aitokens.Grant, aitokens.Balance, error) {
+	if command.ActorUserID == "" || command.AccountID == "" || ids.Validate(command.RequestID) != nil || !validLedgerCode(command.PromotionCode) {
+		return aitokens.Grant{}, aitokens.Balance{}, ErrInvalidRequest
+	}
+	if _, err := s.authorizer.Authorize(ctx, access.Actor{UserID: command.ActorUserID}, command.AccountID, access.Requirement{Roles: []accounts.MembershipRole{accounts.RoleOwner, accounts.RoleBillingAdmin}}); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	if err := strongauth.Require(command.Session, command.ActorUserID, s.clock.Now()); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	now := s.clock.Now().UTC()
+	if grant, balance, exists, err := s.store.Promotion(ctx, command.AccountID, command.RequestID, now); err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	} else if exists {
+		if grant.DefinitionCode != command.PromotionCode {
+			return aitokens.Grant{}, aitokens.Balance{}, ErrPromotionConflict
+		}
+		return grant, balance, nil
+	}
+	publication := s.catalog()
+	promotion, exists := tokenPromotion(publication, command.PromotionCode, now)
+	if !exists {
+		return aitokens.Grant{}, aitokens.Balance{}, ErrPromotionUnavailable
+	}
+	expiresAt := now.AddDate(0, 0, int(promotion.ExpiresAfterDays))
+	grant, err := aitokens.NewGrant(ids.AITokenGrantID(s.ids.New()), command.AccountID, aitokens.OriginPromotion, promotion.Code, publication.Version, command.RequestID, promotion.Quantity, &expiresAt, now)
+	if err != nil {
+		return aitokens.Grant{}, aitokens.Balance{}, err
+	}
+	return s.store.RedeemPromotion(ctx, grant, promotion.Version, promotion.RedemptionsPerAccount, promotion.IssuanceCap)
+}
+
+func validLedgerCode(value string) bool {
+	if len(value) == 0 || len(value) > 64 || value[0] < 'a' || value[0] > 'z' {
+		return false
+	}
+	for _, character := range value[1:] {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+// ReversePurchased removes only the surviving unused remainder associated
+// with one paid top-up. Settled consumption remains immutable and the store
+// refuses to race an active reservation.
+func (s *Issuer) ReversePurchased(ctx context.Context, accountID ids.AccountID, paymentIntentID, adversityReference string) (aitokens.Grant, aitokens.Balance, error) {
+	if accountID == "" || !strings.HasPrefix(paymentIntentID, "pi_") || adversityReference == "" {
+		return aitokens.Grant{}, aitokens.Balance{}, ErrInvalidRequest
+	}
+	return s.store.ReverseUnused(ctx, accountID, aitokens.OriginPurchased, paymentIntentID, adversityReference, s.clock.Now().UTC())
 }
 
 func complexityRate(publication catalog.PublishedCatalog, complexity catalog.AIComplexity) (catalog.AIComplexityRate, bool) {
@@ -170,4 +258,13 @@ func tokenBundle(publication catalog.PublishedCatalog, code string, now time.Tim
 		}
 	}
 	return catalog.AITokenBundle{}, false
+}
+
+func tokenPromotion(publication catalog.PublishedCatalog, code string, now time.Time) (catalog.AITokenPromotion, bool) {
+	for _, promotion := range publication.AITokenPromotions {
+		if promotion.Code == code && !promotion.EffectiveFrom.After(now) && promotion.EffectiveUntil.After(now) {
+			return promotion, true
+		}
+	}
+	return catalog.AITokenPromotion{}, false
 }

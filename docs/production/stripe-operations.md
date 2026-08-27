@@ -13,6 +13,8 @@
 - A durable Account/mode Checkout reservation serializes attempts. Concurrent requests cannot open parallel subscription Checkouts, and retries resume the already-created hosted session until it expires or projection completes.
 - Success, cancel, and return URLs are constructed from the configured exact HTTPS application origin. They are not request parameters.
 - A Checkout redirect never grants access. Only a locally projected subscription state changes subscription grants.
+- Payment-mode Checkout metadata never supplies fulfillment values. It selects one durable local attempt whose item version, Catalog version, amount and AI Token quantity were frozen before Stripe; only verified paid projection can complete it.
+- The optional commissioning Price may be a one-time line in initial subscription Checkout or a later payment-mode Checkout. Durable Account purchase evidence grants no entitlement or Affiliate earning and prevents a second self-service purchase.
 - Entitlement checks use the current local immutable snapshot and do not synchronously call Stripe.
 
 ## Required environment configuration
@@ -21,11 +23,11 @@ The persistent `accountapi` composition requires PostgreSQL, a real notification
 
 Configure the webhook endpoint in Stripe Workbench with API version `2026-07-29.dahlia`. `StripeAPIVersion` can override the compiled request pin only for a deliberate, tested upgrade. Test and live events, keys, Customers, Prices, and mappings remain isolated.
 
-The launch event selection includes Checkout/Subscription/Invoice events required for subscription invalidation plus `invoice.paid`, `refund.created`, `refund.updated`, and `charge.dispute.closed` for the closed Affiliate ledger boundary. The last four do not enable Affiliate enrollment or attribution; they make already-locked commercial history correct once the separately reviewed feature flags open. See [Affiliate operations](affiliate-operations.md).
+The launch event selection includes Checkout/Subscription/Invoice events required for subscription invalidation, `checkout.session.completed` and `checkout.session.async_payment_succeeded` for payment-mode fulfillment, `charge.refunded` for final full-charge top-up reversal, plus `invoice.paid`, `refund.created`, `refund.updated`, and `charge.dispute.closed` for the closed Affiliate ledger boundary. These events do not enable Affiliate enrollment or attribution; they make already-locked commercial history correct once the separately reviewed feature flags open. See [Affiliate operations](affiliate-operations.md).
 
-## Publishing a paid Offer mapping
+## Publishing paid item mappings
 
-Catalog publication and Stripe object creation are separate reviewed operations. After creating an immutable recurring Stripe Price, use the signed Catalog operator command for each enabled mode:
+Catalog publication and Stripe object creation are separate reviewed operations. After creating immutable recurring and one-time Stripe Prices, use the signed Catalog operator command for each enabled mode. Every governed publication containing AI Token commerce requires mappings for its subscription Offer, each purchasable bundle and commissioning item before review:
 
 ```powershell
 $env:SPYGLASS_CATALOG_VERSION = '2'
@@ -35,7 +37,7 @@ $env:SPYGLASS_STRIPE_PRICE_ID = 'price_REPLACE_IN_ENVIRONMENT'
 spyglass catalog-admin map-price
 ```
 
-Do not place Price IDs in public Catalog JSON. Price changes require a new Catalog Offer/mapping; existing subscriptions retain the historical mapping needed to explain access.
+Do not place Price IDs in public Catalog JSON. Price or quantity changes require a new immutable Catalog item/mapping; existing subscriptions and completed purchase attempts retain the historical mapping and local snapshot needed to explain access or fulfillment.
 
 ## Projection policy
 
@@ -50,6 +52,8 @@ Cancellation scheduled at period end keeps the current state-derived grant until
 Each recognized event triggers retrieval of the current Stripe Subscription. This makes delayed and out-of-order delivery converge on current state. The transaction locks the Account entitlement version, upserts the Subscription while rejecting cross-Account conflicts, replaces only that Subscription's grants, and re-evaluates every active grant source. Historical Offer/Catalog mappings still determine the purchased grant values, while the current effective Catalog supplies dependency and limit-policy semantics for the new Account snapshot; a delayed event therefore cannot roll newer free-plan policy backward. A snapshot is published only when effective access changed.
 
 Projection and reconciliation persist safe classified failures. `subscription_mapping_mismatch` means provider metadata conflicts with the immutable local Account/Offer/Catalog association; `subscription_unmapped` means no published Offer/Price mapping resolves the current subscription. Generic provider or transactional failures retain `projection_failed` or `refresh_failed`. `billing-admin inspect` expands these codes into bounded operator guidance without exposing webhook payloads, Price IDs or secrets.
+
+Payment-mode projection accepts only a paid Checkout Session whose signed Account, request, kind, item/version and Catalog version match the durable attempt, whose Session ID matches the hosted reservation and whose USD subtotal equals its frozen local amount. The PaymentIntent becomes the exact-once purchased-grant source. A top-up Refund is actionable only when the Charge reports a final full refund; partial or non-final Refund evidence fails closed for operator reconciliation rather than assigning an arbitrary fractional token value. Commissioning on initial subscription Checkout is recognized only from a positive paid invoice carrying the frozen subscription metadata and the exact privately mapped commissioning Price.
 
 ## Worker and operator boundaries
 
@@ -87,7 +91,7 @@ Replay requires `SPYGLASS_STRIPE_EVENT_ID=evt_...`; the database accepts only a 
 
 1. Run migrations against disposable PostgreSQL and verify the restore procedure.
 2. Create test-mode Product, recurring Prices, portal configuration, and version-pinned webhook endpoint.
-3. Exercise Checkout completion, trial, current-Price upgrade/downgrade, duplicate and delayed delivery, failed payment/read-only remediation, collection pause, cancellation-at-period-end, cancellation, recovery, invoice, refund and dispute invalidation.
+3. Exercise subscription and payment-mode Checkout completion, async completion, combined and later commissioning, token top-up issuance, exact replay, full/partial Refund handling, trial-defense, current-Price upgrade/downgrade, duplicate and delayed delivery, failed payment/read-only remediation, collection pause, cancellation-at-period-end, cancellation, recovery, invoice and dispute invalidation.
 4. Confirm the Checkout return page remains `processing` until projection completes.
 5. Compare local Subscriptions and snapshots with Stripe through the reconciliation queue.
 6. Rotate the test webhook secret and verify overlap/retirement before live rollout.

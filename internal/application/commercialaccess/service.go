@@ -26,6 +26,8 @@ var (
 	ErrInvalidRequestID    = errors.New("request ID must be a UUID")
 	ErrSubscriptionExists  = errors.New("an existing subscription must be managed through the billing portal")
 	ErrCheckoutInProgress  = errors.New("a checkout session is already in progress")
+	ErrPurchaseUnavailable = errors.New("one-time purchase is unavailable")
+	ErrCommissioningOwned  = errors.New("commissioning has already been purchased for this Account")
 	ErrReferralRateLimited = errors.New("Affiliate code validation is rate limited")
 )
 
@@ -45,8 +47,11 @@ type Repository interface {
 	AttachCustomer(context.Context, ids.AccountID, string, string, time.Time) (string, error)
 	ProviderPrice(context.Context, uint64, string, string, string) (string, error)
 	BillingStatus(context.Context, ids.AccountID, string, string) (Status, error)
-	BeginCheckout(context.Context, ids.AccountID, string, string, string, time.Time) (CheckoutReservation, error)
+	BeginCheckout(context.Context, ids.AccountID, string, *PurchaseSnapshot, string, string, time.Time) (CheckoutReservation, error)
 	CompleteCheckout(context.Context, ids.AccountID, string, billing.HostedSession, time.Time) error
+	BeginOneTimeCheckout(context.Context, PurchaseSnapshot, string, string, time.Time) (CheckoutReservation, error)
+	CompleteOneTimeCheckout(context.Context, ids.AccountID, string, billing.HostedSession, time.Time) error
+	CommissioningPurchased(context.Context, ids.AccountID) (bool, error)
 }
 
 type Service struct {
@@ -94,18 +99,39 @@ func New(provider billing.Provider, repository Repository, authorizer *access.Au
 }
 
 type CheckoutCommand struct {
-	ActorUserID   ids.UserID
-	Session       sessions.Session
-	AccountID     ids.AccountID
-	OfferCode     string
-	AffiliateCode string
-	RequestID     string
-	NetworkActor  [32]byte
+	ActorUserID          ids.UserID
+	Session              sessions.Session
+	AccountID            ids.AccountID
+	OfferCode            string
+	AffiliateCode        string
+	IncludeCommissioning bool
+	RequestID            string
+	NetworkActor         [32]byte
 }
 
 type CheckoutReservation struct {
 	Proceed bool
 	Resume  *billing.HostedSession
+}
+
+type PurchaseSnapshot struct {
+	AccountID      ids.AccountID
+	Kind           billing.PurchaseKind
+	ItemCode       string
+	ItemVersion    uint64
+	CatalogVersion uint64
+	Currency       string
+	AmountMinor    int64
+	Quantity       int64
+}
+
+type PurchaseCheckoutCommand struct {
+	ActorUserID ids.UserID
+	Session     sessions.Session
+	AccountID   ids.AccountID
+	Kind        billing.PurchaseKind
+	ItemCode    string
+	RequestID   string
 }
 
 type Subscription struct {
@@ -165,7 +191,29 @@ func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billin
 	if err != nil || !strings.HasPrefix(priceID, "price_") {
 		return billing.HostedSession{}, ErrBillingUnavailable
 	}
-	reservation, err := s.repository.BeginCheckout(ctx, command.AccountID, offer.Code, s.mode, command.RequestID, s.clock.Now())
+	commissioningCode, commissioningPriceID := "", ""
+	var commissioningVersion uint64
+	var commissioningSnapshot *PurchaseSnapshot
+	if command.IncludeCommissioning {
+		item := published.CommissioningOffer
+		if item == nil || item.EffectiveFrom.After(s.clock.Now()) {
+			return billing.HostedSession{}, ErrPurchaseUnavailable
+		}
+		owned, ownedErr := s.repository.CommissioningPurchased(ctx, command.AccountID)
+		if ownedErr != nil {
+			return billing.HostedSession{}, ownedErr
+		}
+		if owned {
+			return billing.HostedSession{}, ErrCommissioningOwned
+		}
+		commissioningPriceID, err = s.repository.ProviderPrice(ctx, published.Version, item.Code, "stripe", s.mode)
+		if err != nil || !strings.HasPrefix(commissioningPriceID, "price_") {
+			return billing.HostedSession{}, ErrBillingUnavailable
+		}
+		commissioningCode, commissioningVersion = item.Code, item.Version
+		commissioningSnapshot = &PurchaseSnapshot{AccountID: command.AccountID, Kind: billing.PurchaseCommissioning, ItemCode: item.Code, ItemVersion: item.Version, CatalogVersion: published.Version, Currency: item.Currency, AmountMinor: item.AmountMinor}
+	}
+	reservation, err := s.repository.BeginCheckout(ctx, command.AccountID, offer.Code, commissioningSnapshot, s.mode, command.RequestID, s.clock.Now())
 	if err != nil {
 		return billing.HostedSession{}, err
 	}
@@ -223,7 +271,7 @@ func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billin
 		return billing.HostedSession{}, ErrBillingUnavailable
 	}
 	returnPath := "/app/checkout?offer=" + url.QueryEscape(offer.Code)
-	session, err := s.provider.CreateCheckoutSession(ctx, billing.CreateCheckoutCommand{AccountID: command.AccountID, CustomerID: customerID, StripePriceID: priceID, OfferCode: offer.Code, OfferVersion: published.Version, AffiliateAttributionID: attributionID, SuccessURL: s.appOrigin + returnPath + "&status=billing", CancelURL: s.appOrigin + returnPath + "&status=billing_cancelled", IdempotencyKey: "spyglass/checkout/" + string(command.AccountID) + "/" + command.RequestID})
+	session, err := s.provider.CreateCheckoutSession(ctx, billing.CreateCheckoutCommand{AccountID: command.AccountID, CustomerID: customerID, StripePriceID: priceID, OfferCode: offer.Code, OfferVersion: published.Version, AffiliateAttributionID: attributionID, RequestID: command.RequestID, CommissioningPriceID: commissioningPriceID, CommissioningCode: commissioningCode, CommissioningVersion: commissioningVersion, SuccessURL: s.appOrigin + returnPath + "&status=billing", CancelURL: s.appOrigin + returnPath + "&status=billing_cancelled", IdempotencyKey: "spyglass/checkout/" + string(command.AccountID) + "/" + command.RequestID})
 	if err != nil {
 		return billing.HostedSession{}, err
 	}
@@ -231,6 +279,93 @@ func (s *Service) Checkout(ctx context.Context, command CheckoutCommand) (billin
 		return billing.HostedSession{}, err
 	}
 	return session, nil
+}
+
+func (s *Service) PurchaseCheckout(ctx context.Context, command PurchaseCheckoutCommand) (billing.HostedSession, error) {
+	if err := s.authorize(ctx, command.ActorUserID, command.AccountID); err != nil {
+		return billing.HostedSession{}, err
+	}
+	if err := strongauth.Require(command.Session, command.ActorUserID, s.clock.Now()); err != nil {
+		return billing.HostedSession{}, err
+	}
+	if ids.Validate(command.RequestID) != nil {
+		return billing.HostedSession{}, ErrInvalidRequestID
+	}
+	publication, now := s.catalog(), s.clock.Now().UTC()
+	snapshot := PurchaseSnapshot{AccountID: command.AccountID, Kind: command.Kind, ItemCode: command.ItemCode, CatalogVersion: publication.Version}
+	switch command.Kind {
+	case billing.PurchaseAITokenTopUp:
+		bundle, exists := findTokenBundle(publication, command.ItemCode, now)
+		if !exists {
+			return billing.HostedSession{}, ErrPurchaseUnavailable
+		}
+		snapshot.ItemVersion, snapshot.Currency, snapshot.AmountMinor, snapshot.Quantity = bundle.Version, bundle.Currency, bundle.AmountMinor, bundle.Quantity
+	case billing.PurchaseCommissioning:
+		item := publication.CommissioningOffer
+		if item == nil || item.Code != command.ItemCode || item.EffectiveFrom.After(now) {
+			return billing.HostedSession{}, ErrPurchaseUnavailable
+		}
+		owned, err := s.repository.CommissioningPurchased(ctx, command.AccountID)
+		if err != nil {
+			return billing.HostedSession{}, err
+		}
+		if owned {
+			return billing.HostedSession{}, ErrCommissioningOwned
+		}
+		snapshot.ItemVersion, snapshot.Currency, snapshot.AmountMinor = item.Version, item.Currency, item.AmountMinor
+	default:
+		return billing.HostedSession{}, ErrPurchaseUnavailable
+	}
+	priceID, err := s.repository.ProviderPrice(ctx, publication.Version, snapshot.ItemCode, "stripe", s.mode)
+	if err != nil || !strings.HasPrefix(priceID, "price_") {
+		return billing.HostedSession{}, ErrBillingUnavailable
+	}
+	reservation, err := s.repository.BeginOneTimeCheckout(ctx, snapshot, s.mode, command.RequestID, now)
+	if err != nil {
+		return billing.HostedSession{}, err
+	}
+	if reservation.Resume != nil {
+		return *reservation.Resume, nil
+	}
+	if !reservation.Proceed {
+		return billing.HostedSession{}, ErrCheckoutInProgress
+	}
+	profile, err := s.repository.AccountProfile(ctx, command.AccountID)
+	if err != nil || profile.AccountID != command.AccountID {
+		return billing.HostedSession{}, ErrBillingUnavailable
+	}
+	customerID := profile.CustomerID
+	if customerID == "" {
+		created, createErr := s.provider.CreateCustomer(ctx, billing.CreateCustomerCommand{AccountID: command.AccountID, Email: profile.BillingEmail, Name: profile.AccountName, IdempotencyKey: "spyglass/customer/" + string(command.AccountID)})
+		if createErr != nil {
+			return billing.HostedSession{}, fmt.Errorf("%w: create customer", ErrBillingUnavailable)
+		}
+		customerID, err = s.repository.AttachCustomer(ctx, command.AccountID, created.ID, profile.BillingEmail, now)
+		if err != nil {
+			return billing.HostedSession{}, err
+		}
+	}
+	if !strings.HasPrefix(customerID, "cus_") {
+		return billing.HostedSession{}, ErrBillingUnavailable
+	}
+	returnPath := "/app/billing?purchase=" + url.QueryEscape(string(command.Kind))
+	session, err := s.provider.CreateOneTimeCheckoutSession(ctx, billing.CreateOneTimeCheckoutCommand{AccountID: command.AccountID, CustomerID: customerID, StripePriceID: priceID, Kind: command.Kind, ItemCode: snapshot.ItemCode, ItemVersion: snapshot.ItemVersion, CatalogVersion: snapshot.CatalogVersion, RequestID: command.RequestID, SuccessURL: s.appOrigin + returnPath + "&status=purchase_returned", CancelURL: s.appOrigin + returnPath + "&status=purchase_cancelled", IdempotencyKey: "spyglass/purchase/" + string(command.AccountID) + "/" + command.RequestID})
+	if err != nil {
+		return billing.HostedSession{}, err
+	}
+	if err := s.repository.CompleteOneTimeCheckout(ctx, command.AccountID, command.RequestID, session, now); err != nil {
+		return billing.HostedSession{}, err
+	}
+	return session, nil
+}
+
+func findTokenBundle(publication catalog.PublishedCatalog, code string, now time.Time) (catalog.AITokenBundle, bool) {
+	for _, bundle := range publication.AITokenBundles {
+		if bundle.Code == code && !bundle.EffectiveFrom.After(now) {
+			return bundle, true
+		}
+	}
+	return catalog.AITokenBundle{}, false
 }
 
 func referralBudgetActor(networkActor [32]byte, accountID ids.AccountID) [32]byte {

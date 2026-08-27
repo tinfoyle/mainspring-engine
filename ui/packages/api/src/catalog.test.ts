@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBillingPortalSession, createCheckoutSession, getAITokenBalance, getBillingStatus, getPublicCatalog } from "./catalog";
+import { createBillingPortalSession, createCheckoutSession, createPurchaseCheckoutSession, getAITokenBalance, getBillingStatus, getPublicCatalog, redeemAITokenPromotion } from "./catalog";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -46,5 +46,34 @@ describe("catalog and checkout client", () => {
     const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(path).toBe("/api/v1/accounts/account%2Fid/billing-portal-sessions");
     expect(new Headers(init.headers).get("Idempotency-Key")).toBe("22222222-2222-4222-8222-222222222222");
+  });
+
+  it("starts a one-time purchase from an opaque Catalog item", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      session_id: "cs_purchase", url: "https://checkout.stripe.test/purchase", expires_at: "2026-08-24T12:00:00Z"
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createPurchaseCheckoutSession("account/id", { kind: "ai_token_top_up", item_code: "tokens_10k_v1" }, "22222222-2222-4222-8222-222222222222");
+
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/v1/accounts/account%2Fid/purchase-checkout-sessions");
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe("22222222-2222-4222-8222-222222222222");
+    expect(init.body).toBe(JSON.stringify({ kind: "ai_token_top_up", item_code: "tokens_10k_v1" }));
+  });
+
+  it("redeems an AI Token promotion with durable request identity", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      grant: { definition_code: "launch_bonus", catalog_version: 7, quantity: 1000000, expires_at: "2026-10-01T12:00:00Z", created_at: "2026-08-26T12:00:00Z" },
+      balance: { available: 1000000, reserved: 0, consumed: 0, included: 0, purchased: 0, promotion: 1000000 }
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await redeemAITokenPromotion("account/id", { promotion_code: "launch_bonus" }, "22222222-2222-4222-8222-222222222222");
+
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/api/v1/accounts/account%2Fid/ai-token-promotions");
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe("22222222-2222-4222-8222-222222222222");
+    expect(init.body).toBe(JSON.stringify({ promotion_code: "launch_bonus" }));
   });
 });

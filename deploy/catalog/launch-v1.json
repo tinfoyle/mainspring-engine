@@ -97,6 +97,14 @@
       "disclosure": "One-time team AI Token top-up. Purchased Tokens do not expire while the team Account remains active."
     }
   ],
+  "commissioning_offer": {
+    "code": "commissioning_v1",
+    "version": 1,
+    "currency": "USD",
+    "amount_minor": 25000,
+    "effective_from": "2026-08-26T00:00:00Z",
+    "disclosure": "Optional one-time onboarding and commissioning service. It grants no additional software access and earns no Affiliate commission."
+  },
   "ai_complexity_rates": [
     {"code": "simple_v1", "version": 1, "complexity": "simple", "input_per_thousand": 1, "cached_input_per_thousand": 1, "output_per_thousand": 4, "tool_invocation": 10, "minimum_charge": 5, "maximum_reservation": 1000, "estimated_minimum": 5, "estimated_maximum": 250, "internal_provider": "configurable", "internal_model": "simple", "internal_adapter_version": 1, "internal_model_policy_version": 1},
     {"code": "efficient_v1", "version": 1, "complexity": "efficient", "input_per_thousand": 2, "cached_input_per_thousand": 1, "output_per_thousand": 8, "tool_invocation": 15, "minimum_charge": 10, "maximum_reservation": 1500, "estimated_minimum": 10, "estimated_maximum": 500, "internal_provider": "configurable", "internal_model": "efficient", "internal_adapter_version": 1, "internal_model_policy_version": 1},

@@ -72,19 +72,32 @@ func (c *Client) CreateCustomer(ctx context.Context, command billing.CreateCusto
 
 func (c *Client) CreateCheckoutSession(ctx context.Context, command billing.CreateCheckoutCommand) (billing.HostedSession, error) {
 	values := url.Values{
-		"mode":                             {"subscription"},
-		"customer":                         {command.CustomerID},
-		"client_reference_id":              {string(command.AccountID)},
-		"line_items[0][price]":             {command.StripePriceID},
-		"line_items[0][quantity]":          {"1"},
-		"success_url":                      {command.SuccessURL},
-		"cancel_url":                       {command.CancelURL},
-		"metadata[spyglass_account_id]":    {string(command.AccountID)},
-		"metadata[spyglass_offer_code]":    {command.OfferCode},
-		"metadata[spyglass_offer_version]": {strconv.FormatUint(command.OfferVersion, 10)},
-		"subscription_data[metadata][spyglass_account_id]":    {string(command.AccountID)},
-		"subscription_data[metadata][spyglass_offer_code]":    {command.OfferCode},
-		"subscription_data[metadata][spyglass_offer_version]": {strconv.FormatUint(command.OfferVersion, 10)},
+		"mode":                                   {"subscription"},
+		"customer":                               {command.CustomerID},
+		"client_reference_id":                    {string(command.AccountID)},
+		"line_items[0][price]":                   {command.StripePriceID},
+		"line_items[0][quantity]":                {"1"},
+		"success_url":                            {command.SuccessURL},
+		"cancel_url":                             {command.CancelURL},
+		"metadata[spyglass_account_id]":          {string(command.AccountID)},
+		"metadata[spyglass_offer_code]":          {command.OfferCode},
+		"metadata[spyglass_offer_version]":       {strconv.FormatUint(command.OfferVersion, 10)},
+		"metadata[spyglass_checkout_request_id]": {command.RequestID},
+		"subscription_data[metadata][spyglass_account_id]":          {string(command.AccountID)},
+		"subscription_data[metadata][spyglass_offer_code]":          {command.OfferCode},
+		"subscription_data[metadata][spyglass_offer_version]":       {strconv.FormatUint(command.OfferVersion, 10)},
+		"subscription_data[metadata][spyglass_checkout_request_id]": {command.RequestID},
+	}
+	if command.CommissioningPriceID != "" {
+		if !strings.HasPrefix(command.CommissioningPriceID, "price_") || command.CommissioningCode == "" || command.CommissioningVersion == 0 {
+			return billing.HostedSession{}, errors.New("invalid commissioning Checkout item")
+		}
+		values["line_items[1][price]"] = []string{command.CommissioningPriceID}
+		values["line_items[1][quantity]"] = []string{"1"}
+		values["metadata[spyglass_commissioning_code]"] = []string{command.CommissioningCode}
+		values["metadata[spyglass_commissioning_version]"] = []string{strconv.FormatUint(command.CommissioningVersion, 10)}
+		values["subscription_data[metadata][spyglass_commissioning_code]"] = []string{command.CommissioningCode}
+		values["subscription_data[metadata][spyglass_commissioning_version]"] = []string{strconv.FormatUint(command.CommissioningVersion, 10)}
 	}
 	if command.AffiliateAttributionID != "" {
 		if ids.Validate(string(command.AffiliateAttributionID)) != nil {
@@ -92,6 +105,38 @@ func (c *Client) CreateCheckoutSession(ctx context.Context, command billing.Crea
 		}
 		values["metadata[spyglass_affiliate_attribution_id]"] = []string{string(command.AffiliateAttributionID)}
 		values["subscription_data[metadata][spyglass_affiliate_attribution_id]"] = []string{string(command.AffiliateAttributionID)}
+	}
+	var response hostedResponse
+	if err := c.request(ctx, http.MethodPost, "/v1/checkout/sessions", values, command.IdempotencyKey, &response); err != nil {
+		return billing.HostedSession{}, err
+	}
+	return response.session("cs_", "checkout")
+}
+
+func (c *Client) CreateOneTimeCheckoutSession(ctx context.Context, command billing.CreateOneTimeCheckoutCommand) (billing.HostedSession, error) {
+	if (command.Kind != billing.PurchaseAITokenTopUp && command.Kind != billing.PurchaseCommissioning) || command.ItemCode == "" || command.ItemVersion == 0 || command.CatalogVersion == 0 || command.RequestID == "" {
+		return billing.HostedSession{}, errors.New("invalid one-time Checkout item")
+	}
+	values := url.Values{
+		"mode":                                                        {"payment"},
+		"customer":                                                    {command.CustomerID},
+		"client_reference_id":                                         {string(command.AccountID)},
+		"line_items[0][price]":                                        {command.StripePriceID},
+		"line_items[0][quantity]":                                     {"1"},
+		"success_url":                                                 {command.SuccessURL},
+		"cancel_url":                                                  {command.CancelURL},
+		"metadata[spyglass_account_id]":                               {string(command.AccountID)},
+		"metadata[spyglass_purchase_kind]":                            {string(command.Kind)},
+		"metadata[spyglass_item_code]":                                {command.ItemCode},
+		"metadata[spyglass_item_version]":                             {strconv.FormatUint(command.ItemVersion, 10)},
+		"metadata[spyglass_catalog_version]":                          {strconv.FormatUint(command.CatalogVersion, 10)},
+		"metadata[spyglass_checkout_request_id]":                      {command.RequestID},
+		"payment_intent_data[metadata][spyglass_account_id]":          {string(command.AccountID)},
+		"payment_intent_data[metadata][spyglass_purchase_kind]":       {string(command.Kind)},
+		"payment_intent_data[metadata][spyglass_item_code]":           {command.ItemCode},
+		"payment_intent_data[metadata][spyglass_item_version]":        {strconv.FormatUint(command.ItemVersion, 10)},
+		"payment_intent_data[metadata][spyglass_catalog_version]":     {strconv.FormatUint(command.CatalogVersion, 10)},
+		"payment_intent_data[metadata][spyglass_checkout_request_id]": {command.RequestID},
 	}
 	var response hostedResponse
 	if err := c.request(ctx, http.MethodPost, "/v1/checkout/sessions", values, command.IdempotencyKey, &response); err != nil {

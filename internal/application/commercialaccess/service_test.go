@@ -34,18 +34,32 @@ func (s stateSource) AccessState(context.Context, ids.UserID, ids.AccountID) (ac
 }
 
 type serviceRepository struct {
-	profile       AccountProfile
-	price         string
-	status        Status
-	reservation   CheckoutReservation
-	blockCheckout bool
+	profile               AccountProfile
+	price                 string
+	status                Status
+	reservation           CheckoutReservation
+	blockCheckout         bool
+	commissioningOwned    bool
+	purchase              PurchaseSnapshot
+	checkoutCommissioning *PurchaseSnapshot
 }
 
-func (r *serviceRepository) BeginCheckout(context.Context, ids.AccountID, string, string, string, time.Time) (CheckoutReservation, error) {
+func (r *serviceRepository) BeginCheckout(_ context.Context, _ ids.AccountID, _ string, commissioning *PurchaseSnapshot, _, _ string, _ time.Time) (CheckoutReservation, error) {
+	r.checkoutCommissioning = commissioning
 	if r.reservation.Resume != nil || r.blockCheckout {
 		return r.reservation, nil
 	}
 	return CheckoutReservation{Proceed: true}, nil
+}
+func (r *serviceRepository) BeginOneTimeCheckout(_ context.Context, purchase PurchaseSnapshot, _, _ string, _ time.Time) (CheckoutReservation, error) {
+	r.purchase = purchase
+	return CheckoutReservation{Proceed: true}, nil
+}
+func (r *serviceRepository) CompleteOneTimeCheckout(context.Context, ids.AccountID, string, billing.HostedSession, time.Time) error {
+	return nil
+}
+func (r *serviceRepository) CommissioningPurchased(context.Context, ids.AccountID) (bool, error) {
+	return r.commissioningOwned, nil
 }
 func (r *serviceRepository) CompleteCheckout(context.Context, ids.AccountID, string, billing.HostedSession, time.Time) error {
 	return nil
@@ -76,6 +90,7 @@ func (r *serviceRepository) ProviderPrice(context.Context, uint64, string, strin
 type serviceProvider struct {
 	customerCalls, checkoutCalls, portalCalls int
 	checkout                                  billing.CreateCheckoutCommand
+	oneTime                                   billing.CreateOneTimeCheckoutCommand
 	portal                                    billing.CreatePortalCommand
 }
 
@@ -117,6 +132,10 @@ func (p *serviceProvider) CreateCheckoutSession(_ context.Context, command billi
 	p.checkout = command
 	return billing.HostedSession{ID: "cs_test", URL: "https://checkout.stripe.com/test"}, nil
 }
+func (p *serviceProvider) CreateOneTimeCheckoutSession(_ context.Context, command billing.CreateOneTimeCheckoutCommand) (billing.HostedSession, error) {
+	p.oneTime = command
+	return billing.HostedSession{ID: "cs_purchase", URL: "https://checkout.stripe.com/purchase"}, nil
+}
 func (p *serviceProvider) CreatePortalSession(_ context.Context, command billing.CreatePortalCommand) (billing.HostedSession, error) {
 	p.portalCalls++
 	p.portal = command
@@ -145,6 +164,45 @@ func TestCheckoutResolvesLocalOfferAndCreatesCustomer(t *testing.T) {
 	}
 	if provider.checkout.StripePriceID != "price_private" || provider.checkout.OfferCode != "team-monthly-v1" || provider.checkout.SuccessURL != "https://app.infiniteocean.net/app/checkout?offer=team-monthly-v1&status=billing" || provider.checkout.CancelURL != "https://app.infiniteocean.net/app/checkout?offer=team-monthly-v1&status=billing_cancelled" {
 		t.Fatalf("unsafe checkout projection: %+v", provider.checkout)
+	}
+}
+
+func TestPurchaseCheckoutFreezesTokenBundleBeforeStripe(t *testing.T) {
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	publication := catalog.Default(now.Add(-time.Hour))
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_tokens"}
+	provider := &serviceProvider{}
+	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
+	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return publication }, serviceClock{now}, "https://app.infiniteocean.net", "test")
+	command := PurchaseCheckoutCommand{ActorUserID: testUserID, Session: checkoutCommand(now).Session, AccountID: testAccountID, Kind: billing.PurchaseAITokenTopUp, ItemCode: "tokens_10k_v1", RequestID: testRequestID}
+
+	result, err := service.PurchaseCheckout(context.Background(), command)
+	if err != nil || result.ID != "cs_purchase" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if repository.purchase.Quantity != 10_000 || repository.purchase.AmountMinor != 1000 || repository.purchase.CatalogVersion != publication.Version || provider.oneTime.Kind != billing.PurchaseAITokenTopUp || provider.oneTime.ItemVersion != 1 || provider.oneTime.SuccessURL != "https://app.infiniteocean.net/app/billing?purchase=ai_token_top_up&status=purchase_returned" {
+		t.Fatalf("snapshot=%+v provider=%+v", repository.purchase, provider.oneTime)
+	}
+}
+
+func TestInitialCheckoutCanIncludeCommissioningOnlyOnce(t *testing.T) {
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	publication := catalog.Default(now.Add(-time.Hour))
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, price: "price_private"}
+	provider := &serviceProvider{}
+	owner, _ := access.NewAuthorizer(stateSource{role: accounts.RoleOwner})
+	service, _ := New(provider, repository, owner, func() catalog.PublishedCatalog { return publication }, serviceClock{now}, "https://app.infiniteocean.net", "test")
+	command := checkoutCommand(now)
+	command.OfferCode, command.IncludeCommissioning = "team-monthly-v2", true
+	if _, err := service.Checkout(context.Background(), command); err != nil {
+		t.Fatal(err)
+	}
+	if repository.checkoutCommissioning == nil || repository.checkoutCommissioning.AmountMinor != 25_000 || provider.checkout.CommissioningCode != "commissioning_v1" || provider.checkout.CommissioningPriceID != "price_private" || provider.checkout.RequestID != testRequestID {
+		t.Fatalf("snapshot=%+v provider=%+v", repository.checkoutCommissioning, provider.checkout)
+	}
+	repository.commissioningOwned = true
+	if _, err := service.Checkout(context.Background(), command); !errors.Is(err, ErrCommissioningOwned) {
+		t.Fatalf("duplicate commissioning error=%v", err)
 	}
 }
 

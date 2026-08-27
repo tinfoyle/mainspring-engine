@@ -110,6 +110,32 @@ type AITokenBundle struct {
 	Disclosure    string    `json:"disclosure"`
 }
 
+// CommissioningOffer is the optional one-time onboarding service. It grants
+// no product entitlement and is intentionally distinct from recurring Offers
+// and AI Token bundles, while sharing the Catalog's immutable pricing and
+// private provider-Price mapping controls.
+type CommissioningOffer struct {
+	Code          string    `json:"code"`
+	Version       uint64    `json:"version"`
+	Currency      string    `json:"currency"`
+	AmountMinor   int64     `json:"amount_minor"`
+	EffectiveFrom time.Time `json:"effective_from"`
+	Disclosure    string    `json:"disclosure"`
+}
+
+type AITokenPromotion struct {
+	Code                  string    `json:"code"`
+	Version               uint64    `json:"version"`
+	Quantity              int64     `json:"quantity"`
+	EffectiveFrom         time.Time `json:"effective_from"`
+	EffectiveUntil        time.Time `json:"effective_until"`
+	ExpiresAfterDays      int64     `json:"expires_after_days"`
+	RedemptionsPerAccount int64     `json:"redemptions_per_account"`
+	IssuanceCap           int64     `json:"issuance_cap"`
+	Stacking              string    `json:"stacking"`
+	Disclosure            string    `json:"disclosure"`
+}
+
 // AIComplexityRate maps the customer-facing complexity control to one private,
 // reviewed execution target and an exact customer AI Token schedule. The
 // public API deliberately projects only the complexity and token fields.
@@ -142,6 +168,8 @@ type PublishedCatalog struct {
 	Offers              []Offer              `json:"offers"`
 	AITokenRenewalGrant *AITokenRenewalGrant `json:"ai_token_renewal_grant,omitempty"`
 	AITokenBundles      []AITokenBundle      `json:"ai_token_bundles,omitempty"`
+	CommissioningOffer  *CommissioningOffer  `json:"commissioning_offer,omitempty"`
+	AITokenPromotions   []AITokenPromotion   `json:"ai_token_promotions,omitempty"`
 	AIComplexityRates   []AIComplexityRate   `json:"ai_complexity_rates,omitempty"`
 }
 
@@ -162,6 +190,7 @@ func Default(now time.Time) PublishedCatalog {
 	}
 	renewalGrant := &AITokenRenewalGrant{Code: "team_renewal_v1", Version: 1, Quantity: 10_000, Disclosure: "Included with each successfully paid monthly team service period; unused included Tokens expire when the next paid renewal grant commits."}
 	bundles := []AITokenBundle{{Code: "tokens_10k_v1", Version: 1, Quantity: 10_000, Currency: "USD", AmountMinor: 1000, EffectiveFrom: now.UTC(), Disclosure: "One-time team AI Token top-up. Purchased Tokens do not expire while the team Account remains active."}}
+	commissioning := &CommissioningOffer{Code: "commissioning_v1", Version: 1, Currency: "USD", AmountMinor: 25_000, EffectiveFrom: now.UTC(), Disclosure: "Optional one-time onboarding and commissioning service. It grants no additional software access and earns no Affiliate commission."}
 	rates := []AIComplexityRate{
 		{Code: "simple_v1", Version: 1, Complexity: AIComplexitySimple, InputPerThousand: 1, CachedInputPerThousand: 1, OutputPerThousand: 4, ToolInvocation: 10, MinimumCharge: 5, MaximumReservation: 1_000, EstimatedMinimum: 5, EstimatedMaximum: 250, InternalProvider: "configurable", InternalModel: "simple", InternalAdapterVersion: 1, InternalModelPolicyVersion: 1},
 		{Code: "efficient_v1", Version: 1, Complexity: AIComplexityEfficient, InputPerThousand: 2, CachedInputPerThousand: 1, OutputPerThousand: 8, ToolInvocation: 15, MinimumCharge: 10, MaximumReservation: 1_500, EstimatedMinimum: 10, EstimatedMaximum: 500, InternalProvider: "configurable", InternalModel: "efficient", InternalAdapterVersion: 1, InternalModelPolicyVersion: 1},
@@ -171,7 +200,7 @@ func Default(now time.Time) PublishedCatalog {
 	}
 	return PublishedCatalog{Version: 3, PublishedAt: now.UTC(), Packages: packages, Limits: limits, Plans: []Plan{team}, Offers: []Offer{
 		{Code: "team-monthly-v2", PlanCode: "team", PlanVersion: 2, Currency: "USD", AmountMinor: 5000, BillingInterval: "month", Published: true, EffectiveFrom: now.UTC()},
-	}, AITokenRenewalGrant: renewalGrant, AITokenBundles: bundles, AIComplexityRates: rates}
+	}, AITokenRenewalGrant: renewalGrant, AITokenBundles: bundles, CommissioningOffer: commissioning, AIComplexityRates: rates}
 }
 
 // EffectiveLimitDefinitions keeps immutable pre-definition Catalog versions
@@ -345,7 +374,7 @@ func (c PublishedCatalog) Validate() error {
 }
 
 func (c PublishedCatalog) validateAITokenCommerce(required bool) error {
-	configured := c.AITokenRenewalGrant != nil || len(c.AITokenBundles) > 0 || len(c.AIComplexityRates) > 0
+	configured := c.AITokenRenewalGrant != nil || len(c.AITokenBundles) > 0 || c.CommissioningOffer != nil || len(c.AITokenPromotions) > 0 || len(c.AIComplexityRates) > 0
 	if !configured {
 		if required {
 			return errors.New("governed catalog requires AI Token commerce and rates")
@@ -367,6 +396,19 @@ func (c PublishedCatalog) validateAITokenCommerce(required bool) error {
 	}
 	if len(c.AITokenBundles) == 0 {
 		return errors.New("AI Token top-up bundle is required")
+	}
+	if c.CommissioningOffer == nil || !validMachineCode(c.CommissioningOffer.Code) || c.CommissioningOffer.Version == 0 || c.CommissioningOffer.AmountMinor <= 0 || c.CommissioningOffer.Currency != "USD" || c.CommissioningOffer.EffectiveFrom.IsZero() || strings.TrimSpace(c.CommissioningOffer.Disclosure) == "" {
+		return errors.New("commissioning offer is invalid")
+	}
+	promotionCodes := map[string]struct{}{}
+	for _, promotion := range c.AITokenPromotions {
+		if !validMachineCode(promotion.Code) || promotion.Version == 0 || promotion.Quantity <= 0 || promotion.EffectiveFrom.IsZero() || !promotion.EffectiveUntil.After(promotion.EffectiveFrom) || promotion.ExpiresAfterDays < 1 || promotion.ExpiresAfterDays > 3650 || promotion.RedemptionsPerAccount < 1 || promotion.RedemptionsPerAccount > 100 || promotion.IssuanceCap < promotion.RedemptionsPerAccount || promotion.Stacking != "none" || strings.TrimSpace(promotion.Disclosure) == "" {
+			return fmt.Errorf("AI Token promotion %q is invalid", promotion.Code)
+		}
+		if _, exists := promotionCodes[promotion.Code]; exists {
+			return fmt.Errorf("duplicate AI Token promotion %q", promotion.Code)
+		}
+		promotionCodes[promotion.Code] = struct{}{}
 	}
 	rateCodes, complexities := map[string]struct{}{}, map[AIComplexity]struct{}{}
 	for _, rate := range c.AIComplexityRates {

@@ -12,9 +12,17 @@ import (
 type Provider interface {
 	CreateCustomer(context.Context, CreateCustomerCommand) (CustomerReference, error)
 	CreateCheckoutSession(context.Context, CreateCheckoutCommand) (HostedSession, error)
+	CreateOneTimeCheckoutSession(context.Context, CreateOneTimeCheckoutCommand) (HostedSession, error)
 	CreatePortalSession(context.Context, CreatePortalCommand) (HostedSession, error)
 	RetrieveSubscription(context.Context, string) (ProviderSubscription, error)
 }
+
+type PurchaseKind string
+
+const (
+	PurchaseAITokenTopUp  PurchaseKind = "ai_token_top_up"
+	PurchaseCommissioning PurchaseKind = "commissioning"
+)
 
 type CreateCustomerCommand struct {
 	AccountID      ids.AccountID
@@ -32,9 +40,27 @@ type CreateCheckoutCommand struct {
 	OfferCode              string
 	OfferVersion           uint64
 	AffiliateAttributionID ids.ReferralAttributionID
+	RequestID              string
+	CommissioningPriceID   string
+	CommissioningCode      string
+	CommissioningVersion   uint64
 	SuccessURL             string
 	CancelURL              string
 	IdempotencyKey         string
+}
+
+type CreateOneTimeCheckoutCommand struct {
+	AccountID      ids.AccountID
+	CustomerID     string
+	StripePriceID  string
+	Kind           PurchaseKind
+	ItemCode       string
+	ItemVersion    uint64
+	CatalogVersion uint64
+	RequestID      string
+	SuccessURL     string
+	CancelURL      string
+	IdempotencyKey string
 }
 
 type CreatePortalCommand struct {

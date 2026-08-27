@@ -316,9 +316,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/membership", s.leaveAccount)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/ownership-transfers", s.transferOwnership)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/checkout-sessions", s.createCheckoutSession)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/purchase-checkout-sessions", s.createPurchaseCheckoutSession)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/billing-portal-sessions", s.createBillingPortalSession)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/billing", s.billingStatus)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/ai-tokens", s.aiTokenBalance)
+	mux.HandleFunc("POST /api/v1/accounts/{accountID}/ai-token-promotions", s.redeemAITokenPromotion)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/exports", s.listAccountExports)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/exports", s.createAccountExport)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/exports/{exportID}", s.getAccountExport)
@@ -695,14 +697,71 @@ func (s *Server) aiTokenBalance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, balance)
 }
 
+func (s *Server) redeemAITokenPromotion(w http.ResponseWriter, r *http.Request) {
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	if s.aiTokens == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "ai_tokens_unconfigured", "AI Token promotions are not configured")
+		return
+	}
+	raw := r.PathValue("accountID")
+	if ids.Validate(raw) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_account_id", "account ID is invalid")
+		return
+	}
+	var input struct {
+		PromotionCode string `json:"promotion_code"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	grant, balance, err := s.aiTokens.RedeemPromotion(r.Context(), aitokenledger.RedeemPromotionCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: ids.AccountID(raw), PromotionCode: input.PromotionCode, RequestID: r.Header.Get("Idempotency-Key")})
+	if err != nil {
+		s.writeAITokenPromotionError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"grant": map[string]any{"definition_code": grant.DefinitionCode, "catalog_version": grant.CatalogVersion, "quantity": grant.Quantity, "expires_at": grant.ExpiresAt, "created_at": grant.CreatedAt}, "balance": balance})
+}
+
+func (s *Server) writeAITokenPromotionError(w http.ResponseWriter, err error) {
+	switch {
+	case access.IsDenied(err, access.DenialOwnerEnrollment):
+		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before redeeming an AI Token promotion")
+	case errors.Is(err, strongauth.ErrRequired):
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before redeeming an AI Token promotion")
+	case access.IsDenied(err, access.DenialRole), access.IsDenied(err, access.DenialMembership), access.IsDenied(err, access.DenialAccountUnavailable):
+		writeProblem(w, http.StatusForbidden, "ai_token_promotion_denied", "AI Token promotion redemption was denied")
+	case errors.Is(err, aitokenledger.ErrInvalidRequest):
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "promotion code and Idempotency-Key are required")
+	case errors.Is(err, aitokenledger.ErrPromotionUnavailable):
+		writeProblem(w, http.StatusNotFound, "ai_token_promotion_unavailable", "the AI Token promotion is unavailable")
+	case errors.Is(err, aitokenledger.ErrPromotionAccountLimit):
+		writeProblem(w, http.StatusConflict, "ai_token_promotion_account_limit", "this Account has already reached the promotion redemption limit")
+	case errors.Is(err, aitokenledger.ErrPromotionIssuanceLimit):
+		writeProblem(w, http.StatusConflict, "ai_token_promotion_issuance_limit", "the promotion issuance limit has been reached")
+	case errors.Is(err, aitokenledger.ErrPromotionConflict):
+		writeProblem(w, http.StatusConflict, "ai_token_promotion_conflict", "the Idempotency-Key was already used for a different promotion")
+	default:
+		writeProblem(w, http.StatusServiceUnavailable, "ai_token_promotion_failed", "the AI Token promotion could not be redeemed")
+	}
+}
+
 func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
 	authenticated, accountID, ok := s.commercialRequest(w, r)
 	if !ok {
 		return
 	}
 	var input struct {
-		OfferCode     string `json:"offer_code"`
-		AffiliateCode string `json:"affiliate_code"`
+		OfferCode            string `json:"offer_code"`
+		AffiliateCode        string `json:"affiliate_code"`
+		IncludeCommissioning bool   `json:"include_commissioning"`
 	}
 	if err := decodeJSON(w, r, &input); err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -711,7 +770,28 @@ func (s *Server) createCheckoutSession(w http.ResponseWriter, r *http.Request) {
 	networkActor, _ := networkactor.FromContext(r.Context())
 	session, err := s.commercialAccess.Checkout(r.Context(), commercialaccess.CheckoutCommand{ActorUserID: authenticated.Session.UserID,
 		Session: authenticated.Session, AccountID: accountID, OfferCode: input.OfferCode, AffiliateCode: input.AffiliateCode,
-		RequestID: r.Header.Get("Idempotency-Key"), NetworkActor: networkActor})
+		IncludeCommissioning: input.IncludeCommissioning, RequestID: r.Header.Get("Idempotency-Key"), NetworkActor: networkActor})
+	if err != nil {
+		s.writeCommercialError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"session_id": session.ID, "url": session.URL, "expires_at": session.ExpiresAt})
+}
+
+func (s *Server) createPurchaseCheckoutSession(w http.ResponseWriter, r *http.Request) {
+	authenticated, accountID, ok := s.commercialRequest(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Kind     billing.PurchaseKind `json:"kind"`
+		ItemCode string               `json:"item_code"`
+	}
+	if err := decodeJSON(w, r, &input); err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	session, err := s.commercialAccess.PurchaseCheckout(r.Context(), commercialaccess.PurchaseCheckoutCommand{ActorUserID: authenticated.Session.UserID, Session: authenticated.Session, AccountID: accountID, Kind: input.Kind, ItemCode: input.ItemCode, RequestID: r.Header.Get("Idempotency-Key")})
 	if err != nil {
 		s.writeCommercialError(w, err)
 		return
@@ -769,6 +849,10 @@ func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusConflict, "subscription_exists", "manage the existing subscription in the billing portal")
 	case errors.Is(err, commercialaccess.ErrCheckoutInProgress):
 		writeProblem(w, http.StatusConflict, "checkout_in_progress", "a checkout session is already in progress")
+	case errors.Is(err, commercialaccess.ErrPurchaseUnavailable):
+		writeProblem(w, http.StatusNotFound, "purchase_unavailable", "the selected one-time purchase is unavailable")
+	case errors.Is(err, commercialaccess.ErrCommissioningOwned):
+		writeProblem(w, http.StatusConflict, "commissioning_already_purchased", "standard commissioning has already been purchased for this Account; contact Support for another engagement")
 	case errors.Is(err, affiliateprogram.ErrCodeUnavailable), errors.Is(err, affiliateprogram.ErrTermsRequired),
 		errors.Is(err, affiliateprogram.ErrProgramUnavailable):
 		writeProblem(w, http.StatusBadRequest, "affiliate_code_unavailable", "the Affiliate code is not available for this offer")
@@ -1678,7 +1762,11 @@ func (s *Server) ready(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) publicCatalog(w http.ResponseWriter, _ *http.Request) {
 	catalog := s.catalog()
 	offers := effectiveCatalogOffers(catalog, time.Now().UTC())
-	writeJSON(w, http.StatusOK, map[string]any{"version": catalog.Version, "published_at": catalog.PublishedAt, "packages": catalog.Packages, "limits": catalog.EffectiveLimitDefinitions(), "plans": catalog.Plans, "offers": offers, "ai_token_renewal_grant": catalog.AITokenRenewalGrant, "ai_token_bundles": effectiveAITokenBundles(catalog, time.Now().UTC()), "ai_complexity_rates": publicAIComplexityRates(catalog)})
+	response := map[string]any{"version": catalog.Version, "published_at": catalog.PublishedAt, "packages": catalog.Packages, "limits": catalog.EffectiveLimitDefinitions(), "plans": catalog.Plans, "offers": offers, "ai_token_renewal_grant": catalog.AITokenRenewalGrant, "ai_token_bundles": effectiveAITokenBundles(catalog, time.Now().UTC()), "ai_complexity_rates": publicAIComplexityRates(catalog)}
+	if catalog.CommissioningOffer != nil && !catalog.CommissioningOffer.EffectiveFrom.After(time.Now().UTC()) {
+		response["commissioning_offer"] = catalog.CommissioningOffer
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 func effectiveCatalogOffers(publication catalog.PublishedCatalog, now time.Time) []catalogOffer {

@@ -153,6 +153,8 @@ GRANT SELECT ON billing_profiles, offer_provider_prices, catalog_publications TO
 GRANT SELECT, INSERT, UPDATE ON subscriptions, entitlement_snapshots,
   billing_reconciliation_queue TO spyglass_billing_worker;
 GRANT SELECT, UPDATE ON billing_checkout_attempts, accounts TO spyglass_billing_worker;
+GRANT SELECT, INSERT ON account_commissioning_purchases, ai_token_ledger_entries TO spyglass_billing_worker;
+GRANT SELECT, INSERT, UPDATE ON ai_token_grants TO spyglass_billing_worker;
 GRANT SELECT, INSERT, DELETE ON entitlement_grants TO spyglass_billing_worker;
 GRANT SELECT, UPDATE ON affiliate_attributions TO spyglass_billing_worker;
 GRANT SELECT ON affiliate_enrollments, affiliate_commission_rules TO spyglass_billing_worker;
@@ -194,7 +196,7 @@ GRANT SELECT ON accounts, entitlement_snapshots TO spyglass_integration_connecto
 
 GRANT SELECT ON account_erasure_restore_ledger, accounts, account_directory,
   account_closure_requests, account_lifecycle_events, account_membership_events,
-  invitations, memberships, billing_checkout_attempts, billing_profiles, subscriptions,
+  invitations, memberships, account_commissioning_purchases, billing_checkout_attempts, billing_profiles, subscriptions,
   entitlement_grants, entitlement_snapshots, entitlement_usage_counters, affiliate_attributions
   TO spyglass_account_export_build_worker;
 GRANT SELECT ON account_export_requests TO spyglass_account_export_build_worker;

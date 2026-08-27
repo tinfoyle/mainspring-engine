@@ -84,7 +84,7 @@ func (r *CommercialAccessRepository) BillingStatus(ctx context.Context, accountI
 	return status, rows.Err()
 }
 
-func (r *CommercialAccessRepository) BeginCheckout(ctx context.Context, accountID ids.AccountID, offerCode, mode, requestID string, now time.Time) (commercialaccess.CheckoutReservation, error) {
+func (r *CommercialAccessRepository) BeginCheckout(ctx context.Context, accountID ids.AccountID, offerCode string, commissioning *commercialaccess.PurchaseSnapshot, mode, requestID string, now time.Time) (commercialaccess.CheckoutReservation, error) {
 	// The account-scoped advisory lock is the serialization boundary. At
 	// READ COMMITTED, a contender that waited for the lock observes the
 	// winner's reservation instead of continuing with a stale transaction
@@ -98,26 +98,35 @@ func (r *CommercialAccessRepository) BeginCheckout(ctx context.Context, accountI
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); err != nil {
 		return commercialaccess.CheckoutReservation{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE billing_checkout_attempts SET state='expired',updated_at=$2 WHERE account_id=$1 AND provider='stripe' AND mode=$3 AND state='active' AND expires_at<=$2`, accountID, now.UTC(), mode); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE billing_checkout_attempts SET state='expired',updated_at=$2 WHERE account_id=$1 AND provider='stripe' AND mode=$3 AND purchase_kind='subscription' AND state='active' AND expires_at<=$2`, accountID, now.UTC(), mode); err != nil {
 		return commercialaccess.CheckoutReservation{}, err
 	}
-	var existingRequest, existingOffer, sessionID, hostedURL string
+	var existingRequest, existingOffer, existingCommissioning, sessionID, hostedURL string
 	var expiresAt time.Time
-	err = tx.QueryRow(ctx, `SELECT request_id,offer_code,COALESCE(provider_session_id,''),COALESCE(hosted_url,''),expires_at FROM billing_checkout_attempts WHERE account_id=$1 AND provider='stripe' AND mode=$2 AND state='active'`, accountID, mode).Scan(&existingRequest, &existingOffer, &sessionID, &hostedURL, &expiresAt)
+	err = tx.QueryRow(ctx, `SELECT request_id,offer_code,COALESCE(commissioning_code,''),COALESCE(provider_session_id,''),COALESCE(hosted_url,''),expires_at FROM billing_checkout_attempts WHERE account_id=$1 AND provider='stripe' AND mode=$2 AND purchase_kind='subscription' AND state='active'`, accountID, mode).Scan(&existingRequest, &existingOffer, &existingCommissioning, &sessionID, &hostedURL, &expiresAt)
 	if err == nil {
 		if err := tx.Commit(ctx); err != nil {
 			return commercialaccess.CheckoutReservation{}, err
 		}
-		if existingOffer == offerCode && sessionID != "" && hostedURL != "" {
+		commissioningCode := ""
+		if commissioning != nil {
+			commissioningCode = commissioning.ItemCode
+		}
+		if existingOffer == offerCode && existingCommissioning == commissioningCode && sessionID != "" && hostedURL != "" {
 			session := billing.HostedSession{ID: sessionID, URL: hostedURL, ExpiresAt: expiresAt.UTC()}
 			return commercialaccess.CheckoutReservation{Resume: &session}, nil
 		}
-		return commercialaccess.CheckoutReservation{Proceed: existingRequest == requestID && existingOffer == offerCode}, nil
+		return commercialaccess.CheckoutReservation{Proceed: existingRequest == requestID && existingOffer == offerCode && existingCommissioning == commissioningCode}, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return commercialaccess.CheckoutReservation{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO billing_checkout_attempts (request_id,account_id,provider,mode,offer_code,state,expires_at,created_at,updated_at) VALUES ($1,$2,'stripe',$3,$4,'active',$5,$6,$6)`, requestID, accountID, mode, offerCode, now.UTC().Add(30*time.Minute), now.UTC())
+	var commissioningCode any
+	var commissioningVersion, commissioningCatalog any
+	if commissioning != nil {
+		commissioningCode, commissioningVersion, commissioningCatalog = commissioning.ItemCode, commissioning.ItemVersion, commissioning.CatalogVersion
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO billing_checkout_attempts (request_id,account_id,provider,mode,offer_code,state,expires_at,created_at,updated_at,commissioning_code,commissioning_version,commissioning_catalog_version) VALUES ($1,$2,'stripe',$3,$4,'active',$5,$6,$6,$7,$8,$9)`, requestID, accountID, mode, offerCode, now.UTC().Add(30*time.Minute), now.UTC(), commissioningCode, commissioningVersion, commissioningCatalog)
 	if err != nil {
 		return commercialaccess.CheckoutReservation{}, err
 	}
@@ -125,6 +134,63 @@ func (r *CommercialAccessRepository) BeginCheckout(ctx context.Context, accountI
 		return commercialaccess.CheckoutReservation{}, err
 	}
 	return commercialaccess.CheckoutReservation{Proceed: true}, nil
+}
+
+func (r *CommercialAccessRepository) BeginOneTimeCheckout(ctx context.Context, purchase commercialaccess.PurchaseSnapshot, mode, requestID string, now time.Time) (commercialaccess.CheckoutReservation, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return commercialaccess.CheckoutReservation{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	lockKey := string(purchase.AccountID) + "/stripe/" + mode + "/" + string(purchase.Kind)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, lockKey); err != nil {
+		return commercialaccess.CheckoutReservation{}, err
+	}
+	if purchase.Kind == billing.PurchaseCommissioning {
+		var owned bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account_commissioning_purchases WHERE account_id=$1)`, purchase.AccountID).Scan(&owned); err != nil {
+			return commercialaccess.CheckoutReservation{}, err
+		}
+		if owned {
+			return commercialaccess.CheckoutReservation{}, commercialaccess.ErrCommissioningOwned
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE billing_checkout_attempts SET state='expired',updated_at=$3 WHERE account_id=$1 AND provider='stripe' AND mode=$2 AND purchase_kind=$4 AND state='active' AND expires_at<=$3`, purchase.AccountID, mode, now.UTC(), purchase.Kind); err != nil {
+		return commercialaccess.CheckoutReservation{}, err
+	}
+	var existingRequest, existingCode, sessionID, hostedURL string
+	var existingVersion, existingCatalog uint64
+	var expiresAt time.Time
+	err = tx.QueryRow(ctx, `SELECT request_id,offer_code,item_version,catalog_version,COALESCE(provider_session_id,''),COALESCE(hosted_url,''),expires_at FROM billing_checkout_attempts WHERE account_id=$1 AND provider='stripe' AND mode=$2 AND purchase_kind=$3 AND state='active'`, purchase.AccountID, mode, purchase.Kind).Scan(&existingRequest, &existingCode, &existingVersion, &existingCatalog, &sessionID, &hostedURL, &expiresAt)
+	if err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return commercialaccess.CheckoutReservation{}, err
+		}
+		matches := existingRequest == requestID && existingCode == purchase.ItemCode && existingVersion == purchase.ItemVersion && existingCatalog == purchase.CatalogVersion
+		if matches && sessionID != "" && hostedURL != "" {
+			session := billing.HostedSession{ID: sessionID, URL: hostedURL, ExpiresAt: expiresAt.UTC()}
+			return commercialaccess.CheckoutReservation{Resume: &session}, nil
+		}
+		return commercialaccess.CheckoutReservation{Proceed: matches}, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return commercialaccess.CheckoutReservation{}, err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO billing_checkout_attempts (request_id,account_id,provider,mode,purchase_kind,offer_code,item_version,catalog_version,currency,amount_minor,quantity,state,expires_at,created_at,updated_at) VALUES ($1,$2,'stripe',$3,$4,$5,$6,$7,$8,$9,$10,'active',$11,$12,$12)`, requestID, purchase.AccountID, mode, purchase.Kind, purchase.ItemCode, purchase.ItemVersion, purchase.CatalogVersion, purchase.Currency, purchase.AmountMinor, nullablePositive(purchase.Quantity), now.UTC().Add(30*time.Minute), now.UTC())
+	if err != nil {
+		return commercialaccess.CheckoutReservation{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return commercialaccess.CheckoutReservation{}, err
+	}
+	return commercialaccess.CheckoutReservation{Proceed: true}, nil
+}
+
+func nullablePositive(value int64) any {
+	if value <= 0 {
+		return nil
+	}
+	return value
 }
 
 func (r *CommercialAccessRepository) CompleteCheckout(ctx context.Context, accountID ids.AccountID, requestID string, session billing.HostedSession, now time.Time) error {
@@ -137,6 +203,24 @@ func (r *CommercialAccessRepository) CompleteCheckout(ctx context.Context, accou
 		return errors.New("billing checkout reservation was lost")
 	}
 	return err
+}
+
+func (r *CommercialAccessRepository) CompleteOneTimeCheckout(ctx context.Context, accountID ids.AccountID, requestID string, session billing.HostedSession, now time.Time) error {
+	expires := session.ExpiresAt.UTC()
+	if expires.IsZero() || !expires.After(now) {
+		expires = now.UTC().Add(24 * time.Hour)
+	}
+	command, err := r.pool.Exec(ctx, `UPDATE billing_checkout_attempts SET provider_session_id=$3,hosted_url=$4,expires_at=$5,updated_at=$6 WHERE request_id=$1 AND account_id=$2 AND purchase_kind<>'subscription' AND state='active'`, requestID, accountID, session.ID, session.URL, expires, now.UTC())
+	if err == nil && command.RowsAffected() != 1 {
+		return errors.New("one-time billing checkout reservation was lost")
+	}
+	return err
+}
+
+func (r *CommercialAccessRepository) CommissioningPurchased(ctx context.Context, accountID ids.AccountID) (bool, error) {
+	var purchased bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM account_commissioning_purchases WHERE account_id=$1)`, accountID).Scan(&purchased)
+	return purchased, err
 }
 
 var _ commercialaccess.Repository = (*CommercialAccessRepository)(nil)

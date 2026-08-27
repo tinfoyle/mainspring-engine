@@ -35,6 +35,19 @@ export interface AITokenBundle {
   readonly "version": number;
 }
 
+export interface AITokenPromotionGrant {
+  readonly "catalog_version": number;
+  readonly "created_at": string;
+  readonly "definition_code": string;
+  readonly "expires_at": string;
+  readonly "quantity": number;
+}
+
+export interface AITokenPromotionRedemption {
+  readonly "balance": AITokenBalance;
+  readonly "grant": AITokenPromotionGrant;
+}
+
 export interface AITokenRenewalGrant {
   readonly "code": string;
   readonly "disclosure": string;
@@ -914,6 +927,15 @@ export interface CloseFinancePeriodRequest {
   readonly "through": string;
 }
 
+export interface CommissioningOffer {
+  readonly "amount_minor": number;
+  readonly "code": string;
+  readonly "currency": "USD";
+  readonly "disclosure": string;
+  readonly "effective_from": string;
+  readonly "version": number;
+}
+
 export interface CompleteContactChangeRequest {
   readonly "token": string;
 }
@@ -1000,6 +1022,7 @@ export interface CreateBaselineSourceGrantRequest {
 
 export interface CreateCheckoutSessionRequest {
   readonly "affiliate_code"?: string;
+  readonly "include_commissioning"?: boolean;
   readonly "offer_code": string;
 }
 
@@ -1067,6 +1090,11 @@ export interface CreateMarketingReleaseRequest {
   readonly "campaign_version": number;
   readonly "channels": ReadonlyArray<MarketingChannel>;
   readonly "name": string;
+}
+
+export interface CreatePurchaseCheckoutSessionRequest {
+  readonly "item_code": string;
+  readonly "kind": PurchaseKind;
 }
 
 export interface CreateScheduleRequest {
@@ -2172,6 +2200,7 @@ export interface PublicCatalog {
   readonly "ai_complexity_rates": ReadonlyArray<AIComplexityRate>;
   readonly "ai_token_bundles": ReadonlyArray<AITokenBundle>;
   readonly "ai_token_renewal_grant": AITokenRenewalGrant;
+  readonly "commissioning_offer"?: CommissioningOffer;
   readonly "limits": ReadonlyArray<CatalogLimitDefinition>;
   readonly "offers": ReadonlyArray<CatalogOffer>;
   readonly "packages": ReadonlyArray<CatalogFeaturePackage>;
@@ -2194,6 +2223,8 @@ export interface PublishKnowledgeDocumentRequest {
   readonly "revision_id": string;
 }
 
+export type PurchaseKind = "ai_token_top_up" | "commissioning";
+
 export interface ReauthenticateRequest {
   readonly "password": string;
 }
@@ -2213,6 +2244,10 @@ export interface RecoveryCodeStatus {
   readonly "created_at"?: string;
   readonly "remaining": number;
   readonly "version"?: number;
+}
+
+export interface RedeemAITokenPromotionRequest {
+  readonly "promotion_code": string;
 }
 
 export interface RegisterKnowledgeEvidenceRequest {
@@ -2615,6 +2650,8 @@ export interface ApiSchemas {
   readonly AIComplexityRate: AIComplexityRate;
   readonly AITokenBalance: AITokenBalance;
   readonly AITokenBundle: AITokenBundle;
+  readonly AITokenPromotionGrant: AITokenPromotionGrant;
+  readonly AITokenPromotionRedemption: AITokenPromotionRedemption;
   readonly AITokenRenewalGrant: AITokenRenewalGrant;
   readonly AcceptInvitationRequest: AcceptInvitationRequest;
   readonly AcceptedMembership: AcceptedMembership;
@@ -2736,6 +2773,7 @@ export interface ApiSchemas {
   readonly ChangeMembershipRoleRequest: ChangeMembershipRoleRequest;
   readonly ChangeMembershipStateRequest: ChangeMembershipStateRequest;
   readonly CloseFinancePeriodRequest: CloseFinancePeriodRequest;
+  readonly CommissioningOffer: CommissioningOffer;
   readonly CompleteContactChangeRequest: CompleteContactChangeRequest;
   readonly CompletePasskeyLoginRequest: CompletePasskeyLoginRequest;
   readonly CompletePasskeyReauthenticationRequest: CompletePasskeyReauthenticationRequest;
@@ -2760,6 +2798,7 @@ export interface ApiSchemas {
   readonly CreateMarketingAssetRevisionRequest: CreateMarketingAssetRevisionRequest;
   readonly CreateMarketingCampaignRequest: CreateMarketingCampaignRequest;
   readonly CreateMarketingReleaseRequest: CreateMarketingReleaseRequest;
+  readonly CreatePurchaseCheckoutSessionRequest: CreatePurchaseCheckoutSessionRequest;
   readonly CreateScheduleRequest: CreateScheduleRequest;
   readonly CreateWorkRequest: CreateWorkRequest;
   readonly CreateWorkReviewRequest: CreateWorkReviewRequest;
@@ -2922,10 +2961,12 @@ export interface ApiSchemas {
   readonly PublicCatalog: PublicCatalog;
   readonly PublishAgentPersonaRequest: PublishAgentPersonaRequest;
   readonly PublishKnowledgeDocumentRequest: PublishKnowledgeDocumentRequest;
+  readonly PurchaseKind: PurchaseKind;
   readonly ReauthenticateRequest: ReauthenticateRequest;
   readonly RecoveryAccepted: RecoveryAccepted;
   readonly RecoveryCodeRotation: RecoveryCodeRotation;
   readonly RecoveryCodeStatus: RecoveryCodeStatus;
+  readonly RedeemAITokenPromotionRequest: RedeemAITokenPromotionRequest;
   readonly RegisterKnowledgeEvidenceRequest: RegisterKnowledgeEvidenceRequest;
   readonly RegistrationAccepted: RegistrationAccepted;
   readonly RegistrationCompleted: RegistrationCompleted;

@@ -83,6 +83,15 @@ func (r *CatalogAdminRepository) MapPrice(ctx context.Context, version uint64, o
 			break
 		}
 	}
+	for _, bundle := range content.AITokenBundles {
+		if bundle.Code == offerCode && bundle.AmountMinor > 0 {
+			paidOffer = true
+			break
+		}
+	}
+	if content.CommissioningOffer != nil && content.CommissioningOffer.Code == offerCode && content.CommissioningOffer.AmountMinor > 0 {
+		paidOffer = true
+	}
 	if !paidOffer {
 		return catalogadmin.ErrOfferMapping
 	}
@@ -274,6 +283,14 @@ func offerMappingsComplete(ctx context.Context, tx pgx.Tx, version uint64, raw [
 		if offer.AmountMinor > 0 && !mapped[offer.Code] {
 			return false, nil
 		}
+	}
+	for _, bundle := range content.AITokenBundles {
+		if bundle.AmountMinor > 0 && !mapped[bundle.Code] {
+			return false, nil
+		}
+	}
+	if content.CommissioningOffer != nil && content.CommissioningOffer.AmountMinor > 0 && !mapped[content.CommissioningOffer.Code] {
+		return false, nil
 	}
 	return true, nil
 }

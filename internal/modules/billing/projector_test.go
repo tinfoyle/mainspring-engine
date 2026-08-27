@@ -20,6 +20,9 @@ func (*projectionProvider) CreateCustomer(context.Context, CreateCustomerCommand
 func (*projectionProvider) CreateCheckoutSession(context.Context, CreateCheckoutCommand) (HostedSession, error) {
 	panic("unused")
 }
+func (*projectionProvider) CreateOneTimeCheckoutSession(context.Context, CreateOneTimeCheckoutCommand) (HostedSession, error) {
+	panic("unused")
+}
 func (*projectionProvider) CreatePortalSession(context.Context, CreatePortalCommand) (HostedSession, error) {
 	panic("unused")
 }

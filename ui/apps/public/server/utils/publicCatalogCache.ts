@@ -3,6 +3,7 @@ import type {
   AIComplexityRate,
   AITokenBundle,
   AITokenRenewalGrant,
+  CommissioningOffer,
   CatalogFeaturePackage,
   CatalogLimitDefinition,
   CatalogOffer,
@@ -163,6 +164,12 @@ function copyTokenBundle(value: unknown, index: number): AITokenBundle {
   return { code: asString(item.code, `ai_token_bundles[${index}].code`), version: asInteger(item.version, `ai_token_bundles[${index}].version`, 1), quantity: asInteger(item.quantity, `ai_token_bundles[${index}].quantity`, 1), currency: "USD", amount_minor: asInteger(item.amount_minor, `ai_token_bundles[${index}].amount_minor`, 1), effective_from: asDate(item.effective_from, `ai_token_bundles[${index}].effective_from`), disclosure: asString(item.disclosure, `ai_token_bundles[${index}].disclosure`) };
 }
 
+function copyCommissioningOffer(value: unknown): CommissioningOffer {
+  const item = asRecord(value, "commissioning_offer");
+  if (item.currency !== "USD") fail("commissioning_offer.currency is invalid");
+  return { code: asString(item.code, "commissioning_offer.code"), version: asInteger(item.version, "commissioning_offer.version", 1), currency: "USD", amount_minor: asInteger(item.amount_minor, "commissioning_offer.amount_minor", 1), effective_from: asDate(item.effective_from, "commissioning_offer.effective_from"), disclosure: asString(item.disclosure, "commissioning_offer.disclosure") };
+}
+
 function copyComplexityRate(value: unknown, index: number): AIComplexityRate {
   const item = asRecord(value, `ai_complexity_rates[${index}]`);
   const complexity = asString(item.complexity, `ai_complexity_rates[${index}].complexity`) as AIComplexity;
@@ -183,6 +190,7 @@ export function normalizePublicCatalog(value: unknown): PublicCatalog {
   const offers = asArray(source.offers, "offers").map(copyOffer);
   const aiTokenRenewalGrant = copyRenewalGrant(source.ai_token_renewal_grant);
   const aiTokenBundles = asArray(source.ai_token_bundles, "ai_token_bundles").map(copyTokenBundle);
+  const commissioningOffer = source.commissioning_offer === undefined ? undefined : copyCommissioningOffer(source.commissioning_offer);
   const aiComplexityRates = asArray(source.ai_complexity_rates, "ai_complexity_rates").map(copyComplexityRate);
   assertUnique(packages.map((item) => item.code), "packages");
   assertUnique(limits.map((item) => item.code), "limits");
@@ -211,6 +219,7 @@ export function normalizePublicCatalog(value: unknown): PublicCatalog {
     ai_complexity_rates: aiComplexityRates,
     ai_token_bundles: aiTokenBundles,
     ai_token_renewal_grant: aiTokenRenewalGrant,
+    ...(commissioningOffer ? { commissioning_offer: commissioningOffer } : {}),
     limits,
     offers,
     packages,

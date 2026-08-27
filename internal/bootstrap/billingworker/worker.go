@@ -13,6 +13,7 @@ import (
 	stripeadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateprogram"
 	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
+	"github.com/tinfoyle/spyglass-engine/internal/application/commercialaccess"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -103,6 +104,11 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
+	purchaseProjector, err := commercialaccess.NewBillingEventProjector(postgres.NewCommercialAccessRepository(pool), tokenIssuer)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	affiliateService, err := affiliateprogram.New(postgres.NewAffiliateProgramRepository(pool), ids.RandomGenerator{}, affiliateprogram.RandomCodeGenerator{}, clock, 1, 1)
 	if err != nil {
 		pool.Close()
@@ -113,7 +119,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	processor, err := billing.NewProcessor(postgres.NewBillingInbox(pool), billing.SequenceHandler{projector, tokenProjector, affiliateProjector}, clock, 2*time.Minute)
+	processor, err := billing.NewProcessor(postgres.NewBillingInbox(pool), billing.SequenceHandler{projector, tokenProjector, purchaseProjector, affiliateProjector}, clock, 2*time.Minute)
 	if err != nil {
 		pool.Close()
 		return nil, err

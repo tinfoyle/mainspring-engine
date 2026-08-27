@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/aitokenledger"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/aitokens"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -34,4 +35,45 @@ func TestAITokenReservationRetryKeepsOriginalRateAfterCatalogChange(t *testing.T
 	if err != nil || retried.ID != first.ID || retried.Rate.Code != originalRate.Code || retried.Rate.InternalModel != originalRate.InternalModel || balance.Reserved != originalRate.MaximumReservation {
 		t.Fatalf("first=%+v retried=%+v balance=%+v err=%v", first, retried, balance, err)
 	}
+}
+
+func TestAITokenPromotionEnforcesAccountAndCampaignCaps(t *testing.T) {
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	firstAccount := ids.AccountID("10000000-0000-4000-8000-000000000001")
+	secondAccount := ids.AccountID("10000000-0000-4000-8000-000000000002")
+	ledger := NewAITokenLedger()
+	grant := promotionGrant(t, "30000000-0000-4000-8000-000000000003", firstAccount, "40000000-0000-4000-8000-000000000004", now)
+	if _, _, err := ledger.Issue(context.Background(), grant, false); err != aitokens.ErrInvalidGrant {
+		t.Fatalf("generic promotion issue bypass error = %v", err)
+	}
+	first, _, err := ledger.RedeemPromotion(context.Background(), grant, 3, 1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retried, _, err := ledger.RedeemPromotion(context.Background(), grant, 3, 1, 2)
+	if err != nil || retried.ID != first.ID {
+		t.Fatalf("retry=%+v err=%v", retried, err)
+	}
+	secondForAccount := promotionGrant(t, "30000000-0000-4000-8000-000000000005", firstAccount, "40000000-0000-4000-8000-000000000006", now)
+	if _, _, err := ledger.RedeemPromotion(context.Background(), secondForAccount, 3, 1, 2); err != aitokenledger.ErrPromotionAccountLimit {
+		t.Fatalf("Account limit error = %v", err)
+	}
+	second := promotionGrant(t, "30000000-0000-4000-8000-000000000007", secondAccount, "40000000-0000-4000-8000-000000000008", now)
+	if _, _, err := ledger.RedeemPromotion(context.Background(), second, 3, 1, 2); err != nil {
+		t.Fatal(err)
+	}
+	third := promotionGrant(t, "30000000-0000-4000-8000-000000000009", ids.AccountID("10000000-0000-4000-8000-000000000009"), "40000000-0000-4000-8000-000000000010", now)
+	if _, _, err := ledger.RedeemPromotion(context.Background(), third, 3, 1, 2); err != aitokenledger.ErrPromotionIssuanceLimit {
+		t.Fatalf("campaign limit error = %v", err)
+	}
+}
+
+func promotionGrant(t *testing.T, id string, accountID ids.AccountID, requestID string, now time.Time) aitokens.Grant {
+	t.Helper()
+	expiresAt := now.Add(30 * 24 * time.Hour)
+	grant, err := aitokens.NewGrant(ids.AITokenGrantID(id), accountID, aitokens.OriginPromotion, "launch_bonus", 7, requestID, 1_000, &expiresAt, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return grant
 }

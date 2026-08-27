@@ -105,6 +105,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	nextCatalog := catalog.Default(adminNow)
+	nextCatalog.AITokenPromotions = []catalog.AITokenPromotion{{Code: "launch_bonus", Version: 1, Quantity: 1_000_000, EffectiveFrom: adminNow.Add(-time.Hour), EffectiveUntil: adminNow.Add(30 * 24 * time.Hour), ExpiresAfterDays: 30, RedemptionsPerAccount: 1, IssuanceCap: 100, Stacking: "none", Disclosure: "One launch bonus per Account."}}
 	nextCatalog.Plans = append(nextCatalog.Plans, catalog.Plan{Code: "free", Version: 1, Name: "Legacy Free", Description: "Rollback-only legacy access.", Packages: map[catalog.PackageCode]catalog.PackageMode{catalog.PackageKnowledge: catalog.ModeEnabled}})
 	for index := range nextCatalog.Packages {
 		if nextCatalog.Packages[index].Code == catalog.PackageKnowledge {
@@ -121,7 +122,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil || draft.Version != 3 || draft.State != catalogadmin.StateDraft {
 		t.Fatalf("create catalog draft = %+v, %v", draft, err)
 	}
-	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v2", "price_catalog_team_test"}} {
+	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v2", "price_catalog_team_test"}, {"tokens_10k_v1", "price_catalog_tokens_test"}, {"commissioning_v1", "price_catalog_commissioning_test"}} {
 		if err := adminService.MapStripePrice(ctx, draft.Version, mapping.offer, "test", mapping.price, "catalog-author@example.com", "attach reviewed Stripe test price mapping"); err != nil {
 			t.Fatalf("map catalog offer %s: %v", mapping.offer, err)
 		}
@@ -160,7 +161,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 		t.Fatalf("republished catalog = %d, %v", rolledForward.Version, err)
 	}
 	var catalogAuditEvents int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM catalog_operator_events WHERE catalog_version=$1`, draft.Version).Scan(&catalogAuditEvents); err != nil || catalogAuditEvents != 7 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM catalog_operator_events WHERE catalog_version=$1`, draft.Version).Scan(&catalogAuditEvents); err != nil || catalogAuditEvents != 9 {
 		t.Fatalf("catalog audit events = %d, %v", catalogAuditEvents, err)
 	}
 	incomplete, err := adminService.CreateDraft(ctx, catalog.Default(adminNow), "catalog-author@example.com", "verify paid offers require provider mappings")
@@ -337,6 +338,29 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil || releasedTokens.State != aitokens.ReservationReleased || releasedTokens.Settled != 0 || tokenBalance.Reserved != 0 {
 		t.Fatalf("release unstarted AI Token reservation: reservation=%+v balance=%+v err=%v", releasedTokens, tokenBalance, err)
 	}
+	promotionRequestID := ids.RandomGenerator{}.New()
+	promotionExpiry := now.Add(30 * 24 * time.Hour)
+	promotionGrant, err := aitokens.NewGrant(ids.AITokenGrantID(ids.RandomGenerator{}.New()), provisioned.Account.ID, aitokens.OriginPromotion, "launch_bonus", rolledForward.Version, promotionRequestID, 1_000_000, &promotionExpiry, now.Add(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuedPromotion, tokenBalance, err := tokenRepository.RedeemPromotion(ctx, promotionGrant, 1, 1, 100)
+	if err != nil || issuedPromotion.ID != promotionGrant.ID || tokenBalance.Promotion != promotionGrant.Quantity {
+		t.Fatalf("redeem AI Token promotion: grant=%+v balance=%+v err=%v", issuedPromotion, tokenBalance, err)
+	}
+	promotionRetry := promotionGrant
+	promotionRetry.ID = ids.AITokenGrantID(ids.RandomGenerator{}.New())
+	issuedPromotion, _, err = tokenRepository.RedeemPromotion(ctx, promotionRetry, 1, 1, 100)
+	if err != nil || issuedPromotion.ID != promotionGrant.ID {
+		t.Fatalf("idempotent AI Token promotion: grant=%+v err=%v", issuedPromotion, err)
+	}
+	secondPromotion, err := aitokens.NewGrant(ids.AITokenGrantID(ids.RandomGenerator{}.New()), provisioned.Account.ID, aitokens.OriginPromotion, "launch_bonus", rolledForward.Version, ids.RandomGenerator{}.New(), 1_000_000, &promotionExpiry, now.Add(5*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := tokenRepository.RedeemPromotion(ctx, secondPromotion, 1, 1, 100); !errors.Is(err, aitokenledger.ErrPromotionAccountLimit) {
+		t.Fatalf("AI Token promotion Account cap result = %v", err)
+	}
 	attributedInvitation := invitations.Message{AccountID: provisioned.Account.ID, Email: "member@example.com", AccountName: provisioned.Account.DisplayName, Token: "account-attributed-invitation", Role: accounts.RoleMember, ExpiresAt: now.Add(time.Hour)}
 	if err := queuedSender.SendInvitation(ctx, attributedInvitation); err != nil {
 		t.Fatalf("enqueue Account-attributed notification: %v", err)
@@ -435,7 +459,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v2", "price_catalog_later_team"}} {
+	for _, mapping := range []struct{ offer, price string }{{"team-monthly-v2", "price_catalog_later_team"}, {"tokens_10k_v1", "price_catalog_later_tokens"}, {"commissioning_v1", "price_catalog_later_commissioning"}} {
 		if err := adminService.MapStripePrice(ctx, laterDraft.Version, mapping.offer, "test", mapping.price, "catalog-author@example.com", "attach second-version Stripe test mapping"); err != nil {
 			t.Fatal(err)
 		}
@@ -938,7 +962,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 		group.Add(1)
 		go func(requestID string) {
 			defer group.Done()
-			reservation, err := commercial.BeginCheckout(ctx, provisioned.Account.ID, "team-monthly-v2", "test", requestID, now)
+			reservation, err := commercial.BeginCheckout(ctx, provisioned.Account.ID, "team-monthly-v2", nil, "test", requestID, now)
 			results <- reservationResult{request: requestID, value: reservation.Proceed, err: err}
 		}(requestID)
 	}
@@ -963,7 +987,7 @@ func TestPostgresRegistrationCatalogAndCheckoutContracts(t *testing.T) {
 	if err := commercial.CompleteCheckout(ctx, provisioned.Account.ID, proceedingRequest, hosted, now); err != nil {
 		t.Fatalf("complete checkout reservation: %v", err)
 	}
-	resumed, err := commercial.BeginCheckout(ctx, provisioned.Account.ID, "team-monthly-v2", "test", ids.RandomGenerator{}.New(), now)
+	resumed, err := commercial.BeginCheckout(ctx, provisioned.Account.ID, "team-monthly-v2", nil, "test", ids.RandomGenerator{}.New(), now)
 	if err != nil || resumed.Resume == nil || resumed.Resume.ID != hosted.ID {
 		t.Fatalf("resume checkout = %+v, %v", resumed, err)
 	}
@@ -1011,7 +1035,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 138 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 139 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)
