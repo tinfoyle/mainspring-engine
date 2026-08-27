@@ -1,6 +1,6 @@
 # Release artifacts and provenance
 
-Status: RC.6 is the active Hostinger Stage review candidate; it passed local AMD64 admission but is deliberately not production-promotable because GitHub-hosted release jobs did not execute. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
+Status: RC.7 is the active Hostinger Stage review candidate; it passed local AMD64 admission but is deliberately not production-promotable because the signed GitHub release path was unavailable. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
 
 Spyglass uses one shared, multi-mode application image for Account API, routers, cell APIs, private brokers, workers, runner execution, migrations, and one-shot operator commands. Runtime arguments choose the workload class. Kubernetes ServiceAccounts, NetworkPolicies, mounted credentials, database roles, and workload certificates—not separate per-customer builds—bound each process's authority. Ordinary Accounts never create an image, Deployment, namespace, or long-running container.
 
@@ -99,6 +99,26 @@ current Stage review and cannot be promoted to LKE. Production requires a new
 complete-product release whose application/public/private artifacts all pass
 the normal GitHub release workflows and independent verification.
 
+## RC.7 notification-deliverability correction
+
+RC.7 is recorded in `deploy/releases/0.3.0-rc.7.env` and was built from source
+revision `17459944f1d53c48a293b6541ced9a0f5129ed22`. It adds a unique,
+sender-domain-aligned RFC 5322 `Message-ID` to every SMTP notification after
+Gmail acceptance showed `SMTPIN_ADDED_MISSING` on RC.6 verification and
+password-reset messages.
+
+| Artifact | Immutable Stage reference |
+|---|---|
+| Application | `ghcr.io/tinfoyle/spyglass-engine@sha256:7aeafaf4e2a7c0ce3541f321c75a23e4f1f0d6225958ba9a77cd3b6342f07dcc` |
+| Public UI | `ghcr.io/tinfoyle/infinite-ocean-public-ui@sha256:3cfec6c91174a93fd202cb3c9ed7bf3bd2cfa5698108ff9f676dbb335d50aac0` |
+| Private UI | `ghcr.io/tinfoyle/infinite-ocean-private-ui@sha256:bc464c333c821c3e68e4b0c787200b4abd12e7c5c588305360c2cef6183bbe60` |
+
+All three native Linux AMD64 images passed the pinned Trivy high/critical
+vulnerability and secret gate and are active on Stage from deployment checkout
+`6e8c3eb158eb6642f731658c10f264d4a87be96d`. Like RC.6, this fallback has no
+workflow-produced multi-architecture manifest, attached SBOM/provenance or
+keyless signature and is not production-promotable.
+
 ## RC.4 and RC.5 independent evidence
 
 Verification from Docker in `ubunturojo` used Cosign 3.1.3 image digest `sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8` and Trivy 0.74.0 image digest `sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969`:
@@ -134,4 +154,4 @@ Promotion reuses the same digest through staging, internal canary, customer cana
 
 ## Remaining release evidence
 
-RC.4/RC.5 independent evidence, the earlier signed Phase 3 checkpoints and RC.6 connected Stage evidence are recorded. Before final promotion, publish a complete-product immutable application/public/private triple, independently verify each signature/provenance/SBOM/scan set, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-triple staged rollback remain launch gates.
+RC.4/RC.5 independent evidence, the earlier signed Phase 3 checkpoints and RC.6/RC.7 connected Stage evidence are recorded. Before final promotion, publish a complete-product immutable application/public/private triple, independently verify each signature/provenance/SBOM/scan set, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-triple staged rollback remain launch gates.
