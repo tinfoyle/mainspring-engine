@@ -141,6 +141,7 @@ test.afterEach(() => {
 test("landing consent gates analytics and preserves the signup handoff", async ({ page }, testInfo) => {
   await page.goto("http://127.0.0.1:4174/");
   await expect(page.getByRole("heading", { level: 1, name: "Know what needs you next." })).toBeVisible();
+  await expect(page.locator(".turn-preview")).toHaveCSS("transform", "none");
   await expect(page.getByRole("heading", { name: "Privacy without the fog" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
