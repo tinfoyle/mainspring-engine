@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 
 ARG NODE_IMAGE=node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
-ARG CADDY_IMAGE=caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+ARG GO_IMAGE=golang:1.26.6-alpine3.23@sha256:e57c41c1d5864341031181b0db34b9a537bb5773eb6428e4e5bdaea0f9135406
 ARG PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
 
 FROM ${NODE_IMAGE} AS dependencies
@@ -22,6 +22,14 @@ RUN npm run build --workspace=@spyglass/app
 
 FROM source AS public-build
 RUN npm run build --workspace=@spyglass/public
+
+FROM ${GO_IMAGE} AS static-server-build
+ARG TARGETARCH=amd64
+WORKDIR /src
+COPY runtime/static-server/main.go ./main.go
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} \
+    go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o /out/static-server ./main.go
 
 FROM ${PLAYWRIGHT_IMAGE} AS browser-source
 WORKDIR /workspace
@@ -60,7 +68,7 @@ FROM source AS test
 COPY --from=browser-test /tmp/spyglass-private-browser-passed /tmp/spyglass-private-browser-passed
 RUN test -f /tmp/spyglass-private-browser-passed && npm run verify && npm audit --audit-level=high
 
-FROM ${CADDY_IMAGE} AS app-runtime
+FROM scratch AS app-runtime
 ARG VERSION=development
 ARG REVISION=unknown
 ARG CREATED=unknown
@@ -69,14 +77,13 @@ LABEL org.opencontainers.image.title="Infinite Ocean Spyglass customer applicati
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${CREATED}" \
       org.opencontainers.image.licenses="Proprietary"
-RUN setcap -r /usr/bin/caddy
-COPY Caddyfile.app /etc/caddy/Caddyfile
+COPY --from=static-server-build --chown=65532:65532 /out/static-server /static-server
 COPY --from=app-build --chown=65532:65532 /workspace/apps/app/dist /srv
 USER 65532:65532
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
-  CMD ["wget", "--spider", "--quiet", "http://127.0.0.1:8080/health/ready"]
-CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+  CMD ["/static-server", "healthcheck"]
+ENTRYPOINT ["/static-server"]
 
 FROM ${NODE_IMAGE} AS public-runtime
 ARG VERSION=development
