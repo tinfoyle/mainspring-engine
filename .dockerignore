@@ -1,11 +1,6 @@
 *
 !Dockerfile
 !.dockerignore
-!.github/
-!.github/workflows/
-!.github/workflows/release-image.yml
-!.github/workflows/release-website-image.yml
-!.github/workflows/verify.yml
 !go.mod
 !go.sum
 !cmd/
@@ -18,6 +13,9 @@
 !api/**
 !deploy/
 !deploy/package-surface-inventory.json
+!deploy/docker/
+!deploy/docker/spyglass/
+!deploy/docker/spyglass/publish-stage-release.sh
 !docs/
 !docs/production/
 !docs/production/api-mcp-interaction-guide.md

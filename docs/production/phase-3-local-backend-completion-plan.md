@@ -53,7 +53,7 @@ LB1 through LB5 close those gaps. LB6 extends movement/export/erasure/restore co
 
 The following work is deliberately deferred, not silently discarded:
 
-- Git pushes and the GitHub Actions activity they trigger;
+- Git pushes and any remote publication or deployment activity;
 - GHCR image construction, signing, attestation, vulnerability admission and release records;
 - any Stage secret, database, container, Catalog or application mutation;
 - live-provider Stage acceptance;

@@ -3,7 +3,6 @@ package architecture_test
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -34,55 +33,44 @@ func TestReleaseImageContract(t *testing.T) {
 		t.Fatal("Docker context is not allowlist-only")
 	}
 
-	checkReleaseWorkflow(t, readReleaseFile(t, filepath.Join(root, ".github", "workflows", "release-image.yml")))
-	checkReleaseWorkflow(t, readReleaseFile(t, filepath.Join(root, ".github", "workflows", "release-website-image.yml")))
+	checkReleasePublisher(t, readReleaseFile(t, filepath.Join(root, "deploy", "docker", "spyglass", "publish-stage-release.sh")))
 }
 
-func TestVerificationWorkflowContract(t *testing.T) {
-	workflow := readReleaseFile(t, filepath.Join("..", "..", ".github", "workflows", "verify.yml"))
-	checkPinnedActions(t, workflow)
+func TestGitHubActionsAreDisabled(t *testing.T) {
+	workflowDirectory := filepath.Join("..", "..", ".github", "workflows")
+	entries, err := os.ReadDir(workflowDirectory)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		extension := strings.ToLower(filepath.Ext(entry.Name()))
+		if !entry.IsDir() && (extension == ".yml" || extension == ".yaml") {
+			t.Fatalf("GitHub Actions must remain disabled; found %s", entry.Name())
+		}
+	}
+}
+
+func checkReleasePublisher(t *testing.T, publisher string) {
+	t.Helper()
 	for _, required := range []string{
-		"postgres:17.11-alpine3.24@sha256:",
-		"bash deploy/kubernetes/overlays/verify.sh",
-		"bash deploy/docker/spyglass/test-stage-contract.sh",
+		"SPYGLASS_RELEASE_PLATFORMS",
+		"docker buildx imagetools inspect",
+		"--provenance mode=max",
+		"--sbom true",
 		"aquasec/trivy@sha256:",
 		"--scanners vuln,secret",
 		"--severity HIGH,CRITICAL",
+		"--exit-code 1",
+		"SPYGLASS_APPLICATION_IMAGE=",
+		"SPYGLASS_WEBSITE_IMAGE=",
+		"SPYGLASS_PRIVATE_UI_IMAGE=",
 	} {
-		if !strings.Contains(workflow, required) {
-			t.Fatalf("verification workflow is missing %q", required)
+		if !strings.Contains(publisher, required) {
+			t.Fatalf("release publisher is missing %q", required)
 		}
 	}
-}
-
-func checkReleaseWorkflow(t *testing.T, workflow string) {
-	t.Helper()
-	for _, required := range []string{"linux/amd64,linux/arm64", "provenance: mode=max", "sbom: true", "id-token: write", "cosign sign --yes", "environment: release", "refusing to overwrite existing image tag", "aquasec/trivy@sha256:", "--scanners vuln,secret", "--severity HIGH,CRITICAL", "--exit-code 1"} {
-		if !strings.Contains(workflow, required) {
-			t.Fatalf("release workflow is missing %q", required)
-		}
-	}
-	if strings.Contains(workflow, ":latest") {
-		t.Fatal("release workflow publishes a mutable latest tag")
-	}
-	if strings.Contains(workflow, "actions/attest@") {
-		t.Fatal("release workflow uses GitHub artifact attestations, which are unavailable to this user-owned private repository")
-	}
-	checkPinnedActions(t, workflow)
-}
-
-func checkPinnedActions(t *testing.T, workflow string) {
-	t.Helper()
-	action := regexp.MustCompile(`uses:\s+[^\s@]+@([^\s]+)`)
-	matches := action.FindAllStringSubmatch(workflow, -1)
-	if len(matches) == 0 {
-		t.Fatal("release workflow has no actions")
-	}
-	sha := regexp.MustCompile(`^[0-9a-f]{40}$`)
-	for _, match := range matches {
-		if !sha.MatchString(match[1]) {
-			t.Fatalf("release action is not commit-pinned: %q", match[0])
-		}
+	if strings.Contains(publisher, ":latest") {
+		t.Fatal("release publisher uses a mutable latest tag")
 	}
 }
 

@@ -23,7 +23,7 @@ constraints; weakening them is an explicit availability-policy change.
 
 Before an environment overlay may use these resources it must add:
 
-- A pinned image digest produced by the verified release workflow.
+- A pinned image digest produced by the verified UbuntuRojo release publisher.
 - External Secrets or certificate controller integration; never literal Secret values.
 - Cell-specific database, object-store, Temporal, and queue references.
 - Ingress/WAF, certificate, DNS, and trusted route-signing configuration. The

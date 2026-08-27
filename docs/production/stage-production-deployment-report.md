@@ -14,7 +14,7 @@ The matched RC.9 Go application, Nuxt public UI and Vue private UI have passed t
 
 Public smoke acceptance covers the landing, features, pricing, privacy and affiliate-terms pages; login/signup; all 17 private Vue routes and direct deep links; the privacy-consent API; cell API routing; MCP protected-resource metadata; and HSTS across the three Stage origins. Catalog v3 is published through the governed draft/review/approval path with Stripe test-mode Prices for the $50 monthly team subscription, optional $250 commissioning package and $10/10,000-token starter package. This deployment corrects the shared Caddy routing so the Vue application and its private API families are actually reachable.
 
-RC.9 was produced by the revision-controlled UbuntuRojo publisher after GitHub-hosted jobs were blocked by account billing. All three AMD64 OCI indexes carry attached BuildKit SBOM/maximal provenance and passed the pinned Trivy high/critical vulnerability and secret gate with zero findings. They remain unsigned and single-platform, so RC.9 is an explicit Stage review artifact rather than a production-promotable release. LKE and live Stripe remain untouched. Production still requires a trusted signed multi-architecture complete-product release after the remaining signed-in, provider, browser/accessibility and rollback evidence is complete.
+RC.9 was produced by the revision-controlled UbuntuRojo publisher. GitHub Actions is now disabled at the repository setting and all workflow YAML has been removed; it is no longer part of verification, publication, or deployment. All three AMD64 OCI indexes carry attached BuildKit SBOM/maximal provenance and passed the pinned Trivy high/critical vulnerability and secret gate with zero findings. They remain unsigned and single-platform, so RC.9 is an explicit Stage review artifact rather than a production-promotable release. LKE and live Stripe remain untouched. Production still requires a trusted operator-signed, multi-architecture complete-product release after the remaining signed-in, provider, browser/accessibility and rollback evidence is complete.
 
 The exact-artifact checkpoint records 363 applicable browser passes and eleven intentional compact-menu profile skips. It includes active and suspended Affiliate dashboard states, proposal-only referral-link handling across unauthenticated sign-in, consent-denied acquisition silence, accurate direct-Checkout entry measurement, passkey-confirmed exact-version public-code replacement with permanent retired-code non-reuse, referred-customer concealment, consent-independent self-referral denial recovery and single-flight browser privacy erasure, while the Go suite explicitly covers lost-dispute reversal and the encrypted signup/verification return handoff. Every private Vue form-bearing surface participates in shared route/unload protection, including one-time recovery codes and unresolved Billing, Checkout, Privacy and Affiliate requests. A dedicated pinned-Chromium project additionally asserts a 1280×900 surface, 320×225 CSS viewport and DPR 4 before certifying the seventeen-route private and public inventories at 400% browser scale. Those checks remain synthetic/adversarial: Affiliate program flags and settlement remain closed, while hosted Stripe and physical-device/assistive-technology journeys remain uncertified. The Stage deployment authorizes human review only, not LKE promotion.
 
@@ -74,7 +74,7 @@ Cross-cell Account movement uses the same short-lived `account-move-admin` image
 
 ### Application image
 
-The existing root `Dockerfile` remains the shared Go image. Process arguments select Account API, router, cell API, workers, brokers, migrations and short-lived operator jobs. The release workflow publishes AMD64/ARM64 GHCR images with attached BuildKit SBOM/provenance and a keyless Cosign signature.
+The existing root `Dockerfile` remains the shared Go image. Process arguments select Account API, router, cell API, workers, brokers, migrations and short-lived operator jobs. The UbuntuRojo publisher creates immutable GHCR images with attached BuildKit SBOM/provenance and pinned Trivy admission; production mode must select AMD64/ARM64 and apply a trusted operator-managed Cosign signature.
 
 Current active Stage review candidate:
 
@@ -148,10 +148,6 @@ deploy/kubernetes/overlays/
   linode-production/
 website/Dockerfile
 website/.dockerignore
-.github/workflows/
-  verify.yml
-  release-image.yml
-  release-website-image.yml
 docs/production/environments/
   local-docker.md
   hostinger-stage.md

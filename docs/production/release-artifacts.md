@@ -18,21 +18,23 @@ The root `Dockerfile`:
 
 Run `spyglass version` inside an image to retrieve its injected JSON identity. Every process also logs this identity before composition. The Kubernetes overlay must reference the multi-architecture manifest by `@sha256:` digest; tags are discovery labels and are never deployment identities.
 
-Pull requests build the image, assert the non-root user, execute the version probe, build and health-check the production website image, and scan that runtime. The architecture test rejects mutable runtime bases, broad context copies, `latest` publication, missing SBOM/provenance/signing/scanning stages, or release actions not pinned to full commits.
+UbuntuRojo runs repository verification, asserts the non-root image user, executes the version probe, builds and health-checks the production UI images, and scans those runtimes. The architecture test rejects mutable runtime bases, broad context copies, `latest` publication, missing SBOM/provenance/scanning stages, or any GitHub Actions workflow YAML reintroduced under `.github/workflows`.
 
 ## Publishing
 
-`.github/workflows/release-image.yml` runs for reviewed `spyglass-v*` tags or a manually approved `release` environment dispatch. It publishes only version and full-revision tags to `ghcr.io/tinfoyle/spyglass-engine`, never `latest`, and fails if either tag already exists rather than overwriting release history. BuildKit produces a Linux AMD64/ARM64 manifest with maximal provenance and an attached SBOM. A digest-pinned Trivy container scans both platform manifests for high/critical vulnerabilities and secrets. Only a passing pair reaches the keyless Sigstore Cosign signature step. The signature covers the index that carries the BuildKit provenance and SBOM descriptors.
+`deploy/docker/spyglass/publish-stage-release.sh` is the active release publisher. It runs from UbuntuRojo against a clean, pushed `main`, uses ephemeral GHCR authentication, refuses existing version or revision tags, never publishes `latest`, and builds all three images from one source revision through an isolated BuildKit container. `SPYGLASS_RELEASE_PLATFORMS` selects the target platforms; each pushed OCI index receives maximal BuildKit provenance and an attached SBOM, then the pinned Trivy policy scans its immutable digest for high/critical vulnerabilities and secrets.
 
-The workflow summary is the handoff value:
+The generated `deploy/releases/<version>.env` file is the reviewed handoff and contains the exact application, public UI and private UI digest references:
 
 ```text
-ghcr.io/tinfoyle/spyglass-engine@sha256:<manifest-digest>
+SPYGLASS_APPLICATION_IMAGE=ghcr.io/tinfoyle/spyglass-engine@sha256:<manifest-digest>
+SPYGLASS_WEBSITE_IMAGE=ghcr.io/tinfoyle/infinite-ocean-public-ui@sha256:<manifest-digest>
+SPYGLASS_PRIVATE_UI_IMAGE=ghcr.io/tinfoyle/infinite-ocean-private-ui@sha256:<manifest-digest>
 ```
 
-Copy that exact reference into the reviewed environment overlay and the staging certification input. Never reconstruct a digest from a tag after review.
+Copy those exact references into the reviewed environment overlay and staging certification input. Never reconstruct a digest from a tag after review. Stage may deliberately select Linux AMD64; a production candidate must select every supported LKE architecture and add a trusted operator-managed Cosign signature before independent verification and promotion.
 
-`.github/workflows/release-website-image.yml` applies the same overwrite refusal, AMD64/ARM64 build, attached SBOM, maximal BuildKit provenance, two-platform admission scan and keyless Cosign policy to the two final UI images: `ghcr.io/tinfoyle/infinite-ocean-public-ui` from target `public-runtime` and `ghcr.io/tinfoyle/infinite-ocean-private-ui` from target `app-runtime`. It is triggered by a reviewed `ui-v*` tag or release-environment dispatch. Application, public UI and private UI artifacts from one release candidate must record the same source revision, but retain independent manifest digests because they are distinct images.
+GitHub Actions is disabled repository-wide. The repository contains no workflow YAML and the architecture suite fails if one is reintroduced. Historical workflow runs and identities below remain provenance evidence for old immutable candidates only; they are not an active build, test, publication, or deployment path.
 
 The first successfully signed pair is recorded in `deploy/releases/0.2.5-rc.2.env`: application digest `sha256:213a90c40198339ab92a48242310186a6cf9c0e29217ea32575e510631093add` and website digest `sha256:dfd0cf0480f7eff767db367b2ff8f4ccfa5c13ae3d96c66596185194e536f134`, both built from `5ce697933661e5b6d467804ad3608666f9c2dddd`. RC.2 predates the enforced admission scan and is retained only as publication history, not an approved rollback target.
 
@@ -93,11 +95,11 @@ an existing tag. The three scans reported zero high/critical vulnerabilities
 and zero secrets. Connected Stage runs the exact digests above from deployment
 checkout `8f3370e4cee1b4f3c5aa6fe310507ef38bd64263`.
 
-This fallback does not produce the workflow's AMD64/ARM64 manifest, attached
+This fallback does not produce a production AMD64/ARM64 manifest, attached
 SBOM, maximal provenance or keyless signature. RC.6 is admissible only for the
 current Stage review and cannot be promoted to LKE. Production requires a new
 complete-product release whose application/public/private artifacts all pass
-the normal GitHub release workflows and independent verification.
+the operator release policy and independent verification.
 
 ## RC.7 notification-deliverability correction
 
@@ -116,7 +118,7 @@ password-reset messages.
 All three native Linux AMD64 images passed the pinned Trivy high/critical
 vulnerability and secret gate and are active on Stage from deployment checkout
 `6e8c3eb158eb6642f731658c10f264d4a87be96d`. Like RC.6, this fallback has no
-workflow-produced multi-architecture manifest, attached SBOM/provenance or
+production-grade multi-architecture manifest, attached SBOM/provenance or
 keyless signature and is not production-promotable.
 
 ## RC.8 landing alignment correction
@@ -137,7 +139,7 @@ vulnerability and secret gate and are active on Stage from deployment checkout
 `a836a92044c35914ce9267adf93803db13bbed77`. The focused landing regression
 passed ten desktop, mobile, tablet and accessibility browser profiles; the live
 Stage element reports `transform: none`. Like RC.6 and RC.7, this fallback is
-not production-promotable because it lacks the workflow-produced signed,
+not production-promotable because it lacks the required signed,
 multi-architecture evidence set.
 
 ## RC.9 Features story and local publisher
@@ -191,13 +193,12 @@ Before promotion:
 
 ```text
 cosign verify \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github.com/tinfoyle/mainspring-engine/.github/workflows/release-image.yml@refs/(tags/spyglass-v[0-9][0-9A-Za-z.-]*|heads/main)$' \
+  --key /path/to/spyglass-release-signing.pub \
   ghcr.io/tinfoyle/spyglass-engine@sha256:<digest>
 docker buildx imagetools inspect ghcr.io/tinfoyle/spyglass-engine@sha256:<digest>
 ```
 
-Also inspect the SBOM/provenance predicate, confirm the Git revision and workflow identity, scan the immutable digest with the environment's admission scanner, and execute `spyglass version`. Admission policy should allow only reviewed digests with the expected workflow identity and current vulnerability-policy result. A valid signature proves origin, not safety or approval.
+Repeat the signature check for the public and private UI digests. Also inspect each SBOM/provenance predicate, confirm the Git revision and operator signer identity, scan every immutable digest with the environment's admission scanner, and execute `spyglass version`. Admission policy should allow only reviewed digests with the expected signer and current vulnerability-policy result. A valid signature proves origin, not safety or approval. The private signing key must remain outside Git and outside release manifests.
 
 Promotion reuses the same digest through staging, internal canary, customer canary, and production. Rebuilding the same revision creates a different artifact requiring new verification and staging evidence. Rollback selects a previously retained, still-approved digest plus its compatible database/Catalog/configuration state; it never retags an unknown image as the previous version.
 

@@ -37,11 +37,9 @@ FROM build AS test-runtime
 
 RUN apk add --no-cache gcc musl-dev
 COPY Dockerfile .dockerignore ./
-COPY .github/workflows/release-image.yml ./.github/workflows/release-image.yml
-COPY .github/workflows/release-website-image.yml ./.github/workflows/release-website-image.yml
-COPY .github/workflows/verify.yml ./.github/workflows/verify.yml
 COPY api ./api
 COPY deploy/package-surface-inventory.json ./deploy/package-surface-inventory.json
+COPY deploy/docker/spyglass/publish-stage-release.sh ./deploy/docker/spyglass/publish-stage-release.sh
 COPY docs/production/api-mcp-interaction-guide.md ./docs/production/api-mcp-interaction-guide.md
 COPY ui/packages/api/src/generated ./ui/packages/api/src/generated
 COPY website/lib/generated ./website/lib/generated
