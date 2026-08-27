@@ -10,7 +10,8 @@
 
 - The customer architecture is the intended split: a rendered Nuxt acquisition site and a mobile-first Vue SPA, both using the generated customer API contract.
 - The public landing, feature inventory, privacy and pricing routes; private navigation; Your Turn; checkout review; onboarding/Baseline; Billing; Agents; Affiliate; GDPR controls; and the retained package workspaces are implemented locally.
-- Launch acquisition now presents one complete `$50 USD` monthly team subscription, applicable Stripe-calculated tax, and an optional `$250` commissioning path. There is no public Free plan or trial.
+- Launch acquisition now presents one complete `$50 USD` monthly team subscription, applicable Stripe-calculated tax, and an optional Catalog-backed `$250` commissioning path into initial Checkout. The public page also explains the later one-time Billing purchase. There is no public Free plan or trial.
+- The public Affiliate terms now mirror the approved implemented rule: `$10` at full price with proportional discount/proration treatment, rolling maturity, whole-earning adversity reversal, Account-credit-first settlement, the `$100` Support-check threshold, U.S. launch eligibility, identity-safe attribution and seven-year restricted retention. They still state plainly that enrollment is closed pending legal and release approval.
 - Registration creates an inactive team shell with no product grants. Signed billing projection remains the activation authority.
 - Catalog version 3 publishes `team-monthly-v2`, the configurable included AI Token grant, purchasable bundle candidates and five public complexity rates. Provider/model mappings stay out of the public Catalog.
 - The backend now has a persistent Account-owned AI Token ledger with included, purchased and promotional cohorts; deterministic expiry ordering; reservation, settlement and release; exact-once invoice grant projection; adversity reversal; and safe shared balance output.
@@ -54,13 +55,15 @@ certificate-verified local Docker smoke gate, launch-Catalog assertion, and posi
 
 The Playwright matrix covered Chromium, Firefox and WebKit desktop; 360, 390 and 412 pixel phone widths; 320 pixel reflow; tablet; forced colors; reduced motion; 200% text enlargement; and 400% browser-scale reflow. No remote environment or provider was contacted.
 
+A final public-surface audit found and closed two content-contract mismatches after the earlier implementation gate: the pricing page routed commissioning to Support instead of the implemented initial/later self-service path, and the Affiliate terms still described approved commercial policy as undecided. The corrected Catalog-backed pricing and aligned Affiliate terms passed the complete exact-artifact gate again. Browser inspection of the rebuilt local Docker website confirmed clear recurring-versus-one-time hierarchy and a readable, structured Affiliate policy page.
+
 The final acceptance audit used a separate disposable `spyglass-ui-review` Compose project so the developer's older `spyglass-local` volumes remained untouched. That project was removed with its own volumes, recreated from zero, brought fully healthy without rebuilding images, and passed `verify-local.sh` with all worker failure counters at zero. This caught and closed defects that an already-seeded database could hide.
 
 ## Why approval is not yet complete
 
 The planned local feature construction is complete. The remaining work is acceptance, not hosting:
 
-1. Run a human product/visual review of the exact local artifacts, with particular attention to Your Turn, onboarding, checkout, Billing and real-device mobile ergonomics. Automated reflow/accessibility evidence and the agent-performed 390-pixel visual inspection are strong but are not a substitute for that review.
+1. Run a human product/visual review of the exact local artifacts, with particular attention to Your Turn, onboarding, checkout, Billing and real-device mobile ergonomics. Automated reflow/accessibility evidence and the agent-performed local visual inspections are strong but are not a substitute for that review.
 2. Record the review decision and any accepted follow-up defects in the human-review handoff.
 
 ## Next implementation order

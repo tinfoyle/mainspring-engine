@@ -184,6 +184,10 @@ test("pricing remains usable after rejection and carries only the opaque offer",
   await page.goto("http://127.0.0.1:4174/pricing");
   await expect(page.getByRole("heading", { level: 1, name: /One team/ })).toBeVisible();
   await expect(page.getByRole("heading", { level: 2, name: /\$50\.00/ })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: /\$250\.00/ })).toBeVisible();
+  await expect(page.getByText(/Choose it during initial Checkout or purchase it once later from Billing/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "Choose during Checkout" })).toHaveAttribute("href", "http://127.0.0.1:4173/signup?offer=team-monthly-v2");
+  await expect(page.getByRole("link", { name: "Contact Support" })).toHaveCount(0);
   await page.getByRole("button", { name: "Reject non-essential" }).click();
   await expect(page.getByRole("button", { name: "Privacy choices" })).toBeFocused();
   await expectNoHorizontalOverflow(page);
@@ -221,6 +225,10 @@ test("complete feature and policy inventory remains rendered, private, and acces
       expect(state.analyticsEvents, `${route.path} emitted before an analytics decision`).toEqual([]);
     });
   }
+  await page.goto("http://127.0.0.1:4174/affiliate-terms");
+  await expect(page.getByText(/every qualifying paid renewal create a \$10\.00 earning/)).toBeVisible();
+  await expect(page.getByText(/At \$100\.00 USD of available credit/)).toBeVisible();
+  await expect(page.getByText(/retained for seven years/)).toBeVisible();
 });
 
 test("public consent history is inspectable and browser erasure reopens equal choices", async ({ page }) => {

@@ -12,6 +12,7 @@ const { data: catalog, error: catalogError, refresh, state: catalogState, publis
 const paidOffers = computed(() => catalogState.value === "unavailable" || catalogError.value
   ? []
   : (catalog.value?.offers ?? []).filter((offer) => offer.amount_minor > 0 && offer.billing_interval !== "none"));
+const launchOffer = computed(() => paidOffers.value[0]);
 usePublicSeo({
   title: "Spyglass pricing · Infinite Ocean",
   path: "/pricing",
@@ -37,7 +38,7 @@ function planFor(offer: CatalogOffer): CatalogPlan | undefined {
   return catalog.value?.plans.find((plan) => plan.code === offer.plan_code && plan.version === offer.plan_version);
 }
 
-function formatPrice(offer: CatalogOffer): string {
+function formatPrice(offer: Pick<CatalogOffer, "amount_minor" | "currency">): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: offer.currency }).format(offer.amount_minor / 100);
 }
 
@@ -77,8 +78,8 @@ onMounted(async () => {
       <ul class="plan-packages"><li v-for="(mode, packageCode) in planFor(offer)?.packages" :key="packageCode"><span>{{ packageCode }}</span><small>{{ String(mode).replace('_', ' ') }}</small></li></ul>
       <a class="button button--primary" :href="`${appOrigin}/signup?offer=${encodeURIComponent(offer.code)}`" @click="chooseOffer($event, offer)">Create your team Account</a>
     </article>
-    <article><p class="eyebrow">Optional commissioning</p><h2>$250<small> one time</small></h2><p>Hands-on onboarding and commissioning for teams that want guided setup. It is optional, carries no Affiliate commission and is not part of the recurring subscription.</p><a class="button button--secondary" href="mailto:support@infiniteocean.net?subject=Infinite%20Ocean%20commissioning">Contact Support</a></article>
+    <article v-if="catalog?.commissioning_offer && launchOffer"><p class="eyebrow">Optional commissioning</p><h2>{{ formatPrice(catalog.commissioning_offer) }}<small> one time</small></h2><p>Hands-on onboarding and commissioning for teams that want guided setup. Choose it during initial Checkout or purchase it once later from Billing. It carries no Affiliate commission and is not part of the recurring subscription.</p><a class="button button--secondary" :href="`${appOrigin}/signup?offer=${encodeURIComponent(launchOffer.code)}`" @click="chooseOffer($event, launchOffer)">Choose during Checkout</a></article>
     <article v-if="catalogError" class="pricing-unavailable" role="status"><p class="eyebrow">Catalog unavailable</p><h2>Checkout is temporarily paused</h2><p>We will not display or submit a price that the application cannot revalidate. No payment attempt has been made.</p><button class="button button--secondary" type="button" @click="() => refresh()">Try Catalog again</button></article>
   </section>
-  <section class="pricing-trust section-frame"><h2>What happens after you choose?</h2><ol><li><strong>Create your identity and team shell.</strong><span>No product access is granted until payment succeeds.</span></li><li><strong>Review one clear offer.</strong><span>The owner confirms $50/month, included AI Tokens and any Affiliate attribution before leaving Infinite Ocean.</span></li><li><strong>Pay securely at Stripe.</strong><span>Stripe calculates applicable tax. Infinite Ocean waits for a signed payment event before enabling the complete product.</span></li></ol></section>
+  <section class="pricing-trust section-frame"><h2>What happens after you choose?</h2><ol><li><strong>Create your identity and team shell.</strong><span>No product access is granted until payment succeeds.</span></li><li><strong>Review one clear offer.</strong><span>The owner confirms $50/month, included AI Tokens, optional one-time commissioning and any Affiliate attribution before leaving Infinite Ocean.</span></li><li><strong>Pay securely at Stripe.</strong><span>Stripe calculates applicable tax. Infinite Ocean waits for a signed payment event before enabling the complete product.</span></li></ol></section>
 </template>

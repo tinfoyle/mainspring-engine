@@ -43,6 +43,14 @@ const catalog = {
     effective_from: "2026-08-20T20:00:00Z",
     disclosure: "Purchased AI Tokens remain with the active team."
   }],
+  commissioning_offer: {
+    code: "commissioning_v1",
+    version: 1,
+    currency: "USD",
+    amount_minor: 25000,
+    effective_from: "2026-08-20T20:00:00Z",
+    disclosure: "Collaborative setup and configuration for one team."
+  },
   ai_complexity_rates: ["simple", "efficient", "balanced", "thorough", "advanced"].map((complexity, index) => ({
     complexity,
     code: `${complexity}_v1`,
