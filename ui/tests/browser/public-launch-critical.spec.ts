@@ -221,6 +221,11 @@ test("complete feature and policy inventory remains rendered, private, and acces
       await page.goto(`http://127.0.0.1:4174${route.path}`);
       await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Your privacy choices" })).toBeVisible();
+      if (route.path === "/features") {
+        for (const featureRoute of publicFeatureAndPolicyRoutes.filter((candidate) => candidate.path.startsWith("/features/"))) {
+          await expect(page.locator(`main a[href="${featureRoute.path}"]`), `${featureRoute.path} must remain reachable from the feature story`).toHaveCount(1);
+        }
+      }
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
       expect(state.analyticsEvents, `${route.path} emitted before an analytics decision`).toEqual([]);
