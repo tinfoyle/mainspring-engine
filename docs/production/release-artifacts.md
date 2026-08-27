@@ -1,6 +1,6 @@
 # Release artifacts and provenance
 
-Status: RC.8 is the active Hostinger Stage review candidate; it passed local AMD64 admission but is deliberately not production-promotable because the signed GitHub release path was unavailable. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
+Status: RC.9 is the active Hostinger Stage review candidate; it passed local AMD64 admission with attached BuildKit SBOM/provenance but is deliberately not production-promotable because it is single-platform and unsigned. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
 
 Spyglass uses one shared, multi-mode application image for Account API, routers, cell APIs, private brokers, workers, runner execution, migrations, and one-shot operator commands. Runtime arguments choose the workload class. Kubernetes ServiceAccounts, NetworkPolicies, mounted credentials, database roles, and workload certificates—not separate per-customer builds—bound each process's authority. Ordinary Accounts never create an image, Deployment, namespace, or long-running container.
 
@@ -139,6 +139,34 @@ passed ten desktop, mobile, tablet and accessibility browser profiles; the live
 Stage element reports `transform: none`. Like RC.6 and RC.7, this fallback is
 not production-promotable because it lacks the workflow-produced signed,
 multi-architecture evidence set.
+
+## RC.9 Features story and local publisher
+
+RC.9 is recorded in `deploy/releases/0.3.0-rc.9.env` and was built from source
+revision `4e9b45e69aa7882ba8cb35eaf11c3185bc1bd529`. It replaces the public
+Features card wall with a Your Turn-led product story and introduces the
+revision-controlled UbuntuRojo GHCR publisher used to create the release.
+
+| Artifact | Immutable Stage reference |
+|---|---|
+| Application | `ghcr.io/tinfoyle/spyglass-engine@sha256:94356094fd19ac71a66a2f1a85723da436a949392047a27669169ce7bd59dbf3` |
+| Public UI | `ghcr.io/tinfoyle/infinite-ocean-public-ui@sha256:9d9fdd6cc7de09b8201082927b6d2b260a9bdcb14a3a88279928daaeacf077ba` |
+| Private UI | `ghcr.io/tinfoyle/infinite-ocean-private-ui@sha256:c59d305fda046525e474f02c5b070114bb40778c120efab055bdd96e50a970e4` |
+
+`publish-stage-release.sh` required clean pushed `main`, refused existing
+version/revision tags, used an isolated BuildKit container, pushed matched
+Linux AMD64 OCI indexes with attached SBOM and maximal provenance, and ran the
+pinned Trivy 0.74.0 high/critical vulnerability and secret policy against each
+immutable digest. All three scans reported zero findings. Connected Stage runs
+the exact digests above from deployment checkout
+`ebe0c4505d239d484d7540c94880022b98ce2ed8`; all 46 healthchecked workloads are
+healthy. Live browser acceptance found the Your Turn-led page, all twelve
+feature detail links, correct canonical metadata and no horizontal overflow.
+
+RC.9 remains a Stage-only candidate because this publication selected only
+Linux AMD64 and has no trusted Cosign release signature. The attached SBOM and
+provenance improve on RC.6-RC.8 but do not by themselves satisfy the final LKE
+admission policy.
 
 ## RC.4 and RC.5 independent evidence
 
