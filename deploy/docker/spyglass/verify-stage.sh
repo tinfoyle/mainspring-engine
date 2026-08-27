@@ -26,7 +26,7 @@ release_value() {
   sed -n "s/^$1=//p" "$release_file"
 }
 digest='^ghcr\.io/tinfoyle/[a-z0-9._-]+@sha256:[0-9a-f]{64}$'
-for name in SPYGLASS_APPLICATION_IMAGE SPYGLASS_WEBSITE_IMAGE; do
+for name in SPYGLASS_APPLICATION_IMAGE SPYGLASS_WEBSITE_IMAGE SPYGLASS_PRIVATE_UI_IMAGE; do
   candidate="$(release_value "$name")"
   [[ "$candidate" =~ $digest ]] || { echo "$name must be an exact tinfoyle GHCR digest" >&2; exit 1; }
   ! grep -q "^$name=" "$env_file" || { echo "$name must come only from the reviewed release file" >&2; exit 1; }
@@ -138,11 +138,11 @@ docker network inspect "$network" >/dev/null
 rendered="$(mktemp)"
 trap 'rm -f "$rendered"' EXIT
 docker compose --project-name spyglass-stage --env-file "$release_file" --env-file "$env_file" --file "$stack_dir/compose.yml" --file "$stack_dir/compose.stage.yml" --file "$stack_dir/compose.stage-runner.yml" --profile knowledge-processing config --format json >"$rendered"
-python3 - "$rendered" "$network" "$(release_value SPYGLASS_APPLICATION_IMAGE)" "$(release_value SPYGLASS_WEBSITE_IMAGE)" "$secrets_gid" <<'PY'
+python3 - "$rendered" "$network" "$(release_value SPYGLASS_APPLICATION_IMAGE)" "$(release_value SPYGLASS_WEBSITE_IMAGE)" "$(release_value SPYGLASS_PRIVATE_UI_IMAGE)" "$secrets_gid" <<'PY'
 import json
 import sys
 
-path, edge_network, application_image, website_image, secrets_gid = sys.argv[1:]
+path, edge_network, application_image, website_image, private_ui_image, secrets_gid = sys.argv[1:]
 with open(path, encoding="utf-8") as source:
     config = json.load(source)
 services = config["services"]
@@ -155,8 +155,10 @@ runner_services = {
 }
 application_services = runner_services | {
     "account-api", "account-lifecycle-worker", "admission-api", "app-api-a", "app-api-b",
-    "app-router", "billing-worker", "cell-a-migrate", "cell-b-migrate", "entitlement-worker",
-    "global-migrate", "identity-maintenance-worker", "mcp-gateway", "notification-worker",
+    "account-export-build-worker-a", "account-export-build-worker-b", "account-export-expiry-worker",
+    "affiliate-retention-worker", "app-router", "billing-worker", "cell-a-migrate", "cell-b-migrate",
+    "entitlement-worker", "global-migrate", "identity-maintenance-worker",
+    "mcp-gateway", "notification-worker",
     "work-reconciler-a", "work-reconciler-b", "route-receipt-worker-a", "route-receipt-worker-b",
     "agent-dispatch-worker-a", "agent-dispatch-worker-b", "schedule-execution-worker-a",
     "schedule-execution-worker-b", "agent-projection-worker-a", "agent-projection-worker-b",
@@ -185,6 +187,8 @@ if socket_holders != {"docker-runner-launcher-a", "docker-runner-launcher-b"}:
     raise SystemExit(f"unexpected Docker socket holders: {sorted(socket_holders)}")
 if services["website"]["image"] != website_image:
     raise SystemExit("website image does not match the release file")
+if services["private-ui"]["image"] != private_ui_image:
+    raise SystemExit("private UI image does not match the release file")
 if services["mcp-gateway"].get("scale") != 2:
     raise SystemExit("stage MCP gateway must run exactly two replicas")
 for name in application_services:

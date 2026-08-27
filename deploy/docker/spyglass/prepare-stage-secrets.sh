@@ -57,7 +57,7 @@ agent_execution_policies="$(provider_value SPYGLASS_AGENT_EXECUTION_POLICIES_JSO
 [[ "$openai_api_key" =~ ^[A-Za-z0-9_-]+$ ]] || fail "OpenAI key contains unsupported dotenv characters"
 [[ "$openai_origin" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || fail "OpenAI origin must be an exact HTTPS origin"
 [[ "$openai_pricing" =~ ^\{[A-Za-z0-9._:\",{}-]+\}$ ]] || fail "OpenAI model pricing must be compact injection-safe JSON"
-[[ "$agent_execution_policies" =~ ^\{[A-Za-z0-9._:\",{}\[\]-]+\}$ ]] || fail "Agent execution policies must be compact injection-safe JSON"
+[[ "$agent_execution_policies" =~ ^\{[][A-Za-z0-9._:\",{}-]+\}$ ]] || fail "Agent execution policies must be compact injection-safe JSON"
 
 if [[ -e "$target" ]]; then
   [[ -d "$target" ]] || fail "secrets target exists and is not a directory"
@@ -110,6 +110,8 @@ account_lifecycle_password="$(secret_value SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DAT
 account_export_build_password="$(secret_value SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD password)"
 account_export_expiry_password="$(secret_value SPYGLASS_ACCOUNT_EXPORT_EXPIRY_WORKER_DATABASE_PASSWORD password)"
 identity_maintenance_password="$(secret_value SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD password)"
+affiliate_retention_password="$(secret_value SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_PASSWORD password)"
+analytics_reporter_password="$(secret_value SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD password)"
 work_reconciler_password="$(secret_value SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD password)"
 app_api_password="$(secret_value SPYGLASS_APP_API_DATABASE_PASSWORD password)"
 route_receipt_password="$(secret_value SPYGLASS_ROUTE_RECEIPT_WORKER_DATABASE_PASSWORD password)"
@@ -217,6 +219,8 @@ SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD=$account_lifecycle_password
 SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD=$account_export_build_password
 SPYGLASS_ACCOUNT_EXPORT_EXPIRY_WORKER_DATABASE_PASSWORD=$account_export_expiry_password
 SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD=$identity_maintenance_password
+SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_PASSWORD=$affiliate_retention_password
+SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD=$analytics_reporter_password
 SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD=$work_reconciler_password
 SPYGLASS_APP_API_DATABASE_PASSWORD=$app_api_password
 SPYGLASS_ROUTE_RECEIPT_WORKER_DATABASE_PASSWORD=$route_receipt_password
@@ -249,6 +253,7 @@ SPYGLASS_CELL_A_ACCOUNT_EXPORT_BUILD_DATABASE_URL=postgres://spyglass_account_ex
 SPYGLASS_CELL_B_ACCOUNT_EXPORT_BUILD_DATABASE_URL=postgres://spyglass_account_export_build_worker:$account_export_build_password@cell-b-db:5432/spyglass?sslmode=disable
 SPYGLASS_ACCOUNT_EXPORT_EXPIRY_DATABASE_URL=postgres://spyglass_account_export_expiry_worker:$account_export_expiry_password@global-db:5432/spyglass?sslmode=disable
 SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_URL=postgres://spyglass_identity_maintenance_worker:$identity_maintenance_password@global-db:5432/spyglass?sslmode=disable
+SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_URL=postgres://spyglass_affiliate_retention_worker:$affiliate_retention_password@global-db:5432/spyglass?sslmode=disable
 SPYGLASS_WORK_RECONCILER_GLOBAL_DATABASE_URL=postgres://spyglass_work_reconciler:$work_reconciler_password@global-db:5432/spyglass?sslmode=disable
 SPYGLASS_CELL_A_WORK_RECONCILER_DATABASE_URL=postgres://spyglass_work_reconciler:$work_reconciler_password@cell-a-db:5432/spyglass?sslmode=disable
 SPYGLASS_CELL_B_WORK_RECONCILER_DATABASE_URL=postgres://spyglass_work_reconciler:$work_reconciler_password@cell-b-db:5432/spyglass?sslmode=disable
