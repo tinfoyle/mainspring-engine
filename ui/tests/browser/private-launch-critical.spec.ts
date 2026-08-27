@@ -6,6 +6,7 @@ const userID = "20000000-0000-4000-8000-000000000002";
 const account = {
   account_id: accountID,
   account_type: "paid",
+  account_state: "active",
   account_version: 1,
   cell_id: "cell-us-east-01",
   display_name: "Northstar Studio",
@@ -83,6 +84,7 @@ const catalog = {
   }],
   ai_token_renewal_grant: { code: "team_renewal_v1", version: 1, quantity: 10000, disclosure: "Included per successful renewal." },
   ai_token_bundles: [{ code: "tokens_10k_v1", version: 1, quantity: 10000, currency: "USD", amount_minor: 1000, effective_from: "2026-08-20T20:00:00Z", disclosure: "Purchased AI Tokens remain with the active team." }],
+  commissioning_offer: { code: "commissioning_v1", version: 1, currency: "USD", amount_minor: 25000, effective_from: "2026-08-20T20:00:00Z", disclosure: "Collaborative setup and configuration for one team." },
   ai_complexity_rates: ["simple", "efficient", "balanced", "thorough", "advanced"].map((complexity, index) => ({ complexity, code: `${complexity}_v1`, version: 1, input_per_thousand: 1 + index, cached_input_per_thousand: 1 + index, output_per_thousand: 4 + index * 4, tool_invocation: 10 + index * 10, minimum_charge: 5 + index * 5, maximum_reservation: 1000 + index * 1000, estimated_minimum: 10 + index * 10, estimated_maximum: 100 + index * 100 }))
 };
 const ownerMembership = {
@@ -450,7 +452,7 @@ async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
       return;
     }
     if (path === `/api/v1/accounts/${accountID}/billing`) {
-      await fulfillJSON(route, { has_customer: false, can_manage: true, can_start_checkout: true, subscriptions: [] });
+      await fulfillJSON(route, { has_customer: false, can_manage: true, can_start_checkout: true, commissioning_purchased: false, subscriptions: [] });
       return;
     }
     if (path === `/api/v1/accounts/${accountID}/ai-tokens`) {
@@ -943,6 +945,57 @@ test("checkout requires deliberate referral application and remains usable at ph
   await expect(page.getByRole("button", { name: "Continue to Stripe" })).toBeDisabled();
   await page.getByRole("button", { name: "Apply" }).click();
   await expect(page.getByText(/Referral IO-PARTNER1 will be validated/)).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("checkout keeps optional commissioning explicit and separates one-time from recurring cost", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*502/);
+  const requests: Array<{ body: unknown; idempotencyKey: string | null }> = [];
+  await page.route(`**/api/v1/accounts/${accountID}/checkout-sessions`, async (route) => {
+    requests.push({ body: route.request().postDataJSON(), idempotencyKey: route.request().headers()["idempotency-key"] ?? null });
+    await fulfillProblem(route, 502, "billing_unavailable", "Stripe is temporarily unavailable. The reviewed checkout remains unchanged.");
+  });
+  await page.goto("/app/checkout?offer=team-monthly-v2");
+  await expect(page.getByText("$250.00 once.")).toBeVisible();
+  await expect(page.getByText(/earns no Affiliate commission/)).toBeVisible();
+  await page.getByRole("checkbox", { name: /Add the optional commissioning package/ }).check();
+  await expect(page.getByText("$300.00", { exact: true })).toBeVisible();
+  await expect(page.getByText(/\$50.00 recurs monthly; commissioning is one time/)).toBeVisible();
+  await page.getByRole("checkbox", { name: /I confirm this offer and optional commissioning/ }).check();
+  await page.getByRole("button", { name: "Continue to Stripe" }).click();
+  await expect(page.getByRole("alert")).toContainText("reviewed checkout remains unchanged");
+  expect(requests).toHaveLength(1);
+  expect(requests[0]?.body).toEqual({ offer_code: "team-monthly-v2", include_commissioning: true });
+  expect(requests[0]?.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+  await expectNoHorizontalOverflow(page);
+  await expectAccessible(page);
+});
+
+test("Billing exposes governed top-up, promotion, and later commissioning controls", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*502/);
+  const purchaseRequests: Array<{ body: unknown; idempotencyKey: string | null }> = [];
+  await page.route(`**/api/v1/accounts/${accountID}/billing`, async (route) => {
+    await fulfillJSON(route, { has_customer: true, can_manage: true, can_start_checkout: false, commissioning_purchased: false, subscriptions: [{ state: "active", offer_code: "team-monthly-v2", catalog_version: 3, current_period_start: "2026-08-01T00:00:00Z", current_period_end: "2026-09-01T00:00:00Z", last_synced_at: "2026-08-27T00:00:00Z" }] });
+  });
+  await page.route(`**/api/v1/accounts/${accountID}/purchase-checkout-sessions`, async (route) => {
+    purchaseRequests.push({ body: route.request().postDataJSON(), idempotencyKey: route.request().headers()["idempotency-key"] ?? null });
+    await fulfillProblem(route, 502, "billing_unavailable", "Stripe purchase checkout is temporarily unavailable.");
+  });
+  await page.route(`**/api/v1/accounts/${accountID}/ai-token-promotions`, async (route) => {
+    await fulfillJSON(route, { grant: { definition_code: "launch_bonus", catalog_version: 3, quantity: 1000, expires_at: "2026-10-01T00:00:00Z", created_at: "2026-08-27T00:00:00Z" }, balance: { available: 1000, reserved: 0, consumed: 0, included: 0, purchased: 0, promotion: 1000 } }, 201);
+  });
+  await page.goto("/app/billing");
+  await expect(page.getByRole("button", { name: "Buy 10,000 AI Tokens for $10.00" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Purchase commissioning" })).toBeVisible();
+  await page.getByRole("button", { name: "Buy 10,000 AI Tokens for $10.00" }).click();
+  await expect(page.getByRole("alert")).toContainText("purchase checkout is temporarily unavailable");
+  expect(purchaseRequests[0]?.body).toEqual({ kind: "ai_token_top_up", item_code: "tokens_10k_v1" });
+  expect(purchaseRequests[0]?.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+  await page.getByLabel("Promotion code").fill("Launch_Bonus");
+  await page.getByRole("button", { name: "Redeem" }).click();
+  await expect(page.getByRole("status").filter({ hasText: /1,000 promotional AI Tokens were added/ })).toBeVisible();
+  await expect(page.getByText("1,000 available", { exact: true })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });

@@ -30,6 +30,7 @@ const referralInput = ref("");
 const appliedReferral = ref("");
 const referralError = ref("");
 const referralEntryMethod = ref<"manual" | "link">("manual");
+const includeCommissioning = ref(false);
 const confirmed = ref(false);
 const requestID = ref("");
 const analyticsAllowed = ref(false);
@@ -56,10 +57,24 @@ const selectedPlan = computed<CatalogPlan | undefined>(() => {
   const offer = selectedOffer.value;
   return catalog.value?.plans.find((plan) => plan.code === offer?.plan_code && plan.version === offer.plan_version);
 });
+const commissioningOffer = computed(() => {
+  const offer = catalog.value?.commissioning_offer;
+  return offer && new Date(offer.effective_from).getTime() <= Date.now() ? offer : undefined;
+});
+const checkoutTotal = computed(() => (selectedOffer.value?.amount_minor ?? 0)
+  + (includeCommissioning.value ? commissioningOffer.value?.amount_minor ?? 0 : 0));
+const confirmationText = computed(() => {
+  let scope = "this offer";
+  if (includeCommissioning.value && referralApplied.value) scope += ", optional commissioning, and Affiliate referral";
+  else if (includeCommissioning.value) scope += " and optional commissioning";
+  else if (referralApplied.value) scope += " and Affiliate referral";
+  return `I confirm ${scope}, and I want to continue to Stripe.`;
+});
 const canManage = computed(() => session.selected?.role === "owner" || session.selected?.role === "billing_admin");
 const canCheckout = computed(() => canManage.value && billing.value?.can_start_checkout === true);
 const referralApplied = computed(() => appliedReferral.value !== "");
 const hasUnsavedCheckoutWork = computed(() => confirmed.value
+  || includeCommissioning.value
   || referralApplied.value
   || referralInput.value.trim() !== initialReferralInput.value
   || selectedOfferCode.value !== initialOfferCode.value);
@@ -74,8 +89,8 @@ const { allowNextNavigation } = useSafeNavigation({
   }
 });
 
-function formatPrice(offer: CatalogOffer): string {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: offer.currency }).format(offer.amount_minor / 100);
+function formatPrice(item: Pick<CatalogOffer, "amount_minor" | "currency">): string {
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: item.currency }).format(item.amount_minor / 100);
 }
 
 function normalizeReferral(value: string): string {
@@ -264,7 +279,8 @@ async function startCheckout(): Promise<void> {
   try {
     const hosted = await createCheckoutSession(accountID, {
       offer_code: offer.code,
-      ...(appliedReferral.value ? { affiliate_code: appliedReferral.value } : {})
+      ...(appliedReferral.value ? { affiliate_code: appliedReferral.value } : {}),
+      ...(includeCommissioning.value ? { include_commissioning: true } : {})
     }, requestID.value);
     const target = new URL(hosted.url);
     if (target.protocol !== "https:") throw new Error("Checkout returned an unsafe destination.");
@@ -293,6 +309,10 @@ watch(selectedOfferCode, () => {
   confirmed.value = false;
   requestID.value = "";
   void emitCheckoutReviewIfReady();
+});
+watch(includeCommissioning, () => {
+  confirmed.value = false;
+  requestID.value = "";
 });
 onMounted(() => void load());
 onBeforeUnmount(() => {
@@ -348,8 +368,21 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
+      <section v-if="commissioningOffer" class="checkout-card" aria-labelledby="commissioning-heading">
+        <p class="eyebrow">2 · Setup</p><h2 id="commissioning-heading">Commissioning <small>optional</small></h2>
+        <template v-if="billing?.commissioning_purchased">
+          <p class="referral-confirmed" role="status">Standard commissioning is already recorded for this Account.</p>
+          <p class="form-note">Contact Support if you need another case-by-case engagement.</p>
+        </template>
+        <template v-else>
+          <p><strong>{{ formatPrice(commissioningOffer) }} once.</strong> {{ commissioningOffer.disclosure }}</p>
+          <label class="confirmation"><input v-model="includeCommissioning" type="checkbox" :disabled="!canCheckout"><span>Add the optional commissioning package to this Stripe checkout.</span></label>
+          <p class="form-note">Commissioning adds no software entitlement and earns no Affiliate commission. Your monthly subscription remains {{ selectedOffer ? `${formatPrice(selectedOffer)} per ${selectedOffer.billing_interval}` : "separate" }}.</p>
+        </template>
+      </section>
+
       <section class="checkout-card" aria-labelledby="referral-heading">
-        <p class="eyebrow">2 · Referral</p><h2 id="referral-heading">Affiliate code <small>optional</small></h2>
+        <p class="eyebrow">{{ commissioningOffer ? "3" : "2" }} · Referral</p><h2 id="referral-heading">Affiliate code <small>optional</small></h2>
         <p class="form-note">A valid code gives the Affiliate recurring credit under their program terms. It does not change your price and works whether or not you allow analytics.</p>
         <label for="affiliate-code">Affiliate code</label>
         <div class="referral-entry"><input id="affiliate-code" v-model="referralInput" :disabled="referralApplied" autocomplete="off" spellcheck="false" placeholder="IO-PARTNER1" @input="noteReferralEdit" /><IoButton v-if="!referralApplied" kind="secondary" @click="applyReferral">Apply</IoButton><IoButton v-else kind="secondary" @click="removeReferral">Remove</IoButton></div>
@@ -359,10 +392,11 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="checkout-card checkout-confirm" aria-labelledby="confirm-heading">
-        <p class="eyebrow">3 · Confirm</p><h2 id="confirm-heading">Authorize the handoff</h2>
+        <p class="eyebrow">{{ commissioningOffer ? "4" : "3" }} · Confirm</p><h2 id="confirm-heading">Authorize the handoff</h2>
         <div v-if="!canManage" class="queue-inline-status queue-inline-status--error">Only an Account owner or billing administrator can start checkout.</div>
         <div v-else-if="billing && !billing.can_start_checkout" class="queue-inline-status">This Account already has a managed subscription or cannot start another checkout.</div>
-        <label class="confirmation"><input v-model="confirmed" type="checkbox" :disabled="!canCheckout" /><span>I confirm this offer<span v-if="referralApplied"> and Affiliate referral</span>, and I want to continue to Stripe.</span></label>
+        <div v-if="selectedOffer" class="checkout-total"><span>Due in Stripe before applicable tax</span><strong>{{ formatPrice({ amount_minor: checkoutTotal, currency: selectedOffer.currency }) }}</strong><small>{{ formatPrice(selectedOffer) }} recurs monthly<span v-if="includeCommissioning">; commissioning is one time</span>.</small></div>
+        <label class="confirmation"><input v-model="confirmed" type="checkbox" :disabled="!canCheckout" /><span>{{ confirmationText }}</span></label>
         <p v-if="errorMessage" class="form-error" role="alert">{{ errorMessage }}</p>
         <IoButton :disabled="!canCheckout || !confirmed || submitting || !selectedOffer" @click="startCheckout">{{ submitting ? "Opening Stripe…" : "Continue to Stripe" }}</IoButton>
         <p class="form-note">Repeated taps and recoverable retries reuse one checkout request. Spyglass never sends provider price identifiers from this browser.</p>

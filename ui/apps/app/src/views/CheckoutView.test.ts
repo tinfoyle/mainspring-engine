@@ -44,13 +44,14 @@ const catalog = {
   offers: [{ code: "team-monthly-v2", plan_code: "team", plan_version: 2, currency: "USD", amount_minor: 5000, billing_interval: "month", effective_from: "2026-08-20T20:00:00Z" }],
   ai_token_renewal_grant: { code: "team_renewal_v1", version: 1, quantity: 10000, disclosure: "Included per renewal." },
   ai_token_bundles: [{ code: "tokens_10k_v1", version: 1, quantity: 10000, currency: "USD", amount_minor: 1000, effective_from: "2026-08-20T20:00:00Z", disclosure: "Purchased Tokens remain with the active team." }],
+  commissioning_offer: { code: "commissioning_v1", version: 1, currency: "USD", amount_minor: 25000, effective_from: "2026-08-20T20:00:00Z", disclosure: "Collaborative setup and configuration for one team." },
   ai_complexity_rates: []
 } satisfies PublicCatalog;
 
 beforeEach(() => {
   setActivePinia(createPinia());
   api.getPublicCatalog.mockReset().mockResolvedValue(catalog);
-  api.getBillingStatus.mockReset().mockResolvedValue({ has_customer: false, can_manage: true, can_start_checkout: true, subscriptions: [] });
+  api.getBillingStatus.mockReset().mockResolvedValue({ has_customer: false, can_manage: true, can_start_checkout: true, commissioning_purchased: false, subscriptions: [] });
   api.getPrivacyConsent.mockReset().mockResolvedValue({ decided: false, analytics: false, marketing: false, renewal_required: false });
   api.emitAnalytics.mockReset().mockResolvedValue(false);
   api.createCheckoutSession.mockReset().mockRejectedValue(new Error("provider unavailable"));
@@ -81,7 +82,7 @@ describe("checkout review", () => {
 
     await wrapper.findAll("button").find((button) => button.text() === "Apply")?.trigger("click");
     expect(wrapper.text()).toContain("Referral IO-PARTNER1 will be validated");
-    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await wrapper.get('.checkout-confirm input[type="checkbox"]').setValue(true);
     await wrapper.findAll("button").find((button) => button.text() === "Continue to Stripe")?.trigger("click");
     await flushPromises();
 
@@ -90,6 +91,20 @@ describe("checkout review", () => {
     }, expect.stringMatching(/^[0-9a-f-]{36}$/));
     expect(wrapper.text()).toContain("provider unavailable");
     wrapper.unmount();
+  });
+
+  it("adds optional commissioning explicitly and shows the one-time checkout total", async () => {
+    const wrapper = await mountCheckout();
+    expect(wrapper.text()).toContain("$250.00 once");
+    expect(wrapper.text()).toContain("earns no Affiliate commission");
+    await wrapper.get('section[aria-labelledby="commissioning-heading"] input[type="checkbox"]').setValue(true);
+    expect(wrapper.text()).toContain("$300.00");
+    await wrapper.get('.checkout-confirm input[type="checkbox"]').setValue(true);
+    await wrapper.findAll("button").find((button) => button.text() === "Continue to Stripe")?.trigger("click");
+    await flushPromises();
+    expect(api.createCheckoutSession).toHaveBeenCalledWith(account.account_id, {
+      offer_code: "team-monthly-v2", include_commissioning: true
+    }, expect.stringMatching(/^[0-9a-f-]{36}$/));
   });
 
   it("keeps checkout usable when optional consent lookup is unavailable or does not settle", async () => {
@@ -124,7 +139,7 @@ describe("checkout review", () => {
     let resolveConsent: ((value: { decided: boolean; analytics: boolean; marketing: boolean; renewal_required: boolean }) => void) | undefined;
     api.getPrivacyConsent.mockReturnValue(new Promise((resolve) => { resolveConsent = resolve; }));
     api.emitAnalytics.mockResolvedValue(true);
-    api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [{
+    api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: false, commissioning_purchased: false, subscriptions: [{
       offer_code: "team-monthly-v2", catalog_version: 2, state: "active", current_period_start: "2026-08-25T12:00:00Z", current_period_end: "2026-09-25T12:00:00Z", last_synced_at: "2026-08-25T12:01:00Z"
     }] });
     const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v2&status=billing");
@@ -151,7 +166,7 @@ describe("checkout review", () => {
   });
 
   it("does not silently substitute a different offer when signup intent is no longer published", async () => {
-    api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [{
+    api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: false, commissioning_purchased: false, subscriptions: [{
       offer_code: "team-monthly-v2", catalog_version: 2, state: "active", last_synced_at: "2026-08-25T12:01:00Z"
     }] });
     const wrapper = await mountCheckout("/app/checkout?offer=retired-annual-v1&status=billing");
@@ -169,7 +184,7 @@ describe("checkout review", () => {
 
   it("reuses one checkout request identity after a recoverable provider failure", async () => {
     const wrapper = await mountCheckout();
-    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await wrapper.get('.checkout-confirm input[type="checkbox"]').setValue(true);
     const continueButton = () => wrapper.findAll("button").find((button) => button.text() === "Continue to Stripe");
 
     await continueButton()?.trigger("click");
@@ -187,7 +202,7 @@ describe("checkout review", () => {
   it("rejects a non-HTTPS hosted checkout destination", async () => {
     api.createCheckoutSession.mockResolvedValue({ session_id: "cs_unsafe", url: "http://checkout.invalid/session", expires_at: "2026-08-25T12:00:00Z" });
     const wrapper = await mountCheckout();
-    await wrapper.get('input[type="checkbox"]').setValue(true);
+    await wrapper.get('.checkout-confirm input[type="checkbox"]').setValue(true);
     await wrapper.findAll("button").find((button) => button.text() === "Continue to Stripe")?.trigger("click");
     await flushPromises();
 
@@ -198,8 +213,8 @@ describe("checkout review", () => {
   it("waits for a signed active projection instead of trusting the return redirect", async () => {
     vi.useFakeTimers();
     api.getBillingStatus
-      .mockResolvedValueOnce({ has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [] })
-      .mockResolvedValueOnce({ has_customer: true, can_manage: true, can_start_checkout: false, subscriptions: [{
+      .mockResolvedValueOnce({ has_customer: true, can_manage: true, can_start_checkout: false, commissioning_purchased: false, subscriptions: [] })
+      .mockResolvedValueOnce({ has_customer: true, can_manage: true, can_start_checkout: false, commissioning_purchased: false, subscriptions: [{
         offer_code: "team-monthly-v2", catalog_version: 2, state: "active", current_period_start: "2026-08-25T12:00:00Z", current_period_end: "2026-09-25T12:00:00Z", last_synced_at: "2026-08-25T12:01:00Z"
       }] });
     const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v2&status=billing");
@@ -213,7 +228,7 @@ describe("checkout review", () => {
   });
 
   it("renders a failed signed projection without claiming paid access", async () => {
-    api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: true, subscriptions: [{
+    api.getBillingStatus.mockResolvedValue({ has_customer: true, can_manage: true, can_start_checkout: true, commissioning_purchased: false, subscriptions: [{
       offer_code: "team-monthly-v2", catalog_version: 2, state: "incomplete_expired", last_synced_at: "2026-08-25T12:01:00Z"
     }] });
     const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v2&status=billing");

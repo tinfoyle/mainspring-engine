@@ -293,12 +293,12 @@ func TestCheckoutRejectsRoleUnknownOfferAndBadIdempotency(t *testing.T) {
 
 func TestStatusIsLocalAndSeparatesVisibilityFromManagement(t *testing.T) {
 	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}}
+	repository := &serviceRepository{profile: AccountProfile{AccountID: testAccountID, CustomerID: "cus_test"}, commissioningOwned: true}
 	provider := &serviceProvider{}
 	viewer, _ := access.NewAuthorizer(stateSource{role: accounts.RoleViewer})
 	service, _ := New(provider, repository, viewer, func() catalog.PublishedCatalog { return paidCatalog(now) }, serviceClock{now}, "https://app.infiniteocean.net", "test")
 	status, err := service.Status(context.Background(), testUserID, testAccountID)
-	if err != nil || !status.HasCustomer || status.CanManage {
+	if err != nil || !status.HasCustomer || status.CanManage || !status.CommissioningPurchased {
 		t.Fatalf("unexpected viewer status: %+v err=%v", status, err)
 	}
 	if provider.customerCalls+provider.checkoutCalls+provider.portalCalls != 0 {

@@ -145,11 +145,12 @@ type Subscription struct {
 }
 
 type Status struct {
-	HasCustomer      bool                   `json:"has_customer"`
-	CanManage        bool                   `json:"can_manage"`
-	CanStartCheckout bool                   `json:"can_start_checkout"`
-	Subscriptions    []Subscription         `json:"subscriptions"`
-	Lifecycle        *SubscriptionLifecycle `json:"lifecycle,omitempty"`
+	HasCustomer            bool                   `json:"has_customer"`
+	CanManage              bool                   `json:"can_manage"`
+	CanStartCheckout       bool                   `json:"can_start_checkout"`
+	CommissioningPurchased bool                   `json:"commissioning_purchased"`
+	Subscriptions          []Subscription         `json:"subscriptions"`
+	Lifecycle              *SubscriptionLifecycle `json:"lifecycle,omitempty"`
 }
 
 type SubscriptionLifecycle struct {
@@ -166,6 +167,10 @@ func (s *Service) Status(ctx context.Context, userID ids.UserID, accountID ids.A
 		return Status{}, err
 	}
 	status, err := s.repository.BillingStatus(ctx, accountID, "stripe", s.mode)
+	if err != nil {
+		return Status{}, err
+	}
+	status.CommissioningPurchased, err = s.repository.CommissioningPurchased(ctx, accountID)
 	if err != nil {
 		return Status{}, err
 	}

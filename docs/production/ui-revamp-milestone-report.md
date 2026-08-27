@@ -3,7 +3,7 @@
 - Report date: 2026-08-27
 - Scope: local construction only in UbuntuRojo Docker
 - Overall UI-revamp status: **not complete**
-- Milestone status: **commercial Catalog, AI Token commerce, commissioning, Agent execution admission, Affiliate settlement/retention and subscription remediation complete**
+- Milestone status: **local UI construction complete; human product/visual approval remains unsigned**
 - Explicit exclusions: GHCR, Hostinger Stage, LKE and production
 
 ## What is complete
@@ -28,6 +28,7 @@
 - Signed subscription projection now owns the nonpayment and cancellation clocks. It preserves the first unresolved failure, makes subscription-granted product access read-only for days 0–7, restricts the Account afterward, sends idempotent owner notices immediately and on days 7, 23 and 29, and queues provider termination at day 30. Voluntary cancellation keeps paid-term access and starts the same remediation clock only when that term ends.
 - Recovery before terminal closure clears the lifecycle and restores the Account; terminal provider state closes the Account and creates the existing guarded closure/erasure handoff instead of bypassing its review and transaction fences. Restricted customers retain only Account selection, Billing recovery, export, privacy, security, sign-out and safe AI Token balance visibility; ordinary product work and token consumption remain denied.
 - Governed AI Token promotions now publish arbitrary quantities, effective windows, grant lifetime, per-Account redemption limits, global issuance caps, disclosure and an explicit no-stacking rule. Owner/billing-admin redemption requires recent passkey proof, survives exact retries across later Catalog publications, and appends one expiring labeled grant through a transactionally capped ledger boundary.
+- The final mobile-first Billing presentation now exposes Catalog-frozen AI Token top-ups, promotion redemption and the once-per-team later commissioning purchase with stable retry identities, strong-authentication recovery, durable balance/ownership refresh and explicit tax, refund, entitlement and Affiliate exclusions. Checkout independently confirms the `$50/month` recurring subscription, optional `$250` one-time commissioning service, applicable Stripe-calculated tax and any deliberately applied Affiliate referral before redirecting to hosted Stripe Checkout.
 - The launch/browser fixtures, checkout path and server-rendered identity entry are aligned to the inactive-shell and `$50` offer model.
 
 ## Verification evidence
@@ -39,27 +40,27 @@ dockerized go test ./...
 dockerized go test -race ./...
 go vet, formatting and API-contract checks
 UI type checks, lint and production builds
-75 private Vue component tests
+79 private Vue component tests
 22 public Nuxt tests
 44 generated API-client tests
 17 rendered public-route accessibility checks
 private/public gzip budgets
-393 Playwright checks; 11 intentional profile-specific skips
+424 Playwright checks; 11 intentional profile-specific skips
 complete fresh PostgreSQL migration ledger
 ```
 
 The Playwright matrix covered Chromium, Firefox and WebKit desktop; 360, 390 and 412 pixel phone widths; 320 pixel reflow; tablet; forced colors; reduced motion; 200% text enlargement; and 400% browser-scale reflow. No remote environment or provider was contacted.
 
-## Why the revamp is not yet complete
+## Why approval is not yet complete
 
-The remaining work is feature construction, not hosting:
+The planned local feature construction is complete. The remaining work is acceptance, not hosting:
 
-1. Connect the completed token top-up, promotion and commissioning boundaries to the final Billing/Checkout presentation and run the customer-facing visual/content refinement.
-2. Run a human product/visual review of the exact local artifacts, with particular attention to Your Turn, onboarding, checkout and real-device mobile ergonomics. Automated reflow/accessibility evidence is strong but is not a substitute for that review.
+1. Run a human product/visual review of the exact local artifacts, with particular attention to Your Turn, onboarding, checkout, Billing and real-device mobile ergonomics. Automated reflow/accessibility evidence and the agent-performed 390-pixel visual inspection are strong but are not a substitute for that review.
+2. Record the review decision and any accepted follow-up defects in the human-review handoff.
 
 ## Next implementation order
 
-1. Wire the completed commercial APIs into Billing/Checkout and perform the customer-facing visual/content refinement.
-2. Complete human review against the exact local artifacts.
-3. Re-run the complete local Docker gate and declare the feature-complete boundary.
-4. Only after that boundary, resume the separate Stage and production release plan.
+1. Complete human review against the exact local artifacts.
+2. Resolve any review-blocking defects locally and re-run the proportionate gate if the reviewed artifact changes.
+3. Sign the review record and declare the UI-focused phase accepted.
+4. Only after that acceptance boundary, resume the separate Stage and production release plan.

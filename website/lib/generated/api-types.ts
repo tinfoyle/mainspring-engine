@@ -852,6 +852,7 @@ export interface BeginRegistrationRequest {
 export interface BillingStatus {
   readonly "can_manage": boolean;
   readonly "can_start_checkout": boolean;
+  readonly "commissioning_purchased": boolean;
   readonly "has_customer": boolean;
   readonly "lifecycle"?: BillingSubscriptionLifecycle;
   readonly "subscriptions": ReadonlyArray<BillingSubscription>;
