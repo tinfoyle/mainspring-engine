@@ -128,7 +128,7 @@ func TestMessageBodyContainsMultipartContentWithoutHeaderInjection(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"multipart/alternative", "spyglass_", "plain link", "<p>html link</p>", "From: \"Infinite Ocean\" <hello@infiniteocean.net>"} {
+	for _, expected := range []string{"multipart/alternative", "spyglass_", "plain link", "<p>html link</p>", "From: \"Infinite Ocean\" <hello@infiniteocean.net>", "Message-ID: <spyglass-", "@infiniteocean.net>\r\n"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("message missing %q", expected)
 		}

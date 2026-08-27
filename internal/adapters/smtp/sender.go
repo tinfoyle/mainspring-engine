@@ -289,8 +289,14 @@ func messageBody(from, to mail.Address, subject, plain, htmlBody string) (string
 	if _, err := rand.Read(random[:]); err != nil {
 		return "", errors.New("notification message identity unavailable")
 	}
-	boundary := "spyglass_" + hex.EncodeToString(random[:])
-	headers := []string{"From: " + from.String(), "To: " + to.String(), "Subject: " + mime.QEncoding.Encode("utf-8", subject), "Date: " + time.Now().UTC().Format(time.RFC1123Z), "MIME-Version: 1.0", `Content-Type: multipart/alternative; boundary="` + boundary + `"`}
+	separator := strings.LastIndexByte(from.Address, '@')
+	if separator <= 0 || separator == len(from.Address)-1 {
+		return "", errors.New("notification sender domain unavailable")
+	}
+	identity := hex.EncodeToString(random[:])
+	boundary := "spyglass_" + identity
+	messageID := "<spyglass-" + identity + "@" + from.Address[separator+1:] + ">"
+	headers := []string{"From: " + from.String(), "To: " + to.String(), "Subject: " + mime.QEncoding.Encode("utf-8", subject), "Date: " + time.Now().UTC().Format(time.RFC1123Z), "Message-ID: " + messageID, "MIME-Version: 1.0", `Content-Type: multipart/alternative; boundary="` + boundary + `"`}
 	body := strings.Join(headers, "\r\n") + "\r\n\r\n--" + boundary + "\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + plain + "\r\n--" + boundary + "\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n" + htmlBody + "\r\n--" + boundary + "--\r\n"
 	return body, nil
 }
