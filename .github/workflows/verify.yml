@@ -148,46 +148,62 @@ jobs:
           docker run --rm "spyglass-ci:${GITHUB_SHA}" version > /tmp/spyglass-version.json
           test "$(jq -r .version /tmp/spyglass-version.json)" = "0.0.0-ci"
           test "$(jq -r .revision /tmp/spyglass-version.json)" = "${GITHUB_SHA}"
-      - name: Build and verify website runtime image
+      - name: Build and verify customer UI runtime images
         env:
           DOCKER_BUILDKIT: "1"
         run: |
           set -euo pipefail
           docker build \
+            --target public-runtime \
             --build-arg VERSION=0.0.0-ci \
             --build-arg "REVISION=${GITHUB_SHA}" \
             --build-arg CREATED=1970-01-01T00:00:00Z \
-            --tag "infinite-ocean-website-ci:${GITHUB_SHA}" \
-            website
-          test "$(docker inspect --format '{{.Config.User}}' "infinite-ocean-website-ci:${GITHUB_SHA}")" = "node"
-          if docker run --rm --entrypoint /bin/sh "infinite-ocean-website-ci:${GITHUB_SHA}" -c 'command -v npm || command -v corepack'; then
-            echo "website runtime includes forbidden package tooling" >&2
+            --tag "infinite-ocean-public-ui-ci:${GITHUB_SHA}" \
+            ui
+          docker build \
+            --target app-runtime \
+            --build-arg VERSION=0.0.0-ci \
+            --build-arg "REVISION=${GITHUB_SHA}" \
+            --build-arg CREATED=1970-01-01T00:00:00Z \
+            --tag "infinite-ocean-private-ui-ci:${GITHUB_SHA}" \
+            ui
+          test "$(docker inspect --format '{{.Config.User}}' "infinite-ocean-public-ui-ci:${GITHUB_SHA}")" = "node"
+          test "$(docker inspect --format '{{.Config.User}}' "infinite-ocean-private-ui-ci:${GITHUB_SHA}")" = "65532:65532"
+          if docker run --rm --entrypoint /bin/sh "infinite-ocean-public-ui-ci:${GITHUB_SHA}" -c 'command -v npm || command -v corepack'; then
+            echo "public UI runtime includes forbidden package tooling" >&2
             exit 1
           fi
-          container_id="$(docker run --detach --publish 127.0.0.1::3000 "infinite-ocean-website-ci:${GITHUB_SHA}")"
-          trap 'docker rm --force "${container_id}" >/dev/null 2>&1 || true' EXIT
-          website_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "3000/tcp") 0).HostPort}}' "${container_id}")"
+          public_container_id="$(docker run --detach --publish 127.0.0.1::3000 "infinite-ocean-public-ui-ci:${GITHUB_SHA}")"
+          private_container_id="$(docker run --detach --publish 127.0.0.1::8080 "infinite-ocean-private-ui-ci:${GITHUB_SHA}")"
+          trap 'docker rm --force "${public_container_id}" "${private_container_id}" >/dev/null 2>&1 || true' EXIT
+          public_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "3000/tcp") 0).HostPort}}' "${public_container_id}")"
+          private_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}' "${private_container_id}")"
           for attempt in $(seq 1 30); do
-            if curl --fail --silent "http://127.0.0.1:${website_port}/health/ready" >/dev/null; then
+            if curl --fail --silent "http://127.0.0.1:${public_port}/health/ready" >/dev/null && \
+               curl --fail --silent "http://127.0.0.1:${private_port}/health/ready" >/dev/null; then
               break
             fi
             if [[ "${attempt}" == 30 ]]; then
-              docker logs "${container_id}"
+              docker logs "${public_container_id}"
+              docker logs "${private_container_id}"
               exit 1
             fi
             sleep 1
           done
-      - name: Scan website runtime image
+      - name: Scan customer UI runtime images
         run: |
-          docker run --rm \
-            --volume /var/run/docker.sock:/var/run/docker.sock \
-            docker.io/aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
-            image \
-            --image-src docker \
-            --scanners vuln,secret \
-            --severity HIGH,CRITICAL \
-            --exit-code 1 \
-            "infinite-ocean-website-ci:${GITHUB_SHA}"
+          set -euo pipefail
+          for image in "infinite-ocean-public-ui-ci:${GITHUB_SHA}" "infinite-ocean-private-ui-ci:${GITHUB_SHA}"; do
+            docker run --rm \
+              --volume /var/run/docker.sock:/var/run/docker.sock \
+              docker.io/aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
+              image \
+              --image-src docker \
+              --scanners vuln,secret \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              "${image}"
+          done
       - name: Validate observability artifacts
         env:
           COLLECTOR_IMAGE: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.159.0@sha256:1f2c54a30e713fac6b3ae77a1ec84010c2007e29ced8ec666214fc2f6739c1cc

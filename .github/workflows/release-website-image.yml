@@ -1,8 +1,8 @@
-name: release Infinite Ocean website image
+name: release Infinite Ocean UI images
 
 on:
   push:
-    tags: ["website-v*"]
+    tags: ["ui-v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -11,7 +11,7 @@ on:
         type: string
 
 concurrency:
-  group: release-website-image-${{ github.ref }}
+  group: release-ui-images-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -19,13 +19,22 @@ permissions:
   packages: write
   id-token: write
 
-env:
-  IMAGE_NAME: ghcr.io/tinfoyle/infinite-ocean-website
-
 jobs:
   release:
     runs-on: ubuntu-latest
     environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: public
+            image: ghcr.io/tinfoyle/infinite-ocean-public-ui
+            target: public-runtime
+          - component: private
+            image: ghcr.io/tinfoyle/infinite-ocean-private-ui
+            target: app-runtime
+    env:
+      IMAGE_NAME: ${{ matrix.image }}
     steps:
       - name: Check out exact release source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -38,8 +47,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            version="${GITHUB_REF_NAME#website-v}"
-            [[ "${GITHUB_REF_NAME}" == "website-v${version}" ]]
+            version="${GITHUB_REF_NAME#ui-v}"
+            [[ "${GITHUB_REF_NAME}" == "ui-v${version}" ]]
           else
             version="${REQUESTED_VERSION}"
           fi
@@ -75,8 +84,9 @@ jobs:
         id: image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
-          context: website
-          file: website/Dockerfile
+          context: ui
+          file: ui/Dockerfile
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
@@ -130,7 +140,7 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           {
-            echo "### Infinite Ocean website ${VERSION}"
+            echo "### Infinite Ocean ${{ matrix.component }} UI ${VERSION}"
             echo '```text'
             echo "${IMAGE_NAME}@${DIGEST}"
             echo '```'
