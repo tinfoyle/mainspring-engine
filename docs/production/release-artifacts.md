@@ -1,6 +1,6 @@
 # Release artifacts and provenance
 
-Status: RC.7 is the active Hostinger Stage review candidate; it passed local AMD64 admission but is deliberately not production-promotable because the signed GitHub release path was unavailable. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
+Status: RC.8 is the active Hostinger Stage review candidate; it passed local AMD64 admission but is deliberately not production-promotable because the signed GitHub release path was unavailable. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
 
 Spyglass uses one shared, multi-mode application image for Account API, routers, cell APIs, private brokers, workers, runner execution, migrations, and one-shot operator commands. Runtime arguments choose the workload class. Kubernetes ServiceAccounts, NetworkPolicies, mounted credentials, database roles, and workload certificates—not separate per-customer builds—bound each process's authority. Ordinary Accounts never create an image, Deployment, namespace, or long-running container.
 
@@ -119,6 +119,27 @@ vulnerability and secret gate and are active on Stage from deployment checkout
 workflow-produced multi-architecture manifest, attached SBOM/provenance or
 keyless signature and is not production-promotable.
 
+## RC.8 landing alignment correction
+
+RC.8 is recorded in `deploy/releases/0.3.0-rc.8.env` and was built from source
+revision `e4e4f7a30c5e2e4f0a16ada04175e93076c84e66`. It removes the decorative
+one-degree rotation from the landing-page Your Turn preview and adds a CSS
+regression asserting that the preview transform remains `none`.
+
+| Artifact | Immutable Stage reference |
+|---|---|
+| Application | `ghcr.io/tinfoyle/spyglass-engine@sha256:8629176c163e550c5d6831bbf19099442039b6c515c89c3e5492715945864c81` |
+| Public UI | `ghcr.io/tinfoyle/infinite-ocean-public-ui@sha256:46b207bf79dd9f2fcd8558f263fabf7deb7cbcefbb5551b67b658357507292d1` |
+| Private UI | `ghcr.io/tinfoyle/infinite-ocean-private-ui@sha256:ec9ed67340751cc3aa58ebf3e180f0ea80d62fa5d8caf3f646a2fae1b2590b07` |
+
+All three native Linux AMD64 images passed the pinned Trivy high/critical
+vulnerability and secret gate and are active on Stage from deployment checkout
+`a836a92044c35914ce9267adf93803db13bbed77`. The focused landing regression
+passed ten desktop, mobile, tablet and accessibility browser profiles; the live
+Stage element reports `transform: none`. Like RC.6 and RC.7, this fallback is
+not production-promotable because it lacks the workflow-produced signed,
+multi-architecture evidence set.
+
 ## RC.4 and RC.5 independent evidence
 
 Verification from Docker in `ubunturojo` used Cosign 3.1.3 image digest `sha256:9e5c2f2edc34351160407ca3416c61855bdf9403c3c5936e0f0be7fc261611b8` and Trivy 0.74.0 image digest `sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969`:
@@ -154,4 +175,4 @@ Promotion reuses the same digest through staging, internal canary, customer cana
 
 ## Remaining release evidence
 
-RC.4/RC.5 independent evidence, the earlier signed Phase 3 checkpoints and RC.6/RC.7 connected Stage evidence are recorded. Before final promotion, publish a complete-product immutable application/public/private triple, independently verify each signature/provenance/SBOM/scan set, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-triple staged rollback remain launch gates.
+RC.4/RC.5 independent evidence, the earlier signed Phase 3 checkpoints and RC.6/RC.7/RC.8 connected Stage evidence are recorded. Before final promotion, publish a complete-product immutable application/public/private triple, independently verify each signature/provenance/SBOM/scan set, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-triple staged rollback remain launch gates.
