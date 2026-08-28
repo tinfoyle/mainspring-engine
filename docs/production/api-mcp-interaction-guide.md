@@ -122,7 +122,7 @@ curl --insecure --fail-with-body \
   --header 'Accept: application/json, text/event-stream' \
   --header 'MCP-Protocol-Version: 2026-07-28' \
   --header 'Mcp-Method: tools/list' \
-  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28"}}}' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"content-free-diagnostic","version":"1"}}}}' \
   'https://mcp.infiniteocean.localhost:8444/mcp/v1/accounts/10000000-0000-4000-8000-000000000001'
 ```
 

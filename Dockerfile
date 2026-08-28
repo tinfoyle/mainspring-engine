@@ -33,6 +33,34 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
     -o /out/prototype-import ./cmd/prototype-import
 
+FROM ${GO_IMAGE} AS agent-cert-build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/agent-journey-cert ./cmd/agent-journey-cert
+COPY internal ./internal
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
+    -o /out/agent-journey-cert ./cmd/agent-journey-cert
+
+FROM scratch AS agent-cert-runtime
+COPY --from=agent-cert-build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=agent-cert-build /out/agent-journey-cert /agent-journey-cert
+ENTRYPOINT ["/agent-journey-cert"]
+
+FROM ${GO_IMAGE} AS openai-fixture-build
+WORKDIR /src
+COPY go.mod ./
+COPY cmd/openai-fixture ./cmd/openai-fixture
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
+    -o /out/openai-fixture ./cmd/openai-fixture
+
+FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS openai-fixture-runtime
+COPY --from=openai-fixture-build /out/openai-fixture /openai-fixture
+USER 65532:65532
+ENTRYPOINT ["/openai-fixture"]
+
 FROM build AS test-runtime
 
 RUN apk add --no-cache gcc musl-dev

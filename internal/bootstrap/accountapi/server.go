@@ -56,6 +56,7 @@ import (
 )
 
 type Config struct {
+	Environment                  string
 	DatabaseURL                  string
 	StripeWebhookSecret          string
 	StripeSecretKey              string
@@ -84,6 +85,7 @@ type Config struct {
 	ExportDownloadKeyID          string
 	ExportDownloadKeys           map[string][]byte
 	ExportDownloadLifetime       time.Duration
+	LocalMCPClientMetadata       *mcpauth.Client
 }
 
 type Server struct {
@@ -416,7 +418,19 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	oauth, err := mcpoauth.New(mcpAuthorization, sessionService, clientMetadata, networkGuard, clock, mcpoauth.Config{Issuer: config.AppOrigin, Resource: config.MCPResourceOrigin, TrustedOrigin: config.AppOrigin, SecureCookies: true}, logger)
+	var clientMetadataLoader mcpoauth.ClientMetadataLoader = clientMetadata
+	if config.LocalMCPClientMetadata != nil {
+		if config.Environment != "local" && config.Environment != "local-secure" {
+			pool.Close()
+			return nil, errors.New("pinned MCP client metadata is restricted to the local environment")
+		}
+		clientMetadataLoader, err = mcpoauth.NewPinnedMetadataLoader(clientMetadata, *config.LocalMCPClientMetadata)
+		if err != nil {
+			pool.Close()
+			return nil, err
+		}
+	}
+	oauth, err := mcpoauth.New(mcpAuthorization, sessionService, clientMetadataLoader, networkGuard, clock, mcpoauth.Config{Issuer: config.AppOrigin, Resource: config.MCPResourceOrigin, TrustedOrigin: config.AppOrigin, SecureCookies: true}, logger)
 	if err != nil {
 		pool.Close()
 		return nil, err

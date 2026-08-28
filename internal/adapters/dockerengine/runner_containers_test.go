@@ -70,7 +70,7 @@ func TestRunnerContainersLifecycleSurvivesAmbiguityAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity, err := restarted.Verify(context.Background(), string(token), invocation.ID)
-	if err != nil || identity.InvocationID != invocation.ID || identity.Profile != invocation.Profile || identity.JobName != name || identity.JobUID == "" {
+	if err != nil || identity.InvocationID != invocation.ID || identity.Profile != invocation.Profile || identity.JobName != name || identity.JobUID == "" || ids.Validate(identity.PodUID) != nil || identity.PodUID == identity.JobUID {
 		t.Fatalf("identity=%+v err=%v", identity, err)
 	}
 	if _, err := restarted.Verify(context.Background(), "wrong-token", invocation.ID); !errors.Is(err, runnerbroker.ErrIdentityDenied) {
@@ -88,6 +88,25 @@ func TestRunnerContainersLifecycleSurvivesAmbiguityAndRestart(t *testing.T) {
 	status, err = restarted.Inspect(context.Background(), canceling)
 	if err != nil || !status.Terminal || status.Outcome != "canceled" {
 		t.Fatalf("canceled status=%+v err=%v", status, err)
+	}
+}
+
+func TestDockerPodUIDIsStableAndRejectsNonDockerIdentities(t *testing.T) {
+	container := strings.Repeat("a", 64)
+	first, err := dockerPodUID(container)
+	if err != nil || ids.Validate(first) != nil {
+		t.Fatalf("pod uid=%q err=%v", first, err)
+	}
+	second, err := dockerPodUID(container)
+	if err != nil || second != first {
+		t.Fatalf("pod uid was not stable: first=%q second=%q err=%v", first, second, err)
+	}
+	other, err := dockerPodUID(strings.Repeat("b", 64))
+	if err != nil || other == first {
+		t.Fatalf("pod uid did not bind the full container identity: first=%q other=%q err=%v", first, other, err)
+	}
+	if _, err := dockerPodUID("container-" + testInvocationID); err == nil {
+		t.Fatal("non-Docker identity was accepted")
 	}
 }
 
@@ -199,7 +218,7 @@ func (f *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for key, value := range payload["Labels"].(map[string]any) {
 			labels[key] = value.(string)
 		}
-		container := &fakeContainer{id: "container-" + testInvocationID, name: name, labels: labels, state: "created", payload: payload}
+		container := &fakeContainer{id: strings.Repeat("a", 64), name: name, labels: labels, state: "created", payload: payload}
 		f.containers[name] = container
 		f.createCount++
 		if f.abortCreate {

@@ -23,6 +23,7 @@ func TestGenerateCreatesBoundedWorkloadIdentities(t *testing.T) {
 		identity string
 	}{
 		{name: "app-router", identity: "spiffe://infiniteocean.net/spyglass/workloads/app-router"},
+		{name: "mcp-gateway", identity: "spiffe://infiniteocean.net/spyglass/workloads/mcp-gateway"},
 		{name: "app-api-a", dnsName: "app-api-a", identity: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api"},
 		{name: "app-api-b", dnsName: "app-api-b", identity: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api"},
 		{name: "admission-api", dnsName: "admission-api", identity: "spiffe://infiniteocean.net/spyglass/workloads/admission-api"},

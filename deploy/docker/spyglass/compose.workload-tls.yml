@@ -116,7 +116,7 @@ services:
       SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
       SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
       SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
-      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/workloads/mcp-gateway,spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker
     expose: ["8443"]
     volumes:
       - ./workload-tls/generated/app-api-a:/var/run/secrets/spyglass/workload:ro
@@ -137,7 +137,7 @@ services:
       SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
       SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
       SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
-      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker
+      SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/workloads/app-router,spiffe://infiniteocean.net/spyglass/workloads/mcp-gateway,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker
     expose: ["8443"]
     volumes:
       - ./workload-tls/generated/app-api-b:/var/run/secrets/spyglass/workload:ro
@@ -159,6 +159,17 @@ services:
       SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
     volumes:
       - ./workload-tls/generated/app-router:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  mcp-gateway:
+    environment:
+      <<: *secure-restore-gate
+      SPYGLASS_WORKLOAD_CERT_FILE: /var/run/secrets/spyglass/workload/tls.crt
+      SPYGLASS_WORKLOAD_KEY_FILE: /var/run/secrets/spyglass/workload/tls.key
+      SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
+    volumes:
+      - ./workload-tls/generated/mcp-gateway:/var/run/secrets/spyglass/workload:ro
     depends_on:
       workload-tls-init: {condition: service_completed_successfully}
 

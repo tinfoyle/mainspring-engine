@@ -166,8 +166,28 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		s.writeAuthorizationError(w, err)
 		return
 	}
+	maximumBody := s.config.MaxRequestBody
+	if maximum, objectUpload := objectUploadLimit(r.Method, r.PathValue("resource")); objectUpload {
+		maximumBody = maximum
+	}
+	body, err := requestbody.Read(r.Body, maximumBody)
+	if err != nil {
+		if errors.Is(err, requestbody.ErrTooLarge) {
+			writeProblem(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds the router limit")
+			return
+		}
+		s.logger.Error("capture routed request body", "error", err)
+		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the routed request body could not be secured")
+		return
+	}
+	defer body.Close()
+	additionalRequirements, err := additionalRouteRequirements(r.Method, r.PathValue("resource"), body)
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "the routed request body is invalid")
+		return
+	}
 	var additionalPackageAccesses []routecontext.PackageAccess
-	if additional, required := additionalRouteRequirement(r.Method, r.PathValue("resource")); required {
+	for _, additional := range additionalRequirements {
 		additionalContext, additionalErr := s.authorizer.Authorize(r.Context(), actor, accountID, additional)
 		if additionalErr != nil {
 			s.writeAuthorizationError(w, additionalErr)
@@ -187,21 +207,6 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the assigned Spyglass cell route could not be verified")
 		return
 	}
-	maximumBody := s.config.MaxRequestBody
-	if maximum, objectUpload := objectUploadLimit(r.Method, r.PathValue("resource")); objectUpload {
-		maximumBody = maximum
-	}
-	body, err := requestbody.Read(r.Body, maximumBody)
-	if err != nil {
-		if errors.Is(err, requestbody.ErrTooLarge) {
-			writeProblem(w, http.StatusRequestEntityTooLarge, "request_too_large", "request body exceeds the router limit")
-			return
-		}
-		s.logger.Error("capture routed request body", "error", err)
-		writeProblem(w, http.StatusServiceUnavailable, "routing_unavailable", "the routed request body could not be secured")
-		return
-	}
-	defer body.Close()
 	binding, err := routecontext.BindRequestDigest(r, body.SHA256())
 	if err != nil {
 		writeProblem(w, http.StatusBadRequest, "invalid_request", "request target is invalid")
@@ -361,6 +366,18 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 	if len(parts) == 2 && parts[0] == "agent-runs" && ids.Validate(parts[1]) == nil {
 		return access.Requirement{Package: catalog.PackageAgents}, method == http.MethodGet
 	}
+	if len(parts) == 1 && parts[0] == "schedules" {
+		return access.Requirement{Package: catalog.PackageAgents, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
+	}
+	if len(parts) == 2 && parts[0] == "schedules" && ids.Validate(parts[1]) == nil {
+		return access.Requirement{Package: catalog.PackageAgents, Mutation: method == http.MethodPut || method == http.MethodDelete}, method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
+	}
+	if len(parts) == 3 && parts[0] == "schedules" && ids.Validate(parts[1]) == nil {
+		switch parts[2] {
+		case "pauses", "resumptions", "triggers":
+			return access.Requirement{Package: catalog.PackageAgents, Mutation: true}, method == http.MethodPost
+		}
+	}
 	if len(parts) >= 1 && parts[0] == "baseline-assessments" {
 		if len(parts) == 1 {
 			return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, method == http.MethodPost
@@ -512,6 +529,43 @@ func additionalRouteRequirement(method, resource string) (access.Requirement, bo
 		return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, true
 	}
 	return access.Requirement{}, false
+}
+
+func additionalRouteRequirements(method, resource string, body *requestbody.Capture) ([]access.Requirement, error) {
+	requirements := make([]access.Requirement, 0, 2)
+	if requirement, required := additionalRouteRequirement(method, resource); required {
+		requirements = append(requirements, requirement)
+	}
+	parts := strings.Split(resource, "/")
+	if !strings.EqualFold(method, http.MethodPost) || len(parts) != 3 || parts[0] != "agent-boardrooms" || ids.Validate(parts[1]) != nil || parts[2] != "runs" {
+		return requirements, nil
+	}
+	reader, err := body.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	var request struct {
+		Context *struct {
+			WorkItemIDs           []string `json:"work_item_ids"`
+			KnowledgeFactIDs      []string `json:"knowledge_fact_ids"`
+			KnowledgeDocumentIDs  []string `json:"knowledge_document_ids"`
+			BaselineAssessmentIDs []string `json:"baseline_assessment_ids"`
+		} `json:"context"`
+	}
+	if err := json.NewDecoder(reader).Decode(&request); err != nil {
+		return nil, err
+	}
+	if request.Context == nil {
+		return requirements, nil
+	}
+	if len(request.Context.WorkItemIDs) != 0 {
+		requirements = append(requirements, access.Requirement{Package: catalog.PackageWork})
+	}
+	if len(request.Context.KnowledgeFactIDs)+len(request.Context.KnowledgeDocumentIDs)+len(request.Context.BaselineAssessmentIDs) != 0 {
+		requirements = append(requirements, access.Requirement{Package: catalog.PackageKnowledge})
+	}
+	return requirements, nil
 }
 
 func packageClaim(value *entitlements.PackageAccess) *routecontext.PackageAccess {

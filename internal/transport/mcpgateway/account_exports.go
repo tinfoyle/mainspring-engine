@@ -149,7 +149,7 @@ func (tools *accountExportTools) call(w http.ResponseWriter, r *http.Request, bo
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("X-Request-ID", requestID)
 	if err != nil {
-		tools.logger.Info("MCP Account-export tool denied", "request_id", requestID, "account_id", account.AccountID, "tool", call.Name, "code", accountExportError(err))
+		tools.logger.Info("MCP Account-export tool denied", "request_id", requestID, "account_id", account.AccountID, "tool", call.Name, "code", accountExportError(err), "error", err)
 		writeToolResult(w, envelope.ID, nil, accountExportError(err), true, false)
 		return
 	}

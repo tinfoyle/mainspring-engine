@@ -66,14 +66,15 @@ type dispatchProvisioner struct {
 }
 
 type dispatchTokens struct {
-	admission agentusage.Admission
-	reserved  []agentusage.ReserveCommand
-	closed    []agentusage.CloseCommand
+	admission  agentusage.Admission
+	reserveErr error
+	reserved   []agentusage.ReserveCommand
+	closed     []agentusage.CloseCommand
 }
 
 func (s *dispatchTokens) ReserveAgentTokens(_ context.Context, command agentusage.ReserveCommand) (agentusage.Admission, error) {
 	s.reserved = append(s.reserved, command)
-	return s.admission, nil
+	return s.admission, s.reserveErr
 }
 func (s *dispatchTokens) CloseAgentTokens(_ context.Context, command agentusage.CloseCommand) error {
 	s.closed = append(s.closed, command)
@@ -161,5 +162,18 @@ func TestProcessorDeadLettersDeterministicProvisionConflict(t *testing.T) {
 	result, err := processor.ProcessOne(context.Background())
 	if !errors.Is(err, runnerbroker.ErrExchangeConflict) || !result.DeadLetter || !queue.failed || queue.retry || queue.code != "provision_rejected" || len(tokens.closed) != 1 {
 		t.Fatalf("result=%+v failed=%v retry=%v code=%s err=%v", result, queue.failed, queue.retry, queue.code, err)
+	}
+}
+
+func TestProcessorTerminalizesInsufficientAITokensWithSpecificCode(t *testing.T) {
+	now := time.Date(2026, 8, 19, 2, 0, 0, 0, time.UTC)
+	snapshot := validSnapshot(t, now)
+	snapshot.TokenAdmission = nil
+	queue := &dispatchQueue{found: true, snapshot: snapshot, claim: Claim{AccountID: snapshot.AccountID, InvocationID: snapshot.InvocationID, Attempt: 1}}
+	tokens := &dispatchTokens{reserveErr: aitokens.ErrInsufficient}
+	processor, _ := New(queue, &dispatchProvisioner{}, tokens, ids.CellID("cell-us-east-01"), dispatchClock{now}, dispatchIDs{"91000000-0000-4000-8000-000000000001"}, DefaultLease, DefaultMaxAttempts)
+	result, err := processor.ProcessOne(context.Background())
+	if !errors.Is(err, aitokens.ErrInsufficient) || !result.DeadLetter || !queue.failed || queue.retry || queue.code != "ai_tokens_insufficient" || len(tokens.closed) != 1 {
+		t.Fatalf("result=%+v failed=%v retry=%v code=%s closed=%d err=%v", result, queue.failed, queue.retry, queue.code, len(tokens.closed), err)
 	}
 }

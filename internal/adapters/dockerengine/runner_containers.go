@@ -50,6 +50,7 @@ const (
 var (
 	digestImage = regexp.MustCompile(`^\S+@sha256:[0-9a-f]{64}$`)
 	localImage  = regexp.MustCompile(`^[a-z0-9][a-z0-9./_-]{0,199}:local$`)
+	containerID = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	dockerName  = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{0,127}$`)
 	profileName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,49}$`)
 	apiVersion  = regexp.MustCompile(`^v[0-9]+\.[0-9]+$`)
@@ -320,7 +321,28 @@ func (d *RunnerContainers) Verify(ctx context.Context, token, invocationID strin
 	if decodeErr != nil || len(expected) != sha256.Size || subtle.ConstantTimeCompare(digest[:], expected) != 1 {
 		return runnerbroker.Identity{}, runnerbroker.ErrIdentityDenied
 	}
-	return runnerbroker.Identity{InvocationID: invocationID, Profile: container.Config.Labels[profileLabel], JobName: name, JobUID: container.ID, PodName: name, PodUID: container.ID}, nil
+	podUID, err := dockerPodUID(container.ID)
+	if err != nil {
+		return runnerbroker.Identity{}, runnerbroker.ErrIdentityDenied
+	}
+	return runnerbroker.Identity{InvocationID: invocationID, Profile: container.Config.Labels[profileLabel], JobName: name, JobUID: container.ID, PodName: name, PodUID: podUID}, nil
+}
+
+// dockerPodUID gives the Docker substrate the same UUID-shaped execution
+// identity contract used by Kubernetes Pod UIDs and the durable runner ledger.
+// It remains cryptographically bound to the full immutable Docker container ID
+// while avoiding the lossy and invalid practice of passing that 64-byte hex ID
+// directly to PostgreSQL uuid parameters.
+func dockerPodUID(id string) (string, error) {
+	if !containerID.MatchString(id) {
+		return "", errors.New("Docker runner container identity is invalid")
+	}
+	digest := sha256.Sum256([]byte("spyglass-docker-runner-pod-uid:v1:" + id))
+	value := digest[:16]
+	value[6] = (value[6] & 0x0f) | 0x50
+	value[8] = (value[8] & 0x3f) | 0x80
+	encoded := hex.EncodeToString(value)
+	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:], nil
 }
 
 // CleanupExpired removes a bounded set of launcher-managed containers whose

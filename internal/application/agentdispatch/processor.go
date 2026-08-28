@@ -140,7 +140,10 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 		admission, err := p.tokens.ReserveAgentTokens(ctx, agentusage.ReserveCommand{CellID: p.cellID, AccountID: claim.AccountID, UserID: snapshot.CreatedBy, InvocationID: claim.InvocationID, Complexity: snapshot.Complexity})
 		if err != nil {
 			var denied *access.DeniedError
-			if errors.Is(err, aitokens.ErrInsufficient) || errors.As(err, &denied) || errors.Is(err, aitokens.ErrInvalidReservation) {
+			if errors.Is(err, aitokens.ErrInsufficient) {
+				return p.reject(ctx, claim, now, "ai_tokens_insufficient", err)
+			}
+			if errors.As(err, &denied) || errors.Is(err, aitokens.ErrInvalidReservation) {
 				return p.reject(ctx, claim, now, "token_admission_denied", err)
 			}
 			return p.retry(ctx, claim, now, "token_admission_unavailable", err)

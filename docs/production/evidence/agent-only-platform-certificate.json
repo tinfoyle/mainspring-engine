@@ -1,0 +1,712 @@
+{
+  "schema_version": "spyglass-agent-journey/v1",
+  "executed_at": "2026-08-28T16:52:37.09019729Z",
+  "account_id": "4497c9a6-116c-485b-9f95-e1466dcd6411",
+  "user_id": "4f8cad16-b245-4267-a195-919ec9dd027b",
+  "tool_count": 94,
+  "tools": [
+    "spyglass_account_export_cancel",
+    "spyglass_account_export_download_capability_create",
+    "spyglass_account_export_get",
+    "spyglass_account_export_list",
+    "spyglass_account_export_request",
+    "spyglass_attention_action_confirm_resolution",
+    "spyglass_attention_action_get",
+    "spyglass_attention_action_list",
+    "spyglass_attention_action_request_resolution",
+    "spyglass_attention_approval_cancel",
+    "spyglass_attention_approval_create",
+    "spyglass_attention_approval_decide",
+    "spyglass_attention_approval_get",
+    "spyglass_attention_approval_list",
+    "spyglass_attention_information_answer",
+    "spyglass_attention_information_cancel",
+    "spyglass_attention_information_create",
+    "spyglass_attention_information_get",
+    "spyglass_attention_information_list",
+    "spyglass_attention_review_cancel",
+    "spyglass_attention_review_create",
+    "spyglass_attention_review_decide",
+    "spyglass_attention_review_get",
+    "spyglass_attention_review_list",
+    "spyglass_baseline_get",
+    "spyglass_baseline_mutate",
+    "spyglass_baseline_source_list",
+    "spyglass_baseline_source_mutate",
+    "spyglass_baseline_start",
+    "spyglass_finance_entry_create_draft",
+    "spyglass_finance_entry_get",
+    "spyglass_finance_entry_list",
+    "spyglass_finance_entry_post",
+    "spyglass_finance_entry_reverse",
+    "spyglass_finance_entry_revise_draft",
+    "spyglass_finance_ledger_archive",
+    "spyglass_finance_ledger_close_period",
+    "spyglass_finance_ledger_create",
+    "spyglass_finance_ledger_get",
+    "spyglass_finance_ledger_list",
+    "spyglass_finance_ledger_revise",
+    "spyglass_finance_posting_account_archive",
+    "spyglass_finance_posting_account_create",
+    "spyglass_finance_posting_account_get",
+    "spyglass_finance_posting_account_list",
+    "spyglass_finance_posting_account_revise",
+    "spyglass_finance_reconciliation_confirm",
+    "spyglass_finance_reconciliation_create",
+    "spyglass_finance_reconciliation_get",
+    "spyglass_finance_reconciliation_list",
+    "spyglass_integrations_authorization_begin",
+    "spyglass_integrations_authorization_status",
+    "spyglass_integrations_connection_create",
+    "spyglass_integrations_connection_disable",
+    "spyglass_integrations_connection_enable",
+    "spyglass_integrations_connection_get",
+    "spyglass_integrations_connection_list",
+    "spyglass_integrations_connection_revise",
+    "spyglass_integrations_connection_revoke",
+    "spyglass_integrations_credential_activate",
+    "spyglass_integrations_credential_revoke",
+    "spyglass_integrations_credential_rotate",
+    "spyglass_integrations_execution_confirm_resolution",
+    "spyglass_integrations_execution_get",
+    "spyglass_integrations_execution_list",
+    "spyglass_integrations_execution_prepare",
+    "spyglass_integrations_execution_request_resolution",
+    "spyglass_integrations_health_list",
+    "spyglass_integrations_web_read",
+    "spyglass_integrations_web_search",
+    "spyglass_knowledge_claim_decide",
+    "spyglass_knowledge_claim_get",
+    "spyglass_knowledge_claim_list",
+    "spyglass_knowledge_claim_propose",
+    "spyglass_knowledge_document_citation_get",
+    "spyglass_knowledge_document_retrieve",
+    "spyglass_knowledge_evidence_register",
+    "spyglass_knowledge_fact_list",
+    "spyglass_marketing_asset_revision_create_draft",
+    "spyglass_marketing_asset_revision_list",
+    "spyglass_marketing_campaign_activate",
+    "spyglass_marketing_campaign_archive",
+    "spyglass_marketing_campaign_complete",
+    "spyglass_marketing_campaign_create_draft",
+    "spyglass_marketing_campaign_get",
+    "spyglass_marketing_campaign_list",
+    "spyglass_marketing_campaign_pause",
+    "spyglass_marketing_campaign_revise",
+    "spyglass_marketing_release_approve",
+    "spyglass_marketing_release_cancel",
+    "spyglass_marketing_release_create_draft",
+    "spyglass_marketing_release_get",
+    "spyglass_marketing_release_list",
+    "spyglass_marketing_release_submit"
+  ],
+  "tool_coverage": [
+    {
+      "name": "spyglass_account_export_cancel",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_account_export_download_capability_create",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_account_export_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_account_export_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_account_export_request",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_action_confirm_resolution",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_attention_action_get",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_attention_action_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_action_request_resolution",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_attention_approval_cancel",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_approval_create",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_approval_decide",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_attention_approval_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_approval_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_information_answer",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_attention_information_cancel",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_information_create",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_information_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_information_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_attention_review_cancel",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_attention_review_create",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_attention_review_decide",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_attention_review_get",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_attention_review_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_baseline_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_baseline_mutate",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_baseline_source_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_baseline_source_mutate",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_baseline_start",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_entry_create_draft",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_entry_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_entry_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_entry_post",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_entry_reverse",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_entry_revise_draft",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_ledger_archive",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_finance_ledger_close_period",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_finance_ledger_create",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_ledger_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_ledger_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_ledger_revise",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_posting_account_archive",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_finance_posting_account_create",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_posting_account_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_posting_account_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_posting_account_revise",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_finance_reconciliation_confirm",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_finance_reconciliation_create",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_finance_reconciliation_get",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_finance_reconciliation_list",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_authorization_begin",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_authorization_status",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_connection_create",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_integrations_connection_disable",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_connection_enable",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_connection_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_integrations_connection_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_integrations_connection_revise",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_integrations_connection_revoke",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_integrations_credential_activate",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_credential_revoke",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_credential_rotate",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_execution_confirm_resolution",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_execution_get",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_execution_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_integrations_execution_prepare",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_execution_request_resolution",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_health_list",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_web_read",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_integrations_web_search",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_knowledge_claim_decide",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_knowledge_claim_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_knowledge_claim_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_knowledge_claim_propose",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_knowledge_document_citation_get",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_knowledge_document_retrieve",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_knowledge_evidence_register",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_knowledge_fact_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_marketing_asset_revision_create_draft",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_asset_revision_list",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_campaign_activate",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_campaign_archive",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_marketing_campaign_complete",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_campaign_create_draft",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_marketing_campaign_get",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_marketing_campaign_list",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_marketing_campaign_pause",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_campaign_revise",
+      "outcome": "executed",
+      "detail": "tool returned a structured success response"
+    },
+    {
+      "name": "spyglass_marketing_release_approve",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_release_cancel",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_release_create_draft",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_release_get",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_release_list",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    },
+    {
+      "name": "spyglass_marketing_release_submit",
+      "outcome": "safe_rejection",
+      "detail": "tool reached its Account-scoped handler and rejected incomplete or inapplicable input"
+    }
+  ],
+  "checks": [
+    {
+      "name": "registration discovery",
+      "outcome": "passed",
+      "detail": "fresh synthetic identity accepted through documented HTTP"
+    },
+    {
+      "name": "email verification",
+      "outcome": "passed",
+      "detail": "verification completed through local notification provider"
+    },
+    {
+      "name": "password login",
+      "outcome": "passed",
+      "detail": "session established without customer browser UI"
+    },
+    {
+      "name": "strong-auth denial",
+      "outcome": "passed",
+      "detail": "Account selection failed closed before passkey and recovery enrollment"
+    },
+    {
+      "name": "software passkey enrollment",
+      "outcome": "passed",
+      "detail": "ES256 user-verifying credential enrolled through WebAuthn HTTP contract"
+    },
+    {
+      "name": "owner recovery enrollment",
+      "outcome": "passed",
+      "detail": "ten one-time recovery codes issued; values omitted from certificate"
+    },
+    {
+      "name": "local commercial fixture",
+      "outcome": "passed",
+      "detail": "all packages enabled and deterministic AI Tokens granted"
+    },
+    {
+      "name": "Account selection",
+      "outcome": "passed",
+      "detail": "owner security posture and placement accepted"
+    },
+    {
+      "name": "fresh Account HTTP retry",
+      "outcome": "passed",
+      "detail": "recovered after 2 fail-closed route probes while cell provisioning completed"
+    },
+    {
+      "name": "Work and Your Turn",
+      "outcome": "passed",
+      "detail": "created, transitioned and summarized accountable owner Work through HTTP"
+    },
+    {
+      "name": "stale-version recovery",
+      "outcome": "passed",
+      "detail": "stale Boardroom version 1 was rejected; current version 2 remained authoritative"
+    },
+    {
+      "name": "Agent execution retry",
+      "outcome": "passed",
+      "detail": "a deterministic provider failure reached failed, the documented human retry boundary created a new Run, and the local model completed it with metered usage"
+    },
+    {
+      "name": "insufficient AI Tokens",
+      "outcome": "passed",
+      "detail": "an exhausted Account grant failed the queued invocation before any model usage"
+    },
+    {
+      "name": "Agents and Boardroom",
+      "outcome": "passed",
+      "detail": "published bounded Personas, configured a manager and exercised an Account-scoped run"
+    },
+    {
+      "name": "Scheduling",
+      "outcome": "passed",
+      "detail": "created, paused, stale-retried, resumed and manually triggered an Agent schedule"
+    },
+    {
+      "name": "MCP OAuth authorization",
+      "outcome": "passed",
+      "detail": "human-authorized exact client/resource/scope grant exchanged with S256 PKCE"
+    },
+    {
+      "name": "MCP discovery",
+      "outcome": "passed",
+      "detail": "94 Account-scoped tools discovered through authenticated external transport"
+    },
+    {
+      "name": "Baseline MCP",
+      "outcome": "passed",
+      "detail": "started and retrieved a version-frozen assessment and its bounded source-grant view"
+    },
+    {
+      "name": "Knowledge MCP",
+      "outcome": "passed",
+      "detail": "registered immutable evidence, proposed/read/listed/rejected a claim, and queried fact and document projections"
+    },
+    {
+      "name": "Finance MCP",
+      "outcome": "passed",
+      "detail": "created/revised/read a ledger and chart, then drafted, revised, posted, listed and reversed a balanced evidence-backed entry"
+    },
+    {
+      "name": "Marketing MCP",
+      "outcome": "passed",
+      "detail": "created, revised, retrieved, listed and archived a local campaign without publishing externally"
+    },
+    {
+      "name": "Integrations MCP",
+      "outcome": "passed",
+      "detail": "created, revised, read, listed and revoked a non-secret pending connector without contacting a provider"
+    },
+    {
+      "name": "consequential-action boundary",
+      "outcome": "passed",
+      "detail": "created an exact invocation-bound proposal, rejected self-approval under independent review, then canceled it without execution"
+    },
+    {
+      "name": "Account export MCP",
+      "outcome": "passed",
+      "detail": "requested, retrieved, listed and canceled a strongly authorized portability export"
+    },
+    {
+      "name": "MCP authentication denial",
+      "outcome": "passed",
+      "detail": "missing Bearer authority failed closed"
+    },
+    {
+      "name": "Account isolation denial",
+      "outcome": "passed",
+      "detail": "valid OAuth authority could not enumerate another Account"
+    },
+    {
+      "name": "tool-by-tool MCP coverage",
+      "outcome": "passed",
+      "detail": "all 94 published tools reached their authenticated Account handler; applicable workflows succeeded and the remainder failed safely on incomplete synthetic input"
+    }
+  ]
+}

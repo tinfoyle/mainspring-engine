@@ -427,7 +427,10 @@ func (s *Service) StartRun(ctx context.Context, command StartRunCommand) (Run, b
 	if err != nil {
 		return Run{}, false, ErrInvalidCommand
 	}
-	now := s.clock.Now().UTC()
+	// Run plan digests are restored from PostgreSQL timestamps, whose precision
+	// is microseconds. Normalize before hashing so a persisted plan verifies
+	// identically when it is read back.
+	now := s.clock.Now().UTC().Truncate(time.Microsecond)
 	draft := StartRunDraft{
 		Actor: command.Actor, AccountID: command.AccountID, BoardroomID: command.BoardroomID,
 		RunID: ids.RunID(command.RequestID), ConversationID: conversationID, CreateConversation: createConversation,
@@ -565,8 +568,12 @@ func (s *Service) ResolveRun(ctx context.Context, command ResolveRunCommand) (Ru
 	if err != nil {
 		return RunResolution{}, false, err
 	}
+	// Retry plans include this timestamp in their immutable digest and are later
+	// restored from PostgreSQL timestamptz values. Match PostgreSQL precision at
+	// the boundary just as StartRun does so a successful retry remains readable.
+	now := s.clock.Now().UTC().Truncate(time.Microsecond)
 	draft := ResolveRunDraft{Actor: command.Actor, AccountID: command.AccountID, RunID: command.RunID, ResolutionID: ids.RunResolutionID(command.RequestID), Action: command.Action, Note: note,
-		EntitlementVersion: accountContext.EntitlementVersion, CreatedAt: s.clock.Now().UTC()}
+		EntitlementVersion: accountContext.EntitlementVersion, CreatedAt: now}
 	if command.Action == RunResolutionRetryFailed {
 		maximum, exists := accountContext.PackageAccess.Limits[ConcurrentRuns]
 		if !exists || maximum < 1 {

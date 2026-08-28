@@ -1,0 +1,98 @@
+services:
+  openai-fixture:
+    profiles: [agent-execution]
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+      target: openai-fixture-runtime
+    image: spyglass-openai-fixture:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/health/ready]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    networks: [provider-egress]
+
+  model-gateway:
+    environment:
+      SPYGLASS_ENV: local-secure
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/model-gateway:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      openai-fixture: {condition: service_healthy}
+      workload-tls-init: {condition: service_completed_successfully}
+
+  tool-router:
+    environment:
+      SPYGLASS_ENV: local-secure
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/tool-router:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  runner-controller-a:
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-controller-a:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  runner-controller-b:
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-controller-b:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  runner-broker-a:
+    environment:
+      SPYGLASS_ENV: local-secure
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-broker-a:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  runner-broker-b:
+    environment:
+      SPYGLASS_ENV: local-secure
+    volumes:
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-broker-b:/var/run/secrets/spyglass/workload:ro
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  docker-runner-launcher-a:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/docker-runner-launcher-a:/var/run/secrets/spyglass/workload:ro
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-a:${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-a
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  docker-runner-launcher-b:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/docker-runner-launcher-b:/var/run/secrets/spyglass/workload:ro
+      - ${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-b:${SPYGLASS_STAGE_SECRETS_DIRECTORY:?set secrets directory}/runner-identities-b
+    depends_on:
+      workload-tls-init: {condition: service_completed_successfully}
+
+  agent-journey-cert:
+    environment:
+      SPYGLASS_AGENT_JOURNEY_PROVIDER_FIXTURE: deterministic-fail-once
+    depends_on:
+      runner-controller-a: {condition: service_healthy}
+      runner-controller-b: {condition: service_healthy}
+      runner-broker-a: {condition: service_healthy}
+      runner-broker-b: {condition: service_healthy}
+      model-gateway: {condition: service_healthy}
+      tool-router: {condition: service_healthy}
+
+networks:
+  provider-egress:
+    name: spyglass-local-agent-provider-egress

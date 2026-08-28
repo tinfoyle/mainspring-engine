@@ -20,6 +20,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/entitlements"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/requestbody"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/cellapi"
 )
@@ -258,6 +259,79 @@ func TestWebResearchReadRequiresIndependentKnowledgeMutation(t *testing.T) {
 		if requirement, ok := additionalRouteRequirement(test.method, test.resource); ok {
 			t.Fatalf("unexpected secondary requirement=%+v for %s %s", requirement, test.method, test.resource)
 		}
+	}
+}
+
+func TestAgentRunRoutesOnlyRequestedContextPackages(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want []catalog.PackageCode
+	}{
+		{name: "no context", body: `{"prompt":"review","persona_ids":["10000000-0000-4000-8000-000000000001"]}`},
+		{name: "work", body: `{"context":{"work_item_ids":["10000000-0000-4000-8000-000000000001"]}}`, want: []catalog.PackageCode{catalog.PackageWork}},
+		{name: "knowledge", body: `{"context":{"knowledge_fact_ids":["10000000-0000-4000-8000-000000000001"]}}`, want: []catalog.PackageCode{catalog.PackageKnowledge}},
+		{name: "both", body: `{"context":{"work_item_ids":["10000000-0000-4000-8000-000000000001"],"baseline_assessment_ids":["20000000-0000-4000-8000-000000000002"]}}`, want: []catalog.PackageCode{catalog.PackageWork, catalog.PackageKnowledge}},
+	}
+	resource := "agent-boardrooms/" + routerRequest + "/runs"
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := requestbody.Read(strings.NewReader(test.body), 1<<20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer body.Close()
+			requirements, err := additionalRouteRequirements(http.MethodPost, resource, body)
+			if err != nil || len(requirements) != len(test.want) {
+				t.Fatalf("requirements=%+v err=%v", requirements, err)
+			}
+			for index, code := range test.want {
+				if requirements[index].Package != code || requirements[index].Mutation {
+					t.Fatalf("requirement[%d]=%+v", index, requirements[index])
+				}
+			}
+		})
+	}
+}
+
+func TestAgentRunRejectsMalformedBodyBeforeCrossPackageRouting(t *testing.T) {
+	body, err := requestbody.Read(strings.NewReader(`{"context":`), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+	if requirements, err := additionalRouteRequirements(http.MethodPost, "agent-boardrooms/"+routerRequest+"/runs", body); err == nil || requirements != nil {
+		t.Fatalf("requirements=%+v err=%v", requirements, err)
+	}
+}
+
+func TestScheduleRouteAllowlistMatchesCellSurface(t *testing.T) {
+	tests := []struct {
+		method, resource  string
+		mutation, allowed bool
+	}{
+		{http.MethodGet, "schedules", false, true},
+		{http.MethodPost, "schedules", true, true},
+		{http.MethodGet, "schedules/" + routerRequest, false, true},
+		{http.MethodPut, "schedules/" + routerRequest, true, true},
+		{http.MethodDelete, "schedules/" + routerRequest, true, true},
+		{http.MethodPost, "schedules/" + routerRequest + "/pauses", true, true},
+		{http.MethodPost, "schedules/" + routerRequest + "/resumptions", true, true},
+		{http.MethodPost, "schedules/" + routerRequest + "/triggers", true, true},
+		{http.MethodPatch, "schedules/" + routerRequest, false, false},
+		{http.MethodPost, "schedules/" + routerRequest + "/unknown", false, false},
+		{http.MethodGet, "schedules/not-a-uuid", false, false},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.resource, func(t *testing.T) {
+			requirement, allowed := routeRequirement(test.method, test.resource)
+			if allowed != test.allowed {
+				t.Fatalf("allowed=%t want=%t requirement=%+v", allowed, test.allowed, requirement)
+			}
+			if allowed && (requirement.Package != catalog.PackageAgents || requirement.Mutation != test.mutation) {
+				t.Fatalf("requirement=%+v", requirement)
+			}
+		})
 	}
 }
 

@@ -202,6 +202,27 @@ func TestStartRunRejectsMissingCommercialLimit(t *testing.T) {
 	}
 }
 
+func TestStartRunNormalizesDigestTimestampToPostgresPrecision(t *testing.T) {
+	now := time.Date(2026, 8, 19, 1, 0, 0, 123456789, time.UTC)
+	authorizer := &serviceAuthorizer{role: accounts.RoleOwner, mode: catalog.ModeEnabled, limit: 2}
+	repository := &serviceRepository{}
+	service, err := New(authorizer, repository, serviceClock{now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.StartRun(context.Background(), StartRunCommand{
+		Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest,
+		BoardroomID: testBoardroom, Subject: "Weekly operating review", Prompt: "What should we prioritize?", PersonaIDs: []ids.PersonaID{testPersona},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := now.Truncate(time.Microsecond)
+	if repository.runDraft.CreatedAt != want || repository.runDraft.RequestExpiresAt != want.Add(DefaultRunLifetime) {
+		t.Fatalf("created_at=%s expires_at=%s want=%s", repository.runDraft.CreatedAt, repository.runDraft.RequestExpiresAt, want)
+	}
+}
+
 func TestResolveRunCreatesStableRetryAndManualResolutionDrafts(t *testing.T) {
 	service, authorizer, repository, now := newAgentService(t)
 	runID := ids.RunID("70000000-0000-4000-8000-000000000007")
@@ -216,6 +237,27 @@ func TestResolveRunCreatesStableRetryAndManualResolutionDrafts(t *testing.T) {
 	}
 	if _, _, err := service.ResolveRun(context.Background(), ResolveRunCommand{Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: "81000000-0000-4000-8000-000000000008", RunID: runID, Action: RunResolutionAcceptFailed, Note: "Resolved outside Spyglass."}); err != nil || repository.resolutionDraft.RetryRunID != "" || repository.resolutionDraft.MaximumConcurrentRun != 0 || !repository.resolutionDraft.RequestExpiresAt.IsZero() {
 		t.Fatalf("manual resolution draft=%+v err=%v", repository.resolutionDraft, err)
+	}
+}
+
+func TestResolveRunNormalizesRetryDigestTimestampToPostgresPrecision(t *testing.T) {
+	now := time.Date(2026, 8, 19, 1, 0, 0, 123456789, time.UTC)
+	authorizer := &serviceAuthorizer{role: accounts.RoleOwner, mode: catalog.ModeEnabled, limit: 2}
+	repository := &serviceRepository{}
+	service, err := New(authorizer, repository, serviceClock{now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.ResolveRun(context.Background(), ResolveRunCommand{
+		Actor: access.Actor{UserID: testUser}, AccountID: testAccount, RequestID: testRequest,
+		RunID: "70000000-0000-4000-8000-000000000007", Action: RunResolutionRetryFailed, Note: "Retry the failed specialist turn.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := now.Truncate(time.Microsecond)
+	if repository.resolutionDraft.CreatedAt != want || repository.resolutionDraft.RequestExpiresAt != want.Add(DefaultRunLifetime) {
+		t.Fatalf("created_at=%s expires_at=%s want=%s", repository.resolutionDraft.CreatedAt, repository.resolutionDraft.RequestExpiresAt, want)
 	}
 }
 

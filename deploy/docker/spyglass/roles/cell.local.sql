@@ -289,3 +289,20 @@ GRANT SELECT ON spyglass.account_erasure_restore_ledger, spyglass.account_namesp
   spyglass.schedule_events, spyglass.schedule_occurrences, spyglass.schedule_triggers, spyglass.schedules,
   spyglass.work_agent_executions, spyglass.work_item_events, spyglass.work_items
   TO spyglass_account_export_build_worker;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_account_provisioning_worker') THEN
+    CREATE ROLE spyglass_account_provisioning_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
+END
+$$;
+\getenv account_provisioning_password SPYGLASS_ACCOUNT_PROVISIONING_WORKER_DATABASE_PASSWORD
+SELECT format('ALTER ROLE spyglass_account_provisioning_worker PASSWORD %L', :'account_provisioning_password') \gexec
+GRANT CONNECT ON DATABASE spyglass TO spyglass_account_provisioning_worker;
+GRANT USAGE ON SCHEMA public, spyglass TO spyglass_account_provisioning_worker;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public, spyglass FROM spyglass_account_provisioning_worker;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public, spyglass FROM spyglass_account_provisioning_worker;
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public, spyglass FROM spyglass_account_provisioning_worker;
+GRANT SELECT ON spyglass.account_erasure_restore_ledger TO spyglass_account_provisioning_worker;
+GRANT SELECT, INSERT, UPDATE ON spyglass.account_namespaces TO spyglass_account_provisioning_worker;

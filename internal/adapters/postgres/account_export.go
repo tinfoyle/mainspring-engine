@@ -38,7 +38,11 @@ func (repository *AccountExportRepository) Create(ctx context.Context, mutation 
 	var state accounts.AccountState
 	var cellID ids.CellID
 	var generation, accountVersion uint64
-	err = tx.QueryRow(ctx, `SELECT state,cell_id,placement_generation,version FROM accounts WHERE id=$1 FOR UPDATE`, mutation.AccountID).
+	// This transaction only snapshots Account routing authority; it never
+	// mutates the Account row. SERIALIZABLE isolation detects a concurrent
+	// lifecycle/routing write without requiring the narrowly privileged MCP
+	// gateway role to hold UPDATE privilege on Accounts.
+	err = tx.QueryRow(ctx, `SELECT state,cell_id,placement_generation,version FROM accounts WHERE id=$1`, mutation.AccountID).
 		Scan(&state, &cellID, &generation, &accountVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return accountexport.Status{}, accountexport.ErrNotFound
@@ -49,13 +53,19 @@ func (repository *AccountExportRepository) Create(ctx context.Context, mutation 
 	if state != accounts.AccountActive || cellID != mutation.CellID || generation != mutation.PlacementGeneration {
 		return accountexport.Status{}, accountexport.ErrStateConflict
 	}
-	if err := requireActiveOwner(ctx, tx, mutation.AccountID, mutation.RequestedBy); err != nil {
-		return accountexport.Status{}, err
+	var membershipRole accounts.MembershipRole
+	var membershipState accounts.MembershipState
+	if err := tx.QueryRow(ctx, `SELECT role,state FROM memberships WHERE account_id=$1 AND user_id=$2`, mutation.AccountID, mutation.RequestedBy).Scan(&membershipRole, &membershipState); errors.Is(err, pgx.ErrNoRows) {
+		return accountexport.Status{}, accountexport.ErrStateConflict
+	} else if err != nil {
+		return accountexport.Status{}, classifyAccountExport(err)
+	} else if membershipRole != accounts.RoleOwner || membershipState != accounts.MembershipActive {
+		return accountexport.Status{}, accountexport.ErrStateConflict
 	}
 	var directoryCell ids.CellID
 	var directoryGeneration uint64
 	var directoryState string
-	if err := tx.QueryRow(ctx, `SELECT cell_id,placement_generation,state FROM account_directory WHERE account_id=$1 FOR SHARE`, mutation.AccountID).
+	if err := tx.QueryRow(ctx, `SELECT cell_id,placement_generation,state FROM account_directory WHERE account_id=$1`, mutation.AccountID).
 		Scan(&directoryCell, &directoryGeneration, &directoryState); err != nil {
 		return accountexport.Status{}, classifyAccountExport(err)
 	}
@@ -129,8 +139,14 @@ func (repository *AccountExportRepository) Cancel(ctx context.Context, mutation 
 		return accountexport.Status{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := requireActiveOwner(ctx, tx, mutation.AccountID, mutation.RequestedBy); err != nil {
-		return accountexport.Status{}, err
+	var membershipRole accounts.MembershipRole
+	var membershipState accounts.MembershipState
+	if err := tx.QueryRow(ctx, `SELECT role,state FROM memberships WHERE account_id=$1 AND user_id=$2`, mutation.AccountID, mutation.RequestedBy).Scan(&membershipRole, &membershipState); errors.Is(err, pgx.ErrNoRows) {
+		return accountexport.Status{}, accountexport.ErrStateConflict
+	} else if err != nil {
+		return accountexport.Status{}, classifyAccountExport(err)
+	} else if membershipRole != accounts.RoleOwner || membershipState != accounts.MembershipActive {
+		return accountexport.Status{}, accountexport.ErrStateConflict
 	}
 	status, err := scanAccountExport(tx.QueryRow(ctx, `UPDATE account_export_requests SET state='canceled',next_attempt_at=NULL,version=version+1
 		WHERE id=$1 AND account_id=$2 AND state='queued' AND version=$3 RETURNING `+accountExportStatusColumns, mutation.ID, mutation.AccountID, mutation.ExpectedVersion))

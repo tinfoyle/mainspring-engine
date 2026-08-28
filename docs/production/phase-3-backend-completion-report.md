@@ -8,7 +8,7 @@
 
 ## Outcome
 
-Post-certificate note (2026-08-26): this report remains the historical certificate for the original backend-to-UI boundary. Subsequent local Phase 3 work added the commercial Catalog and AI Token foundation described in the [UI revamp milestone report](ui-revamp-milestone-report.md), increasing the generated HTTP inventory to 210 operations. That extension does not alter this certificate's no-deployment boundary.
+Post-certificate note (2026-08-28): this report remains the historical certificate for the original backend-to-UI boundary. Subsequent local Phase 3 work added the commercial Catalog and AI Token foundation described in the [UI revamp milestone report](ui-revamp-milestone-report.md), increasing the generated HTTP inventory to 212 operations. The later [agent-only platform certification](agent-only-platform-certification.md) proves a fresh synthetic Account across the complete documented HTTPS/MCP journey with 27/27 checks and 94/94 published MCP tools. Those extensions do not alter this certificate's no-deployment boundary.
 
 The local backend now implements every retained launch package and every provider capability required before customer-interface construction. Work, Agents, Knowledge, Finance, Marketing and Integrations are executable in `deploy/package-surface-inventory.json`. Scheduling and Baseline maintenance have canonical workers. Drive, inbound email, outbound delivery, exact HTTPS publication and public-web research have closed adapters, deterministic tests, health behavior and bounded recovery.
 

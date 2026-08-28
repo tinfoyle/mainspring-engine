@@ -380,8 +380,8 @@ type aiTokenQueryer interface {
 }
 
 func lockAITokenAccount(ctx context.Context, tx pgx.Tx, accountID ids.AccountID) error {
-	var exists int
-	return tx.QueryRow(ctx, `SELECT 1 FROM accounts WHERE id=$1 FOR UPDATE`, accountID).Scan(&exists)
+	var entitlementVersion uint64
+	return tx.QueryRow(ctx, `SELECT spyglass_lock_account_entitlement_version($1)`, accountID).Scan(&entitlementVersion)
 }
 
 func loadAITokenGrants(ctx context.Context, queryer aiTokenQueryer, accountID ids.AccountID, lock bool) ([]aitokens.Grant, error) {

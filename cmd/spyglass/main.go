@@ -22,6 +22,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/aescursor"
@@ -40,6 +41,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/webpublishconnector"
 	webresearchadapter "github.com/tinfoyle/spyglass-engine/internal/adapters/webresearch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/accounterasure"
+	"github.com/tinfoyle/spyglass-engine/internal/application/accountprovisioning"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentdispatch"
 	"github.com/tinfoyle/spyglass-engine/internal/application/agentprojection"
 	agentqueueapp "github.com/tinfoyle/spyglass-engine/internal/application/agentqueueadmin"
@@ -51,6 +53,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationhealth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationsync"
 	knowledgeapp "github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
+	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/modelgateway"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/routecanary"
@@ -69,6 +72,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountexportworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountlifecycleworker"
 	accountmovecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountmoveadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/accountprovisioningworker"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/admissionapi"
 	affiliatecommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/affiliateadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/affiliateretentionworker"
@@ -179,6 +183,8 @@ func main() {
 		err = runEntitlementWorker(ctx, logger)
 	case "account-lifecycle-worker":
 		err = runAccountLifecycleWorker(ctx, logger)
+	case "account-provisioning-worker":
+		err = runAccountProvisioningWorker(ctx, logger)
 	case "account-export-build-worker":
 		err = runAccountExportBuildWorker(ctx, logger)
 	case "account-export-expiry-worker":
@@ -240,7 +246,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | operations-api | operations-staff <assign|revoke|show> | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | affiliate-retention-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | affiliate-support-admin <action> | analytics-report | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | operations-api | operations-staff <assign|revoke|show> | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-provisioning-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | affiliate-retention-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | affiliate-support-admin <action> | analytics-report | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1343,7 +1349,11 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	stripeClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(nil), Timeout: 15 * time.Second, CheckRedirect: rejectOutboundRedirect}
-	server, err := accountapi.New(startup, accountapi.Config{DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, AnalyticsHandoffCookieDomain: config.analyticsHandoffCookieDomain, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval, AffiliateEnrollmentOpen: config.affiliateEnrollmentOpen, AffiliateAttributionEnabled: config.affiliateAttributionEnabled, AffiliateSettlementMode: config.affiliateSettlementMode, AffiliateTermsVersion: config.affiliateTermsVersion, AffiliateRuleVersion: config.affiliateRuleVersion,
+	var localMCPClient *mcpauth.Client
+	if config.localMCPClientID != "" {
+		localMCPClient = &mcpauth.Client{ID: config.localMCPClientID, Name: config.localMCPClientName, RedirectURIs: []string{config.localMCPClientRedirectURI}}
+	}
+	server, err := accountapi.New(startup, accountapi.Config{Environment: config.environment, DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, AnalyticsHandoffCookieDomain: config.analyticsHandoffCookieDomain, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval, AffiliateEnrollmentOpen: config.affiliateEnrollmentOpen, AffiliateAttributionEnabled: config.affiliateAttributionEnabled, AffiliateSettlementMode: config.affiliateSettlementMode, AffiliateTermsVersion: config.affiliateTermsVersion, AffiliateRuleVersion: config.affiliateRuleVersion, LocalMCPClientMetadata: localMCPClient,
 		ExportObject:        s3objects.Config{Endpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: envOr("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "spyglass-account-exports"), AccessKey: exportObjectAccessKey, SecretKey: exportObjectSecretKey, Secure: objectSecure, ServerSideEncryption: objectSSE},
 		ExportDownloadKeyID: exportKeyID, ExportDownloadKeys: exportKeys, ExportDownloadLifetime: exportLifetime}, logger)
 	if err != nil {
@@ -1756,7 +1766,8 @@ func localWebResearchNetwork(development bool) (webresearchadapter.Resolver, web
 	if host == "" && target == "" && caFile == "" {
 		return nil, nil, nil, nil, nil
 	}
-	if !development || os.Getenv("SPYGLASS_ENVIRONMENT") != "local" || host == "" || target == "" || caFile == "" || net.ParseIP(host) != nil {
+	environment := os.Getenv("SPYGLASS_ENVIRONMENT")
+	if (!development && environment != "local-secure") || (environment != "local" && environment != "local-secure") || host == "" || target == "" || caFile == "" || net.ParseIP(host) != nil {
 		return nil, nil, nil, nil, errors.New("web research fixture networking requires a complete local development configuration")
 	}
 	if _, _, err := net.SplitHostPort(target); err != nil {
@@ -1998,6 +2009,51 @@ func runAccountLifecycleWorker(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer worker.Close()
 	return serveWorker(ctx, "account-lifecycle", envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{restoreGate}}, logger)
+}
+
+func runAccountProvisioningWorker(ctx context.Context, logger *slog.Logger) error {
+	globalURL, err := requiredEnv("SPYGLASS_GLOBAL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	cellURL, err := requiredEnv("SPYGLASS_CELL_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	cellID, err := requiredEnv("SPYGLASS_CELL_ID")
+	if err != nil {
+		return err
+	}
+	globalGate, err := openRequiredRestoreGate(ctx, globalURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer globalGate.Close()
+	cellGate, err := openRequiredRestoreGate(ctx, cellURL, restoregate.Cell, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer cellGate.Close()
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 3)
+	if err != nil {
+		return err
+	}
+	poll, err := durationEnv("SPYGLASS_ACCOUNT_PROVISION_POLL_INTERVAL", time.Second)
+	if err != nil {
+		return err
+	}
+	lease, err := durationEnv("SPYGLASS_ACCOUNT_PROVISION_LEASE", accountprovisioning.DefaultLease)
+	if err != nil {
+		return err
+	}
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	worker, err := accountprovisioningworker.New(startup, accountprovisioningworker.Config{GlobalDatabaseURL: globalURL, CellDatabaseURL: cellURL, CellID: ids.CellID(cellID), MaxDatabaseConns: maxConns, PollInterval: poll, Lease: lease}, logger)
+	if err != nil {
+		return err
+	}
+	defer worker.Close()
+	return serveWorker(ctx, "account-provisioning-"+cellID, envOr("SPYGLASS_HEALTH_ADDRESS", ":8081"), &restoreGatedWorker{worker: worker, gates: []*restoregate.Gate{globalGate, cellGate}}, logger)
 }
 
 func runAccountExportBuildWorker(ctx context.Context, logger *slog.Logger) error {
@@ -3519,18 +3575,19 @@ func serveWorker(ctx context.Context, name, healthAddress string, worker runnabl
 }
 
 type persistentConfig struct {
-	databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, mcpResourceOrigin, passkeyRPID, analyticsHandoffCookieDomain string
-	notificationEncryptionKey                                                                                                                                              []byte
-	networkActorKey                                                                                                                                                        []byte
-	privacyPreferenceKey                                                                                                                                                   []byte
-	passkeyEncryptionKeys                                                                                                                                                  map[int][]byte
-	passkeyActiveKeyVersion                                                                                                                                                int
-	trustedProxyCIDRs                                                                                                                                                      []string
-	maxDatabaseConns                                                                                                                                                       int32
-	catalogRefreshInterval                                                                                                                                                 time.Duration
-	affiliateEnrollmentOpen, affiliateAttributionEnabled                                                                                                                   bool
-	affiliateSettlementMode                                                                                                                                                string
-	affiliateTermsVersion, affiliateRuleVersion                                                                                                                            uint64
+	environment, databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, mcpResourceOrigin, passkeyRPID, analyticsHandoffCookieDomain string
+	localMCPClientID, localMCPClientName, localMCPClientRedirectURI                                                                                                                     string
+	notificationEncryptionKey                                                                                                                                                           []byte
+	networkActorKey                                                                                                                                                                     []byte
+	privacyPreferenceKey                                                                                                                                                                []byte
+	passkeyEncryptionKeys                                                                                                                                                               map[int][]byte
+	passkeyActiveKeyVersion                                                                                                                                                             int
+	trustedProxyCIDRs                                                                                                                                                                   []string
+	maxDatabaseConns                                                                                                                                                                    int32
+	catalogRefreshInterval                                                                                                                                                              time.Duration
+	affiliateEnrollmentOpen, affiliateAttributionEnabled                                                                                                                                bool
+	affiliateSettlementMode                                                                                                                                                             string
+	affiliateTermsVersion, affiliateRuleVersion                                                                                                                                         uint64
 }
 
 func productionConfig() (persistentConfig, error) {
@@ -3539,7 +3596,7 @@ func productionConfig() (persistentConfig, error) {
 	fields := []struct {
 		name   string
 		target *string
-	}{{"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}, {"SPYGLASS_MCP_RESOURCE_ORIGIN", &result.mcpResourceOrigin}, {"SPYGLASS_PASSKEY_RP_ID", &result.passkeyRPID}, {"SPYGLASS_ANALYTICS_HANDOFF_COOKIE_DOMAIN", &result.analyticsHandoffCookieDomain}}
+	}{{"SPYGLASS_ENVIRONMENT", &result.environment}, {"SPYGLASS_DATABASE_URL", &result.databaseURL}, {"SPYGLASS_STRIPE_WEBHOOK_SECRET", &result.stripeWebhookSecret}, {"SPYGLASS_STRIPE_SECRET_KEY", &result.stripeSecretKey}, {"SPYGLASS_STRIPE_MODE", &result.stripeMode}, {"SPYGLASS_APP_ORIGIN", &result.appOrigin}, {"SPYGLASS_PUBLIC_ORIGIN", &result.publicOrigin}, {"SPYGLASS_MCP_RESOURCE_ORIGIN", &result.mcpResourceOrigin}, {"SPYGLASS_PASSKEY_RP_ID", &result.passkeyRPID}, {"SPYGLASS_ANALYTICS_HANDOFF_COOKIE_DOMAIN", &result.analyticsHandoffCookieDomain}}
 	for _, field := range fields {
 		*field.target, err = requiredEnv(field.name)
 		if err != nil {
@@ -3547,6 +3604,21 @@ func productionConfig() (persistentConfig, error) {
 		}
 	}
 	result.stripeAPIVersion = envOr("SPYGLASS_STRIPE_API_VERSION", stripe.DefaultAPIVersion)
+	result.localMCPClientID = strings.TrimSpace(os.Getenv("SPYGLASS_LOCAL_MCP_CLIENT_ID"))
+	result.localMCPClientName = strings.TrimSpace(os.Getenv("SPYGLASS_LOCAL_MCP_CLIENT_NAME"))
+	result.localMCPClientRedirectURI = strings.TrimSpace(os.Getenv("SPYGLASS_LOCAL_MCP_CLIENT_REDIRECT_URI"))
+	localMCPFields := 0
+	for _, value := range []string{result.localMCPClientID, result.localMCPClientName, result.localMCPClientRedirectURI} {
+		if value != "" {
+			localMCPFields++
+		}
+	}
+	if localMCPFields != 0 && localMCPFields != 3 {
+		return persistentConfig{}, errors.New("local MCP client ID, name and redirect URI must be configured together")
+	}
+	if localMCPFields != 0 && result.environment != "local" && result.environment != "local-secure" {
+		return persistentConfig{}, errors.New("local MCP client metadata is restricted to a local environment")
+	}
 	result.notificationEncryptionKey, err = base64KeyEnv("SPYGLASS_NOTIFICATION_ENCRYPTION_KEY")
 	if err != nil {
 		return persistentConfig{}, err

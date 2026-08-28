@@ -87,6 +87,10 @@ func NewAccount(id ids.AccountID, userID ids.UserID, cellID ids.CellID, displayN
 	if len(slug) < 2 {
 		return Account{}, errors.New("account name cannot produce a valid slug")
 	}
+	// Display names are intentionally not globally unique. Bind the readable
+	// prefix to the immutable Account ID so two ordinary businesses with the
+	// same name can both register without a uniqueness race.
+	slug += "-" + strings.ReplaceAll(string(id), "-", "")
 	return Account{ID: id, Slug: slug, DisplayName: displayName, Type: AccountInactive, State: AccountActive, CellID: cellID, PlacementGeneration: 1, EntitlementVersion: 1, Version: 1, CreatedByUserID: userID, CreatedAt: now.UTC()}, nil
 }
 

@@ -201,7 +201,8 @@ GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO spyglass_accoun
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO spyglass_account_api;
 
 GRANT SELECT ON users, sessions, accounts, memberships, entitlement_snapshots,
-  account_directory, cells, account_erasure_restore_ledger TO spyglass_app_router;
+  account_directory, cells, account_erasure_restore_ledger,
+  passkey_credentials, user_recovery_code_sets, user_recovery_codes TO spyglass_app_router;
 GRANT UPDATE ON sessions TO spyglass_app_router;
 
 GRANT SELECT ON accounts, memberships, entitlement_snapshots, account_directory, cells,
@@ -216,13 +217,15 @@ GRANT EXECUTE ON FUNCTION spyglass_authenticate_mcp_access_token(bytea,text,text
 GRANT SELECT ON accounts, memberships, entitlement_snapshots,
   entitlement_usage_counters, entitlement_usage_reservations,
   account_erasure_restore_ledger, catalog_publications,
+  passkey_credentials, user_recovery_code_sets, user_recovery_codes,
   ai_token_grants, ai_token_reservations, ai_token_reservation_allocations,
   ai_token_ledger_entries TO spyglass_admission_api;
 GRANT INSERT, UPDATE ON entitlement_usage_counters, entitlement_usage_reservations TO spyglass_admission_api;
 GRANT UPDATE ON ai_token_grants TO spyglass_admission_api;
 GRANT INSERT, UPDATE ON ai_token_reservations TO spyglass_admission_api;
 GRANT INSERT ON ai_token_reservation_allocations, ai_token_ledger_entries TO spyglass_admission_api;
-GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid) TO spyglass_admission_api;
+GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid)
+  TO spyglass_account_api, spyglass_billing_worker, spyglass_admission_api;
 
 GRANT SELECT ON account_erasure_restore_ledger TO spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
@@ -308,3 +311,20 @@ GRANT SELECT ON account_export_requests TO spyglass_account_export_expiry_worker
 GRANT UPDATE (state,lease_id,lease_expires_at,version,artifact_reference,deleted_at)
   ON account_export_requests TO spyglass_account_export_expiry_worker;
 GRANT INSERT ON account_export_events TO spyglass_account_export_expiry_worker;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_account_provisioning_worker') THEN
+    CREATE ROLE spyglass_account_provisioning_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
+END
+$$;
+\getenv account_provisioning_password SPYGLASS_ACCOUNT_PROVISIONING_WORKER_DATABASE_PASSWORD
+SELECT format('ALTER ROLE spyglass_account_provisioning_worker PASSWORD %L', :'account_provisioning_password') \gexec
+GRANT CONNECT ON DATABASE spyglass TO spyglass_account_provisioning_worker;
+GRANT USAGE ON SCHEMA public TO spyglass_account_provisioning_worker;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_account_provisioning_worker;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_account_provisioning_worker;
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_account_provisioning_worker;
+GRANT SELECT, UPDATE ON account_cell_provision_queue TO spyglass_account_provisioning_worker;
+GRANT SELECT ON account_erasure_restore_ledger TO spyglass_account_provisioning_worker;

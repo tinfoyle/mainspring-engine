@@ -30,10 +30,13 @@ type staticIDGenerator string
 
 func (generator staticIDGenerator) New() string { return string(generator) }
 
-type staticAgentTokenBroker struct{ admission agentusage.Admission }
+type staticAgentTokenBroker struct {
+	admission agentusage.Admission
+	err       error
+}
 
 func (broker staticAgentTokenBroker) ReserveAgentTokens(context.Context, agentusage.ReserveCommand) (agentusage.Admission, error) {
-	return broker.admission, nil
+	return broker.admission, broker.err
 }
 func (staticAgentTokenBroker) CloseAgentTokens(context.Context, agentusage.CloseCommand) error {
 	return nil
@@ -316,5 +319,47 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 	}
 	if _, err := repository.GetRun(ctx, otherAccountID, runID); !errors.Is(err, agentapp.ErrNotFound) {
 		t.Fatalf("cross-Account run lookup=%v", err)
+	}
+
+	// A pre-run commercial denial has no runner result, but must still make the
+	// invocation and Run terminal and retire its otherwise-unclaimable
+	// projection row.
+	terminalDigest := sha256.Sum256([]byte("completed fixture runner result"))
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_invocations SET status='failed',runner_result_digest=$3,
+		failure_code='fixture_complete',completed_at=$4 WHERE account_id=$1 AND id=$2;
+		UPDATE spyglass.agent_runs SET state='failed',started_at=$4,completed_at=$4 WHERE account_id=$1 AND id=$5`,
+		pgx.QueryExecModeSimpleProtocol, accountID, run.InvocationIDs[0], terminalDigest[:], now, runID); err != nil {
+		t.Fatal(err)
+	}
+	deniedRunID := ids.RunID("65000000-0000-4000-8000-000000000003")
+	deniedRun, created, err := repository.StartRun(ctx, agentapp.StartRunDraft{
+		Actor: access.Actor{UserID: userID}, AccountID: accountID, BoardroomID: boardroomID,
+		RunID: deniedRunID, ConversationID: ids.ConversationID("75000000-0000-4000-8000-000000000003"), CreateConversation: true,
+		UserMessageID: ids.MessageID("85000000-0000-4000-8000-000000000003"), Subject: "Denied run", Prompt: "This run has no remaining AI Tokens.",
+		PersonaIDs: []ids.PersonaID{personaID}, EntitlementVersion: 7, MaximumConcurrentRun: 1, CreatedAt: now.Add(time.Second), RequestExpiresAt: now.Add(time.Hour),
+	})
+	if err != nil || !created || len(deniedRun.InvocationIDs) != 1 {
+		t.Fatalf("denied run=%+v created=%v err=%v", deniedRun, created, err)
+	}
+	deniedProcessor, err := agentdispatch.New(dispatchRepository, producer, staticAgentTokenBroker{err: aitokens.ErrInsufficient}, ids.CellID("cell-us-east-01"), fixedClock{now: now.Add(2 * time.Second)}, staticIDGenerator("94000000-0000-4000-8000-000000000003"), 30*time.Second, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deniedResult, err := deniedProcessor.ProcessOne(ctx)
+	if !errors.Is(err, aitokens.ErrInsufficient) || !deniedResult.DeadLetter {
+		t.Fatalf("denied dispatch result=%+v err=%v", deniedResult, err)
+	}
+	terminal, err := repository.GetRun(ctx, accountID, deniedRunID)
+	if err != nil || terminal.State != "failed" || len(terminal.Invocations) != 1 || terminal.Invocations[0].Status != "failed" || terminal.Invocations[0].FailureCode != "ai_tokens_insufficient" {
+		t.Fatalf("terminal denied run=%+v err=%v", terminal, err)
+	}
+	var deniedDispatchState, deniedProjectionState string
+	if err := owner.QueryRow(ctx, `SELECT d.state,p.state FROM spyglass.agent_dispatch_queue d
+		JOIN spyglass.agent_result_projection_queue p USING(account_id,invocation_id)
+		WHERE d.account_id=$1 AND d.invocation_id=$2`, accountID, deniedRun.InvocationIDs[0]).Scan(&deniedDispatchState, &deniedProjectionState); err != nil {
+		t.Fatal(err)
+	}
+	if deniedDispatchState != "dead_letter" || deniedProjectionState != "projected" {
+		t.Fatalf("terminal queue states dispatch=%s projection=%s", deniedDispatchState, deniedProjectionState)
 	}
 }

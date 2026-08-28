@@ -64,6 +64,7 @@ func generate(output string, now time.Time) error {
 
 	identities := []identity{
 		{name: "app-router", uri: "spiffe://infiniteocean.net/spyglass/workloads/app-router", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
+		{name: "mcp-gateway", uri: "spiffe://infiniteocean.net/spyglass/workloads/mcp-gateway", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "app-api-a", dnsNames: []string{"app-api-a"}, uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/app-api", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}},
 		{name: "app-api-b", dnsNames: []string{"app-api-b"}, uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/app-api", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}},
 		{name: "admission-api", dnsNames: []string{"admission-api"}, uri: "spiffe://infiniteocean.net/spyglass/workloads/admission-api", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},
@@ -73,6 +74,14 @@ func generate(output string, now time.Time) error {
 		{name: "agent-projection-worker-b", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/agent-projection-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "schedule-execution-worker-a", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/schedule-execution-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "schedule-execution-worker-b", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/schedule-execution-worker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
+		{name: "tool-router", dnsNames: []string{"tool-router"}, uri: "spiffe://infiniteocean.net/spyglass/workloads/tool-router", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},
+		{name: "model-gateway", dnsNames: []string{"model-gateway"}, uri: "spiffe://infiniteocean.net/spyglass/workloads/model-gateway", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},
+		{name: "runner-controller-a", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-controller", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
+		{name: "runner-controller-b", uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-controller", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
+		{name: "runner-broker-a", dnsNames: []string{"runner-broker-a"}, uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-broker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}},
+		{name: "runner-broker-b", dnsNames: []string{"runner-broker-b"}, uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-broker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}},
+		{name: "docker-runner-launcher-a", dnsNames: []string{"docker-runner-launcher-a"}, uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/docker-runner-launcher", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},
+		{name: "docker-runner-launcher-b", dnsNames: []string{"docker-runner-launcher-b"}, uri: "spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/docker-runner-launcher", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},
 		{name: "docker-runner-launcher", dnsNames: []string{"docker-runner-launcher"}, uri: "spiffe://infiniteocean.net/spyglass/workloads/docker-runner-launcher", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}},
 		{name: "runner-controller", uri: "spiffe://infiniteocean.net/spyglass/workloads/runner-controller", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},
 		{name: "runner-broker", uri: "spiffe://infiniteocean.net/spyglass/workloads/runner-broker", usage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}},

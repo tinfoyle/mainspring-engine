@@ -161,6 +161,7 @@ services:
       SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD: ${SPYGLASS_NOTIFICATION_WORKER_DATABASE_PASSWORD}
       SPYGLASS_ENTITLEMENT_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ENTITLEMENT_WORKER_DATABASE_PASSWORD}
       SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_LIFECYCLE_WORKER_DATABASE_PASSWORD}
+      SPYGLASS_ACCOUNT_PROVISIONING_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_PROVISIONING_WORKER_DATABASE_PASSWORD}
       SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD}
       SPYGLASS_ACCOUNT_EXPORT_EXPIRY_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_EXPORT_EXPIRY_WORKER_DATABASE_PASSWORD}
       SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD: ${SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD}
@@ -208,6 +209,7 @@ services:
       SPYGLASS_RUNNER_BROKER_DATABASE_PASSWORD: ${SPYGLASS_CELL_A_RUNNER_BROKER_DATABASE_PASSWORD}
       SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD: ${SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD}
       SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD}
+      SPYGLASS_ACCOUNT_PROVISIONING_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_PROVISIONING_WORKER_DATABASE_PASSWORD}
     volumes:
       - ./roles/cell.local.sql:/opt/spyglass/roles/cell.sql:ro
     depends_on:
@@ -236,6 +238,7 @@ services:
       SPYGLASS_RUNNER_BROKER_DATABASE_PASSWORD: ${SPYGLASS_CELL_B_RUNNER_BROKER_DATABASE_PASSWORD}
       SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD: ${SPYGLASS_INTEGRATION_CONNECTOR_WORKER_DATABASE_PASSWORD}
       SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD}
+      SPYGLASS_ACCOUNT_PROVISIONING_WORKER_DATABASE_PASSWORD: ${SPYGLASS_ACCOUNT_PROVISIONING_WORKER_DATABASE_PASSWORD}
     volumes:
       - ./roles/cell.local.sql:/opt/spyglass/roles/cell.sql:ro
     depends_on:
@@ -461,6 +464,16 @@ services:
     depends_on:
       global-roles: {condition: service_completed_successfully}
 
+  account-provisioning-worker-a:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+      cell-a-roles: {condition: service_completed_successfully}
+
+  account-provisioning-worker-b:
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+      cell-b-roles: {condition: service_completed_successfully}
+
   identity-maintenance-worker:
     depends_on:
       global-roles: {condition: service_completed_successfully}
@@ -619,6 +632,31 @@ services:
       SPYGLASS_OPERATIONS_ACCOUNT_BASE_URL: https://app.infiniteocean.localhost:8444
       SPYGLASS_OPERATIONS_BASE_URL: https://ops.infiniteocean.localhost:8444
       SPYGLASS_OPERATIONS_MAILPIT_URL: http://mailpit:8025
+
+  agent-journey-cert:
+    profiles: [agent-cert]
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+      target: agent-cert-runtime
+    image: spyglass-agent-journey-cert:local
+    environment:
+      GOMAXPROCS: "2"
+      GOMEMLIMIT: 1GiB
+      GOFLAGS: -p=1
+      SPYGLASS_AGENT_JOURNEY_APP_ORIGIN: https://app.infiniteocean.localhost:8444
+      SPYGLASS_AGENT_JOURNEY_MCP_ORIGIN: https://mcp.infiniteocean.localhost:8444
+      SPYGLASS_AGENT_JOURNEY_EDGE_ADDRESS: edge:443
+      SPYGLASS_AGENT_JOURNEY_MAILPIT_URL: http://mailpit:8025
+      SPYGLASS_AGENT_JOURNEY_DATABASE_URL: ${SPYGLASS_GLOBAL_MIGRATION_DATABASE_URL:?set SPYGLASS_GLOBAL_MIGRATION_DATABASE_URL}
+    depends_on:
+      edge: {condition: service_started}
+      mailpit: {condition: service_healthy}
+      notification-worker: {condition: service_healthy}
+      global-roles: {condition: service_completed_successfully}
+    networks:
+      - application
+      - database
 
   test-db:
     profiles: [test]

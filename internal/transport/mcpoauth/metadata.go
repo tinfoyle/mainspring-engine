@@ -24,6 +24,42 @@ type ClientMetadataLoader interface {
 	Load(context.Context, string) (mcpauth.Client, error)
 }
 
+// PinnedMetadataLoader resolves an exact, configured set of OAuth clients
+// before delegating to normal HTTPS metadata discovery. It exists for
+// deterministic local certification where the public-address requirement of
+// HTTPMetadataLoader is deliberately impossible to satisfy.
+type PinnedMetadataLoader struct {
+	clients map[string]mcpauth.Client
+	next    ClientMetadataLoader
+}
+
+func NewPinnedMetadataLoader(next ClientMetadataLoader, clients ...mcpauth.Client) (*PinnedMetadataLoader, error) {
+	if next == nil {
+		return nil, errors.New("fallback client metadata loader is required")
+	}
+	result := &PinnedMetadataLoader{clients: make(map[string]mcpauth.Client, len(clients)), next: next}
+	for _, client := range clients {
+		if client.ID == "" || strings.TrimSpace(client.Name) == "" || len(client.RedirectURIs) == 0 {
+			return nil, errors.New("pinned client metadata is incomplete")
+		}
+		if _, exists := result.clients[client.ID]; exists {
+			return nil, errors.New("pinned client metadata contains a duplicate client ID")
+		}
+		copyOfClient := client
+		copyOfClient.RedirectURIs = slices.Clone(client.RedirectURIs)
+		result.clients[client.ID] = copyOfClient
+	}
+	return result, nil
+}
+
+func (l *PinnedMetadataLoader) Load(ctx context.Context, clientID string) (mcpauth.Client, error) {
+	if client, ok := l.clients[clientID]; ok {
+		client.RedirectURIs = slices.Clone(client.RedirectURIs)
+		return client, nil
+	}
+	return l.next.Load(ctx, clientID)
+}
+
 type DNSResolver interface {
 	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
 }
