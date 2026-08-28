@@ -1,7 +1,7 @@
 # Spyglass API and MCP interaction guide
 
 - Contract date: 2026-08-24
-- HTTP contract: `api/spyglass.openapi.json` (212 operations)
+- HTTP contract: `api/spyglass.openapi.json` (213 operations)
 - Generated Go inventory: `internal/generated/apicontract/routes.go`
 - Generated TypeScript inventory/types: `website/lib/generated/api-contract.ts` and `website/lib/generated/api-types.ts`
 - MCP inventory: 89 routed cell tools plus five global Account-export tools

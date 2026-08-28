@@ -12,10 +12,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsreport"
+	"github.com/tinfoyle/spyglass-engine/internal/application/billingadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/operationsconsole"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
+	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrightsadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/operations"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/transport/operationsapi"
@@ -97,6 +102,55 @@ type sessionsFake struct {
 	revoked       bool
 }
 
+type billingOperatorFake struct{ called bool }
+
+func (fake *billingOperatorFake) Inspect(_ context.Context, _ int, _, _, _, _ string) ([]billingadmin.Record, string, error) {
+	fake.called = true
+	return []billingadmin.Record{}, string(sessionID), nil
+}
+func (fake *billingOperatorFake) ReplayEvent(context.Context, string, string, string, string, string) (billingadmin.Record, string, error) {
+	fake.called = true
+	return billingadmin.Record{}, string(sessionID), nil
+}
+func (fake *billingOperatorFake) QueueRefresh(context.Context, string, string, string, string, string) (billingadmin.Record, string, error) {
+	fake.called = true
+	return billingadmin.Record{}, string(sessionID), nil
+}
+
+type privacyOperatorFake struct{ called bool }
+
+func (fake *privacyOperatorFake) ListOpen(context.Context, time.Time, int, string, string, string) ([]privacyrightsadmin.QueueItem, error) {
+	fake.called = true
+	return []privacyrightsadmin.QueueItem{}, nil
+}
+func (fake *privacyOperatorFake) Inspect(context.Context, ids.PrivacyRightsRequestID, string, string, string) (privacy.RightsRequest, error) {
+	fake.called = true
+	return privacy.RightsRequest{}, nil
+}
+func (fake *privacyOperatorFake) StartReview(context.Context, ids.PrivacyRightsRequestID, uint64, string, string, string) (privacy.RightsRequest, error) {
+	fake.called = true
+	return privacy.RightsRequest{}, nil
+}
+func (fake *privacyOperatorFake) Resolve(context.Context, ids.PrivacyRightsRequestID, uint64, privacy.RightsState, privacyrightsadmin.ResolutionEvidence, string, string, string) (privacy.RightsRequest, error) {
+	fake.called = true
+	return privacy.RightsRequest{}, nil
+}
+
+type affiliateOperatorFake struct{ called bool }
+
+func (fake *affiliateOperatorFake) Inspect(context.Context, ids.AffiliateID, string, string, string) (affiliates.Enrollment, error) {
+	fake.called = true
+	return affiliates.Enrollment{}, nil
+}
+func (fake *affiliateOperatorFake) InspectRisk(context.Context, ids.AffiliateID, string, string, string) (affiliateadmin.RiskSummary, error) {
+	fake.called = true
+	return affiliateadmin.RiskSummary{}, nil
+}
+func (fake *affiliateOperatorFake) Transition(context.Context, ids.AffiliateID, uint64, affiliates.EnrollmentState, string, string, string) (affiliates.Enrollment, error) {
+	fake.called = true
+	return affiliates.Enrollment{}, nil
+}
+
 func (fake *sessionsFake) Authenticate(context.Context, string) (sessions.Authenticated, error) {
 	return fake.authenticated, fake.authErr
 }
@@ -107,12 +161,14 @@ func (fake *sessionsFake) RevokeOwned(context.Context, ids.UserID, ids.SessionID
 
 func fixture(t *testing.T) (*operationsapi.Server, *consoleFake, *passkeyFake, *sessionsFake) {
 	t.Helper()
-	staff := operations.Staff{UserID: staffID, DisplayName: "Support Person", State: operations.StaffActive, Roles: []operations.StaffRole{operations.RoleSupport, operations.RoleAnalytics}}
+	staff := operations.Staff{UserID: staffID, DisplayName: "Support Person", State: operations.StaffActive, Roles: []operations.StaffRole{operations.RoleSupport, operations.RoleAnalytics, operations.RoleBilling, operations.RolePrivacy, operations.RoleAffiliate}}
 	console := &consoleFake{staff: staff}
 	issued := sessions.Issued{Token: "staff-token", Session: sessions.Session{ID: sessionID, UserID: staffID, AuthenticationMethod: sessions.AuthenticationMethodPasskey, ReauthenticationMethod: sessions.AuthenticationMethodPasskey, ExpiresAt: testNow.Add(time.Hour)}}
 	passkey := &passkeyFake{issued: issued}
 	sessionService := &sessionsFake{authenticated: sessions.Authenticated{Session: issued.Session}}
-	server, err := operationsapi.New(console, passkey, sessionService, operationsapi.Cookie{Name: "__Host-spyglass_operations", Secure: true}, "https://ops.infiniteocean.net", 0, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server, err := operationsapi.New(console, passkey, sessionService, operationsapi.OperatorServices{
+		Billing: &billingOperatorFake{}, Privacy: &privacyOperatorFake{}, Affiliate: &affiliateOperatorFake{},
+	}, operationsapi.Cookie{Name: "__Host-spyglass_operations", Secure: true}, "https://ops.infiniteocean.net", "local", 0, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,5 +262,26 @@ func TestOperationsErrorsDoNotLeakDatabaseDetails(t *testing.T) {
 	recorder := request(t, server, http.MethodGet, "/api/operations/v1/session", "", true, false)
 	if recorder.Code != http.StatusForbidden || strings.Contains(recorder.Body.String(), "password=secret") {
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPermissionedOperatorRoutesRemainExplicitAndRoleBound(t *testing.T) {
+	server, console, _, _ := fixture(t)
+	billing := request(t, server, http.MethodPost, "/api/operations/v1/billing/failures/reports", `{"limit":20,"mode":"test","ticket":"BILL-630","reason":"Inspect the classified local billing queue."}`, true, true)
+	if billing.Code != http.StatusOK || !strings.Contains(billing.Body.String(), `"records":[]`) {
+		t.Fatalf("billing status=%d body=%s", billing.Code, billing.Body.String())
+	}
+	privacyQueue := request(t, server, http.MethodPost, "/api/operations/v1/privacy-rights/reports/open", `{"due_before":"2026-09-27T00:00:00Z","limit":20,"ticket":"PRIV-630","reason":"Review the minimized privacy deadline queue."}`, true, true)
+	if privacyQueue.Code != http.StatusOK || !strings.Contains(privacyQueue.Body.String(), `"items":[]`) {
+		t.Fatalf("privacy status=%d body=%s", privacyQueue.Code, privacyQueue.Body.String())
+	}
+	affiliate := request(t, server, http.MethodPost, "/api/operations/v1/affiliates/63000000-0000-4000-8000-000000000006/inspections", `{"ticket":"AFF-630","reason":"Inspect the exact Affiliate enrollment."}`, true, true)
+	if affiliate.Code != http.StatusOK || !strings.Contains(affiliate.Body.String(), `"enrollment"`) {
+		t.Fatalf("affiliate status=%d body=%s", affiliate.Code, affiliate.Body.String())
+	}
+	console.staff.Roles = []operations.StaffRole{operations.RoleSupport}
+	denied := request(t, server, http.MethodPost, "/api/operations/v1/billing/failures/reports", `{"limit":20,"mode":"test","ticket":"BILL-630","reason":"Attempt an unauthorized billing inspection."}`, true, true)
+	if denied.Code != http.StatusForbidden || !strings.Contains(denied.Body.String(), "staff_access_denied") {
+		t.Fatalf("denied status=%d body=%s", denied.Code, denied.Body.String())
 	}
 }

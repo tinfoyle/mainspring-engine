@@ -1,8 +1,12 @@
 import { requestJSON } from "./client";
 import type {
   OperationsAnalyticsReport, OperationsAnalyticsRequest, OperationsAuditReason,
+  OperationsAffiliateEnrollmentEnvelope, OperationsAffiliateRiskEnvelope, OperationsAffiliateTransitionRequest,
+  OperationsBillingActionRequest, OperationsBillingFailuresReport, OperationsBillingFailuresRequest, OperationsBillingRecordEnvelope,
   OperationsCreateSupportGrant, OperationsLookupPage, OperationsLookupRequest,
   OperationsPasskeyCeremony, OperationsRevokeSupportGrant, OperationsSession,
+  OperationsPrivacyOpenRequest, OperationsPrivacyQueue, OperationsPrivacyRequestEnvelope,
+  OperationsPrivacyResolutionRequest, OperationsPrivacyReviewRequest,
   OperationsSupportGrantEnvelope, OperationsSupportViewEnvelope
 } from "./generated/api-types";
 
@@ -46,3 +50,42 @@ export function operationsAnalyticsReport(input: OperationsAnalyticsRequest): Pr
   return requestJSON<OperationsAnalyticsReport>(`${root}/analytics/reports`, { method: "POST", body: JSON.stringify(input) });
 }
 
+export function operationsBillingFailures(input: OperationsBillingFailuresRequest): Promise<OperationsBillingFailuresReport> {
+  return requestJSON<OperationsBillingFailuresReport>(`${root}/billing/failures/reports`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsReplayBillingEvent(eventID: string, input: OperationsBillingActionRequest): Promise<OperationsBillingRecordEnvelope> {
+  return requestJSON<OperationsBillingRecordEnvelope>(`${root}/billing/events/${encodeURIComponent(eventID)}/replays`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsRefreshBillingSubscription(subscriptionID: string, input: OperationsBillingActionRequest): Promise<OperationsBillingRecordEnvelope> {
+  return requestJSON<OperationsBillingRecordEnvelope>(`${root}/billing/subscriptions/${encodeURIComponent(subscriptionID)}/refreshes`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsOpenPrivacyRights(input: OperationsPrivacyOpenRequest): Promise<OperationsPrivacyQueue> {
+  return requestJSON<OperationsPrivacyQueue>(`${root}/privacy-rights/reports/open`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsInspectPrivacyRight(requestID: string, input: OperationsAuditReason): Promise<OperationsPrivacyRequestEnvelope> {
+  return requestJSON<OperationsPrivacyRequestEnvelope>(`${root}/privacy-rights/${encodeURIComponent(requestID)}/inspections`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsStartPrivacyReview(requestID: string, input: OperationsPrivacyReviewRequest): Promise<OperationsPrivacyRequestEnvelope> {
+  return requestJSON<OperationsPrivacyRequestEnvelope>(`${root}/privacy-rights/${encodeURIComponent(requestID)}/review-starts`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsResolvePrivacyRight(requestID: string, input: OperationsPrivacyResolutionRequest): Promise<OperationsPrivacyRequestEnvelope> {
+  return requestJSON<OperationsPrivacyRequestEnvelope>(`${root}/privacy-rights/${encodeURIComponent(requestID)}/resolutions`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsInspectAffiliate(affiliateID: string, input: OperationsAuditReason): Promise<OperationsAffiliateEnrollmentEnvelope> {
+  return requestJSON<OperationsAffiliateEnrollmentEnvelope>(`${root}/affiliates/${encodeURIComponent(affiliateID)}/inspections`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsInspectAffiliateRisk(affiliateID: string, input: OperationsAuditReason): Promise<OperationsAffiliateRiskEnvelope> {
+  return requestJSON<OperationsAffiliateRiskEnvelope>(`${root}/affiliates/${encodeURIComponent(affiliateID)}/risk-inspections`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsTransitionAffiliate(affiliateID: string, input: OperationsAffiliateTransitionRequest): Promise<OperationsAffiliateEnrollmentEnvelope> {
+  return requestJSON<OperationsAffiliateEnrollmentEnvelope>(`${root}/affiliates/${encodeURIComponent(affiliateID)}/transitions`, { method: "POST", body: JSON.stringify(input) });
+}

@@ -1,5 +1,9 @@
 # Local, stage and production deployment report
 
+## Operations Console deployment hold
+
+The Operations Console is locally feature-complete but is not part of Stage RC.9. Do not add it to Hostinger Stage or LKE until the product owner authorizes a new release candidate. A future deployment requires a dedicated Operations subdomain/origin, separate passkey-only cookie boundary, five unique least-authority PostgreSQL credentials, offline staff-role provisioning, environment-specific monitoring/backups and completion of the gates in [Operations Console operations](operations-console-operations.md). Its customer, public and staff origins must remain distinct. No Kubernetes, GHCR, Hostinger or Stage mutation was performed for this checkpoint.
+
 - Plan date: 2026-08-20
 - Stage activation date: 2026-08-21
 - Phase 2 application baseline: `b195fae07b264ea4a609e424d6664f0b776eb6a4`

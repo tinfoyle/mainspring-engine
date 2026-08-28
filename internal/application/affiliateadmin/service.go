@@ -42,20 +42,20 @@ const (
 // review. It deliberately contains no referred Account, User, public-code, or
 // provider identifiers and grants no authority to change enrollment state.
 type RiskSummary struct {
-	AffiliateID                     ids.AffiliateID
-	EnrollmentState                 affiliates.EnrollmentState
-	EnrollmentVersion               uint64
-	ObservedAt                      time.Time
-	ReservationWindowStartedAt      time.Time
-	ValidReservations               uint64
-	DistinctReferredAccounts        uint64
-	RepeatedReferredAccounts        uint64
-	MaximumReservationsPerAccount   uint64
-	CrossAffiliateCodeCycleAccounts uint64
-	LockedAttributions              uint64
-	LargestAccountShareBasisPoints  uint64
-	CodeReplacementWindowStartedAt  time.Time
-	CodeReplacements                uint64
+	AffiliateID                     ids.AffiliateID            `json:"affiliate_id"`
+	EnrollmentState                 affiliates.EnrollmentState `json:"enrollment_state"`
+	EnrollmentVersion               uint64                     `json:"enrollment_version"`
+	ObservedAt                      time.Time                  `json:"observed_at"`
+	ReservationWindowStartedAt      time.Time                  `json:"reservation_window_started_at"`
+	ValidReservations               uint64                     `json:"valid_reservations"`
+	DistinctReferredAccounts        uint64                     `json:"distinct_referred_accounts"`
+	RepeatedReferredAccounts        uint64                     `json:"repeated_referred_accounts"`
+	MaximumReservationsPerAccount   uint64                     `json:"maximum_reservations_per_account"`
+	CrossAffiliateCodeCycleAccounts uint64                     `json:"cross_affiliate_code_cycle_accounts"`
+	LockedAttributions              uint64                     `json:"locked_attributions"`
+	LargestAccountShareBasisPoints  uint64                     `json:"largest_account_share_basis_points"`
+	CodeReplacementWindowStartedAt  time.Time                  `json:"code_replacement_window_started_at"`
+	CodeReplacements                uint64                     `json:"code_replacements"`
 }
 
 func (r RiskSummary) Validate() error {

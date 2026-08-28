@@ -57,6 +57,15 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_operations_projection') THEN
     CREATE ROLE spyglass_operations_projection LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_operations_billing') THEN
+    CREATE ROLE spyglass_operations_billing LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_operations_privacy') THEN
+    CREATE ROLE spyglass_operations_privacy LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_operations_affiliate') THEN
+    CREATE ROLE spyglass_operations_affiliate LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
 END
 $$;
 
@@ -79,6 +88,9 @@ $$;
 \getenv analytics_reporter_password SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD
 \getenv operations_identity_password SPYGLASS_OPERATIONS_IDENTITY_DATABASE_PASSWORD
 \getenv operations_projection_password SPYGLASS_OPERATIONS_PROJECTION_DATABASE_PASSWORD
+\getenv operations_billing_password SPYGLASS_OPERATIONS_BILLING_DATABASE_PASSWORD
+\getenv operations_privacy_password SPYGLASS_OPERATIONS_PRIVACY_DATABASE_PASSWORD
+\getenv operations_affiliate_password SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_PASSWORD
 SELECT format('ALTER ROLE spyglass_account_api PASSWORD %L', :'account_api_password') \gexec
 SELECT format('ALTER ROLE spyglass_app_router PASSWORD %L', :'app_router_password') \gexec
 SELECT format('ALTER ROLE spyglass_mcp_gateway PASSWORD %L', :'mcp_gateway_password') \gexec
@@ -98,6 +110,9 @@ SELECT format('ALTER ROLE spyglass_account_export_expiry_worker PASSWORD %L', :'
 SELECT format('ALTER ROLE spyglass_analytics_reporter PASSWORD %L', :'analytics_reporter_password') \gexec
 SELECT format('ALTER ROLE spyglass_operations_identity PASSWORD %L', :'operations_identity_password') \gexec
 SELECT format('ALTER ROLE spyglass_operations_projection PASSWORD %L', :'operations_projection_password') \gexec
+SELECT format('ALTER ROLE spyglass_operations_billing PASSWORD %L', :'operations_billing_password') \gexec
+SELECT format('ALTER ROLE spyglass_operations_privacy PASSWORD %L', :'operations_privacy_password') \gexec
+SELECT format('ALTER ROLE spyglass_operations_affiliate PASSWORD %L', :'operations_affiliate_password') \gexec
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_mcp_gateway, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
@@ -148,6 +163,25 @@ GRANT EXECUTE ON FUNCTION spyglass_operations_current_staff(uuid),
   spyglass_operations_analytics_report(uuid,uuid,timestamptz,timestamptz,text,text,integer,text,text,text,timestamptz),
   spyglass_operations_support_history(uuid,uuid,integer,timestamptz)
   TO spyglass_operations_projection;
+
+GRANT CONNECT ON DATABASE spyglass TO spyglass_operations_billing, spyglass_operations_privacy, spyglass_operations_affiliate;
+GRANT USAGE ON SCHEMA public TO spyglass_operations_billing, spyglass_operations_privacy, spyglass_operations_affiliate;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_operations_billing, spyglass_operations_privacy, spyglass_operations_affiliate;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_operations_billing, spyglass_operations_privacy, spyglass_operations_affiliate;
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_operations_billing, spyglass_operations_privacy, spyglass_operations_affiliate;
+
+GRANT EXECUTE ON FUNCTION spyglass_inspect_billing_failures(uuid,text,text,text,text,integer),
+  spyglass_replay_billing_event(uuid,text,text,text,text,text),
+  spyglass_queue_billing_subscription_refresh(uuid,text,text,text,text,text)
+  TO spyglass_operations_billing;
+GRANT EXECUTE ON FUNCTION spyglass_list_open_privacy_rights_requests(uuid,timestamptz,integer,text,text,text),
+  spyglass_inspect_privacy_rights_request(uuid,uuid,text,text,text),
+  spyglass_transition_privacy_rights_request(uuid,uuid,bigint,text,text,uuid,bytea,text,text,text)
+  TO spyglass_operations_privacy;
+GRANT EXECUTE ON FUNCTION spyglass_inspect_affiliate_enrollment(uuid,uuid,text,text,text),
+  spyglass_inspect_affiliate_risk(uuid,uuid,text,text,text),
+  spyglass_transition_affiliate_enrollment(uuid,uuid,bigint,text,text,text,text)
+  TO spyglass_operations_affiliate;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,

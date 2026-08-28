@@ -1,5 +1,11 @@
 # Quality, Security, and Operations Plan
 
+## Operations Console control plane
+
+The staff console uses a separate Vue origin, passkey-only session and least-authority API. It never reuses a customer session or changes the actor into a customer. Read-only support access is exact-Account/User, ticket/reason-bound, visibly marked, expires in at most one hour and is customer-visible. Billing, privacy and Affiliate actions reuse named execute-only operator functions through separate database roles; broad database and customer authority are absent. Staff roles are assigned/revoked only by the offline migration-credential command, and revoking the final role revokes active staff sessions. See [Operations Console operations](operations-console-operations.md) for the complete authority and incident procedure.
+
+Operations support evidence is immutable during ordinary service operation. Because it contains customer identifiers, an exact transaction-local Account-erasure scope permits only that Account's cascading evidence deletion. PostgreSQL tests prove ordinary mutation/deletion fails and the approved Account erasure succeeds.
+
 - Status: Production gate specification
 - Parent: [Production rewrite plan](README.md)
 

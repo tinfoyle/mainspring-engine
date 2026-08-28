@@ -15,6 +15,7 @@
     "build:social-card": "node scripts/render-social-card.mjs",
     "browser:app": "playwright test --config playwright.config.ts",
     "browser:identity": "playwright test --config playwright.identity.config.ts",
+    "browser:operations": "playwright test --config playwright.operations.config.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",

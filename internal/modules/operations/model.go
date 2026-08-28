@@ -216,10 +216,10 @@ type BillingView struct {
 }
 
 type EntitlementView struct {
-	Version        uint64         `json:"version"`
-	CatalogVersion uint64         `json:"catalog_version"`
-	EvaluatedAt    time.Time      `json:"evaluated_at"`
-	Packages       map[string]any `json:"packages"`
+	Version        uint64           `json:"version"`
+	CatalogVersion uint64           `json:"catalog_version"`
+	EvaluatedAt    time.Time        `json:"evaluated_at"`
+	Packages       []map[string]any `json:"packages"`
 }
 
 type AITokenView struct {

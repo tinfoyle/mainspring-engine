@@ -8,6 +8,8 @@
 - Privacy/commercial extension: [Privacy, analytics and affiliate architecture](privacy-analytics-affiliates.md)
 - Deployment work: Deferred until this plan's local product-surface exit gate passes
 
+Operations checkpoint (2026-08-27): the separate mobile-responsive Vue staff console and least-authority Operations API are locally feature-complete. Passkey-only staff authentication, privacy-bounded analytics, exact customer lookup, timed read-only support inspection, customer-visible evidence, billing/privacy/Affiliate operator surfaces and the complete Docker browser journey are certified. This closes the missing staff-software construction boundary; owner review, physical-device/assistive-technology evidence and environment provisioning remain release gates. See [Operations Console operations](operations-console-operations.md). Stage remains RC.9.
+
 ## 1. Objective
 
 Replace the desktop-first private browser shell and the provisional acquisition experience with one coherent customer-facing Vue 3 and TypeScript product surface. The authenticated application operates as a single-page application; the public landing, feature and pricing routes are rendered or pre-rendered for discovery, performance and resilient first load. The complete experience is mobile-first, uses the generated HTTP contracts without inventing domain behavior, makes **Your Turn** the primary signed-in workflow, measures landing/checkout/onboarding through a consented first-party analytics boundary, and remains available to EU customers through GDPR-capable operation.

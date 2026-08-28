@@ -25,11 +25,17 @@ var (
 )
 
 type Record struct {
-	Kind, TargetID, AccountID, Mode, State, LastErrorCode string
-	ExplanationCode, Explanation                          string
-	AttemptCount                                          int
-	NextAttemptAt                                         *time.Time
-	CreatedAt                                             time.Time
+	Kind            string     `json:"kind"`
+	TargetID        string     `json:"target_id"`
+	AccountID       string     `json:"account_id"`
+	Mode            string     `json:"mode"`
+	State           string     `json:"state"`
+	LastErrorCode   string     `json:"last_error_code,omitempty"`
+	ExplanationCode string     `json:"explanation_code"`
+	Explanation     string     `json:"explanation"`
+	AttemptCount    int        `json:"attempt_count"`
+	NextAttemptAt   *time.Time `json:"next_attempt_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
 }
 
 type Change struct{ BatchID, Actor, Reason, Environment, Mode string }

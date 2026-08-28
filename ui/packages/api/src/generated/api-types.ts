@@ -2121,6 +2121,51 @@ export interface OperationsAccountView {
   readonly "user": OperationsUserView;
 }
 
+export interface OperationsAffiliateEnrollment {
+  readonly "affiliate_id": OperationsUUID;
+  readonly "created_at": OperationsTimestamp;
+  readonly "public_code": string;
+  readonly "rule_version": number;
+  readonly "settlement_account_id"?: OperationsUUID;
+  readonly "state": string;
+  readonly "terms_version": number;
+  readonly "user_id": OperationsUUID;
+  readonly "version": number;
+}
+
+export interface OperationsAffiliateEnrollmentEnvelope {
+  readonly "enrollment": OperationsAffiliateEnrollment;
+}
+
+export interface OperationsAffiliateRisk {
+  readonly "affiliate_id": OperationsUUID;
+  readonly "code_replacement_window_started_at": OperationsTimestamp;
+  readonly "code_replacements": number;
+  readonly "cross_affiliate_code_cycle_accounts": number;
+  readonly "distinct_referred_accounts": number;
+  readonly "enrollment_state": string;
+  readonly "enrollment_version": number;
+  readonly "largest_account_share_basis_points": number;
+  readonly "locked_attributions": number;
+  readonly "maximum_reservations_per_account": number;
+  readonly "observed_at": OperationsTimestamp;
+  readonly "repeated_referred_accounts": number;
+  readonly "reservation_window_started_at": OperationsTimestamp;
+  readonly "valid_reservations": number;
+}
+
+export interface OperationsAffiliateRiskEnvelope {
+  readonly "flags": ReadonlyArray<string>;
+  readonly "risk": OperationsAffiliateRisk;
+}
+
+export interface OperationsAffiliateTransitionRequest {
+  readonly "expected_version": number;
+  readonly "reason": string;
+  readonly "state": "active" | "suspended" | "closed";
+  readonly "ticket": string;
+}
+
 export interface OperationsAnalyticsReport {
   readonly "bucket": string;
   readonly "dimension": string;
@@ -2154,6 +2199,43 @@ export interface OperationsAuditReason {
   readonly "ticket": string;
 }
 
+export interface OperationsBillingActionRequest {
+  readonly "mode": "test" | "live";
+  readonly "reason": string;
+  readonly "ticket": string;
+}
+
+export interface OperationsBillingFailuresReport {
+  readonly "batch_id": OperationsUUID;
+  readonly "records": ReadonlyArray<OperationsBillingRecord>;
+}
+
+export interface OperationsBillingFailuresRequest {
+  readonly "limit": number;
+  readonly "mode": "test" | "live";
+  readonly "reason": string;
+  readonly "ticket": string;
+}
+
+export interface OperationsBillingRecord {
+  readonly "account_id": string;
+  readonly "attempt_count": number;
+  readonly "created_at": OperationsTimestamp;
+  readonly "explanation": string;
+  readonly "explanation_code": string;
+  readonly "kind": string;
+  readonly "last_error_code"?: string;
+  readonly "mode": string;
+  readonly "next_attempt_at"?: OperationsTimestamp | null;
+  readonly "state": string;
+  readonly "target_id": string;
+}
+
+export interface OperationsBillingRecordEnvelope {
+  readonly "batch_id": OperationsUUID;
+  readonly "record": OperationsBillingRecord;
+}
+
 export interface OperationsBillingView {
   readonly "billing_email"?: string;
   readonly "cancel_at"?: OperationsTimestamp | null;
@@ -2183,7 +2265,7 @@ export interface OperationsCreateSupportGrant {
 export interface OperationsEntitlementView {
   readonly "catalog_version": number;
   readonly "evaluated_at": OperationsTimestamp;
-  readonly "packages": Readonly<Record<string, unknown>>;
+  readonly "packages": ReadonlyArray<Readonly<Record<string, unknown>>>;
   readonly "version": number;
 }
 
@@ -2234,6 +2316,59 @@ export interface OperationsPasskeyCeremony {
   readonly "ceremony_id": OperationsUUID;
   readonly "expires_at": OperationsTimestamp;
   readonly "public_key": Readonly<Record<string, unknown>>;
+}
+
+export interface OperationsPrivacyOpenRequest {
+  readonly "due_before": OperationsTimestamp;
+  readonly "limit": number;
+  readonly "reason": string;
+  readonly "ticket": string;
+}
+
+export interface OperationsPrivacyQueue {
+  readonly "items": ReadonlyArray<OperationsPrivacyQueueItem>;
+}
+
+export interface OperationsPrivacyQueueItem {
+  readonly "kind": string;
+  readonly "request_id": OperationsUUID;
+  readonly "requested_at": OperationsTimestamp;
+  readonly "response_due_at": OperationsTimestamp;
+  readonly "scope": string;
+  readonly "state": string;
+  readonly "updated_at": OperationsTimestamp;
+  readonly "version": number;
+}
+
+export interface OperationsPrivacyRequest {
+  readonly "kind": string;
+  readonly "request_id": OperationsUUID;
+  readonly "requested_at": OperationsTimestamp;
+  readonly "response_due_at": OperationsTimestamp;
+  readonly "scope": string;
+  readonly "state": string;
+  readonly "updated_at": OperationsTimestamp;
+  readonly "verified_at": OperationsTimestamp;
+  readonly "version": number;
+}
+
+export interface OperationsPrivacyRequestEnvelope {
+  readonly "request": OperationsPrivacyRequest;
+}
+
+export interface OperationsPrivacyResolutionRequest {
+  readonly "evidence_id": OperationsUUID;
+  readonly "evidence_sha256": string;
+  readonly "expected_version": number;
+  readonly "reason": string;
+  readonly "state": "completed" | "partially_completed" | "declined";
+  readonly "ticket": string;
+}
+
+export interface OperationsPrivacyReviewRequest {
+  readonly "expected_version": number;
+  readonly "reason": string;
+  readonly "ticket": string;
 }
 
 export interface OperationsProblem {
@@ -2695,6 +2830,19 @@ export interface SubmitAffiliateSupportRequest {
 
 export interface SubmitMarketingReleaseRequest {
   readonly "campaign_version": number;
+}
+
+export interface SupportAccessEvent {
+  readonly "action": "support_grant_created" | "support_view_opened" | "support_grant_revoked";
+  readonly "id": string;
+  readonly "occurred_at": string;
+  readonly "reason": string;
+  readonly "staff_display_name": string;
+  readonly "ticket": string;
+}
+
+export interface SupportAccessHistory {
+  readonly "events": ReadonlyArray<SupportAccessEvent>;
 }
 
 export interface TransferOwnershipRequest {
@@ -3182,10 +3330,20 @@ export interface ApiSchemas {
   readonly OperationsAccessEvent: OperationsAccessEvent;
   readonly OperationsAccountSummary: OperationsAccountSummary;
   readonly OperationsAccountView: OperationsAccountView;
+  readonly OperationsAffiliateEnrollment: OperationsAffiliateEnrollment;
+  readonly OperationsAffiliateEnrollmentEnvelope: OperationsAffiliateEnrollmentEnvelope;
+  readonly OperationsAffiliateRisk: OperationsAffiliateRisk;
+  readonly OperationsAffiliateRiskEnvelope: OperationsAffiliateRiskEnvelope;
+  readonly OperationsAffiliateTransitionRequest: OperationsAffiliateTransitionRequest;
   readonly OperationsAnalyticsReport: OperationsAnalyticsReport;
   readonly OperationsAnalyticsRequest: OperationsAnalyticsRequest;
   readonly OperationsAnalyticsRow: OperationsAnalyticsRow;
   readonly OperationsAuditReason: OperationsAuditReason;
+  readonly OperationsBillingActionRequest: OperationsBillingActionRequest;
+  readonly OperationsBillingFailuresReport: OperationsBillingFailuresReport;
+  readonly OperationsBillingFailuresRequest: OperationsBillingFailuresRequest;
+  readonly OperationsBillingRecord: OperationsBillingRecord;
+  readonly OperationsBillingRecordEnvelope: OperationsBillingRecordEnvelope;
   readonly OperationsBillingView: OperationsBillingView;
   readonly OperationsCompletePasskeyLogin: OperationsCompletePasskeyLogin;
   readonly OperationsCreateSupportGrant: OperationsCreateSupportGrant;
@@ -3197,6 +3355,13 @@ export interface ApiSchemas {
   readonly OperationsLookupResult: OperationsLookupResult;
   readonly OperationsMembershipView: OperationsMembershipView;
   readonly OperationsPasskeyCeremony: OperationsPasskeyCeremony;
+  readonly OperationsPrivacyOpenRequest: OperationsPrivacyOpenRequest;
+  readonly OperationsPrivacyQueue: OperationsPrivacyQueue;
+  readonly OperationsPrivacyQueueItem: OperationsPrivacyQueueItem;
+  readonly OperationsPrivacyRequest: OperationsPrivacyRequest;
+  readonly OperationsPrivacyRequestEnvelope: OperationsPrivacyRequestEnvelope;
+  readonly OperationsPrivacyResolutionRequest: OperationsPrivacyResolutionRequest;
+  readonly OperationsPrivacyReviewRequest: OperationsPrivacyReviewRequest;
   readonly OperationsProblem: OperationsProblem;
   readonly OperationsRevokeSupportGrant: OperationsRevokeSupportGrant;
   readonly OperationsSession: OperationsSession;
@@ -3273,6 +3438,8 @@ export interface ApiSchemas {
   readonly StripeWebhookReceipt: StripeWebhookReceipt;
   readonly SubmitAffiliateSupportRequest: SubmitAffiliateSupportRequest;
   readonly SubmitMarketingReleaseRequest: SubmitMarketingReleaseRequest;
+  readonly SupportAccessEvent: SupportAccessEvent;
+  readonly SupportAccessHistory: SupportAccessHistory;
   readonly TransferOwnershipRequest: TransferOwnershipRequest;
   readonly TransitionScheduleRequest: TransitionScheduleRequest;
   readonly TransitionWorkRequest: TransitionWorkRequest;

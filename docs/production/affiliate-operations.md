@@ -1,5 +1,9 @@
 # Affiliate operations
 
+## Operations Console surface
+
+The local Operations Console exposes exact enrollment inspection, content-free risk signals and version-fenced reactivate/suspend/close transitions to `affiliate` and `operations_administrator` roles through a dedicated execute-only credential. Ticket/reason and stable staff actor identity flow into existing immutable Affiliate operator events. Settlement, checks, billing-credit conversion, legal retention/hold and monetary adjustment remain offline procedures and are intentionally absent from the console. Stage and production remain unchanged.
+
 Status: the approved recurring-rule, adverse-event, account-credit-with-Support-check, verified-erasure restriction and seven-year minimization boundaries are implemented and verified locally as of 2026-08-27. The enrollment and attribution feature flags remain closed pending external legal, accounting, Support and provider acceptance. Nothing in this runbook authorizes Stage or production use.
 
 The customer dashboard derives a proposal-only link from the application origin and generated public code. It carries no Affiliate identity, customer identity, offer, analytics subject or commercial attribution. Checkout displays the proposed code but requires the customer to select **Apply** before server validation. Suspension or closure removes the URL and disables both code/link copying while preserving the immutable statement and structured support path.

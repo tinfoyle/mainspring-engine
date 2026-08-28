@@ -194,8 +194,8 @@ func TestEveryCustomerOperationRemainsTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 212 {
-		t.Fatalf("customer operation count = %d, want 212", len(routes))
+	if len(routes) != 213 {
+		t.Fatalf("customer operation count = %d, want 213", len(routes))
 	}
 	for _, route := range routes {
 		if route.Contract != "typed" {
@@ -231,8 +231,8 @@ func TestOperationsContractIsSeparatePasskeyOnlyAndTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 9 {
-		t.Fatalf("operations route count=%d, want 9", len(routes))
+	if len(routes) != 19 {
+		t.Fatalf("operations route count=%d, want 19", len(routes))
 	}
 	for _, route := range routes {
 		if route.Service != "operations-api" || route.Contract != "typed" {

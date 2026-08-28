@@ -34,6 +34,44 @@
     },
     "/api/operations/v1/analytics/reports": {
       "post": {"operationId": "operationsAnalyticsReport", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/AnalyticsReport"}, "responses": {"200": {"$ref": "#/components/responses/AnalyticsReportOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/billing/failures/reports": {
+      "post": {"operationId": "operationsBillingFailures", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/BillingFailures"}, "responses": {"200": {"$ref": "#/components/responses/BillingFailuresOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/billing/events/{eventID}/replays": {
+      "parameters": [{"$ref": "#/components/parameters/eventID"}],
+      "post": {"operationId": "operationsReplayBillingEvent", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/BillingAction"}, "responses": {"200": {"$ref": "#/components/responses/BillingRecordOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/billing/subscriptions/{subscriptionID}/refreshes": {
+      "parameters": [{"$ref": "#/components/parameters/subscriptionID"}],
+      "post": {"operationId": "operationsRefreshBillingSubscription", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/BillingAction"}, "responses": {"200": {"$ref": "#/components/responses/BillingRecordOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/privacy-rights/reports/open": {
+      "post": {"operationId": "operationsOpenPrivacyRights", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/PrivacyOpen"}, "responses": {"200": {"$ref": "#/components/responses/PrivacyQueueOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/privacy-rights/{requestID}/inspections": {
+      "parameters": [{"$ref": "#/components/parameters/requestID"}],
+      "post": {"operationId": "operationsInspectPrivacyRight", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/AuditReason"}, "responses": {"200": {"$ref": "#/components/responses/PrivacyRequestOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/privacy-rights/{requestID}/review-starts": {
+      "parameters": [{"$ref": "#/components/parameters/requestID"}],
+      "post": {"operationId": "operationsStartPrivacyReview", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/PrivacyReview"}, "responses": {"200": {"$ref": "#/components/responses/PrivacyRequestOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/privacy-rights/{requestID}/resolutions": {
+      "parameters": [{"$ref": "#/components/parameters/requestID"}],
+      "post": {"operationId": "operationsResolvePrivacyRight", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/PrivacyResolution"}, "responses": {"200": {"$ref": "#/components/responses/PrivacyRequestOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/affiliates/{affiliateID}/inspections": {
+      "parameters": [{"$ref": "#/components/parameters/affiliateID"}],
+      "post": {"operationId": "operationsInspectAffiliate", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/AuditReason"}, "responses": {"200": {"$ref": "#/components/responses/AffiliateEnrollmentOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/affiliates/{affiliateID}/risk-inspections": {
+      "parameters": [{"$ref": "#/components/parameters/affiliateID"}],
+      "post": {"operationId": "operationsInspectAffiliateRisk", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/AuditReason"}, "responses": {"200": {"$ref": "#/components/responses/AffiliateRiskOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/affiliates/{affiliateID}/transitions": {
+      "parameters": [{"$ref": "#/components/parameters/affiliateID"}],
+      "post": {"operationId": "operationsTransitionAffiliate", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/AffiliateTransition"}, "responses": {"200": {"$ref": "#/components/responses/AffiliateEnrollmentOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
     }
   },
   "components": {
@@ -43,6 +81,10 @@
     "parameters": {
       "ceremonyID": {"name": "ceremonyID", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
       "grantID": {"name": "grantID", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+      ,"eventID": {"name": "eventID", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^evt_[^\\s]+$"}}
+      ,"subscriptionID": {"name": "subscriptionID", "in": "path", "required": true, "schema": {"type": "string", "pattern": "^sub_[^\\s]+$"}}
+      ,"requestID": {"name": "requestID", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+      ,"affiliateID": {"name": "affiliateID", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
     },
     "requestBodies": {
       "CompletePasskeyLogin": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsCompletePasskeyLogin"}}}},
@@ -50,7 +92,13 @@
       "CreateSupportGrant": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsCreateSupportGrant"}}}},
       "AuditReason": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAuditReason"}}}},
       "RevokeSupportGrant": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsRevokeSupportGrant"}}}},
-      "AnalyticsReport": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAnalyticsRequest"}}}}
+      "AnalyticsReport": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAnalyticsRequest"}}}},
+      "BillingFailures": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsBillingFailuresRequest"}}}},
+      "BillingAction": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsBillingActionRequest"}}}},
+      "PrivacyOpen": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsPrivacyOpenRequest"}}}},
+      "PrivacyReview": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsPrivacyReviewRequest"}}}},
+      "PrivacyResolution": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsPrivacyResolutionRequest"}}}},
+      "AffiliateTransition": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAffiliateTransitionRequest"}}}}
     },
     "responses": {
       "PasskeyCeremonyCreated": {"description": "Discoverable passkey challenge", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsPasskeyCeremony"}}}},
@@ -61,6 +109,12 @@
       "SupportGrantOK": {"description": "Current support grant state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsSupportGrantEnvelope"}}}},
       "SupportViewOK": {"description": "Visibly marked read-only customer-safe projection", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsSupportViewEnvelope"}}}},
       "AnalyticsReportOK": {"description": "Suppressed privacy-bounded aggregate report", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAnalyticsReport"}}}},
+      "BillingFailuresOK": {"description": "Audited billing failure report", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsBillingFailuresReport"}}}},
+      "BillingRecordOK": {"description": "Audited billing operator result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsBillingRecordEnvelope"}}}},
+      "PrivacyQueueOK": {"description": "Content-minimized open rights queue", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsPrivacyQueue"}}}},
+      "PrivacyRequestOK": {"description": "Audited privacy-rights request state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsPrivacyRequestEnvelope"}}}},
+      "AffiliateEnrollmentOK": {"description": "Audited Affiliate enrollment state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAffiliateEnrollmentEnvelope"}}}},
+      "AffiliateRiskOK": {"description": "Content-free Affiliate risk summary", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAffiliateRiskEnvelope"}}}},
       "Problem": {"description": "Staff request failed without internal detail", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/OperationsProblem"}}}}
     },
     "schemas": {
@@ -85,7 +139,7 @@
       "OperationsAccountSummary": {"type": "object", "additionalProperties": false, "required": ["id", "display_name", "state", "type", "cell_id", "placement_generation", "entitlement_version", "created_at"], "properties": {"id": {"$ref": "#/components/schemas/OperationsUUID"}, "display_name": {"type": "string"}, "state": {"type": "string"}, "type": {"type": "string"}, "cell_id": {"type": "string"}, "placement_generation": {"type": "integer"}, "entitlement_version": {"type": "integer"}, "created_at": {"$ref": "#/components/schemas/OperationsTimestamp"}}},
       "OperationsMembershipView": {"type": "object", "additionalProperties": false, "required": ["role", "state", "version"], "properties": {"role": {"type": "string"}, "state": {"type": "string"}, "version": {"type": "integer"}}},
       "OperationsBillingView": {"type": "object", "additionalProperties": false, "properties": {"customer_id": {"type": "string"}, "billing_email": {"type": "string"}, "subscription_id": {"type": "string"}, "provider_mode": {"type": "string"}, "state": {"type": "string"}, "offer_code": {"type": "string"}, "offer_version": {"type": "integer"}, "current_period_end": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "cancel_at": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "last_synced_at": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}}},
-      "OperationsEntitlementView": {"type": "object", "additionalProperties": false, "required": ["version", "catalog_version", "evaluated_at", "packages"], "properties": {"version": {"type": "integer"}, "catalog_version": {"type": "integer"}, "evaluated_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "packages": {"type": "object"}}},
+      "OperationsEntitlementView": {"type": "object", "additionalProperties": false, "required": ["version", "catalog_version", "evaluated_at", "packages"], "properties": {"version": {"type": "integer"}, "catalog_version": {"type": "integer"}, "evaluated_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "packages": {"type": "array", "items": {"type": "object"}}}},
       "OperationsAITokenView": {"type": "object", "additionalProperties": false, "required": ["available", "reserved", "consumed"], "properties": {"available": {"type": "integer"}, "reserved": {"type": "integer"}, "consumed": {"type": "integer"}}},
       "OperationsLifecycleView": {"type": "object", "additionalProperties": false, "properties": {"request_id": {"type": "string"}, "state": {"type": "string"}, "execute_after": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "delete_after": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "blocker_code": {"type": "string"}}},
       "OperationsAccountView": {"type": "object", "additionalProperties": false, "required": ["grant", "user", "account", "membership", "billing", "entitlements", "ai_tokens", "lifecycle", "support_history"], "properties": {"grant": {"$ref": "#/components/schemas/OperationsSupportGrant"}, "user": {"$ref": "#/components/schemas/OperationsUserView"}, "account": {"$ref": "#/components/schemas/OperationsAccountSummary"}, "membership": {"$ref": "#/components/schemas/OperationsMembershipView"}, "billing": {"$ref": "#/components/schemas/OperationsBillingView"}, "entitlements": {"$ref": "#/components/schemas/OperationsEntitlementView"}, "ai_tokens": {"$ref": "#/components/schemas/OperationsAITokenView"}, "lifecycle": {"$ref": "#/components/schemas/OperationsLifecycleView"}, "support_history": {"type": "array", "items": {"$ref": "#/components/schemas/OperationsAccessEvent"}}}},
@@ -93,6 +147,23 @@
       "OperationsAnalyticsRequest": {"type": "object", "additionalProperties": false, "required": ["from", "to", "bucket", "dimension", "minimum_cohort", "ticket", "reason"], "properties": {"from": {"$ref": "#/components/schemas/OperationsTimestamp"}, "to": {"$ref": "#/components/schemas/OperationsTimestamp"}, "bucket": {"type": "string", "enum": ["hour", "day"]}, "dimension": {"type": "string"}, "minimum_cohort": {"type": "integer", "minimum": 5, "maximum": 100}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
       "OperationsAnalyticsRow": {"type": "object", "additionalProperties": false, "required": ["bucket_start", "event_name", "surface", "dimension_value", "event_count", "unique_subjects"], "properties": {"bucket_start": {"$ref": "#/components/schemas/OperationsTimestamp"}, "event_name": {"type": "string"}, "surface": {"type": "string"}, "dimension_value": {"type": "string"}, "event_count": {"type": "integer"}, "unique_subjects": {"type": "integer"}}},
       "OperationsAnalyticsReport": {"type": "object", "additionalProperties": false, "required": ["from", "to", "bucket", "dimension", "minimum_cohort", "rows"], "properties": {"from": {"$ref": "#/components/schemas/OperationsTimestamp"}, "to": {"$ref": "#/components/schemas/OperationsTimestamp"}, "bucket": {"type": "string"}, "dimension": {"type": "string"}, "minimum_cohort": {"type": "integer"}, "rows": {"type": "array", "items": {"$ref": "#/components/schemas/OperationsAnalyticsRow"}}}},
+      "OperationsBillingFailuresRequest": {"type": "object", "additionalProperties": false, "required": ["limit", "mode", "ticket", "reason"], "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}, "mode": {"type": "string", "enum": ["test", "live"]}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsBillingActionRequest": {"type": "object", "additionalProperties": false, "required": ["mode", "ticket", "reason"], "properties": {"mode": {"type": "string", "enum": ["test", "live"]}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsBillingRecord": {"type": "object", "additionalProperties": false, "required": ["kind", "target_id", "account_id", "mode", "state", "explanation_code", "explanation", "attempt_count", "created_at"], "properties": {"kind": {"type": "string"}, "target_id": {"type": "string"}, "account_id": {"type": "string"}, "mode": {"type": "string"}, "state": {"type": "string"}, "last_error_code": {"type": "string"}, "explanation_code": {"type": "string"}, "explanation": {"type": "string"}, "attempt_count": {"type": "integer"}, "next_attempt_at": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "created_at": {"$ref": "#/components/schemas/OperationsTimestamp"}}},
+      "OperationsBillingFailuresReport": {"type": "object", "additionalProperties": false, "required": ["batch_id", "records"], "properties": {"batch_id": {"$ref": "#/components/schemas/OperationsUUID"}, "records": {"type": "array", "items": {"$ref": "#/components/schemas/OperationsBillingRecord"}}}},
+      "OperationsBillingRecordEnvelope": {"type": "object", "additionalProperties": false, "required": ["batch_id", "record"], "properties": {"batch_id": {"$ref": "#/components/schemas/OperationsUUID"}, "record": {"$ref": "#/components/schemas/OperationsBillingRecord"}}},
+      "OperationsPrivacyOpenRequest": {"type": "object", "additionalProperties": false, "required": ["due_before", "limit", "ticket", "reason"], "properties": {"due_before": {"$ref": "#/components/schemas/OperationsTimestamp"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsPrivacyReviewRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version", "ticket", "reason"], "properties": {"expected_version": {"type": "integer", "minimum": 1}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsPrivacyResolutionRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version", "state", "evidence_id", "evidence_sha256", "ticket", "reason"], "properties": {"expected_version": {"type": "integer", "minimum": 1}, "state": {"type": "string", "enum": ["completed", "partially_completed", "declined"]}, "evidence_id": {"$ref": "#/components/schemas/OperationsUUID"}, "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsPrivacyQueueItem": {"type": "object", "additionalProperties": false, "required": ["request_id", "version", "kind", "scope", "state", "requested_at", "response_due_at", "updated_at"], "properties": {"request_id": {"$ref": "#/components/schemas/OperationsUUID"}, "version": {"type": "integer"}, "kind": {"type": "string"}, "scope": {"type": "string"}, "state": {"type": "string"}, "requested_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "response_due_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "updated_at": {"$ref": "#/components/schemas/OperationsTimestamp"}}},
+      "OperationsPrivacyQueue": {"type": "object", "additionalProperties": false, "required": ["items"], "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/OperationsPrivacyQueueItem"}}}},
+      "OperationsPrivacyRequest": {"type": "object", "additionalProperties": false, "required": ["request_id", "version", "kind", "scope", "state", "verified_at", "requested_at", "response_due_at", "updated_at"], "properties": {"request_id": {"$ref": "#/components/schemas/OperationsUUID"}, "version": {"type": "integer"}, "kind": {"type": "string"}, "scope": {"type": "string"}, "state": {"type": "string"}, "verified_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "requested_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "response_due_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "updated_at": {"$ref": "#/components/schemas/OperationsTimestamp"}}},
+      "OperationsPrivacyRequestEnvelope": {"type": "object", "additionalProperties": false, "required": ["request"], "properties": {"request": {"$ref": "#/components/schemas/OperationsPrivacyRequest"}}},
+      "OperationsAffiliateTransitionRequest": {"type": "object", "additionalProperties": false, "required": ["expected_version", "state", "ticket", "reason"], "properties": {"expected_version": {"type": "integer", "minimum": 1}, "state": {"type": "string", "enum": ["active", "suspended", "closed"]}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsAffiliateEnrollment": {"type": "object", "additionalProperties": false, "required": ["affiliate_id", "user_id", "public_code", "terms_version", "rule_version", "state", "version", "created_at"], "properties": {"affiliate_id": {"$ref": "#/components/schemas/OperationsUUID"}, "user_id": {"$ref": "#/components/schemas/OperationsUUID"}, "settlement_account_id": {"$ref": "#/components/schemas/OperationsUUID"}, "public_code": {"type": "string"}, "terms_version": {"type": "integer"}, "rule_version": {"type": "integer"}, "state": {"type": "string"}, "version": {"type": "integer"}, "created_at": {"$ref": "#/components/schemas/OperationsTimestamp"}}},
+      "OperationsAffiliateEnrollmentEnvelope": {"type": "object", "additionalProperties": false, "required": ["enrollment"], "properties": {"enrollment": {"$ref": "#/components/schemas/OperationsAffiliateEnrollment"}}},
+      "OperationsAffiliateRisk": {"type": "object", "additionalProperties": false, "required": ["affiliate_id", "enrollment_state", "enrollment_version", "observed_at", "reservation_window_started_at", "valid_reservations", "distinct_referred_accounts", "repeated_referred_accounts", "maximum_reservations_per_account", "cross_affiliate_code_cycle_accounts", "locked_attributions", "largest_account_share_basis_points", "code_replacement_window_started_at", "code_replacements"], "properties": {"affiliate_id": {"$ref": "#/components/schemas/OperationsUUID"}, "enrollment_state": {"type": "string"}, "enrollment_version": {"type": "integer"}, "observed_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "reservation_window_started_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "valid_reservations": {"type": "integer"}, "distinct_referred_accounts": {"type": "integer"}, "repeated_referred_accounts": {"type": "integer"}, "maximum_reservations_per_account": {"type": "integer"}, "cross_affiliate_code_cycle_accounts": {"type": "integer"}, "locked_attributions": {"type": "integer"}, "largest_account_share_basis_points": {"type": "integer"}, "code_replacement_window_started_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "code_replacements": {"type": "integer"}}},
+      "OperationsAffiliateRiskEnvelope": {"type": "object", "additionalProperties": false, "required": ["risk", "flags"], "properties": {"risk": {"$ref": "#/components/schemas/OperationsAffiliateRisk"}, "flags": {"type": "array", "items": {"type": "string"}}}},
       "OperationsProblem": {"type": "object", "additionalProperties": false, "required": ["type", "title", "status", "code", "detail"], "properties": {"type": {"type": "string"}, "title": {"type": "string"}, "status": {"type": "integer"}, "code": {"type": "string"}, "detail": {"type": "string"}}}
     }
   }

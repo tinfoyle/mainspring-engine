@@ -7,6 +7,8 @@ services:
       - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
     depends_on:
       google-oauth-fixture: {condition: service_healthy}
+      operations-api: {condition: service_healthy}
+      operations-ui: {condition: service_healthy}
 
   google-oauth-fixture:
     build:
@@ -110,6 +112,29 @@ services:
       target: app-runtime
     image: infinite-ocean-private-ui:local
 
+  operations-ui:
+    build:
+      context: ../../../ui
+      dockerfile: Dockerfile
+      target: operations-runtime
+    image: infinite-ocean-operations-ui:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /config:size=4m,mode=700
+      - /data:size=4m,mode=700
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /static-server, healthcheck]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 5s
+    networks: [application]
+
   global-migrate:
     build: &application-build
       context: ../../..
@@ -141,6 +166,9 @@ services:
       SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD: ${SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD}
       SPYGLASS_OPERATIONS_IDENTITY_DATABASE_PASSWORD: ${SPYGLASS_OPERATIONS_IDENTITY_DATABASE_PASSWORD}
       SPYGLASS_OPERATIONS_PROJECTION_DATABASE_PASSWORD: ${SPYGLASS_OPERATIONS_PROJECTION_DATABASE_PASSWORD}
+      SPYGLASS_OPERATIONS_BILLING_DATABASE_PASSWORD: ${SPYGLASS_OPERATIONS_BILLING_DATABASE_PASSWORD}
+      SPYGLASS_OPERATIONS_PRIVACY_DATABASE_PASSWORD: ${SPYGLASS_OPERATIONS_PRIVACY_DATABASE_PASSWORD}
+      SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_PASSWORD: ${SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_PASSWORD}
       SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD: ${SPYGLASS_IDENTITY_MAINTENANCE_WORKER_DATABASE_PASSWORD}
       SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_PASSWORD: ${SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_PASSWORD}
       SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD: ${SPYGLASS_WORK_RECONCILER_DATABASE_PASSWORD}
@@ -219,6 +247,40 @@ services:
     depends_on:
       global-roles: {condition: service_completed_successfully}
     networks: [application, database, edge]
+
+  operations-api:
+    image: spyglass-application:local
+    command: [operations-api]
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: ${SPYGLASS_ENVIRONMENT}
+      SPYGLASS_HTTP_ADDRESS: :8080
+      SPYGLASS_OPERATIONS_IDENTITY_DATABASE_URL: ${SPYGLASS_OPERATIONS_IDENTITY_DATABASE_URL}
+      SPYGLASS_OPERATIONS_PROJECTION_DATABASE_URL: ${SPYGLASS_OPERATIONS_PROJECTION_DATABASE_URL}
+      SPYGLASS_OPERATIONS_BILLING_DATABASE_URL: ${SPYGLASS_OPERATIONS_BILLING_DATABASE_URL}
+      SPYGLASS_OPERATIONS_PRIVACY_DATABASE_URL: ${SPYGLASS_OPERATIONS_PRIVACY_DATABASE_URL}
+      SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_URL: ${SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_URL}
+      SPYGLASS_OPERATIONS_ORIGIN: ${SPYGLASS_OPERATIONS_ORIGIN}
+      SPYGLASS_PASSKEY_RP_ID: ${SPYGLASS_PASSKEY_RP_ID}
+      SPYGLASS_PASSKEY_ENCRYPTION_KEYS: ${SPYGLASS_PASSKEY_ENCRYPTION_KEYS}
+      SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION: ${SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION}
+      SPYGLASS_NETWORK_ACTOR_KEY: ${SPYGLASS_NETWORK_ACTOR_KEY}
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on:
+      global-roles: {condition: service_completed_successfully}
+    networks: [application, database]
 
   account-export-build-worker-a:
     tmpfs:
@@ -540,6 +602,23 @@ services:
     environment:
       SPYGLASS_IDENTITY_BASE_URL: https://app.infiniteocean.localhost:8444
       SPYGLASS_IDENTITY_MAILPIT_URL: http://mailpit:8025
+
+  operations-browser-test:
+    profiles: [test]
+    build:
+      context: ../../../ui
+      dockerfile: Dockerfile
+      target: operations-browser-test
+    image: infinite-ocean-operations-browser-test:local
+    network_mode: service:edge
+    depends_on:
+      edge: {condition: service_started}
+      mailpit: {condition: service_healthy}
+      notification-worker: {condition: service_healthy}
+    environment:
+      SPYGLASS_OPERATIONS_ACCOUNT_BASE_URL: https://app.infiniteocean.localhost:8444
+      SPYGLASS_OPERATIONS_BASE_URL: https://ops.infiniteocean.localhost:8444
+      SPYGLASS_OPERATIONS_MAILPIT_URL: http://mailpit:8025
 
   test-db:
     profiles: [test]

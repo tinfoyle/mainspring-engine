@@ -1,5 +1,9 @@
 # Privacy-rights fulfillment operations
 
+## Operations Console surface
+
+The local Operations Console exposes the existing queue, exact inspection and version-fenced transition functions to `privacy` and `operations_administrator` roles through a dedicated execute-only database credential. The due queue remains content-minimized; exact inspection is separately audited; resolution still requires an opaque evidence UUID and exact SHA-256. The console cannot create fulfillment evidence, execute Account erasure or turn a transition into proof that the underlying right was fulfilled. Ticket/reason and stable staff actor identity are added to the existing immutable operator event. Stage and production role grants remain release work.
+
 - Status: locally constructed and certified; environment role grants and staff procedure approval remain release work
 - Process mode: `spyglass privacy-rights-admin`
 - Database scope: global PostgreSQL only

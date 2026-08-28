@@ -14,10 +14,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsreport"
+	"github.com/tinfoyle/spyglass-engine/internal/application/billingadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/operationsconsole"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
+	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrightsadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/operations"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
@@ -45,24 +50,52 @@ type SessionService interface {
 	RevokeOwned(context.Context, ids.UserID, ids.SessionID) (bool, error)
 }
 
+type BillingOperator interface {
+	Inspect(context.Context, int, string, string, string, string) ([]billingadmin.Record, string, error)
+	ReplayEvent(context.Context, string, string, string, string, string) (billingadmin.Record, string, error)
+	QueueRefresh(context.Context, string, string, string, string, string) (billingadmin.Record, string, error)
+}
+
+type PrivacyOperator interface {
+	ListOpen(context.Context, time.Time, int, string, string, string) ([]privacyrightsadmin.QueueItem, error)
+	Inspect(context.Context, ids.PrivacyRightsRequestID, string, string, string) (privacy.RightsRequest, error)
+	StartReview(context.Context, ids.PrivacyRightsRequestID, uint64, string, string, string) (privacy.RightsRequest, error)
+	Resolve(context.Context, ids.PrivacyRightsRequestID, uint64, privacy.RightsState, privacyrightsadmin.ResolutionEvidence, string, string, string) (privacy.RightsRequest, error)
+}
+
+type AffiliateOperator interface {
+	Inspect(context.Context, ids.AffiliateID, string, string, string) (affiliates.Enrollment, error)
+	InspectRisk(context.Context, ids.AffiliateID, string, string, string) (affiliateadmin.RiskSummary, error)
+	Transition(context.Context, ids.AffiliateID, uint64, affiliates.EnrollmentState, string, string, string) (affiliates.Enrollment, error)
+}
+
+type OperatorServices struct {
+	Billing   BillingOperator
+	Privacy   PrivacyOperator
+	Affiliate AffiliateOperator
+}
+
 type Cookie struct {
 	Name   string
 	Secure bool
 }
 
 type Server struct {
-	console  Console
-	passkeys PasskeyLogin
-	sessions SessionService
-	cookie   Cookie
-	origin   string
-	maxBody  int64
-	logger   *slog.Logger
+	console     Console
+	passkeys    PasskeyLogin
+	sessions    SessionService
+	operators   OperatorServices
+	environment string
+	cookie      Cookie
+	origin      string
+	maxBody     int64
+	logger      *slog.Logger
 }
 
-func New(console Console, passkeyLogin PasskeyLogin, sessionService SessionService, cookie Cookie, origin string, maxBody int64, logger *slog.Logger) (*Server, error) {
+func New(console Console, passkeyLogin PasskeyLogin, sessionService SessionService, operators OperatorServices, cookie Cookie, origin, environment string, maxBody int64, logger *slog.Logger) (*Server, error) {
 	origin = strings.TrimSuffix(strings.TrimSpace(origin), "/")
-	if console == nil || passkeyLogin == nil || sessionService == nil || origin == "" || logger == nil {
+	environment = strings.TrimSpace(environment)
+	if console == nil || passkeyLogin == nil || sessionService == nil || operators.Billing == nil || operators.Privacy == nil || operators.Affiliate == nil || origin == "" || environment == "" || logger == nil {
 		return nil, errors.New("operations API dependencies and origin are required")
 	}
 	if cookie.Name == "" {
@@ -78,7 +111,7 @@ func New(console Console, passkeyLogin PasskeyLogin, sessionService SessionServi
 	if maxBody < 1024 || maxBody > 1<<20 {
 		return nil, errors.New("operations API maximum request body is invalid")
 	}
-	return &Server{console: console, passkeys: passkeyLogin, sessions: sessionService, cookie: cookie, origin: origin, maxBody: maxBody, logger: logger}, nil
+	return &Server{console: console, passkeys: passkeyLogin, sessions: sessionService, operators: operators, cookie: cookie, origin: origin, environment: environment, maxBody: maxBody, logger: logger}, nil
 }
 
 func (server *Server) Handler() http.Handler {
@@ -94,6 +127,16 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/operations/v1/support-grants/{grantID}/views", server.viewAccount)
 	mux.HandleFunc("POST /api/operations/v1/support-grants/{grantID}/revocations", server.revokeGrant)
 	mux.HandleFunc("POST /api/operations/v1/analytics/reports", server.analytics)
+	mux.HandleFunc("POST /api/operations/v1/billing/failures/reports", server.billingFailures)
+	mux.HandleFunc("POST /api/operations/v1/billing/events/{eventID}/replays", server.replayBillingEvent)
+	mux.HandleFunc("POST /api/operations/v1/billing/subscriptions/{subscriptionID}/refreshes", server.refreshBillingSubscription)
+	mux.HandleFunc("POST /api/operations/v1/privacy-rights/reports/open", server.openPrivacyRights)
+	mux.HandleFunc("POST /api/operations/v1/privacy-rights/{requestID}/inspections", server.inspectPrivacyRight)
+	mux.HandleFunc("POST /api/operations/v1/privacy-rights/{requestID}/review-starts", server.startPrivacyReview)
+	mux.HandleFunc("POST /api/operations/v1/privacy-rights/{requestID}/resolutions", server.resolvePrivacyRight)
+	mux.HandleFunc("POST /api/operations/v1/affiliates/{affiliateID}/inspections", server.inspectAffiliate)
+	mux.HandleFunc("POST /api/operations/v1/affiliates/{affiliateID}/risk-inspections", server.inspectAffiliateRisk)
+	mux.HandleFunc("POST /api/operations/v1/affiliates/{affiliateID}/transitions", server.transitionAffiliate)
 	return server.securityHeaders(mux)
 }
 

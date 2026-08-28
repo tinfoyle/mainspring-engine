@@ -37,14 +37,14 @@ type ResolutionEvidence struct {
 // prioritize open requests. It intentionally excludes the requesting User ID
 // and all customer data; Inspect remains the audited identity-bearing step.
 type QueueItem struct {
-	RequestID     ids.PrivacyRightsRequestID
-	Version       uint64
-	Kind          privacy.RightsKind
-	Scope         privacy.RightsScope
-	State         privacy.RightsState
-	RequestedAt   time.Time
-	ResponseDueAt time.Time
-	UpdatedAt     time.Time
+	RequestID     ids.PrivacyRightsRequestID `json:"request_id"`
+	Version       uint64                     `json:"version"`
+	Kind          privacy.RightsKind         `json:"kind"`
+	Scope         privacy.RightsScope        `json:"scope"`
+	State         privacy.RightsState        `json:"state"`
+	RequestedAt   time.Time                  `json:"requested_at"`
+	ResponseDueAt time.Time                  `json:"response_due_at"`
+	UpdatedAt     time.Time                  `json:"updated_at"`
 }
 
 type Store interface {

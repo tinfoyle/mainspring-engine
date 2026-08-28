@@ -77,11 +77,16 @@ func (repository *OperationsConsoleRepository) CreateGrant(ctx context.Context, 
 	}
 	if created.ID != grant.ID || created.StaffUserID != grant.StaffUserID || created.TargetUserID != grant.TargetUserID ||
 		created.AccountID != grant.AccountID || created.State != grant.State || created.Ticket != grant.Ticket ||
-		created.Reason != grant.Reason || !created.CreatedAt.Equal(grant.CreatedAt) || !created.ExpiresAt.Equal(grant.ExpiresAt) ||
+		created.Reason != grant.Reason || !sameDatabaseInstant(created.CreatedAt, grant.CreatedAt) || !sameDatabaseInstant(created.ExpiresAt, grant.ExpiresAt) ||
 		created.RevokedAt != nil || created.Version != grant.Version {
 		return operations.SupportGrant{}, errors.New("created operations support grant does not match requested grant")
 	}
 	return created, nil
+}
+
+func sameDatabaseInstant(left, right time.Time) bool {
+	difference := left.Sub(right)
+	return difference >= -time.Microsecond && difference <= time.Microsecond
 }
 
 func (repository *OperationsConsoleRepository) Grant(ctx context.Context, grantID ids.OperationsSupportGrantID, staffUserID ids.UserID) (operations.SupportGrant, error) {

@@ -2,24 +2,27 @@
 import {
   APIProblem, beginContactChange, compromisePasskey, confirmPassword, consumeRecoveryCode, deletePasskey,
   emitAnalytics, getActiveSessions, getCurrentIdentity, getMCPGrants, getPasskeys, getPrivacyConsent, getRecoveryCodeStatus, getSecurityEvents,
-  getSecurityPosture, renamePasskey, revokeAllSessions, revokeMCPGrant, revokeSession, rotateRecoveryCodes,
+  getSecurityPosture, getSupportAccessHistory, renamePasskey, revokeAllSessions, revokeMCPGrant, revokeSession, rotateRecoveryCodes,
   type ActiveSession, type CurrentIdentity, type MCPGrant, type PasskeyCredential, type RecoveryCodeStatus,
-  type SecurityEvent, type SecurityPosture
+  type SecurityEvent, type SecurityPosture, type SupportAccessEvent
 } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
 import { computed, ref } from "vue";
 import { useSafeNavigation } from "../composables/useSafeNavigation";
+import { useSessionStore } from "../stores/session";
 import { registerPasskey, reauthenticateWithPasskey } from "../webauthn";
 
 type DestructiveAction = "delete_passkey" | "compromise_passkey" | "revoke_session" | "revoke_all" | "revoke_grant";
 const identity = ref<CurrentIdentity>(); const posture = ref<SecurityPosture>(); const recovery = ref<RecoveryCodeStatus>();
 const passkeys = ref<ReadonlyArray<PasskeyCredential>>([]); const sessions = ref<ReadonlyArray<ActiveSession>>([]);
 const events = ref<ReadonlyArray<SecurityEvent>>([]); const grants = ref<ReadonlyArray<MCPGrant>>([]);
+const supportEvents = ref<ReadonlyArray<SupportAccessEvent>>([]);
 const loading = ref(true); const saving = ref(false); const error = ref(""); const announcement = ref(""); const navigationNotice = ref("");
 const password = ref(""); const passkeyName = ref(""); const newEmail = ref(""); const recoveryCode = ref("");
 const newCodes = ref<ReadonlyArray<string>>([]); const contactNotice = ref("");
 const actionOpen = ref(false); const action = ref<DestructiveAction>("revoke_session"); const targetID = ref(""); const targetName = ref(""); const confirmation = ref("");
 const targetCurrent = ref(false);
+const sessionStore = useSessionStore();
 const renameDirty = ref(false);
 const ownerReady = computed(() => posture.value?.owner_ready ?? false);
 const returnTo = (() => { const value = new URLSearchParams(window.location.search).get("return_to") ?? ""; return value.startsWith("/") && !value.startsWith("//") ? value : ""; })();
@@ -57,6 +60,7 @@ async function load(): Promise<void> {
     ]);
     identity.value = identityValue; posture.value = postureValue; passkeys.value = passkeyValue.passkeys; recovery.value = recoveryValue;
     sessions.value = sessionValue.sessions; events.value = eventValue.events; grants.value = grantValue.grants;
+    supportEvents.value = sessionStore.selectedID ? (await getSupportAccessHistory(sessionStore.selectedID)).events : [];
   } catch (cause) { error.value = problem(cause, "Identity security is unavailable right now."); }
   finally { loading.value = false; }
 }
@@ -143,6 +147,8 @@ void load();
       <section class="security-section"><header><div><p class="eyebrow">Connected MCP clients</p><h2>Applications acting as you</h2></div><span>{{ grants.length }}</span></header><p>Each connection uses your current Account memberships and package access. Revocation invalidates its access and refresh credentials.</p><ol v-if="grants.length" class="security-list"><li v-for="grant in grants" :key="grant.grant_id"><div><strong>{{ grant.client_name }}</strong><small>{{ grant.client_id }}</small><small>Connected {{ date(grant.created_at) }} · Last used {{ date(grant.last_used_at) }}</small></div><IoButton kind="secondary" @click="beginAction('revoke_grant', grant.grant_id, grant.client_name)">Revoke</IoButton></li></ol><p v-else class="form-note">No MCP clients are connected.</p></section>
 
       <section class="security-section"><header><div><p class="eyebrow">Security history</p><h2>Recent identity activity</h2></div><span>{{ events.length }}</span></header><ol class="security-events"><li v-for="event in events" :key="`${event.type}:${event.occurred_at}:${event.session_id ?? ''}`"><div><strong>{{ label(event.type) }}</strong><small>Infinite Ocean identity</small></div><time :datetime="event.occurred_at">{{ date(event.occurred_at) }}</time></li></ol></section>
+
+      <section class="security-section"><header><div><p class="eyebrow">Staff access</p><h2>When Support viewed your details</h2></div><span>{{ supportEvents.length }}</span></header><p>Spyglass records the staff member, support ticket, reason, and time whenever a read-only view of your details in this Account is opened.</p><ol v-if="supportEvents.length" class="security-events"><li v-for="event in supportEvents" :key="event.id"><div><strong>{{ label(event.action) }}</strong><small>{{ event.staff_display_name }} · {{ event.ticket }} · {{ event.reason }}</small></div><time :datetime="event.occurred_at">{{ date(event.occurred_at) }}</time></li></ol><p v-else class="form-note">No staff support access has been recorded for your details in this Account.</p></section>
     </template>
 
     <div v-if="actionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="security-action-title" @submit.prevent="submitAction"><h2 id="security-action-title">Confirm security revocation</h2><p>This takes effect immediately. Type <strong>{{ phrase() }}</strong> to confirm.</p><label>Confirmation<input v-model="confirmation" autocomplete="off" :pattern="phrase()" required></label><p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || confirmation !== phrase()">{{ saving ? "Revoking…" : "Confirm" }}</IoButton></div></form></div>

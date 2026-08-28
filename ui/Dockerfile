@@ -9,6 +9,7 @@ WORKDIR /workspace
 ENV NUXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
 COPY apps/app/package.json apps/app/package.json
+COPY apps/operations/package.json apps/operations/package.json
 COPY apps/public/package.json apps/public/package.json
 COPY packages/api/package.json packages/api/package.json
 COPY packages/design-system/package.json packages/design-system/package.json
@@ -22,6 +23,9 @@ RUN npm run build --workspace=@spyglass/app
 
 FROM source AS public-build
 RUN npm run build --workspace=@spyglass/public
+
+FROM source AS operations-build
+RUN npm run build --workspace=@spyglass/operations
 
 FROM ${GO_IMAGE} AS static-server-build
 ARG TARGETARCH=amd64
@@ -37,6 +41,7 @@ ENV CI=1 \
     PLAYWRIGHT_HTML_OPEN=never
 COPY package.json package-lock.json ./
 COPY apps/app/package.json apps/app/package.json
+COPY apps/operations/package.json apps/operations/package.json
 COPY apps/public/package.json apps/public/package.json
 COPY packages/api/package.json packages/api/package.json
 COPY packages/design-system/package.json packages/design-system/package.json
@@ -55,6 +60,7 @@ ENV CI=1 \
     PLAYWRIGHT_HTML_OPEN=never
 COPY package.json package-lock.json ./
 COPY apps/app/package.json apps/app/package.json
+COPY apps/operations/package.json apps/operations/package.json
 COPY apps/public/package.json apps/public/package.json
 COPY packages/api/package.json packages/api/package.json
 COPY packages/design-system/package.json packages/design-system/package.json
@@ -63,6 +69,22 @@ COPY playwright.identity.config.ts playwright.identity.config.ts
 COPY tests/browser/identity-entry-live.spec.ts tests/browser/identity-entry-live.spec.ts
 COPY tests/browser/local-edge-port-forward.mjs tests/browser/local-edge-port-forward.mjs
 CMD ["npm", "run", "browser:identity"]
+
+FROM ${PLAYWRIGHT_IMAGE} AS operations-browser-test
+WORKDIR /workspace
+ENV CI=1 \
+    PLAYWRIGHT_HTML_OPEN=never
+COPY package.json package-lock.json ./
+COPY apps/app/package.json apps/app/package.json
+COPY apps/operations/package.json apps/operations/package.json
+COPY apps/public/package.json apps/public/package.json
+COPY packages/api/package.json packages/api/package.json
+COPY packages/design-system/package.json packages/design-system/package.json
+RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
+COPY playwright.operations.config.ts playwright.operations.config.ts
+COPY tests/browser/operations-console-live.spec.ts tests/browser/operations-console-live.spec.ts
+COPY tests/browser/local-edge-port-forward.mjs tests/browser/local-edge-port-forward.mjs
+CMD ["npm", "run", "browser:operations"]
 
 FROM source AS test
 COPY --from=browser-test /tmp/spyglass-private-browser-passed /tmp/spyglass-private-browser-passed
@@ -79,6 +101,23 @@ LABEL org.opencontainers.image.title="Infinite Ocean Spyglass customer applicati
       org.opencontainers.image.licenses="Proprietary"
 COPY --from=static-server-build --chown=65532:65532 /out/static-server /static-server
 COPY --from=app-build --chown=65532:65532 /workspace/apps/app/dist /srv
+USER 65532:65532
+EXPOSE 8080
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
+  CMD ["/static-server", "healthcheck"]
+ENTRYPOINT ["/static-server"]
+
+FROM scratch AS operations-runtime
+ARG VERSION=development
+ARG REVISION=unknown
+ARG CREATED=unknown
+LABEL org.opencontainers.image.title="Infinite Ocean staff operations console" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
+      org.opencontainers.image.licenses="Proprietary"
+COPY --from=static-server-build --chown=65532:65532 /out/static-server /static-server
+COPY --from=operations-build --chown=65532:65532 /workspace/apps/operations/dist /srv
 USER 65532:65532
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \

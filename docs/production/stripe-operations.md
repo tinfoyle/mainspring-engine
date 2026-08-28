@@ -1,5 +1,9 @@
 # Stripe Commercial Access Operations
 
+## Operations Console surface
+
+The local Operations Console exposes only classified failure reporting, exact Stripe-event replay requests and exact subscription-refresh requests to `billing` and `operations_administrator` roles through a dedicated execute-only credential. It does not expose payment instruments, Stripe secrets, arbitrary subscription mutation, refunds, credits or entitlement overrides. Ticket/reason and stable staff actor identity are retained by the existing immutable billing operator events. Stage and live Stripe remain unchanged.
+
 - Status: implemented boundary and audited operator controls; live Stripe test-mode exercise pending
 - API version: `2026-07-29.dahlia`
 - Projection authority: verified webhook inbox plus current Stripe Subscription retrieval

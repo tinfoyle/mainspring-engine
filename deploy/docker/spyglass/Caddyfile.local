@@ -35,6 +35,23 @@
   }
 }
 
+(operations_routes) {
+  header {
+    Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
+    Referrer-Policy "no-referrer"
+    X-Content-Type-Options "nosniff"
+    Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+    X-Robots-Tag "noindex, nofollow"
+  }
+  @operations_api path /api/operations/v1/*
+  handle @operations_api {
+    reverse_proxy operations-api:8080
+  }
+  handle {
+    reverse_proxy operations-ui:8080
+  }
+}
+
 http://web.infiniteocean.localhost {
   request_header Host web.infiniteocean.localhost:8444
   request_header Origin https://web.infiniteocean.localhost:8444
@@ -55,6 +72,17 @@ http://app.infiniteocean.localhost {
 app.infiniteocean.localhost {
   tls internal
   import app_routes
+}
+
+http://ops.infiniteocean.localhost {
+  request_header Host ops.infiniteocean.localhost:8444
+  request_header Origin https://ops.infiniteocean.localhost:8444
+  import operations_routes
+}
+
+ops.infiniteocean.localhost {
+  tls internal
+  import operations_routes
 }
 
 oauth.infiniteocean.localhost {

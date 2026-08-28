@@ -81,7 +81,7 @@ func TestPostgresOperationsConsoleEnforcesStaffGrantAuditAndLeastPrivilege(t *te
 		{`INSERT INTO memberships(id,account_id,user_id,role,state,version,created_at)
 		  VALUES ('62000000-0000-4000-8000-000000000004',$1,$2,'owner','active',1,$3)`, []any{operationsAccountID, operationsTargetID, operationsNow}},
 		{`INSERT INTO entitlement_snapshots(account_id,version,catalog_version,evaluated_at,source_hash,effective_packages)
-		  VALUES ($1,1,2,$2,decode(repeat('11',32),'hex'),'{}')`, []any{operationsAccountID, operationsNow}},
+		  VALUES ($1,1,2,$2,decode(repeat('11',32),'hex'),'[]')`, []any{operationsAccountID, operationsNow}},
 		{`INSERT INTO billing_profiles(account_id,stripe_customer_id,billing_email,version,created_at,updated_at)
 		  VALUES ($1,'cus_ops_contract','billing@example.com',1,$2,$2)`, []any{operationsAccountID, operationsNow}},
 		{`INSERT INTO subscriptions(id,account_id,provider,provider_subscription_id,state,offer_code,offer_version,current_period_start,current_period_end,
@@ -213,6 +213,52 @@ func TestPostgresOperationsConsoleEnforcesStaffGrantAuditAndLeastPrivilege(t *te
 	}
 	if _, err := identityPool.Exec(ctx, `SELECT display_name FROM accounts LIMIT 1`); err == nil {
 		t.Fatal("Operations identity role read a raw Account table")
+	}
+
+	erasureAccountID := ids.AccountID("62000000-0000-4000-8000-000000000030")
+	erasureGrantID := "62000000-0000-4000-8000-000000000031"
+	erasureEventID := "62000000-0000-4000-8000-000000000032"
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts(id,slug,display_name,account_type,state,cell_id,placement_generation,entitlement_version,created_by_user_id,created_at,version,last_catalog_reconciled_version)
+		VALUES ($1,'erasure-workshop','Erasure Workshop','paid','active','ops-cell',1,1,$2,$3,1,2)`,
+		erasureAccountID, operationsTargetID, operationsNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO operations_support_grants(id,staff_user_id,target_user_id,account_id,state,ticket,reason,created_at,expires_at,version)
+		VALUES ($1,$2,$3,$4,'active','SUP-ERASE','Verify support evidence follows Account erasure.',$5::timestamptz,$5::timestamptz+interval '15 minutes',1)`,
+		erasureGrantID, operationsStaffID, operationsTargetID, erasureAccountID, operationsNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO operations_access_events(id,staff_user_id,action,support_grant_id,target_user_id,account_id,ticket,reason,environment,occurred_at)
+		VALUES ($1,$2,'support_grant_created',$3,$4,$5,'SUP-ERASE','Verify support evidence follows Account erasure.','local',$6)`,
+		erasureEventID, operationsStaffID, erasureGrantID, operationsTargetID, erasureAccountID, operationsNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM accounts WHERE id=$1`, erasureAccountID); err == nil {
+		t.Fatal("ordinary Account deletion bypassed immutable Operations support evidence")
+	}
+	erasureTransaction, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = erasureTransaction.Exec(ctx, `SELECT set_config('spyglass.erasure_account_id',$1,true)`, erasureAccountID); err == nil {
+		_, err = erasureTransaction.Exec(ctx, `DELETE FROM accounts WHERE id=$1`, erasureAccountID)
+	}
+	if err == nil {
+		err = erasureTransaction.Commit(ctx)
+	} else {
+		_ = erasureTransaction.Rollback(ctx)
+	}
+	if err != nil {
+		t.Fatalf("approved Account erasure did not remove Operations evidence: %v", err)
+	}
+	var retainedOperationsEvidence int
+	if err := pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM operations_support_grants WHERE account_id=$1)+
+		(SELECT count(*) FROM operations_access_events WHERE account_id=$1)`, erasureAccountID).Scan(&retainedOperationsEvidence); err != nil {
+		t.Fatal(err)
+	}
+	if retainedOperationsEvidence != 0 {
+		t.Fatalf("Account erasure retained %d Operations evidence rows", retainedOperationsEvidence)
 	}
 }
 

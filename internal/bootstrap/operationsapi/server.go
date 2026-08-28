@@ -13,8 +13,11 @@ import (
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
+	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/application/billingadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/operationsconsole"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
+	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrightsadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -26,6 +29,9 @@ type Config struct {
 	Environment           string
 	IdentityDatabaseURL   string
 	ProjectionDatabaseURL string
+	BillingDatabaseURL    string
+	PrivacyDatabaseURL    string
+	AffiliateDatabaseURL  string
 	Origin                string
 	PasskeyRPID           string
 	PasskeyEncryptionKeys map[int][]byte
@@ -41,12 +47,15 @@ type Server struct {
 	Handler        http.Handler
 	identityPool   *pgxpool.Pool
 	projectionPool *pgxpool.Pool
+	billingPool    *pgxpool.Pool
+	privacyPool    *pgxpool.Pool
+	affiliatePool  *pgxpool.Pool
 }
 
 func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, error) {
 	config.Environment = strings.TrimSpace(config.Environment)
 	config.Origin = strings.TrimSuffix(strings.TrimSpace(config.Origin), "/")
-	if config.Environment == "" || config.IdentityDatabaseURL == "" || config.ProjectionDatabaseURL == "" ||
+	if config.Environment == "" || config.IdentityDatabaseURL == "" || config.ProjectionDatabaseURL == "" || config.BillingDatabaseURL == "" || config.PrivacyDatabaseURL == "" || config.AffiliateDatabaseURL == "" ||
 		config.Origin == "" || config.PasskeyRPID == "" || logger == nil {
 		return nil, errors.New("operations API database, environment, origin, passkey and logger configuration is required")
 	}
@@ -58,12 +67,31 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	if err != nil {
 		return nil, err
 	}
-	if identityConfig.ConnConfig.User == projectionConfig.ConnConfig.User {
-		return nil, errors.New("operations identity and projection database credentials must use different roles")
+	billingConfig, err := pgxpool.ParseConfig(config.BillingDatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	privacyConfig, err := pgxpool.ParseConfig(config.PrivacyDatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	affiliateConfig, err := pgxpool.ParseConfig(config.AffiliateDatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	roles := map[string]bool{}
+	for _, name := range []string{identityConfig.ConnConfig.User, projectionConfig.ConnConfig.User, billingConfig.ConnConfig.User, privacyConfig.ConnConfig.User, affiliateConfig.ConnConfig.User} {
+		if name == "" || roles[name] {
+			return nil, errors.New("operations database credentials must use five distinct roles")
+		}
+		roles[name] = true
 	}
 	if config.MaxDatabaseConns > 0 {
 		identityConfig.MaxConns = config.MaxDatabaseConns
 		projectionConfig.MaxConns = config.MaxDatabaseConns
+		billingConfig.MaxConns = config.MaxDatabaseConns
+		privacyConfig.MaxConns = config.MaxDatabaseConns
+		affiliateConfig.MaxConns = config.MaxDatabaseConns
 	}
 	identityPool, err := pgxpool.NewWithConfig(ctx, identityConfig)
 	if err != nil {
@@ -89,6 +117,45 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		}
 	}()
 	if err := projectionPool.Ping(ctx); err != nil {
+		return nil, err
+	}
+	billingPool, err := pgxpool.NewWithConfig(ctx, billingConfig)
+	if err != nil {
+		return nil, err
+	}
+	closeBilling := true
+	defer func() {
+		if closeBilling {
+			billingPool.Close()
+		}
+	}()
+	if err := billingPool.Ping(ctx); err != nil {
+		return nil, err
+	}
+	privacyPool, err := pgxpool.NewWithConfig(ctx, privacyConfig)
+	if err != nil {
+		return nil, err
+	}
+	closePrivacy := true
+	defer func() {
+		if closePrivacy {
+			privacyPool.Close()
+		}
+	}()
+	if err := privacyPool.Ping(ctx); err != nil {
+		return nil, err
+	}
+	affiliatePool, err := pgxpool.NewWithConfig(ctx, affiliateConfig)
+	if err != nil {
+		return nil, err
+	}
+	closeAffiliate := true
+	defer func() {
+		if closeAffiliate {
+			affiliatePool.Close()
+		}
+	}()
+	if err := affiliatePool.Ping(ctx); err != nil {
 		return nil, err
 	}
 
@@ -122,12 +189,27 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	if err != nil {
 		return nil, err
 	}
-	api, err := transport.New(consoleService, passkeyService, sessionService, transport.Cookie{Secure: config.SecureCookie}, config.Origin, config.MaxRequestBody, logger)
+	billingService, err := billingadmin.NewService(postgres.NewBillingAdminRepository(billingPool), ids.RandomGenerator{})
 	if err != nil {
 		return nil, err
 	}
-	closeIdentity, closeProjection = false, false
-	return &Server{Handler: actorResolver.Handler(api.Handler()), identityPool: identityPool, projectionPool: projectionPool}, nil
+	privacyService, err := privacyrightsadmin.New(postgres.NewPrivacyRightsAdminRepository(privacyPool), ids.RandomGenerator{})
+	if err != nil {
+		return nil, err
+	}
+	affiliateService, err := affiliateadmin.New(postgres.NewAffiliateAdminRepository(affiliatePool), ids.RandomGenerator{})
+	if err != nil {
+		return nil, err
+	}
+	api, err := transport.New(consoleService, passkeyService, sessionService, transport.OperatorServices{
+		Billing: billingService, Privacy: privacyService, Affiliate: affiliateService,
+	}, transport.Cookie{Secure: config.SecureCookie}, config.Origin, config.Environment, config.MaxRequestBody, logger)
+	if err != nil {
+		return nil, err
+	}
+	closeIdentity, closeProjection, closeBilling, closePrivacy, closeAffiliate = false, false, false, false, false
+	return &Server{Handler: actorResolver.Handler(api.Handler()), identityPool: identityPool, projectionPool: projectionPool,
+		billingPool: billingPool, privacyPool: privacyPool, affiliatePool: affiliatePool}, nil
 }
 
 func (server *Server) Close() {
@@ -139,5 +221,14 @@ func (server *Server) Close() {
 	}
 	if server.projectionPool != nil {
 		server.projectionPool.Close()
+	}
+	if server.billingPool != nil {
+		server.billingPool.Close()
+	}
+	if server.privacyPool != nil {
+		server.privacyPool.Close()
+	}
+	if server.affiliatePool != nil {
+		server.affiliatePool.Close()
 	}
 }

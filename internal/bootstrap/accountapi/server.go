@@ -390,6 +390,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithPasskeys(passkeyService),
 		httpapi.WithRecoveryCodes(recoveryCodeService),
 		httpapi.WithSecurityPosture(securityPosture),
+		httpapi.WithOperationsCustomerHistory(postgres.NewOperationsConsoleRepository(pool)),
 		httpapi.WithContactChanges(contactChangeService, nil, false),
 		httpapi.WithMCPGrants(mcpAuthorization),
 		httpapi.WithPrivacy(privacyService, analyticsService, privacySigner, httpapi.PrivacyHTTPConfig{

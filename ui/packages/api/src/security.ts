@@ -1,6 +1,6 @@
 import type {
   ActiveSessions, ContactChangeAccepted, CurrentIdentity, MCPGrants, PasskeyCredential, Passkeys,
-  RecoveryCodeRotation, RecoveryCodeStatus, SecurityEvents, SecurityPosture, WebAuthnAssertionCredential,
+  RecoveryCodeRotation, RecoveryCodeStatus, SecurityEvents, SecurityPosture, SupportAccessHistory, WebAuthnAssertionCredential,
   WebAuthnCeremony, WebAuthnCreationCredential
 } from "./generated/api-types";
 import { requestJSON } from "./client";
@@ -11,6 +11,7 @@ export const getPasskeys = (): Promise<Passkeys> => requestJSON("/api/v1/passkey
 export const getRecoveryCodeStatus = (): Promise<RecoveryCodeStatus> => requestJSON("/api/v1/recovery-codes");
 export const getActiveSessions = (): Promise<ActiveSessions> => requestJSON("/api/v1/sessions");
 export const getSecurityEvents = (): Promise<SecurityEvents> => requestJSON("/api/v1/security-events");
+export const getSupportAccessHistory = (accountID: string): Promise<SupportAccessHistory> => requestJSON(`/api/v1/accounts/${encodeURIComponent(accountID)}/support-access-history`);
 export const getMCPGrants = (): Promise<MCPGrants> => requestJSON("/api/v1/mcp-grants");
 
 export function confirmPassword(password: string): Promise<void> {

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -37,6 +38,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/modules/analytics"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/billing"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
+	"github.com/tinfoyle/spyglass-engine/internal/modules/operations"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -68,6 +70,7 @@ type Server struct {
 	passkeys              *passkeys.Service
 	recoveryCodes         *recoverycodes.Service
 	securityPosture       *securityposture.Service
+	operationsHistory     OperationsCustomerHistory
 	contactChanges        *contactchange.Service
 	mcpGrants             *mcpauth.Service
 	contactChangeTokens   ContactChangeTokenSource
@@ -111,6 +114,10 @@ type RecoveryTokenSource interface {
 
 type ContactChangeTokenSource interface {
 	LatestVerification(ids.UserID) (contactchange.Message, bool)
+}
+
+type OperationsCustomerHistory interface {
+	CustomerHistory(context.Context, ids.UserID, ids.AccountID, int) ([]operations.AccessEvent, error)
 }
 
 type Option func(*Server)
@@ -188,6 +195,10 @@ func WithRecoveryCodes(service *recoverycodes.Service) Option {
 
 func WithSecurityPosture(service *securityposture.Service) Option {
 	return func(server *Server) { server.securityPosture = service }
+}
+
+func WithOperationsCustomerHistory(history OperationsCustomerHistory) Option {
+	return func(server *Server) { server.operationsHistory = history }
 }
 
 func WithContactChanges(service *contactchange.Service, tokens ContactChangeTokenSource, exposeDevelopmentToken bool) Option {
@@ -297,6 +308,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/recovery-codes/consume", s.consumeRecoveryCode)
 	mux.HandleFunc("GET /api/v1/sessions", s.listSessions)
 	mux.HandleFunc("GET /api/v1/security-events", s.listSecurityEvents)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/support-access-history", s.listSupportAccessHistory)
 	mux.HandleFunc("DELETE /api/v1/sessions", s.logoutAll)
 	mux.HandleFunc("DELETE /api/v1/sessions/{sessionID}", s.revokeSession)
 	mux.HandleFunc("POST /api/v1/session/reauthenticate", s.reauthenticate)
@@ -1612,6 +1624,28 @@ func (s *Server) listSecurityEvents(w http.ResponseWriter, r *http.Request) {
 	events, err := s.sessions.SecurityEvents(r.Context(), authenticated.Session.UserID, 50)
 	if err != nil {
 		writeProblem(w, http.StatusServiceUnavailable, "security_events_unavailable", "security history could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": events})
+}
+
+func (s *Server) listSupportAccessHistory(w http.ResponseWriter, r *http.Request) {
+	if s.operationsHistory == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "support_history_unconfigured", "support access history is not configured")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	rawAccountID := r.PathValue("accountID")
+	if ids.Validate(rawAccountID) != nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_account_id", "Account ID is invalid")
+		return
+	}
+	events, err := s.operationsHistory.CustomerHistory(r.Context(), authenticated.Session.UserID, ids.AccountID(rawAccountID), 50)
+	if err != nil {
+		writeProblem(w, http.StatusForbidden, "support_history_denied", "support access history is unavailable for this Account")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": events})

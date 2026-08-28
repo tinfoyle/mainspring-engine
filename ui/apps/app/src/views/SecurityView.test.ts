@@ -1,13 +1,15 @@
 // @vitest-environment happy-dom
 import { flushPromises, mount } from "@vue/test-utils";
+import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { expectNoAxeViolations } from "../test/accessibility";
+import { useSessionStore } from "../stores/session";
 import SecurityView from "./SecurityView.vue";
 
 const api = vi.hoisted(() => ({
   getCurrentIdentity: vi.fn(), getSecurityPosture: vi.fn(), getPasskeys: vi.fn(), getRecoveryCodeStatus: vi.fn(),
-  getActiveSessions: vi.fn(), getSecurityEvents: vi.fn(), getMCPGrants: vi.fn(), confirmPassword: vi.fn(),
+  getActiveSessions: vi.fn(), getSecurityEvents: vi.fn(), getSupportAccessHistory: vi.fn(), getMCPGrants: vi.fn(), confirmPassword: vi.fn(),
   beginContactChange: vi.fn(), renamePasskey: vi.fn(), deletePasskey: vi.fn(), compromisePasskey: vi.fn(),
   rotateRecoveryCodes: vi.fn(), consumeRecoveryCode: vi.fn(), revokeSession: vi.fn(), revokeAllSessions: vi.fn(), revokeMCPGrant: vi.fn(),
   getPrivacyConsent: vi.fn(), emitAnalytics: vi.fn()
@@ -17,7 +19,7 @@ vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import(
 vi.mock("../webauthn", () => webauthn);
 
 const currentSession = { id: "10000000-0000-4000-8000-000000000001", client_label: "Firefox on laptop", authenticated_at: "2026-08-24T20:00:00Z", reauthenticated_at: "2026-08-24T20:00:00Z", last_seen_at: "2026-08-24T20:00:00Z", expires_at: "2026-09-24T20:00:00Z", current: true, authentication_method: "password", authentication_assurance: "single_factor", reauthentication_method: "password", reauthentication_assurance: "single_factor" } as const;
-async function mountView() { const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/security", component: SecurityView }] }); await router.push("/app/security"); await router.isReady(); return mount(SecurityView, { global: { plugins: [router] } }); }
+async function mountView() { const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/security", component: SecurityView }] }); const pinia = createPinia(); useSessionStore(pinia).selectedID = "30000000-0000-4000-8000-000000000003"; await router.push("/app/security"); await router.isReady(); return mount(SecurityView, { global: { plugins: [pinia, router] } }); }
 beforeEach(() => {
   for (const mock of [...Object.values(api), ...Object.values(webauthn)]) mock.mockReset();
   api.getCurrentIdentity.mockResolvedValue({ user_id: "20000000-0000-4000-8000-000000000002", primary_email: "owner@example.com" });
@@ -25,6 +27,7 @@ beforeEach(() => {
   api.getPasskeys.mockResolvedValue({ passkeys: [{ id: "key", name: "Laptop", created_at: "2026-08-24T20:00:00Z", backup_eligible: true, backed_up: true }] });
   api.getRecoveryCodeStatus.mockResolvedValue({ configured: true, version: 1, remaining: 8, created_at: "2026-08-24T20:00:00Z" });
   api.getActiveSessions.mockResolvedValue({ sessions: [currentSession] }); api.getSecurityEvents.mockResolvedValue({ events: [{ type: "passkey_added", occurred_at: "2026-08-24T20:00:00Z" }] });
+  api.getSupportAccessHistory.mockResolvedValue({ events: [{ id: "40000000-0000-4000-8000-000000000004", staff_display_name: "Support Person", action: "support_view_opened", ticket: "SUP-1042", reason: "Customer asked for billing help", occurred_at: "2026-08-24T20:00:00Z" }] });
   api.getMCPGrants.mockResolvedValue({ grants: [{ grant_id: "30000000-0000-4000-8000-000000000003", client_id: "client", client_name: "Codex", created_at: "2026-08-24T20:00:00Z" }] });
   api.getPrivacyConsent.mockResolvedValue({ decided: true, analytics: true, marketing: false, renewal_required: false });
   api.emitAnalytics.mockResolvedValue(true);
@@ -34,6 +37,7 @@ describe("Security surface", () => {
     const wrapper = await mountView(); await flushPromises();
     expect(wrapper.text()).toContain("owner@example.com"); expect(wrapper.text()).toContain("Laptop");
     expect(wrapper.text()).toContain("Firefox on laptop"); expect(wrapper.text()).toContain("Codex"); expect(wrapper.text()).toContain("Passkey added");
+    expect(wrapper.text()).toContain("Support Person"); expect(wrapper.text()).toContain("SUP-1042");
     await expectNoAxeViolations(wrapper.element);
   });
   it("keeps recovery codes visible exactly after rotation", async () => {
