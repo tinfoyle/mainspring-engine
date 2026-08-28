@@ -2083,6 +2083,227 @@ export interface Memberships {
   readonly "memberships": ReadonlyArray<Membership>;
 }
 
+export interface OperationsAITokenView {
+  readonly "available": number;
+  readonly "consumed": number;
+  readonly "reserved": number;
+}
+
+export interface OperationsAccessEvent {
+  readonly "action": string;
+  readonly "id": OperationsUUID;
+  readonly "occurred_at": OperationsTimestamp;
+  readonly "reason": string;
+  readonly "staff_display_name": string;
+  readonly "ticket": string;
+}
+
+export interface OperationsAccountSummary {
+  readonly "cell_id": string;
+  readonly "created_at": OperationsTimestamp;
+  readonly "display_name": string;
+  readonly "entitlement_version": number;
+  readonly "id": OperationsUUID;
+  readonly "placement_generation": number;
+  readonly "state": string;
+  readonly "type": string;
+}
+
+export interface OperationsAccountView {
+  readonly "account": OperationsAccountSummary;
+  readonly "ai_tokens": OperationsAITokenView;
+  readonly "billing": OperationsBillingView;
+  readonly "entitlements": OperationsEntitlementView;
+  readonly "grant": OperationsSupportGrant;
+  readonly "lifecycle": OperationsLifecycleView;
+  readonly "membership": OperationsMembershipView;
+  readonly "support_history": ReadonlyArray<OperationsAccessEvent>;
+  readonly "user": OperationsUserView;
+}
+
+export interface OperationsAnalyticsReport {
+  readonly "bucket": string;
+  readonly "dimension": string;
+  readonly "from": OperationsTimestamp;
+  readonly "minimum_cohort": number;
+  readonly "rows": ReadonlyArray<OperationsAnalyticsRow>;
+  readonly "to": OperationsTimestamp;
+}
+
+export interface OperationsAnalyticsRequest {
+  readonly "bucket": "hour" | "day";
+  readonly "dimension": string;
+  readonly "from": OperationsTimestamp;
+  readonly "minimum_cohort": number;
+  readonly "reason": string;
+  readonly "ticket": string;
+  readonly "to": OperationsTimestamp;
+}
+
+export interface OperationsAnalyticsRow {
+  readonly "bucket_start": OperationsTimestamp;
+  readonly "dimension_value": string;
+  readonly "event_count": number;
+  readonly "event_name": string;
+  readonly "surface": string;
+  readonly "unique_subjects": number;
+}
+
+export interface OperationsAuditReason {
+  readonly "reason": string;
+  readonly "ticket": string;
+}
+
+export interface OperationsBillingView {
+  readonly "billing_email"?: string;
+  readonly "cancel_at"?: OperationsTimestamp | null;
+  readonly "current_period_end"?: OperationsTimestamp | null;
+  readonly "customer_id"?: string;
+  readonly "last_synced_at"?: OperationsTimestamp | null;
+  readonly "offer_code"?: string;
+  readonly "offer_version"?: number;
+  readonly "provider_mode"?: string;
+  readonly "state"?: string;
+  readonly "subscription_id"?: string;
+}
+
+export interface OperationsCompletePasskeyLogin {
+  readonly "client_label"?: string;
+  readonly "credential": Readonly<Record<string, unknown>>;
+}
+
+export interface OperationsCreateSupportGrant {
+  readonly "account_id": OperationsUUID;
+  readonly "lifetime_seconds": number;
+  readonly "reason": string;
+  readonly "target_user_id": OperationsUUID;
+  readonly "ticket": string;
+}
+
+export interface OperationsEntitlementView {
+  readonly "catalog_version": number;
+  readonly "evaluated_at": OperationsTimestamp;
+  readonly "packages": Readonly<Record<string, unknown>>;
+  readonly "version": number;
+}
+
+export interface OperationsLifecycleView {
+  readonly "blocker_code"?: string;
+  readonly "delete_after"?: OperationsTimestamp | null;
+  readonly "execute_after"?: OperationsTimestamp | null;
+  readonly "request_id"?: string;
+  readonly "state"?: string;
+}
+
+export type OperationsLookupKind = "user_id" | "email" | "account_id" | "stripe_customer_id" | "stripe_subscription_id";
+
+export interface OperationsLookupPage {
+  readonly "results": ReadonlyArray<OperationsLookupResult>;
+}
+
+export interface OperationsLookupRequest {
+  readonly "kind": OperationsLookupKind;
+  readonly "reason": string;
+  readonly "ticket": string;
+  readonly "value": string;
+}
+
+export interface OperationsLookupResult {
+  readonly "account_id": OperationsUUID;
+  readonly "account_name": string;
+  readonly "account_state": string;
+  readonly "account_type": string;
+  readonly "display_name": string;
+  readonly "email": string;
+  readonly "email_verified": boolean;
+  readonly "membership_role": string;
+  readonly "membership_state": string;
+  readonly "stripe_customer_id"?: string;
+  readonly "stripe_subscription_id"?: string;
+  readonly "user_id": OperationsUUID;
+  readonly "user_state": string;
+}
+
+export interface OperationsMembershipView {
+  readonly "role": string;
+  readonly "state": string;
+  readonly "version": number;
+}
+
+export interface OperationsPasskeyCeremony {
+  readonly "ceremony_id": OperationsUUID;
+  readonly "expires_at": OperationsTimestamp;
+  readonly "public_key": Readonly<Record<string, unknown>>;
+}
+
+export interface OperationsProblem {
+  readonly "code": string;
+  readonly "detail": string;
+  readonly "status": number;
+  readonly "title": string;
+  readonly "type": string;
+}
+
+export interface OperationsRevokeSupportGrant {
+  readonly "expected_version": number;
+  readonly "reason": string;
+  readonly "ticket": string;
+}
+
+export interface OperationsSession {
+  readonly "authentication_method": "passkey";
+  readonly "expires_at": OperationsTimestamp;
+  readonly "staff": OperationsStaff;
+}
+
+export interface OperationsStaff {
+  readonly "display_name": string;
+  readonly "roles": ReadonlyArray<OperationsStaffRole>;
+  readonly "state": "active";
+  readonly "user_id": OperationsUUID;
+}
+
+export type OperationsStaffRole = "operations_administrator" | "support" | "billing" | "analytics" | "privacy" | "affiliate";
+
+export interface OperationsSupportGrant {
+  readonly "account_id": OperationsUUID;
+  readonly "created_at": OperationsTimestamp;
+  readonly "expires_at": OperationsTimestamp;
+  readonly "id": OperationsUUID;
+  readonly "reason": string;
+  readonly "revoked_at"?: OperationsTimestamp | null;
+  readonly "staff_user_id": OperationsUUID;
+  readonly "state": "active" | "revoked";
+  readonly "target_user_id": OperationsUUID;
+  readonly "ticket": string;
+  readonly "version": number;
+}
+
+export interface OperationsSupportGrantEnvelope {
+  readonly "grant": OperationsSupportGrant;
+}
+
+export interface OperationsSupportViewEnvelope {
+  readonly "mode": "read_only_support_view";
+  readonly "staff": OperationsStaff;
+  readonly "view": OperationsAccountView;
+}
+
+export type OperationsTimestamp = string;
+
+export type OperationsUUID = string;
+
+export interface OperationsUserView {
+  readonly "created_at": OperationsTimestamp;
+  readonly "display_name": string;
+  readonly "email": string;
+  readonly "email_verified_at"?: OperationsTimestamp | null;
+  readonly "id": OperationsUUID;
+  readonly "passkey_count": number;
+  readonly "recovery_codes_remaining": number;
+  readonly "state": string;
+}
+
 export interface OwnershipTransfer {
   readonly "new_owner": Membership;
   readonly "previous_owner": Membership;
@@ -2957,6 +3178,36 @@ export interface ApiSchemas {
   readonly Membership: Membership;
   readonly MembershipResult: MembershipResult;
   readonly Memberships: Memberships;
+  readonly OperationsAITokenView: OperationsAITokenView;
+  readonly OperationsAccessEvent: OperationsAccessEvent;
+  readonly OperationsAccountSummary: OperationsAccountSummary;
+  readonly OperationsAccountView: OperationsAccountView;
+  readonly OperationsAnalyticsReport: OperationsAnalyticsReport;
+  readonly OperationsAnalyticsRequest: OperationsAnalyticsRequest;
+  readonly OperationsAnalyticsRow: OperationsAnalyticsRow;
+  readonly OperationsAuditReason: OperationsAuditReason;
+  readonly OperationsBillingView: OperationsBillingView;
+  readonly OperationsCompletePasskeyLogin: OperationsCompletePasskeyLogin;
+  readonly OperationsCreateSupportGrant: OperationsCreateSupportGrant;
+  readonly OperationsEntitlementView: OperationsEntitlementView;
+  readonly OperationsLifecycleView: OperationsLifecycleView;
+  readonly OperationsLookupKind: OperationsLookupKind;
+  readonly OperationsLookupPage: OperationsLookupPage;
+  readonly OperationsLookupRequest: OperationsLookupRequest;
+  readonly OperationsLookupResult: OperationsLookupResult;
+  readonly OperationsMembershipView: OperationsMembershipView;
+  readonly OperationsPasskeyCeremony: OperationsPasskeyCeremony;
+  readonly OperationsProblem: OperationsProblem;
+  readonly OperationsRevokeSupportGrant: OperationsRevokeSupportGrant;
+  readonly OperationsSession: OperationsSession;
+  readonly OperationsStaff: OperationsStaff;
+  readonly OperationsStaffRole: OperationsStaffRole;
+  readonly OperationsSupportGrant: OperationsSupportGrant;
+  readonly OperationsSupportGrantEnvelope: OperationsSupportGrantEnvelope;
+  readonly OperationsSupportViewEnvelope: OperationsSupportViewEnvelope;
+  readonly OperationsTimestamp: OperationsTimestamp;
+  readonly OperationsUUID: OperationsUUID;
+  readonly OperationsUserView: OperationsUserView;
   readonly OwnershipTransfer: OwnershipTransfer;
   readonly PackageAccess: PackageAccess;
   readonly PasskeyCredential: PasskeyCredential;

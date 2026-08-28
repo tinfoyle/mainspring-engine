@@ -77,6 +77,9 @@ type PrivacyRightsEventID string
 type AITokenGrantID string
 type AITokenReservationID string
 type AITokenLedgerEntryID string
+type OperationsStaffRoleAssignmentID string
+type OperationsSupportGrantID string
+type OperationsAuditEventID string
 
 type Generator interface {
 	New() string

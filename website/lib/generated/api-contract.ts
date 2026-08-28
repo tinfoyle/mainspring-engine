@@ -212,6 +212,15 @@ export const apiRoutes = [
   { service: "cell-api", method: "PUT", path: "/api/v1/accounts/{accountID}/integrations/connections/{connectionID}", operationId: "integrationConnectionRevise", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "PUT", path: "/api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}", operationId: "marketingCampaignRevise", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "PUT", path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}", operationId: "scheduleRevise", authentication: "sessionCookie", contract: "typed" },
+  { service: "operations-api", method: "DELETE", path: "/api/operations/v1/session", operationId: "operationsLogout", authentication: "operationsCookie", contract: "typed" },
+  { service: "operations-api", method: "GET", path: "/api/operations/v1/session", operationId: "operationsCurrentSession", authentication: "operationsCookie", contract: "typed" },
+  { service: "operations-api", method: "POST", path: "/api/operations/v1/analytics/reports", operationId: "operationsAnalyticsReport", authentication: "operationsCookie", contract: "typed" },
+  { service: "operations-api", method: "POST", path: "/api/operations/v1/lookups", operationId: "operationsLookup", authentication: "operationsCookie", contract: "typed" },
+  { service: "operations-api", method: "POST", path: "/api/operations/v1/passkey-login/challenges", operationId: "operationsBeginPasskeyLogin", authentication: "public", contract: "typed" },
+  { service: "operations-api", method: "POST", path: "/api/operations/v1/passkey-login/challenges/{ceremonyID}/complete", operationId: "operationsCompletePasskeyLogin", authentication: "public", contract: "typed" },
+  { service: "operations-api", method: "POST", path: "/api/operations/v1/support-grants", operationId: "operationsCreateSupportGrant", authentication: "operationsCookie", contract: "typed" },
+  { service: "operations-api", method: "POST", path: "/api/operations/v1/support-grants/{grantID}/revocations", operationId: "operationsRevokeSupportGrant", authentication: "operationsCookie", contract: "typed" },
+  { service: "operations-api", method: "POST", path: "/api/operations/v1/support-grants/{grantID}/views", operationId: "operationsOpenSupportView", authentication: "operationsCookie", contract: "typed" },
 ] as const;
 
 export type ApiRoute = (typeof apiRoutes)[number];

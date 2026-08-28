@@ -1,0 +1,99 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Infinite Ocean Operations API",
+    "version": "0.1.0",
+    "description": "Staff-only API. Staff identities remain distinct from customer actors and every customer projection is exact, bounded, read-only and audited."
+  },
+  "servers": [{"url": "https://ops.infiniteocean.net"}],
+  "paths": {
+    "/api/operations/v1/passkey-login/challenges": {
+      "post": {"operationId": "operationsBeginPasskeyLogin", "x-spyglass-service": "operations-api", "security": [], "responses": {"201": {"$ref": "#/components/responses/PasskeyCeremonyCreated"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/passkey-login/challenges/{ceremonyID}/complete": {
+      "parameters": [{"$ref": "#/components/parameters/ceremonyID"}],
+      "post": {"operationId": "operationsCompletePasskeyLogin", "x-spyglass-service": "operations-api", "security": [], "requestBody": {"$ref": "#/components/requestBodies/CompletePasskeyLogin"}, "responses": {"201": {"$ref": "#/components/responses/SessionCreated"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/session": {
+      "get": {"operationId": "operationsCurrentSession", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "responses": {"200": {"$ref": "#/components/responses/SessionOK"}, "default": {"$ref": "#/components/responses/Problem"}}},
+      "delete": {"operationId": "operationsLogout", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "responses": {"204": {"description": "Staff session revoked"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/lookups": {
+      "post": {"operationId": "operationsLookup", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/Lookup"}, "responses": {"200": {"$ref": "#/components/responses/LookupOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/support-grants": {
+      "post": {"operationId": "operationsCreateSupportGrant", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/CreateSupportGrant"}, "responses": {"201": {"$ref": "#/components/responses/SupportGrantCreated"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/support-grants/{grantID}/views": {
+      "parameters": [{"$ref": "#/components/parameters/grantID"}],
+      "post": {"operationId": "operationsOpenSupportView", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/AuditReason"}, "responses": {"200": {"$ref": "#/components/responses/SupportViewOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/support-grants/{grantID}/revocations": {
+      "parameters": [{"$ref": "#/components/parameters/grantID"}],
+      "post": {"operationId": "operationsRevokeSupportGrant", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/RevokeSupportGrant"}, "responses": {"200": {"$ref": "#/components/responses/SupportGrantOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    },
+    "/api/operations/v1/analytics/reports": {
+      "post": {"operationId": "operationsAnalyticsReport", "x-spyglass-service": "operations-api", "security": [{"operationsCookie": []}], "requestBody": {"$ref": "#/components/requestBodies/AnalyticsReport"}, "responses": {"200": {"$ref": "#/components/responses/AnalyticsReportOK"}, "default": {"$ref": "#/components/responses/Problem"}}}
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "operationsCookie": {"type": "apiKey", "in": "cookie", "name": "__Host-spyglass_operations", "description": "Host-only passkey-authenticated staff session. Never accepted by customer APIs."}
+    },
+    "parameters": {
+      "ceremonyID": {"name": "ceremonyID", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}},
+      "grantID": {"name": "grantID", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}
+    },
+    "requestBodies": {
+      "CompletePasskeyLogin": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsCompletePasskeyLogin"}}}},
+      "Lookup": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsLookupRequest"}}}},
+      "CreateSupportGrant": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsCreateSupportGrant"}}}},
+      "AuditReason": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAuditReason"}}}},
+      "RevokeSupportGrant": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsRevokeSupportGrant"}}}},
+      "AnalyticsReport": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAnalyticsRequest"}}}}
+    },
+    "responses": {
+      "PasskeyCeremonyCreated": {"description": "Discoverable passkey challenge", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsPasskeyCeremony"}}}},
+      "SessionCreated": {"description": "Authorized staff session created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsSession"}}}},
+      "SessionOK": {"description": "Current staff session", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsSession"}}}},
+      "LookupOK": {"description": "Exact audited lookup results", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsLookupPage"}}}},
+      "SupportGrantCreated": {"description": "Exact bounded support grant", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsSupportGrantEnvelope"}}}},
+      "SupportGrantOK": {"description": "Current support grant state", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsSupportGrantEnvelope"}}}},
+      "SupportViewOK": {"description": "Visibly marked read-only customer-safe projection", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsSupportViewEnvelope"}}}},
+      "AnalyticsReportOK": {"description": "Suppressed privacy-bounded aggregate report", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OperationsAnalyticsReport"}}}},
+      "Problem": {"description": "Staff request failed without internal detail", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/OperationsProblem"}}}}
+    },
+    "schemas": {
+      "OperationsUUID": {"type": "string", "format": "uuid"},
+      "OperationsTimestamp": {"type": "string", "format": "date-time"},
+      "OperationsStaffRole": {"type": "string", "enum": ["operations_administrator", "support", "billing", "analytics", "privacy", "affiliate"]},
+      "OperationsLookupKind": {"type": "string", "enum": ["user_id", "email", "account_id", "stripe_customer_id", "stripe_subscription_id"]},
+      "OperationsAuditReason": {"type": "object", "additionalProperties": false, "required": ["ticket", "reason"], "properties": {"ticket": {"type": "string", "minLength": 3, "maxLength": 80}, "reason": {"type": "string", "minLength": 8, "maxLength": 500}}},
+      "OperationsStaff": {"type": "object", "additionalProperties": false, "required": ["user_id", "display_name", "state", "roles"], "properties": {"user_id": {"$ref": "#/components/schemas/OperationsUUID"}, "display_name": {"type": "string"}, "state": {"type": "string", "const": "active"}, "roles": {"type": "array", "items": {"$ref": "#/components/schemas/OperationsStaffRole"}}}},
+      "OperationsPasskeyCeremony": {"type": "object", "additionalProperties": false, "required": ["ceremony_id", "public_key", "expires_at"], "properties": {"ceremony_id": {"$ref": "#/components/schemas/OperationsUUID"}, "public_key": {"type": "object"}, "expires_at": {"$ref": "#/components/schemas/OperationsTimestamp"}}},
+      "OperationsCompletePasskeyLogin": {"type": "object", "additionalProperties": false, "required": ["credential"], "properties": {"credential": {"type": "object"}, "client_label": {"type": "string", "maxLength": 160}}},
+      "OperationsSession": {"type": "object", "additionalProperties": false, "required": ["staff", "expires_at", "authentication_method"], "properties": {"staff": {"$ref": "#/components/schemas/OperationsStaff"}, "expires_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "authentication_method": {"type": "string", "const": "passkey"}}},
+      "OperationsLookupRequest": {"type": "object", "additionalProperties": false, "required": ["kind", "value", "ticket", "reason"], "properties": {"kind": {"$ref": "#/components/schemas/OperationsLookupKind"}, "value": {"type": "string", "maxLength": 320}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsLookupResult": {"type": "object", "additionalProperties": false, "required": ["user_id", "display_name", "email", "user_state", "email_verified", "account_id", "account_name", "account_state", "account_type", "membership_role", "membership_state"], "properties": {"user_id": {"$ref": "#/components/schemas/OperationsUUID"}, "display_name": {"type": "string"}, "email": {"type": "string"}, "user_state": {"type": "string"}, "email_verified": {"type": "boolean"}, "account_id": {"$ref": "#/components/schemas/OperationsUUID"}, "account_name": {"type": "string"}, "account_state": {"type": "string"}, "account_type": {"type": "string"}, "membership_role": {"type": "string"}, "membership_state": {"type": "string"}, "stripe_customer_id": {"type": "string"}, "stripe_subscription_id": {"type": "string"}}},
+      "OperationsLookupPage": {"type": "object", "additionalProperties": false, "required": ["results"], "properties": {"results": {"type": "array", "items": {"$ref": "#/components/schemas/OperationsLookupResult"}}}},
+      "OperationsCreateSupportGrant": {"type": "object", "additionalProperties": false, "required": ["target_user_id", "account_id", "lifetime_seconds", "ticket", "reason"], "properties": {"target_user_id": {"$ref": "#/components/schemas/OperationsUUID"}, "account_id": {"$ref": "#/components/schemas/OperationsUUID"}, "lifetime_seconds": {"type": "integer", "minimum": 300, "maximum": 3600}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsRevokeSupportGrant": {"type": "object", "additionalProperties": false, "required": ["expected_version", "ticket", "reason"], "properties": {"expected_version": {"type": "integer", "minimum": 1}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsSupportGrant": {"type": "object", "additionalProperties": false, "required": ["id", "staff_user_id", "target_user_id", "account_id", "state", "ticket", "reason", "created_at", "expires_at", "version"], "properties": {"id": {"$ref": "#/components/schemas/OperationsUUID"}, "staff_user_id": {"$ref": "#/components/schemas/OperationsUUID"}, "target_user_id": {"$ref": "#/components/schemas/OperationsUUID"}, "account_id": {"$ref": "#/components/schemas/OperationsUUID"}, "state": {"type": "string", "enum": ["active", "revoked"]}, "ticket": {"type": "string"}, "reason": {"type": "string"}, "created_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "expires_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "revoked_at": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "version": {"type": "integer", "minimum": 1}}},
+      "OperationsSupportGrantEnvelope": {"type": "object", "additionalProperties": false, "required": ["grant"], "properties": {"grant": {"$ref": "#/components/schemas/OperationsSupportGrant"}}},
+      "OperationsAccessEvent": {"type": "object", "additionalProperties": false, "required": ["id", "staff_display_name", "action", "ticket", "reason", "occurred_at"], "properties": {"id": {"$ref": "#/components/schemas/OperationsUUID"}, "staff_display_name": {"type": "string"}, "action": {"type": "string"}, "ticket": {"type": "string"}, "reason": {"type": "string"}, "occurred_at": {"$ref": "#/components/schemas/OperationsTimestamp"}}},
+      "OperationsUserView": {"type": "object", "additionalProperties": false, "required": ["id", "display_name", "email", "state", "created_at", "passkey_count", "recovery_codes_remaining"], "properties": {"id": {"$ref": "#/components/schemas/OperationsUUID"}, "display_name": {"type": "string"}, "email": {"type": "string"}, "state": {"type": "string"}, "email_verified_at": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "created_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "passkey_count": {"type": "integer"}, "recovery_codes_remaining": {"type": "integer"}}},
+      "OperationsAccountSummary": {"type": "object", "additionalProperties": false, "required": ["id", "display_name", "state", "type", "cell_id", "placement_generation", "entitlement_version", "created_at"], "properties": {"id": {"$ref": "#/components/schemas/OperationsUUID"}, "display_name": {"type": "string"}, "state": {"type": "string"}, "type": {"type": "string"}, "cell_id": {"type": "string"}, "placement_generation": {"type": "integer"}, "entitlement_version": {"type": "integer"}, "created_at": {"$ref": "#/components/schemas/OperationsTimestamp"}}},
+      "OperationsMembershipView": {"type": "object", "additionalProperties": false, "required": ["role", "state", "version"], "properties": {"role": {"type": "string"}, "state": {"type": "string"}, "version": {"type": "integer"}}},
+      "OperationsBillingView": {"type": "object", "additionalProperties": false, "properties": {"customer_id": {"type": "string"}, "billing_email": {"type": "string"}, "subscription_id": {"type": "string"}, "provider_mode": {"type": "string"}, "state": {"type": "string"}, "offer_code": {"type": "string"}, "offer_version": {"type": "integer"}, "current_period_end": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "cancel_at": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "last_synced_at": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}}},
+      "OperationsEntitlementView": {"type": "object", "additionalProperties": false, "required": ["version", "catalog_version", "evaluated_at", "packages"], "properties": {"version": {"type": "integer"}, "catalog_version": {"type": "integer"}, "evaluated_at": {"$ref": "#/components/schemas/OperationsTimestamp"}, "packages": {"type": "object"}}},
+      "OperationsAITokenView": {"type": "object", "additionalProperties": false, "required": ["available", "reserved", "consumed"], "properties": {"available": {"type": "integer"}, "reserved": {"type": "integer"}, "consumed": {"type": "integer"}}},
+      "OperationsLifecycleView": {"type": "object", "additionalProperties": false, "properties": {"request_id": {"type": "string"}, "state": {"type": "string"}, "execute_after": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "delete_after": {"anyOf": [{"$ref": "#/components/schemas/OperationsTimestamp"}, {"type": "null"}]}, "blocker_code": {"type": "string"}}},
+      "OperationsAccountView": {"type": "object", "additionalProperties": false, "required": ["grant", "user", "account", "membership", "billing", "entitlements", "ai_tokens", "lifecycle", "support_history"], "properties": {"grant": {"$ref": "#/components/schemas/OperationsSupportGrant"}, "user": {"$ref": "#/components/schemas/OperationsUserView"}, "account": {"$ref": "#/components/schemas/OperationsAccountSummary"}, "membership": {"$ref": "#/components/schemas/OperationsMembershipView"}, "billing": {"$ref": "#/components/schemas/OperationsBillingView"}, "entitlements": {"$ref": "#/components/schemas/OperationsEntitlementView"}, "ai_tokens": {"$ref": "#/components/schemas/OperationsAITokenView"}, "lifecycle": {"$ref": "#/components/schemas/OperationsLifecycleView"}, "support_history": {"type": "array", "items": {"$ref": "#/components/schemas/OperationsAccessEvent"}}}},
+      "OperationsSupportViewEnvelope": {"type": "object", "additionalProperties": false, "required": ["mode", "staff", "view"], "properties": {"mode": {"type": "string", "const": "read_only_support_view"}, "staff": {"$ref": "#/components/schemas/OperationsStaff"}, "view": {"$ref": "#/components/schemas/OperationsAccountView"}}},
+      "OperationsAnalyticsRequest": {"type": "object", "additionalProperties": false, "required": ["from", "to", "bucket", "dimension", "minimum_cohort", "ticket", "reason"], "properties": {"from": {"$ref": "#/components/schemas/OperationsTimestamp"}, "to": {"$ref": "#/components/schemas/OperationsTimestamp"}, "bucket": {"type": "string", "enum": ["hour", "day"]}, "dimension": {"type": "string"}, "minimum_cohort": {"type": "integer", "minimum": 5, "maximum": 100}, "ticket": {"type": "string"}, "reason": {"type": "string"}}},
+      "OperationsAnalyticsRow": {"type": "object", "additionalProperties": false, "required": ["bucket_start", "event_name", "surface", "dimension_value", "event_count", "unique_subjects"], "properties": {"bucket_start": {"$ref": "#/components/schemas/OperationsTimestamp"}, "event_name": {"type": "string"}, "surface": {"type": "string"}, "dimension_value": {"type": "string"}, "event_count": {"type": "integer"}, "unique_subjects": {"type": "integer"}}},
+      "OperationsAnalyticsReport": {"type": "object", "additionalProperties": false, "required": ["from", "to", "bucket", "dimension", "minimum_cohort", "rows"], "properties": {"from": {"$ref": "#/components/schemas/OperationsTimestamp"}, "to": {"$ref": "#/components/schemas/OperationsTimestamp"}, "bucket": {"type": "string"}, "dimension": {"type": "string"}, "minimum_cohort": {"type": "integer"}, "rows": {"type": "array", "items": {"$ref": "#/components/schemas/OperationsAnalyticsRow"}}}},
+      "OperationsProblem": {"type": "object", "additionalProperties": false, "required": ["type", "title", "status", "code", "detail"], "properties": {"type": {"type": "string"}, "title": {"type": "string"}, "status": {"type": "integer"}, "code": {"type": "string"}, "detail": {"type": "string"}}}
+    }
+  }
+}

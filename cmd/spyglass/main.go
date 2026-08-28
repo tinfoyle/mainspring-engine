@@ -91,6 +91,7 @@ import (
 	bootstrapmcpgateway "github.com/tinfoyle/spyglass-engine/internal/bootstrap/mcpgateway"
 	modelgatewaybootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/modelgatewayapi"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/notificationworker"
+	operationsapibootstrap "github.com/tinfoyle/spyglass-engine/internal/bootstrap/operationsapi"
 	passkeycommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/passkeyadmin"
 	privacyrightscommand "github.com/tinfoyle/spyglass-engine/internal/bootstrap/privacyrightsadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/bootstrap/routereceiptworker"
@@ -153,6 +154,8 @@ func main() {
 		err = runDevelopment(ctx, logger)
 	case "account-api":
 		err = runAccountAPI(ctx, logger)
+	case "operations-api":
+		err = runOperationsAPI(ctx, logger)
 	case "app-router":
 		err = runAppRouter(ctx, logger, false)
 	case "mcp-gateway":
@@ -234,7 +237,7 @@ func main() {
 	case "migrate":
 		err = runMigrate(ctx, logger)
 	default:
-		err = errors.New("usage: spyglass version | development | account-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | affiliate-retention-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | affiliate-support-admin <action> | analytics-report | catalog-admin <action> | migrate")
+		err = errors.New("usage: spyglass version | development | account-api | operations-api | app-router | mcp-gateway | tool-router | app-api | admission-api | billing-worker | billing-admin <action> | notification-worker | entitlement-worker | account-lifecycle-worker | account-export-build-worker | account-export-expiry-worker | identity-maintenance-worker | affiliate-retention-worker | work-reconciler | runner-controller | docker-runner-launcher | runner-broker | model-gateway | runner-invocation --broker-url=<url> --invocation-id=<uuid> --identity-token-file=<path> --broker-ca-file=<path> | agent-dispatch-worker | schedule-execution-worker | schedule-queue-admin <action> | agent-projection-worker | knowledge-document-worker | baseline-maintenance-worker | integration-connector-worker | agent-queue-admin <action> | route-receipt-worker | route-canary | work-release-admin <action> | account-erasure-admin <action> | account-move-admin <action> | passkey-admin <action> | privacy-rights-admin <action> | affiliate-admin <action> | affiliate-support-admin <action> | analytics-report | catalog-admin <action> | migrate")
 	}
 	stop()
 	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1345,6 +1348,67 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer server.Close()
 	return serveHTTP(ctx, "account-api", httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
+}
+
+func runOperationsAPI(ctx context.Context, logger *slog.Logger) error {
+	identityDatabaseURL, err := requiredEnv("SPYGLASS_OPERATIONS_IDENTITY_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	projectionDatabaseURL, err := requiredEnv("SPYGLASS_OPERATIONS_PROJECTION_DATABASE_URL")
+	if err != nil {
+		return err
+	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	origin, err := requiredEnv("SPYGLASS_OPERATIONS_ORIGIN")
+	if err != nil {
+		return err
+	}
+	passkeyRPID, err := requiredEnv("SPYGLASS_PASSKEY_RP_ID")
+	if err != nil {
+		return err
+	}
+	passkeyKeys, passkeyActiveVersion, err := versionedEncryptionKeysEnv("SPYGLASS_PASSKEY_ENCRYPTION_KEYS", "SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION")
+	if err != nil {
+		return err
+	}
+	networkActorKey, err := base64KeyEnv("SPYGLASS_NETWORK_ACTOR_KEY")
+	if err != nil {
+		return err
+	}
+	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 5)
+	if err != nil {
+		return err
+	}
+	maxBody, err := int32Env("SPYGLASS_MAX_REQUEST_BODY", 64<<10)
+	if err != nil {
+		return err
+	}
+	secureCookie, err := boolEnv("SPYGLASS_OPERATIONS_SECURE_COOKIE", true)
+	if err != nil {
+		return err
+	}
+	restoreGate, err := openRequiredRestoreGate(ctx, projectionDatabaseURL, restoregate.Global, "SPYGLASS_")
+	if err != nil {
+		return err
+	}
+	defer restoreGate.Close()
+	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	server, err := operationsapibootstrap.New(startup, operationsapibootstrap.Config{
+		Environment: environment, IdentityDatabaseURL: identityDatabaseURL, ProjectionDatabaseURL: projectionDatabaseURL,
+		Origin: origin, PasskeyRPID: passkeyRPID, PasskeyEncryptionKeys: passkeyKeys, PasskeyActiveVersion: passkeyActiveVersion,
+		NetworkActorKey: networkActorKey, TrustedProxyCIDRs: csvEnv("SPYGLASS_TRUSTED_PROXY_CIDRS"), MaxDatabaseConns: maxConns,
+		MaxRequestBody: int64(maxBody), SecureCookie: secureCookie,
+	}, logger)
+	if err != nil {
+		return err
+	}
+	defer server.Close()
+	return serveHTTP(ctx, "operations-api", httpAddress(":8080"), withRestoreGate([]*restoregate.Gate{restoreGate}, server.Handler), logger)
 }
 
 func runAppRouter(ctx context.Context, logger *slog.Logger, privateTLS bool) error {

@@ -216,4 +216,13 @@ var Routes = [...]Route{
 	{Service: "cell-api", Method: "PUT", Path: "/api/v1/accounts/{accountID}/integrations/connections/{connectionID}", OperationID: "integrationConnectionRevise", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "PUT", Path: "/api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}", OperationID: "marketingCampaignRevise", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "PUT", Path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}", OperationID: "scheduleRevise", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "operations-api", Method: "DELETE", Path: "/api/operations/v1/session", OperationID: "operationsLogout", Authentication: "operationsCookie", Contract: "typed"},
+	{Service: "operations-api", Method: "GET", Path: "/api/operations/v1/session", OperationID: "operationsCurrentSession", Authentication: "operationsCookie", Contract: "typed"},
+	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/analytics/reports", OperationID: "operationsAnalyticsReport", Authentication: "operationsCookie", Contract: "typed"},
+	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/lookups", OperationID: "operationsLookup", Authentication: "operationsCookie", Contract: "typed"},
+	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/passkey-login/challenges", OperationID: "operationsBeginPasskeyLogin", Authentication: "public", Contract: "typed"},
+	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/passkey-login/challenges/{ceremonyID}/complete", OperationID: "operationsCompletePasskeyLogin", Authentication: "public", Contract: "typed"},
+	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/support-grants", OperationID: "operationsCreateSupportGrant", Authentication: "operationsCookie", Contract: "typed"},
+	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/support-grants/{grantID}/revocations", OperationID: "operationsRevokeSupportGrant", Authentication: "operationsCookie", Contract: "typed"},
+	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/support-grants/{grantID}/views", OperationID: "operationsOpenSupportView", Authentication: "operationsCookie", Contract: "typed"},
 }

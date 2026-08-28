@@ -61,6 +61,9 @@ func TestAccountExportCoverageMatchesAccountOwnedSchema(t *testing.T) {
 	// These Account-associated tables do not use a direct account_id column.
 	seen["public.accounts"] = true
 	seen["public.billing_reconciliation_queue"] = true
+	seen["public.account_subscription_lifecycle_events"] = true
+	seen["public.account_subscription_lifecycle_notices"] = true
+	seen["public.account_subscription_termination_jobs"] = true
 	seen["public.affiliate_attributions"] = true
 	seen["public.affiliate_enrollments"] = true
 	seen["public.affiliate_commission_entries"] = true

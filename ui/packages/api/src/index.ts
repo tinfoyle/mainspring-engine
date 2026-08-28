@@ -16,5 +16,6 @@ export * from "./finance";
 export * from "./integrations";
 export * from "./baseline";
 export * from "./marketing";
+export * from "./operations";
 export * from "./generated/api-types";
 export { apiRoutes } from "./generated/api-contract";

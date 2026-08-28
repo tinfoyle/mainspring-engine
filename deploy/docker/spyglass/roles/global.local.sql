@@ -51,6 +51,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_analytics_reporter') THEN
     CREATE ROLE spyglass_analytics_reporter LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_operations_identity') THEN
+    CREATE ROLE spyglass_operations_identity LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'spyglass_operations_projection') THEN
+    CREATE ROLE spyglass_operations_projection LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+  END IF;
 END
 $$;
 
@@ -71,6 +77,8 @@ $$;
 \getenv account_export_build_password SPYGLASS_ACCOUNT_EXPORT_BUILD_WORKER_DATABASE_PASSWORD
 \getenv account_export_expiry_password SPYGLASS_ACCOUNT_EXPORT_EXPIRY_WORKER_DATABASE_PASSWORD
 \getenv analytics_reporter_password SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD
+\getenv operations_identity_password SPYGLASS_OPERATIONS_IDENTITY_DATABASE_PASSWORD
+\getenv operations_projection_password SPYGLASS_OPERATIONS_PROJECTION_DATABASE_PASSWORD
 SELECT format('ALTER ROLE spyglass_account_api PASSWORD %L', :'account_api_password') \gexec
 SELECT format('ALTER ROLE spyglass_app_router PASSWORD %L', :'app_router_password') \gexec
 SELECT format('ALTER ROLE spyglass_mcp_gateway PASSWORD %L', :'mcp_gateway_password') \gexec
@@ -88,6 +96,8 @@ SELECT format('ALTER ROLE spyglass_integration_connector_worker PASSWORD %L', :'
 SELECT format('ALTER ROLE spyglass_account_export_build_worker PASSWORD %L', :'account_export_build_password') \gexec
 SELECT format('ALTER ROLE spyglass_account_export_expiry_worker PASSWORD %L', :'account_export_expiry_password') \gexec
 SELECT format('ALTER ROLE spyglass_analytics_reporter PASSWORD %L', :'analytics_reporter_password') \gexec
+SELECT format('ALTER ROLE spyglass_operations_identity PASSWORD %L', :'operations_identity_password') \gexec
+SELECT format('ALTER ROLE spyglass_operations_projection PASSWORD %L', :'operations_projection_password') \gexec
 
 GRANT CONNECT ON DATABASE spyglass TO spyglass_account_api, spyglass_app_router, spyglass_mcp_gateway, spyglass_admission_api,
   spyglass_billing_worker, spyglass_notification_worker, spyglass_entitlement_worker,
@@ -111,6 +121,33 @@ REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_analytics_
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_analytics_reporter;
 GRANT EXECUTE ON FUNCTION spyglass_analytics_funnel_report(timestamptz,timestamptz,text,text,integer)
   TO spyglass_analytics_reporter;
+
+GRANT CONNECT ON DATABASE spyglass TO spyglass_operations_identity, spyglass_operations_projection;
+GRANT USAGE ON SCHEMA public TO spyglass_operations_identity, spyglass_operations_projection;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_operations_identity, spyglass_operations_projection;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_operations_identity, spyglass_operations_projection;
+REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_operations_identity, spyglass_operations_projection;
+
+GRANT SELECT ON account_erasure_restore_ledger TO spyglass_operations_identity, spyglass_operations_projection;
+GRANT SELECT ON users, passkey_users, passkey_credentials, operations_staff,
+  operations_staff_role_assignments, operations_access_events TO spyglass_operations_identity;
+GRANT SELECT, INSERT, UPDATE, DELETE ON passkey_ceremonies TO spyglass_operations_identity;
+GRANT UPDATE (encrypted_credential,encryption_nonce,encryption_key_version,sign_count,last_used_at)
+  ON passkey_credentials TO spyglass_operations_identity;
+GRANT INSERT ON user_security_events TO spyglass_operations_identity;
+GRANT SELECT, INSERT, UPDATE ON network_actor_rate_limits, operations_sessions TO spyglass_operations_identity;
+
+GRANT EXECUTE ON FUNCTION spyglass_operations_current_staff(uuid),
+  spyglass_operations_lookup(uuid,uuid,text,text,text,text,text),
+  spyglass_operations_record_session_event(uuid,uuid,uuid,text,text,timestamptz),
+  spyglass_operations_create_support_grant(uuid,uuid,uuid,uuid,uuid,text,text,text,timestamptz,timestamptz),
+  spyglass_operations_get_support_grant(uuid,uuid),
+  spyglass_operations_revoke_support_grant(uuid,uuid,uuid,bigint,text,text,text,timestamptz),
+  spyglass_operations_customer_access_history(uuid,uuid,integer),
+  spyglass_operations_account_view(uuid,uuid,uuid,text,text,text,timestamptz),
+  spyglass_operations_analytics_report(uuid,uuid,timestamptz,timestamptz,text,text,integer,text,text,text,timestamptz),
+  spyglass_operations_support_history(uuid,uuid,integer,timestamptz)
+  TO spyglass_operations_projection;
 
 REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM spyglass_mcp_gateway, spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,
@@ -222,7 +259,8 @@ GRANT SELECT ON accounts, entitlement_snapshots TO spyglass_integration_connecto
 
 GRANT SELECT ON account_erasure_restore_ledger, accounts, account_directory,
   account_closure_requests, account_lifecycle_events, account_membership_events,
-  invitations, memberships, account_commissioning_purchases, billing_checkout_attempts, billing_profiles, subscriptions,
+  invitations, memberships, account_commissioning_purchases, account_subscription_lifecycles,
+  billing_checkout_attempts, billing_profiles, subscriptions, operations_access_events, operations_support_grants,
   entitlement_grants, entitlement_snapshots, entitlement_usage_counters, affiliate_attributions
   TO spyglass_account_export_build_worker;
 GRANT SELECT ON account_export_requests TO spyglass_account_export_build_worker;

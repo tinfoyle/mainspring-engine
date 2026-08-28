@@ -20,7 +20,10 @@ import (
 	"strings"
 )
 
-const contractPath = "api/spyglass.openapi.json"
+const (
+	contractPath           = "api/spyglass.openapi.json"
+	operationsContractPath = "api/operations.openapi.json"
+)
 
 var methods = map[string]bool{"get": true, "post": true, "put": true, "patch": true, "delete": true}
 
@@ -54,11 +57,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	routes, err := loadContract(filepath.Join(root, contractPath))
-	if err != nil {
-		fatal(err)
-	}
-	schemas, err := loadSchemas(filepath.Join(root, contractPath))
+	routes, schemas, err := loadContracts(root)
 	if err != nil {
 		fatal(err)
 	}
@@ -92,6 +91,38 @@ func main() {
 			fatal(fmt.Errorf("generated API contract %s is stale; run go run ./cmd/apicontract -write", path))
 		}
 	}
+}
+
+func loadContracts(root string) ([]route, map[string]json.RawMessage, error) {
+	var routes []route
+	schemas := make(map[string]json.RawMessage)
+	seenOperations := make(map[string]bool)
+	for _, contract := range []string{contractPath, operationsContractPath} {
+		path := filepath.Join(root, contract)
+		loadedRoutes, err := loadContract(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, value := range loadedRoutes {
+			if seenOperations[value.OperationID] {
+				return nil, nil, fmt.Errorf("duplicate API operation %q across contracts", value.OperationID)
+			}
+			seenOperations[value.OperationID] = true
+			routes = append(routes, value)
+		}
+		loadedSchemas, err := loadSchemas(path)
+		if err != nil {
+			return nil, nil, err
+		}
+		for name, schema := range loadedSchemas {
+			if _, exists := schemas[name]; exists {
+				return nil, nil, fmt.Errorf("duplicate API schema %q across contracts", name)
+			}
+			schemas[name] = schema
+		}
+	}
+	sortRoutes(routes)
+	return routes, schemas, nil
 }
 
 func loadSchemas(path string) (map[string]json.RawMessage, error) {
@@ -140,8 +171,8 @@ func loadContract(path string) ([]route, error) {
 	seenIDs := map[string]bool{}
 	routes := make([]route, 0)
 	for path, item := range source.Paths {
-		if !strings.HasPrefix(path, "/api/v1/") && path != "/webhooks/stripe" {
-			return nil, fmt.Errorf("unsupported customer API path %q", path)
+		if !strings.HasPrefix(path, "/api/v1/") && !strings.HasPrefix(path, "/api/operations/v1/") && path != "/webhooks/stripe" {
+			return nil, fmt.Errorf("unsupported API path %q", path)
 		}
 		if err := validatePathParameters(path, item["parameters"]); err != nil {
 			return nil, err
@@ -155,7 +186,7 @@ func loadContract(path string) ([]route, error) {
 			if err := json.Unmarshal(raw, &op); err != nil {
 				return nil, fmt.Errorf("decode %s %s: %w", method, path, err)
 			}
-			if op.ID == "" || seenIDs[op.ID] || (op.Service != "account-api" && op.Service != "cell-api") || op.Security == nil || op.Responses == nil {
+			if op.ID == "" || seenIDs[op.ID] || (op.Service != "account-api" && op.Service != "cell-api" && op.Service != "operations-api") || op.Security == nil || op.Responses == nil {
 				return nil, fmt.Errorf("operation %s %s lacks a unique ID, owner, security, or responses", method, path)
 			}
 			seenIDs[op.ID] = true
@@ -169,13 +200,15 @@ func loadContract(path string) ([]route, error) {
 					auth = name
 				}
 			}
-			if auth != "public" && auth != "sessionCookie" && auth != "privacyPreferenceCookie" && auth != "stripeSignature" && auth != "exportDownloadCapability" {
+			if auth != "public" && auth != "sessionCookie" && auth != "operationsCookie" && auth != "privacyPreferenceCookie" && auth != "stripeSignature" && auth != "exportDownloadCapability" {
 				return nil, fmt.Errorf("operation %s has unsupported authentication %q", op.ID, auth)
 			}
 			if (path == "/webhooks/stripe") != (auth == "stripeSignature") ||
 				(path == "/api/v1/account-exports/{exportID}/artifact") != (auth == "exportDownloadCapability") ||
 				(auth == "privacyPreferenceCookie" && path != "/api/v1/analytics/events" && path != "/api/v1/privacy/consent/history" && path != "/api/v1/privacy/data") ||
-				(op.Service == "cell-api" && auth != "sessionCookie") {
+				(op.Service == "cell-api" && auth != "sessionCookie") ||
+				(op.Service == "operations-api" && auth != "operationsCookie" && auth != "public") ||
+				(strings.HasPrefix(path, "/api/operations/v1/") != (op.Service == "operations-api")) {
 				return nil, fmt.Errorf("operation %s authentication does not match its boundary", op.ID)
 			}
 			contract := "typed"
@@ -277,8 +310,9 @@ func validatePathParameters(path string, raw json.RawMessage) error {
 
 func registeredRoutes(root string) ([]route, error) {
 	files := map[string]string{
-		"account-api": "internal/transport/httpapi/server.go",
-		"cell-api":    "internal/transport/cellapi/server.go",
+		"account-api":    "internal/transport/httpapi/server.go",
+		"cell-api":       "internal/transport/cellapi/server.go",
+		"operations-api": "internal/transport/operationsapi/server.go",
 	}
 	routes := make([]route, 0)
 	for service, path := range files {
@@ -301,7 +335,7 @@ func registeredRoutes(root string) ([]route, error) {
 				return true
 			}
 			method, path, found := strings.Cut(pattern, " ")
-			if !found || (!strings.HasPrefix(path, "/api/v1/") && path != "/webhooks/stripe") {
+			if !found || (!strings.HasPrefix(path, "/api/v1/") && !strings.HasPrefix(path, "/api/operations/v1/") && path != "/webhooks/stripe") {
 				return true
 			}
 			routes = append(routes, route{Service: service, Method: method, Path: path})

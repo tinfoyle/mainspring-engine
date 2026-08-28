@@ -35,12 +35,14 @@ func LaunchRegistry() (*Registry, error) {
 		}
 	}
 
-	include("public", "account", "accounts", "account_closure_requests", "account_lifecycle_events", "account_membership_events", "invitations", "memberships")
+	include("public", "account", "accounts", "account_closure_requests", "account_lifecycle_events", "account_membership_events", "invitations", "memberships", "operations_access_events", "operations_support_grants")
 	exclude("public", Derived, "Cell placement is reconstructed from the authoritative Account projection.", "account_directory")
 	exclude("public", Operational, "Erasure workflow evidence is retained under the erasure policy and is not customer content.", "account_erasure_operator_events", "account_erasure_requests")
 	exclude("public", Operational, "Export request workflow and audit rows describe artifact processing; the artifact contains the portable customer projections.", "account_export_events", "account_export_requests")
 	exclude("public", Operational, "Movement coordination state is transient infrastructure metadata, not portable customer content.", "account_moves")
-	include("public", "billing", "account_commissioning_purchases", "ai_token_grants", "ai_token_ledger_entries", "billing_checkout_attempts", "billing_profiles", "subscriptions")
+	include("public", "billing", "account_commissioning_purchases", "account_subscription_lifecycles", "ai_token_grants", "ai_token_ledger_entries", "billing_checkout_attempts", "billing_profiles", "subscriptions")
+	exclude("public", Operational, "Subscription lifecycle events are immutable controller workflow evidence; the customer-safe lifecycle projection carries the current and terminal dates.", "account_subscription_lifecycle_events")
+	exclude("public", Operational, "Subscription lifecycle notices and termination jobs contain internal delivery, provider, retry and lease state rather than portable customer content.", "account_subscription_lifecycle_notices", "account_subscription_termination_jobs")
 	exclude("public", Operational, "AI Token reservations are transient execution controls; portable grant and immutable debit/release evidence is exported instead.", "ai_token_reservations")
 	exclude("public", Operational, "AI Token promotion issuance rows enforce campaign caps and idempotency; the portable promotion grant and ledger evidence carry the customer state.", "ai_token_promotion_issuances")
 	include("public", "affiliate", "affiliate_attributions")
