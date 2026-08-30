@@ -51,13 +51,17 @@ test "$(stat -c %a "$secret_dir/integration-source/cursor.key")" = 640
 
 legacy_env="$temporary/legacy-stage.env"
 cp "$env_file" "$legacy_env"
-sed -i '/^SPYGLASS_SCHEDULE_EXECUTION_WORKER_DATABASE_PASSWORD=/d;/^SPYGLASS_CELL_[AB]_SCHEDULE_EXECUTION_DATABASE_URL=/d;/^SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_PASSWORD=/d;/^SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_URL=/d;/^SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD=/d' "$legacy_env"
+sed -i '/^SPYGLASS_SCHEDULE_EXECUTION_WORKER_DATABASE_PASSWORD=/d;/^SPYGLASS_CELL_[AB]_SCHEDULE_EXECUTION_DATABASE_URL=/d;/^SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_PASSWORD=/d;/^SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_URL=/d;/^SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD=/d;/^SPYGLASS_OPERATIONS_.*_DATABASE_PASSWORD=/d;/^SPYGLASS_OPERATIONS_.*_DATABASE_URL=/d' "$legacy_env"
 legacy_upgrade_dir="$temporary/secrets-legacy-upgrade"
 bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$legacy_upgrade_dir" "$network" "$legacy_env"
 test "$(sed -n 's/^SPYGLASS_GLOBAL_DATABASE_PASSWORD=//p' "$legacy_env")" = "$(sed -n 's/^SPYGLASS_GLOBAL_DATABASE_PASSWORD=//p' "$legacy_upgrade_dir/stage.env")"
 test -n "$(sed -n 's/^SPYGLASS_SCHEDULE_EXECUTION_WORKER_DATABASE_PASSWORD=//p' "$legacy_upgrade_dir/stage.env")"
 test -n "$(sed -n 's/^SPYGLASS_AFFILIATE_RETENTION_WORKER_DATABASE_PASSWORD=//p' "$legacy_upgrade_dir/stage.env")"
 test -n "$(sed -n 's/^SPYGLASS_ANALYTICS_REPORTER_DATABASE_PASSWORD=//p' "$legacy_upgrade_dir/stage.env")"
+for operations_role in IDENTITY PROJECTION BILLING PRIVACY AFFILIATE; do
+  test -n "$(sed -n "s/^SPYGLASS_OPERATIONS_${operations_role}_DATABASE_PASSWORD=//p" "$legacy_upgrade_dir/stage.env")"
+  test -n "$(sed -n "s/^SPYGLASS_OPERATIONS_${operations_role}_DATABASE_URL=//p" "$legacy_upgrade_dir/stage.env")"
+done
 
 if bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$secret_dir" "$network" >/dev/null 2>&1; then
   echo 'stage secret preparation overwrote an initialized target' >&2
