@@ -40,7 +40,7 @@ func TestPrivateBrowserTemplatesHaveAccessiblePageFrames(t *testing.T) {
 		{name: "login", page: "login", data: pageData{Title: "Sign in", PasskeysConfigured: true}},
 		{name: "forgot password", page: "forgot", data: pageData{Title: "Recover your identity"}},
 		{name: "reset password", page: "reset", data: pageData{Title: "Set a new password", Token: "token"}},
-		{name: "signup", page: "signup", data: pageData{Title: "Create your Account"}},
+		{name: "signup", page: "signup", data: pageData{Title: "Create your Account", GoogleConfigured: true}},
 		{name: "verify", page: "verify", data: pageData{Title: "Choose your password", Token: "token"}},
 		{name: "verify contact change", page: "contact-verify", data: pageData{Title: "Verify new email", Token: "token"}},
 		{name: "accept invitation", page: "accept", data: pageData{Title: "Join Account", Token: "token"}},

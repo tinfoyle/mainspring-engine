@@ -141,3 +141,50 @@ func TestRegistrationCarriesOnlyPublishedPaidOfferToVerification(t *testing.T) {
 		t.Fatalf("future offer error = %v", err)
 	}
 }
+
+func TestExternalRegistrationProvisionsVerifiedInactiveShellWithoutLocalCredential(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	published := catalog.Default(now)
+	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 10}})
+	service := registration.NewService(store, &memory.VerificationSink{}, store, func() catalog.PublishedCatalog { return published }, &sequenceIDs{}, fixedClock{value: now}, passwordHasher{})
+	command := registration.ExternalCommand{
+		Email: "Avery@Example.com", DisplayName: "Avery Johnson", AccountName: "Northstar Studio", Region: "us-east",
+		OfferCode: "team-monthly-v2", Provider: "oidc", Identifier: "https://accounts.google.com\x1fgoogle-subject-1",
+	}
+
+	result, err := service.CompleteExternal(context.Background(), command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.User.PrimaryEmail != "avery@example.com" || result.User.EmailVerifiedAt == nil || result.User.State != "active" {
+		t.Fatalf("external user was not provider-verified: %+v", result.User)
+	}
+	if result.Credential.UserID != "" || result.ExternalIdentity == nil || result.ExternalIdentity.Provider != "oidc" || result.ExternalIdentity.Identifier != command.Identifier {
+		t.Fatalf("unexpected login identities: credential=%+v external=%+v", result.Credential, result.ExternalIdentity)
+	}
+	if result.Account.Type != "inactive" || result.Membership.Role != "owner" || len(result.Grants) != 0 || len(result.Snapshot.Packages) != 0 {
+		t.Fatalf("unexpected external provisioning: %+v", result)
+	}
+	command.Email = "other@example.com"
+	command.AccountName = "Other Studio"
+	if _, err := service.CompleteExternal(context.Background(), command); !errors.Is(err, registration.ErrIdentityExists) {
+		t.Fatalf("duplicate external identity error = %v", err)
+	}
+}
+
+func TestExternalRegistrationNeverAutoLinksAnExistingEmail(t *testing.T) {
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	published := catalog.Default(now)
+	store := memory.NewStore(published, []placement.Cell{{ID: ids.CellID("cell-us-east-01"), Region: "us-east", State: "active", SoftLimit: 10}})
+	service := registration.NewService(store, &memory.VerificationSink{}, store, func() catalog.PublishedCatalog { return published }, &sequenceIDs{}, fixedClock{value: now}, passwordHasher{})
+	first := registration.ExternalCommand{Email: "avery@example.com", DisplayName: "Avery", AccountName: "First Studio", Provider: "oidc", Identifier: "issuer\x1ffirst"}
+	if _, err := service.CompleteExternal(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	second := first
+	second.AccountName = "Second Studio"
+	second.Identifier = "issuer\x1fsecond"
+	if _, err := service.CompleteExternal(context.Background(), second); !errors.Is(err, registration.ErrEmailExists) {
+		t.Fatalf("matching email must fail closed, got %v", err)
+	}
+}

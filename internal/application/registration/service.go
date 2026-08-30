@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
@@ -21,6 +22,7 @@ var (
 	ErrRegistrationExpired  = errors.New("registration expired")
 	ErrRegistrationConsumed = errors.New("registration already consumed")
 	ErrEmailExists          = errors.New("email already registered")
+	ErrIdentityExists       = errors.New("external identity already registered")
 	ErrOfferUnavailable     = errors.New("requested offer is unavailable")
 )
 
@@ -42,19 +44,25 @@ type Pending struct {
 }
 
 type Provisioned struct {
-	User       identity.User
-	Credential identity.LocalCredential
-	Account    accounts.Account
-	Membership accounts.Membership
-	Assignment placement.Assignment
-	Grants     []entitlements.Grant
-	Snapshot   entitlements.Snapshot
+	User             identity.User
+	Credential       identity.LocalCredential
+	ExternalIdentity *ExternalIdentity
+	Account          accounts.Account
+	Membership       accounts.Membership
+	Assignment       placement.Assignment
+	Grants           []entitlements.Grant
+	Snapshot         entitlements.Snapshot
+}
+
+type ExternalIdentity struct {
+	Provider, Identifier string
 }
 
 type Repository interface {
 	CreatePending(context.Context, Pending) error
 	DeletePending(context.Context, ids.RegistrationID) error
 	Complete(context.Context, [32]byte, time.Time, func(Pending) (Provisioned, error)) (Provisioned, error)
+	CompleteExternal(context.Context, Provisioned, time.Time) error
 }
 
 type VerificationMessage struct {
@@ -156,6 +164,68 @@ func availablePaidOffer(publication catalog.PublishedCatalog, requested string, 
 }
 
 type CompleteCommand struct{ Token, Password string }
+
+type ExternalCommand struct {
+	Email, DisplayName, AccountName, Region, OfferCode, Provider, Identifier string
+}
+
+// CompleteExternal provisions an Account from an email address that an
+// external identity provider has already verified. The repository commits the
+// User, Account, ownership, placement, entitlements, and login identity as one
+// transaction; it must never infer or auto-link an existing User by email.
+func (s *Service) CompleteExternal(ctx context.Context, command ExternalCommand) (Provisioned, error) {
+	if s.catalog == nil || s.cells == nil || s.clock == nil {
+		return Provisioned{}, errors.New("external registration dependencies are not configured")
+	}
+	now := s.clock.Now().UTC()
+	if _, err := availablePaidOffer(s.catalog(), command.OfferCode, now); err != nil {
+		return Provisioned{}, err
+	}
+	command.Provider = strings.TrimSpace(command.Provider)
+	command.Identifier = strings.TrimSpace(command.Identifier)
+	if command.Provider != "oidc" || command.Identifier == "" || len(command.Identifier) > 1100 || strings.ContainsAny(command.Identifier, "\r\n") {
+		return Provisioned{}, errors.New("external registration identity is invalid")
+	}
+	user, err := identity.NewPendingUser(ids.UserID(s.ids.New()), command.Email, command.DisplayName, now)
+	if err != nil {
+		return Provisioned{}, err
+	}
+	user, err = user.VerifyEmail(now)
+	if err != nil {
+		return Provisioned{}, err
+	}
+	if command.Region == "" {
+		command.Region = "us-east"
+	}
+	cells, err := s.cells.AvailableCells(ctx)
+	if err != nil {
+		return Provisioned{}, err
+	}
+	cell, err := placement.SelectCell(cells, command.Region)
+	if err != nil {
+		return Provisioned{}, err
+	}
+	account, err := accounts.NewAccount(ids.AccountID(s.ids.New()), user.ID, cell.ID, command.AccountName, now)
+	if err != nil {
+		return Provisioned{}, err
+	}
+	membership := accounts.NewOwnerMembership(ids.MembershipID(s.ids.New()), account.ID, user.ID, now)
+	grants := []entitlements.Grant{}
+	snapshot, err := entitlements.Evaluate(account.ID, account.EntitlementVersion, s.catalog(), grants, now)
+	if err != nil {
+		return Provisioned{}, err
+	}
+	external := &ExternalIdentity{Provider: command.Provider, Identifier: command.Identifier}
+	provisioned := Provisioned{
+		User: user, ExternalIdentity: external, Account: account, Membership: membership,
+		Assignment: placement.Assignment{AccountID: account.ID, CellID: cell.ID, PlacementGeneration: account.PlacementGeneration, State: "active"},
+		Grants:     grants, Snapshot: snapshot,
+	}
+	if err := s.repository.CompleteExternal(ctx, provisioned, now); err != nil {
+		return Provisioned{}, err
+	}
+	return provisioned, nil
+}
 
 func (s *Service) Complete(ctx context.Context, command CompleteCommand) (Provisioned, error) {
 	if s.passwords == nil || s.catalog == nil {

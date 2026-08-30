@@ -9,6 +9,8 @@ Google OpenID Connect is an optional sign-in method for the customer application
 
 An email match never links identities. An already authenticated User must confirm with a recent user-verified passkey and explicitly connect the Google subject from Identity Security. Google login creates a single-factor `oidc` session, so Membership, billing, lifecycle, verified-contact and other strong-authentication boundaries continue to require a passkey. Disconnecting Google requires the same passkey assurance and revokes every active Spyglass session. The Operations Console remains passkey-only.
 
+Google signup is a separate, explicit ceremony. The customer supplies the Business name before leaving Spyglass; Google then supplies a verified email, stable issuer/subject identity and display name. One serializable transaction creates the active User, inactive team Account, Owner Membership, placement, empty entitlement snapshot and `oidc` authentication identity. A collision on either the normalized email or external identity fails closed and directs the customer to sign in; signup never converts an email match into a link. The resulting OIDC session is routed directly to first-passkey enrollment, and the original paid-offer/return intent is preserved only after that owner-security step. The Account still receives no package access before verified Stripe state.
+
 ## 1. Boundary and invariants
 
 Spyglass authenticates one Infinite Ocean `User` before it resolves any Spyglass `Account`. A passkey proves control of a credential for that User. It does not prove Membership, role, selected Account, placement, package access, or billing authority.
@@ -24,7 +26,7 @@ Passkey endpoints accept no Account ID, passkey records have no Account foreign 
 Required invariants:
 
 - WebAuthn ceremonies are generated server-side, expire after three minutes, are scoped to their ceremony kind, and are consumed once before response validation.
-- First-ever registration requires recent password authentication; adding another passkey and removing any passkey require a user-verified passkey timestamp no older than ten minutes.
+- First-ever passkey registration requires a recent single-factor identity ceremony (local password or verified OIDC login); adding another passkey and removing any passkey require a user-verified passkey timestamp no older than ten minutes.
 - Removing the last passkey is transactionally rejected until at least one unused recovery code exists; concurrent deletions are serialized per User so two final factors cannot both bypass the check. Replacing a lost final passkey requires recent password authentication plus a single-use recovery-code grant bound to that exact User session.
 - Recovery codes are generated as ten independent 128-bit values, returned once, stored only as domain-separated SHA-256 hashes, consumed atomically, and never grant Account or operator authority.
 - Registration and assertion both require user presence and user verification; discoverable credentials are required for email-less sign-in.

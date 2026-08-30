@@ -154,6 +154,7 @@
 .auth-divider::before,.auth-divider::after,.security-or::before,.security-or::after { content: ""; height: 1px; flex: 1; background: var(--line); }
 .google-button { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; min-height:44px; padding:11px 14px; border:1px solid var(--line); border-radius:8px; background:#fff; color:#202124; font-weight:700; text-decoration:none; }
 .google-button:hover { border-color:#aeb4bc; background:#f8f9fa; }
+.auth-panel button.google-button { justify-content:center; border:1px solid var(--line); background:#fff; color:#202124; cursor:pointer; }
 .google-button span { display:grid; place-items:center; width:20px; height:20px; border-radius:50%; color:#4285f4; font-weight:800; }
 .auth-panel .passkey-button.secondary,.security-card .passkey-button.secondary { justify-content: space-between; border: 1px solid #bad5c5; background: #f6faf7; color: var(--green-dark); }
 .passkey-status { min-height: 1.1em; margin: 0; color: var(--green); font-size: .61rem; line-height: 1.4; }

@@ -218,6 +218,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("GET /auth/google", s.beginGoogleLogin)
+	mux.HandleFunc("POST /auth/google/signup", s.beginGoogleSignup)
 	mux.HandleFunc("GET /auth/google/callback", s.completeGoogleLogin)
 	mux.HandleFunc("GET /forgot-password", s.forgotPasswordPage)
 	mux.HandleFunc("POST /forgot-password", s.forgotPassword)
@@ -618,7 +619,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 const googleFlowCookie = "__Host-spyglass_google_flow"
 
 type googleFlow struct {
-	State, Nonce, Verifier, Mode, ReturnTo string
+	State, Nonce, Verifier, Mode, ReturnTo, AccountName, Region, OfferCode string
 }
 
 func (s *Server) beginGoogleLogin(w http.ResponseWriter, r *http.Request) {
@@ -634,7 +635,31 @@ func (s *Server) beginGoogleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
-	s.beginGoogleFlow(w, r, "login", safeReturnTo(r.URL.Query().Get("return_to")))
+	s.beginGoogleFlow(w, r, googleFlow{Mode: "login", ReturnTo: safeReturnTo(r.URL.Query().Get("return_to"))})
+}
+
+func (s *Server) beginGoogleSignup(w http.ResponseWriter, r *http.Request) {
+	if s.googleProvider == nil || s.registrations == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := s.currentSession(w, r); ok {
+		http.Redirect(w, r, "/app", http.StatusSeeOther)
+		return
+	}
+	if !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Redirect(w, r, "/signup?status=google_failed", http.StatusSeeOther)
+		return
+	}
+	accountName := strings.TrimSpace(r.FormValue("account_name"))
+	if accountName == "" || len(accountName) > 160 {
+		http.Redirect(w, r, "/signup?status=google_account_required", http.StatusSeeOther)
+		return
+	}
+	s.beginGoogleFlow(w, r, googleFlow{
+		Mode: "signup", ReturnTo: safeReturnTo(r.FormValue("return_to")), AccountName: accountName,
+		Region: "us-east", OfferCode: availableOfferCode(s.catalog(), r.FormValue("offer_code"), time.Now().UTC()),
+	})
 }
 
 func (s *Server) beginGoogleConnection(w http.ResponseWriter, r *http.Request) {
@@ -650,31 +675,31 @@ func (s *Server) beginGoogleConnection(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
 		return
 	}
-	s.beginGoogleFlow(w, r, "connect", "/app/security")
+	s.beginGoogleFlow(w, r, googleFlow{Mode: "connect", ReturnTo: "/app/security"})
 }
 
-func (s *Server) beginGoogleFlow(w http.ResponseWriter, r *http.Request, mode, returnTo string) {
+func (s *Server) beginGoogleFlow(w http.ResponseWriter, r *http.Request, flow googleFlow) {
 	state, err := googleRandom()
 	if err != nil {
-		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		s.googleFailure(w, r, flow.Mode)
 		return
 	}
 	nonce, err := googleRandom()
 	if err != nil {
-		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		s.googleFailure(w, r, flow.Mode)
 		return
 	}
 	verifier, err := googleRandom()
 	if err != nil {
-		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		s.googleFailure(w, r, flow.Mode)
 		return
 	}
 	digest := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(digest[:])
-	flow := googleFlow{State: state, Nonce: nonce, Verifier: verifier, Mode: mode, ReturnTo: safeReturnTo(returnTo)}
+	flow.State, flow.Nonce, flow.Verifier, flow.ReturnTo = state, nonce, verifier, safeReturnTo(flow.ReturnTo)
 	encoded, err := json.Marshal(flow)
 	if err != nil {
-		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		s.googleFailure(w, r, flow.Mode)
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: googleFlowCookie, Value: base64.RawURLEncoding.EncodeToString(encoded), Path: "/", HttpOnly: true,
@@ -682,7 +707,7 @@ func (s *Server) beginGoogleFlow(w http.ResponseWriter, r *http.Request, mode, r
 	destination, err := s.googleProvider.AuthorizationURL(state, nonce, challenge, s.googleRedirectURI)
 	if err != nil {
 		s.clearGoogleFlow(w)
-		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		s.googleFailure(w, r, flow.Mode)
 		return
 	}
 	http.Redirect(w, r, destination, http.StatusSeeOther)
@@ -722,6 +747,54 @@ func (s *Server) completeGoogleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		http.Redirect(w, r, "/app/security?status=google_connected", http.StatusSeeOther)
+		return
+	}
+	if flow.Mode == "signup" {
+		if _, authenticated := s.currentSession(w, r); authenticated {
+			http.Redirect(w, r, "/app", http.StatusSeeOther)
+			return
+		}
+		identifier, identifierErr := oidcauth.Identifier(assertion)
+		if identifierErr != nil {
+			s.googleFailure(w, r, flow.Mode)
+			return
+		}
+		displayName := strings.TrimSpace(assertion.DisplayName)
+		if displayName == "" {
+			displayName = strings.SplitN(assertion.Email, "@", 2)[0]
+		}
+		_, err = s.registrations.CompleteExternal(r.Context(), registration.ExternalCommand{
+			Email: assertion.Email, DisplayName: displayName, AccountName: flow.AccountName, Region: flow.Region,
+			OfferCode: flow.OfferCode, Provider: "oidc", Identifier: identifier,
+		})
+		if errors.Is(err, registration.ErrEmailExists) || errors.Is(err, registration.ErrIdentityExists) {
+			http.Redirect(w, r, "/signup?status=google_already_registered", http.StatusSeeOther)
+			return
+		}
+		if err != nil {
+			s.logger.Warn("Google registration rejected", "error", err)
+			s.googleFailure(w, r, flow.Mode)
+			return
+		}
+		issued, err := s.googleAuthentication.Login(r.Context(), assertion, r.UserAgent())
+		if err != nil {
+			s.logger.Error("Google registration login failed", "error", err)
+			http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+			return
+		}
+		s.setSessionCookie(w, issued.Token, issued.Session.ExpiresAt)
+		target := safeReturnTo(flow.ReturnTo)
+		if target == "" && flow.OfferCode != "" {
+			target = "/app?offer=" + url.QueryEscape(flow.OfferCode) + "&status=welcome#billing"
+		}
+		if target == "" {
+			target = "/app"
+		}
+		query := url.Values{
+			"status": {"google_signup_passkey"}, "return_to": {target},
+			"analytics_delivery": {ids.RandomGenerator{}.New()}, "analytics_at": {strconv.FormatInt(time.Now().UTC().Unix(), 10)},
+		}
+		http.Redirect(w, r, "/app/security?"+query.Encode(), http.StatusSeeOther)
 		return
 	}
 	if flow.Mode != "login" {
@@ -796,6 +869,10 @@ func (s *Server) googleFailure(w http.ResponseWriter, r *http.Request, mode stri
 		http.Redirect(w, r, "/app/security?status=google_failed", http.StatusSeeOther)
 		return
 	}
+	if mode == "signup" {
+		http.Redirect(w, r, "/signup?status=google_failed", http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
 }
 
@@ -809,12 +886,18 @@ func googleRandom() (string, error) {
 
 func validGoogleFlow(flow googleFlow) bool {
 	valid := func(value string) bool { return len(value) == 43 && !strings.ContainsAny(value, "\r\n\t ") }
-	return valid(flow.State) && valid(flow.Nonce) && valid(flow.Verifier) && (flow.Mode == "login" || flow.Mode == "connect") && safeReturnTo(flow.ReturnTo) == flow.ReturnTo
+	if !valid(flow.State) || !valid(flow.Nonce) || !valid(flow.Verifier) || safeReturnTo(flow.ReturnTo) != flow.ReturnTo {
+		return false
+	}
+	if flow.Mode == "signup" {
+		return strings.TrimSpace(flow.AccountName) != "" && len(flow.AccountName) <= 160 && flow.Region == "us-east" && len(flow.OfferCode) <= 200
+	}
+	return (flow.Mode == "login" || flow.Mode == "connect") && flow.AccountName == "" && flow.Region == "" && flow.OfferCode == ""
 }
 
 func (s *Server) signupPage(w http.ResponseWriter, r *http.Request) {
 	offerCode := availableOfferCode(s.catalog(), r.URL.Query().Get("offer"), time.Now().UTC())
-	s.render(w, http.StatusOK, "signup", pageData{Title: "Create your Account", Notice: signupNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), OfferCode: offerCode, PrivacyControls: true})
+	s.render(w, http.StatusOK, "signup", pageData{Title: "Create your Account", Notice: signupNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), OfferCode: offerCode, GoogleConfigured: s.googleProvider != nil && s.registrations != nil, PrivacyControls: true})
 }
 func (s *Server) signup(w http.ResponseWriter, r *http.Request) {
 	if !s.validOrigin(r, false) {
@@ -1426,6 +1509,14 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 		data.Notice = "Google sign-in has been disconnected. Your password and passkeys are unchanged."
 	case "google_failed":
 		data.Error = "Google sign-in could not be changed. Confirm with a passkey and try again."
+	case "google_signup_passkey":
+		data.Notice = "Your team is created and Google sign-in is ready. Add a passkey now to secure the owner Account before continuing."
+		seconds, parseErr := strconv.ParseInt(r.URL.Query().Get("analytics_at"), 10, 64)
+		occurredAt := time.Unix(seconds, 0).UTC()
+		if parseErr == nil && occurredAt.After(time.Now().UTC().Add(-24*time.Hour)) && occurredAt.Before(time.Now().UTC().Add(5*time.Minute)) {
+			setAnalyticsMarkers(&data, r.URL.Query().Get("analytics_delivery"), occurredAt, "registration_started", "account_created")
+			data.AnalyticsMethod = "google"
+		}
 	}
 	s.render(w, http.StatusOK, "security", data)
 }
@@ -1901,8 +1992,15 @@ func loginNotice(status string) string {
 	return ""
 }
 func signupNotice(status string) string {
-	if status == "sent" {
+	switch status {
+	case "sent":
 		return "Your verification link is on its way."
+	case "google_account_required":
+		return "Enter your business name before continuing with Google."
+	case "google_already_registered":
+		return "That email or Google identity is already registered. Sign in instead; Spyglass never links accounts by matching email alone."
+	case "google_failed":
+		return "Google sign-up could not be completed. Please try again."
 	}
 	return ""
 }

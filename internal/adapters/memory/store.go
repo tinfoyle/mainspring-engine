@@ -26,6 +26,7 @@ type Store struct {
 	users           map[ids.UserID]identity.User
 	usersByEmail    map[string]ids.UserID
 	credentials     map[ids.UserID]identity.LocalCredential
+	externalIDs     map[string]ids.UserID
 	accounts        map[ids.AccountID]accounts.Account
 	memberships     map[ids.MembershipID]accounts.Membership
 	assignments     map[ids.AccountID]placement.Assignment
@@ -52,7 +53,54 @@ type authAttempt struct {
 }
 
 func NewStore(publishedCatalog catalog.PublishedCatalog, cells []placement.Cell) *Store {
-	return &Store{pending: map[ids.RegistrationID]registration.Pending{}, users: map[ids.UserID]identity.User{}, usersByEmail: map[string]ids.UserID{}, credentials: map[ids.UserID]identity.LocalCredential{}, accounts: map[ids.AccountID]accounts.Account{}, memberships: map[ids.MembershipID]accounts.Membership{}, assignments: map[ids.AccountID]placement.Assignment{}, grants: map[ids.AccountID][]entitlements.Grant{}, snapshots: map[ids.AccountID]entitlements.Snapshot{}, cells: append([]placement.Cell(nil), cells...), catalog: publishedCatalog, authAttempts: map[[32]byte]authAttempt{}, networkAttempts: map[networkAttemptKey]authAttempt{}, invitations: map[ids.InvitationID]accounts.Invitation{}, closures: map[string]closureRecord{}, contactChanges: map[ids.ContactChangeID]contactchange.Pending{}}
+	return &Store{pending: map[ids.RegistrationID]registration.Pending{}, users: map[ids.UserID]identity.User{}, usersByEmail: map[string]ids.UserID{}, credentials: map[ids.UserID]identity.LocalCredential{}, externalIDs: map[string]ids.UserID{}, accounts: map[ids.AccountID]accounts.Account{}, memberships: map[ids.MembershipID]accounts.Membership{}, assignments: map[ids.AccountID]placement.Assignment{}, grants: map[ids.AccountID][]entitlements.Grant{}, snapshots: map[ids.AccountID]entitlements.Snapshot{}, cells: append([]placement.Cell(nil), cells...), catalog: publishedCatalog, authAttempts: map[[32]byte]authAttempt{}, networkAttempts: map[networkAttemptKey]authAttempt{}, invitations: map[ids.InvitationID]accounts.Invitation{}, closures: map[string]closureRecord{}, contactChanges: map[ids.ContactChangeID]contactchange.Pending{}}
+}
+
+func (s *Store) CompleteExternal(_ context.Context, provisioned registration.Provisioned, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if provisioned.ExternalIdentity == nil {
+		return errors.New("external identity is required")
+	}
+	if _, exists := s.usersByEmail[provisioned.User.PrimaryEmail]; exists {
+		return registration.ErrEmailExists
+	}
+	key := provisioned.ExternalIdentity.Provider + "\x00" + provisioned.ExternalIdentity.Identifier
+	if _, exists := s.externalIDs[key]; exists {
+		return registration.ErrIdentityExists
+	}
+	for _, existing := range s.accounts {
+		if existing.Slug == provisioned.Account.Slug {
+			return errors.New("account slug already exists")
+		}
+	}
+	cellFound := false
+	for index := range s.cells {
+		if s.cells[index].ID == provisioned.Assignment.CellID && s.cells[index].State == "active" && s.cells[index].AssignedAccounts < s.cells[index].SoftLimit {
+			s.cells[index].AssignedAccounts++
+			cellFound = true
+			break
+		}
+	}
+	if !cellFound {
+		return errors.New("selected cell no longer has placement capacity")
+	}
+	s.users[provisioned.User.ID] = provisioned.User
+	s.usersByEmail[provisioned.User.PrimaryEmail] = provisioned.User.ID
+	s.externalIDs[key] = provisioned.User.ID
+	s.accounts[provisioned.Account.ID] = provisioned.Account
+	s.memberships[provisioned.Membership.ID] = provisioned.Membership
+	s.assignments[provisioned.Account.ID] = provisioned.Assignment
+	s.grants[provisioned.Account.ID] = append([]entitlements.Grant(nil), provisioned.Grants...)
+	s.snapshots[provisioned.Account.ID] = provisioned.Snapshot
+	for id, pending := range s.pending {
+		if pending.User.PrimaryEmail == provisioned.User.PrimaryEmail && pending.ConsumedAt == nil {
+			consumed := now.UTC()
+			pending.ConsumedAt = &consumed
+			s.pending[id] = pending
+		}
+	}
+	return nil
 }
 
 func (s *Store) CreatePending(_ context.Context, pending registration.Pending) error {

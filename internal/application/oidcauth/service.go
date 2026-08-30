@@ -48,7 +48,7 @@ func New(repository Repository, sessionService *sessions.Service, clock sessions
 }
 
 func (s *Service) Login(ctx context.Context, assertion Assertion, clientLabel string) (sessions.Issued, error) {
-	identifier, err := identifier(assertion)
+	identifier, err := Identifier(assertion)
 	if err != nil {
 		return sessions.Issued{}, err
 	}
@@ -74,7 +74,7 @@ func (s *Service) Connect(ctx context.Context, session sessions.Session, asserti
 	if err := strongauth.Require(session, session.UserID, s.clock.Now().UTC()); err != nil {
 		return err
 	}
-	identifier, err := identifier(assertion)
+	identifier, err := Identifier(assertion)
 	if err != nil {
 		return err
 	}
@@ -92,7 +92,9 @@ func (s *Service) Disconnect(ctx context.Context, session sessions.Session, issu
 	return s.repository.Disconnect(ctx, session.UserID, issuer+"\x1f", s.clock.Now().UTC())
 }
 
-func identifier(assertion Assertion) (string, error) {
+// Identifier validates a provider assertion and returns the opaque key used by
+// Spyglass. Callers must not derive identity from email alone.
+func Identifier(assertion Assertion) (string, error) {
 	assertion.Issuer = strings.TrimSpace(assertion.Issuer)
 	assertion.Subject = strings.TrimSpace(assertion.Subject)
 	assertion.Email = strings.TrimSpace(assertion.Email)

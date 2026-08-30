@@ -131,6 +131,39 @@ func (r *RegistrationRepository) Complete(ctx context.Context, tokenHash [32]byt
 	return provisioned, nil
 }
 
+func (r *RegistrationRepository) CompleteExternal(ctx context.Context, provisioned registration.Provisioned, now time.Time) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	capacity, err := tx.Exec(ctx, `
+		UPDATE cells SET assigned_accounts=assigned_accounts+1
+		WHERE id=$1 AND state='active' AND assigned_accounts < soft_account_limit`, provisioned.Assignment.CellID)
+	if err != nil {
+		return err
+	}
+	if capacity.RowsAffected() != 1 {
+		return errors.New("selected cell no longer has placement capacity")
+	}
+	if err := insertProvisioned(ctx, tx, provisioned, now); err != nil {
+		if isUniqueConstraint(err, "users_primary_email_unique") {
+			return registration.ErrEmailExists
+		}
+		if isUniqueConstraint(err, "authentication_identities_pkey", "authentication_identities_user_id_provider_key") {
+			return registration.ErrIdentityExists
+		}
+		return err
+	}
+	// A Google registration supersedes any unconsumed email challenge for the
+	// same verified address without exposing or reusing that challenge.
+	if _, err := tx.Exec(ctx, `UPDATE registration_challenges SET consumed_at=$2 WHERE primary_email=$1 AND consumed_at IS NULL`, provisioned.User.PrimaryEmail, now.UTC()); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
 func loadPendingForUpdate(ctx context.Context, tx pgx.Tx, tokenHash [32]byte) (registration.Pending, error) {
 	var pending registration.Pending
 	var tokenBytes []byte
@@ -163,8 +196,14 @@ func insertProvisioned(ctx context.Context, tx pgx.Tx, value registration.Provis
 	if _, err := tx.Exec(ctx, `INSERT INTO users (id,primary_email,display_name,state,email_verified_at,security_version,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, value.User.ID, value.User.PrimaryEmail, value.User.DisplayName, value.User.State, value.User.EmailVerifiedAt, value.User.SecurityVersion, value.User.CreatedAt); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO authentication_identities (user_id,provider,identifier,secret_hash,created_at,updated_at) VALUES ($1,'local',$2,$3,$4,$5)`, value.Credential.UserID, value.User.PrimaryEmail, value.Credential.PasswordHash, value.Credential.CreatedAt, value.Credential.UpdatedAt); err != nil {
-		return err
+	if value.ExternalIdentity != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO authentication_identities (user_id,provider,identifier,created_at,updated_at) VALUES ($1,$2,$3,$4,$4)`, value.User.ID, value.ExternalIdentity.Provider, value.ExternalIdentity.Identifier, now.UTC()); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.Exec(ctx, `INSERT INTO authentication_identities (user_id,provider,identifier,secret_hash,created_at,updated_at) VALUES ($1,'local',$2,$3,$4,$5)`, value.Credential.UserID, value.User.PrimaryEmail, value.Credential.PasswordHash, value.Credential.CreatedAt, value.Credential.UpdatedAt); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO accounts (id,slug,display_name,account_type,state,cell_id,placement_generation,entitlement_version,last_catalog_reconciled_version,version,created_by_user_id,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, value.Account.ID, value.Account.Slug, value.Account.DisplayName, value.Account.Type, value.Account.State, value.Account.CellID, value.Account.PlacementGeneration, value.Account.EntitlementVersion, value.Snapshot.CatalogVersion, value.Account.Version, value.Account.CreatedByUserID, value.Account.CreatedAt); err != nil {
 		return err
