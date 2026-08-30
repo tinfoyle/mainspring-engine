@@ -12,7 +12,7 @@ The read-only inventory found Ubuntu kernel 7.0 on x86-64, 2 vCPU, 7.7 GiB RAM, 
 
 The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the website, application and MCP stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs, the Account-scoped Work/Agent families and public MCP traffic without exposing any container port on the host.
 
-The active clean checkout is `/opt/spyglass-stage/releases/68a64a9`, selected by `/opt/spyglass-stage/current`. Earlier clean checkouts and secret sets are retained for controlled recovery, but rollback across the current schema requires an explicit compatibility decision rather than merely selecting an old directory. All three Stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS. A temporary `mcp-client.stage.infiniteocean.net` Client ID Metadata Document supports the outstanding external-client certificate and must be removed after that evidence is sealed.
+The RC.12 application was deployed from the clean checkout `/opt/spyglass-stage/releases/68a64a9`. `/opt/spyglass-stage/current` selects the active clean operator checkout and may advance to add revision-controlled Stage tooling without changing the immutable RC.12 image set. Earlier clean checkouts and secret sets are retained for controlled recovery, but rollback across the current schema requires an explicit compatibility decision rather than merely selecting an old directory. All three Stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS. A temporary `mcp-client.stage.infiniteocean.net` Client ID Metadata Document supports the outstanding external-client certificate and must be removed after that evidence is sealed.
 
 The protected provider input exists at `/opt/spyglass-stage/provider-input/stage.providers.env` with directory mode 700 and file mode 600. SMTP, Stripe sandbox/webhook, non-production model access and the reviewed non-secret model price book are present without disclosure. The private five-level Agent complexity policy currently maps all levels to the configured `gpt-5.6` provider model with increasing reasoning effort; it is an environment input, not a hard-coded product price. Stalwart implicit TLS is published on port 465 and healthy; the prior Compose file is retained as `/opt/infiniteocean/compose.yml.bak.20260821T143155Z.pre-smtps-465`.
 
@@ -71,6 +71,55 @@ secret_set=/opt/spyglass-stage/secrets/2026-08-30-02
 The initial shared-edge merge is complete. For future edge changes, validate the host file inside `infiniteocean-caddy-1` before reload. Update the existing file in place: atomic replacement changes the bind-mounted inode and leaves the running Caddy container attached to stale content until it is recreated. The edge file also serves unrelated Infinite Ocean applications, so retain a timestamped backup for each change.
 
 Record all three image digests, Git revision, Catalog version and the three restore checkpoints before promotion. Database backup hooks and schedules are supplied by the owner after the containers are in place. Rollback selects a recorded, schema-compatible artifact set and reruns the same verifier/deployer; the historical RC.5 -> RC.4 -> RC.5 rehearsal did not restore or replace database volumes and does not prove an RC.9 downgrade. Database restoration, when required, is quarantined and follows signed erasure-checkpoint replay.
+
+## Resetting a synthetic signup fixture
+
+The Stage operator link is installed from the revision-controlled checkout:
+
+```bash
+install -d -m 755 /opt/spyglass-stage/bin
+ln -sfn \
+  /opt/spyglass-stage/current/deploy/docker/spyglass/reset-stage-signup.sh \
+  /opt/spyglass-stage/bin/reset-stage-signup
+```
+
+Inspect first; inspection is read-only and prints the exact User, Account,
+cell and placement generation it resolved:
+
+```bash
+/opt/spyglass-stage/bin/reset-stage-signup inspect tester@example.com
+```
+
+Only after verifying that this is synthetic test data, repeat both the Account
+UUID and normalized email shown by inspection:
+
+```bash
+/opt/spyglass-stage/bin/reset-stage-signup execute \
+  tester@example.com 00000000-0000-4000-8000-000000000000 tester@example.com
+```
+
+The command is physically pinned to containers carrying the exact
+`spyglass-stage` Compose project label. It accepts only one active, verified
+User with one active owner membership, one active Account of type `inactive`,
+one empty entitlement snapshot, one completed provisioning record and one
+otherwise-empty cell namespace. It dynamically checks every current direct
+User/Account foreign key and every unbound `user_id`/`account_id` column. Any
+billing, checkout, commissioning, AI-token, Affiliate, Operations, MCP,
+privacy-rights, export, closure, erasure, movement, additional membership or
+cell-owned row refuses the operation. Such an Account must use the applicable
+support or governed Account-erasure workflow instead.
+
+When execution is permitted, the command removes the empty cell namespace and
+then deletes the signup identity/consent/analytics shell in one guarded global
+transaction, including consumed registration challenges and identity rate
+limits for that User. If the global transaction refuses or fails, a trap
+recreates the proven-empty cell namespace. It never clears anonymous abuse
+windows, unrelated consent subjects, Catalog or provider data. Each successful
+execution writes a mode-600 evidence record containing the operator, UTC time,
+email SHA-256, exact IDs and result under
+`/opt/spyglass-stage/evidence/test-resets`; the email itself is not recorded.
+This tool is solely for revocable Stage test fixtures and is not the GDPR
+Account/data deletion process.
 
 ## Evidence retained on the VPS
 

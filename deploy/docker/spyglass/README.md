@@ -6,6 +6,25 @@ The connected Hostinger layout is defined by `compose.stage.yml`; its verified c
 
 Stage deployment takes two inputs: a tracked, non-secret `deploy/releases/<version>.env` binding the application/website digests to their source revision, followed by the mode-600 environment secret file. The verifier rejects image overrides in the secret file.
 
+Stage signup testing has a separate, deliberately narrow reset operator. It
+can inspect or erase one verified User whose sole Account is still the exact
+inactive, unpaid, empty signup shell. It refuses additional members, billing,
+Affiliate, Operations, privacy-rights, MCP, movement/closure/erasure state, or
+any cell data. It is not a customer deletion shortcut and cannot target the
+local or production Compose projects:
+
+```bash
+/opt/spyglass-stage/bin/reset-stage-signup inspect tester@example.com
+# Copy the Account UUID from the inspection and repeat the email exactly.
+/opt/spyglass-stage/bin/reset-stage-signup execute \
+  tester@example.com 00000000-0000-4000-8000-000000000000 tester@example.com
+```
+
+Execution writes mode-600, content-free evidence under
+`/opt/spyglass-stage/evidence/test-resets`. The implementation and its SQL
+guards live beside this README and are verified by `make verify-stage-reset`.
+The Hostinger runbook owns installation and the full safety boundary.
+
 Google login uses a separate operator-supplied `client-id:client-secret` input. The input must be an absolute, non-symlinked mode-400/600 file outside Git. Pass it as the fifth argument when preparing a fresh Stage secret set; the preparer copies it into the Account API's group-readable runtime secret directory, records only that runtime path in `stage.env`, and carries it forward during later rotations. Google login never shares the Google Drive Integration OAuth client.
 
 When hosted GitHub release jobs are unavailable, UbuntuRojo can publish the
