@@ -6,28 +6,28 @@
 - MCP resource origin: `https://mcp.stage.infiniteocean.net`
 - Compose project: `spyglass-stage`
 
-## Verified host facts and live state (2026-08-27)
+## Verified host facts and live state (2026-08-30)
 
 The read-only inventory found Ubuntu kernel 7.0 on x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 storage with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user belongs to `docker` and has non-interactive sudo. The existing `infiniteocean` Compose project owns ports 80/443 through Caddy and owns the public mail ports through Stalwart. Spyglass must not replace, restart or bind over those services.
 
 The stage override therefore joins the existing external `infiniteocean_public` network under alias `spyglass-stage-edge`. The existing Caddy remains the sole ACME/public edge and proxies the website, application and MCP stage hosts to that alias using `Caddyfile.hostinger-snippet`. The checked-in internal Caddy routes website/global APIs, the Account-scoped Work/Agent families and public MCP traffic without exposing any container port on the host.
 
-The active clean checkout is `/opt/spyglass-stage/releases/ebe0c4505d239d484d7540c94880022b98ce2ed8`, selected by `/opt/spyglass-stage/current`. Earlier clean checkouts and secret sets are retained for controlled recovery, but rollback across the current schema requires an explicit compatibility decision rather than merely selecting an old directory. All three Stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS. A temporary `mcp-client.stage.infiniteocean.net` Client ID Metadata Document supports the outstanding external-client certificate and must be removed after that evidence is sealed.
+The active clean checkout is `/opt/spyglass-stage/releases/0400a82`, selected by `/opt/spyglass-stage/current`. Earlier clean checkouts and secret sets are retained for controlled recovery, but rollback across the current schema requires an explicit compatibility decision rather than merely selecting an old directory. All three Stage origins resolve to `2.25.154.173`. The reviewed host routes are live in `/opt/infiniteocean/caddy/Caddyfile`, import the host's shared `security_headers` snippet, and return HSTS. Timestamped pre-change Caddy backups remain on the VPS. A temporary `mcp-client.stage.infiniteocean.net` Client ID Metadata Document supports the outstanding external-client certificate and must be removed after that evidence is sealed.
 
 The protected provider input exists at `/opt/spyglass-stage/provider-input/stage.providers.env` with directory mode 700 and file mode 600. SMTP, Stripe sandbox/webhook, non-production model access and the reviewed non-secret model price book are present without disclosure. The private five-level Agent complexity policy currently maps all levels to the configured `gpt-5.6` provider model with increasing reasoning effort; it is an environment input, not a hard-coded product price. Stalwart implicit TLS is published on port 465 and healthy; the prior Compose file is retained as `/opt/infiniteocean/compose.yml.bak.20260821T143155Z.pre-smtps-465`.
 
-The same-revision RC.9 application, public Nuxt UI and private Vue UI images run at the exact digests recorded in `deploy/releases/0.3.0-rc.9.env`. RC.9 retains the RC.7 notification correction and RC.8 landing alignment, adds the UbuntuRojo GHCR publisher, and replaces the public Features card wall with a Your Turn-led product story. There are 47 long-running Spyglass containers: all 46 healthchecked workloads are healthy and the internal edge is running without a healthcheck. The three PostgreSQL services retain their persistent volumes at global migration 61 and cell migrations 79/79. Live Features acceptance confirms the new lead, all twelve detail links, canonical metadata and no horizontal overflow; the existing public/private origin acceptance remains applicable.
+The same-revision RC.11 application, public Nuxt UI and private Vue UI images run at the exact digests recorded in `deploy/releases/0.3.0-rc.11.env`. RC.11 adds explicit Google OIDC login and repairs the Stage database-role and dual-database restore-checkpoint contracts exposed during rollout. There are 49 long-running Spyglass containers: all 48 healthchecked workloads are healthy and the internal edge is running without a healthcheck. The three PostgreSQL services retain their persistent volumes at global migration 66 and cell migrations 80/80. Live acceptance confirms 200 responses from the public and login pages, the Google control, a Google authorization redirect with the exact Stage callback, PKCE, nonce/state and `openid email profile` scopes, safe rejection of an invalid callback, and zero recent account/provisioning errors.
 
 Catalog v3 is published with completed empty rollout and exact Stripe test-mode mappings for the $50 monthly team subscription, optional $250 commissioning package and $10/10,000-token starter package. Tax behavior is exclusive. Stage used a protected, Stage-only bootstrap signing identity with issuer `https://stage-catalog-bootstrap.infiniteocean.net` to exercise the governed draft/review/approval/publication path. That identity is not a production credential and must be replaced by the production operator identity plane before promotion.
 
 ## Files kept outside Git
 
-The mode-600 provider input and generated secrets remain outside Git. Active immutable secret set `2026-08-27-01` carries retained service credentials forward from `2026-08-23-01` and adds the Affiliate, analytics and privacy-erasure identities required by RC.6; it is the only set used by the live stack. The provider file has a mode-600 pre-RC.6 backup. For an additive topology upgrade, choose a new empty versioned target and pass the previous active environment as the fourth argument:
+The mode-600 provider input and generated secrets remain outside Git. Active immutable secret set `2026-08-30-02` carries retained service credentials forward, adds the five Operations database roles, and includes the Google login client copied from the operator-owned mode-600 input at `/opt/spyglass-stage/secrets/provider-inputs/google-login-client`; it is the only set used by the live stack. The provider file has a mode-600 pre-RC.6 backup. For an additive topology upgrade, choose a new empty versioned target and pass the previous active environment as the fourth argument. Supply the Google input as the fifth argument only when adding or rotating it; otherwise it is copied from the previous set:
 
 ```bash
 # Edit the provider input without printing it to logs.
 secret_set=/opt/spyglass-stage/secrets/YYYY-MM-DD-NN
-previous_stage_env=/opt/spyglass-stage/secrets/2026-08-27-01/stage.env
+previous_stage_env=/opt/spyglass-stage/secrets/2026-08-30-02/stage.env
 ./prepare-stage-secrets.sh \
   /opt/spyglass-stage/provider-input/stage.providers.env \
   "$secret_set" \
@@ -62,8 +62,8 @@ From the clean checkout selected by `current`:
 
 ```bash
 cd /opt/spyglass-stage/current/deploy/docker/spyglass
-release_file="$(realpath ../../releases/0.3.0-rc.9.env)"
-secret_set=/opt/spyglass-stage/secrets/2026-08-27-01
+release_file="$(realpath ../../releases/0.3.0-rc.11.env)"
+secret_set=/opt/spyglass-stage/secrets/2026-08-30-02
 ./verify-stage.sh "$release_file" "$secret_set/stage.env"
 ./deploy-stage.sh "$release_file" "$secret_set/stage.env"
 ```
