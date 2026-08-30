@@ -89,7 +89,11 @@ services:
     depends_on: {cell-b-migrate: {condition: service_completed_successfully}}
 
   account-api:
-    environment: *global-restore
+    group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]
+    environment:
+      <<: *global-restore
+      SPYGLASS_GOOGLE_LOGIN_CLIENT_FILE: /var/run/secrets/spyglass/google-login/client
+    volumes: ["${SPYGLASS_STAGE_GOOGLE_LOGIN_CLIENT_FILE:?set Google login client file}:/var/run/secrets/spyglass/google-login/client:ro"]
     depends_on: {global-roles: {condition: service_completed_successfully}}
   admission-api:
     group_add: ["${SPYGLASS_STAGE_SECRETS_GID:?set stage secrets group}"]

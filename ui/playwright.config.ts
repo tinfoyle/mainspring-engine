@@ -6,7 +6,7 @@ const standardChecks = /@text-zoom|@browser-zoom/;
 
 export default defineConfig({
   testDir: "./tests/browser",
-  testIgnore: "identity-entry-live.spec.ts",
+  testIgnore: ["identity-entry-live.spec.ts", "operations-console-live.spec.ts"],
   fullyParallel: false,
   forbidOnly: true,
   retries: 0,

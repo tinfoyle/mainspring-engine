@@ -48,6 +48,12 @@ test "${secret_dir#/}" != "$secret_dir" || { echo "stage secrets directory must 
 [[ "$secrets_gid" =~ ^[0-9]+$ ]] || { echo "stage secrets group must be numeric" >&2; exit 1; }
 test -s "$secret_dir/workload-ca/ca.crt" || { echo "stage workload CA is missing" >&2; exit 1; }
 test ! -e "$secret_dir/workload-ca/ca.key" || { echo "stage workload CA private key must not remain in deployable secrets" >&2; exit 1; }
+google_login_file="$(value SPYGLASS_STAGE_GOOGLE_LOGIN_CLIENT_FILE)"
+test "$google_login_file" = "$secret_dir/google-login/client" || { echo "Google login client must use the workload-scoped Stage secret path" >&2; exit 1; }
+test -f "$google_login_file" && test ! -L "$google_login_file" || { echo "Google login client is missing or unsafe" >&2; exit 1; }
+test "$(stat -c %a "$google_login_file")" = 640 || { echo "Google login client must be mode 640" >&2; exit 1; }
+test "$(stat -c %g "$google_login_file")" = "$secrets_gid" || { echo "Google login client group is incorrect" >&2; exit 1; }
+test "$(wc -l < "$google_login_file")" = 1 && grep -Eq '^[^[:space:]:]+:[^[:space:]:]+$' "$google_login_file" || { echo "Google login client has invalid content" >&2; exit 1; }
 
 declare -A dns uri usage
 dns[admission-api]=admission-api

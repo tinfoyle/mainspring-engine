@@ -38,6 +38,7 @@ type AuthenticationMethod string
 const (
 	AuthenticationMethodPassword AuthenticationMethod = "password"
 	AuthenticationMethodPasskey  AuthenticationMethod = "passkey"
+	AuthenticationMethodOIDC     AuthenticationMethod = "oidc"
 )
 
 type AuthenticationAssurance string
@@ -49,12 +50,12 @@ const (
 )
 
 func (m AuthenticationMethod) Valid() bool {
-	return m == AuthenticationMethodPassword || m == AuthenticationMethodPasskey
+	return m == AuthenticationMethodPassword || m == AuthenticationMethodPasskey || m == AuthenticationMethodOIDC
 }
 
 func (m AuthenticationMethod) Assurance() AuthenticationAssurance {
 	switch m {
-	case AuthenticationMethodPassword:
+	case AuthenticationMethodPassword, AuthenticationMethodOIDC:
 		return AssuranceSingleFactor
 	case AuthenticationMethodPasskey:
 		return AssuranceUserVerifiedCryptographic

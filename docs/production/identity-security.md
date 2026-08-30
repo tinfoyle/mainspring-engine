@@ -3,6 +3,12 @@
 - Status: Executable Phase 2 identity slice
 - Scope: system-wide User authentication; never Account authorization
 
+## Google login
+
+Google OpenID Connect is an optional sign-in method for the customer application. Spyglass uses authorization code flow with state, nonce and PKCE, verifies the signed ID token issuer, audience, expiry, subject, nonce and verified-email claim, then discards the provider token response. It requests only `openid email profile`; it does not retain Google access or refresh tokens.
+
+An email match never links identities. An already authenticated User must confirm with a recent user-verified passkey and explicitly connect the Google subject from Identity Security. Google login creates a single-factor `oidc` session, so Membership, billing, lifecycle, verified-contact and other strong-authentication boundaries continue to require a passkey. Disconnecting Google requires the same passkey assurance and revokes every active Spyglass session. The Operations Console remains passkey-only.
+
 ## 1. Boundary and invariants
 
 Spyglass authenticates one Infinite Ocean `User` before it resolves any Spyglass `Account`. A passkey proves control of a credential for that User. It does not prove Membership, role, selected Account, placement, package access, or billing authority.

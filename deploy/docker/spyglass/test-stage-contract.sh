@@ -28,9 +28,12 @@ sed -i \
   -e 's|SPYGLASS_AGENT_EXECUTION_POLICIES_JSON=REPLACE_WITH_COMPACT_FIVE_LEVEL_EXECUTION_MAP|SPYGLASS_AGENT_EXECUTION_POLICIES_JSON={"simple":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"low"},"efficient":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"low"},"balanced":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"medium"},"thorough":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"high"},"advanced":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"high"}}|' \
   "$provider_file"
 chmod 600 "$provider_file"
+google_login_file="$temporary/google-login-client"
+printf '%s\n' 'stage-contract-client:stage-contract-secret' >"$google_login_file"
+chmod 600 "$google_login_file"
 
 secret_dir="$temporary/secrets"
-bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$secret_dir" "$network"
+bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$secret_dir" "$network" "" "$google_login_file"
 # OpenSSL timestamps certificates to whole seconds. Give the verifier a full
 # clock tick so fast local filesystems cannot observe a just-issued certificate
 # as not-yet-valid.
@@ -39,8 +42,8 @@ env_file="$secret_dir/stage.env"
 
 carried_dir="$temporary/secrets-carried"
 bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$carried_dir" "$network" "$env_file"
-sed -E 's|^SPYGLASS_STAGE_SECRETS_DIRECTORY=.*$|SPYGLASS_STAGE_SECRETS_DIRECTORY=<normalized>|' "$env_file" >"$temporary/original.normalized"
-sed -E 's|^SPYGLASS_STAGE_SECRETS_DIRECTORY=.*$|SPYGLASS_STAGE_SECRETS_DIRECTORY=<normalized>|' "$carried_dir/stage.env" >"$temporary/carried.normalized"
+sed -E -e 's|^SPYGLASS_STAGE_SECRETS_DIRECTORY=.*$|SPYGLASS_STAGE_SECRETS_DIRECTORY=<normalized>|' -e 's|^SPYGLASS_STAGE_GOOGLE_LOGIN_CLIENT_FILE=.*$|SPYGLASS_STAGE_GOOGLE_LOGIN_CLIENT_FILE=<normalized>|' "$env_file" >"$temporary/original.normalized"
+sed -E -e 's|^SPYGLASS_STAGE_SECRETS_DIRECTORY=.*$|SPYGLASS_STAGE_SECRETS_DIRECTORY=<normalized>|' -e 's|^SPYGLASS_STAGE_GOOGLE_LOGIN_CLIENT_FILE=.*$|SPYGLASS_STAGE_GOOGLE_LOGIN_CLIENT_FILE=<normalized>|' "$carried_dir/stage.env" >"$temporary/carried.normalized"
 cmp "$temporary/original.normalized" "$temporary/carried.normalized"
 cmp "$secret_dir/integration-source/cursor.key" "$carried_dir/integration-source/cursor.key"
 test "$(stat -c %s "$secret_dir/integration-source/cursor.key")" = 32

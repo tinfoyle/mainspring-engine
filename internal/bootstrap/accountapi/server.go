@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/conversiontoken"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/googleidentity"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/privacytoken"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
@@ -34,6 +35,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
+	"github.com/tinfoyle/spyglass-engine/internal/application/oidcauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrights"
@@ -86,6 +88,7 @@ type Config struct {
 	ExportDownloadKeys           map[string][]byte
 	ExportDownloadLifetime       time.Duration
 	LocalMCPClientMetadata       *mcpauth.Client
+	GoogleLoginClientFile        string
 }
 
 type Server struct {
@@ -408,7 +411,21 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		}),
 		httpapi.WithAffiliateSupport(affiliateSupportService),
 	).Handler()
-	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin}}, logger, browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService), browserapp.WithContactChanges(contactChangeService, nil), browserapp.WithMCPGrants(mcpAuthorization), browserapp.WithAccountExports(exportService, exportDownloads))
+	browserOptions := []browserapp.Option{browserapp.WithCommercialAccess(commercialService), browserapp.WithAccountLifecycle(accountLifecycle), browserapp.WithAccountMembers(memberService), browserapp.WithRecovery(recoveryService, nil), browserapp.WithPasskeys(passkeyService), browserapp.WithRecoveryCodes(recoveryCodeService), browserapp.WithContactChanges(contactChangeService, nil), browserapp.WithMCPGrants(mcpAuthorization), browserapp.WithAccountExports(exportService, exportDownloads)}
+	if strings.TrimSpace(config.GoogleLoginClientFile) != "" {
+		googleProvider, providerErr := googleidentity.NewFromClientFile(googleidentity.Config{}, config.GoogleLoginClientFile)
+		if providerErr != nil {
+			pool.Close()
+			return nil, providerErr
+		}
+		googleAuthentication, authenticationErr := oidcauth.New(postgres.NewOIDCAuthenticationRepository(pool), sessionService, clock)
+		if authenticationErr != nil {
+			pool.Close()
+			return nil, authenticationErr
+		}
+		browserOptions = append(browserOptions, browserapp.WithGoogleLogin(googleAuthentication, googleProvider, googleidentity.Issuer, config.AppOrigin+"/auth/google/callback"))
+	}
+	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin}}, logger, browserOptions...)
 	if err != nil {
 		pool.Close()
 		return nil, err

@@ -65,9 +65,9 @@
       "port": 8080,
       "health": "/health/live,/health/ready",
       "database_roles": ["global.account-api"],
-      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_HTTP_ADDRESS", "SPYGLASS_APP_ORIGIN", "SPYGLASS_PUBLIC_ORIGIN", "SPYGLASS_MCP_RESOURCE_ORIGIN", "SPYGLASS_PASSKEY_RP_ID", "SPYGLASS_STRIPE_WEBHOOK_SECRET", "SPYGLASS_STRIPE_SECRET_KEY", "SPYGLASS_STRIPE_MODE", "SPYGLASS_STRIPE_API_VERSION", "SPYGLASS_NOTIFICATION_ENCRYPTION_KEY", "SPYGLASS_NETWORK_ACTOR_KEY", "SPYGLASS_PRIVACY_PREFERENCE_KEY", "SPYGLASS_ANALYTICS_HANDOFF_COOKIE_DOMAIN", "SPYGLASS_AFFILIATE_ENROLLMENT_OPEN", "SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED", "SPYGLASS_AFFILIATE_SETTLEMENT_MODE", "SPYGLASS_AFFILIATE_TERMS_VERSION", "SPYGLASS_AFFILIATE_RULE_VERSION", "SPYGLASS_PASSKEY_ENCRYPTION_KEYS", "SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_TRUSTED_PROXY_CIDRS", "SPYGLASS_CATALOG_REFRESH_INTERVAL", "SPYGLASS_OBJECT_STORE_ENDPOINT", "SPYGLASS_OBJECT_STORE_REGION", "SPYGLASS_OBJECT_STORE_SECURE", "SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY", "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_KEYS", "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_ACTIVE_KEY_ID", "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_CAPABILITY_LIFETIME", "SPYGLASS_MAX_DATABASE_CONNS"],
+      "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_HTTP_ADDRESS", "SPYGLASS_APP_ORIGIN", "SPYGLASS_PUBLIC_ORIGIN", "SPYGLASS_MCP_RESOURCE_ORIGIN", "SPYGLASS_GOOGLE_LOGIN_CLIENT_FILE", "SPYGLASS_PASSKEY_RP_ID", "SPYGLASS_STRIPE_WEBHOOK_SECRET", "SPYGLASS_STRIPE_SECRET_KEY", "SPYGLASS_STRIPE_MODE", "SPYGLASS_STRIPE_API_VERSION", "SPYGLASS_NOTIFICATION_ENCRYPTION_KEY", "SPYGLASS_NETWORK_ACTOR_KEY", "SPYGLASS_PRIVACY_PREFERENCE_KEY", "SPYGLASS_ANALYTICS_HANDOFF_COOKIE_DOMAIN", "SPYGLASS_AFFILIATE_ENROLLMENT_OPEN", "SPYGLASS_AFFILIATE_ATTRIBUTION_ENABLED", "SPYGLASS_AFFILIATE_SETTLEMENT_MODE", "SPYGLASS_AFFILIATE_TERMS_VERSION", "SPYGLASS_AFFILIATE_RULE_VERSION", "SPYGLASS_PASSKEY_ENCRYPTION_KEYS", "SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_TRUSTED_PROXY_CIDRS", "SPYGLASS_CATALOG_REFRESH_INTERVAL", "SPYGLASS_OBJECT_STORE_ENDPOINT", "SPYGLASS_OBJECT_STORE_REGION", "SPYGLASS_OBJECT_STORE_SECURE", "SPYGLASS_OBJECT_STORE_SERVER_SIDE_ENCRYPTION", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_ACCESS_KEY", "SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_DOWNLOAD_SECRET_KEY", "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_KEYS", "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_ACTIVE_KEY_ID", "SPYGLASS_ACCOUNT_EXPORT_DOWNLOAD_CAPABILITY_LIFETIME", "SPYGLASS_MAX_DATABASE_CONNS"],
       "configuration_profiles": ["traced", "global_restore_gate"],
-      "dependencies": ["global-postgresql", "stripe-api"]
+      "dependencies": ["global-postgresql", "stripe-api", "google-openid-connect"]
     },
     {
       "mode": "app-router",
@@ -167,6 +167,17 @@
       "configuration": ["SPYGLASS_DATABASE_URL", "SPYGLASS_ACCOUNT_CLOSURE_POLL_INTERVAL", "SPYGLASS_ACCOUNT_CLOSURE_LEASE", "SPYGLASS_ACCOUNT_CLOSURE_RETENTION", "SPYGLASS_ACCOUNT_CLOSURE_BLOCKED_RETRY", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
       "configuration_profiles": ["traced", "global_restore_gate"],
       "dependencies": ["global-postgresql"]
+    },
+    {
+      "mode": "account-provisioning-worker",
+      "kind": "worker",
+      "scope": "cell-and-global",
+      "port": 8081,
+      "health": "/health/live,/health/ready,/health/status,/metrics",
+      "database_roles": ["global.account-provisioning-worker", "cell.account-provisioning-worker"],
+      "configuration": ["SPYGLASS_GLOBAL_DATABASE_URL", "SPYGLASS_CELL_DATABASE_URL", "SPYGLASS_CELL_ID", "SPYGLASS_ACCOUNT_PROVISION_POLL_INTERVAL", "SPYGLASS_ACCOUNT_PROVISION_LEASE", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HEALTH_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate", "cell_restore_gate"],
+      "dependencies": ["global-postgresql", "cell-postgresql"]
     },
     {
       "mode": "identity-maintenance-worker",
@@ -489,6 +500,29 @@
       "configuration_profiles": ["traced", "operator_authorization"],
       "dependencies": ["global-postgresql"],
       "actions": ["inspect", "reencrypt"]
+    },
+    {
+      "mode": "operations-api",
+      "kind": "service",
+      "scope": "operations-global",
+      "port": 8080,
+      "health": "/health/live,/health/ready",
+      "database_roles": ["global.operations-identity", "global.operations-projection", "global.operations-billing", "global.operations-privacy", "global.operations-affiliate"],
+      "configuration": ["SPYGLASS_OPERATIONS_IDENTITY_DATABASE_URL", "SPYGLASS_OPERATIONS_PROJECTION_DATABASE_URL", "SPYGLASS_OPERATIONS_BILLING_DATABASE_URL", "SPYGLASS_OPERATIONS_PRIVACY_DATABASE_URL", "SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_URL", "SPYGLASS_ENVIRONMENT", "SPYGLASS_OPERATIONS_ORIGIN", "SPYGLASS_PASSKEY_RP_ID", "SPYGLASS_PASSKEY_ENCRYPTION_KEYS", "SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION", "SPYGLASS_NETWORK_ACTOR_KEY", "SPYGLASS_TRUSTED_PROXY_CIDRS", "SPYGLASS_MAX_REQUEST_BODY", "SPYGLASS_OPERATIONS_SECURE_COOKIE", "SPYGLASS_MAX_DATABASE_CONNS", "SPYGLASS_HTTP_ADDRESS"],
+      "configuration_profiles": ["traced", "global_restore_gate"],
+      "dependencies": ["global-postgresql"]
+    },
+    {
+      "mode": "operations-staff",
+      "kind": "operator_job",
+      "scope": "global",
+      "port": null,
+      "health": null,
+      "database_roles": ["global.migration-operator"],
+      "configuration": ["SPYGLASS_GLOBAL_MIGRATION_DATABASE_URL", "SPYGLASS_ENVIRONMENT"],
+      "configuration_profiles": [],
+      "dependencies": ["global-postgresql"],
+      "actions": ["assign", "revoke", "show"]
     },
     {
       "mode": "analytics-report",

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-provider_file="${1:?usage: prepare-stage-secrets.sh /absolute/path/to/stage.providers.env /absolute/path/to/secrets [edge-network] [previous-stage.env]}"
-target="${2:?usage: prepare-stage-secrets.sh /absolute/path/to/stage.providers.env /absolute/path/to/secrets [edge-network] [previous-stage.env]}"
+provider_file="${1:?usage: prepare-stage-secrets.sh /absolute/path/to/stage.providers.env /absolute/path/to/secrets [edge-network] [previous-stage.env] [google-login-client]}"
+target="${2:?usage: prepare-stage-secrets.sh /absolute/path/to/stage.providers.env /absolute/path/to/secrets [edge-network] [previous-stage.env] [google-login-client]}"
 edge_network="${3:-infiniteocean_public}"
 previous_env="${4:-}"
+google_login_input="${5:-}"
 
 fail() {
   echo "$*" >&2
@@ -21,6 +22,14 @@ if [[ -n "$previous_env" ]]; then
   [[ "$previous_env" = /* ]] || fail "previous stage environment path must be absolute"
   test -f "$previous_env" || fail "previous stage environment is missing"
   case "$(stat -c %a "$previous_env")" in 400|600) ;; *) fail "previous stage environment must be mode 400 or 600";; esac
+fi
+if [[ -n "$google_login_input" ]]; then
+  [[ "$google_login_input" = /* ]] || fail "Google login client path must be absolute"
+  test -f "$google_login_input" && test ! -L "$google_login_input" || fail "Google login client must be a regular non-symlink file"
+  case "$(stat -c %a "$google_login_input")" in 400|600) ;; *) fail "Google login client input must be mode 400 or 600";; esac
+  [[ "$(stat -c %s "$google_login_input")" -le 16384 ]] || fail "Google login client input is too large"
+  grep -Eq '^[^[:space:]:]+:[^[:space:]:]+$' "$google_login_input" || fail "Google login client must contain client-id:client-secret"
+  [[ "$(wc -l < "$google_login_input")" = 1 ]] || fail "Google login client must contain exactly one newline-terminated record"
 fi
 command -v openssl >/dev/null || fail "openssl is required"
 
@@ -177,6 +186,7 @@ SPYGLASS_WORK_ADMISSION_ORIGIN=https://admission-api:8443
 SPYGLASS_HOST_EDGE_NETWORK=$edge_network
 SPYGLASS_STAGE_SECRETS_DIRECTORY=$target
 SPYGLASS_STAGE_SECRETS_GID=$secrets_gid
+SPYGLASS_STAGE_GOOGLE_LOGIN_CLIENT_FILE=$target/google-login/client
 SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY=/opt/spyglass-stage/integration-credentials
 SPYGLASS_OBJECT_STORE_ENDPOINT=object-store:9000
 SPYGLASS_OBJECT_STORE_BUCKET=spyglass-documents
@@ -400,6 +410,18 @@ previous_source_dir=""
 if [[ -n "$previous_env" ]]; then
   previous_source_dir="$(dirname "$previous_env")/integration-source"
 fi
+
+mkdir -p "$work/google-login"
+if [[ -n "$google_login_input" ]]; then
+  cp -- "$google_login_input" "$work/google-login/client"
+elif [[ -n "$previous_env" ]]; then
+  previous_google_file="$(sed -n 's/^SPYGLASS_STAGE_GOOGLE_LOGIN_CLIENT_FILE=//p' "$previous_env")"
+  [[ "$previous_google_file" = /* && -f "$previous_google_file" && ! -L "$previous_google_file" ]] || fail "previous Google login client is missing"
+  cp -- "$previous_google_file" "$work/google-login/client"
+else
+  fail "a Google login client is required for a fresh Stage secret set"
+fi
+chmod 640 "$work/google-login/client"
 if [[ -n "$previous_source_dir" && -f "$previous_source_dir/cursor.key" && ! -L "$previous_source_dir/cursor.key" ]]; then
   [[ "$(stat -c %s "$previous_source_dir/cursor.key")" = 32 ]] || fail "previous Integration source cursor key must be exactly 32 bytes"
   cp -- "$previous_source_dir/cursor.key" "$work/integration-source/cursor.key"
@@ -417,12 +439,13 @@ fi
 rm -f -- "$work"/*.csr "$work"/*.cnf
 mkdir -p "$work/runner-identities-a" "$work/runner-identities-b"
 rm -f -- "$ca_dir/ca.key" "$ca_dir/ca.srl"
-chgrp -R "$secrets_gid" "$work/workload" "$work/integration-source" "$work/runner-identities-a" "$work/runner-identities-b"
+chgrp -R "$secrets_gid" "$work/workload" "$work/integration-source" "$work/google-login" "$work/runner-identities-a" "$work/runner-identities-b"
 find "$work/workload" -mindepth 1 -maxdepth 1 -type d -exec chmod 750 {} +
 find "$work/workload" -mindepth 2 -maxdepth 2 -type f -name tls.key -exec chmod 640 {} +
 chmod 770 "$work/runner-identities-a" "$work/runner-identities-b"
 chmod 600 "$work/stage.env"
 chmod 700 "$work" "$ca_dir" "$work/workload" "$work/integration-source"
+chmod 750 "$work/google-login"
 if [[ -d "$target" ]]; then
   rmdir "$target"
 fi

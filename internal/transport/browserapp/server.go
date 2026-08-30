@@ -1,7 +1,13 @@
 package browserapp
 
 import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"embed"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"html/template"
 	"log/slog"
@@ -20,6 +26,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
+	"github.com/tinfoyle/spyglass-engine/internal/application/oidcauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
@@ -49,6 +56,11 @@ type ContactChangeTokenSource interface {
 	LatestVerification(ids.UserID) (contactchange.Message, bool)
 }
 
+type GoogleIdentityProvider interface {
+	AuthorizationURL(state, nonce, challenge, redirectURI string) (string, error)
+	Exchange(context.Context, string, string, string, string) (oidcauth.Assertion, error)
+}
+
 type Config struct {
 	SessionCookieName       string
 	AccountCookieName       string
@@ -58,29 +70,33 @@ type Config struct {
 }
 
 type Server struct {
-	registrations       *registration.Service
-	authentication      *authentication.Service
-	sessions            *sessions.Service
-	accounts            *accountaccess.Service
-	accountLifecycle    *accountlifecycle.Service
-	members             *accountmembers.Service
-	invitations         *invitations.Service
-	catalog             func() catalog.PublishedCatalog
-	verificationTokens  VerificationTokenSource
-	invitationTokens    InvitationTokenSource
-	config              Config
-	logger              *slog.Logger
-	templates           *template.Template
-	commercial          *commercialaccess.Service
-	recovery            *recovery.Service
-	recoveryTokens      RecoveryTokenSource
-	passkeys            *passkeys.Service
-	recoveryCodes       *recoverycodes.Service
-	contactChanges      *contactchange.Service
-	contactChangeTokens ContactChangeTokenSource
-	mcpGrants           *mcpauth.Service
-	accountExports      *accountexport.Service
-	exportDownloads     *accountexport.DownloadService
+	registrations        *registration.Service
+	authentication       *authentication.Service
+	sessions             *sessions.Service
+	accounts             *accountaccess.Service
+	accountLifecycle     *accountlifecycle.Service
+	members              *accountmembers.Service
+	invitations          *invitations.Service
+	catalog              func() catalog.PublishedCatalog
+	verificationTokens   VerificationTokenSource
+	invitationTokens     InvitationTokenSource
+	config               Config
+	logger               *slog.Logger
+	templates            *template.Template
+	commercial           *commercialaccess.Service
+	recovery             *recovery.Service
+	recoveryTokens       RecoveryTokenSource
+	passkeys             *passkeys.Service
+	recoveryCodes        *recoverycodes.Service
+	contactChanges       *contactchange.Service
+	contactChangeTokens  ContactChangeTokenSource
+	mcpGrants            *mcpauth.Service
+	accountExports       *accountexport.Service
+	exportDownloads      *accountexport.DownloadService
+	googleAuthentication *oidcauth.Service
+	googleProvider       GoogleIdentityProvider
+	googleIssuer         string
+	googleRedirectURI    string
 }
 
 type Option func(*Server)
@@ -127,6 +143,15 @@ func WithAccountExports(service *accountexport.Service, downloads *accountexport
 	return func(server *Server) { server.accountExports, server.exportDownloads = service, downloads }
 }
 
+func WithGoogleLogin(service *oidcauth.Service, provider GoogleIdentityProvider, issuer, redirectURI string) Option {
+	return func(server *Server) {
+		server.googleAuthentication = service
+		server.googleProvider = provider
+		server.googleIssuer = strings.TrimSpace(issuer)
+		server.googleRedirectURI = strings.TrimSpace(redirectURI)
+	}
+}
+
 func New(registrations *registration.Service, authenticationService *authentication.Service, sessionService *sessions.Service, accountService *accountaccess.Service, invitationService *invitations.Service, catalogSource func() catalog.PublishedCatalog, verificationTokens VerificationTokenSource, invitationTokens InvitationTokenSource, config Config, logger *slog.Logger, options ...Option) (*Server, error) {
 	if registrations == nil || authenticationService == nil || sessionService == nil || accountService == nil || invitationService == nil || catalogSource == nil || logger == nil {
 		return nil, errors.New("browser application dependencies are required")
@@ -157,6 +182,22 @@ func New(registrations *registration.Service, authenticationService *authenticat
 	for _, option := range options {
 		option(server)
 	}
+	googleParts := 0
+	for _, configured := range []bool{server.googleAuthentication != nil, server.googleProvider != nil, server.googleIssuer != "", server.googleRedirectURI != ""} {
+		if configured {
+			googleParts++
+		}
+	}
+	if googleParts != 0 && googleParts != 4 {
+		return nil, errors.New("Google login dependencies must be configured together")
+	}
+	if googleParts == 4 {
+		redirect, redirectErr := url.Parse(server.googleRedirectURI)
+		origin := server.config.TrustedOrigins[0]
+		if redirectErr != nil || redirect.Scheme+"://"+redirect.Host != origin || redirect.Path != "/auth/google/callback" || redirect.RawQuery != "" || redirect.Fragment != "" {
+			return nil, errors.New("Google login redirect must be the exact application callback")
+		}
+	}
 	return server, nil
 }
 
@@ -176,6 +217,8 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /assets/privacy-analytics.js", s.privacyAnalyticsScript)
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
+	mux.HandleFunc("GET /auth/google", s.beginGoogleLogin)
+	mux.HandleFunc("GET /auth/google/callback", s.completeGoogleLogin)
 	mux.HandleFunc("GET /forgot-password", s.forgotPasswordPage)
 	mux.HandleFunc("POST /forgot-password", s.forgotPassword)
 	mux.HandleFunc("GET /reset-password", s.resetPasswordPage)
@@ -203,6 +246,8 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("POST /app/security/sessions/revoke", s.revokeSession)
 	mux.HandleFunc("POST /app/security/sessions/revoke-all", s.revokeAllSessions)
 	mux.HandleFunc("POST /app/security/mcp-grants/revoke", s.revokeMCPGrant)
+	mux.HandleFunc("POST /app/security/google/connect", s.beginGoogleConnection)
+	mux.HandleFunc("POST /app/security/google/disconnect", s.disconnectGoogle)
 	mux.HandleFunc("POST /app/account", s.selectAccount)
 	mux.HandleFunc("GET /app/account-closures", s.accountClosuresPage)
 	mux.HandleFunc("GET /app/account-exports", s.accountExportsPage)
@@ -450,6 +495,7 @@ type pageData struct {
 	SecurityEvents                                                                                     []securityEventView
 	Passkeys                                                                                           []passkeys.CredentialSummary
 	PasskeysConfigured                                                                                 bool
+	GoogleConfigured, GoogleConnected                                                                  bool
 	RecoveryCodeStatus                                                                                 recoverycodes.Status
 	RecoveryCodes                                                                                      []string
 	RecoveryCodesConfigured                                                                            bool
@@ -533,7 +579,7 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target, http.StatusSeeOther)
 		return
 	}
-	data := pageData{Title: "Sign in", Notice: loginNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), PasskeysConfigured: s.passkeys != nil, PrivacyControls: true}
+	data := pageData{Title: "Sign in", Notice: loginNotice(r.URL.Query().Get("status")), Email: r.URL.Query().Get("email"), ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), PasskeysConfigured: s.passkeys != nil, GoogleConfigured: s.googleProvider != nil, PrivacyControls: true}
 	if r.URL.Query().Get("status") == "verified" {
 		seconds, parseErr := strconv.ParseInt(r.URL.Query().Get("analytics_at"), 10, 64)
 		occurredAt := time.Unix(seconds, 0).UTC()
@@ -567,6 +613,203 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		target = "/app"
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+const googleFlowCookie = "__Host-spyglass_google_flow"
+
+type googleFlow struct {
+	State, Nonce, Verifier, Mode, ReturnTo string
+}
+
+func (s *Server) beginGoogleLogin(w http.ResponseWriter, r *http.Request) {
+	if s.googleProvider == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if _, ok := s.currentSession(w, r); ok {
+		target := safeReturnTo(r.URL.Query().Get("return_to"))
+		if target == "" {
+			target = "/app"
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
+		return
+	}
+	s.beginGoogleFlow(w, r, "login", safeReturnTo(r.URL.Query().Get("return_to")))
+}
+
+func (s *Server) beginGoogleConnection(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.googleProvider == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Google connection request was not accepted.", http.StatusForbidden)
+		return
+	}
+	if err := strongauth.Require(authenticated.Session, authenticated.Session.UserID, time.Now().UTC()); err != nil {
+		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+		return
+	}
+	s.beginGoogleFlow(w, r, "connect", "/app/security")
+}
+
+func (s *Server) beginGoogleFlow(w http.ResponseWriter, r *http.Request, mode, returnTo string) {
+	state, err := googleRandom()
+	if err != nil {
+		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		return
+	}
+	nonce, err := googleRandom()
+	if err != nil {
+		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		return
+	}
+	verifier, err := googleRandom()
+	if err != nil {
+		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		return
+	}
+	digest := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(digest[:])
+	flow := googleFlow{State: state, Nonce: nonce, Verifier: verifier, Mode: mode, ReturnTo: safeReturnTo(returnTo)}
+	encoded, err := json.Marshal(flow)
+	if err != nil {
+		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: googleFlowCookie, Value: base64.RawURLEncoding.EncodeToString(encoded), Path: "/", HttpOnly: true,
+		Secure: s.config.SecureCookies, SameSite: http.SameSiteLaxMode, MaxAge: 600, Expires: time.Now().UTC().Add(10 * time.Minute)})
+	destination, err := s.googleProvider.AuthorizationURL(state, nonce, challenge, s.googleRedirectURI)
+	if err != nil {
+		s.clearGoogleFlow(w)
+		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, destination, http.StatusSeeOther)
+}
+
+func (s *Server) completeGoogleLogin(w http.ResponseWriter, r *http.Request) {
+	if s.googleProvider == nil {
+		http.NotFound(w, r)
+		return
+	}
+	flow, ok := s.googleFlow(r)
+	s.clearGoogleFlow(w)
+	state := r.URL.Query().Get("state")
+	if !ok || len(state) != len(flow.State) || subtle.ConstantTimeCompare([]byte(state), []byte(flow.State)) != 1 || r.URL.Query().Get("error") != "" {
+		s.googleFailure(w, r, flow.Mode)
+		return
+	}
+	assertion, err := s.googleProvider.Exchange(r.Context(), r.URL.Query().Get("code"), flow.Verifier, s.googleRedirectURI, flow.Nonce)
+	if err != nil {
+		s.logger.Warn("Google login exchange rejected", "error", err)
+		s.googleFailure(w, r, flow.Mode)
+		return
+	}
+	if flow.Mode == "connect" {
+		authenticated, authenticatedOK := s.currentSession(w, r)
+		if !authenticatedOK {
+			http.Redirect(w, r, "/login?return_to=%2Fapp%2Fsecurity", http.StatusSeeOther)
+			return
+		}
+		if err := s.googleAuthentication.Connect(r.Context(), authenticated.Session, assertion); err != nil {
+			if errors.Is(err, strongauth.ErrRequired) {
+				http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+				return
+			}
+			s.logger.Warn("connect Google identity rejected", "error", err)
+			http.Redirect(w, r, "/app/security?status=google_failed", http.StatusSeeOther)
+			return
+		}
+		http.Redirect(w, r, "/app/security?status=google_connected", http.StatusSeeOther)
+		return
+	}
+	if flow.Mode != "login" {
+		s.googleFailure(w, r, flow.Mode)
+		return
+	}
+	issued, err := s.googleAuthentication.Login(r.Context(), assertion, r.UserAgent())
+	if errors.Is(err, oidcauth.ErrIdentityNotFound) {
+		http.Redirect(w, r, "/login?status=google_not_connected", http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		s.logger.Warn("Google identity login rejected", "error", err)
+		http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+		return
+	}
+	s.setSessionCookie(w, issued.Token, issued.Session.ExpiresAt)
+	target := safeReturnTo(flow.ReturnTo)
+	if target == "" {
+		target = "/app"
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func (s *Server) disconnectGoogle(w http.ResponseWriter, r *http.Request) {
+	authenticated, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if s.googleAuthentication == nil || !s.validOrigin(r, false) || s.parseForm(w, r) != nil {
+		http.Error(w, "Google disconnect request was not accepted.", http.StatusForbidden)
+		return
+	}
+	err := s.googleAuthentication.Disconnect(r.Context(), authenticated.Session, s.googleIssuer)
+	if errors.Is(err, strongauth.ErrRequired) {
+		http.Redirect(w, r, "/app/security?status=strong_reauth_required", http.StatusSeeOther)
+		return
+	}
+	if err != nil {
+		s.logger.Warn("disconnect Google identity rejected", "error", err)
+		http.Redirect(w, r, "/app/security?status=google_failed", http.StatusSeeOther)
+		return
+	}
+	_ = s.sessions.RevokeAll(r.Context(), authenticated.Session.UserID)
+	s.clearCookies(w)
+	http.Redirect(w, r, "/login?status=google_disconnected", http.StatusSeeOther)
+}
+
+func (s *Server) googleFlow(r *http.Request) (googleFlow, bool) {
+	cookie, err := r.Cookie(googleFlowCookie)
+	if err != nil || len(cookie.Value) > 4096 {
+		return googleFlow{}, false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(cookie.Value)
+	if err != nil {
+		return googleFlow{}, false
+	}
+	var flow googleFlow
+	if json.Unmarshal(raw, &flow) != nil || !validGoogleFlow(flow) {
+		return googleFlow{}, false
+	}
+	return flow, true
+}
+
+func (s *Server) clearGoogleFlow(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: googleFlowCookie, Value: "", Path: "/", HttpOnly: true, Secure: s.config.SecureCookies,
+		SameSite: http.SameSiteLaxMode, Expires: time.Unix(1, 0), MaxAge: -1})
+}
+
+func (s *Server) googleFailure(w http.ResponseWriter, r *http.Request, mode string) {
+	if mode == "connect" {
+		http.Redirect(w, r, "/app/security?status=google_failed", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/login?status=google_failed", http.StatusSeeOther)
+}
+
+func googleRandom() (string, error) {
+	var raw [32]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
+}
+
+func validGoogleFlow(flow googleFlow) bool {
+	valid := func(value string) bool { return len(value) == 43 && !strings.ContainsAny(value, "\r\n\t ") }
+	return valid(flow.State) && valid(flow.Nonce) && valid(flow.Verifier) && (flow.Mode == "login" || flow.Mode == "connect") && safeReturnTo(flow.ReturnTo) == flow.ReturnTo
 }
 
 func (s *Server) signupPage(w http.ResponseWriter, r *http.Request) {
@@ -1177,6 +1420,12 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 		data.Notice = "Confirm with a passkey before changing the identity email, managing Memberships, inviting people, or changing billing. If this is your first passkey, confirm your password and add one below."
 	case "strong_reauthentication_required":
 		data.Notice = "Confirm with a passkey to continue. If this is your first passkey, confirm your password and add one below."
+	case "google_connected":
+		data.Notice = "Google sign-in is now connected to this Infinite Ocean identity."
+	case "google_disconnected":
+		data.Notice = "Google sign-in has been disconnected. Your password and passkeys are unchanged."
+	case "google_failed":
+		data.Error = "Google sign-in could not be changed. Confirm with a passkey and try again."
 	}
 	s.render(w, http.StatusOK, "security", data)
 }
@@ -1190,7 +1439,13 @@ func (s *Server) securityPageData(r *http.Request, authenticated sessions.Authen
 	if err != nil {
 		return pageData{}, err
 	}
-	data := pageData{Title: "Identity security", ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil, ContactChangesConfigured: s.contactChanges != nil, MCPGrantsConfigured: s.mcpGrants != nil, PrivacyControls: true}
+	data := pageData{Title: "Identity security", ReturnTo: safeReturnTo(r.URL.Query().Get("return_to")), ActiveSessions: active, SecurityEvents: securityEventViews(events), PasskeysConfigured: s.passkeys != nil, RecoveryCodesConfigured: s.recoveryCodes != nil, ContactChangesConfigured: s.contactChanges != nil, MCPGrantsConfigured: s.mcpGrants != nil, GoogleConfigured: s.googleAuthentication != nil, PrivacyControls: true}
+	if s.googleAuthentication != nil {
+		data.GoogleConnected, err = s.googleAuthentication.Connected(r.Context(), authenticated.Session.UserID, s.googleIssuer)
+		if err != nil {
+			return pageData{}, err
+		}
+	}
 	if s.contactChanges != nil {
 		user, loadErr := s.contactChanges.Current(r.Context(), authenticated.Session.UserID)
 		if loadErr != nil {
@@ -1636,6 +1891,12 @@ func loginNotice(status string) string {
 		return "Identity email verified and changed. Every previous session was signed out; sign in with the new email."
 	case "passkey_compromised":
 		return "The compromised passkey was removed and every session was signed out. Sign in again and review your identity security settings."
+	case "google_not_connected":
+		return "That Google account is not connected yet. Sign in another way, then connect Google from Identity Security."
+	case "google_failed":
+		return "Google sign-in could not be completed. Please try again."
+	case "google_disconnected":
+		return "Google sign-in was disconnected and existing sessions were signed out."
 	}
 	return ""
 }
