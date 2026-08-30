@@ -53,6 +53,7 @@ grep -F "account_type='inactive'" "$stack_dir/reset-stage-signup-global.sql" >/d
 grep -F "jsonb_array_length(effective_packages)=0" "$stack_dir/reset-stage-signup-global.sql" >/dev/null
 grep -F "contains %s Account reference(s)" "$stack_dir/reset-stage-signup-global.sql" >/dev/null
 grep -F "contains %s User reference(s)" "$stack_dir/reset-stage-signup-global.sql" >/dev/null
+grep -F "spyglass.privacy_erasure_subject_id" "$stack_dir/reset-stage-signup-global.sql" >/dev/null
 grep -F "cell table %I.%I contains" "$stack_dir/reset-stage-signup-cell.sql" >/dev/null
 
 echo 'Stage signup reset safety contract verified'

@@ -28,6 +28,7 @@ DECLARE
     relation record;
     login_hash bytea;
     reauthentication_hash bytea;
+    privacy_subject_id uuid;
 BEGIN
     SELECT * INTO target FROM stage_signup_reset_target;
     IF NOT FOUND THEN
@@ -231,7 +232,15 @@ BEGIN
     IF target.execute_reset THEN
         DELETE FROM registration_challenges
         WHERE primary_email=target.primary_email OR proposed_user_id=target.user_id;
-        DELETE FROM privacy_consent_subjects WHERE user_id=target.user_id;
+        FOR privacy_subject_id IN
+            SELECT id FROM privacy_consent_subjects WHERE user_id=target.user_id ORDER BY id
+        LOOP
+            -- Consent evidence is immutable except through its explicit
+            -- subject-scoped privacy-erasure fence. The transaction-local
+            -- setting permits only the subject currently being removed.
+            PERFORM set_config('spyglass.privacy_erasure_subject_id',privacy_subject_id::text,true);
+            DELETE FROM privacy_consent_subjects WHERE id=privacy_subject_id;
+        END LOOP;
         DELETE FROM identity_notification_outbox WHERE account_id=target.account_id;
         DELETE FROM account_cell_provision_queue WHERE account_id=target.account_id;
         DELETE FROM entitlement_snapshots WHERE account_id=target.account_id;
