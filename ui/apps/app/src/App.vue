@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { IoLogo } from "@spyglass/design-system";
-import { emitAnalytics, getPrivacyConsent, type CatalogPackageCode } from "@spyglass/api";
+import { APIProblem, emitAnalytics, getPrivacyConsent, logout, type CatalogPackageCode } from "@spyglass/api";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { applicationEntryPoint } from "./applicationEntry";
@@ -13,6 +13,8 @@ const menuOpen = ref(false);
 const menuButton = ref<HTMLButtonElement>();
 const sidebar = ref<HTMLElement>();
 const main = ref<HTMLElement>();
+const signingOut = ref(false);
+const signOutError = ref("");
 const setupActive = computed(() => route.name === "setup");
 const setupRequired = computed(() => Boolean(session.selected?.owner_enrollment_required));
 
@@ -109,6 +111,19 @@ async function selectAccount(event: Event): Promise<void> {
   }
 }
 
+async function signOut(): Promise<void> {
+  if (signingOut.value) return;
+  signingOut.value = true;
+  signOutError.value = "";
+  try {
+    await logout();
+    window.location.assign("/login?status=signed_out");
+  } catch (cause) {
+    signOutError.value = cause instanceof APIProblem ? cause.message : "We could not sign you out. Please try again.";
+    signingOut.value = false;
+  }
+}
+
 async function toggleMenu(): Promise<void> {
   if (menuOpen.value) {
     closeMenu(true);
@@ -197,12 +212,19 @@ function containMenuFocus(event: KeyboardEvent): void {
           </RouterLink>
         </div>
       </nav>
-      <div class="account-switcher">
-        <label for="account">Account</label>
-        <select id="account" :value="session.selectedID" :disabled="session.loading || session.selecting || session.accounts.length === 0" @change="selectAccount">
-          <option v-if="session.accounts.length === 0" value="">{{ session.loading ? "Loading…" : "No Account" }}</option>
-          <option v-for="account in session.accounts" :key="account.account_id" :value="account.account_id">{{ account.display_name }}{{ account.account_state === "restricted" ? " — restricted" : "" }}</option>
-        </select>
+      <div class="sidebar-footer">
+        <div class="account-switcher">
+          <label for="account">Account</label>
+          <select id="account" :value="session.selectedID" :disabled="session.loading || session.selecting || session.accounts.length === 0" @change="selectAccount">
+            <option v-if="session.accounts.length === 0" value="">{{ session.loading ? "Loading…" : "No Account" }}</option>
+            <option v-for="account in session.accounts" :key="account.account_id" :value="account.account_id">{{ account.display_name }}{{ account.account_state === "restricted" ? " — restricted" : "" }}</option>
+          </select>
+        </div>
+        <button class="sign-out-button" type="button" :disabled="signingOut" @click="signOut">
+          <span class="sign-out-icon" aria-hidden="true">↪</span>
+          <span><strong>{{ signingOut ? "Signing out…" : "Sign out" }}</strong><small>See you next time</small></span>
+        </button>
+        <p v-if="signOutError" class="sidebar-error" role="alert">{{ signOutError }}</p>
       </div>
     </aside>
     <button v-if="menuOpen && !setupActive" class="scrim" type="button" tabindex="-1" aria-hidden="true" @click="closeMenu(true)" />
@@ -217,5 +239,9 @@ function containMenuFocus(event: KeyboardEvent): void {
       </div>
       <RouterView />
     </main>
+    <button v-if="setupActive" class="setup-sign-out" type="button" :disabled="signingOut" @click="signOut">
+      <span aria-hidden="true">↪</span>{{ signingOut ? "Signing out…" : "Sign out" }}
+    </button>
+    <p v-if="setupActive && signOutError" class="setup-sign-out-error" role="alert">{{ signOutError }}</p>
   </div>
 </template>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { beginContactChange, completePasskeyReauthentication, revokeMCPGrant, revokeSession } from "./security";
+import { beginContactChange, completePasskeyReauthentication, logout, revokeMCPGrant, revokeSession } from "./security";
 
 afterEach(() => vi.unstubAllGlobals());
 describe("Security client", () => {
@@ -14,5 +14,10 @@ describe("Security client", () => {
     const credential = { id: "key", rawId: "cmF3", type: "public-key", response: { clientDataJSON: "YQ", authenticatorData: "Yg", signature: "Yw" } } as const;
     await completePasskeyReauthentication("ceremony/id", credential); await revokeSession("session/id"); await revokeMCPGrant("grant/id");
     expect(fetcher.mock.calls.map((call) => String(call[0]))).toEqual(["/api/v1/passkey-reauthentications/ceremony%2Fid/complete", "/api/v1/sessions/session%2Fid", "/api/v1/mcp-grants/grant%2Fid"]);
+  });
+  it("ends only the current browser session on ordinary logout", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 })); vi.stubGlobal("fetch", fetcher);
+    await logout();
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/session", expect.objectContaining({ method: "DELETE", credentials: "same-origin" }));
   });
 });

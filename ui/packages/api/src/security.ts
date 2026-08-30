@@ -13,6 +13,7 @@ export const getActiveSessions = (): Promise<ActiveSessions> => requestJSON("/ap
 export const getSecurityEvents = (): Promise<SecurityEvents> => requestJSON("/api/v1/security-events");
 export const getSupportAccessHistory = (accountID: string): Promise<SupportAccessHistory> => requestJSON(`/api/v1/accounts/${encodeURIComponent(accountID)}/support-access-history`);
 export const getMCPGrants = (): Promise<MCPGrants> => requestJSON("/api/v1/mcp-grants");
+export const logout = (): Promise<void> => requestJSON("/api/v1/session", { method: "DELETE" });
 
 export function confirmPassword(password: string): Promise<void> {
   return requestJSON("/api/v1/session/reauthenticate", { method: "POST", body: JSON.stringify({ password }) });

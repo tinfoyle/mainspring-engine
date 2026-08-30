@@ -17,15 +17,24 @@
 .nav-link:hover, .nav-link.router-link-active { color: white; background: rgb(255 255 255 / 10%); }
 .nav-link--packages { border: 1px solid rgb(189 235 220 / 24%); }
 .nav-link--packages small { color: var(--io-seafoam); font-size: .68rem; font-weight: 650; }
-.account-switcher { flex: 0 0 auto; display: grid; gap: .45rem; }
+.sidebar-footer { flex: 0 0 auto; display: grid; gap: .7rem; }
+.account-switcher { display: grid; gap: .45rem; }
 .account-switcher label { color: var(--io-seafoam); font-size: .75rem; font-weight: 750; text-transform: uppercase; letter-spacing: .12em; }
 .account-switcher select { width: 100%; min-height: 46px; padding: 0 .75rem; border: 1px solid rgb(255 255 255 / 25%); border-radius: .7rem; color: white; background: rgb(255 255 255 / 8%); }
 .account-switcher option { color: var(--io-ink); }
+.sign-out-button { min-height: 52px; padding: .45rem .6rem; display: grid; grid-template-columns: 2rem minmax(0, 1fr); align-items: center; gap: .55rem; border: 1px solid rgb(255 255 255 / 18%); border-radius: .75rem; color: white; background: rgb(255 255 255 / 7%); text-align: left; cursor: pointer; }
+.sign-out-button:hover { border-color: rgb(189 235 220 / 42%); background: rgb(255 255 255 / 12%); }
+.sign-out-button:disabled { cursor: wait; opacity: .7; }
+.sign-out-icon { width: 2rem; height: 2rem; display: grid; place-items: center; border-radius: 50%; color: var(--io-ocean-950); background: var(--io-seafoam); font-size: 1rem; }
+.sign-out-button > span:last-child { min-width: 0; display: grid; gap: .08rem; }
+.sign-out-button strong { font-size: .8rem; }
+.sign-out-button small { color: rgb(255 255 255 / 58%); font-size: .66rem; }
+.sidebar-error { margin: 0; color: #ffd5cc; font-size: .7rem; line-height: 1.4; }
 .scrim { position: fixed; z-index: 40; inset: 0; border: 0; background: rgb(3 20 25 / 55%); }
 main { min-width: 0; }
 .session-notice { padding: .8rem 1rem; text-align: center; background: #fff0d3; }
 .app-shell--setup { display: block; }
-.setup-page { min-height: 100vh; padding: 1.25rem; display: grid; place-items: start center; background: radial-gradient(circle at 90% 5%, rgb(189 235 220 / 48%), transparent 28rem), linear-gradient(145deg, #fbf8f0 0%, #f1f7f3 100%); }
+.setup-page { min-height: 100vh; padding: 1.25rem 1.25rem 5rem; display: grid; place-items: start center; background: radial-gradient(circle at 90% 5%, rgb(189 235 220 / 48%), transparent 28rem), linear-gradient(145deg, #fbf8f0 0%, #f1f7f3 100%); }
 .setup-shell { width: min(100%, 42rem); display: grid; gap: 1rem; }
 .setup-brand { width: fit-content; color: var(--io-ocean-950); }
 .setup-progress { padding: .1rem .15rem; display: flex; justify-content: space-between; gap: 1rem; color: var(--io-ink-soft); font-size: .76rem; font-weight: 750; letter-spacing: .04em; }
@@ -50,6 +59,8 @@ main { min-width: 0; }
 .setup-help { margin: 0; padding: .25rem; color: var(--io-ink-soft); text-align: center; font-size: .76rem; line-height: 1.5; }
 .setup-state { min-height: 20rem; display: grid; place-items: center; align-content: center; gap: 1rem; text-align: center; }
 .setup-spinner { width: 2.4rem; height: 2.4rem; border: 3px solid var(--io-line); border-top-color: var(--io-ocean-650); border-radius: 50%; animation: setup-spin .8s linear infinite; }
+.setup-sign-out { position: fixed; z-index: 20; left: 1rem; bottom: 1rem; min-height: 44px; padding: .55rem .8rem; display: flex; align-items: center; gap: .45rem; border: 1px solid var(--io-line); border-radius: 999px; color: var(--io-ocean-800); background: rgb(255 255 255 / 92%); box-shadow: 0 8px 24px rgb(5 47 57 / 10%); font-weight: 750; cursor: pointer; }
+.setup-sign-out-error { position: fixed; z-index: 20; left: 1rem; bottom: 4.5rem; max-width: min(22rem, calc(100% - 2rem)); margin: 0; padding: .65rem .8rem; border-radius: .65rem; color: #7c2f25; background: #fff0ed; font-size: .72rem; }
 @keyframes setup-spin { to { transform: rotate(360deg); } }
 .page { width: var(--io-page); margin-inline: auto; padding: 2.2rem 0 5rem; }
 .page-heading { max-width: 44rem; }
@@ -627,7 +638,7 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 @media (min-width: 52rem) {
   .app-shell { display: grid; grid-template-columns: 16rem minmax(0, 1fr); }
   .app-shell--setup { display: block; }
-  .setup-page { padding: 2.25rem; place-items: center; }
+  .setup-page { padding: 2.25rem 2.25rem 5rem; place-items: center; }
   .setup-shell { gap: 1.2rem; }
   .setup-card { padding: 2.25rem; }
   .setup-code-panel { grid-template-columns: 1fr 1fr; }

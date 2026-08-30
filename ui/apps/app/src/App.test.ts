@@ -10,7 +10,7 @@ import { expectNoAxeViolations } from "./test/accessibility";
 
 const analytics = vi.hoisted(() => ({
   emitAnalytics: vi.fn(), getPrivacyConsent: vi.fn(), getSecurityPosture: vi.fn(),
-  getPasskeys: vi.fn(), getRecoveryCodeStatus: vi.fn()
+  getPasskeys: vi.fn(), getRecoveryCodeStatus: vi.fn(), logout: vi.fn()
 }));
 vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import("@spyglass/api")>(), ...analytics }));
 const fetcher = vi.fn();
@@ -24,6 +24,7 @@ beforeEach(() => {
   analytics.getSecurityPosture.mockReset().mockResolvedValue({ passkey_count: 0, recovery_codes_configured: false, recovery_codes_remaining: 0, owner_ready: false });
   analytics.getPasskeys.mockReset().mockResolvedValue({ passkeys: [] });
   analytics.getRecoveryCodeStatus.mockReset().mockResolvedValue({ configured: false, remaining: 0 });
+  analytics.logout.mockReset().mockResolvedValue(undefined);
 });
 
 describe("application shell", () => {
@@ -164,6 +165,22 @@ describe("application shell", () => {
     repeated.unmount();
   });
 
+  it("offers a friendly sidebar logout and ends the current session", async () => {
+    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => undefined);
+    await router.push("/app/your-turn");
+    await router.isReady();
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } });
+    const button = wrapper.get(".sign-out-button");
+    expect(button.text()).toContain("Sign out");
+    expect(button.text()).toContain("See you next time");
+    await button.trigger("click");
+    await flushPromises();
+    expect(analytics.logout).toHaveBeenCalledOnce();
+    expect(assign).toHaveBeenCalledWith("/login?status=signed_out");
+    assign.mockRestore();
+    wrapper.unmount();
+  });
+
   it("uses a bounded taxonomy for direct application entry", () => {
     expect(applicationEntryPoint("checkout")).toBe("checkout");
     expect(applicationEntryPoint("your-turn")).toBe("your_turn");
@@ -190,17 +207,16 @@ describe("application shell", () => {
     expect(wrapper.get(".scrim").attributes("tabindex")).toBe("-1");
     expect(wrapper.get(".scrim").attributes("aria-hidden")).toBe("true");
 
-    const links = wrapper.findAll<HTMLAnchorElement>(".nav-link");
-    const last = links.at(-1);
+    const last = wrapper.get<HTMLButtonElement>(".sign-out-button");
     const first = wrapper.get<HTMLAnchorElement>(".brand");
-    expect(last?.text()).toBe("Privacy");
-    last?.element.focus();
-    await last?.trigger("keydown", { key: "Tab" });
+    expect(last.text()).toContain("Sign out");
+    last.element.focus();
+    await last.trigger("keydown", { key: "Tab" });
     expect(document.activeElement).toBe(first.element);
     await first.trigger("keydown", { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(last?.element);
+    expect(document.activeElement).toBe(last.element);
 
-    await last?.trigger("keydown", { key: "Escape" });
+    await last.trigger("keydown", { key: "Escape" });
     await wrapper.vm.$nextTick();
     expect(toggle.attributes("aria-expanded")).toBe("false");
     expect(wrapper.get("#app-navigation").attributes("role")).toBeUndefined();
