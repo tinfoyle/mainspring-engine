@@ -2024,12 +2024,12 @@ func runAccountProvisioningWorker(ctx context.Context, logger *slog.Logger) erro
 	if err != nil {
 		return err
 	}
-	globalGate, err := openRequiredRestoreGate(ctx, globalURL, restoregate.Global, "SPYGLASS_")
+	globalGate, err := openRequiredRestoreGate(ctx, globalURL, restoregate.Global, "SPYGLASS_GLOBAL_")
 	if err != nil {
 		return err
 	}
 	defer globalGate.Close()
-	cellGate, err := openRequiredRestoreGate(ctx, cellURL, restoregate.Cell, "SPYGLASS_")
+	cellGate, err := openRequiredRestoreGate(ctx, cellURL, restoregate.Cell, "SPYGLASS_CELL_")
 	if err != nil {
 		return err
 	}

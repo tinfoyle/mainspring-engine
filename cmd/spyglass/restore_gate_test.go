@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/tinfoyle/spyglass-engine/internal/platform/restoregate"
@@ -22,6 +25,25 @@ func TestRestoreCheckpointEnvironmentIsStrict(t *testing.T) {
 	t.Setenv("TEST_ERASURE_CHECKPOINT_ROOT", "01")
 	if _, err := restoreCheckpointEnv("TEST_"); err == nil {
 		t.Fatal("short restore root was accepted")
+	}
+}
+
+func TestAccountProvisioningWorkerReadsScopedRestoreCheckpoints(t *testing.T) {
+	t.Setenv("SPYGLASS_ENV", "production")
+	t.Setenv("SPYGLASS_GLOBAL_DATABASE_URL", "://invalid-global")
+	t.Setenv("SPYGLASS_CELL_DATABASE_URL", "://invalid-cell")
+	t.Setenv("SPYGLASS_CELL_ID", "cell-test")
+	t.Setenv("SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_SEQUENCE", "0")
+	t.Setenv("SPYGLASS_GLOBAL_ERASURE_CHECKPOINT_ROOT", string(bytes.Repeat([]byte{'0'}, 64)))
+	t.Setenv("SPYGLASS_CELL_ERASURE_CHECKPOINT_SEQUENCE", "0")
+	t.Setenv("SPYGLASS_CELL_ERASURE_CHECKPOINT_ROOT", string(bytes.Repeat([]byte{'0'}, 64)))
+
+	err := runAccountProvisioningWorker(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil {
+		t.Fatal("invalid database URL was accepted")
+	}
+	if strings.Contains(err.Error(), "SPYGLASS_ERASURE_CHECKPOINT") {
+		t.Fatalf("worker ignored scoped restore checkpoints: %v", err)
 	}
 }
 
