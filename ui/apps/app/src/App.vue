@@ -13,6 +13,13 @@ const menuOpen = ref(false);
 const menuButton = ref<HTMLButtonElement>();
 const sidebar = ref<HTMLElement>();
 const main = ref<HTMLElement>();
+const setupActive = computed(() => route.name === "setup");
+const setupRequired = computed(() => Boolean(session.selected?.owner_enrollment_required));
+
+function setupReturnTo(value: string): string {
+  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/app/setup")) return "/app/your-turn";
+  return value;
+}
 
 watch(() => route.fullPath, async () => {
   menuOpen.value = false;
@@ -79,7 +86,17 @@ const hiddenPackageCount = computed(() => new Set(
 ).size);
 
 watch([restricted, () => route.path], ([isRestricted, path]) => {
-  if (isRestricted && !restrictedNavigation.has(path)) void router.replace("/app/billing");
+  if (isRestricted && !setupRequired.value && !restrictedNavigation.has(path)) void router.replace("/app/billing");
+}, { immediate: true });
+
+watch([() => session.loaded, setupRequired, () => route.fullPath], ([loaded, required, fullPath]) => {
+  if (!loaded) return;
+  if (required && !setupActive.value) {
+    void router.replace({ name: "setup", query: { return_to: setupReturnTo(fullPath) } });
+  } else if (!required && setupActive.value) {
+    const requested = Array.isArray(route.query.return_to) ? route.query.return_to[0] : route.query.return_to;
+    void router.replace(setupReturnTo(typeof requested === "string" ? requested : ""));
+  }
 }, { immediate: true });
 
 async function selectAccount(event: Event): Promise<void> {
@@ -136,8 +153,8 @@ function containMenuFocus(event: KeyboardEvent): void {
 
 <template>
   <a class="skip-link" href="#main">Skip to content</a>
-  <div class="app-shell">
-    <header class="mobile-header" :inert="menuOpen || undefined">
+  <div class="app-shell" :class="{ 'app-shell--setup': setupActive }">
+    <header v-if="!setupActive" class="mobile-header" :inert="menuOpen || undefined">
       <RouterLink to="/app/your-turn"><IoLogo compact /></RouterLink>
       <strong>{{ String(route.meta.title ?? "Spyglass") }}</strong>
       <button ref="menuButton" class="menu-button" type="button" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="toggleMenu">
@@ -149,6 +166,7 @@ function containMenuFocus(event: KeyboardEvent): void {
     <!-- The key handler is active only when this landmark becomes the mobile dialog. -->
     <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
     <aside
+      v-if="!setupActive"
       id="app-navigation"
       ref="sidebar"
       class="sidebar"
@@ -187,14 +205,14 @@ function containMenuFocus(event: KeyboardEvent): void {
         </select>
       </div>
     </aside>
-    <button v-if="menuOpen" class="scrim" type="button" tabindex="-1" aria-hidden="true" @click="closeMenu(true)" />
+    <button v-if="menuOpen && !setupActive" class="scrim" type="button" tabindex="-1" aria-hidden="true" @click="closeMenu(true)" />
 
     <main id="main" ref="main" tabindex="-1" :inert="menuOpen || undefined">
-      <div v-if="session.unavailable" class="session-notice" role="status">
+      <div v-if="session.unavailable && !setupActive" class="session-notice" role="status">
         We could not load your Account. <a href="/login?return_to=%2Fapp">Sign in again</a>
       </div>
-      <div v-else-if="session.selectionError" class="session-notice" role="alert">{{ session.selectionError }}</div>
-      <div v-else-if="restricted" class="session-notice" role="status">
+      <div v-else-if="session.selectionError && !setupActive" class="session-notice" role="alert">{{ session.selectionError }}</div>
+      <div v-else-if="restricted && !setupActive" class="session-notice" role="status">
         This Account is restricted. Billing, security, privacy, and data export remain available while you restore the subscription.
       </div>
       <RouterView />

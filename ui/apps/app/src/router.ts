@@ -17,12 +17,14 @@ import FinanceView from "./views/FinanceView.vue";
 import IntegrationsView from "./views/IntegrationsView.vue";
 import BaselineView from "./views/BaselineView.vue";
 import MarketingView from "./views/MarketingView.vue";
+import SetupView from "./views/SetupView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", redirect: "/app/your-turn" },
     { path: "/app", redirect: "/app/your-turn" },
+    { path: "/app/setup", name: "setup", component: SetupView, meta: { title: "Account setup" } },
     { path: "/app/your-turn", name: "your-turn", component: YourTurnView, meta: { title: "Your Turn" } },
 	{ path: "/app/your-turn/:kind/:id", name: "your-turn-detail", component: YourTurnDetailView, meta: { title: "Your Turn detail" } },
 	{ path: "/app/work", name: "work", component: WorkView, meta: { title: "Work" } },

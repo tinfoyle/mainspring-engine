@@ -8,7 +8,10 @@ import { router } from "./router";
 import { useSessionStore } from "./stores/session";
 import { expectNoAxeViolations } from "./test/accessibility";
 
-const analytics = vi.hoisted(() => ({ emitAnalytics: vi.fn(), getPrivacyConsent: vi.fn() }));
+const analytics = vi.hoisted(() => ({
+  emitAnalytics: vi.fn(), getPrivacyConsent: vi.fn(), getSecurityPosture: vi.fn(),
+  getPasskeys: vi.fn(), getRecoveryCodeStatus: vi.fn()
+}));
 vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import("@spyglass/api")>(), ...analytics }));
 const fetcher = vi.fn();
 vi.stubGlobal("fetch", fetcher);
@@ -18,6 +21,9 @@ beforeEach(() => {
   fetcher.mockReset().mockResolvedValue(new Response(JSON.stringify({ accounts: [] }), { status: 200 }));
   analytics.getPrivacyConsent.mockReset().mockResolvedValue({ decided: false, analytics: false, marketing: false, renewal_required: false });
   analytics.emitAnalytics.mockReset().mockResolvedValue(false);
+  analytics.getSecurityPosture.mockReset().mockResolvedValue({ passkey_count: 0, recovery_codes_configured: false, recovery_codes_remaining: 0, owner_ready: false });
+  analytics.getPasskeys.mockReset().mockResolvedValue({ passkeys: [] });
+  analytics.getRecoveryCodeStatus.mockReset().mockResolvedValue({ configured: false, remaining: 0 });
 });
 
 describe("application shell", () => {
@@ -110,6 +116,29 @@ describe("application shell", () => {
 	expect(links).not.toContain("Your Turn"); expect(links).not.toContain("Work"); expect(links).not.toContain("Affiliate"); expect(links).not.toContain("Lifecycle");
 	expect(wrapper.get("option").text()).toContain("restricted");
 	wrapper.unmount();
+  });
+
+  it("takes an owner with incomplete setup to the focused wizard", async () => {
+    const account = {
+      account_id: "10000000-0000-4000-8000-000000000001", account_type: "paid" as const, account_state: "active" as const,
+      account_version: 1, cell_id: "cell-a", display_name: "Northstar", placement_generation: 1,
+      role: "owner" as const, slug: "northstar", owner_enrollment_required: true,
+      entitlements: { account_id: "10000000-0000-4000-8000-000000000001", catalog_version: 2, evaluated_at: "2026-08-27T12:00:00Z", version: 3, packages: [] }
+    };
+    fetcher.mockResolvedValue(new Response(JSON.stringify({
+      user_id: "20000000-0000-4000-8000-000000000002", selected_account_id: account.account_id, accounts: [account]
+    }), { status: 200 }));
+    sessionStorage.setItem("spyglass_application_entered", "1");
+    await router.push("/app/your-turn");
+    await router.isReady();
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } });
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe("/app/setup");
+    expect(router.currentRoute.value.query.return_to).toBe("/app/your-turn");
+    expect(wrapper.get("h1").text()).toBe("Add a passkey");
+    expect(wrapper.find("nav").exists()).toBe(false);
+    expect(wrapper.get(".app-shell").classes()).toContain("app-shell--setup");
+    wrapper.unmount();
   });
 
   it("records first application entry once per tab after authenticated session load", async () => {

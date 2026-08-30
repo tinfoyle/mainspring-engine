@@ -25,7 +25,7 @@
   }
   @vue {
     method GET HEAD
-    path /app /app/your-turn /app/your-turn/* /app/work /app/work/* /app/knowledge /app/knowledge/* /app/baseline /app/baseline/* /app/agents /app/agents/* /app/schedules /app/schedules/* /app/finance /app/finance/* /app/integrations /app/integrations/* /app/marketing /app/marketing/* /app/account /app/billing /app/security /app/account-exports /app/account-closures /app/privacy /app/checkout /app/affiliate /ui-assets/*
+    path /app /app/setup /app/your-turn /app/your-turn/* /app/work /app/work/* /app/knowledge /app/knowledge/* /app/baseline /app/baseline/* /app/agents /app/agents/* /app/schedules /app/schedules/* /app/finance /app/finance/* /app/integrations /app/integrations/* /app/marketing /app/marketing/* /app/account /app/billing /app/security /app/account-exports /app/account-closures /app/privacy /app/checkout /app/affiliate /ui-assets/*
   }
   handle @vue {
     reverse_proxy private-ui:8080

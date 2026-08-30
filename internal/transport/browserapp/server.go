@@ -791,10 +791,10 @@ func (s *Server) completeGoogleLogin(w http.ResponseWriter, r *http.Request) {
 			target = "/app"
 		}
 		query := url.Values{
-			"status": {"google_signup_passkey"}, "return_to": {target},
+			"status": {"google_signup_setup"}, "return_to": {target},
 			"analytics_delivery": {ids.RandomGenerator{}.New()}, "analytics_at": {strconv.FormatInt(time.Now().UTC().Unix(), 10)},
 		}
-		http.Redirect(w, r, "/app/security?"+query.Encode(), http.StatusSeeOther)
+		http.Redirect(w, r, "/app/setup?"+query.Encode(), http.StatusSeeOther)
 		return
 	}
 	if flow.Mode != "login" {
@@ -1509,7 +1509,7 @@ func (s *Server) securityPage(w http.ResponseWriter, r *http.Request) {
 		data.Notice = "Google sign-in has been disconnected. Your password and passkeys are unchanged."
 	case "google_failed":
 		data.Error = "Google sign-in could not be changed. Confirm with a passkey and try again."
-	case "google_signup_passkey":
+	case "google_signup_setup", "google_signup_passkey":
 		data.Notice = "Your team is created and Google sign-in is ready. Add a passkey now to secure the owner Account before continuing."
 		seconds, parseErr := strconv.ParseInt(r.URL.Query().Get("analytics_at"), 10, 64)
 		occurredAt := time.Unix(seconds, 0).UTC()

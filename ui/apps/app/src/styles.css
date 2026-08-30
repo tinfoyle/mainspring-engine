@@ -24,6 +24,33 @@
 .scrim { position: fixed; z-index: 40; inset: 0; border: 0; background: rgb(3 20 25 / 55%); }
 main { min-width: 0; }
 .session-notice { padding: .8rem 1rem; text-align: center; background: #fff0d3; }
+.app-shell--setup { display: block; }
+.setup-page { min-height: 100vh; padding: 1.25rem; display: grid; place-items: start center; background: radial-gradient(circle at 90% 5%, rgb(189 235 220 / 48%), transparent 28rem), linear-gradient(145deg, #fbf8f0 0%, #f1f7f3 100%); }
+.setup-shell { width: min(100%, 42rem); display: grid; gap: 1rem; }
+.setup-brand { width: fit-content; color: var(--io-ocean-950); }
+.setup-progress { padding: .1rem .15rem; display: flex; justify-content: space-between; gap: 1rem; color: var(--io-ink-soft); font-size: .76rem; font-weight: 750; letter-spacing: .04em; }
+.setup-progress strong { color: var(--io-ocean-800); }
+.setup-card { min-width: 0; padding: 1.25rem; border: 1px solid rgb(5 47 57 / 12%); border-radius: 1.15rem; background: rgb(255 255 255 / 91%); box-shadow: 0 22px 60px rgb(5 47 57 / 10%); }
+.setup-step { display: grid; gap: 1rem; }
+.setup-step-number { width: 2.65rem; height: 2.65rem; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--io-ocean-800); font: 700 1.05rem/1 Georgia, serif; }
+.setup-step .eyebrow { margin: .2rem 0 -.55rem; }
+.setup-step h1, .setup-state h1 { margin: 0; color: var(--io-ocean-950); font: 500 clamp(2rem, 8vw, 3rem)/1.04 Georgia, serif; letter-spacing: -.025em; }
+.setup-lead, .setup-state p { margin: 0; color: var(--io-ink-soft); line-height: 1.6; }
+.setup-explainer { padding: .9rem; display: grid; gap: .25rem; border-radius: .8rem; color: var(--io-ocean-950); background: var(--io-sky); line-height: 1.45; }
+.setup-explainer span { color: var(--io-ink-soft); font-size: .88rem; }
+.setup-step > label:not(.setup-check) { display: grid; gap: .4rem; color: var(--io-ocean-950); font-size: .82rem; font-weight: 780; }
+.setup-step input:not([type="checkbox"]) { width: 100%; min-height: 50px; padding: .75rem; border: 1px solid var(--io-line); border-radius: .7rem; color: var(--io-ink); background: white; font: inherit; }
+.setup-step > .io-button, .setup-state > .io-button { width: 100%; justify-content: center; }
+.setup-step > small { color: var(--io-ink-soft); line-height: 1.45; }
+.setup-code-panel { padding: 1rem; display: grid; grid-template-columns: 1fr; gap: .5rem; border-radius: .8rem; color: #d9f6ec; background: var(--io-ocean-950); }
+.setup-code-panel code { min-width: 0; font-size: .86rem; overflow-wrap: anywhere; }
+.setup-code-warning { margin: -.2rem 0 0; color: var(--io-ocean-950); font-size: .84rem; }
+.setup-check { min-height: 52px; padding: .75rem; display: flex; align-items: center; gap: .7rem; border: 1px solid var(--io-line); border-radius: .75rem; color: var(--io-ocean-950); background: white; font-weight: 700; line-height: 1.35; }
+.setup-check input { flex: 0 0 auto; width: 1.35rem; height: 1.35rem; accent-color: var(--io-ocean-650); }
+.setup-help { margin: 0; padding: .25rem; color: var(--io-ink-soft); text-align: center; font-size: .76rem; line-height: 1.5; }
+.setup-state { min-height: 20rem; display: grid; place-items: center; align-content: center; gap: 1rem; text-align: center; }
+.setup-spinner { width: 2.4rem; height: 2.4rem; border: 3px solid var(--io-line); border-top-color: var(--io-ocean-650); border-radius: 50%; animation: setup-spin .8s linear infinite; }
+@keyframes setup-spin { to { transform: rotate(360deg); } }
 .page { width: var(--io-page); margin-inline: auto; padding: 2.2rem 0 5rem; }
 .page-heading { max-width: 44rem; }
 .page-heading--action { max-width: none; display: grid; gap: 1rem; }
@@ -599,6 +626,12 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 
 @media (min-width: 52rem) {
   .app-shell { display: grid; grid-template-columns: 16rem minmax(0, 1fr); }
+  .app-shell--setup { display: block; }
+  .setup-page { padding: 2.25rem; place-items: center; }
+  .setup-shell { gap: 1.2rem; }
+  .setup-card { padding: 2.25rem; }
+  .setup-code-panel { grid-template-columns: 1fr 1fr; }
+  .setup-step > .io-button, .setup-state > .io-button { width: auto; justify-self: start; }
   .mobile-header, .scrim { display: none; }
   .sidebar { position: sticky; top: 0; width: 16rem; height: 100vh; visibility: visible; transform: none; transition: none; }
   .sidebar-close { display: none; }

@@ -8,6 +8,7 @@ export const useSessionStore = defineStore("session", () => {
   const selectedID = ref<string>();
   const contextAccountID = ref<string>();
   const loading = ref(false);
+  const loaded = ref(false);
   const selecting = ref(false);
   const unavailable = ref(false);
   const selectionError = ref("");
@@ -28,6 +29,7 @@ export const useSessionStore = defineStore("session", () => {
 
   async function load(): Promise<void> {
     loading.value = true;
+    loaded.value = false;
     unavailable.value = false;
     try {
       const result = await requestJSON<AccountChoices>("/api/v1/session/accounts");
@@ -40,6 +42,7 @@ export const useSessionStore = defineStore("session", () => {
       unavailable.value = true;
     } finally {
       loading.value = false;
+      loaded.value = true;
     }
   }
 
@@ -61,5 +64,5 @@ export const useSessionStore = defineStore("session", () => {
     }
   }
 
-  return { accounts, userID, selectedID, selected, attentionAccess, loading, selecting, unavailable, selectionError, load, select };
+  return { accounts, userID, selectedID, selected, attentionAccess, loading, loaded, selecting, unavailable, selectionError, load, select };
 });
